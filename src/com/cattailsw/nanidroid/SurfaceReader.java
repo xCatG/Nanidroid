@@ -115,6 +115,7 @@ public class SurfaceReader {
 			if ( nextLine.length() == 0) // skip zero length line
 			    continue;
 
+			if ( nextLine.startsWith("}") == false )
 			lines.add(nextLine);
 		    }
 		    while ( nextLine.startsWith("}") == false ) ;

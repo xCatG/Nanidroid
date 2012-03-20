@@ -6,6 +6,8 @@ import android.widget.ImageView;
 import android.os.Environment;
 import java.io.File;
 import android.widget.TextView;
+import android.os.SystemClock;
+import android.graphics.drawable.AnimationDrawable;
 
 public class Nanidroid extends Activity
 {
@@ -30,7 +32,9 @@ public class Nanidroid extends Activity
 	}
 
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
-	String ghost_path = Environment.getExternalStorageDirectory().getPath() + "/Android/data/com.cattailsw.nanidroid/ghost/yohko";
+	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
+	    //"/Android/data/com.cattailsw.nanidroid/ghost/2elf";
+	    "/Android/data/com.cattailsw.nanidroid/ghost/yohko";
 
 	// read the ghost shell
 	//
@@ -47,15 +51,20 @@ public class Nanidroid extends Activity
 	    tv.setText("shell desc error.");
 	    return;
 	}
-
+	long starttime = SystemClock.uptimeMillis();
 	DescReader shellDescReader = new DescReader(shell_desc);
 	//DescReader shellSurfaceReader = 
 	File shellSurface = new File(shell_surface_path);
 	SurfaceReader sr = new SurfaceReader(shellSurface);
-
+	long dur = SystemClock.uptimeMillis() - starttime;
 
 	tv.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
-		   + "\nshell surface count=" + sr.table.size() );
-	iv.setImageDrawable( sr.table.get("1").getSurfaceDrawable(getResources()) );
+		   + "\nshell surface count=" + sr.table.size() + ",parsing time:" + (float)dur/1000.0f + "s"  );
+	//iv.setImageDrawable( sr.table.get("0").getSurfaceDrawable(getResources()) );
+	AnimationDrawable anime = (AnimationDrawable) sr.table.get("0").getAnimation(0, getResources());
+	//iv.setImageDrawable( anime );
+	iv.setImageDrawable( anime.getFrame(0) );
+
+	//	anime.start();
     }
 }

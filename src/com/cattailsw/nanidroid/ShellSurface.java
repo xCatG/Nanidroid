@@ -11,6 +11,11 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.Bitmap;
 import java.util.regex.Pattern;
 import android.graphics.Color;
+import java.util.regex.Matcher;
+import java.util.Hashtable;
+import java.util.Map;
+import java.util.ArrayList;
+import android.graphics.drawable.AnimationDrawable;
 
 /*
  * surface should have 
@@ -45,6 +50,8 @@ public class ShellSurface {
     int targetH;
 
     String basePath;
+    String selfFilename = null;
+    String bp2 = null;
     
     Drawable surfaceDrawable = null;
 
@@ -54,7 +61,10 @@ public class ShellSurface {
 
     public ShellSurface(String path, int id, List<String> elements) {
 	surfaceId = id;
-	basePath = path + "/surface" + surfaceId + ".png";
+	basePath = path;
+	selfFilename = basePath + "/surface" + surfaceId + ".png";
+	bp2 = String.format("%s%04d%s", basePath+"/surface", surfaceId, ".png");
+	Log.d(TAG, "bp2:" + bp2);
 	loadSurface(elements);	
     }
 
@@ -62,18 +72,31 @@ public class ShellSurface {
 	this(path, id, null);
     }
 
-    private void loadSurface(List<String> elements) {
-	File self = new File(basePath);
-	if ( self.exists() == false ) {
-	    Log.d(TAG, "loadSurface error: surface" + surfaceId + " not found");
-	    return;
-	}
-
+    private BitmapFactory.Options readBitmapInfo(String filename) {
 	BitmapFactory.Options opt = new BitmapFactory.Options();
 	opt.inJustDecodeBounds = true;
+	BitmapFactory.decodeFile(filename, opt);
+	return opt;
+    }
 
-	// need to get width, height?
-	BitmapFactory.decodeFile(basePath, opt);
+    private void loadSurface(List<String> elements) {
+	if ( elements != null )
+	    loadElements(elements);
+
+	File self = new File(selfFilename);
+	if ( self.exists() == false ) {
+	    Log.d(TAG, "loadSurface error: surface" + surfaceId + " not found");
+	    self = new File(bp2);
+	    if ( self.exists() == false ) {
+		Log.d(TAG, "loadSurface error: surface" + surfaceId + " not found");
+		return;
+	    }
+	    else
+		selfFilename = bp2;
+	}
+
+	BitmapFactory.Options opt = readBitmapInfo(selfFilename);
+
 	origW = opt.outWidth;
 	origH = opt.outHeight;
 
@@ -86,23 +109,275 @@ public class ShellSurface {
 	}
 	targetW = origW; targetH = origH;
 
-	if ( elements == null ) {
-	    // no eleemnt, just load the base surface
-	    return;
+    }
+
+    Map<String, Animation> animationTable = null;
+
+    class Animation {
+	Animation(){}
+	Animation(String id, int interval){this.id = id; this.interval = interval;}
+	void addFrame(int index, AnimationFrame f) {
+	    if ( frames == null ) frames = new ArrayList<AnimationFrame>();
+	    frames.add(index, f);
+	    Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
 	}
-	else 
-	    loadElements(elements);
+	int interval;
+	String id;
+	boolean exclusive;
+	List<AnimationFrame> frames;
+	AnimationDrawable animation = null;
+    }
+
+
+    public static final int TYPE_RESET = -1;
+    public static final int TYPE_BASE = 0;
+    public static final int TYPE_OVERLAY = 1;
+
+    class AnimationFrame{
+	String filePath;
+	int time;
+	int frameType;
+	int startX;
+	int startY;
+	int W;
+	int H;
+	Drawable d;
+
+	Drawable getDrawable(Resources res) {
+	    if ( d != null )
+		return d;
+
+	    if ( frameType == TYPE_OVERLAY ) {
+		Drawable []dz = new Drawable[2];
+		dz[0] = getSurfaceDrawable(res);
+		dz[1] = loadTransparentBitmapFromFile(filePath, res, null);
+		LayerDrawable ld = new LayerDrawable(dz);
+		ld.setLayerInset(1, startX, startY, targetW - startX - W, targetH - startY - H);
+		d = ld;
+		return d;
+	    }
+
+	    if ( frameType == TYPE_RESET )
+		return getSurfaceDrawable(res);
+	    return d;
+	}
 
     }
 
-    private void loadElements(List<String> element) {
+    private void prepareAnimationTable() {
+	if ( animationTable == null )
+	    animationTable = new Hashtable<String, Animation>();
+    }
+
+    private void loadElements(List<String> elements) {
+	Log.d(TAG, "loading " + elements.size() + " elements");
 	// need to go through elements line by line to set correct settings?
 	// collusion
+	Pattern element = Pattern.compile("element(\\d+),(\\w*),(\\S*),(\\d+),(\\d+)$");
 
-	// kero
+	Pattern collision = Pattern.compile("collision(\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\w*)$");
+
+	// kero, sakura
+
+	// point
+	Pattern point = Pattern.compile("point.center([xXyY]{1}),(\\d+$)");
 
 	// things started with number...
-	//Pattern interval = new 
+	// that includes
+	// *interval,xxx
+	// *pattern*,x,x,x,x,x
+	// *option,xxx
+	// 
+	Pattern interval = Pattern.compile("(\\d+)interval,(\\S*)$");
+	Pattern pattern = Pattern.compile("(\\d+)pattern(\\d?),(\\d*|-1),(\\d*),(\\w*),(\\d*),(\\d*)$");
+	Pattern option = Pattern.compile("(\\d+)[oO]ption,(\\S*)$");
+	for ( String s : elements ) {
+	    // need to check if its collusion
+	    Matcher m = collision.matcher(s);
+	    if ( m.matches() ) {
+		Log.d(TAG, "string " + s + " matches collision");
+		printMatch(m);
+		continue;
+	    }
+
+	    m = element.matcher(s);
+	    if ( m.matches() ) {
+		Log.d(TAG, "string " + s + " matches element");
+		printMatch(m);
+		// need to store this as the new self?
+
+		continue;
+	    }
+
+	    // or point
+	    m = point.matcher(s);
+	    if ( m.matches() ) {
+		Log.d(TAG, "string " + s + " matches point");
+		printMatch(m);
+		continue;
+	    }
+
+	    // or interval
+	    m = interval.matcher( s );
+	    if ( m.matches() ) {
+		//Log.d(TAG, "string " + s + " matches interval");
+		//printMatch(m);
+		handleInterval(m.group(1), m.group(2));
+		continue;
+	    }
+	    // or pattern
+	    m = pattern.matcher( s );
+	    if ( m.matches() ) {
+		//Log.d(TAG, "string " + s + " matches pattern");
+		//printMatch(m);
+		handlePattern(m.group(1), m.group(2),m.group(3), m.group(4), m.group(5), m.group(6), m.group(7) );
+		continue;
+	    }
+	    // or option
+	    m = option.matcher( s );
+	    if ( m.matches() ) {
+		Log.d(TAG, "string " + s + " matches option");
+		printMatch(m);
+		continue;
+	    }
+
+	    Log.d(TAG, s + " matched nothing.");
+	}
+    }
+
+    private int lookupInterval(String in) {
+	// sometimes
+	// rarely
+	// random, X
+	// always
+	// runonce
+	// never
+	// yen-e
+	// talk, X
+	// bind
+	return 0;
+    }
+    
+    private void handleInterval(String id, String interval) {
+	prepareAnimationTable();
+
+	if ( animationTable.containsKey(id) ) {
+	    animationTable.get(id).interval = lookupInterval(interval);
+	}
+	else {
+	    animationTable.put(id, new Animation(id, lookupInterval(interval)));
+	}
+    }
+
+    private int lookupPatternType(String type) {
+	if ( type.equalsIgnoreCase("base") ){
+	    return TYPE_BASE;
+	}
+	else if ( type.equalsIgnoreCase("overlay") ) {
+	    return TYPE_OVERLAY;
+	}
+	// base
+	// overlay
+	// overlayfast
+	// move
+	// bind
+	// add
+	// reduce
+	// insert
+	// start,[pattern Id]
+	// alternativestart, [patternid1, id2,...,idN]
+	// 
+	return 0;
+    }
+
+    private void addFrameToAnimation(String aId, int index, AnimationFrame frame) {
+	prepareAnimationTable();
+
+	Animation a = null;
+	if ( animationTable.containsKey(aId) ) {
+	    a = animationTable.get(aId);
+	}
+	else {
+	    a = new Animation();
+	    a.id = aId;
+	}
+
+	a.addFrame(index, frame);
+    }
+
+
+    private void handlePattern(String animationId, String seq, String filename, String waitTime,
+			       String pattern, String x_in, String y_in) {
+	// if filename is "-1", this means end of animation
+	int index = -1;
+	int x = -1;
+	int y = -1;
+	int wait = -1;
+	try {
+	    index = Integer.parseInt(seq);
+	    x = Integer.parseInt(x_in);
+	    y = Integer.parseInt(y_in);
+	    wait = Integer.parseInt(waitTime);
+	}
+	catch(Exception e ) {
+
+	}
+
+	if ( filename.equalsIgnoreCase("-1") ) {
+	    AnimationFrame f = new AnimationFrame();
+	    f.frameType = TYPE_RESET;
+	    f.time = wait;
+	    addFrameToAnimation(animationId, index, f);
+	}
+	else {
+	    // first check file existance
+	    String fz = basePath + "/surface" + filename + ".png";
+	    File file = new File(fz);
+	    if ( file.exists() ) {
+
+		BitmapFactory.Options opt = readBitmapInfo(fz);
+
+		AnimationFrame f = new AnimationFrame();
+		f.filePath = fz;
+		f.frameType = lookupPatternType(pattern);
+		f.time = wait;
+		f.startX = x;
+		f.startY = y;
+		f.W = opt.outWidth;
+		f.H = opt.outHeight;
+
+		addFrameToAnimation(animationId, index, f);
+	    }
+	}
+    }
+
+    private void handleOption(String id, String option) {
+	prepareAnimationTable();
+	boolean exclusive = option.equalsIgnoreCase("exclusive");
+	if ( animationTable.containsKey(id) ) {
+	    animationTable.get(id).exclusive = exclusive;
+	}
+	else {
+	    Animation a = new Animation();
+	    a.exclusive = exclusive;
+	    a.id = id;
+	    animationTable.put(id, a);
+	}
+	
+    }
+
+    private void printMatch(Matcher m) {
+	Log.d(TAG, "matcher has " + m.groupCount() + " groups");
+	for ( int i = 0; i < m.groupCount(); i++ ) {
+	    Log.d(TAG, "("+i+") => " + m.group(i));
+	}
+	try {
+	    Log.d(TAG, "("+m.groupCount()+") => " + m.group( m.groupCount()));
+	}
+	catch(Exception e) {
+
+	}
+
     }
 
     // resizes surface to size x, y?
@@ -122,12 +397,17 @@ public class ShellSurface {
 	    opt.outHeight = targetH;
 	if ( origW != targetW )
 	    opt.outWidth = targetW;
-	
-	Bitmap bmp = BitmapFactory.decodeFile(basePath, opt);
-	// use pixel value at upper left as transparent color
-	surfaceDrawable = new BitmapDrawable(res, createTransparentBmp(bmp, bmp.getPixel(0,0)));
+	surfaceDrawable = loadTransparentBitmapFromFile(selfFilename, res, opt);
 
 	return surfaceDrawable;
+    }
+
+    private Drawable loadTransparentBitmapFromFile(String filename, Resources res, BitmapFactory.Options opt) {
+	Log.d(TAG, "loading " + filename);
+	Bitmap bmp = BitmapFactory.decodeFile(filename, opt);
+	Log.d(TAG, " -> bitmap config:" + bmp.getConfig());
+	// use pixel value at upper left as transparent color
+	return new BitmapDrawable(res, createTransparentBmp(bmp, bmp.getPixel(0,0)));       
     }
 
     // from stack overflow 
@@ -139,25 +419,13 @@ public class ShellSurface {
           int[] pix = new int[picw * pich];
           bitmap.getPixels(pix, 0, picw, 0, 0, picw, pich);
 
-          int sr = (replaceThisColor >> 16) & 0xff;
-          int sg = (replaceThisColor >> 8) & 0xff;
-          int sb = replaceThisColor & 0xff;
-
           for (int y = 0; y < pich; y++) {   
+	      int startY = y * picw;
             for (int x = 0; x < picw; x++) {
-              int index = y * picw + x;
-            /*  int r = (pix[index] >> 16) & 0xff;
-              int g = (pix[index] >> 8) & 0xff;
-              int b = pix[index] & 0xff;*/
+              int index = startY + x;
 
               if (pix[index] == replaceThisColor) {
-
-		  /*  if(x<topLeftHole.x) topLeftHole.x = x;  
-                if(y<topLeftHole.y) topLeftHole.y = y;
-                if(x>bottomRightHole.x) bottomRightHole.x = x;
-                if(y>bottomRightHole.y)bottomRightHole.y = y;
-		  */
-                pix[index] = Color.TRANSPARENT;   
+		  pix[index] = Color.TRANSPARENT;   
               } else {
                 //break;
               }
@@ -173,15 +441,32 @@ public class ShellSurface {
 	    return null;
     }
 
-    // return drawable for AnimationDrawable
-    public Drawable getAnimationFrame(int patternId, int frame) {
-	// need to actually assemble the Drawable here
-	LayerDrawable ret = null;
-	return null;
+    public Drawable getAnimation(int patternId, Resources res) {
+	if ( animationTable.size() < patternId )
+	    return null;
+
+	String pid = "" + patternId;
+	if ( animationTable.get(pid).animation != null )
+	    return animationTable.get(pid).animation;
+	
+	// need to assemble the animation...
+	int frameCount = getAnimationFrameCount(patternId);
+	AnimationDrawable anime = new AnimationDrawable();
+	for ( int i = 0; i < frameCount; i++ ) {
+	    AnimationFrame f = getAnimationFrame(pid, i);
+	    anime.addFrame( f.getDrawable(res), f.time );
+	}
+	animationTable.get(pid).animation = anime;
+
+	return anime;
+    }
+
+    private AnimationFrame getAnimationFrame(String patternId, int frameIndex) {
+	return animationTable.get(patternId).frames.get(frameIndex);
     }
 
     public int getPatternCount() {
-	return 0;
+	return animationTable.size();
     }
 
     public int getAnimationFrequency(int patternId) {
@@ -191,11 +476,18 @@ public class ShellSurface {
 	// always = always looping
 	// runonce = only shown once
 	// talk, X = ?
-	return 0;
+	if ( animationTable.size() < patternId )
+	    return -1;
+
+	
+	return animationTable.get(""+patternId).interval;
     }
 
     public int getAnimationFrameCount(int patternId) {
-	return 0;
+	if ( animationTable.size() < patternId )
+	    return 0;
+
+	return animationTable.get(""+patternId).frames.size();
     }
     
     
