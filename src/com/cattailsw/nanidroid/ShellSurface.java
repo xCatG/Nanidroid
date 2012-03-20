@@ -16,6 +16,7 @@ import java.util.Hashtable;
 import java.util.Map;
 import java.util.ArrayList;
 import android.graphics.drawable.AnimationDrawable;
+import java.nio.ByteBuffer;
 
 /*
  * surface should have 
@@ -150,15 +151,26 @@ public class ShellSurface {
 	    if ( frameType == TYPE_OVERLAY ) {
 		Drawable []dz = new Drawable[2];
 		dz[0] = getSurfaceDrawable(res);
-		dz[1] = loadTransparentBitmapFromFile(filePath, res, null);
+		BitmapFactory.Options opt = new BitmapFactory.Options();
+		opt.inPreferredConfig = Bitmap.Config.ARGB_8888;
+
+		dz[1] = loadTransparentBitmapFromFile(filePath, res, opt);
 		LayerDrawable ld = new LayerDrawable(dz);
-		ld.setLayerInset(1, startX, startY, targetW - startX - W, targetH - startY - H);
+		ld.setLayerInset(1, startX, startY, origW - startX - W, origH - startY - H);
 		d = ld;
 		return d;
 	    }
 
 	    if ( frameType == TYPE_RESET )
 		return getSurfaceDrawable(res);
+
+	    if ( frameType == TYPE_BASE ) {
+		BitmapFactory.Options opt = new BitmapFactory.Options();
+		opt.inPreferredConfig = Bitmap.Config.ARGB_8888;
+		d = loadTransparentBitmapFromFile(filePath, res, opt);
+		return d;
+	    }
+
 	    return d;
 	}
 
@@ -273,7 +285,7 @@ public class ShellSurface {
 	if ( type.equalsIgnoreCase("base") ){
 	    return TYPE_BASE;
 	}
-	else if ( type.equalsIgnoreCase("overlay") ) {
+	else if ( type.equalsIgnoreCase("overlay")) {
 	    return TYPE_OVERLAY;
 	}
 	// base
@@ -287,7 +299,7 @@ public class ShellSurface {
 	// start,[pattern Id]
 	// alternativestart, [patternid1, id2,...,idN]
 	// 
-	return 0;
+	return TYPE_BASE;
     }
 
     private void addFrameToAnimation(String aId, int index, AnimationFrame frame) {
@@ -405,37 +417,49 @@ public class ShellSurface {
     private Drawable loadTransparentBitmapFromFile(String filename, Resources res, BitmapFactory.Options opt) {
 	Log.d(TAG, "loading " + filename);
 	Bitmap bmp = BitmapFactory.decodeFile(filename, opt);
-	Log.d(TAG, " -> bitmap config:" + bmp.getConfig());
+// 	Log.d(TAG, " -> bitmap config:" + bmp.getConfig());
+
+	int colorVal = bmp.getPixel(0,0);
 	// use pixel value at upper left as transparent color
-	return new BitmapDrawable(res, createTransparentBmp(bmp, bmp.getPixel(0,0)));       
+	return new BitmapDrawable(res, createTransparentBmp(bmp, colorVal));
     }
 
     // from stack overflow 
     // http://stackoverflow.com/questions/8264181/replace-specific-color-in-bitmap-with-transparency
+    // this only work with ARGB8888 format!
+    // it will skip on 16 bit format @_@
     private Bitmap createTransparentBmp(Bitmap bitmap, int replaceThisColor) {
 	if ( bitmap != null ) {
-          int picw = bitmap.getWidth(); 
-          int pich = bitmap.getHeight();
-          int[] pix = new int[picw * pich];
-          bitmap.getPixels(pix, 0, picw, 0, 0, picw, pich);
+// 	    Log.d(TAG, " got bmp of config:" + bitmap.getConfig());
+	    int picw = bitmap.getWidth(); 
+	    int pich = bitmap.getHeight();
+// 	    int rowbyte = bitmap.getRowBytes();
+// 	    Log.d(TAG, " bmp [w, h, rowbyte]=[" + picw + "," + pich + "," + rowbyte + "]");
+	    int[] pix = new int[picw * pich];
+	    bitmap.getPixels(pix, 0, picw, 0, 0, picw, pich);
+// 	    Log.d(TAG, "replacing " + replaceThisColor + " with transparency");
+	    for (int y = 0; y < pich; y++) {   
+		int startY = y * picw;
+		for (int x = 0; x < picw; x++) {
+		    int index = startY + x;
 
-          for (int y = 0; y < pich; y++) {   
-	      int startY = y * picw;
-            for (int x = 0; x < picw; x++) {
-              int index = startY + x;
+		    if (pix[index] == replaceThisColor) {
+			pix[index] = Color.TRANSPARENT;  
+// 			if ( y == 0 )
+// 			    Log.d(TAG, "replacing (" + x + "," + y + ") with transparency");
+		    } else {
+			//break;
+// 			if ( y == 0 )
+// 			    Log.d(TAG, "colorval @(" + x + "," + y + ") is " + pix[index]);
+		    }
+		}
+	    }
 
-              if (pix[index] == replaceThisColor) {
-		  pix[index] = Color.TRANSPARENT;   
-              } else {
-                //break;
-              }
-            }
-          }
+	    Bitmap bm = Bitmap.createBitmap(pix, picw, pich,
+					    Bitmap.Config.ARGB_8888);  
 
-          Bitmap bm = Bitmap.createBitmap(pix, picw, pich,
-              Bitmap.Config.ARGB_8888);  
+	    return bm;
 
-          return bm;
 	}
 	else
 	    return null;
@@ -454,7 +478,7 @@ public class ShellSurface {
 	AnimationDrawable anime = new AnimationDrawable();
 	for ( int i = 0; i < frameCount; i++ ) {
 	    AnimationFrame f = getAnimationFrame(pid, i);
-	    anime.addFrame( f.getDrawable(res), f.time );
+	    anime.addFrame( f.getDrawable(res), f.time /* *100 */ );
 	}
 	animationTable.get(pid).animation = anime;
 
