@@ -185,14 +185,14 @@ public class ShellSurface {
 	Log.d(TAG, "loading " + elements.size() + " elements");
 	// need to go through elements line by line to set correct settings?
 	// collusion
-	Pattern element = Pattern.compile("element(\\d+),(\\w*),(\\S*),(\\d+),(\\d+)$");
+	Pattern element = PatternHolders.element;//Pattern.compile("element(\\d+),(\\w*),(\\S*),(\\d+),(\\d+)$");
 
-	Pattern collision = Pattern.compile("collision(\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\w*)$");
+	Pattern collision = PatternHolders.collision;//Pattern.compile("collision(\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\w*)$");
 
 	// kero, sakura
 
 	// point
-	Pattern point = Pattern.compile("point.center([xXyY]{1}),(\\d+$)");
+	Pattern point = PatternHolders.point;//Pattern.compile("point.center([xXyY]{1}),(\\d+$)");
 
 	// things started with number...
 	// that includes
@@ -200,9 +200,10 @@ public class ShellSurface {
 	// *pattern*,x,x,x,x,x
 	// *option,xxx
 	// 
-	Pattern interval = Pattern.compile("(\\d+)interval,(\\S*)$");
-	Pattern pattern = Pattern.compile("(\\d+)pattern(\\d?),(\\d*|-1),(\\d*),(\\w*),(\\d*),(\\d*)$");
-	Pattern option = Pattern.compile("(\\d+)[oO]ption,(\\S*)$");
+	Pattern interval = PatternHolders.interval;//Pattern.compile("(\\d+)interval,(\\S*)$");
+	Pattern pattern = PatternHolders.pattern;//Pattern.compile("(\\d+)pattern(\\d?),(\\d*|-1),(\\d*),(\\w*),(\\d*),(\\d*)$");
+	Pattern animation = PatternHolders.animation;//Pattern.compile("animation(\\d+),pattern(\\d?),(\\w*),(\\d*),(\\d*),(\\d*),(\\d*)");
+	Pattern option = PatternHolders.option;//Pattern.compile("(\\d+)[oO]ption,(\\S*)$");
 	for ( String s : elements ) {
 	    // need to check if its collusion
 	    Matcher m = collision.matcher(s);
