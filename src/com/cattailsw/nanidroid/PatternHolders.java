@@ -18,7 +18,7 @@ public class PatternHolders {
     //public static final	Pattern animation = Pattern.compile("animation(\\d+).pattern(\\d?),(\\w*),(\\d*|-1),(\\d*),(\\d*),(\\d*)$");
     public static final	Pattern animation = Pattern.compile("^animation(\\d+).pattern(\\d?),(alternativestart,\\((\\S*)\\)$|(\\w*),(\\d*|-1),(\\d*),(\\d*),(\\d*)$)");
     public static final Pattern animation_alt = Pattern.compile("^animation(\\d+).pattern(\\d?),alternativestart,\\((\\S*)\\)$");
-    public static final	Pattern animation_base = Pattern.compile("animation(\\d+).pattern(\\d?),(\\w*),(-1|-1,(\\d*))$");
+    public static final	Pattern animation_base = Pattern.compile("animation(\\d+).pattern(\\d?),(\\w*),((-1)|(-1),(\\d*))$");
     
     public static final	Pattern option = Pattern.compile("(\\d+)[oO]ption,(\\S*)$");
 

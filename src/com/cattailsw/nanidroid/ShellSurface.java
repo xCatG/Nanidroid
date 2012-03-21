@@ -87,7 +87,7 @@ public class ShellSurface {
 
 	File self = new File(selfFilename);
 	if ( self.exists() == false ) {
-	    Log.d(TAG, "loadSurface error: surface" + surfaceId + " not found");
+	    //Log.d(TAG, "loadSurface error: surface" + surfaceId + " not found");
 	    self = new File(bp2);
 	    if ( self.exists() == false ) {
 		Log.d(TAG, "loadSurface error: surface" + surfaceId + " not found");
@@ -121,7 +121,7 @@ public class ShellSurface {
 	void addFrame(int index, AnimationFrame f) {
 	    if ( frames == null ) frames = new ArrayList<AnimationFrame>();
 	    frames.add(index, f);
-	    //Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
+	    Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
 	}
 	int interval;
 	String id;
@@ -296,8 +296,10 @@ public class ShellSurface {
 
 	    m = PatternHolders.animation.matcher(s);
 	    if ( m.matches() ) {
-		if ( m.group(4) == null )
+		if ( m.group(4) == null ){
+		    printMatch(m);
 		    handlePattern(m.group(1), m.group(2), m.group(6), m.group(7), m.group(5), m.group(8), m.group(9) );
+		}
 		else {
 		    Log.d(TAG, "have altstart case, need to do something");
 		    // alt start has the seq in m.group(4) in form of 0,1,2,...,N
@@ -307,8 +309,9 @@ public class ShellSurface {
 	    }
 	    m = PatternHolders.animation_base.matcher(s);
 	    if ( m.matches() ) {
-		//printMatch(m);
-		handlePattern(m.group(1), m.group(2), m.group(4), null /*wait time*/, m.group(3), null, null);
+		printMatch(m);
+		String filename = (m.group(6)==null)?m.group(4):m.group(6);
+		handlePattern(m.group(1), m.group(2), filename, m.group(7), m.group(3), null, null);
 		continue;
 	    }
 
