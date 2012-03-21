@@ -8,12 +8,21 @@ import java.io.File;
 import android.widget.TextView;
 import android.os.SystemClock;
 import android.graphics.drawable.AnimationDrawable;
+import android.view.View;
+import java.util.Set;
+import android.graphics.Rect;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Paint.Style;
+import android.graphics.Color;
 
 public class Nanidroid extends Activity
 {
     private ImageView iv = null;
     private TextView tv = null;
-
+    AnimationDrawable anime = null;
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
@@ -55,16 +64,53 @@ public class Nanidroid extends Activity
 	DescReader shellDescReader = new DescReader(shell_desc);
 	//DescReader shellSurfaceReader = 
 	File shellSurface = new File(shell_surface_path);
-	SurfaceReader sr = new SurfaceReader(shellSurface);
+	sr = new SurfaceReader(shellSurface);
 	long dur = SystemClock.uptimeMillis() - starttime;
 
 	tv.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
 		   + "\nshell surface count=" + sr.table.size() + ",parsing time:" + (float)dur/1000.0f + "s"  );
-	//iv.setImageDrawable( sr.table.get("0").getSurfaceDrawable(getResources()) );
-	AnimationDrawable anime = (AnimationDrawable) sr.table.get("0").getAnimation(0, getResources());
-	//iv.setImageDrawable( anime );
-	iv.setImageDrawable( anime.getFrame(0) );
-
+	iv.setImageDrawable( sr.table.get("0").getSurfaceDrawable(getResources()) );
+	/*	anime = (AnimationDrawable) sr.table.get("2").getAnimation(0, getResources());	
+	anime.setVisible(true, true);
+	anime.setOneShot(false);
+	iv.setImageDrawable( anime );
+	*/
 	//	anime.start();
     }
+    SurfaceReader sr = null;
+    public void ivClick(View v) {
+	//anime.start();
+	showCollisionAreaOnImageView();
+    }
+
+    private void showCollisionAreaOnImageView() {
+	int colsize = sr.table.get("0").collisionAreas.size();
+	if ( colsize == 0 ) return;
+	Rect[] rz = new Rect[colsize];
+	Set<Integer> colKey = sr.table.get("0").collisionAreas.keySet();
+	int i = 0;
+	for ( Integer k : colKey ) {
+	    rz[i] = sr.table.get("0").collisionAreas.get(k).rect;
+	    i++;
+	}
+
+	BitmapDrawable b = (BitmapDrawable) sr.table.get("0").getSurfaceDrawable(getResources());
+	Bitmap bmpcopy = b.getBitmap().copy(Bitmap.Config.ARGB_8888, true);
+
+	Canvas c = new Canvas(bmpcopy);
+	Paint p = new Paint();
+	p.setAntiAlias(true);
+	p.setStrokeWidth(1);
+	p.setStyle(Style.STROKE);
+	p.setColor(Color.rgb(254, 0, 1));
+
+	for ( Rect re : rz )
+	    c.drawRect(re, p);
+
+
+	BitmapDrawable nb = new BitmapDrawable( bmpcopy );
+
+	iv.setImageDrawable( nb );
+    }
+
 }
