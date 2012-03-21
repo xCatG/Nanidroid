@@ -121,7 +121,7 @@ public class ShellSurface {
 	void addFrame(int index, AnimationFrame f) {
 	    if ( frames == null ) frames = new ArrayList<AnimationFrame>();
 	    frames.add(index, f);
-	    Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
+	    //Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
 	}
 	int interval;
 	String id;
@@ -243,8 +243,8 @@ public class ShellSurface {
 	    // need to check if its collusion
 	    Matcher m = collision.matcher(s);
 	    if ( m.matches() ) {
-		Log.d(TAG, "string " + s + " matches collision");
-		printMatch(m);
+		//Log.d(TAG, "string " + s + " matches collision");
+		//printMatch(m);
 		handleCollision(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5), m.group(6));
 		continue;
 	    }
