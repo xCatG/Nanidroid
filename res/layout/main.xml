@@ -4,6 +4,37 @@
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     >
+  <LinearLayout
+    android:orientation="horizontal"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    >
+    <Button
+      android:id="@+id/btn1"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:text="next surface"
+      android:onClick="onNextSurface"
+      />
+
+    <Button
+      android:id="@+id/btn2"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:text="animate"
+      android:onClick="onAnimate"
+      />
+
+    <Button
+      android:id="@+id/btn3"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:text="show collision box"
+      android:onClick="onShowCollision"
+      />
+    
+
+  </LinearLayout>
 <TextView
     android:id="@+id/tv"
     android:layout_width="fill_parent"

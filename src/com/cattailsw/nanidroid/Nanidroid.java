@@ -69,7 +69,13 @@ public class Nanidroid extends Activity
 
 	tv.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
 		   + "\nshell surface count=" + sr.table.size() + ",parsing time:" + (float)dur/1000.0f + "s"  );
-	iv.setImageDrawable( sr.table.get("0").getSurfaceDrawable(getResources()) );
+
+	int keycount = sr.table.keySet().size();
+	surfaceKeys = new String[keycount];
+	surfaceKeys = sr.table.keySet().toArray(surfaceKeys);
+	currentSurfaceKey = surfaceKeys[0];
+	currentSurface = sr.table.get(currentSurfaceKey);
+	iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );
 	/*	anime = (AnimationDrawable) sr.table.get("2").getAnimation(0, getResources());	
 	anime.setVisible(true, true);
 	anime.setOneShot(false);
@@ -78,23 +84,81 @@ public class Nanidroid extends Activity
 	//	anime.start();
     }
     SurfaceReader sr = null;
-    public void ivClick(View v) {
-	//anime.start();
+    String[] surfaceKeys = null;
+    int keyindex = 0;
+    //Set<String> surfaceKeys = null;
+    String currentSurfaceKey = null;
+    ShellSurface currentSurface = null;
+
+    public void onNextSurface(View v){
+	if ( keyindex < surfaceKeys.length - 1 )
+	    keyindex++;
+	else
+	    keyindex = 0;
+
+	currentSurfaceKey = surfaceKeys[keyindex];
+	currentSurface = sr.table.get(currentSurfaceKey);
+	iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );
+	tv.setText("current drawable key: " + currentSurfaceKey + 
+		   ", animation count: " + currentSurface.getAnimationCount() +
+		   ", collision count: " + currentSurface.getCollisionCount()
+		   );
+
+	if ( currentSurface.getAnimationCount() == 0 )
+	    findViewById(R.id.btn2).setEnabled(false);
+	else {
+	    animeIndex = 0;
+	    anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
+	    anime.setVisible(true, true);
+	    iv.setImageDrawable(anime);
+	    findViewById(R.id.btn2).setEnabled(true);
+	}
+    }
+    int animeIndex = 0;
+
+    public void onAnimate(View v) {
+	//iv.setImageDrawable(anime);
+	anime.start();
+
+
+    }
+
+    private void pickNextAnimation() {
+	if ( currentSurface.getAnimationCount() > 1 ) {
+	    animeIndex++;
+	    if ( animeIndex >= currentSurface.getAnimationCount() )
+		animeIndex = 0;
+
+	    anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
+	    anime.setVisible(true, true);
+	    iv.setImageDrawable(anime);
+	}
+    }
+
+    public void onShowCollision(View v){
 	showCollisionAreaOnImageView();
     }
 
+
+    public void ivClick(View v) {
+	//anime.start();
+	//showCollisionAreaOnImageView();
+	pickNextAnimation();
+    }
+
     private void showCollisionAreaOnImageView() {
-	int colsize = sr.table.get("0").collisionAreas.size();
+	ShellSurface surface = sr.table.get(currentSurfaceKey);
+	int colsize = surface.getCollisionCount();
 	if ( colsize == 0 ) return;
 	Rect[] rz = new Rect[colsize];
-	Set<Integer> colKey = sr.table.get("0").collisionAreas.keySet();
+	Set<Integer> colKey = surface.collisionAreas.keySet();
 	int i = 0;
 	for ( Integer k : colKey ) {
-	    rz[i] = sr.table.get("0").collisionAreas.get(k).rect;
+	    rz[i] = surface.collisionAreas.get(k).rect;
 	    i++;
 	}
 
-	BitmapDrawable b = (BitmapDrawable) sr.table.get("0").getSurfaceDrawable(getResources());
+	BitmapDrawable b = (BitmapDrawable) surface.getSurfaceDrawable(getResources());
 	Bitmap bmpcopy = b.getBitmap().copy(Bitmap.Config.ARGB_8888, true);
 
 	Canvas c = new Canvas(bmpcopy);

@@ -211,6 +211,11 @@ public class ShellSurface {
 	return null;
     }
 
+    public int getCollisionCount() {
+	prepareCollisionAreas();
+	return collisionAreas.size();
+    }
+
     private void prepareAnimationTable() {
 	if ( animationTable == null )
 	    animationTable = new Hashtable<String, Animation>();
@@ -553,7 +558,8 @@ public class ShellSurface {
 	return animationTable.get(patternId).frames.get(frameIndex);
     }
 
-    public int getPatternCount() {
+    public int getAnimationCount() {
+	prepareAnimationTable();
 	return animationTable.size();
     }
 
