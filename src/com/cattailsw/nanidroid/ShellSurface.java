@@ -279,12 +279,43 @@ public class ShellSurface {
 		handleInterval(m.group(1), m.group(2));
 		continue;
 	    }
+	    m = PatternHolders.animation_interval.matcher(s);
+	    if ( m.matches() ) {
+		handleInterval(m.group(1), m.group(2));
+		continue;
+	    }
+
 	    // or pattern
 	    m = pattern.matcher( s );
 	    if ( m.matches() ) {
 		//Log.d(TAG, "string " + s + " matches pattern");
 		//printMatch(m);
 		handlePattern(m.group(1), m.group(2),m.group(3), m.group(4), m.group(5), m.group(6), m.group(7) );
+		continue;
+	    }
+
+	    m = PatternHolders.animation.matcher(s);
+	    if ( m.matches() ) {
+		if ( m.group(4) == null )
+		    handlePattern(m.group(1), m.group(2), m.group(6), m.group(7), m.group(5), m.group(8), m.group(9) );
+		else {
+		    Log.d(TAG, "have altstart case, need to do something");
+		    // alt start has the seq in m.group(4) in form of 0,1,2,...,N
+		    printMatch(m);
+		}
+		continue;
+	    }
+	    m = PatternHolders.animation_base.matcher(s);
+	    if ( m.matches() ) {
+		//printMatch(m);
+		handlePattern(m.group(1), m.group(2), m.group(4), null /*wait time*/, m.group(3), null, null);
+		continue;
+	    }
+
+	    m = PatternHolders.pattern_base.matcher(s);
+	    if ( m.matches() ) {
+		printMatch(m);
+		handlePattern(m.group(1), m.group(2),m.group(3), m.group(4), m.group(5), null, null );
 		continue;
 	    }
 	    // or option
@@ -396,9 +427,9 @@ public class ShellSurface {
 	int wait = -1;
 	try {
 	    index = Integer.parseInt(seq);
+	    wait = Integer.parseInt(waitTime);
 	    x = Integer.parseInt(x_in);
 	    y = Integer.parseInt(y_in);
-	    wait = Integer.parseInt(waitTime);
 	}
 	catch(Exception e ) {
 
