@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.ArrayList;
 import android.graphics.drawable.AnimationDrawable;
 import java.nio.ByteBuffer;
+import android.graphics.Rect;
 
 /*
  * surface should have 
@@ -176,6 +177,40 @@ public class ShellSurface {
 
     }
 
+    class CollisionArea {
+	CollisionArea(int id, int sx, int sy, int ex, int ey, String name) {
+	    startX = sx;
+	    startY = sy;
+	    W = ex - sx;
+	    H = ey - sy;
+	    this.id = id;
+	    this.name = name;
+	    rect = new Rect(sx, sy, ex, ey);
+	}
+	int id;
+	String name;
+	int startX;
+	int startY;
+	int W;
+	int H;
+	Rect rect;
+    }
+
+    Map<Integer, CollisionArea> collisionAreas = null;
+    private void prepareCollisionAreas() {
+	if ( collisionAreas == null )
+	    collisionAreas = new Hashtable<Integer, CollisionArea>();
+    }
+
+    private CollisionArea findIdInCollision(int id) {
+	prepareCollisionAreas();
+
+	if ( collisionAreas.containsKey(id) )
+	    return collisionAreas.get(id);
+	
+	return null;
+    }
+
     private void prepareAnimationTable() {
 	if ( animationTable == null )
 	    animationTable = new Hashtable<String, Animation>();
@@ -210,6 +245,7 @@ public class ShellSurface {
 	    if ( m.matches() ) {
 		Log.d(TAG, "string " + s + " matches collision");
 		printMatch(m);
+		handleCollision(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5), m.group(6));
 		continue;
 	    }
 
@@ -255,6 +291,33 @@ public class ShellSurface {
 	    }
 
 	    Log.d(TAG, s + " matched nothing.");
+	}
+    }
+
+    private void handleCollision(String id, String startX, String startY, String endX, String endY, String name) {
+	prepareCollisionAreas();
+	try {
+	    int cid = Integer.parseInt(id);
+	    int sx = Integer.parseInt(startX);
+	    int sy = Integer.parseInt(startY);
+	    int ex = Integer.parseInt(endX);
+	    int ey = Integer.parseInt(endY);
+
+	    CollisionArea ca = findIdInCollision(cid);
+	    if ( ca == null ) {
+		ca = new CollisionArea(cid, sx, sy, ex, ey, name);
+		collisionAreas.put(cid, ca);
+	    }
+	    else {
+		ca.startX = sx;
+		ca.startY = sy;
+		ca.W = ex - sx;
+		ca.H = ey - sy;
+		ca.name = name;
+	    }
+	}
+	catch(Exception e) {
+
 	}
     }
 
