@@ -57,6 +57,8 @@ public class SurfaceReader {
 	if ( table == null )
 	    table = new HashMap<String, ShellSurface>();
 
+	SurfaceManager mgr = SurfaceManager.getInstance();
+
 	BufferedReader reader = null;
 	try {
 	    reader = new BufferedReader(new InputStreamReader(is, Charset.forName("SJIS")));
@@ -122,6 +124,7 @@ public class SurfaceReader {
 
 		    ShellSurface surface = new ShellSurface(rootPath, sid, lines);
 		    table.put(id, surface);
+		    mgr.addSurface(id, surface);
 		}
 		else {
 		    Log.d(TAG, "error at line " + lineCount + ", expecting { but got:" + nextLine );
