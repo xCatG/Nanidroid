@@ -17,9 +17,13 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
 import android.graphics.Color;
+import java.util.Collections;
+import java.util.Arrays;
+import android.util.Log;
 
 public class Nanidroid extends Activity
 {
+    private static final String TAG = "Nanidroid";
     private ImageView iv = null;
     private TextView tv = null;
     AnimationDrawable anime = null;
@@ -43,8 +47,8 @@ public class Nanidroid extends Activity
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
 	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
 	    //"/Android/data/com.cattailsw.nanidroid/ghost/2elf";
-	    "/Android/data/com.cattailsw.nanidroid/ghost/yohko";
-
+	    //"/Android/data/com.cattailsw.nanidroid/ghost/yohko";
+	    "/Android/data/com.cattailsw.nanidroid/ghost/first";
 	// read the ghost shell
 	//
 	String master_shell_path = ghost_path + "/shell/master";
@@ -72,7 +76,9 @@ public class Nanidroid extends Activity
 
 	int keycount = sr.table.keySet().size();
 	surfaceKeys = new String[keycount];
-	surfaceKeys = sr.table.keySet().toArray(surfaceKeys);
+	Set<String> k = sr.table.keySet();
+	surfaceKeys = k.toArray(surfaceKeys);
+	Arrays.sort(surfaceKeys);
 	currentSurfaceKey = surfaceKeys[0];
 	currentSurface = sr.table.get(currentSurfaceKey);
 	iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );
@@ -95,8 +101,9 @@ public class Nanidroid extends Activity
 	    keyindex++;
 	else
 	    keyindex = 0;
-
+	
 	currentSurfaceKey = surfaceKeys[keyindex];
+	Log.d(TAG, "loading surface:" + currentSurfaceKey);
 	currentSurface = sr.table.get(currentSurfaceKey);
 	iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );
 	tv.setText("current drawable key: " + currentSurfaceKey + 
@@ -107,7 +114,7 @@ public class Nanidroid extends Activity
 	if ( currentSurface.getAnimationCount() == 0 )
 	    findViewById(R.id.btn2).setEnabled(false);
 	else {
-	    animeIndex = 0;
+	    animeIndex = currentSurface.getFirstAnimationIndex();
 	    anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
 	    anime.setVisible(true, true);
 	    iv.setImageDrawable(anime);
@@ -118,6 +125,7 @@ public class Nanidroid extends Activity
 
     public void onAnimate(View v) {
 	//iv.setImageDrawable(anime);
+	anime.stop(); // stop previous animation?
 	anime.start();
 
 
@@ -133,6 +141,8 @@ public class Nanidroid extends Activity
 	    anime.setVisible(true, true);
 	    iv.setImageDrawable(anime);
 	}
+	else
+	    anime.stop();
     }
 
     public void onShowCollision(View v){

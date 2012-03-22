@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import android.graphics.drawable.AnimationDrawable;
 import java.nio.ByteBuffer;
 import android.graphics.Rect;
+import java.util.TreeSet;
 
 /*
  * surface should have 
@@ -56,7 +57,11 @@ public class ShellSurface {
     String bp2 = null;
     
     Drawable surfaceDrawable = null;
+    int surfaceType = 0;
+    public static final int S_TYPE_BASE = 0;
+    public static final int S_TYPE_ELEMENT = 1;
 
+    SurfaceManager mgr = null;
     public ShellSurface() {
 
     }
@@ -67,6 +72,7 @@ public class ShellSurface {
 	selfFilename = basePath + "/surface" + surfaceId + ".png";
 	bp2 = String.format("%s%04d%s", basePath+"/surface", surfaceId, ".png");
 	Log.d(TAG, "bp2:" + bp2);
+	mgr = SurfaceManager.getInstance();
 	loadSurface(elements);	
     }
 
@@ -84,6 +90,14 @@ public class ShellSurface {
     private void loadSurface(List<String> elements) {
 	if ( elements != null )
 	    loadElements(elements);
+
+	if ( surfaceType == S_TYPE_ELEMENT ) {
+	    origW = elementList.get(0).W;
+	    origH = elementList.get(0).H;
+	    targetW = origW;
+	    targetH = origH;
+	    return; 
+	}
 
 	File self = new File(selfFilename);
 	if ( self.exists() == false ) {
@@ -114,6 +128,7 @@ public class ShellSurface {
     }
 
     Map<String, Animation> animationTable = null;
+    List<AnimationFrame> elementList = null;
 
     class Animation {
 	Animation(){}
@@ -223,30 +238,10 @@ public class ShellSurface {
 
     private void loadElements(List<String> elements) {
 	Log.d(TAG, "loading " + elements.size() + " elements");
-	// need to go through elements line by line to set correct settings?
-	// collusion
-	Pattern element = PatternHolders.element;//Pattern.compile("element(\\d+),(\\w*),(\\S*),(\\d+),(\\d+)$");
 
-	Pattern collision = PatternHolders.collision;//Pattern.compile("collision(\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\w*)$");
-
-	// kero, sakura
-
-	// point
-	Pattern point = PatternHolders.point;//Pattern.compile("point.center([xXyY]{1}),(\\d+$)");
-
-	// things started with number...
-	// that includes
-	// *interval,xxx
-	// *pattern*,x,x,x,x,x
-	// *option,xxx
-	// 
-	Pattern interval = PatternHolders.interval;//Pattern.compile("(\\d+)interval,(\\S*)$");
-	Pattern pattern = PatternHolders.pattern;//Pattern.compile("(\\d+)pattern(\\d?),(\\d*|-1),(\\d*),(\\w*),(\\d*),(\\d*)$");
-	Pattern animation = PatternHolders.animation;//Pattern.compile("animation(\\d+),pattern(\\d?),(\\w*),(\\d*),(\\d*),(\\d*),(\\d*)");
-	Pattern option = PatternHolders.option;//Pattern.compile("(\\d+)[oO]ption,(\\S*)$");
 	for ( String s : elements ) {
 	    // need to check if its collusion
-	    Matcher m = collision.matcher(s);
+	    Matcher m = PatternHolders.collision.matcher(s);
 	    if ( m.matches() ) {
 		//Log.d(TAG, "string " + s + " matches collision");
 		//printMatch(m);
@@ -254,17 +249,18 @@ public class ShellSurface {
 		continue;
 	    }
 
-	    m = element.matcher(s);
+	    m = PatternHolders.element.matcher(s);
 	    if ( m.matches() ) {
 		Log.d(TAG, "string " + s + " matches element");
 		printMatch(m);
 		// need to store this as the new self?
-
+		this.surfaceType = S_TYPE_ELEMENT;
+		handleElement(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5));
 		continue;
 	    }
 
 	    // or point
-	    m = point.matcher(s);
+	    m = PatternHolders.point.matcher(s);
 	    if ( m.matches() ) {
 		Log.d(TAG, "string " + s + " matches point");
 		printMatch(m);
@@ -272,7 +268,7 @@ public class ShellSurface {
 	    }
 
 	    // or interval
-	    m = interval.matcher( s );
+	    m = PatternHolders.interval.matcher( s );
 	    if ( m.matches() ) {
 		//Log.d(TAG, "string " + s + " matches interval");
 		//printMatch(m);
@@ -286,7 +282,7 @@ public class ShellSurface {
 	    }
 
 	    // or pattern
-	    m = pattern.matcher( s );
+	    m = PatternHolders.pattern.matcher( s );
 	    if ( m.matches() ) {
 		//Log.d(TAG, "string " + s + " matches pattern");
 		//printMatch(m);
@@ -322,7 +318,7 @@ public class ShellSurface {
 		continue;
 	    }
 	    // or option
-	    m = option.matcher( s );
+	    m = PatternHolders.option.matcher( s );
 	    if ( m.matches() ) {
 		Log.d(TAG, "string " + s + " matches option");
 		printMatch(m);
@@ -332,6 +328,49 @@ public class ShellSurface {
 	    Log.d(TAG, s + " matched nothing.");
 	}
     }
+
+    private void prepareElementList() {
+	if ( elementList == null )
+	    elementList = new ArrayList<AnimationFrame>(2);
+    }
+
+    private void handleElement(String id, String method, String filename, String startX, String startY){
+	prepareElementList();
+
+	int index = 0;
+	int x = 0;
+	int y = 0;
+	try {
+	    index = Integer.parseInt(id);
+	    x = Integer.parseInt(startX);
+	    y = Integer.parseInt(startY);
+	}
+	catch(Exception e) {
+	    Log.d(TAG, "invalid input, aborting, will cause system to crash later");
+	    return;
+	}
+
+	/* filename is actual file name on file system, not surface id? */	
+	String fz = basePath + "/" + filename;
+	File file = new File(fz);
+	if ( file.exists() ) {
+	    
+	    BitmapFactory.Options opt = readBitmapInfo(fz);
+	    
+	    AnimationFrame f = new AnimationFrame();
+	    f.filePath = fz;
+	    f.frameType = TYPE_BASE; // always force base
+	    f.startX = x;
+	    f.startY = y;
+	    f.W = opt.outWidth;
+	    f.H = opt.outHeight;
+	    
+
+	    elementList.add(index, f);
+	}
+
+    }
+
 
     private void handleCollision(String id, String startX, String startY, String endX, String endY, String name) {
 	prepareCollisionAreas();
@@ -388,7 +427,7 @@ public class ShellSurface {
 	if ( type.equalsIgnoreCase("base") ){
 	    return TYPE_BASE;
 	}
-	else if ( type.equalsIgnoreCase("overlay")) {
+	else if ( type.equalsIgnoreCase("overlay") || type.equalsIgnoreCase("overlayfast")) {
 	    return TYPE_OVERLAY;
 	}
 	// base
@@ -396,9 +435,9 @@ public class ShellSurface {
 	// overlayfast
 	// move
 	// bind
-	// add
-	// reduce
-	// insert
+	// -add
+	// -reduce
+	// -insert
 	// start,[pattern Id]
 	// alternativestart, [patternid1, id2,...,idN]
 	// 
@@ -507,14 +546,39 @@ public class ShellSurface {
 	    return surfaceDrawable;
 
 	// read "surface" + id.png
-	BitmapFactory.Options opt = new BitmapFactory.Options();
-	if ( origH != targetH )
-	    opt.outHeight = targetH;
-	if ( origW != targetW )
-	    opt.outWidth = targetW;
-	surfaceDrawable = loadTransparentBitmapFromFile(selfFilename, res, opt);
+	if ( surfaceType == S_TYPE_BASE ) {
+	    BitmapFactory.Options opt = new BitmapFactory.Options();
+	    if ( origH != targetH )
+		opt.outHeight = targetH;
+	    if ( origW != targetW )
+		opt.outWidth = targetW;
+	    surfaceDrawable = loadTransparentBitmapFromFile(selfFilename, res, opt);
 
-	return surfaceDrawable;
+	    return surfaceDrawable;
+	}
+	else {
+	    // type is S_TYPE_ELEMENT
+	    // need to compose a layered drawable
+	    // first, get the number of elements 
+	    int layerCount = elementList.size();
+	    Drawable[] dz = new Drawable[layerCount];
+	    for ( int i = 0; i < layerCount; i++ ){
+		dz[i] = elementList.get(i).getDrawable(res);
+	    }
+	    LayerDrawable ld = new LayerDrawable(dz);
+	    int oW = elementList.get(0).W;
+	    int oH = elementList.get(0).H;
+	    for ( int j = 1; j < layerCount; j++ ) {
+		int lX = elementList.get(j).startX;
+		int lY = elementList.get(j).startY;
+		int lW = elementList.get(j).W;
+		int lH = elementList.get(j).H;
+		ld.setLayerInset(j, lX, lY, oW - lX - lW, oH - lY - lH);
+	    }
+	    surfaceDrawable = ld;
+	    
+	    return surfaceDrawable;
+	}
     }
 
     private Drawable loadTransparentBitmapFromFile(String filename, Resources res, BitmapFactory.Options opt) {
@@ -568,8 +632,22 @@ public class ShellSurface {
 	    return null;
     }
 
+    public int getFirstAnimationIndex() {
+	if ( animationTable == null || animationTable.size() == 0 )
+	    return -1;
+	TreeSet<String> key = new TreeSet<String>( animationTable.keySet() );
+	int first = 0;
+	try {
+	    first = Integer.parseInt( key.first() );
+	}
+	catch(Exception e) {
+
+	}
+	return first;
+    }
+
     public Drawable getAnimation(int patternId, Resources res) {
-	if ( animationTable.size() < patternId )
+	if ( animationTable.size() < patternId && animationTable.containsKey("" + patternId))
 	    return null;
 
 	String pid = "" + patternId;
