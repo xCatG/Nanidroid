@@ -327,13 +327,13 @@ public class ShellSurface {
 	    m = PatternHolders.animation.matcher(s);
 	    if ( m.matches() ) {
 		if ( m.group(4) == null ){
-		    printMatch(m);
+		    //printMatch(m);
 		    handlePattern(m.group(1), m.group(2), m.group(6), m.group(7), m.group(5), m.group(8), m.group(9) );
 		}
 		else {
 		    Log.d(TAG, "have altstart case, need to do something");
 		    // alt start has the seq in m.group(4) in form of 0,1,2,...,N
-		    printMatch(m);
+		    //printMatch(m);
 		    addAltAnimation(m.group(1), m.group(4));
 		}
 		continue;
@@ -499,6 +499,7 @@ public class ShellSurface {
 	else {
 	    a = new Animation();
 	    a.id = aId;
+	    animationTable.put(aId, a);
 	}
 
 	a.addFrame(index, frame);
