@@ -24,7 +24,8 @@ import android.util.Log;
 public class Nanidroid extends Activity
 {
     private static final String TAG = "Nanidroid";
-    private ImageView iv = null;
+    //private ImageView iv = null;
+    private SakuraView iv = null;
     private TextView tv = null;
     AnimationDrawable anime = null;
     SurfaceManager mgr = null;
@@ -35,9 +36,10 @@ public class Nanidroid extends Activity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-	iv = (ImageView) findViewById(R.id.sakura_display);
+	iv = (SakuraView) findViewById(R.id.sakura_display);
 	tv = (TextView) findViewById(R.id.tv);
 	mgr = SurfaceManager.getInstance();
+	iv.setMgr(mgr);
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
 	    tv.setText("sd card error");
@@ -48,8 +50,8 @@ public class Nanidroid extends Activity
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
 	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
 	    //"/Android/data/com.cattailsw.nanidroid/ghost/2elf";
-	    //"/Android/data/com.cattailsw.nanidroid/ghost/yohko";
-	    "/Android/data/com.cattailsw.nanidroid/ghost/first";
+	    "/Android/data/com.cattailsw.nanidroid/ghost/yohko";
+	//"/Android/data/com.cattailsw.nanidroid/ghost/first";
 	// read the ghost shell
 	//
 	String master_shell_path = ghost_path + "/shell/master";
@@ -87,15 +89,18 @@ public class Nanidroid extends Activity
 
 
     private void checkAndLoadAnimation() {
-	if ( currentSurface.getAnimationCount() == 0 ) {
+	iv.changeSurface(currentSurfaceKey);
+
+	if (iv.hasAnimation() == false ){
 	    findViewById(R.id.btn2).setEnabled(false);
-	    iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );	    
 	}
 	else {
+	    //iv.loadFirstAvailableAnimation();
 	    animeIndex = currentSurface.getFirstAnimationIndex();
-	    anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
+	    iv.loadAnimation(""+animeIndex);
+	    /*anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
 	    anime.setVisible(true, true);
-	    iv.setImageDrawable(anime);
+	    iv.setImageDrawable(anime);*/
 	    findViewById(R.id.btn2).setEnabled(true);
 	}
 
@@ -127,10 +132,10 @@ public class Nanidroid extends Activity
 
     public void onAnimate(View v) {
 	//iv.setImageDrawable(anime);
-	anime.stop(); // stop previous animation?
-	anime.start();
-
-
+// 	anime.stop(); // stop previous animation?
+// 	anime.start();
+	iv.startAnimation();
+	
     }
 
     private void pickNextAnimation() {
@@ -139,12 +144,8 @@ public class Nanidroid extends Activity
 	    if ( animeIndex >= currentSurface.getAnimationCount() )
 		animeIndex = 0;
 
-	    anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
-	    anime.setVisible(true, true);
-	    iv.setImageDrawable(anime);
+	    iv.loadAnimation(""+animeIndex);
 	}
-	else
-	    anime.stop();
     }
 
     public void onShowCollision(View v){
@@ -159,34 +160,7 @@ public class Nanidroid extends Activity
     }
 
     private void showCollisionAreaOnImageView() {
-	ShellSurface surface = sr.table.get(currentSurfaceKey);
-	int colsize = surface.getCollisionCount();
-	if ( colsize == 0 ) return;
-	Rect[] rz = new Rect[colsize];
-	Set<Integer> colKey = surface.collisionAreas.keySet();
-	int i = 0;
-	for ( Integer k : colKey ) {
-	    rz[i] = surface.collisionAreas.get(k).rect;
-	    i++;
-	}
-
-	BitmapDrawable b = (BitmapDrawable) surface.getSurfaceDrawable(getResources());
-	Bitmap bmpcopy = b.getBitmap().copy(Bitmap.Config.ARGB_8888, true);
-
-	Canvas c = new Canvas(bmpcopy);
-	Paint p = new Paint();
-	p.setAntiAlias(true);
-	p.setStrokeWidth(1);
-	p.setStyle(Style.STROKE);
-	p.setColor(Color.rgb(254, 0, 1));
-
-	for ( Rect re : rz )
-	    c.drawRect(re, p);
-
-
-	BitmapDrawable nb = new BitmapDrawable( bmpcopy );
-
-	iv.setImageDrawable( nb );
+	iv.showCollisionArea();
     }
 
 }

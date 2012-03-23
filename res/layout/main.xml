@@ -41,7 +41,13 @@
     android:layout_height="wrap_content"
     android:text="Hello World, Nanidroid"
     />
-<ImageView
+<!--<ImageView
+    android:id="@+id/sakura_display"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:onClick="ivClick"
+    />-->
+  <com.cattailsw.nanidroid.SakuraView
     android:id="@+id/sakura_display"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"

@@ -433,7 +433,35 @@ public class ShellSurface {
 	}
     }
 
+    public static final int A_TYPE_SOMETIMES = 0;
+    public static final int A_TYPE_RARELY = 1;
+    public static final int A_TYPE_TALK = 2;
+    public static final int A_TYPE_RUNONCE = 3;
+    public static final int A_TYPE_YEN_E = 4;
+    public static final int A_TYPE_BIND = 5;
+    public static final int A_TYPE_RANDOM = 6;
+    public static final int A_TYPE_LOOP = 7;
+    public static final int A_TYPE_NEVER = 8;
+
     private int lookupInterval(String in) {
+	if ( in.equalsIgnoreCase("sometimes") )
+	    return A_TYPE_SOMETIMES;
+	else if ( in.equalsIgnoreCase("rarely"))
+	    return A_TYPE_RARELY;
+	else if ( in.equalsIgnoreCase("random") )
+	    return A_TYPE_RANDOM;
+	else if ( in.equalsIgnoreCase("always") )
+	    return A_TYPE_LOOP;
+	else if ( in.equalsIgnoreCase("yen-e") )
+	    return A_TYPE_YEN_E;
+	else if ( in.equalsIgnoreCase("talk") )
+	    return A_TYPE_TALK;
+	else if ( in.equalsIgnoreCase("runonce") )
+	    return A_TYPE_RUNONCE;
+	else if ( in.equalsIgnoreCase("never") )
+	    return A_TYPE_NEVER;
+	else if ( in.equalsIgnoreCase("bind") )
+	    return A_TYPE_BIND;
 	// sometimes
 	// rarely
 	// random, X
@@ -693,12 +721,19 @@ public class ShellSurface {
 	return first;
     }
 
+    public Drawable getAnimation(String id, Resources res) {
+	if ( animationTable.containsKey(id) )
+	    return animationTable.get(id).getAnimation(res);
+	else 
+	    return null;
+    }
+
     public Drawable getAnimation(int patternId, Resources res) {
-	if ( animationTable.size() < patternId && animationTable.containsKey("" + patternId))
+	if ( animationTable.size() < patternId && animationTable.containsKey("" + patternId) == false)
 	    return null;
 
 	String pid = "" + patternId;
-	return animationTable.get(pid).getAnimation(res);
+	return getAnimation(pid, res);
     }
 
     private AnimationFrame getAnimationFrame(String patternId, int frameIndex) {
