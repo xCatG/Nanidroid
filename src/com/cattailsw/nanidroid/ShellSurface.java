@@ -486,6 +486,8 @@ public class ShellSurface {
 	    return;
 	prepareAnimationTable();
 	AltAnimation a = new AltAnimation(aId, ridz);
+	if ( animationTable.containsKey(aId) )
+	    a.interval = animationTable.get(aId).interval;
 	animationTable.put(aId, a);
     }
 
