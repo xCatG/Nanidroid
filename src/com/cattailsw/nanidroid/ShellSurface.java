@@ -143,6 +143,40 @@ public class ShellSurface {
 	boolean exclusive;
 	List<AnimationFrame> frames;
 	AnimationDrawable animation = null;
+
+	AnimationDrawable getAnimation(Resources res){
+	    if ( animation != null )
+		return animation;
+
+	    int frameCount = frames.size();
+	    AnimationDrawable anime = new AnimationDrawable();
+	    for ( int i = 0; i < frameCount; i++ ) {
+		AnimationFrame f = frames.get(i);
+		anime.addFrame( f.getDrawable(res), f.time /* *100 */ );
+	    }
+	    this.animation = anime;
+	    return anime;
+	}
+
+    }
+
+    class AltAnimation extends Animation {
+	AltAnimation(){}
+	AltAnimation(String id, String []idz){
+	    this.id = id;
+	    refidz = idz;
+	    refAnimationz = new AnimationDrawable[refidz.length];
+	}		
+	String [] refidz;
+	AnimationDrawable []refAnimationz;
+
+	AnimationDrawable getAnimation(Resources res) {
+	    int index = (int)(Math.random() * refidz.length);
+	    if ( refAnimationz[index] == null )
+		refAnimationz[index] = animationTable.get(refidz[index]).getAnimation(res);
+
+	    return refAnimationz[index];
+	}
     }
 
 
@@ -300,6 +334,7 @@ public class ShellSurface {
 		    Log.d(TAG, "have altstart case, need to do something");
 		    // alt start has the seq in m.group(4) in form of 0,1,2,...,N
 		    printMatch(m);
+		    addAltAnimation(m.group(1), m.group(4));
 		}
 		continue;
 	    }
@@ -442,6 +477,16 @@ public class ShellSurface {
 	// alternativestart, [patternid1, id2,...,idN]
 	// 
 	return TYPE_BASE;
+    }
+
+    private void addAltAnimation(String aId, String refidz) {
+	// refidz should be in the form of 1,2,3,4,5,...,N
+	String [] ridz = refidz.split(",");
+	if ( ridz == null )
+	    return;
+	prepareAnimationTable();
+	AltAnimation a = new AltAnimation(aId, ridz);
+	animationTable.put(aId, a);
     }
 
     private void addFrameToAnimation(String aId, int index, AnimationFrame frame) {
@@ -651,19 +696,7 @@ public class ShellSurface {
 	    return null;
 
 	String pid = "" + patternId;
-	if ( animationTable.get(pid).animation != null )
-	    return animationTable.get(pid).animation;
-	
-	// need to assemble the animation...
-	int frameCount = getAnimationFrameCount(patternId);
-	AnimationDrawable anime = new AnimationDrawable();
-	for ( int i = 0; i < frameCount; i++ ) {
-	    AnimationFrame f = getAnimationFrame(pid, i);
-	    anime.addFrame( f.getDrawable(res), f.time /* *100 */ );
-	}
-	animationTable.get(pid).animation = anime;
-
-	return anime;
+	return animationTable.get(pid).getAnimation(res);
     }
 
     private AnimationFrame getAnimationFrame(String patternId, int frameIndex) {
