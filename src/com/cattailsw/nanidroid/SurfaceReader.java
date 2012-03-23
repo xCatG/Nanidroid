@@ -13,6 +13,8 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.HashMap;
+import java.io.FilenameFilter;
+import java.util.regex.Matcher;
 
 
 /* surface txt has structure like
@@ -48,9 +50,49 @@ public class SurfaceReader {
 	    Log.d(TAG, "rootpath = " + rootPath);
 	    InputStream is = new FileInputStream(f);
 	    parse(is);
+
+	    scanFolderForPng(rootPath);
 	}
 	catch(FileNotFoundException e) {}
 	catch(IOException e) {}
+    }
+
+    private void scanFolderForPng(String folderPath){
+	// need to scan the whole folder for surfaces not listed in the surfaces.txt?
+	// add them to surfacemgr as well
+	SurfaceManager mgr = SurfaceManager.getInstance();
+
+	File dir = new File(folderPath);
+	File[] filez = dir.listFiles(new FilenameFilter(){
+		public boolean accept(File dir, String filename) {
+		    if ( filename.toLowerCase().endsWith(".png") )
+			return true;
+		    else
+			return false;
+		}
+	    });
+	for ( File f : filez ) {
+	    Log.d(TAG, "got " + f.getName() );
+	    // need to get id 
+	    String fn = f.getName();
+	    Matcher m = PatternHolders.surface_file_scan.matcher(fn);
+	    if ( m.matches() == false )
+		continue;
+	    String idpart = m.group(1);
+	    try {
+		int id = Integer.parseInt(idpart);
+		// we do this to strip out 0s
+		idpart = "" + id;
+		if ( mgr.containsSurface(idpart) )
+		    continue;
+		else {
+		    mgr.addSurface(idpart, new ShellSurface(folderPath, id, null));
+		}
+	    }
+	    catch(Exception e) {
+		continue;
+	    }
+	}
     }
 
     private void parse(InputStream is) throws IOException {
