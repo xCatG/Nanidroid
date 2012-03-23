@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
+import java.util.Set;
 
 public class SurfaceManager {
 
@@ -30,6 +31,20 @@ public class SurfaceManager {
 	surfaces.put(id, s);
 
 	return surfaces.size();
+    }
+
+    public boolean containsSurface(String id) {
+	if ( surfaces == null )
+	    return false;
+	return surfaces.containsKey(id);
+    }
+
+    public int getTotalSurfaceCount() {
+	return surfaces.size();
+    }
+
+    public Set<String> getSurfaceKeys() {
+	return surfaces.keySet();
     }
 
     public ShellSurface getSakuraSurface(String id) {

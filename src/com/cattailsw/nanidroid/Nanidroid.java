@@ -27,6 +27,7 @@ public class Nanidroid extends Activity
     private ImageView iv = null;
     private TextView tv = null;
     AnimationDrawable anime = null;
+    SurfaceManager mgr = null;
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
@@ -36,7 +37,7 @@ public class Nanidroid extends Activity
 
 	iv = (ImageView) findViewById(R.id.sakura_display);
 	tv = (TextView) findViewById(R.id.tv);
-
+	mgr = SurfaceManager.getInstance();
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
 	    tv.setText("sd card error");
@@ -71,24 +72,35 @@ public class Nanidroid extends Activity
 	sr = new SurfaceReader(shellSurface);
 	long dur = SystemClock.uptimeMillis() - starttime;
 
+	int keycount = mgr.getTotalSurfaceCount();
 	tv.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
-		   + "\nshell surface count=" + sr.table.size() + ",parsing time:" + (float)dur/1000.0f + "s"  );
+		   + "\nshell surface count=" + keycount + ",parsing time:" + (float)dur/1000.0f + "s"  );
 
-	int keycount = sr.table.keySet().size();
 	surfaceKeys = new String[keycount];
-	Set<String> k = sr.table.keySet();
+	Set<String> k = mgr.getSurfaceKeys();
 	surfaceKeys = k.toArray(surfaceKeys);
 	Arrays.sort(surfaceKeys);
 	currentSurfaceKey = surfaceKeys[0];
-	currentSurface = sr.table.get(currentSurfaceKey);
-	iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );
-	/*	anime = (AnimationDrawable) sr.table.get("2").getAnimation(0, getResources());	
-	anime.setVisible(true, true);
-	anime.setOneShot(false);
-	iv.setImageDrawable( anime );
-	*/
-	//	anime.start();
+	currentSurface = mgr.getSakuraSurface(currentSurfaceKey);
+	checkAndLoadAnimation();
     }
+
+
+    private void checkAndLoadAnimation() {
+	if ( currentSurface.getAnimationCount() == 0 ) {
+	    findViewById(R.id.btn2).setEnabled(false);
+	    iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );	    
+	}
+	else {
+	    animeIndex = currentSurface.getFirstAnimationIndex();
+	    anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
+	    anime.setVisible(true, true);
+	    iv.setImageDrawable(anime);
+	    findViewById(R.id.btn2).setEnabled(true);
+	}
+
+    }
+
     SurfaceReader sr = null;
     String[] surfaceKeys = null;
     int keyindex = 0;
@@ -104,22 +116,12 @@ public class Nanidroid extends Activity
 	
 	currentSurfaceKey = surfaceKeys[keyindex];
 	Log.d(TAG, "loading surface:" + currentSurfaceKey);
-	currentSurface = sr.table.get(currentSurfaceKey);
-	iv.setImageDrawable( currentSurface.getSurfaceDrawable(getResources()) );
+	currentSurface = mgr.getSakuraSurface(currentSurfaceKey);
 	tv.setText("current drawable key: " + currentSurfaceKey + 
 		   ", animation count: " + currentSurface.getAnimationCount() +
 		   ", collision count: " + currentSurface.getCollisionCount()
 		   );
-
-	if ( currentSurface.getAnimationCount() == 0 )
-	    findViewById(R.id.btn2).setEnabled(false);
-	else {
-	    animeIndex = currentSurface.getFirstAnimationIndex();
-	    anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
-	    anime.setVisible(true, true);
-	    iv.setImageDrawable(anime);
-	    findViewById(R.id.btn2).setEnabled(true);
-	}
+	checkAndLoadAnimation();
     }
     int animeIndex = 0;
 
