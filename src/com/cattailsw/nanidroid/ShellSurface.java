@@ -44,6 +44,11 @@ import java.util.TreeSet;
  */
 public class ShellSurface {
     private static final String TAG = "ShellSurface";
+    public static final int S_TYPE_BASE = 0;
+    public static final int S_TYPE_ELEMENT = 1;
+    public static final int TYPE_RESET = -1;
+    public static final int TYPE_BASE = 0;
+    public static final int TYPE_OVERLAY = 1;
 
     int surfaceId;
     int origW;
@@ -58,8 +63,6 @@ public class ShellSurface {
     
     Drawable surfaceDrawable = null;
     int surfaceType = 0;
-    public static final int S_TYPE_BASE = 0;
-    public static final int S_TYPE_ELEMENT = 1;
 
     SurfaceManager mgr = null;
     public ShellSurface() {
@@ -179,10 +182,6 @@ public class ShellSurface {
 	}
     }
 
-
-    public static final int TYPE_RESET = -1;
-    public static final int TYPE_BASE = 0;
-    public static final int TYPE_OVERLAY = 1;
 
     class AnimationFrame{
 	String filePath;
