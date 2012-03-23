@@ -34,12 +34,14 @@ public class SurfaceParserTest extends AndroidTestCase {
 		String t = "animation0.pattern2,overlay,-1";
 		Matcher m = PatternHolders.animation_base.matcher(t);
 		assertTrue( m.matches() );
-		assertNull(m.group(5));
+		assertNull(m.group(7));
+
 		t = "animation1.pattern3,overlay,-1,100";
 		m = PatternHolders.animation_base.matcher(t);
 		assertTrue( m.matches() );
-		assertEquals(5, m.groupCount());
-		assertEquals("100", m.group(5));		
+		printMatch(m);
+		assertEquals(7, m.groupCount());
+		assertEquals("100", m.group(7));		
 	}
 
     private void printMatch(Matcher m) {
@@ -56,5 +58,12 @@ public class SurfaceParserTest extends AndroidTestCase {
 
     }
 
+    public void testSurfaceFileParse(){
+	String t = "surface0.png";
+	Matcher m = PatternHolders.surface_file_scan.matcher(t);
+	assertTrue(m.matches());
+	assertEquals("0", m.group(1));
+
+    }
 	
 }
