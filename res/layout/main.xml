@@ -40,6 +40,7 @@
     android:layout_width="fill_parent"
     android:layout_height="wrap_content"
     android:text="Hello World, Nanidroid"
+    android:background="@drawable/balloon"
     />
 <!--<ImageView
     android:id="@+id/sakura_display"
