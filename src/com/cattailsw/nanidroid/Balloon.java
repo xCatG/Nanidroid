@@ -18,6 +18,8 @@ public class Balloon extends TextView {
 	super(ctx, attrs, defStyle);
     }
 
-
+    public void setText(String str){
+	setText(str);
+    }
 
 }
