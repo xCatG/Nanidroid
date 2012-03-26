@@ -3,6 +3,8 @@ package com.cattailsw.nanidroid;
 import android.content.Context;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import android.view.View;
+import java.util.regex.Matcher;
+import android.util.Log;
 
 public class SScriptRunner {
     private static final String TAG = "SScriptRunner";
@@ -43,6 +45,22 @@ public class SScriptRunner {
 
     private String msg = null;
 
+    private void loopControl() {
+	if ( charIndex < msg.length() ){
+	    parseMsg();
+	    updateUI();
+	    loopControl();
+	}
+	else {
+	    reset();
+	    msg = mMsgQueue.poll();
+	    if ( msg == null )
+		stop();
+	    else
+		loopControl();
+	}
+    }
+
     public synchronized void run() {
 	synchronized( isRunning ) {
 	    if ( isRunning )
@@ -56,7 +74,8 @@ public class SScriptRunner {
 	    stop();
 	}
 	else {
-	    parseMsg();
+	    loopControl();
+	    //parseMsg();
 	}
     }
 
@@ -68,6 +87,7 @@ public class SScriptRunner {
 
     private void reset() {
 	sync = false;
+	wholeline = true;
 	sakuraTalk = true;
 	sakuraMsg.setLength(0);
 	keroMsg.setLength(0);
@@ -80,6 +100,7 @@ public class SScriptRunner {
     public static final long WAIT_UNIT = 50; // wait unit is 50ms
 
     private boolean sync = false;
+    private boolean wholeline = true;
     private boolean sakuraTalk = false;
     private StringBuilder sakuraMsg = new StringBuilder();
     private StringBuilder keroMsg = new StringBuilder();
@@ -107,6 +128,8 @@ public class SScriptRunner {
 	    keroMsg.setLength(0);
     }
 
+
+
     private void parseMsg() {
 	waitTime = WAIT_UNIT;
 	char c1, c2;
@@ -116,7 +139,10 @@ public class SScriptRunner {
 		charIndex++;
 		if ( c1 != '\\' ) {
 		    appendChar(c1);
-		    continue;
+		    if ( wholeline )
+			continue;
+		    else
+			break loop;
 		}
 		// so we need to check control sequence
 		c2 = msg.charAt(charIndex);
@@ -137,8 +163,16 @@ public class SScriptRunner {
 		case 'e': // yen-e
 		    charIndex = msg.length();
 		    break loop;
-		case 'n': // new line
+		case 'n': // new line, but need to handle and discard \n[XXX] cases		    
 		    appendChar('\n');
+
+		    // need to check if there are [] left right after this
+		    String rest = msg.substring(charIndex, msg.length());
+		    Matcher m = PatternHolders.sqbracket_half_number.matcher(rest);
+		    if ( m.find() ) { // [xxx] is found in the sequence
+			charIndex += m.group().length(); // skip the whole matching [] portions
+			Log.d(TAG, "skipping unsupported tag " + m.group());
+		    }
 		    break loop;
 		case 'c': // clear msg
 		    clearMsg();
@@ -154,6 +188,7 @@ public class SScriptRunner {
 
 	updateUI();
     }
+
 
     private void updateUI() {
 	sakura.changeSurface(sakuraSurfaceId);
