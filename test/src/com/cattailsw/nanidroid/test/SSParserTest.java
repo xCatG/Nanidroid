@@ -4,6 +4,7 @@ import android.test.AndroidTestCase;
 import com.cattailsw.nanidroid.*;
 import android.content.Context;
 import android.util.Log;
+import java.util.regex.Matcher;
 
 public class SSParserTest extends AndroidTestCase {
     private static final String TAG = "SSParserTest";
@@ -56,6 +57,7 @@ public class SSParserTest extends AndroidTestCase {
     }
 
     public void testSakuraSpeak() {
+	sr.stop();
 	String cmd = "\\hlalala\\e";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
@@ -65,7 +67,7 @@ public class SSParserTest extends AndroidTestCase {
 	cmd = "\\0abcdefg\\n";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
-	assertEquals("abcdefg", bSakura.text);
+	assertEquals("abcdefg\n", bSakura.text);
     }
 
     public void testKeroSpeak() {
@@ -79,6 +81,35 @@ public class SSParserTest extends AndroidTestCase {
 	sr.run();
 	assertEquals("yyyyyy", bKero.text);
 	sr.stop();
+    }
+
+    public void testParsingRegExp() {
+	String sqbreket_tester = "abcde\\n[half]efghi";
+	Matcher m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
+	assertTrue(m.find());
+	assertEquals("[half]", m.group());
+	assertEquals("half", m.group(1));
+
+	sqbreket_tester = "qoweqwjkjl\\n[100]ksjdlaksjklwje";
+	m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
+	assertTrue(m.find());
+	assertEquals("[100]", m.group());
+	assertEquals("100", m.group(1));
+
+	sqbreket_tester = "qoweqwjkjl\\n[100%]ksjdlaksjklwje";
+	m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
+	assertTrue(m.find());
+	assertEquals("100%", m.group(1));
+
+	
+	sqbreket_tester = "[1xaw]";
+	m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
+	assertFalse(m.find()); // should not match
+
+	sqbreket_tester = "[]";
+	m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
+	assertFalse(m.find()); // should not match
+
     }
 
 }
