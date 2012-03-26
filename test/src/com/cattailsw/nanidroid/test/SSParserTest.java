@@ -58,29 +58,35 @@ public class SSParserTest extends AndroidTestCase {
 
     public void testSakuraSpeak() {
 	sr.stop();
-	String cmd = "\\hlalala\\e";
+	String cmd = "\\_q\\hlalala\\e";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
 	//	sr.stop();
 	assertEquals("lalala", bSakura.text);
 	
-	cmd = "\\0abcdefg\\n";
+	cmd = "\\_q\\0abcdefg\\n";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
 	assertEquals("abcdefg\n", bSakura.text);
     }
 
     public void testKeroSpeak() {
-	String cmd = "\\1xxxxxx\\e";
+	String cmd = "\\_q\\1xxxxxx\\e";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
 	assertEquals("xxxxxx", bKero.text);
 
-	cmd = "\\habcde\\uyyyyyy\\e";
+	cmd = "\\_q\\habcde\\uyyyyyy\\e";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
 	assertEquals("yyyyyy", bKero.text);
 	sr.stop();
+    }
+
+    public void testIgnoreCommands() {
+	String cmd = "\\4\\5\\6\\v\\_n\\_V";
+	sr.addMsgToQueue(new String[]{cmd});
+	sr.run();
     }
 
     public void testParsingRegExp() {

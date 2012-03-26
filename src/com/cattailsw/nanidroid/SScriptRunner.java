@@ -177,6 +177,22 @@ public class SScriptRunner {
 		case 'c': // clear msg
 		    clearMsg();
 		    break;
+		case '_':
+		    if ( handle_underscore_type( msg.substring(charIndex, msg.length()) ) )
+			break loop;
+		    break;
+		case '!':
+		    if ( handle_exclaim_type( msg.substring(charIndex, msg.length() ) ) )
+			break loop;
+		    break;
+		case '-':
+		case '4':
+		case '5':
+		case '6':
+		case 'v':
+		    // ignore
+		    Log.d(TAG, "ignore unsupported " + c2 + " tag");
+		    break;
 		default:
 		    break;
 		}
@@ -186,9 +202,47 @@ public class SScriptRunner {
 	    }
 	} 
 
-	updateUI();
+	//updateUI();
     }
 
+    // if true, break loop
+    // if false, just break?
+    private boolean handle_underscore_type(String leftString) {
+		    // need to check for the following cases: 
+		    // _b[]
+		    // _n <- ignore
+		    // _l[xx] <- ignore
+		    // _q switch quick session
+		    // _s switch sync session
+		    // _a[xx] <- ignore
+		    // _v[xx] <- ignore
+		    // _V <- ignore
+	char c = msg.charAt(charIndex);	charIndex++;
+	switch( c ) {
+	case 's':
+	    sync = !sync;
+	    break; // returns false
+	case 'q':
+	    wholeline = !wholeline;
+	    break;
+	case 'l':
+	case 'a':
+	case 'v':
+	    // need to swallow [] after the switches
+	    break;
+	case 'n':
+	case 'V':
+	    break;
+	default:
+	    break;
+	}
+
+	return false;
+    }
+
+    private boolean handle_exclaim_type(String leftString) {
+	return false;
+    }
 
     private void updateUI() {
 	sakura.changeSurface(sakuraSurfaceId);
