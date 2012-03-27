@@ -31,7 +31,10 @@ public class SSParserTest extends AndroidTestCase {
 	public DummyBalloon(Context ctx){super(ctx);}
 	public void setText(String str){
 	    Log.d(TAG, "got text:" + str);
-	    this.text = str;
+	    if ( this.text == null )
+	    this.text = str; 
+	    else
+		this.text += str;// keep appending text
 	}
     }
 
@@ -67,7 +70,16 @@ public class SSParserTest extends AndroidTestCase {
 	cmd = "\\_q\\0abcdefg\\n";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
-	assertEquals("abcdefg\n", bSakura.text);
+	assertEquals("lalalaabcdefg\n", bSakura.text);
+    }
+
+    public void testSakuraSpeakNormal() {
+	String cmd = "\\habcde\\e";
+	sr.addMsgToQueue(new String[]{cmd});
+	sr.run();
+	//Log.d(TAG, "->" + bSakura.text);
+	assertEquals("aababcabcdabcdeabcde", bSakura.text);
+	// last string will be set twice because on \e, ui will still get updated
     }
 
     public void testKeroSpeak() {
@@ -79,7 +91,7 @@ public class SSParserTest extends AndroidTestCase {
 	cmd = "\\_q\\habcde\\uyyyyyy\\e";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
-	assertEquals("yyyyyy", bKero.text);
+	assertEquals("xxxxxxyyyyyy", bKero.text);
 	sr.stop();
     }
 

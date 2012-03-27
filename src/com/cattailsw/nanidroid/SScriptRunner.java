@@ -87,7 +87,7 @@ public class SScriptRunner {
 
     private void reset() {
 	sync = false;
-	wholeline = true;
+	wholeline = false;
 	sakuraTalk = true;
 	sakuraMsg.setLength(0);
 	keroMsg.setLength(0);
@@ -100,7 +100,7 @@ public class SScriptRunner {
     public static final long WAIT_UNIT = 50; // wait unit is 50ms
 
     private boolean sync = false;
-    private boolean wholeline = true;
+    private boolean wholeline = false;
     private boolean sakuraTalk = false;
     private StringBuilder sakuraMsg = new StringBuilder();
     private StringBuilder keroMsg = new StringBuilder();
