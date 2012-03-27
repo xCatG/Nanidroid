@@ -96,9 +96,14 @@ public class SSParserTest extends AndroidTestCase {
     }
 
     public void testIgnoreCommands() {
-	String cmd = "\\4\\5\\6\\v\\_n\\_V";
+	String cmd = "\\4\\5\\6\\v\\_n\\_V\\e";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
+
+	cmd = "\\_q\\habcde\\_l[100]\\_a[45]\\_v[000]fghijk\\_n\\_V\\e";
+	sr.addMsgToQueue(new String[]{cmd});
+	sr.run();
+	assertEquals("abcdefghijk", bSakura.text);
     }
 
     public void testParsingRegExp() {

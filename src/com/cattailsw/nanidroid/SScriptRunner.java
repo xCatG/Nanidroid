@@ -128,8 +128,6 @@ public class SScriptRunner {
 	    keroMsg.setLength(0);
     }
 
-
-
     private void parseMsg() {
 	waitTime = WAIT_UNIT;
 	char c1, c2;
@@ -229,9 +227,16 @@ public class SScriptRunner {
 	case 'a':
 	case 'v':
 	    // need to swallow [] after the switches
+	    leftString = msg.substring(charIndex, msg.length());
+	    Matcher m = PatternHolders.sqbracket_half_number.matcher(leftString);
+	    if ( m.find() ) { // [xxx] is found in the sequence
+		charIndex += m.group().length(); // skip the whole matching [] portions
+		Log.d(TAG, "skipping unsupported tag " + c + m.group());
+	    }
 	    break;
 	case 'n':
 	case 'V':
+	    Log.d(TAG, "ignore unsupported " + c + " tag");
 	    break;
 	default:
 	    break;
