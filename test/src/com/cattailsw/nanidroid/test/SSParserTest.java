@@ -19,6 +19,23 @@ public class SSParserTest extends AndroidTestCase {
 	    else
 		this.sid = this.sid + "," + id;
 	}
+
+	String aid = null;
+	String aidz = null;
+	@Override
+	public void loadAnimation(String id) {
+	    aid = id;
+	    if ( aidz == null )
+		aidz = id;
+	    else
+		aidz += "," + id;
+	}
+
+	@Override
+	public void startAnimation() {
+	    // do nothing
+	}
+
     }
 
     class DummySakuraView extends SakuraView {
@@ -37,6 +54,31 @@ public class SSParserTest extends AndroidTestCase {
 		this.stext = this.stext + "," + id;
 	    }
 	}
+
+	int talkCalledTime = 0;
+
+	@Override
+	public void startTalkingAnimation() {
+	    talkCalledTime++;
+	    Log.d(TAG, "startTalkingAnimation called " + talkCalledTime + " times");
+	}
+
+	String aid = null;
+	String aidz = null;
+	@Override
+	public void loadAnimation(String id) {
+	    aid = id;
+	    if ( aidz == null )
+		aidz = id;
+	    else
+		aidz += "," + id;
+	}
+
+	@Override
+	public void startAnimation() {
+	    // do nothing
+	}
+
     }
 
     class DummyBalloon extends Balloon {
@@ -175,6 +217,10 @@ public class SSParserTest extends AndroidTestCase {
 	t = "[a]";
 	m = PatternHolders.surface_ptrn.matcher(t);
 	assertFalse(m.find());
+
+	t = "[-1]"; // this should go through
+	m = PatternHolders.surface_ptrn.matcher(t);
+	assertTrue(m.find());
     }
 
     public void testSurfaceChangeSakura() {
@@ -202,4 +248,40 @@ public class SSParserTest extends AndroidTestCase {
 	assertEquals("0wrong",bSakura.dispText);
     }
 
+    public void testParsingAnimationRegExp() {
+	String t = "[0]";
+	Matcher m = PatternHolders.ani_ptrn.matcher(t);
+	assertTrue(m.find());
+	assertEquals("0", m.group(1));
+
+	t = "[10,wait]";
+	m = PatternHolders.ani_ptrn.matcher(t);
+	assertTrue(m.find());
+	assertEquals("10", m.group(1));
+
+	t = "[abc,xxx]";
+	m = PatternHolders.ani_ptrn.matcher(t);
+	assertFalse(m.find());
+
+	t = "[102,]"; // this should not match
+	m = PatternHolders.ani_ptrn.matcher(t);
+	assertFalse(m.find());
+
+	t = "[-1,wait]"; // should not match either...
+	m = PatternHolders.ani_ptrn.matcher(t);
+	assertFalse(m.find());
+    }
+
+    public void testAnimation() {
+	sakura = new DummySakuraView(mContext);
+	//bSakura = new DummyBalloon(mContext);
+	sr.setViews(sakura, kero, bSakura, bKero);
+
+	String cmd = "\\halala\\i[0]opqrst\\e";
+	sr.addMsgToQueue(new String[]{cmd});
+	sr.run();
+
+	assertEquals(12, sakura.talkCalledTime );
+	assertEquals("0", sakura.aid);
+    }
 }

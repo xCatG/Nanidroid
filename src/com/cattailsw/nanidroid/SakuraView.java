@@ -69,6 +69,10 @@ public class SakuraView extends ImageView {
 	animation.start();
     }
 
+    public void startTalkingAnimation() {
+	startAnimation(ShellSurface.A_TYPE_TALK);
+    }
+
     public void startAnimation(int type) {
 	// for talk type animation I guess
 	// do nothing for the time being

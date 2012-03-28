@@ -95,6 +95,8 @@ public class SScriptRunner {
 	charIndex = 0;
 	sakuraSurfaceId = "0";
 	keroSurfaceId = "10";
+	sakuraAnimationId = null;
+	keroAnimationId = null;
     }
 
     public static final long WAIT_UNIT = 50; // wait unit is 50ms
@@ -109,6 +111,8 @@ public class SScriptRunner {
 
     private String sakuraSurfaceId = "0";
     private String keroSurfaceId = "10";
+    private String sakuraAnimationId = null;
+    private String keroAnimationId = null;
 
     private void appendChar(char c) {
 	if ( sync ) {
@@ -285,6 +289,14 @@ public class SScriptRunner {
 
     // same as surface, should break out and start animation immediately
     private boolean handle_animation() {
+	String left = msg.substring(charIndex, msg.length());
+	Matcher m = PatternHolders.ani_ptrn.matcher(left);
+	if ( m.find() ) {
+	    String aid = m.group(1);
+	    queueAnimation(aid);
+	    charIndex+= m.group().length();
+	    return true;
+	}
 	
 	return false;
     }
@@ -296,10 +308,22 @@ public class SScriptRunner {
 	    keroSurfaceId = sid;
     }
 
+    private void queueAnimation(String aid) {
+	if ( sakuraTalk ){
+	    sakuraAnimationId = aid;
+	}
+	else {
+	    keroAnimationId = aid;
+	}
+    }
+
+
     private void updateUI() {
 	sakura.changeSurface(sakuraSurfaceId);
 	kero.changeSurface(keroSurfaceId);
 
+	boolean sakuraAnimate = (sakuraAnimationId != null);
+	boolean keroAnimate = ( keroAnimationId != null );
 
 	if ( sakuraMsg.length() == 0 ){
 	    //need to set sakura balloon to none
@@ -308,6 +332,7 @@ public class SScriptRunner {
 	else {
 	    sakuraBalloon.setVisibility(View.VISIBLE);
 	    sakuraBalloon.setText(sakuraMsg.toString());
+	    if ( !sakuraAnimate) sakura.startTalkingAnimation();
 	}
 
 	if ( keroMsg.length() == 0 ) {
@@ -316,8 +341,20 @@ public class SScriptRunner {
 	else {
 	    keroBalloon.setVisibility(View.VISIBLE);
 	    keroBalloon.setText(keroMsg.toString());
+	    if ( !keroAnimate) kero.startTalkingAnimation();
 	}
 
+	if ( sakuraAnimate ) {
+	    sakura.loadAnimation(sakuraAnimationId);
+	    sakura.startAnimation();
+	    sakuraAnimationId = null; // need to clear the animation after starting
+	}
+
+	if ( keroAnimate ) {
+	    kero.loadAnimation(keroAnimationId);
+	    kero.startAnimation();
+	    keroAnimationId = null;
+	}
     }
 
 }

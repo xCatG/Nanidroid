@@ -25,5 +25,7 @@ public class PatternHolders {
     public static final Pattern surface_file_scan = Pattern.compile("surface(\\d+).png");
 
     public static final Pattern sqbracket_half_number = Pattern.compile("\\[(half|\\d+%?)\\]");
-    public static final Pattern surface_ptrn = Pattern.compile("^\\[(\\d+)\\]|^(\\d{1})");
+    public static final Pattern surface_ptrn = Pattern.compile("^\\[(-?\\d+)\\]|^(\\d{1})");
+
+    public static final Pattern ani_ptrn = Pattern.compile("^\\[(\\d+)(|,\\w+)\\]");
 }
