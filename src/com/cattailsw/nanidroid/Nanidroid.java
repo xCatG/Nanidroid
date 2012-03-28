@@ -24,11 +24,17 @@ import android.util.Log;
 public class Nanidroid extends Activity
 {
     private static final String TAG = "Nanidroid";
-    //private ImageView iv = null;
-    private SakuraView iv = null;
-    private TextView tv = null;
+    //private ImageView sv = null;
+    private SakuraView sv = null;
+    private KeroView kv = null;
+    private Balloon bSakura = null;
+    private Balloon bKero = null;
+
     AnimationDrawable anime = null;
     SurfaceManager mgr = null;
+
+    SScriptRunner runner = null;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
@@ -36,13 +42,20 @@ public class Nanidroid extends Activity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
-	iv = (SakuraView) findViewById(R.id.sakura_display);
-	tv = (TextView) findViewById(R.id.tv);
+	sv = (SakuraView) findViewById(R.id.sakura_display);
+	kv = (KeroView) findViewById(R.id.kero_display);
+	bSakura = (Balloon) findViewById(R.id.bSakura);
+	bKero = (Balloon) findViewById(R.id.bKero);
+
+
 	mgr = SurfaceManager.getInstance();
-	iv.setMgr(mgr);
+	runner = SScriptRunner.getInstance(this);
+	runner.setViews(sv, kv, bSakura, bKero);
+	sv.setMgr(mgr);
+	kv.setMgr(mgr);
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
-	    tv.setText("sd card error");
+	    bSakura.setText("sd card error");
 	    return;
 	    // need to prompt SD card issue
 	}
@@ -64,7 +77,7 @@ public class Nanidroid extends Activity
 
 	File shell_desc = new File(shell_desc_path);
 	if ( shell_desc.exists() == false ) {
-	    tv.setText("shell desc error.");
+	    bSakura.setText("shell desc error.");
 	    return;
 	}
 	long starttime = SystemClock.uptimeMillis();
@@ -75,7 +88,7 @@ public class Nanidroid extends Activity
 	long dur = SystemClock.uptimeMillis() - starttime;
 
 	int keycount = mgr.getTotalSurfaceCount();
-	tv.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
+	bKero.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
 		   + "\nshell surface count=" + keycount + ",parsing time:" + (float)dur/1000.0f + "s"  );
 
 	surfaceKeys = new String[keycount];
@@ -89,15 +102,16 @@ public class Nanidroid extends Activity
 
 
     private void checkAndLoadAnimation() {
-	iv.changeSurface(currentSurfaceKey);
+	sv.changeSurface(currentSurfaceKey);
+	kv.changeSurface("10");
 
-	if (iv.hasAnimation() == false ){
+	if (sv.hasAnimation() == false ){
 	    findViewById(R.id.btn2).setEnabled(false);
 	}
 	else {
 	    //iv.loadFirstAvailableAnimation();
 	    animeIndex = currentSurface.getFirstAnimationIndex();
-	    iv.loadAnimation(""+animeIndex);
+	    sv.loadAnimation(""+animeIndex);
 	    /*anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
 	    anime.setVisible(true, true);
 	    iv.setImageDrawable(anime);*/
@@ -122,7 +136,7 @@ public class Nanidroid extends Activity
 	currentSurfaceKey = surfaceKeys[keyindex];
 	Log.d(TAG, "loading surface:" + currentSurfaceKey);
 	currentSurface = mgr.getSakuraSurface(currentSurfaceKey);
-	tv.setText("current drawable key: " + currentSurfaceKey + 
+	bSakura.setText("current drawable key: " + currentSurfaceKey + 
 		   ", animation count: " + currentSurface.getAnimationCount() +
 		   ", collision count: " + currentSurface.getCollisionCount()
 		   );
@@ -134,7 +148,7 @@ public class Nanidroid extends Activity
 	//iv.setImageDrawable(anime);
 // 	anime.stop(); // stop previous animation?
 // 	anime.start();
-	iv.startAnimation();
+	sv.startAnimation();
 	
     }
 
@@ -144,7 +158,7 @@ public class Nanidroid extends Activity
 	    if ( animeIndex >= currentSurface.getAnimationCount() )
 		animeIndex = 0;
 
-	    iv.loadAnimation(""+animeIndex);
+	    sv.loadAnimation(""+animeIndex);
 	}
     }
 
@@ -157,10 +171,17 @@ public class Nanidroid extends Activity
 	//anime.start();
 	//showCollisionAreaOnImageView();
 	pickNextAnimation();
+	//runner.run();
     }
 
     private void showCollisionAreaOnImageView() {
-	iv.showCollisionArea();
+	sv.showCollisionArea();
+    }
+
+    public void runClick(View v){
+	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\e";
+	runner.addMsgToQueue(new String[]{cmd});
+	runner.run();
     }
 
 }
