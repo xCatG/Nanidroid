@@ -5,6 +5,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import android.view.View;
 import java.util.regex.Matcher;
 import android.util.Log;
+import android.os.Handler;
+import android.os.Message;
 
 public class SScriptRunner {
     private static final String TAG = "SScriptRunner";
@@ -45,19 +47,47 @@ public class SScriptRunner {
 
     private String msg = null;
 
+    private boolean no_wait_mode = false;
+    public void setNoWaitMode(boolean wait){
+	no_wait_mode = wait;
+    }
+
+    private static final int RUN = 42;
+    private static final int STOP = RUN+1;
+    private Handler loopHandler = new Handler() {
+	    @Override
+	    public void handleMessage(Message msg) {
+		if ( msg.what == RUN )
+		    loopControl();
+		else if ( msg.what == STOP )
+		    stop();
+	    }
+	};
+
     private void loopControl() {
 	if ( charIndex < msg.length() ){
 	    parseMsg();
 	    updateUI();
-	    loopControl();
+	    if ( no_wait_mode )
+		loopControl();
+	    else
+		loopHandler.sendEmptyMessageDelayed(RUN, waitTime);
 	}
 	else {
 	    reset();
 	    msg = mMsgQueue.poll();
-	    if ( msg == null )
-		stop();
-	    else
-		loopControl();
+	    if ( msg == null ) {
+		if ( no_wait_mode )
+		    stop();
+		else
+		    loopHandler.sendEmptyMessageDelayed(STOP, waitTime);
+	    }
+	    else {
+		if ( no_wait_mode )
+		    loopControl();
+		else
+		    loopHandler.sendEmptyMessageDelayed(RUN, waitTime);
+	    }
 	}
     }
 

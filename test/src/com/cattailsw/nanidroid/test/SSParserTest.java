@@ -112,6 +112,7 @@ public class SSParserTest extends AndroidTestCase {
 	bKero = new DummyBalloon(mContext);
 	sr = SScriptRunner.getInstance(mContext);
 	sr.setViews(sakura, kero, bSakura, bKero);
+	sr.setNoWaitMode(true);
     }
 
     protected void tearDown() throws Exception {
