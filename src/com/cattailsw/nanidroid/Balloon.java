@@ -19,7 +19,7 @@ public class Balloon extends TextView {
     }
 
     public void setText(String str){
-	setText(str);
+	super.setText(str);
     }
 
 }
