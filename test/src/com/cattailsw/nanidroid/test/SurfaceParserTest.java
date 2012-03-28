@@ -19,11 +19,11 @@ public class SurfaceParserTest extends AndroidTestCase {
 		Matcher m = PatternHolders.animation.matcher(t);
 		assertTrue(m.matches());
 		assertEquals(9, m.groupCount());
-		printMatch(m);
+		Util.printMatch(m);
 		t = "animation2.pattern0,alternativestart,(0,1,2)";
 		m = PatternHolders.animation.matcher(t);
 		assertTrue(m.matches());
-		printMatch(m);
+		Util.printMatch(m);
 		m = PatternHolders.animation_alt.matcher(t);
 		assertTrue(m.matches());
 		assertEquals(3, m.groupCount());
@@ -43,26 +43,13 @@ public class SurfaceParserTest extends AndroidTestCase {
 		assertEquals("100", m.group(7));		
 	}
 
-    private void printMatch(Matcher m) {
-	Log.d(TAG, "matcher has " + m.groupCount() + " groups");
-	for ( int i = 0; i < m.groupCount(); i++ ) {
-	    Log.d(TAG, "("+i+") => " + m.group(i));
-	}
-	try {
-	    Log.d(TAG, "("+m.groupCount()+") => " + m.group( m.groupCount()));
-	}
-	catch(Exception e) {
-
-	}
-
-    }
 
     public void testSurfaceFileParse(){
 	String t = "surface0.png";
 	Matcher m = PatternHolders.surface_file_scan.matcher(t);
 	assertTrue(m.matches());
 	assertEquals("0", m.group(1));
-	printMatch(m);
+	Util.printMatch(m);
 	t = "surface0000.png";
 	m = PatternHolders.surface_file_scan.matcher(t);
 	assertTrue(m.matches());

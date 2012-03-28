@@ -158,6 +158,14 @@ public class SScriptRunner {
 		    sakuraTalk = false;
 		    keroMsg.setLength(0);
 		    break;
+		case 's':
+		    if ( handle_surface() )
+			break loop;
+		    break;
+		case 'i':
+		    if ( handle_animation() )
+			break loop;
+		    break;
 		case 'e': // yen-e
 		    charIndex = msg.length();
 		    break loop;
@@ -247,6 +255,45 @@ public class SScriptRunner {
 
     private boolean handle_exclaim_type(String leftString) {
 	return false;
+    }
+
+    // should break out of loop to perform surface update immediately upon hitting this tag
+    private boolean handle_surface(){
+	// two cases
+	// \s0-9 and \s[id] case
+	String left = msg.substring(charIndex, msg.length());
+	Matcher m = PatternHolders.surface_ptrn.matcher(left);
+	if ( m.find() ) {
+	    // now, sid will be in m.group(1) or m.group(2) depending on format
+	    // check for m.group(2) first?	    
+	    String sid = null;
+	    if ( m.group(2) != null ) {
+		sid = m.group(2);
+	    }
+	    else {
+		sid = m.group(1);
+	    }
+	    changeSurface(sid);
+	    charIndex += m.group().length();
+	    return true;
+	}
+	else {
+	    Log.d(TAG, "malformed \\s tag at index:" + charIndex);
+	}
+	return false;
+    }
+
+    // same as surface, should break out and start animation immediately
+    private boolean handle_animation() {
+	
+	return false;
+    }
+
+    private void changeSurface(String sid) {
+	if ( sakuraTalk )
+	    sakuraSurfaceId = sid;
+	else
+	    keroSurfaceId = sid;
     }
 
     private void updateUI() {

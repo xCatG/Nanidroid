@@ -14,27 +14,45 @@ public class SSParserTest extends AndroidTestCase {
 	public DummyKeroView(Context ctx){super(ctx);}
 	
 	public void changeSurface(String id) {
-	    this.sid = id;
+	    if ( this.sid == null )
+		this.sid = id;
+	    else
+		this.sid = this.sid + "," + id;
 	}
     }
 
     class DummySakuraView extends SakuraView {
+	private static final String TAG = "DummySakuraView";
 	String sid = null;
+	String stext = null;
 	public DummySakuraView(Context ctx){super(ctx);}
 	public void changeSurface(String id) {
-	    this.sid = id;
+	    Log.d(TAG, " sid => " + id);
+	    if ( this.sid == null ) {
+		this.sid = id;
+		this.stext = id;
+	    }
+	    else if ( sid.equalsIgnoreCase(id) == false ) {
+		this.sid = id;
+		this.stext = this.stext + "," + id;
+	    }
 	}
     }
 
     class DummyBalloon extends Balloon {
+	String dispText = null;
 	String text = null;
 	public DummyBalloon(Context ctx){super(ctx);}
 	public void setText(String str){
 	    Log.d(TAG, "got text:" + str);
-	    if ( this.text == null )
-	    this.text = str; 
-	    else
+	    if ( this.text == null ) {
+		this.text = str; 
+		dispText = str;
+	    }
+	    else {
+		dispText = str;
 		this.text += str;// keep appending text
+	    }
 	}
     }
 
@@ -132,7 +150,56 @@ public class SSParserTest extends AndroidTestCase {
 	sqbreket_tester = "[]";
 	m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
 	assertFalse(m.find()); // should not match
+    }
 
+    public void testParsingSurfaceRegExp() {
+	String t = "[10]";
+	Matcher m = PatternHolders.surface_ptrn.matcher(t);
+	assertTrue(m.find());
+	Util.printMatch(m);
+
+	t = "0";
+	m  = PatternHolders.surface_ptrn.matcher(t);
+	assertTrue(m.find());
+	Util.printMatch(m);
+
+	t = "9";
+	m  = PatternHolders.surface_ptrn.matcher(t);
+	assertTrue(m.find());
+	Util.printMatch(m);
+
+	t = "a";
+	m = PatternHolders.surface_ptrn.matcher(t);
+	assertFalse(m.find());
+
+	t = "[a]";
+	m = PatternHolders.surface_ptrn.matcher(t);
+	assertFalse(m.find());
+    }
+
+    public void testSurfaceChangeSakura() {
+	sakura = new DummySakuraView(mContext);
+	bSakura = new DummyBalloon(mContext);
+	sr.setViews(sakura, kero, bSakura, bKero);
+	String t = "\\h\\s0\\e";
+	sr.addMsgToQueue(new String[]{t});
+	sr.run();
+	
+	assertEquals("0", sakura.stext);
+
+	t = "\\s[120]\\e";
+	sr.addMsgToQueue(new String[]{t});
+	sr.run();
+	Log.d(TAG, "..." + sakura.stext);
+	assertEquals("120", sakura.sid);
+	assertEquals("0,120", sakura.stext);
+
+	t = "\\h\\s10wrong\\s[10]\\e";
+	sr.addMsgToQueue(new String[]{t});
+	sr.run();
+	assertEquals("10", sakura.sid);
+	assertEquals("0,120,1,10", sakura.stext);
+	assertEquals("0wrong",bSakura.dispText);
     }
 
 }
