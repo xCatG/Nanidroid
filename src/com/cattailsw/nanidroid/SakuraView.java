@@ -40,9 +40,13 @@ public class SakuraView extends ImageView {
     public void setMgr(SurfaceManager m) {
 	mgr = m;
     }
+
+    protected void loadSurface(String sid) {
+	currentSurface = mgr.getSakuraSurface(sid);
+    }
     
     public void changeSurface(String surfaceid){
-	currentSurface = mgr.getSakuraSurface(surfaceid);
+	loadSurface(surfaceid);
 	setImageDrawable(currentSurface.getSurfaceDrawable(mCtx.getResources()));
     }
 

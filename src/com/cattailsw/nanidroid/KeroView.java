@@ -15,7 +15,7 @@ public class KeroView extends SakuraView {
 	super(ctx, attr, defStyle);
     }
 
-    public void changeSurface(String surfaceid){
+    protected void loadSurface(String surfaceid){
 	currentSurface = mgr.getKeroSurface(surfaceid);
     }
 
