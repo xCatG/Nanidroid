@@ -76,6 +76,13 @@ public class SakuraView extends ImageView {
     public void startAnimation(int type) {
 	// for talk type animation I guess
 	// do nothing for the time being
+	String id = currentSurface.getAnimationIdByType(type);
+	if ( id == null ) // no such type animation
+	    return;
+
+	if ( currentAnimationId.equalsIgnoreCase(id) == false )
+	    loadAnimation(id);
+	startAnimation();
     }
 
     public void showCollisionArea() {

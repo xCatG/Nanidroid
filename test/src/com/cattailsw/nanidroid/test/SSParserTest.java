@@ -32,6 +32,11 @@ public class SSParserTest extends AndroidTestCase {
 	}
 
 	@Override
+	public void startTalkingAnimation() {
+	    // do nothing
+	}
+
+	@Override
 	public void startAnimation() {
 	    // do nothing
 	}

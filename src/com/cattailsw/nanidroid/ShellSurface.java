@@ -131,6 +131,7 @@ public class ShellSurface {
     }
 
     Map<String, Animation> animationTable = null;
+    Map<Integer, String> animationTypeTable = null;
     List<AnimationFrame> elementList = null;
 
     class Animation {
@@ -267,6 +268,8 @@ public class ShellSurface {
     private void prepareAnimationTable() {
 	if ( animationTable == null )
 	    animationTable = new Hashtable<String, Animation>();
+	if ( animationTypeTable == null )
+	    animationTypeTable = new Hashtable<Integer, String>();
     }
 
     private void loadElements(List<String> elements) {
@@ -481,7 +484,14 @@ public class ShellSurface {
 	    animationTable.get(id).interval = lookupInterval(interval);
 	}
 	else {
-	    animationTable.put(id, new Animation(id, lookupInterval(interval)));
+	    int val = lookupInterval(interval);
+	    animationTable.put(id, new Animation(id, val));//lookupInterval(interval)));
+	    if (animationTypeTable.containsKey(val) ) {
+		String exist = animationTypeTable.get(val);
+		animationTypeTable.put(val, exist + ","  + id);
+	    }
+	    else
+		animationTypeTable.put(val, id);
 	}
     }
 
@@ -765,7 +775,22 @@ public class ShellSurface {
 
 	return animationTable.get(""+patternId).frames.size();
     }
-    
+
+    public String getAnimationIdByType(int type){
+	// go through animation table, get all animation of type
+	// randomly return one of them...
+	if ( animationTypeTable.containsKey(type) ) {
+	    String idstring = animationTypeTable.get(type);
+	    String[] idz = idstring.split(",");
+	    if ( idz == null )
+		return idstring;
+	    else {
+		return idz[ (int)(Math.random() * idz.length) ];
+
+	    }
+	}
+	return null;
+    }
     
 
 }
