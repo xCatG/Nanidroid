@@ -14,6 +14,10 @@ public class SScriptRunner {
     private static SScriptRunner _self = null;
     private static final ConcurrentLinkedQueue<String> mMsgQueue = new ConcurrentLinkedQueue<String>();
 
+    public interface StatusCallback {
+	public void stop();
+    }
+
     public static SScriptRunner getInstance(Context ctx) {
 	if ( _self == null )
 	    _self = new SScriptRunner(ctx);
@@ -50,6 +54,11 @@ public class SScriptRunner {
     private boolean no_wait_mode = false;
     public void setNoWaitMode(boolean wait){
 	no_wait_mode = wait;
+    }
+
+    private StatusCallback cb = null;
+    public void setCallback(StatusCallback c){
+	cb = c;
     }
 
     private static final int RUN = 42;
@@ -113,6 +122,8 @@ public class SScriptRunner {
 	synchronized( isRunning ) {
 	    isRunning = false;
 	}
+	if ( cb != null )
+	    cb.stop();
     }
 
     private void reset() {

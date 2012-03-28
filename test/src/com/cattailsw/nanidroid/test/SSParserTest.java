@@ -103,6 +103,13 @@ public class SSParserTest extends AndroidTestCase {
     DummyBalloon bSakura = null;//new DummyBalloon();
     DummyBalloon bKero = null;//new DummyBalloon();
     SScriptRunner sr = null;
+
+    boolean stopCalled = false;
+    SScriptRunner.StatusCallback c = new SScriptRunner.StatusCallback() {
+	    public void stop() {
+		stopCalled = true;
+	    }
+	};
     protected void setUp() throws Exception {
 	super.setUp();
 	mContext = getContext();
@@ -284,5 +291,18 @@ public class SSParserTest extends AndroidTestCase {
 
 	assertEquals(12, sakura.talkCalledTime );
 	assertEquals("0", sakura.aid);
+    }
+
+    public void testCallback() {
+	stopCalled = false;
+	String cmd = "\\habcde\\e";
+	sr.addMsgToQueue(new String[]{cmd});
+	sr.run();
+	assertFalse(stopCalled);
+
+	sr.setCallback(c);
+	sr.addMsgToQueue(new String[]{cmd});
+	sr.run();
+	assertTrue(stopCalled);
     }
 }
