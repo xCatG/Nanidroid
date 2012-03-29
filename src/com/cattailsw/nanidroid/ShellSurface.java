@@ -779,7 +779,8 @@ public class ShellSurface {
     public String getAnimationIdByType(int type){
 	// go through animation table, get all animation of type
 	// randomly return one of them...
-	if ( animationTypeTable.containsKey(type) ) {
+	
+	if (animationTypeTable!=null && animationTypeTable.containsKey(type) ) {
 	    String idstring = animationTypeTable.get(type);
 	    String[] idz = idstring.split(",");
 	    if ( idz == null )
