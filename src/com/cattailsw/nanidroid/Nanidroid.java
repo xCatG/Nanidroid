@@ -70,8 +70,8 @@ public class Nanidroid extends Activity
 
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
 	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
-	    "/Android/data/com.cattailsw.nanidroid/ghost/2elf";
-	    //"/Android/data/com.cattailsw.nanidroid/ghost/yohko";
+	    //"/Android/data/com.cattailsw.nanidroid/ghost/2elf";
+	    "/Android/data/com.cattailsw.nanidroid/ghost/yohko";
 	    //"/Android/data/com.cattailsw.nanidroid/ghost/first";
 	// read the ghost shell
 	//

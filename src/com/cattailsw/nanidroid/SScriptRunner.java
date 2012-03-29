@@ -368,8 +368,6 @@ public class SScriptRunner {
     private void updateUI() {
 	sakura.changeSurface(sakuraSurfaceId);
 	kero.changeSurface(keroSurfaceId);
-	if ( layoutMgr != null )
-	    layoutMgr.checkAndUpdateLayoutParam();
 
 	boolean sakuraAnimate = (sakuraAnimationId != null);
 	boolean keroAnimate = ( keroAnimationId != null );
@@ -392,6 +390,10 @@ public class SScriptRunner {
 	    keroBalloon.setText(keroMsg.toString());
 	    if ( !keroAnimate) kero.startTalkingAnimation();
 	}
+
+	if ( layoutMgr != null )
+	    layoutMgr.checkAndUpdateLayoutParam();
+
 
 	if ( sakuraAnimate ) {
 	    sakura.loadAnimation(sakuraAnimationId);

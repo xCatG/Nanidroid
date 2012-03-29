@@ -43,51 +43,29 @@
     
   </LinearLayout>
 
-  <LinearLayout
-    android:orientation="horizontal"
-    android:layout_width="fill_parent"
-    android:layout_height="wrap_content"
-    >
-<com.cattailsw.nanidroid.Balloon
-    android:id="@+id/bKero"
-    android:layout_width="0dp"
-      android:layout_weight="1"
-    android:layout_height="wrap_content"
-    android:text="Hello World, Nanidroid"
-    android:background="@drawable/balloon"
-    />
-<com.cattailsw.nanidroid.Balloon
-    android:id="@+id/bSakura"
-    android:layout_width="0dp"
-      android:layout_weight="1"
-    android:layout_height="wrap_content"
-    android:text="Hello World, Nanidroid"
-    android:background="@drawable/balloon"
-    />
-  </LinearLayout>
-<!--  <LinearLayout
-    android:orientation="horizontal"
-    android:layout_width="fill_parent"
-    android:layout_height="fill_parent"
-    android:layout_gravity="bottom"
-    >-->
-<!--  <RelativeLayout
-    android:orientation="horizontal"
-    android:layout_width="fill_parent"
-    android:layout_height="fill_parent"
-    android:layout_gravity="bottom"
-    >-->
-<!--<ImageView
-    android:id="@+id/sakura_display"
-    android:layout_width="fill_parent"
-    android:layout_height="fill_parent"
-    android:onClick="ivClick"
-    />-->
 <FrameLayout
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     android:id="@+id/fl"
     >
+<com.cattailsw.nanidroid.Balloon
+    android:id="@+id/bKero"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="Hello World, Nanidroid"
+    android:background="@drawable/balloon"
+      android:layout_gravity="top|left"
+    />
+<com.cattailsw.nanidroid.Balloon
+    android:id="@+id/bSakura"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="Hello World, Nanidroid"
+    android:background="@drawable/balloon"
+      android:layout_gravity="top|right"
+    />
+
+
   <com.cattailsw.nanidroid.SakuraView
     android:id="@+id/sakura_display"
     android:layout_width="180dp"
