@@ -37,7 +37,7 @@ public class Nanidroid extends Activity
 
     AnimationDrawable anime = null;
     SurfaceManager mgr = null;
-
+    LayoutManager lm = null;
     SScriptRunner runner = null;
 
     /** Called when the activity is first created. */
@@ -54,10 +54,12 @@ public class Nanidroid extends Activity
 	fl = (FrameLayout) findViewById(R.id.fl);
 
 	mgr = SurfaceManager.getInstance();
+	lm = LayoutManager.getInstance(this);
 	runner = SScriptRunner.getInstance(this);
 	runner.setViews(sv, kv, bSakura, bKero);
 	sv.setMgr(mgr);
 	kv.setMgr(mgr);
+	lm.setViews(fl, sv, kv, bSakura, bKero);
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
 	    bSakura.setText("sd card error");
@@ -67,9 +69,9 @@ public class Nanidroid extends Activity
 
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
 	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
-	    //"/Android/data/com.cattailsw.nanidroid/ghost/2elf";
+	    "/Android/data/com.cattailsw.nanidroid/ghost/2elf";
 	    //"/Android/data/com.cattailsw.nanidroid/ghost/yohko";
-	    "/Android/data/com.cattailsw.nanidroid/ghost/first";
+	    //"/Android/data/com.cattailsw.nanidroid/ghost/first";
 	// read the ghost shell
 	//
 	String master_shell_path = ghost_path + "/shell/master";
@@ -160,7 +162,8 @@ public class Nanidroid extends Activity
     private void checkAndLoadAnimation() {
 	sv.changeSurface(currentSurfaceKey);
 	kv.changeSurface("10");
-	checkAndUpdateLayoutParam();
+	lm.checkAndUpdateLayoutParam();
+	//checkAndUpdateLayoutParam();
 
 
 	if (sv.hasAnimation() == false ){
