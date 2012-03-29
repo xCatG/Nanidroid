@@ -60,6 +60,7 @@ public class Nanidroid extends Activity
 	sv.setMgr(mgr);
 	kv.setMgr(mgr);
 	lm.setViews(fl, sv, kv, bSakura, bKero);
+	runner.setLayoutMgr(lm);
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
 	    bSakura.setText("sd card error");

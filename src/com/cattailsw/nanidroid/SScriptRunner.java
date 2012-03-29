@@ -14,6 +14,8 @@ public class SScriptRunner {
     private static SScriptRunner _self = null;
     private static final ConcurrentLinkedQueue<String> mMsgQueue = new ConcurrentLinkedQueue<String>();
 
+    private LayoutManager layoutMgr = null;
+
     public interface StatusCallback {
 	public void stop();
     }
@@ -40,6 +42,10 @@ public class SScriptRunner {
 	kero = k;
 	sakuraBalloon = bS;
 	keroBalloon = bK;
+    }
+
+    public void setLayoutMgr(LayoutManager lm) {
+	layoutMgr = lm;
     }
 
     public synchronized void addMsgToQueue(String []msgs){
@@ -362,6 +368,8 @@ public class SScriptRunner {
     private void updateUI() {
 	sakura.changeSurface(sakuraSurfaceId);
 	kero.changeSurface(keroSurfaceId);
+	if ( layoutMgr != null )
+	    layoutMgr.checkAndUpdateLayoutParam();
 
 	boolean sakuraAnimate = (sakuraAnimationId != null);
 	boolean keroAnimate = ( keroAnimationId != null );
