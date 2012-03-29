@@ -21,6 +21,10 @@ import java.util.Collections;
 import java.util.Arrays;
 import android.util.Log;
 
+import com.android.debug.hv.ViewServer;
+import android.widget.FrameLayout;
+import android.view.Gravity;
+
 public class Nanidroid extends Activity
 {
     private static final String TAG = "Nanidroid";
@@ -29,6 +33,7 @@ public class Nanidroid extends Activity
     private KeroView kv = null;
     private Balloon bSakura = null;
     private Balloon bKero = null;
+    private FrameLayout fl = null;
 
     AnimationDrawable anime = null;
     SurfaceManager mgr = null;
@@ -46,7 +51,7 @@ public class Nanidroid extends Activity
 	kv = (KeroView) findViewById(R.id.kero_display);
 	bSakura = (Balloon) findViewById(R.id.bSakura);
 	bKero = (Balloon) findViewById(R.id.bKero);
-
+	fl = (FrameLayout) findViewById(R.id.fl);
 
 	mgr = SurfaceManager.getInstance();
 	runner = SScriptRunner.getInstance(this);
@@ -63,8 +68,8 @@ public class Nanidroid extends Activity
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
 	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
 	    //"/Android/data/com.cattailsw.nanidroid/ghost/2elf";
-	    "/Android/data/com.cattailsw.nanidroid/ghost/yohko";
-	//"/Android/data/com.cattailsw.nanidroid/ghost/first";
+	    //"/Android/data/com.cattailsw.nanidroid/ghost/yohko";
+	    "/Android/data/com.cattailsw.nanidroid/ghost/first";
 	// read the ghost shell
 	//
 	String master_shell_path = ghost_path + "/shell/master";
@@ -98,12 +103,65 @@ public class Nanidroid extends Activity
 	currentSurfaceKey = surfaceKeys[0];
 	currentSurface = mgr.getSakuraSurface(currentSurfaceKey);
 	checkAndLoadAnimation();
+	ViewServer.get(this).addWindow(this);
     }
 
+    public void onDestroy() {
+	super.onDestroy();
+	ViewServer.get(this).removeWindow(this);
+    }
+
+    public void onResume() {
+	super.onResume();
+	ViewServer.get(this).setFocusedWindow(this);
+    }
+
+
+    private void checkAndUpdateLayoutParam() {
+	// we need to get actual width of fl
+	// then get width of sakura and kero
+	int layoutWidth = fl.getWidth();
+	int layoutHeight = fl.getHeight();
+	if ( layoutHeight <= 0 || layoutWidth <= 0 )
+	    return;
+
+	int sH = sv.currentSurface.origH;
+	int sW = sv.currentSurface.origW;
+	int kH = kv.currentSurface.origH;
+	int kW = kv.currentSurface.origW;
+
+	// need to compute the maximum allowed width and height for both kero and sakura
+	// first compare sW + kW and lW
+	float wScale = 1.0f;
+	if ( sW + kW > layoutWidth ) {
+	    wScale = ((float) layoutWidth / (float)(sW + kW) );
+	}
+
+	float hScale = 1.0f;
+	int vH = Math.max(sH, kH);
+	if ( vH > layoutHeight ) {
+	    hScale = ((float) layoutHeight / (float)vH );
+	}
+	
+	float scale = Math.min(wScale, hScale);
+	Log.d(TAG, "wScale:hScale="+wScale+":"+hScale+", [lH:lW]=["+layoutHeight+":"+layoutWidth+"],[sh:sw]="
+	      + sH + ":" + sW +"]");
+	FrameLayout.LayoutParams lpS = new FrameLayout.LayoutParams((int)(sW * scale),
+								    (int)(sH * scale),
+								    Gravity.BOTTOM | Gravity.RIGHT);
+	sv.setLayoutParams(lpS);
+	FrameLayout.LayoutParams lpK = new FrameLayout.LayoutParams((int)(kW*scale),
+								    (int)(kH*scale),
+								    Gravity.BOTTOM | Gravity.LEFT);
+	kv.setLayoutParams(lpK);
+	fl.invalidate();
+    }
 
     private void checkAndLoadAnimation() {
 	sv.changeSurface(currentSurfaceKey);
 	kv.changeSurface("10");
+	checkAndUpdateLayoutParam();
+
 
 	if (sv.hasAnimation() == false ){
 	    findViewById(R.id.btn2).setEnabled(false);
@@ -179,7 +237,7 @@ public class Nanidroid extends Activity
     }
 
     public void runClick(View v){
-	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\e";
+	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\h\\s[4]ksdjaklajdkasdjkl\\uasndklandklan\\s[300]\\nksjdklasjdk\\halalalsk\\e";
 	runner.addMsgToQueue(new String[]{cmd});
 	runner.run();
     }

@@ -65,31 +65,52 @@
     android:background="@drawable/balloon"
     />
   </LinearLayout>
-  <LinearLayout
+<!--  <LinearLayout
     android:orientation="horizontal"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    >
+    android:layout_gravity="bottom"
+    >-->
+<!--  <RelativeLayout
+    android:orientation="horizontal"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:layout_gravity="bottom"
+    >-->
 <!--<ImageView
     android:id="@+id/sakura_display"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     android:onClick="ivClick"
     />-->
-  <com.cattailsw.nanidroid.KeroView
-    android:id="@+id/kero_display"
-    android:layout_width="0dp"
-      android:layout_weight="1"
+<FrameLayout
+    android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    android:onClick="ivClick"
-    />
+    android:id="@+id/fl"
+    >
   <com.cattailsw.nanidroid.SakuraView
     android:id="@+id/sakura_display"
-    android:layout_width="0dp"
-      android:layout_weight="1"
-    android:layout_height="fill_parent"
+    android:layout_width="180dp"
+    android:layout_height="240dp"
+      android:layout_weight="7"
+      android:layout_alignParentRight="true"
+      android:layout_alignParentBottom="true"
+      android:layout_gravity="bottom|right"
     android:onClick="ivClick"
     />
-  </LinearLayout>
+  <com.cattailsw.nanidroid.KeroView
+    android:id="@+id/kero_display"
+    android:layout_width="126dp"
+    android:layout_height="168dp"
+      android:layout_weight="10"
+      android:layout_toLeftOf="@id/sakura_display"
+      android:layout_alignParentLeft="true"
+      android:layout_alignParentBottom="true"
+      android:layout_gravity="bottom|left"
+    android:onClick="ivClick"
+    />
+  </FrameLayout>
+<!--  </RelativeLayout> -->
+<!--  </LinearLayout>-->
 </LinearLayout>
 
