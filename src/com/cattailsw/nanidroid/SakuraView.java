@@ -13,6 +13,7 @@ import android.graphics.Paint;
 import android.graphics.Paint.Style;
 import android.graphics.Bitmap.Config;
 import android.graphics.Color;
+import android.view.View;
 
 public class SakuraView extends ImageView {
     private static final String TAG = "SakuraView";
@@ -46,8 +47,15 @@ public class SakuraView extends ImageView {
     }
     
     public void changeSurface(String surfaceid){
+	if ( surfaceid.equalsIgnoreCase("-1")) {
+	    // hide self
+	    this.setVisibility(View.INVISIBLE);
+	    return;
+	}
+
 	loadSurface(surfaceid);
 	setImageDrawable(currentSurface.getSurfaceDrawable(mCtx.getResources()));
+	this.setVisibility(View.VISIBLE);
     }
 
     public boolean hasAnimation() {
