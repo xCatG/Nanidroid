@@ -55,6 +55,7 @@
     android:text="Hello World, Nanidroid"
     android:background="@drawable/balloon"
       android:layout_gravity="top|left"
+      android:textColor="#000000"
     />
 <com.cattailsw.nanidroid.Balloon
     android:id="@+id/bSakura"
@@ -63,6 +64,7 @@
     android:text="Hello World, Nanidroid"
     android:background="@drawable/balloon"
       android:layout_gravity="top|right"
+      android:textColor="#000000"      
     />
 
 
