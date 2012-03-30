@@ -153,6 +153,7 @@ public class SScriptRunner {
     }
 
     public static final long WAIT_UNIT = 50; // wait unit is 50ms
+    public static final long WAIT_YEN_E = 1000; // wait one second before clearing?
 
     private boolean sync = false;
     private boolean wholeline = false;
@@ -225,6 +226,7 @@ public class SScriptRunner {
 		    break;
 		case 'e': // yen-e
 		    charIndex = msg.length();
+		    waitTime = WAIT_YEN_E;
 		    break loop;
 		case 'n': // new line, but need to handle and discard \n[XXX] cases		    
 		    appendChar('\n');
@@ -234,7 +236,7 @@ public class SScriptRunner {
 		    Matcher m = PatternHolders.sqbracket_half_number.matcher(rest);
 		    if ( m.find() ) { // [xxx] is found in the sequence
 			charIndex += m.group().length(); // skip the whole matching [] portions
-			Log.d(TAG, "skipping unsupported tag " + m.group());
+			Log.d(TAG, "skipping unsupported tag n" + m.group());
 		    }
 		    break loop;
 		case 'c': // clear msg
@@ -247,6 +249,15 @@ public class SScriptRunner {
 		case '!':
 		    if ( handle_exclaim_type( msg.substring(charIndex, msg.length() ) ) )
 			break loop;
+		    break;
+		case 'w':
+		    char c = msg.charAt(charIndex); charIndex++;
+		    if ( Character.isDigit(c) ) {
+			int cint = (c - '0');
+			waitTime = cint * WAIT_UNIT;
+			Log.d(TAG, "waiting" + waitTime);
+			break loop;
+		    }
 		    break;
 		case '-':
 		case '4':
@@ -296,12 +307,12 @@ public class SScriptRunner {
 	    Matcher m = PatternHolders.sqbracket_half_number.matcher(leftString);
 	    if ( m.find() ) { // [xxx] is found in the sequence
 		charIndex += m.group().length(); // skip the whole matching [] portions
-		Log.d(TAG, "skipping unsupported tag " + c + m.group());
+		Log.d(TAG, "skipping unsupported tag _" + c + m.group());
 	    }
 	    break;
 	case 'n':
 	case 'V':
-	    Log.d(TAG, "ignore unsupported " + c + " tag");
+	    Log.d(TAG, "ignore unsupported _" + c + " tag");
 	    break;
 	default:
 	    break;
