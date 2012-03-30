@@ -180,19 +180,19 @@ public class SSParserTest extends AndroidTestCase {
     }
 
     public void testParsingRegExp() {
-	String sqbreket_tester = "abcde\\n[half]efghi";
+	String sqbreket_tester = "[half]efghi";
 	Matcher m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
 	assertTrue(m.find());
 	assertEquals("[half]", m.group());
 	assertEquals("half", m.group(1));
 
-	sqbreket_tester = "qoweqwjkjl\\n[100]ksjdlaksjklwje";
+	sqbreket_tester = "[100]ksjdlaksjklwje";
 	m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
 	assertTrue(m.find());
 	assertEquals("[100]", m.group());
 	assertEquals("100", m.group(1));
 
-	sqbreket_tester = "qoweqwjkjl\\n[100%]ksjdlaksjklwje";
+	sqbreket_tester = "[100%]ksjdlaksjklwje";
 	m = PatternHolders.sqbracket_half_number.matcher(sqbreket_tester);
 	assertTrue(m.find());
 	assertEquals("100%", m.group(1));
@@ -259,6 +259,16 @@ public class SSParserTest extends AndroidTestCase {
 	assertEquals("10", sakura.sid);
 	assertEquals("0,120,1,10", sakura.stext);
 	assertEquals("0wrong",bSakura.dispText);
+
+	t = "\\t\\h\\s[20]\\n\\w9\\u\\s[10]\\n\\h\\s0";
+	sr.addMsgToQueue(new String[]{t});
+	sr.run();
+	assertEquals("0", sakura.sid);
+	assertEquals("0,120,1,10,20,0", sakura.stext);
+	assertEquals("\n", bSakura.dispText);
+
+	//assertEquals("0,120,1,10", sakura.stext);
+	//assertEquals("0wrong",bSakura.dispText);	
     }
 
     public void testParsingAnimationRegExp() {
