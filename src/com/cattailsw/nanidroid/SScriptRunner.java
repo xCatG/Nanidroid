@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid;
 
 import android.content.Context;
+
+import java.util.Collection;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import android.view.View;
 import java.util.regex.Matcher;
@@ -48,6 +50,10 @@ public class SScriptRunner {
 	layoutMgr = lm;
     }
 
+    public synchronized void addMsgToQueue(Collection<String> inCol) {
+    	mMsgQueue.addAll(inCol);
+    }
+    
     public synchronized void addMsgToQueue(String []msgs){
 	for( String s : msgs ) 
 	    mMsgQueue.add(s);
