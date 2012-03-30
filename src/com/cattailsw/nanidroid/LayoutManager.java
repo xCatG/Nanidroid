@@ -61,8 +61,8 @@ public class LayoutManager {
 	}
 	
 	float scale = Math.min(wScale, hScale);
-	Log.d(TAG, "wScale:hScale="+wScale+":"+hScale+", [lH:lW]=["+layoutHeight+":"+layoutWidth+"],[sh:sw]="
-	      + sH + ":" + sW +"]");
+// 	Log.d(TAG, "wScale:hScale="+wScale+":"+hScale+", [lH:lW]=["+layoutHeight+":"+layoutWidth+"],[sh:sw]="
+// 	      + sH + ":" + sW +"]");
 	int scaledSakuraHeight = (int) ( sH * scale);
 	FrameLayout.LayoutParams lpS = new FrameLayout.LayoutParams((int)(sW * scale),
 								    scaledSakuraHeight,

@@ -24,6 +24,7 @@ import android.util.Log;
 import com.android.debug.hv.ViewServer;
 import android.widget.FrameLayout;
 import android.view.Gravity;
+import android.content.Intent;
 
 public class Nanidroid extends Activity
 {
@@ -241,9 +242,10 @@ public class Nanidroid extends Activity
     }
 
     public void runClick(View v){
-	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\h\\s[4]ksdjaklajdkasdjkl\\uasndklandklan\\s[300]\\nksjdklasjdk\\halalalsk\\e";
+	/*	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\h\\s[4]ksdjaklajdkasdjkl\\uasndklandklan\\s[300]\\nksjdklasjdk\\halalalsk\\e";
 	runner.addMsgToQueue(new String[]{cmd});
-	runner.run();
+	runner.run();*/
+	startService(new Intent(this, HeadLineSensorService.class));	
     }
 
 }
