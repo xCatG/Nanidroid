@@ -77,10 +77,10 @@ public class SScriptRunner {
     private static final int STOP = RUN+1;
     private Handler loopHandler = new Handler() {
 	    @Override
-	    public void handleMessage(Message msg) {
-		if ( msg.what == RUN )
+	    public void handleMessage(Message m) {
+		if ( m.what == RUN )
 		    loopControl();
-		else if ( msg.what == STOP )
+		else if ( m.what == STOP )
 		    stop();
 	    }
 	};
@@ -96,7 +96,7 @@ public class SScriptRunner {
 	}
 	else {
 	    reset();
-	    msg = mMsgQueue.poll();
+	    msg = getFromQueue();//mMsgQueue.poll();
 	    if ( msg == null ) {
 		if ( no_wait_mode )
 		    stop();
@@ -120,7 +120,7 @@ public class SScriptRunner {
 	}
 
 	reset();
-	msg = mMsgQueue.poll();
+	msg = getFromQueue();//rewriteMsg(mMsgQueue.poll());
 	if ( msg == null ) {
 	    stop();
 	}
@@ -128,6 +128,14 @@ public class SScriptRunner {
 	    loopControl();
 	    //parseMsg();
 	}
+    }
+
+    private String getFromQueue(){
+	return rewriteMsg(mMsgQueue.poll());
+    }
+
+    private String rewriteMsg(String inStr){
+	return inStr;
     }
 
     public synchronized void stop() {
@@ -167,6 +175,9 @@ public class SScriptRunner {
     private String keroSurfaceId = "10";
     private String sakuraAnimationId = null;
     private String keroAnimationId = null;
+
+    private String bSakuraId = "0";
+    private String bKeroId = "0";
 
     private void appendChar(char c) {
 	if ( sync ) {
@@ -259,6 +270,10 @@ public class SScriptRunner {
 			break loop;
 		    }
 		    break;
+		case 'b':
+		    if ( handle_balloon() )
+			break loop;
+		    break;
 		case '-':
 		case '4':
 		case '5':
@@ -314,6 +329,8 @@ public class SScriptRunner {
 	case 'V':
 	    Log.d(TAG, "ignore unsupported _" + c + " tag");
 	    break;
+	case 'b':
+	    return handle_balloon();
 	default:
 	    break;
 	}
@@ -351,6 +368,26 @@ public class SScriptRunner {
 	return false;
     }
 
+    private boolean handle_balloon(){
+	// need to check for
+	// [id] and [filename,x,y] type commands
+	String left = msg.substring(charIndex, msg.length());
+	Matcher m = PatternHolders.balloon_ptrn.matcher(left);
+	if ( m.find()) {
+	    String sid = null;
+	    if ( m.group(2) != null )
+		sid = m.group(2);
+	    else
+		sid = m.group(1);
+
+	    changeBalloon(sid);
+	    charIndex += m.group().length();
+	    return true;
+	}
+
+	return false;
+    }
+
     // same as surface, should break out and start animation immediately
     private boolean handle_animation() {
 	String left = msg.substring(charIndex, msg.length());
@@ -372,6 +409,14 @@ public class SScriptRunner {
 	    keroSurfaceId = sid;
     }
 
+    private void changeBalloon(String bid){
+	if ( sakuraTalk) {
+	    bSakuraId = bid;
+	}
+	else
+	    bKeroId = bid;
+    }
+
     private void queueAnimation(String aid) {
 	if ( sakuraTalk ){
 	    sakuraAnimationId = aid;
@@ -389,7 +434,7 @@ public class SScriptRunner {
 	boolean sakuraAnimate = (sakuraAnimationId != null);
 	boolean keroAnimate = ( keroAnimationId != null );
 
-	if ( sakuraMsg.length() == 0 ){
+	if ( bSakuraId.equalsIgnoreCase("-1") && sakuraMsg.length() == 0 ){
 	    //need to set sakura balloon to none
 	    sakuraBalloon.setVisibility(View.INVISIBLE);
 	}
@@ -399,7 +444,7 @@ public class SScriptRunner {
 	    if ( !sakuraAnimate) sakura.startTalkingAnimation();
 	}
 
-	if ( keroMsg.length() == 0 ) {
+	if ( bKeroId.equalsIgnoreCase("-1") && keroMsg.length() == 0 ) {
 	    keroBalloon.setVisibility(View.INVISIBLE);
 	}
 	else {
