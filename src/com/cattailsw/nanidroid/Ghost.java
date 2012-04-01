@@ -11,10 +11,10 @@ public class Ghost {
     SurfaceManager mgr = null;
     Shiori shiori = null;
 
-    private String rootPath = null;
+    protected String rootPath = null;
 
-    private Map<String, String> ghostDesc = null;
-    private Map<String, String> shellDesc = null;
+    protected Map<String, String> ghostDesc = null;
+    protected Map<String, String> shellDesc = null;
 
     public Ghost(String ghostPath) {
 	rootPath = ghostPath;
@@ -22,7 +22,7 @@ public class Ghost {
 	loadGhostInfo();
     }
 
-    private void loadGhostInfo() {
+    protected void loadGhostInfo() {
 	String master_ghost = rootPath + "/ghost/master";
 	String master_ghost_desc = master_ghost + "/descript.txt";
 	DescReader ghost_dr = new DescReader(master_ghost_desc);
@@ -43,6 +43,17 @@ public class Ghost {
 	}
 
 	SurfaceReader sr = new SurfaceReader( master_shell, master_shell_surface );
+    }
+
+    public String getGhostName() {
+	return ghostDesc.get("name");
+    }
+
+    public String getCrafterName() {
+	if ( ghostDesc.get("craftmanw") != null )
+	    return ghostDesc.get("craftmanw");
+
+	return ghostDesc.get("craftman");
     }
 
     public String getSakuraName() {
