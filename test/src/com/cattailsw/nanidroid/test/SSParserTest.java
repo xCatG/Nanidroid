@@ -5,6 +5,7 @@ import com.cattailsw.nanidroid.*;
 import android.content.Context;
 import android.util.Log;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SSParserTest extends AndroidTestCase {
     private static final String TAG = "SSParserTest";
@@ -319,5 +320,13 @@ public class SSParserTest extends AndroidTestCase {
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
 	assertTrue(stopCalled);
+    }
+
+    public void testUrlFilterPattern(){
+
+	Pattern url = Pattern.compile(".*.nar");
+	String s = "http://xxx.xx.xx/xxx/xxx.nar";
+	Matcher m = url.matcher(s);
+	assertTrue( m.find());
     }
 }
