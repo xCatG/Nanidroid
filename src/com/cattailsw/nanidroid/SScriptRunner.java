@@ -140,6 +140,15 @@ public class SScriptRunner {
     }
 
     private String rewriteMsg(String inStr){
+	// search in string for things that match rewrite rule
+	if ( g == null )
+	    return inStr;
+
+	inStr = inStr.replaceAll("%username", g.getUsername());
+	inStr = inStr.replaceAll("%selfname", g.getSakuraName());
+	inStr = inStr.replaceAll("%keroname", g.getKeroName());
+
+
 	return inStr;
     }
 

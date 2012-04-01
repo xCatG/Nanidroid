@@ -266,7 +266,7 @@ public class SSParserTest extends AndroidTestCase {
 	sr.run();
 	assertEquals("0", sakura.sid);
 	assertEquals("0,120,1,10,20,0", sakura.stext);
-	assertEquals("\n", bSakura.dispText);
+	assertEquals("", bSakura.dispText); // should be 0 length instead of \n because \\h tag
 
 	//assertEquals("0,120,1,10", sakura.stext);
 	//assertEquals("0wrong",bSakura.dispText);	
