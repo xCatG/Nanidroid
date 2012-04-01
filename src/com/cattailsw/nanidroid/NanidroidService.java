@@ -17,7 +17,7 @@ import android.util.Log;
  * @author <a href="mailto:"></a>
  * @version 1.0
  */
-public class HeadLineSensorService extends Service {
+public class NanidroidService extends Service {
     private static final String TAG = "HeadLineSensorService";
     private SScriptRunner runner = null;
 
@@ -64,7 +64,7 @@ public class HeadLineSensorService extends Service {
 	    public void handleMessage(Message msg) {
 		switch (msg.what) {
 		case HTTP_TASK_START:
-		    new SensingTask().execute(HeadLineSensorService.this);
+		    new SensingTask().execute(NanidroidService.this);
 		    startHttpTask(DEF_TIME);
 		    break;
 		}
@@ -76,7 +76,7 @@ public class HeadLineSensorService extends Service {
 	@Override
 	protected void onPreExecute() {
 	    // You can't call this in the background thread
-	    runner = SScriptRunner.getInstance(HeadLineSensorService.this);
+	    runner = SScriptRunner.getInstance(NanidroidService.this);
 	}
 
 	@Override
