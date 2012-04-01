@@ -54,7 +54,7 @@ public class DescReader {
 
 	BufferedReader reader = null;
 	try {
-	    reader = new BufferedReader(new InputStreamReader(is, Charset.forName("SJIS")));
+	    reader = new BufferedReader(new InputStreamReader(is, Charset.forName("Shift_JIS")));
 	}
 	catch(Exception e) {
 	    Log.d(TAG, "error reading");
@@ -81,7 +81,7 @@ public class DescReader {
 		continue; // error line
 	    String label = pair[0];
 	    String value = pair[1];
-
+	    Log.d(TAG, "putting [" + label + "," + value + "]");
 	    table.put(label, value);
 	}
     }
@@ -94,7 +94,8 @@ public class DescReader {
 	
 	BufferedReader reader = null;
 	try {
-	    reader = new BufferedReader(new FileReader(infilePath));
+	    reader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(infilePath)), 
+							      Charset.forName("Shift_JIS")));
 	}
 	catch(Exception e) {
 	    Log.d(TAG, "error reading:" + infilePath);
