@@ -45,4 +45,16 @@ public class Ghost {
 	SurfaceReader sr = new SurfaceReader( master_shell, master_shell_surface );
     }
 
+    public String getSakuraName() {
+	return ghostDesc.get("sakura.name");
+    }
+
+    public String getKeroName(){
+	return ghostDesc.get("kero.name");
+    }
+
+    public String getUsername() {
+	return "User";
+    }
+
 }
