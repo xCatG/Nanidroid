@@ -170,6 +170,8 @@ public class SScriptRunner {
 	charIndex = 0;
 	sakuraSurfaceId = "0";
 	keroSurfaceId = "10";
+	bSakuraId = "0";
+	bKeroId = "-1";
 	sakuraAnimationId = null;
 	keroAnimationId = null;
     }
@@ -191,7 +193,7 @@ public class SScriptRunner {
     private String keroAnimationId = null;
 
     private String bSakuraId = "0";
-    private String bKeroId = "0";
+    private String bKeroId = "-1";
 
     private void appendChar(char c) {
 	if ( sync ) {
@@ -202,6 +204,9 @@ public class SScriptRunner {
 	    sakuraMsg.append(c);
 	else
 	    keroMsg.append(c);
+
+	if ( keroMsg.length() > 0 )
+	    bKeroId = "0";
     }
 
     private void clearMsg() {
