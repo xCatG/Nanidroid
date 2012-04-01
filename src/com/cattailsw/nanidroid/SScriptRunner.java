@@ -33,6 +33,7 @@ public class SScriptRunner {
     KeroView kero = null;
     Balloon sakuraBalloon = null;
     Balloon keroBalloon = null;
+    Ghost g = null;
     Context mCtx = null;
 
     private SScriptRunner(Context ctx) {
@@ -44,6 +45,10 @@ public class SScriptRunner {
 	kero = k;
 	sakuraBalloon = bS;
 	keroBalloon = bK;
+    }
+
+    public void setGhost(Ghost _g){
+	g = _g;
     }
 
     public void setLayoutMgr(LayoutManager lm) {
