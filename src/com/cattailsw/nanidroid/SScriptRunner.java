@@ -145,7 +145,7 @@ public class SScriptRunner {
 	    return inStr;
 
 	inStr = inStr.replaceAll("%username", g.getUsername());
-	inStr = inStr.replaceAll("%selfname", g.getSakuraName());
+	inStr = inStr.replaceAll("%selfname2?", g.getSakuraName());
 	inStr = inStr.replaceAll("%keroname", g.getKeroName());
 
 

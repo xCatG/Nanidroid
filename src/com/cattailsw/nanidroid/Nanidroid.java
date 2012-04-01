@@ -79,6 +79,7 @@ public class Nanidroid extends Activity
 	//
 
 	Ghost g = new Ghost(ghost_path);
+	runner.setGhost(g);
 
 	/*	String master_shell_path = ghost_path + "/shell/master";
 
