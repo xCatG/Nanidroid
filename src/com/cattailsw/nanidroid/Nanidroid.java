@@ -69,6 +69,7 @@ public class Nanidroid extends Activity
 	    // need to prompt SD card issue
 	}
 
+
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
 	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
 	    //"/Android/data/com.cattailsw.nanidroid/ghost/2elf";
@@ -76,7 +77,10 @@ public class Nanidroid extends Activity
 	    //"/Android/data/com.cattailsw.nanidroid/ghost/first";
 	// read the ghost shell
 	//
-	String master_shell_path = ghost_path + "/shell/master";
+
+	Ghost g = new Ghost(ghost_path);
+
+	/*	String master_shell_path = ghost_path + "/shell/master";
 
 	// read master data
 	String master_ghost_path = ghost_path + "/ghost/master";
@@ -95,11 +99,11 @@ public class Nanidroid extends Activity
 	File shellSurface = new File(shell_surface_path);
 	sr = new SurfaceReader(shellSurface);
 	long dur = SystemClock.uptimeMillis() - starttime;
+	*/
+// 	bKero.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
+// 		   + "\nshell surface count=" + keycount + ",parsing time:" + (float)dur/1000.0f + "s"  );
 
 	int keycount = mgr.getTotalSurfaceCount();
-	bKero.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
-		   + "\nshell surface count=" + keycount + ",parsing time:" + (float)dur/1000.0f + "s"  );
-
 	surfaceKeys = new String[keycount];
 	Set<String> k = mgr.getSurfaceKeys();
 	surfaceKeys = k.toArray(surfaceKeys);

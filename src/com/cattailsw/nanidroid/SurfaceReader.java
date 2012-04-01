@@ -15,6 +15,7 @@ import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.io.FilenameFilter;
 import java.util.regex.Matcher;
+import android.os.SystemClock;
 
 
 /* surface txt has structure like
@@ -42,6 +43,17 @@ public class SurfaceReader {
     String rootPath = null;
     public SurfaceReader() {
 
+    }
+
+    public SurfaceReader(String shell_root, String desc_path){
+	rootPath = shell_root;
+	try {
+	    InputStream is = new FileInputStream( new File(desc_path) );
+	    parse(is);
+	    scanFolderForPng(rootPath);
+	}
+	catch(FileNotFoundException e) {}
+	catch(IOException e) {}
     }
 
     public SurfaceReader(File f) {
@@ -95,7 +107,10 @@ public class SurfaceReader {
 	}
     }
 
+    long parseTime = 0;
+
     private void parse(InputStream is) throws IOException {
+	parseTime = SystemClock.uptimeMillis();
 	if ( table == null )
 	    table = new HashMap<String, ShellSurface>();
 
@@ -174,6 +189,8 @@ public class SurfaceReader {
 		}
 	    }
 	}
+	parseTime = SystemClock.uptimeMillis() - parseTime;
+	Log.d(TAG, "parse time:" + parseTime + "ms");
 
     }
 

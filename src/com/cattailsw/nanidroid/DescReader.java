@@ -12,13 +12,22 @@ import java.nio.charset.Charset;
 import java.io.FileInputStream;
 import java.util.Hashtable;
 import java.io.IOException;
+import java.io.FileReader;
+import android.os.SystemClock;
 
 public class DescReader {
     private static final String TAG = "DescReader";
     Map<String, String> table;
 
+    String infilePath = null;
+
     public DescReader() {
 
+    }
+
+    public DescReader(String infile) {
+	//this(new File(infile));
+	infilePath = infile;
     }
 
     public DescReader(File f) {
@@ -52,6 +61,12 @@ public class DescReader {
 	    return;
 	}
 
+	readLoop(reader, table);
+
+	reader.close();
+    }
+
+    private void readLoop(BufferedReader reader, Map<String, String> table) throws IOException{
 	String line = null;
 	while ( true ) {
 	    line = reader.readLine();
@@ -69,8 +84,29 @@ public class DescReader {
 
 	    table.put(label, value);
 	}
+    }
+
+    long parseTime;
+
+    public Map<String,String> parse() throws IOException {
+	parseTime = SystemClock.uptimeMillis();
+	Hashtable<String, String> ret = new Hashtable<String,String>();
+	
+	BufferedReader reader = null;
+	try {
+	    reader = new BufferedReader(new FileReader(infilePath));
+	}
+	catch(Exception e) {
+	    Log.d(TAG, "error reading:" + infilePath);
+	    return null;
+	}
+	readLoop(reader, ret);
 
 	reader.close();
+	parseTime = SystemClock.uptimeMillis() - parseTime;
+	Log.d(TAG, "parsing took:" + parseTime + "ms");
+	return ret;
     }
+    
 
 }
