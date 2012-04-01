@@ -81,7 +81,7 @@ public class DescReader {
 		continue; // error line
 	    String label = pair[0];
 	    String value = pair[1];
-	    Log.d(TAG, "putting [" + label + "," + value + "]");
+	    //Log.d(TAG, "putting [" + label + "," + value + "]");
 	    table.put(label, value);
 	}
     }
@@ -99,6 +99,7 @@ public class DescReader {
 	}
 	catch(Exception e) {
 	    Log.d(TAG, "error reading:" + infilePath);
+	    e.printStackTrace();
 	    return null;
 	}
 	readLoop(reader, ret);
