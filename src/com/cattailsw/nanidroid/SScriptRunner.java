@@ -285,7 +285,7 @@ public class SScriptRunner {
 		    if ( Character.isDigit(c) ) {
 			int cint = (c - '0');
 			waitTime = cint * WAIT_UNIT;
-			Log.d(TAG, "waiting" + waitTime);
+			//Log.d(TAG, "waiting" + waitTime);
 			break loop;
 		    }
 		    break;
