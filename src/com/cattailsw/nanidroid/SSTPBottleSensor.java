@@ -113,7 +113,7 @@ public class SSTPBottleSensor {
 	    LinkedList<String> results = new LinkedList<String>();
 	    for (String line = br.readLine(); line != null; line = br.readLine()) {
 		String[] column = line.split("\t");
-		Log.d(TAG, "column[7] = " + column[7]);
+// 		Log.d(TAG, "column[7] = " + column[7]);
 		results.add(column[7]);
 	    }
 	    return results;
