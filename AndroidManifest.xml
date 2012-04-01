@@ -15,15 +15,13 @@
 	<category android:name="android.intent.category.DEFAULT" />
 	<data android:host="*" />
 	<data android:scheme="file" />
-	<data android:pathPattern=".*\\.nar" />
+	<data android:pathPattern=".*.nar" />
 	<data android:scheme="https" />
 	<data android:scheme="http" />
-	<data android:mimeType="application/x-zip" />
-	<data android:mimeType="application/zip" />
       </intent-filter>
 
     </activity>
-    <service android:name="HeadLineSensorService"></service>
+    <service android:name=".NanidroidService"></service>
   </application>
   <uses-permission android:name="android.permission.INTERNET"></uses-permission>
 </manifest>

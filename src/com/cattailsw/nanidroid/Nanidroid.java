@@ -245,7 +245,7 @@ public class Nanidroid extends Activity
 	/*	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\h\\s[4]ksdjaklajdkasdjkl\\uasndklandklan\\s[300]\\nksjdklasjdk\\halalalsk\\e";
 	runner.addMsgToQueue(new String[]{cmd});
 	runner.run();*/
-	startService(new Intent(this, HeadLineSensorService.class));	
+	startService(new Intent(this, NanidroidService.class));	
     }
 
 }
