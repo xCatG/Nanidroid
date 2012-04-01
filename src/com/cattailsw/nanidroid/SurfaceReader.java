@@ -39,7 +39,7 @@ so we need a state machine like parser? other than that, we need a way to get th
 public class SurfaceReader {
     private static final String TAG = "SurfaceReader";
 
-    Map<String, ShellSurface> table = null;
+    //Map<String, ShellSurface> table = null;
     String rootPath = null;
     public SurfaceReader() {
 
@@ -111,8 +111,8 @@ public class SurfaceReader {
 
     private void parse(InputStream is) throws IOException {
 	parseTime = SystemClock.uptimeMillis();
-	if ( table == null )
-	    table = new HashMap<String, ShellSurface>();
+// 	if ( table == null )
+// 	    table = new HashMap<String, ShellSurface>();
 
 	SurfaceManager mgr = SurfaceManager.getInstance();
 
@@ -180,7 +180,7 @@ public class SurfaceReader {
 		    while ( nextLine.startsWith("}") == false ) ;
 
 		    ShellSurface surface = new ShellSurface(rootPath, sid, lines);
-		    table.put(id, surface);
+		    //table.put(id, surface);
 		    mgr.addSurface(id, surface);
 		}
 		else {
