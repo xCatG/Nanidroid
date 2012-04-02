@@ -25,6 +25,7 @@ import com.android.debug.hv.ViewServer;
 import android.widget.FrameLayout;
 import android.view.Gravity;
 import android.content.Intent;
+import java.util.List;
 
 public class Nanidroid extends Activity
 {
@@ -70,17 +71,20 @@ public class Nanidroid extends Activity
 	}
 
 
-	DirList.parseDataDir(this);
+	List<InfoOnlyGhost> iglist = DirList.parseDataDir(this);
+	if ( iglist == null ) {
+	    //need to create a default ghost...
+	}
 
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
-	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
+	/*	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
 	    //"/Android/data/com.cattailsw.nanidroid/files/ghost/2elf";
 	    //"/Android/data/com.cattailsw.nanidroid/files/ghost/yohko";
-	    "/Android/data/com.cattailsw.nanidroid/files/ghost/first";
+	    "/Android/data/com.cattailsw.nanidroid/files/ghost/first";*/
 	// read the ghost shell
 	//
 
-	Ghost g = new Ghost(ghost_path);
+	Ghost g = new Ghost(iglist.get(0).getGhostPath());
 	runner.setGhost(g);
 
 	/*	String master_shell_path = ghost_path + "/shell/master";
@@ -253,6 +257,11 @@ public class Nanidroid extends Activity
 	runner.addMsgToQueue(new String[]{cmd});
 	runner.run();*/
 	startService(new Intent(this, NanidroidService.class));	
+    }
+    
+    public void narTest(View v){
+	File dataDir = new File(getExternalFilesDir(null), "ghost");
+    	NarUtil.readNarArchive("/mnt/sdcard/2elf-2.41.nar", dataDir.getAbsolutePath());
     }
 
 }

@@ -40,6 +40,14 @@
       android:text="run"
       android:onClick="runClick"
       />
+
+    <Button
+        android:id="@+id/button1"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="nar"
+        android:onClick="narTest"
+         />
     
   </LinearLayout>
 
