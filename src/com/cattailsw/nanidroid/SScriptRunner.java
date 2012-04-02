@@ -141,7 +141,7 @@ public class SScriptRunner {
 
     private String rewriteMsg(String inStr){
 	// search in string for things that match rewrite rule
-	if ( g == null )
+	if ( g == null || inStr == null )
 	    return inStr;
 
 	inStr = inStr.replaceAll("%username", g.getUsername());
