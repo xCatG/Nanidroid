@@ -5,11 +5,16 @@ import java.util.LinkedList;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.util.Log;
+import java.io.InputStream;
+
+import com.cattailsw.nanidroid.util.NetworkUtil;
+import android.content.Intent;
 
 /**
  * Describe class <code>HeadLineSensorService</code> here.
@@ -36,15 +41,37 @@ public class NanidroidService extends Service {
 	mHandler.sendEmptyMessageDelayed(HTTP_TASK_START, time);
     }
 
+    /**
+     * Describe <code>onStartCommand</code> method here.
+     *
+     * @param intent an <code>Intent</code> value
+     * @param n an <code>int</code> value
+     * @param n1 an <code>int</code> value
+     * @return an <code>int</code> value
+     */
+    public final int onStartCommand(final Intent intent, final int n, final int n1) {
+	handleCommand(intent);
+	return START_NOT_STICKY;
+    }
+
     @Override
     public void onStart(Intent intent, int startId) {
 	super.onStart(intent, startId);
-	runner = SScriptRunner.getInstance(this);
+	handleCommand(intent);
+    }
 
-	String action = intent.getAction();
-	if (action == null) {
-	    // do nothing...
+    private void handleCommand(Intent i){
+	String action = i.getAction();
+
+	if ( action == null ) {
+
 	}
+	else if (action.equalsIgnoreCase( Intent.ACTION_RUN ) ) {
+	    String data = Uri.decode(i.getDataString());
+	    NarDownloadTask n = new NarDownloadTask(data);
+	    n.execute(this);
+	}
+
     }
 
     @Override
@@ -119,12 +146,26 @@ public class NanidroidService extends Service {
     }
 
     private class NarDownloadTask extends AsyncTask<Context, String, String> {
-
-
+	String targetUrl = null;
+	NarDownloadTask(String url){
+	    targetUrl = url;
+	}
 	
 	public String doInBackground(Context... args) {
+	    try {
+		Log.d(TAG, "downloading:"+targetUrl);
+		//InputStream is = NetworkUtil.getURLStream(args[0], targetUrl);
+	    }
+	    catch(Exception e){
+		e.printStackTrace();
+	    }
 	    return null;
 	}
+
+	public void onPostExecute(String result) {
+	    Log.d(TAG, "download complete?");
+	}
+
 
     }
 
