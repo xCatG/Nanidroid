@@ -83,7 +83,7 @@ public class Nanidroid extends Activity
 	// read the ghost shell
 	//
 
-	Ghost g = new Ghost(gm.getGhostPath(0));
+	Ghost g = gm.createGhost("first");
 	runner.setGhost(g);
 
 	/*	String master_shell_path = ghost_path + "/shell/master";
