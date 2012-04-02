@@ -76,6 +76,7 @@ public class Nanidroid extends Activity
 	gm = new GhostMgr(this);
 	Ghost g = gm.createGhost("first");
 	runner.setGhost(g);
+	gm.setLastRunGhost(g);
 
 
 	int keycount = mgr.getTotalSurfaceCount();
