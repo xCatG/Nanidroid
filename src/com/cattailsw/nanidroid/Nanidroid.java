@@ -28,6 +28,8 @@ import android.widget.FrameLayout;
 import android.view.Gravity;
 import android.content.Intent;
 import java.util.List;
+import android.net.Uri;
+import android.widget.FrameLayout.LayoutParams;
 
 public class Nanidroid extends Activity
 {
@@ -231,6 +233,14 @@ public class Nanidroid extends Activity
     }
     
     public void narTest(View v){
+	//extractNarTest();
+	Intent i = new Intent(this, NanidroidService.class);
+	i.setAction(Intent.ACTION_RUN);
+	i.setData(Uri.fromParts("http","//xx.xx.xxx/blab.nar",null));
+	startService(i);
+    }
+
+    private void extractNarTest(){
 	File dataDir = new File(getExternalFilesDir(null), "ghost");
 	String ghostId = NarUtil.readNarGhostId("/mnt/sdcard/2elf-2.41.nar");
 
