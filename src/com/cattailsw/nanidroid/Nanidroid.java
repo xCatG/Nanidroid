@@ -42,6 +42,9 @@ public class Nanidroid extends Activity
     LayoutManager lm = null;
     SScriptRunner runner = null;
 
+    GhostMgr gm = null;
+    List<InfoOnlyGhost> iglist = null;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
@@ -70,11 +73,7 @@ public class Nanidroid extends Activity
 	    // need to prompt SD card issue
 	}
 
-
-	List<InfoOnlyGhost> iglist = DirList.parseDataDir(this);
-	if ( iglist == null ) {
-	    //need to create a default ghost...
-	}
+	gm = new GhostMgr(this);
 
 	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
 	/*	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
@@ -84,7 +83,7 @@ public class Nanidroid extends Activity
 	// read the ghost shell
 	//
 
-	Ghost g = new Ghost(iglist.get(0).getGhostPath());
+	Ghost g = new Ghost(gm.getGhostPath(0));
 	runner.setGhost(g);
 
 	/*	String master_shell_path = ghost_path + "/shell/master";
@@ -261,7 +260,11 @@ public class Nanidroid extends Activity
     
     public void narTest(View v){
 	File dataDir = new File(getExternalFilesDir(null), "ghost");
-    	NarUtil.readNarArchive("/mnt/sdcard/2elf-2.41.nar", dataDir.getAbsolutePath());
+	String ghostId = NarUtil.readNarGhostId("/mnt/sdcard/2elf-2.41.nar");
+
+	if ( gm.hasSameGhostId(ghostId) == false ) {
+	    NarUtil.readNarArchive("/mnt/sdcard/2elf-2.41.nar", dataDir.getAbsolutePath());
+	}
     }
 
 }

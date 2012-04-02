@@ -15,6 +15,40 @@ import java.security.MessageDigest;
 public class NarUtil {
     private static final String TAG = "NarUtil";
 
+    public static String readNarGhostId(String pathToArchive){
+	ZipFile nar = null;
+	String ret = null;
+	try {
+	    nar = new ZipFile(pathToArchive);
+		
+	    ArrayList<ZipEntry> entries = (ArrayList<ZipEntry>) Collections.list(nar.entries());
+	    for ( ZipEntry e : entries ) {
+		// need to find "install.txt"
+		if ( e.getName().contains("install.txt")) {
+		    InputStream is = nar.getInputStream(e);
+		    DescReader r = new DescReader(is);
+		    String type = r.table.get("type");
+// 		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
+// 			Log.d(TAG, "do not support " + type + " archive yet");
+// 			return null;
+// 		    }
+
+		    ret = r.table.get("directory");
+		    is.close();
+		}
+	    }
+	    nar.close();
+
+	} catch (IOException e) {
+	    // TODO Auto-generated catch block
+	    e.printStackTrace();
+	}
+	finally {
+	    return ret;
+	}
+
+    }
+
     public static void readNarArchive(String pathToArchive, String installRoot){
 	ZipFile nar = null;
 	try {
@@ -37,9 +71,12 @@ public class NarUtil {
 		    extractZipToPath(entries, nar, targetPath);
 		}
 	    }
+	    nar.close();	    
 	} catch (IOException e) {
 	    // TODO Auto-generated catch block
 	    e.printStackTrace();
+	}
+	finally {
 	}
 
     }

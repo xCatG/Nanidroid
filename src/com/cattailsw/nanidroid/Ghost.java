@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid;
 import java.util.Hashtable;
 import java.util.Map;
 import android.util.Log;
+import java.io.File;
 
 public class Ghost {
     private static final String TAG = "Ghost";
@@ -12,7 +13,7 @@ public class Ghost {
     Shiori shiori = null;
 
     protected String rootPath = null;
-
+    protected String ghostDirName = null;
     protected Map<String, String> ghostDesc = null;
     protected Map<String, String> shellDesc = null;
 
@@ -20,6 +21,8 @@ public class Ghost {
 
     public Ghost(String ghostPath) {
 	rootPath = ghostPath;
+	ghostDirName = (new File(ghostPath)).getName();
+	Log.d(TAG, "gdname="+ghostDirName);
 	mgr = SurfaceManager.getInstance();
 	loadGhostInfo();
     }
@@ -29,6 +32,8 @@ public class Ghost {
     }
 
     protected void loadGhostInfo() {
+
+
 	String master_ghost = rootPath + "/ghost/master";
 	String master_ghost_desc = master_ghost + "/descript.txt";
 	DescReader ghost_dr = new DescReader(master_ghost_desc);
@@ -52,6 +57,10 @@ public class Ghost {
 	SurfaceReader sr = new SurfaceReader( master_shell, master_shell_surface );
 	if ( error == false )
 	    error = sr.error;
+    }
+
+    public String getGhostDirName() {
+	return ghostDirName;
     }
 
     public String getGhostPath(){
