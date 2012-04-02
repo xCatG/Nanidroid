@@ -22,6 +22,8 @@ import java.util.Arrays;
 import android.util.Log;
 
 import com.android.debug.hv.ViewServer;
+import com.cattailsw.nanidroid.util.NarUtil;
+
 import android.widget.FrameLayout;
 import android.view.Gravity;
 import android.content.Intent;
