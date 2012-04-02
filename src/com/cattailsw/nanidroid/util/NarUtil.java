@@ -1,4 +1,4 @@
-package com.cattailsw.nanidroid;
+package com.cattailsw.nanidroid.util;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,6 +11,8 @@ import android.util.Log;
 import java.io.FileOutputStream;
 import java.io.File;
 import java.security.MessageDigest;
+
+import com.cattailsw.nanidroid.DescReader;
 
 public class NarUtil {
     private static final String TAG = "NarUtil";
@@ -27,13 +29,8 @@ public class NarUtil {
 		if ( e.getName().contains("install.txt")) {
 		    InputStream is = nar.getInputStream(e);
 		    DescReader r = new DescReader(is);
-		    String type = r.table.get("type");
-// 		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
-// 			Log.d(TAG, "do not support " + type + " archive yet");
-// 			return null;
-// 		    }
 
-		    ret = r.table.get("directory");
+		    ret = r.getTable().get("directory");
 		    is.close();
 		}
 	    }
@@ -43,9 +40,7 @@ public class NarUtil {
 	    // TODO Auto-generated catch block
 	    e.printStackTrace();
 	}
-	finally {
 	    return ret;
-	}
 
     }
 
@@ -60,12 +55,12 @@ public class NarUtil {
 		if ( e.getName().contains("install.txt")) {
 		    InputStream is = nar.getInputStream(e);
 		    DescReader r = new DescReader(is);
-		    String type = r.table.get("type");
+		    String type = r.getTable().get("type");
 		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
 			Log.d(TAG, "do not support " + type + " archive yet");
 			return;
 		    }
-		    String targetDirid = r.table.get("directory");
+		    String targetDirid = r.getTable().get("directory");
 		    String targetPath = installRoot + "/" + targetDirid;
 		    is.close();
 		    extractZipToPath(entries, nar, targetPath);

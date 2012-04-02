@@ -17,7 +17,7 @@ import android.os.SystemClock;
 
 public class DescReader {
     private static final String TAG = "DescReader";
-    Map<String, String> table;
+    private Map<String, String> table;
 
     String infilePath = null;
 
@@ -56,8 +56,8 @@ public class DescReader {
     }
 
     private void parse(InputStream is) throws IOException{
-	if ( table == null )
-	    table = new Hashtable<String, String>();
+	if ( getTable() == null )
+	    setTable(new Hashtable<String, String>());
 
 	BufferedReader reader = null;
 	try {
@@ -68,7 +68,7 @@ public class DescReader {
 	    return;
 	}
 
-	readLoop(reader, table);
+	readLoop(reader, getTable());
 
 	reader.close();
     }
@@ -116,6 +116,14 @@ public class DescReader {
 	Log.d(TAG, "parsing took:" + parseTime + "ms");
 	return ret;
     }
+
+	public Map<String, String> getTable() {
+		return table;
+	}
+
+	public void setTable(Map<String, String> table) {
+		this.table = table;
+	}
     
 
 }
