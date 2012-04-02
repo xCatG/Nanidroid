@@ -74,40 +74,9 @@ public class Nanidroid extends Activity
 	}
 
 	gm = new GhostMgr(this);
-
-	// use /sdcard/Android/data/com.cattailsw.nanidroid/ghost/yohko for the time being
-	/*	String ghost_path = Environment.getExternalStorageDirectory().getPath() + 
-	    //"/Android/data/com.cattailsw.nanidroid/files/ghost/2elf";
-	    //"/Android/data/com.cattailsw.nanidroid/files/ghost/yohko";
-	    "/Android/data/com.cattailsw.nanidroid/files/ghost/first";*/
-	// read the ghost shell
-	//
-
 	Ghost g = gm.createGhost("first");
 	runner.setGhost(g);
 
-	/*	String master_shell_path = ghost_path + "/shell/master";
-
-	// read master data
-	String master_ghost_path = ghost_path + "/ghost/master";
-
-	String shell_desc_path = master_shell_path + "/descript.txt";
-	String shell_surface_path = master_shell_path + "/surfaces.txt";
-
-	File shell_desc = new File(shell_desc_path);
-	if ( shell_desc.exists() == false ) {
-	    bSakura.setText("shell desc error.");
-	    return;
-	}
-	long starttime = SystemClock.uptimeMillis();
-	DescReader shellDescReader = new DescReader(shell_desc);
-	//DescReader shellSurfaceReader = 
-	File shellSurface = new File(shell_surface_path);
-	sr = new SurfaceReader(shellSurface);
-	long dur = SystemClock.uptimeMillis() - starttime;
-	*/
-// 	bKero.setText("shell desc size=" + shellDescReader.table.size() + ", ghost name=" + shellDescReader.table.get("name") 
-// 		   + "\nshell surface count=" + keycount + ",parsing time:" + (float)dur/1000.0f + "s"  );
 
 	int keycount = mgr.getTotalSurfaceCount();
 	surfaceKeys = new String[keycount];
