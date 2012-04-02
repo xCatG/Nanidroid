@@ -9,7 +9,7 @@ import android.content.Context;
 
 
 public class BottleLogSensor extends SSTPBottleSensor {
-    protected static synchronized LinkedList<String> getUrlContent(Context ctx, String url) throws ApiException {
+    protected static synchronized LinkedList<String> getUrlContent(String url, Context ctx) throws ApiException {
 	try {
 
             AssetManager assetManager = ctx.getAssets();

@@ -19,6 +19,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.util.Log;
 
+import com.cattailsw.nanidroid.util.NetworkUtil;
+
 public class SSTPBottleSensor {
     private static final String TAG = "SSTPBottleSensor";
     private static final String BOTTLE_LOG = "http://bottle.mikage.to/fetchlog.cgi?recent=10&encoding=utf8";
@@ -47,7 +49,7 @@ public class SSTPBottleSensor {
 	}
     }
 	    
-    private static String sUserAgent = null;
+    /*    private static String sUserAgent = null;
     public static void prepareUserAgent(Context context) {
 	try {
 	    // Read package name and version number from manifest
@@ -60,25 +62,22 @@ public class SSTPBottleSensor {
 	} catch(NameNotFoundException e) {
 	    Log.e(TAG, "Couldn't find package information in PackageManager", e);
 	}
-    }
-    public static LinkedList<String> getPageContent()
+	}*/
+
+    public static LinkedList<String> getPageContent(Context ctx)
 	throws ApiException, ParseException {
 
-	LinkedList<String> results = getUrlContent(BOTTLE_LOG);
+	LinkedList<String> results = getUrlContent(BOTTLE_LOG, ctx);
 
 	return results;
 
     }
-    protected static synchronized LinkedList<String> getUrlContent(String url) throws ApiException {
-	if (sUserAgent == null) {
-	    throw new ApiException("User-Agent string must be prepared");
-	}
+    protected static synchronized LinkedList<String> getUrlContent(String url, Context ctx) throws ApiException {
 	        
 	Log.d(TAG, "getUrlContent: url = " + url);
 	// Create client and set our specific user-agent string
-	HttpClient client = new DefaultHttpClient();
+	HttpClient client = NetworkUtil.getHttpClient(ctx, url.startsWith("https"));
 	HttpGet request = new HttpGet(url);
-	request.setHeader("User-Agent", sUserAgent);
 
 	try {
 	    HttpResponse response = client.execute(request);

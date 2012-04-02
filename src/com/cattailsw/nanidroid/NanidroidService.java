@@ -94,14 +94,14 @@ public class NanidroidService extends Service {
 		 */
 
 		// Try querying the Bottle log API for today's bottle
-		SSTPBottleSensor.prepareUserAgent(args[0]);
-		pageContent = SSTPBottleSensor.getPageContent();
-		Log.d("TEST", "bottle.length() = " + pageContent.size());
+		//SSTPBottleSensor.prepareUserAgent(args[0]);
+		pageContent = SSTPBottleSensor.getPageContent(args[0]);
+		Log.d(TAG, "bottle.length() = " + pageContent.size());
 		runner.addMsgToQueue(pageContent);
+		
 
-
-		BottleLogSensor.prepareUserAgent(args[0]);
-		pageContent = BottleLogSensor.getUrlContent(args[0], null);
+		//BottleLogSensor.prepareUserAgent(args[0]);
+		pageContent = BottleLogSensor.getPageContent(args[0]);
 		runner.addMsgToQueue(pageContent);
 
 	    } catch (Exception e) {
@@ -116,7 +116,16 @@ public class NanidroidService extends Service {
 	    if ( runner != null )
 		runner.run();
 	}
+    }
 
+    private class NarDownloadTask extends AsyncTask<Context, String, String> {
+
+
+	
+	public String doInBackground(Context... args) {
+	    return null;
+	}
 
     }
+
 }
