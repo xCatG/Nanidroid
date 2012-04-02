@@ -24,6 +24,7 @@ public class InfoOnlyGhost extends Ghost {
 	catch(Exception e){
 	    Log.d(TAG, "desc parsing error");
 	    e.printStackTrace();
+	    error = true;
 	}
     }
 

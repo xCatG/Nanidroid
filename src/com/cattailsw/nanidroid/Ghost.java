@@ -16,10 +16,16 @@ public class Ghost {
     protected Map<String, String> ghostDesc = null;
     protected Map<String, String> shellDesc = null;
 
+    protected boolean error = false;
+
     public Ghost(String ghostPath) {
 	rootPath = ghostPath;
 	mgr = SurfaceManager.getInstance();
 	loadGhostInfo();
+    }
+
+    public boolean ghostError(){
+	return error;
     }
 
     protected void loadGhostInfo() {
@@ -40,9 +46,16 @@ public class Ghost {
 	catch(Exception e){
 	    Log.d(TAG, "desc parsing error");
 	    e.printStackTrace();
+	    error = true;
 	}
 
 	SurfaceReader sr = new SurfaceReader( master_shell, master_shell_surface );
+	if ( error == false )
+	    error = sr.error;
+    }
+
+    public String getGhostPath(){
+	return rootPath;
     }
 
     public String getGhostName() {

@@ -41,11 +41,18 @@ public class DescReader {
 
     public DescReader(InputStream is) {
 	try {
+	    dbgOutput = true;
 	    parse(is);
+	} catch (Exception e) {
+	    Log.d(TAG, "parsing inputstream error");
+	    e.printStackTrace();
 	}
-	catch(Exception e) {
-
-	}
+    }
+	
+    boolean dbgOutput = false;
+	
+    public void setDbgOutput(boolean dbg) {
+	dbgOutput = dbg;
     }
 
     private void parse(InputStream is) throws IOException{
@@ -81,7 +88,7 @@ public class DescReader {
 		continue; // error line
 	    String label = pair[0];
 	    String value = pair[1];
-	    //Log.d(TAG, "putting [" + label + "," + value + "]");
+	    if ( dbgOutput ) Log.d(TAG, "putting [" + label + "," + value + "]");
 	    table.put(label, value);
 	}
     }

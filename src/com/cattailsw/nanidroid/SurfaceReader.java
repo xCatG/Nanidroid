@@ -40,6 +40,7 @@ public class SurfaceReader {
     private static final String TAG = "SurfaceReader";
 
     //Map<String, ShellSurface> table = null;
+    boolean error = false;
     String rootPath = null;
     public SurfaceReader() {
 
@@ -52,8 +53,8 @@ public class SurfaceReader {
 	    parse(is);
 	    scanFolderForPng(rootPath);
 	}
-	catch(FileNotFoundException e) {}
-	catch(IOException e) {}
+	catch(FileNotFoundException e) {error = true;}
+	catch(IOException e) {error = true;}
     }
 
     public SurfaceReader(File f) {
