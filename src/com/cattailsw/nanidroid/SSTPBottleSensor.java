@@ -48,22 +48,7 @@ public class SSTPBottleSensor {
 	    super(detailMessage, throwable);
 	}
     }
-	    
-    /*    private static String sUserAgent = null;
-    public static void prepareUserAgent(Context context) {
-	try {
-	    // Read package name and version number from manifest
-	    PackageManager manager = context.getPackageManager();
-	    PackageInfo info = manager.getPackageInfo(context.getPackageName(), 0);
-	    sUserAgent = info.packageName + "/" + info.versionName
-		+ " (" + info.versionCode + ") (gzip)";
-	    Log.d(TAG, "sUserAgent = " + sUserAgent);
-	            
-	} catch(NameNotFoundException e) {
-	    Log.e(TAG, "Couldn't find package information in PackageManager", e);
-	}
-	}*/
-
+    
     public static LinkedList<String> getPageContent(Context ctx)
 	throws ApiException, ParseException {
 
@@ -72,10 +57,11 @@ public class SSTPBottleSensor {
 	return results;
 
     }
+
     protected static synchronized LinkedList<String> getUrlContent(String url, Context ctx) throws ApiException {
 	        
 	Log.d(TAG, "getUrlContent: url = " + url);
-	// Create client and set our specific user-agent string
+
 	HttpClient client = NetworkUtil.getHttpClient(ctx, url.startsWith("https"));
 	HttpGet request = new HttpGet(url);
 

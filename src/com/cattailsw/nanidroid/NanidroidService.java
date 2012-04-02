@@ -111,23 +111,12 @@ public class NanidroidService extends Service {
 	    long start = System.currentTimeMillis();
 	    LinkedList<String> pageContent;
 	    try {
-		// Try querying the Twitter Search API for today's twit
-		/*
-		 * SimpleTwitterHelper.prepareUserAgent(args[0]); pageContent =
-		 * SimpleTwitterHelper
-		 * .getPageContent(HeadLineSensorService.this); Log.d("TEST",
-		 * "results.length() = " + pageContent.size());
-		 * runner.addMsgToQueue(pageContent);
-		 */
 
 		// Try querying the Bottle log API for today's bottle
-		//SSTPBottleSensor.prepareUserAgent(args[0]);
 		pageContent = SSTPBottleSensor.getPageContent(args[0]);
 		Log.d(TAG, "bottle.length() = " + pageContent.size());
 		runner.addMsgToQueue(pageContent);
 		
-
-		//BottleLogSensor.prepareUserAgent(args[0]);
 		pageContent = BottleLogSensor.getPageContent(args[0]);
 		runner.addMsgToQueue(pageContent);
 
