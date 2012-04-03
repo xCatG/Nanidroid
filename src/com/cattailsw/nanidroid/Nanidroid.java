@@ -84,11 +84,17 @@ public class Nanidroid extends Activity
 	gm.setLastRunGhost(g);
 
 	Intent launchingIntent = getIntent();
-	if ( launchingIntent != null ) 
-	    Log.d(TAG, "launching with:" + launchingIntent.getDataString());
 	if ( launchingIntent.hasExtra("DL_PKG") ){
 	    Uri data = launchingIntent.getData();
 	    bKero.setText("launching to extract nar at:" + data);
+	}
+	else if ( launchingIntent.getAction().equalsIgnoreCase(Intent.ACTION_VIEW) ) {
+	    // need to check the data?
+	    Log.d(TAG, " action_view with data:" + launchingIntent.getData());
+	    Uri target = launchingIntent.getData();
+	    if ( target != null )
+	    addNarToDownload(target);
+	    // enqueue to download
 	}
 
 	int keycount = mgr.getTotalSurfaceCount();
@@ -239,14 +245,18 @@ public class Nanidroid extends Activity
 	runner.run();*/
 	startService(new Intent(this, NanidroidService.class));	
     }
+
+    private void addNarToDownload(Uri target){
+	Intent i = new Intent(this, NanidroidService.class);
+	i.setAction(Intent.ACTION_RUN);
+	i.setData(target);
+
+	startService(i);	
+    }
     
     public void narTest(View v){
 	//extractNarTest();
-	Intent i = new Intent(this, NanidroidService.class);
-	i.setAction(Intent.ACTION_RUN);
-	i.setData(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
-
-	startService(i);
+	addNarToDownload(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
     }
 
     private void extractNarTest(){
