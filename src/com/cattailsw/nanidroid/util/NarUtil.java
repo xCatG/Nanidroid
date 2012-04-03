@@ -13,6 +13,11 @@ import java.io.File;
 import java.security.MessageDigest;
 
 import com.cattailsw.nanidroid.DescReader;
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.io.FileInputStream;
+import java.nio.charset.Charset;
 
 public class NarUtil {
     private static final String TAG = "NarUtil";
@@ -106,7 +111,7 @@ public class NarUtil {
 	}
     }
 
-    private static byte[] copyFile(InputStream is, FileOutputStream os) 
+    public static byte[] copyFile(InputStream is, FileOutputStream os) 
 	throws IOException{
 	MessageDigest digester = null;
 	try {
@@ -138,6 +143,25 @@ public class NarUtil {
 
 	return null;
     };
-    
+
+
+    public static String readTxt(File f){
+	StringBuilder sb = new StringBuilder("<html><body><pre>");
+	
+	try {
+	    BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f),Charset.forName("Shift_JIS")));
+	    String line;
+	    while((line = br.readLine())!= null){
+		sb.append(line);
+		sb.append('\n');
+	    }
+	}
+	catch(Exception e){
+	    // do nothing
+	}
+	sb.append("</pre></body></html>");
+
+	return sb.toString();
+    }
 
 }

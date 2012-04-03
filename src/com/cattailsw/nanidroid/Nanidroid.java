@@ -31,6 +31,10 @@ import java.util.List;
 import android.net.Uri;
 import android.widget.FrameLayout.LayoutParams;
 import android.content.Intent;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.app.AlertDialog;
+import android.app.AlertDialog.Builder;
 
 public class Nanidroid extends Activity
 {
@@ -67,7 +71,9 @@ public class Nanidroid extends Activity
 	lm = LayoutManager.getInstance(this);
 	runner = SScriptRunner.getInstance(this);
 	gm = new GhostMgr(this);
-	Ghost g = gm.createGhost("first");
+	String lastId = gm.getLastRunGhostId();
+	if ( lastId == null ) lastId = "first";
+	Ghost g = gm.createGhost(lastId);
 	runner.setGhost(g);
 	gm.setLastRunGhost(g);
 
@@ -266,7 +272,8 @@ public class Nanidroid extends Activity
     
     public void narTest(View v){
 	//extractNarTest();
-	addNarToDownload(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
+	//addNarToDownload(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
+	showReadme(new File("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/files/ghost/mana/readme.txt"), "");
     }
 
     private void extractNar(String targetPath){
@@ -290,6 +297,23 @@ public class Nanidroid extends Activity
     }
 
     private void showReadme(File readme, String ghostId){
+	View readmeView = View.inflate(this, R.layout.installdlg, null);
+	WebView webView = (WebView) readmeView.findViewById(R.id.readme_view);
+	webView.setWebViewClient(new WebViewClient() {
+		@Override
+		public boolean shouldOverrideUrlLoading(WebView view, String url) {
+		    // Disable all links open from this web view.
+		    return true;
+		}
+	    });
+	//webView.loadData(NarUtil.readTxt(readme), "text/plain", "UTF-8");
+ 	webView.loadDataWithBaseURL(Uri.fromFile(readme).toString(), NarUtil.readTxt(readme), 
+ 				    "text/html", "UTF-8", null);
+
+	AlertDialog.Builder builder = new AlertDialog.Builder(this);
+	
+	builder.setView(readmeView);
+	builder.show();
 	
     }
 
@@ -318,6 +342,7 @@ public class Nanidroid extends Activity
 	sv.changeSurface(currentSurfaceKey);
 	kv.changeSurface("10");
 	lm.checkAndUpdateLayoutParam();
+	gm.setLastRunGhost(g);
     }
 
     public void onNewIntent(Intent intent) {
@@ -325,7 +350,7 @@ public class Nanidroid extends Activity
 	    Uri data = intent.getData();
 	    bKero.setText("launching to extract nar at:" + data);
 
-	    extractNar("/mnt/sdcard/2elf-2.41.nar");
+	    extractNar(data.getPath());//"/mnt/sdcard/2elf-2.41.nar");
 	}
 	
     }
