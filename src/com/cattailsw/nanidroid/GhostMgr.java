@@ -83,6 +83,7 @@ public class GhostMgr {
 	int i =0;
 	for ( InfoOnlyGhost g: iglist ) {
 	    ret[i] = g.getGhostDirName();
+	    i++;
 	}
 	return ret;
     }
