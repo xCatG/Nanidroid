@@ -15,6 +15,11 @@ import java.io.InputStream;
 
 import com.cattailsw.nanidroid.util.NetworkUtil;
 import android.content.Intent;
+import android.app.NotificationManager;
+import android.app.Notification;
+import java.io.File;
+import android.app.PendingIntent;
+import java.util.List;
 
 /**
  * Describe class <code>HeadLineSensorService</code> here.
@@ -34,7 +39,6 @@ public class NanidroidService extends Service {
     @Override
     public void onCreate() {
 	super.onCreate();
-	startHttpTask(1000);
     }
     private static final int DEF_TIME = 600000;
     private void startHttpTask(long time) {
@@ -64,10 +68,17 @@ public class NanidroidService extends Service {
 	String action = i.getAction();
 
 	if ( action == null ) {
-
+	    startHttpTask(1000);
 	}
 	else if (action.equalsIgnoreCase( Intent.ACTION_RUN ) ) {
-	    String data = Uri.decode(i.getDataString());
+	    Uri data = i.getData();
+	    //String data = Uri.decode(i.getDataString());
+
+	    /*List<String> sz = data.getPathSegments();
+	    for ( String s: sz)
+		Log.d(TAG, "path->:" + s);
+	    */
+
 	    NarDownloadTask n = new NarDownloadTask(data);
 	    n.execute(this);
 	}
@@ -136,23 +147,38 @@ public class NanidroidService extends Service {
 
     private class NarDownloadTask extends AsyncTask<Context, String, String> {
 	String targetUrl = null;
-	NarDownloadTask(String url){
-	    targetUrl = url;
+	Uri targeturi = null;
+	NarDownloadTask(Uri uri){
+	    targeturi = uri;
+	    targetUrl = Uri.decode(targeturi.toString());
 	}
 	
 	public String doInBackground(Context... args) {
 	    try {
-		Log.d(TAG, "downloading:"+targetUrl);
+		Context ctx = args[0];
+		File extDir = ctx.getExternalCacheDir();
+		Log.d(TAG, "downloading:"+targetUrl+" to " + targeturi.getLastPathSegment());
 		//InputStream is = NetworkUtil.getURLStream(args[0], targetUrl);
 	    }
 	    catch(Exception e){
 		e.printStackTrace();
 	    }
-	    return null;
+	    return "/mnt/sdcard/2elf-2.41.nar";
 	}
+
 
 	public void onPostExecute(String result) {
 	    Log.d(TAG, "download complete?");
+
+	    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+	    Notification n = new Notification(R.drawable.ic_launcher, "Download completed", System.currentTimeMillis());
+	    Intent ni = new Intent(NanidroidService.this, Nanidroid.class);
+	    ni.setData(Uri.fromFile(new File(result))).putExtra("DL_PKG",0);
+	    PendingIntent pi = PendingIntent.getActivity(NanidroidService.this, 0, ni, 0);
+	    n.setLatestEventInfo(getApplicationContext(), "Download completed", "dl", pi);
+	    n.flags = Notification.FLAG_AUTO_CANCEL;
+	    nm.notify(42, n);
 	}
 
 

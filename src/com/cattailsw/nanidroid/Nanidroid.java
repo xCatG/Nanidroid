@@ -30,6 +30,7 @@ import android.content.Intent;
 import java.util.List;
 import android.net.Uri;
 import android.widget.FrameLayout.LayoutParams;
+import android.content.Intent;
 
 public class Nanidroid extends Activity
 {
@@ -82,6 +83,13 @@ public class Nanidroid extends Activity
 	runner.setGhost(g);
 	gm.setLastRunGhost(g);
 
+	Intent launchingIntent = getIntent();
+	if ( launchingIntent != null ) 
+	    Log.d(TAG, "launching with:" + launchingIntent.getDataString());
+	if ( launchingIntent.hasExtra("DL_PKG") ){
+	    Uri data = launchingIntent.getData();
+	    bKero.setText("launching to extract nar at:" + data);
+	}
 
 	int keycount = mgr.getTotalSurfaceCount();
 	surfaceKeys = new String[keycount];
@@ -236,7 +244,8 @@ public class Nanidroid extends Activity
 	//extractNarTest();
 	Intent i = new Intent(this, NanidroidService.class);
 	i.setAction(Intent.ACTION_RUN);
-	i.setData(Uri.fromParts("http","//xx.xx.xxx/blab.nar",null));
+	i.setData(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
+
 	startService(i);
     }
 
@@ -248,5 +257,14 @@ public class Nanidroid extends Activity
 	    NarUtil.readNarArchive("/mnt/sdcard/2elf-2.41.nar", dataDir.getAbsolutePath());
 	}
     }
+
+    public void onNewIntent(Intent intent) {
+	if ( intent.hasExtra("DL_PKG") ){
+	    Uri data = intent.getData();
+	    bKero.setText("launching to extract nar at:" + data);
+	}
+	
+    }
+
 
 }
