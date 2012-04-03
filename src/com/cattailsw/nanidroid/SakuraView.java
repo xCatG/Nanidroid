@@ -70,8 +70,10 @@ public class SakuraView extends ImageView {
     }
 
     public void loadAnimation(String id) {
-	if ( animation == null || id.equalsIgnoreCase(currentAnimationId) == false )
+	if ( animation == null || id.equalsIgnoreCase(currentAnimationId) == false ){
 	    animation = (AnimationDrawable)currentSurface.getAnimation(id, mCtx.getResources());
+	    currentAnimationId = id;
+	}
 	animation.setVisible(true, true);
 	setImageDrawable( animation );
     }
@@ -92,7 +94,7 @@ public class SakuraView extends ImageView {
 	if ( id == null ) // no such type animation
 	    return;
 
-	if ( currentAnimationId.equalsIgnoreCase(id) == false )
+	if ( id.equalsIgnoreCase(currentAnimationId) == false )
 	    loadAnimation(id);
 	startAnimation();
     }
