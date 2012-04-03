@@ -29,8 +29,8 @@
       android:id="@+id/btn3"
       android:layout_width="wrap_content"
       android:layout_height="wrap_content"
-      android:text="c.box"
-      android:onClick="onShowCollision"
+      android:text="next G"
+      android:onClick="onNextGhost"
       />
 
     <Button
