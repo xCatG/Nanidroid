@@ -35,6 +35,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.app.AlertDialog;
 import android.app.AlertDialog.Builder;
+import android.content.DialogInterface;
 
 public class Nanidroid extends Activity
 {
@@ -273,7 +274,7 @@ public class Nanidroid extends Activity
     public void narTest(View v){
 	//extractNarTest();
 	//addNarToDownload(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
-	showReadme(new File("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/files/ghost/mana/readme.txt"), "");
+	showReadme(new File("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/files/ghost/mana/readme.txt"), "mana");
     }
 
     private void extractNar(String targetPath){
@@ -296,23 +297,35 @@ public class Nanidroid extends Activity
 	}
     }
 
-    private void showReadme(File readme, String ghostId){
+    private void showReadme(File readme, final String ghostId){
 	View readmeView = View.inflate(this, R.layout.installdlg, null);
 	WebView webView = (WebView) readmeView.findViewById(R.id.readme_view);
 	webView.setWebViewClient(new WebViewClient() {
-		@Override
+		/*		@Override
 		public boolean shouldOverrideUrlLoading(WebView view, String url) {
 		    // Disable all links open from this web view.
-		    return true;
-		}
+		    return false;
+		    }*/
 	    });
 	//webView.loadData(NarUtil.readTxt(readme), "text/plain", "UTF-8");
  	webView.loadDataWithBaseURL(Uri.fromFile(readme).toString(), NarUtil.readTxt(readme), 
  				    "text/html", "UTF-8", null);
 
 	AlertDialog.Builder builder = new AlertDialog.Builder(this);
-	
+	builder.setTitle("installed new ghost");	
 	builder.setView(readmeView);
+	builder.setNeutralButton(android.R.string.ok, new DialogInterface.OnClickListener(){
+		public void onClick(DialogInterface dlg, int which){
+		    dlg.dismiss();
+		}
+	    });
+	builder.setPositiveButton("switch to ghost", new DialogInterface.OnClickListener(){
+		public void onClick(DialogInterface dlg, int which){
+		    dlg.dismiss();
+		    switchGhost(ghostId);
+		}
+	    });
+
 	builder.show();
 	
     }
@@ -323,7 +336,10 @@ public class Nanidroid extends Activity
 
     int cGindex = 0;
     public void onNextGhost(View v){
-	String [] gname = {"first","yohko","2elf"};
+	String [] gname = gm.getGnames();// {"first","yohko","2elf"};
+	if ( gname == null )
+	    return;
+
 	switchGhost(gname[cGindex]);
 	cGindex++;
 	if ( cGindex > gname.length -1)

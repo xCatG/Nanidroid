@@ -75,4 +75,15 @@ public class GhostMgr {
 	iglist = DirList.parseDataDir(mCtx);
     }
 
+    public String[] getGnames(){
+	if ( iglist == null || iglist.size() == 0 )
+	    return null;
+
+	String []ret = new String[iglist.size()];
+	int i =0;
+	for ( InfoOnlyGhost g: iglist ) {
+	    ret[i] = g.getGhostDirName();
+	}
+	return ret;
+    }
 }
