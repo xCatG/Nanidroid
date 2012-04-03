@@ -8,17 +8,17 @@ import java.util.Set;
 
 public class SurfaceManager {
 
-    private static SurfaceManager _self = null;
-    protected SurfaceManager() {
+    //private static SurfaceManager _self = null;
+    public SurfaceManager() {
 
     }
 
-    public static SurfaceManager getInstance() {
-	if ( _self == null )
-	    _self = new SurfaceManager();
+//     public static SurfaceManager getInstance() {
+// 	if ( _self == null )
+// 	    _self = new SurfaceManager();
 
-	return _self;
-    }
+// 	return _self;
+//     }
 
     Map<String, ShellSurface> surfaces = null;
     Map<String, String[]> sakuraAliasTable = null; // alias can be N-to-one?

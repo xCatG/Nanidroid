@@ -42,12 +42,19 @@ public class SurfaceReader {
     //Map<String, ShellSurface> table = null;
     boolean error = false;
     String rootPath = null;
+    SurfaceManager mgr = null;
+    
+    public SurfaceReader(SurfaceManager m) {
+    	mgr = m;
+    }
+    
     public SurfaceReader() {
 
     }
 
-    public SurfaceReader(String shell_root, String desc_path){
+    public SurfaceReader(SurfaceManager m, String shell_root, String desc_path){
 	rootPath = shell_root;
+	mgr = m;
 	try {
 	    InputStream is = new FileInputStream( new File(desc_path) );
 	    parse(is);
@@ -73,8 +80,7 @@ public class SurfaceReader {
     private void scanFolderForPng(String folderPath){
 	// need to scan the whole folder for surfaces not listed in the surfaces.txt?
 	// add them to surfacemgr as well
-	SurfaceManager mgr = SurfaceManager.getInstance();
-
+	
 	File dir = new File(folderPath);
 	File[] filez = dir.listFiles(new FilenameFilter(){
 		public boolean accept(File dir, String filename) {
@@ -114,8 +120,6 @@ public class SurfaceReader {
 	parseTime = SystemClock.uptimeMillis();
 // 	if ( table == null )
 // 	    table = new HashMap<String, ShellSurface>();
-
-	SurfaceManager mgr = SurfaceManager.getInstance();
 
 	BufferedReader reader = null;
 	try {

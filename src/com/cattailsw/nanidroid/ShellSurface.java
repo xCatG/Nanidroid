@@ -64,7 +64,7 @@ public class ShellSurface {
     Drawable surfaceDrawable = null;
     int surfaceType = 0;
 
-    SurfaceManager mgr = null;
+    //SurfaceManager mgr = null;
     public ShellSurface() {
 
     }
@@ -75,7 +75,7 @@ public class ShellSurface {
 	selfFilename = basePath + "/surface" + surfaceId + ".png";
 	bp2 = String.format("%s%04d%s", basePath+"/surface", surfaceId, ".png");
 	Log.d(TAG, "bp2:" + bp2);
-	mgr = SurfaceManager.getInstance();
+	//mgr = SurfaceManager.getInstance();
 	loadSurface(elements);	
     }
 

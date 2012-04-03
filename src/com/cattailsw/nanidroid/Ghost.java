@@ -23,7 +23,7 @@ public class Ghost {
 	rootPath = ghostPath;
 	ghostDirName = (new File(ghostPath)).getName();
 	Log.d(TAG, "gdname="+ghostDirName);
-	mgr = SurfaceManager.getInstance();
+	mgr = new SurfaceManager();//SurfaceManager.getInstance();
 	loadGhostInfo();
     }
 
@@ -54,7 +54,7 @@ public class Ghost {
 	    error = true;
 	}
 
-	SurfaceReader sr = new SurfaceReader( master_shell, master_shell_surface );
+	SurfaceReader sr = new SurfaceReader(mgr, master_shell, master_shell_surface );
 	if ( error == false )
 	    error = sr.error;
     }
