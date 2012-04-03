@@ -21,6 +21,7 @@ import org.apache.http.HttpRequest;
 import org.apache.http.protocol.HttpContext;
 import org.apache.http.HttpResponseInterceptor;
 import org.apache.http.HttpEntity;
+import org.apache.http.HttpStatus;
 import org.apache.http.HeaderElement;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageInfo;
@@ -43,6 +44,19 @@ public class NetworkUtil {
     private static final String HEADER_ACCEPT_ENCODING = "Accept-Encoding";
     private static final String ENCODING_GZIP = "gzip";
 
+    public static boolean exists(Context ctx, String URL){
+	boolean res = false;
+	final HttpClient lClient = getHttpClient(ctx);
+        final HttpUriRequest request = new HttpGet(URL);
+	try {
+	    HttpResponse resp = lClient.execute(request);
+	    res = (resp.getStatusLine().getStatusCode() == HttpStatus.SC_OK );
+	}
+	catch (Exception e) {
+	    e.printStackTrace();
+	}
+	return res;
+    }
 
 
     public static InputStream getURLStream(Context ctx, String url) throws IOException {

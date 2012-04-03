@@ -14,12 +14,14 @@ import android.util.Log;
 import java.io.InputStream;
 
 import com.cattailsw.nanidroid.util.NetworkUtil;
+import com.cattailsw.nanidroid.util.NarUtil;
 import android.content.Intent;
 import android.app.NotificationManager;
 import android.app.Notification;
 import java.io.File;
 import android.app.PendingIntent;
 import java.util.List;
+import java.io.FileOutputStream;
 
 /**
  * Describe class <code>HeadLineSensorService</code> here.
@@ -157,17 +159,31 @@ public class NanidroidService extends Service {
 	    try {
 		Context ctx = args[0];
 		File extDir = ctx.getExternalCacheDir();
+		File targetPath = new File(extDir, targeturi.getLastPathSegment());
 		Log.d(TAG, "downloading:"+targetUrl+" to " + targeturi.getLastPathSegment());
-		//InputStream is = NetworkUtil.getURLStream(args[0], targetUrl);
+
+		if ( NetworkUtil.exists(args[0], targetUrl) == false ) {
+		    Log.d(TAG, "file doesn't exist");
+		    return null;
+		}
+
+		InputStream is = NetworkUtil.getURLStream(args[0], targetUrl);
+		NarUtil.copyFile(is, new FileOutputStream(targetPath));
+		
+		return targetPath.toString();
 	    }
 	    catch(Exception e){
 		e.printStackTrace();
+		return null;
 	    }
-	    return "/mnt/sdcard/2elf-2.41.nar";
 	}
 
-
 	public void onPostExecute(String result) {
+	    if ( result == null ) {
+		Log.d(TAG, "download failed.");
+		return;
+	    }
+
 	    Log.d(TAG, "download complete?");
 
 	    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
