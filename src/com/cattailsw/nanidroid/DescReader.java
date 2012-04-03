@@ -60,13 +60,7 @@ public class DescReader {
 	    setTable(new Hashtable<String, String>());
 
 	BufferedReader reader = null;
-	try {
-	    reader = new BufferedReader(new InputStreamReader(is, Charset.forName("Shift_JIS")));
-	}
-	catch(Exception e) {
-	    Log.d(TAG, "error reading");
-	    return;
-	}
+	reader = new BufferedReader(new InputStreamReader(is, Charset.forName("Shift_JIS")));
 
 	readLoop(reader, getTable());
 
@@ -100,15 +94,9 @@ public class DescReader {
 	Hashtable<String, String> ret = new Hashtable<String,String>();
 	
 	BufferedReader reader = null;
-	try {
-	    reader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(infilePath)), 
-							      Charset.forName("Shift_JIS")));
-	}
-	catch(Exception e) {
-	    Log.d(TAG, "error reading:" + infilePath);
-	    e.printStackTrace();
-	    return null;
-	}
+
+	reader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(infilePath)), 
+							  Charset.forName("Shift_JIS")));
 	readLoop(reader, ret);
 
 	reader.close();
@@ -117,13 +105,13 @@ public class DescReader {
 	return ret;
     }
 
-	public Map<String, String> getTable() {
-		return table;
-	}
+    public Map<String, String> getTable() {
+	return table;
+    }
 
-	public void setTable(Map<String, String> table) {
-		this.table = table;
-	}
+    public void setTable(Map<String, String> table) {
+	this.table = table;
+    }
     
 
 }

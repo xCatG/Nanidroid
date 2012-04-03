@@ -52,6 +52,7 @@ public class Ghost {
 	    Log.d(TAG, "desc parsing error");
 	    e.printStackTrace();
 	    error = true;
+	    return;
 	}
 
 	SurfaceReader sr = new SurfaceReader(mgr, master_shell, master_shell_surface );
