@@ -43,7 +43,7 @@ public class Nanidroid extends Activity
     private FrameLayout fl = null;
 
     AnimationDrawable anime = null;
-    SurfaceManager mgr = null;
+    //SurfaceManager mgr = null;
     LayoutManager lm = null;
     SScriptRunner runner = null;
 
@@ -63,12 +63,17 @@ public class Nanidroid extends Activity
 	bKero = (Balloon) findViewById(R.id.bKero);
 	fl = (FrameLayout) findViewById(R.id.fl);
 
-	mgr = SurfaceManager.getInstance();
+	//mgr = SurfaceManager.getInstance();
 	lm = LayoutManager.getInstance(this);
 	runner = SScriptRunner.getInstance(this);
+	gm = new GhostMgr(this);
+	Ghost g = gm.createGhost("first");
+	runner.setGhost(g);
+	gm.setLastRunGhost(g);
+
 	runner.setViews(sv, kv, bSakura, bKero);
-	sv.setMgr(mgr);
-	kv.setMgr(mgr);
+	sv.setMgr(g.mgr);
+	kv.setMgr(g.mgr);
 	lm.setViews(fl, sv, kv, bSakura, bKero);
 	runner.setLayoutMgr(lm);
 	// need to get a list of ghosts on sd card
@@ -78,17 +83,14 @@ public class Nanidroid extends Activity
 	    // need to prompt SD card issue
 	}
 
-	gm = new GhostMgr(this);
-	Ghost g = gm.createGhost("first");
-	runner.setGhost(g);
-	gm.setLastRunGhost(g);
 
 	Intent launchingIntent = getIntent();
+	String action = launchingIntent.getAction();
 	if ( launchingIntent.hasExtra("DL_PKG") ){
 	    Uri data = launchingIntent.getData();
 	    bKero.setText("launching to extract nar at:" + data);
 	}
-	else if ( launchingIntent.getAction().equalsIgnoreCase(Intent.ACTION_VIEW) ) {
+	else if (action!= null && action.equalsIgnoreCase(Intent.ACTION_VIEW) ) {
 	    // need to check the data?
 	    Log.d(TAG, " action_view with data:" + launchingIntent.getData());
 	    Uri target = launchingIntent.getData();
@@ -97,16 +99,23 @@ public class Nanidroid extends Activity
 	    // enqueue to download
 	}
 
-	int keycount = mgr.getTotalSurfaceCount();
-	surfaceKeys = new String[keycount];
-	Set<String> k = mgr.getSurfaceKeys();
-	surfaceKeys = k.toArray(surfaceKeys);
-	Arrays.sort(surfaceKeys);
+	updateSurfaceKeys(g);
 	currentSurfaceKey = surfaceKeys[0];
-	currentSurface = mgr.getSakuraSurface(currentSurfaceKey);
+	currentSurface = g.mgr.getSakuraSurface(currentSurfaceKey);
 	checkAndLoadAnimation();
+	sv.changeSurface("0");
+	kv.changeSurface("10");
+	
 	ViewServer.get(this).addWindow(this);
     }
+
+	private void updateSurfaceKeys(Ghost g) {
+		int keycount = g.mgr.getTotalSurfaceCount();
+		surfaceKeys = new String[keycount];
+		Set<String> k = g.mgr.getSurfaceKeys();
+		surfaceKeys = k.toArray(surfaceKeys);
+		Arrays.sort(surfaceKeys);
+	}
 
     public void onDestroy() {
 	super.onDestroy();
@@ -189,14 +198,15 @@ public class Nanidroid extends Activity
     ShellSurface currentSurface = null;
 
     public void onNextSurface(View v){
-	if ( keyindex < surfaceKeys.length - 1 )
+
+    	if ( keyindex < surfaceKeys.length - 1 )
 	    keyindex++;
 	else
 	    keyindex = 0;
 	
 	currentSurfaceKey = surfaceKeys[keyindex];
 	Log.d(TAG, "loading surface:" + currentSurfaceKey);
-	currentSurface = mgr.getSakuraSurface(currentSurfaceKey);
+	currentSurface = sv.mgr.getSakuraSurface(currentSurfaceKey);
 	bSakura.setText("current drawable key: " + currentSurfaceKey + 
 		   ", animation count: " + currentSurface.getAnimationCount() +
 		   ", collision count: " + currentSurface.getCollisionCount()
@@ -259,19 +269,63 @@ public class Nanidroid extends Activity
 	addNarToDownload(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
     }
 
-    private void extractNarTest(){
+    private void extractNar(String targetPath){
 	File dataDir = new File(getExternalFilesDir(null), "ghost");
-	String ghostId = NarUtil.readNarGhostId("/mnt/sdcard/2elf-2.41.nar");
+	String ghostId = NarUtil.readNarGhostId(targetPath);
 
 	if ( gm.hasSameGhostId(ghostId) == false ) {
-	    NarUtil.readNarArchive("/mnt/sdcard/2elf-2.41.nar", dataDir.getAbsolutePath());
+	    String gPath = gm.installGhost(ghostId, targetPath);
+	    if ( gPath != null ){
+		// should show readme if one present
+		Log.d(TAG, "ghost:" + ghostId + " installed at:" + gPath);
+		File readme = new File(gPath, "readme.txt");
+		if ( readme.exists() ) {
+		    showReadme(readme, ghostId);
+		}
+		else {
+		    showGhostInstalledDlg(ghostId);
+		}
+	    }
 	}
+    }
+
+    private void showReadme(File readme, String ghostId){
+	
+    }
+
+    private void showGhostInstalledDlg(String ghostId){
+
+    }
+
+    int cGindex = 0;
+    public void onNextGhost(View v){
+	String [] gname = {"first","yohko","2elf"};
+	switchGhost(gname[cGindex]);
+	cGindex++;
+	if ( cGindex > gname.length -1)
+	    cGindex = 0;
+    }
+
+    private void switchGhost(String nextId){
+	Ghost g = gm.createGhost(nextId);
+	sv.setMgr(g.mgr);
+	kv.setMgr(g.mgr);
+	runner.setGhost(g);
+	updateSurfaceKeys(g);
+	
+	keyindex = 0;
+	currentSurfaceKey = surfaceKeys[keyindex];	
+	sv.changeSurface(currentSurfaceKey);
+	kv.changeSurface("10");
+	lm.checkAndUpdateLayoutParam();
     }
 
     public void onNewIntent(Intent intent) {
 	if ( intent.hasExtra("DL_PKG") ){
 	    Uri data = intent.getData();
 	    bKero.setText("launching to extract nar at:" + data);
+
+	    extractNar("/mnt/sdcard/2elf-2.41.nar");
 	}
 	
     }

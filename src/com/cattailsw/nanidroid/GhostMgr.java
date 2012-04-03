@@ -4,6 +4,8 @@ import android.content.Context;
 import java.util.List;
 
 import com.cattailsw.nanidroid.util.PrefUtil;
+import com.cattailsw.nanidroid.util.NarUtil;
+import java.io.File;
 
 public class GhostMgr {
     private static final String TAG = "GhostMgr";
@@ -31,7 +33,7 @@ public class GhostMgr {
 	if ( iglist == null || iglist.size() == 0 )
 	    return false;
 
-	return (getGhostId(id) == -1);
+	return (getGhostId(id) != -1);
     }
 
     public String getGhostPath(int id){
@@ -57,6 +59,20 @@ public class GhostMgr {
 	String gid = g.getGhostDirName();
 
 	PrefUtil.setKey(mCtx, PREF_LAST_RUN_GHOST, gid);
+    }
+
+    public String installGhost(String ghostId, String narPath){
+	File dataDir = new File(mCtx.getExternalFilesDir(null), "ghost");
+	boolean success = NarUtil.readNarArchive(narPath, dataDir.getAbsolutePath());
+	refreshGhost();
+	int gid =  getGhostId( ghostId);
+	if ( gid == -1 ) return null;
+	String path = getGhostPath(gid);
+	return path;
+    }
+
+    public void refreshGhost(){
+	iglist = DirList.parseDataDir(mCtx);
     }
 
 }

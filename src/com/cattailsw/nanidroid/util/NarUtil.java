@@ -44,8 +44,9 @@ public class NarUtil {
 
     }
 
-    public static void readNarArchive(String pathToArchive, String installRoot){
+    public static boolean readNarArchive(String pathToArchive, String installRoot){
 	ZipFile nar = null;
+	boolean ret = false;
 	try {
 	    nar = new ZipFile(pathToArchive);
 		
@@ -58,7 +59,7 @@ public class NarUtil {
 		    String type = r.getTable().get("type");
 		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
 			Log.d(TAG, "do not support " + type + " archive yet");
-			return;
+			return false;
 		    }
 		    String targetDirid = r.getTable().get("directory");
 		    String targetPath = installRoot + "/" + targetDirid;
@@ -66,14 +67,16 @@ public class NarUtil {
 		    extractZipToPath(entries, nar, targetPath);
 		}
 	    }
-	    nar.close();	    
+	    nar.close();	
+	    ret = true;
 	} catch (IOException e) {
 	    // TODO Auto-generated catch block
 	    e.printStackTrace();
+	    ret = false;
 	}
 	finally {
 	}
-
+	return ret;
     }
 
     private static void extractZipToPath(ArrayList<ZipEntry> entries, 
