@@ -139,6 +139,11 @@ public class ShellSurface {
 	Animation(String id, int interval){this.id = id; this.interval = interval;}
 	void addFrame(int index, AnimationFrame f) {
 	    if ( frames == null ) frames = new ArrayList<AnimationFrame>();
+	    if ( frames.size() <=  index ) {
+	    	for(int i = frames.size(); i < index; i++) {
+	    		frames.add(i, f);
+	    	}
+	    }
 	    frames.add(index, f);
 	    Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
 	}
@@ -540,7 +545,7 @@ public class ShellSurface {
 	    a.id = aId;
 	    animationTable.put(aId, a);
 	}
-
+	
 	a.addFrame(index, frame);
     }
 
@@ -783,7 +788,7 @@ public class ShellSurface {
 	if (animationTypeTable!=null && animationTypeTable.containsKey(type) ) {
 	    String idstring = animationTypeTable.get(type);
 	    String[] idz = idstring.split(",");
-	    if ( idz == null )
+	    if ( idz == null || idz.length == 1 )
 		return idstring;
 	    else {
 		return idz[ (int)(Math.random() * idz.length) ];

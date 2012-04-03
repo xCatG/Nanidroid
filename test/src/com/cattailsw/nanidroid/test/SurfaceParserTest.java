@@ -60,5 +60,26 @@ public class SurfaceParserTest extends AndroidTestCase {
 	assertTrue(m.matches());
 	assertEquals("0001", m.group(1));
     }
+
+    public void testIntervalParse(){
+	String t = "0interval,talk";
+	Matcher m = PatternHolders.interval.matcher(t);
+	assertTrue(m.matches());
+	assertEquals("0", m.group(1));
+	assertEquals("talk", m.group(2));
+
+	t = "1interval,sometimes";
+	m = PatternHolders.interval.matcher(t);
+	assertTrue(m.matches());
+	assertEquals("1", m.group(1));
+	assertEquals("sometimes", m.group(2));
+
+	t = "2interval15,talk";
+	m = PatternHolders.interval.matcher(t);
+	assertTrue(m.matches());
+	assertEquals("2", m.group(1));
+	assertEquals("talk", m.group(2));
+
+    }
 	
 }

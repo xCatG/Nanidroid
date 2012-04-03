@@ -9,7 +9,7 @@ public class PatternHolders {
     public static final Pattern collision = Pattern.compile("collision(\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\w*)$");
     public static final	Pattern point = Pattern.compile("point.(\\w*\\.*)center([xXyY]{1}),(\\d+$)");
 
-    public static final	Pattern interval = Pattern.compile("(\\d+)interval,(\\S*)$");
+    public static final	Pattern interval = Pattern.compile("(\\d+)interval\\d*,(\\S*)$");
     public static final	Pattern animation_interval = Pattern.compile("animation(\\d+).interval.(\\S*)$");
     // XpatternX,number|-1,wait,overlay,x,y
     public static final	Pattern pattern = Pattern.compile("(\\d+)pattern(\\d?),(\\d*|-1),(\\d*),(\\w*),?(\\d*),(\\d*)$");
