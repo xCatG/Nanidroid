@@ -6,7 +6,7 @@ public class PatternHolders {
 
     // Patterns for parsing Surfaces.txt
     public static final Pattern element = Pattern.compile("element(\\d+),(\\w*),(\\S*),(\\d+),(\\d+)$");
-    public static final Pattern collision = Pattern.compile("collision(\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\w*)$");
+    public static final Pattern collision = Pattern.compile("collision(\\d+),\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),(\\w*)$");
     public static final	Pattern point = Pattern.compile("point.(\\w*\\.*)center([xXyY]{1}),(\\d+$)");
 
     public static final	Pattern interval = Pattern.compile("(\\d+)interval\\d*,(\\S*)$");
