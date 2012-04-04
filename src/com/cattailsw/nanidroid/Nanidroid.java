@@ -5,6 +5,10 @@ import android.os.Bundle;
 import android.widget.ImageView;
 import android.os.Environment;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+
 import android.widget.TextView;
 import android.os.SystemClock;
 import android.graphics.drawable.AnimationDrawable;
@@ -36,6 +40,7 @@ import android.webkit.WebViewClient;
 import android.app.AlertDialog;
 import android.app.AlertDialog.Builder;
 import android.content.DialogInterface;
+import android.content.res.AssetManager;
 
 public class Nanidroid extends Activity
 {
@@ -67,11 +72,20 @@ public class Nanidroid extends Activity
 	bSakura = (Balloon) findViewById(R.id.bSakura);
 	bKero = (Balloon) findViewById(R.id.bKero);
 	fl = (FrameLayout) findViewById(R.id.fl);
+	// need to get a list of ghosts on sd card
+	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
+	    bSakura.setText("sd card error");
+	    return;
+	    // need to prompt SD card issue
+	}
 
 	//mgr = SurfaceManager.getInstance();
 	lm = LayoutManager.getInstance(this);
 	runner = SScriptRunner.getInstance(this);
 	gm = new GhostMgr(this);
+	if ( gm.getGhostCount() == 0 )
+		runOnFirstExecution(); // extract first to file dir on sd card
+	
 	String lastId = gm.getLastRunGhostId();
 	if ( lastId == null ) lastId = "first";
 	Ghost g = gm.createGhost(lastId);
@@ -83,12 +97,6 @@ public class Nanidroid extends Activity
 	kv.setMgr(g.mgr);
 	lm.setViews(fl, sv, kv, bSakura, bKero);
 	runner.setLayoutMgr(lm);
-	// need to get a list of ghosts on sd card
-	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
-	    bSakura.setText("sd card error");
-	    return;
-	    // need to prompt SD card issue
-	}
 
 
 	Intent launchingIntent = getIntent();
@@ -274,7 +282,8 @@ public class Nanidroid extends Activity
     public void narTest(View v){
 	//extractNarTest();
 	//addNarToDownload(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
-	showReadme(new File("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/files/ghost/mana/readme.txt"), "mana");
+	//showReadme(new File("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/files/ghost/mana/readme.txt"), "mana");
+    	extractNar("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/cache/yumenikki.nar");
     }
 
     private void extractNar(String targetPath){
@@ -295,6 +304,20 @@ public class Nanidroid extends Activity
 		}
 	    }
 	}
+    }
+    
+    private void runOnFirstExecution(){
+    	AssetManager a = getAssets();
+    	try {
+    		InputStream is = a.open("first.zip");
+    		File extDir = getExternalCacheDir();
+    		File targetPath = new File(extDir, "first.nar");
+    		NarUtil.copyFile(is, new FileOutputStream(targetPath));
+    		gm.installFirstGhost("first", targetPath.getPath());			
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
     }
 
     private void showReadme(File readme, final String ghostId){
@@ -347,7 +370,15 @@ public class Nanidroid extends Activity
     }
 
     private void switchGhost(String nextId){
-	Ghost g = gm.createGhost(nextId);
+    	Ghost g = null;
+    	try {
+	g = gm.createGhost(nextId);
+    	}
+    	catch(Exception e) {
+    		Log.d(TAG, "failed to switch to ghost:" + nextId);
+    		e.printStackTrace();
+    		return;
+    	}
 	sv.setMgr(g.mgr);
 	kv.setMgr(g.mgr);
 	runner.setGhost(g);
