@@ -100,7 +100,8 @@ public class Nanidroid extends Activity
 
 
 	Intent launchingIntent = getIntent();
-	String action = launchingIntent.getAction();
+	handleIntent(launchingIntent);
+/*	String action = launchingIntent.getAction();
 	if ( launchingIntent.hasExtra("DL_PKG") ){
 	    Uri data = launchingIntent.getData();
 	    bKero.setText("launching to extract nar at:" + data);
@@ -113,7 +114,7 @@ public class Nanidroid extends Activity
 	    addNarToDownload(target);
 	    // enqueue to download
 	}
-
+*/
 	updateSurfaceKeys(g);
 	currentSurfaceKey = surfaceKeys[0];
 	currentSurface = g.mgr.getSakuraSurface(currentSurfaceKey);
@@ -392,15 +393,25 @@ public class Nanidroid extends Activity
 	gm.setLastRunGhost(g);
     }
 
-    public void onNewIntent(Intent intent) {
-	if ( intent.hasExtra("DL_PKG") ){
-	    Uri data = intent.getData();
-	    bKero.setText("launching to extract nar at:" + data);
+    private void handleIntent(Intent intent){
+		String action = intent.getAction();
+		if (intent.hasExtra("DL_PKG")) {
+			Uri data = intent.getData();
+			bKero.setText("launching to extract nar at:" + data);
 
-	    extractNar(data.getPath());//"/mnt/sdcard/2elf-2.41.nar");
+			extractNar(data.getPath());// "/mnt/sdcard/2elf-2.41.nar");
+		}
+		if (action != null && action.equalsIgnoreCase(Intent.ACTION_VIEW)) {
+			// need to check the data?
+			Log.d(TAG, " action_view with data:" + intent.getData());
+			Uri target = intent.getData();
+			if (target != null)
+				addNarToDownload(target);
+		}
 	}
-	
-    }
-
+    
+	public void onNewIntent(Intent intent) {
+		handleIntent(intent);
+	}
 
 }
