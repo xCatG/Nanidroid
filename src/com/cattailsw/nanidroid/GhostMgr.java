@@ -61,9 +61,21 @@ public class GhostMgr {
 	PrefUtil.setKey(mCtx, PREF_LAST_RUN_GHOST, gid);
     }
 
-    public String installGhost(String ghostId, String narPath){
+    public String installFirstGhost(String gid, String narPath){
+    	return installGhost(gid, narPath, true);
+    }
+    
+    public String installGhost(String gid, String narPath){
+    	return installGhost(gid, narPath, false);
+    }
+    
+    public String installGhost(String ghostId, String narPath, boolean usegid){
 	File dataDir = new File(mCtx.getExternalFilesDir(null), "ghost");
-	boolean success = NarUtil.readNarArchive(narPath, dataDir.getAbsolutePath());
+	boolean success = NarUtil.readNarArchive(narPath, dataDir.getAbsolutePath(), 
+				usegid?ghostId:null);
+	if ( success == false)
+		return null;
+	
 	refreshGhost();
 	int gid =  getGhostId( ghostId);
 	if ( gid == -1 ) return null;
@@ -86,5 +98,9 @@ public class GhostMgr {
 	    i++;
 	}
 	return ret;
+    }
+    
+    public int getGhostCount(){
+    	return (iglist == null)?0:iglist.size();
     }
 }

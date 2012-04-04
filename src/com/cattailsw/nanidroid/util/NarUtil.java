@@ -37,6 +37,7 @@ public class NarUtil {
 
 		    ret = r.getTable().get("directory");
 		    is.close();
+		    break;
 		}
 	    }
 	    nar.close();
@@ -49,13 +50,14 @@ public class NarUtil {
 
     }
 
-    public static boolean readNarArchive(String pathToArchive, String installRoot){
+    public static boolean readNarArchive(String pathToArchive, String installRoot, String tid){
 	ZipFile nar = null;
 	boolean ret = false;
 	try {
 	    nar = new ZipFile(pathToArchive);
 		
 	    ArrayList<ZipEntry> entries = (ArrayList<ZipEntry>) Collections.list(nar.entries());
+	    if ( tid == null ) {
 	    for ( ZipEntry e : entries ) {
 		// need to find "install.txt"
 		if ( e.getName().contains("install.txt")) {
@@ -64,13 +66,20 @@ public class NarUtil {
 		    String type = r.getTable().get("type");
 		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
 			Log.d(TAG, "do not support " + type + " archive yet");
-			return false;
+			
+			//return false;
 		    }
 		    String targetDirid = r.getTable().get("directory");
 		    String targetPath = installRoot + "/" + targetDirid;
 		    is.close();
 		    extractZipToPath(entries, nar, targetPath);
+		    break;
 		}
+	    }
+	    }else{
+	    	
+	    	extractZipToPath(entries, nar, installRoot + "/" + tid);
+	    	
 	    }
 	    nar.close();	
 	    ret = true;
@@ -90,7 +99,7 @@ public class NarUtil {
 	checkAndMakeDir(targetPath);
 	for ( ZipEntry e : entries ) {
 	    if ( e.isDirectory() ){
-		checkAndMakeDir(targetPath + e.getName());
+		//checkAndMakeDir(targetPath + e.getName());
 	    }
 	    else {
 		File f = new File(targetPath + "/" +  e.getName());
