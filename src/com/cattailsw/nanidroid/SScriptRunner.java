@@ -93,7 +93,8 @@ public class SScriptRunner implements Runnable {
 		else if ( m.what == INC_CLOCK ) {
 
 		    perClockEvent();
-		    loopHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
+		    //loopHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
+		    loopHandler.sendEmptyMessageAtTime(INC_CLOCK, SystemClock.uptimeMillis() + 1000);
 		}
 	    }
 	};
@@ -551,7 +552,8 @@ public class SScriptRunner implements Runnable {
 	// every second
 	int seconds = (int) ( mills / 1000 );
 	int minute = seconds / 60;
-	int hour = seconds / 60;
+	int hour = minute / 60;
+	minute = minute % 60;
 	seconds = seconds % 60;
 
 	if ( seconds - lastSec >= 1 || seconds == 0) {
