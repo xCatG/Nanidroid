@@ -118,8 +118,8 @@ public class Nanidroid extends Activity
 	updateSurfaceKeys(g);
 	currentSurfaceKey = surfaceKeys[0];
 	currentSurface = g.mgr.getSakuraSurface(currentSurfaceKey);
-	checkAndLoadAnimation();
-	sv.changeSurface("0");
+	//checkAndLoadAnimation();
+	sv.changeSurface(currentSurfaceKey);
 	kv.changeSurface("10");
 	
 	ViewServer.get(this).addWindow(this);
@@ -182,6 +182,15 @@ public class Nanidroid extends Activity
 								    Gravity.BOTTOM | Gravity.LEFT);
 	kv.setLayoutParams(lpK);
 	fl.invalidate();
+    }
+
+    /**
+     * Describe <code>onWindowFocusChanged</code> method here.
+     *
+     * @param flag a <code>boolean</code> value
+     */
+    public void onWindowFocusChanged(boolean flag) {
+	lm.checkAndUpdateLayoutParam();
     }
 
     private void checkAndLoadAnimation() {
@@ -284,7 +293,9 @@ public class Nanidroid extends Activity
 	//extractNarTest();
 	//addNarToDownload(Uri.parse("http://xx.xx.xxx/path/to/the/blab.nar"));
 	//showReadme(new File("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/files/ghost/mana/readme.txt"), "mana");
-    	extractNar("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/cache/yumenikki.nar");
+    	//extractNar("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/cache/yumenikki.nar");
+	//runOnUiThread(runner);//.startClock();
+	runner.startClock();
     }
 
     private void extractNar(String targetPath){
