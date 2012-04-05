@@ -36,6 +36,8 @@ public class NanidroidService extends Service {
     public static final int START_HEADLINE_SENSOR = 9000;
     public static final int START_NAR_DL = 9001;
 
+    public static final String ACTION_CAN_STOP = "canstopsensing";
+
     @Override
     public IBinder onBind(Intent arg0) {
 	return null;
@@ -81,6 +83,9 @@ public class NanidroidService extends Service {
 		NarDownloadTask n = new NarDownloadTask(data, startId);
 		n.execute(this);		
 	    }
+	}
+	else if ( action.equalsIgnoreCase( ACTION_CAN_STOP ) ) {
+	    stopSelf(startId);	    
 	}
 
     }

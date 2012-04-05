@@ -90,17 +90,22 @@ public class SScriptRunner implements Runnable {
 		    loopControl();
 		else if ( m.what == STOP )
 		    stop();
-		else if ( m.what == INC_CLOCK ) {
 
+	    }
+	};
+
+    private Handler clockHandler = new Handler() {
+	    @Override
+	    public void handleMessage(Message m) {
+		if ( m.what == INC_CLOCK ) {
 		    perClockEvent();
-		    //loopHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
-		    loopHandler.sendEmptyMessageAtTime(INC_CLOCK, SystemClock.uptimeMillis() + 1000);
+		    clockHandler.sendEmptyMessageAtTime(INC_CLOCK, SystemClock.uptimeMillis() + 1000);
 		}
 	    }
 	};
 
     private void loopControl() {
-	if ( charIndex < msg.length() ){
+	if (msg != null && charIndex < msg.length() ){
 	    parseMsg();
 	    updateUI();
 	    if ( no_wait_mode )
@@ -129,12 +134,13 @@ public class SScriptRunner implements Runnable {
     private long startTime = 0;
 
     void startClock() {
+	Log.d(TAG, "startClock called");
 	startTime = SystemClock.uptimeMillis();
-	loopHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
+	clockHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
     }
 
     void stopClock() {
-	loopHandler.removeMessages(INC_CLOCK);
+	clockHandler.removeMessages(INC_CLOCK);
     }
 
     public synchronized void run() {
@@ -144,7 +150,6 @@ public class SScriptRunner implements Runnable {
 	    isRunning = true;
 	}
 
-	startClock();
 	reset();
 	msg = getFromQueue();//rewriteMsg(mMsgQueue.poll());
 	if ( msg == null ) {
@@ -185,6 +190,8 @@ public class SScriptRunner implements Runnable {
 	if ( cb != null )
 	    cb.stop();
     }
+
+    
 
     private void reset() {
 	sync = false;
@@ -571,7 +578,7 @@ public class SScriptRunner implements Runnable {
 	    doPerHourEvent();
 	    lastHour = hour;
 	}
-	Log.d(TAG, "perClockEvent called at:["+hour+":"+minute+":"+seconds+"]");
+	//Log.d(TAG, "perClockEvent called at:["+hour+":"+minute+":"+seconds+"]");
     }
 
 }

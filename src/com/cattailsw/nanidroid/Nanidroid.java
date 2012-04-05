@@ -125,21 +125,29 @@ public class Nanidroid extends Activity
 	ViewServer.get(this).addWindow(this);
     }
 
-	private void updateSurfaceKeys(Ghost g) {
-		int keycount = g.mgr.getTotalSurfaceCount();
-		surfaceKeys = new String[keycount];
-		Set<String> k = g.mgr.getSurfaceKeys();
-		surfaceKeys = k.toArray(surfaceKeys);
-		Arrays.sort(surfaceKeys);
-	}
+    private void updateSurfaceKeys(Ghost g) {
+	int keycount = g.mgr.getTotalSurfaceCount();
+	surfaceKeys = new String[keycount];
+	Set<String> k = g.mgr.getSurfaceKeys();
+	surfaceKeys = k.toArray(surfaceKeys);
+	Arrays.sort(surfaceKeys);
+    }
+
+    public void onPause() {
+	super.onPause();
+	if ( runner!= null ) runner.stopClock();
+	sendStopIntent();
+    }
 
     public void onDestroy() {
 	super.onDestroy();
 	ViewServer.get(this).removeWindow(this);
+	sendStopIntent();
     }
 
     public void onResume() {
 	super.onResume();
+	if ( runner != null ) runner.startClock();
 	ViewServer.get(this).setFocusedWindow(this);
     }
 
@@ -280,6 +288,13 @@ public class Nanidroid extends Activity
 	runner.run();*/
 	startService(new Intent(this, NanidroidService.class));	
     }
+
+    private void sendStopIntent(){
+	Intent i = new Intent(this, NanidroidService.class);
+	i.setAction(NanidroidService.ACTION_CAN_STOP);
+	startService(i);	
+    }
+
 
     private void addNarToDownload(Uri target){
 	Intent i = new Intent(this, NanidroidService.class);
