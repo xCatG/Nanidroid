@@ -33,6 +33,9 @@ public class NanidroidService extends Service {
     private static final String TAG = "HeadLineSensorService";
     private SScriptRunner runner = null;
 
+    public static final int START_HEADLINE_SENSOR = 9000;
+    public static final int START_NAR_DL = 9001;
+
     @Override
     public IBinder onBind(Intent arg0) {
 	return null;
@@ -55,18 +58,18 @@ public class NanidroidService extends Service {
      * @param n1 an <code>int</code> value
      * @return an <code>int</code> value
      */
-    public final int onStartCommand(final Intent intent, final int n, final int n1) {
-	handleCommand(intent);
+    public final int onStartCommand(Intent intent, int flags, int startId){
+	handleCommand(intent, startId);
 	return START_NOT_STICKY;
     }
 
     @Override
     public void onStart(Intent intent, int startId) {
 	super.onStart(intent, startId);
-	handleCommand(intent);
+	handleCommand(intent, startId);
     }
 
-    private void handleCommand(Intent i){
+    private void handleCommand(Intent i, int startId){
 	String action = i.getAction();
 
 	if ( action == null ) {
@@ -74,15 +77,10 @@ public class NanidroidService extends Service {
 	}
 	else if (action.equalsIgnoreCase( Intent.ACTION_RUN ) ) {
 	    Uri data = i.getData();
-	    //String data = Uri.decode(i.getDataString());
-
-	    /*List<String> sz = data.getPathSegments();
-	    for ( String s: sz)
-		Log.d(TAG, "path->:" + s);
-	    */
-
-	    NarDownloadTask n = new NarDownloadTask(data);
-	    n.execute(this);
+	    if ( data != null ) {
+		NarDownloadTask n = new NarDownloadTask(data, startId);
+		n.execute(this);		
+	    }
 	}
 
     }
@@ -150,9 +148,15 @@ public class NanidroidService extends Service {
     private class NarDownloadTask extends AsyncTask<Context, String, String> {
 	String targetUrl = null;
 	Uri targeturi = null;
-	NarDownloadTask(Uri uri){
+	int svcid = -1;
+	NarDownloadTask(Uri uri, int sid){
 	    targeturi = uri;
 	    targetUrl = Uri.decode(targeturi.toString());
+	    svcid = sid;
+	}
+
+	NarDownloadTask(Uri uri){
+	    this(uri, -1);
 	}
 	
 	public String doInBackground(Context... args) {
@@ -195,6 +199,9 @@ public class NanidroidService extends Service {
 	    n.setLatestEventInfo(getApplicationContext(), "Download completed", "dl", pi);
 	    n.flags = Notification.FLAG_AUTO_CANCEL;
 	    nm.notify(42, n);
+
+	    if ( svcid != -1 )
+		stopSelf(svcid);
 	}
 
 
