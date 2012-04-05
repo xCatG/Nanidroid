@@ -9,8 +9,9 @@ import java.util.regex.Matcher;
 import android.util.Log;
 import android.os.Handler;
 import android.os.Message;
+import android.os.SystemClock;
 
-public class SScriptRunner {
+public class SScriptRunner implements Runnable {
     private static final String TAG = "SScriptRunner";
 
     private static SScriptRunner _self = null;
@@ -80,6 +81,8 @@ public class SScriptRunner {
 
     private static final int RUN = 42;
     private static final int STOP = RUN+1;
+    private static final int INC_CLOCK = STOP + 1;
+    private static final long CLOCK_STEP = 1000;
     private Handler loopHandler = new Handler() {
 	    @Override
 	    public void handleMessage(Message m) {
@@ -87,6 +90,11 @@ public class SScriptRunner {
 		    loopControl();
 		else if ( m.what == STOP )
 		    stop();
+		else if ( m.what == INC_CLOCK ) {
+
+		    perClockEvent();
+		    loopHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
+		}
 	    }
 	};
 
@@ -117,6 +125,17 @@ public class SScriptRunner {
 	}
     }
 
+    private long startTime = 0;
+
+    void startClock() {
+	startTime = SystemClock.uptimeMillis();
+	loopHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
+    }
+
+    void stopClock() {
+	loopHandler.removeMessages(INC_CLOCK);
+    }
+
     public synchronized void run() {
 	synchronized( isRunning ) {
 	    if ( isRunning )
@@ -124,13 +143,15 @@ public class SScriptRunner {
 	    isRunning = true;
 	}
 
+	startClock();
 	reset();
 	msg = getFromQueue();//rewriteMsg(mMsgQueue.poll());
 	if ( msg == null ) {
 	    stop();
 	}
 	else {
-	    loopControl();
+	    loopHandler.sendEmptyMessage(RUN);
+	    //loopControl();
 	    //parseMsg();
 	}
     }
@@ -156,6 +177,10 @@ public class SScriptRunner {
 	synchronized( isRunning ) {
 	    isRunning = false;
 	}
+	bSakuraId = "-1";
+	bKeroId = "-1";
+	updateUI();
+
 	if ( cb != null )
 	    cb.stop();
     }
@@ -445,7 +470,7 @@ public class SScriptRunner {
 	}
     }
 
-
+    private int talkAnimeControl  = 0;
     private void updateUI() {
 	sakura.changeSurface(sakuraSurfaceId);
 	kero.changeSurface(keroSurfaceId);
@@ -460,7 +485,7 @@ public class SScriptRunner {
 	else {
 	    sakuraBalloon.setVisibility(View.VISIBLE);
 	    sakuraBalloon.setText(sakuraMsg.toString());
-	    if ( !sakuraAnimate) sakura.startTalkingAnimation();
+	    if ( !sakuraAnimate && talkAnimeControl == 0 ) sakura.startTalkingAnimation();
 	}
 
 	if ( bKeroId.equalsIgnoreCase("-1") && keroMsg.length() == 0 ) {
@@ -469,7 +494,7 @@ public class SScriptRunner {
 	else {
 	    keroBalloon.setVisibility(View.VISIBLE);
 	    keroBalloon.setText(keroMsg.toString());
-	    if ( !keroAnimate) kero.startTalkingAnimation();
+	    if ( !keroAnimate && talkAnimeControl == 0 ) kero.startTalkingAnimation();
 	}
 
 	if ( layoutMgr != null )
@@ -487,6 +512,64 @@ public class SScriptRunner {
 	    kero.startAnimation();
 	    keroAnimationId = null;
 	}
+	talkAnimeControl++;
+	if ( talkAnimeControl == 10 )
+	    talkAnimeControl = 0;
+    }
+    private int lastSec = 0;
+    private int lastMin = 0;
+    private int lastHour = 0;
+
+    private void startPerSecondAnimation(SakuraView target){
+	double p = Math.random();
+	if ( p < 0.25f ){
+	    target.startRarelyAnimation();
+	}
+	else if ( p < 0.50f ) {
+	    target.startSometimesAnimation();
+	}
+    }
+
+    private void doPerSecondEvent() {
+	startPerSecondAnimation(sakura);
+	startPerSecondAnimation(kero);
+	
+	g.sendOnSecondChange();
+    }
+
+    private void doPerMinuteEvent() {
+	g.sendOnMinuteChange();
+    }
+
+    private void doPerHourEvent() {
+
+    }
+
+
+    private void perClockEvent() {
+	long mills = SystemClock.uptimeMillis() - startTime;
+	// every second
+	int seconds = (int) ( mills / 1000 );
+	int minute = seconds / 60;
+	int hour = seconds / 60;
+	seconds = seconds % 60;
+
+	if ( seconds - lastSec >= 1 || seconds == 0) {
+	    doPerSecondEvent();
+	    lastSec = seconds;	   
+	}
+	// every minute
+	if ( minute - lastMin >= 1 || (lastMin == 59 && minute == 0)) {
+	    doPerMinuteEvent();
+	    lastMin = minute;
+	}
+
+	// every hour
+	if ( hour - lastHour >= 1 ) {
+	    doPerHourEvent();
+	    lastHour = hour;
+	}
+	Log.d(TAG, "perClockEvent called at:["+hour+":"+minute+":"+seconds+"]");
     }
 
 }

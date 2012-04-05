@@ -91,4 +91,12 @@ public class Ghost {
 	return "User";
     }
 
+    public void sendOnSecondChange(){
+
+    }
+
+    public void sendOnMinuteChange(){
+
+    }
+
 }

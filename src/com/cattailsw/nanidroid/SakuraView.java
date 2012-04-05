@@ -14,10 +14,12 @@ import android.graphics.Paint.Style;
 import android.graphics.Bitmap.Config;
 import android.graphics.Color;
 import android.view.View;
+import android.util.Log;
 
 public class SakuraView extends ImageView {
     private static final String TAG = "SakuraView";
     SurfaceManager mgr = null;
+    String currentSurfaceId = null;
     ShellSurface currentSurface = null;
     Context mCtx = null;
     AnimationDrawable animation = null;
@@ -40,6 +42,7 @@ public class SakuraView extends ImageView {
 
     public void setMgr(SurfaceManager m) {
 	mgr = m;
+	currentSurfaceId = null;
     }
 
     protected void loadSurface(String sid) {
@@ -53,8 +56,14 @@ public class SakuraView extends ImageView {
 	    return;
 	}
 
-	loadSurface(surfaceid);
-	setImageDrawable(currentSurface.getSurfaceDrawable(mCtx.getResources()));
+	if ( surfaceid.equalsIgnoreCase(currentSurfaceId) == false ){
+	    /*Log.d(TAG, "loading new surface:" + surfaceid);*/
+	    currentSurfaceId = surfaceid;
+	    loadSurface(surfaceid);
+	    setImageDrawable(currentSurface.getSurfaceDrawable(mCtx.getResources()));
+	    animation = null;
+	    currentAnimationId = null;
+	}
 	this.setVisibility(View.VISIBLE);
     }
 
@@ -71,6 +80,7 @@ public class SakuraView extends ImageView {
 
     public void loadAnimation(String id) {
 	if ( animation == null || id.equalsIgnoreCase(currentAnimationId) == false ){
+	    Log.d(TAG, "loading animation:" + id);
 	    animation = (AnimationDrawable)currentSurface.getAnimation(id, mCtx.getResources());
 	    currentAnimationId = id;
 	}
@@ -83,19 +93,36 @@ public class SakuraView extends ImageView {
 	animation.start();
     }
 
+    public void startRarelyAnimation() {
+	startAnimation(ShellSurface.A_TYPE_RARELY);
+	invalidate();
+    }
+
+    public void startSometimesAnimation() {
+	startAnimation(ShellSurface.A_TYPE_SOMETIMES);
+	invalidate();
+    }
+
     public void startTalkingAnimation() {
+	//	Log.d(TAG, "startTalkingAnimation called");
 	startAnimation(ShellSurface.A_TYPE_TALK);
+	invalidate();
     }
 
     public void startAnimation(int type) {
 	// for talk type animation I guess
 	// do nothing for the time being
 	String id = currentSurface.getAnimationIdByType(type);
-	if ( id == null ) // no such type animation
+	if ( id == null ) { // no such type animation
+	    if ( type!=ShellSurface.A_TYPE_TALK) Log.d(TAG, "no animation of type:" + type);
 	    return;
+	}
 
 	if ( id.equalsIgnoreCase(currentAnimationId) == false )
 	    loadAnimation(id);
+	else
+	    animation.setVisible(true, true);
+
 	startAnimation();
     }
 
