@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid;
 import android.widget.TextView;
 import android.content.Context;
 import android.util.AttributeSet;
+import android.text.util.Linkify;
 
 public class Balloon extends TextView {
 
@@ -20,6 +21,7 @@ public class Balloon extends TextView {
 
     public void setText(String str){
 	super.setText(str);
+	Linkify.addLinks(this, Linkify.ALL);
     }
 
 }
