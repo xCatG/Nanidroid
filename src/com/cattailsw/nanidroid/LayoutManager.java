@@ -64,7 +64,8 @@ public class LayoutManager {
 // 	Log.d(TAG, "wScale:hScale="+wScale+":"+hScale+", [lH:lW]=["+layoutHeight+":"+layoutWidth+"],[sh:sw]="
 // 	      + sH + ":" + sW +"]");
 	int scaledSakuraHeight = (int) ( sH * scale);
-	FrameLayout.LayoutParams lpS = new FrameLayout.LayoutParams((int)(sW * scale),
+	int scaledSakuraWidth = (int) (sW * scale);
+	FrameLayout.LayoutParams lpS = new FrameLayout.LayoutParams(scaledSakuraWidth,
 								    scaledSakuraHeight,
 								    Gravity.BOTTOM | Gravity.RIGHT);
 	sv.setLayoutParams(lpS);
@@ -78,8 +79,10 @@ public class LayoutManager {
 	// next compute balloon sizes...
 	if ( scaledKeroHeight * 2 < scaledSakuraHeight ) {
 	    int kbH = (Math.max( scaledKeroHeight, scaledSakuraHeight - scaledKeroHeight) );
-
-	    FrameLayout.LayoutParams lpBK = new FrameLayout.LayoutParams(scaledKeroWidth, kbH, 
+	    int kbW = scaledKeroWidth;
+	    if ( scaledKeroWidth  < layoutWidth - scaledSakuraWidth )
+		kbW = layoutWidth - scaledSakuraWidth;
+	    FrameLayout.LayoutParams lpBK = new FrameLayout.LayoutParams(kbW, kbH, 
 									 Gravity.BOTTOM | Gravity.LEFT);
 	    lpBK.bottomMargin = scaledKeroHeight;
 	    bKero.setLayoutParams(lpBK);
