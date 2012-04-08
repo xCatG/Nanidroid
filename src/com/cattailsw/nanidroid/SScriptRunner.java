@@ -156,7 +156,10 @@ public class SScriptRunner implements Runnable {
 	    stop();
 	}
 	else {
-	    loopHandler.sendEmptyMessage(RUN);
+		if ( no_wait_mode )
+			loopControl();
+		else
+			loopHandler.sendEmptyMessage(RUN);
 	    //loopControl();
 	    //parseMsg();
 	}

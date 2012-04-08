@@ -91,6 +91,7 @@ public class SSParserTest extends AndroidTestCase {
 	String dispText = null;
 	String text = null;
 	public DummyBalloon(Context ctx){super(ctx);}
+	@Override
 	public void setText(String str){
 	    Log.d(TAG, "got text:" + str);
 	    if ( this.text == null ) {
@@ -251,21 +252,21 @@ public class SSParserTest extends AndroidTestCase {
 	sr.addMsgToQueue(new String[]{t});
 	sr.run();
 	Log.d(TAG, "..." + sakura.stext);
-	assertEquals("120", sakura.sid);
-	assertEquals("0,120", sakura.stext);
+	assertEquals("0", sakura.sid);
+	assertEquals("0,120,0", sakura.stext);
 
 	t = "\\h\\s10wrong\\s[10]\\e";
 	sr.addMsgToQueue(new String[]{t});
 	sr.run();
-	assertEquals("10", sakura.sid);
-	assertEquals("0,120,1,10", sakura.stext);
+	assertEquals("0", sakura.sid);
+	assertEquals("0,120,0,1,10,0", sakura.stext);
 	assertEquals("0wrong",bSakura.dispText);
 
 	t = "\\t\\h\\s[20]\\n\\w9\\u\\s[10]\\n\\h\\s0";
 	sr.addMsgToQueue(new String[]{t});
 	sr.run();
 	assertEquals("0", sakura.sid);
-	assertEquals("0,120,1,10,20,0", sakura.stext);
+	assertEquals("0,120,0,1,10,0,20,0", sakura.stext);
 	assertEquals("", bSakura.dispText); // should be 0 length instead of \n because \\h tag
 
 	//assertEquals("0,120,1,10", sakura.stext);
@@ -305,7 +306,7 @@ public class SSParserTest extends AndroidTestCase {
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
 
-	assertEquals(12, sakura.talkCalledTime );
+	assertEquals(2, sakura.talkCalledTime );
 	assertEquals("0", sakura.aid);
     }
 
