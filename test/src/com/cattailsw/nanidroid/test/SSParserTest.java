@@ -302,7 +302,7 @@ public class SSParserTest extends AndroidTestCase {
 	//bSakura = new DummyBalloon(mContext);
 	sr.setViews(sakura, kero, bSakura, bKero);
 
-	String cmd = "\\halala\\i[0]opqrst\\e";
+	String cmd = "\\halala\\i[0]opqrstmnopqrst\\e";
 	sr.addMsgToQueue(new String[]{cmd});
 	sr.run();
 
