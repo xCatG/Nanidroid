@@ -4,6 +4,8 @@ import java.util.Hashtable;
 import java.util.Map;
 import android.util.Log;
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.StringReader;
 
 public class Ghost {
     private static final String TAG = "Ghost";
@@ -92,11 +94,41 @@ public class Ghost {
     }
 
     public void sendOnSecondChange(){
-
+	doShioriEvent("OnSecondChange", new String[]{"0", "0", "0", "1"});
     }
 
     public void sendOnMinuteChange(){
+	doShioriEvent("OnMinuteChange", new String[]{"0", "0", "0", "1"});
+    }
 
+    public ShiorResponse doShioriEvent(String event, String[] ref) {
+	if ( shiori == null ) {
+	    return new ShiorResponse("SHIORI/2.0 500 Internal Server Error");
+	}
+
+	StringBuffer sb = new StringBuffer();
+
+	sb.append("GET SHIORI/3.0\r\nSender: " + "\r\n");
+	sb.append("ID: " + event + "\r\n");
+
+	if ( ref != null ) {
+	    for ( int i = 0; i < ref.length; i++ ){
+		sb.append("Reference"+i+": " + ref[i] + "\r\n");
+	    }
+	}
+
+	sb.append("\r\n");
+
+	BufferedReader br = new BufferedReader( new StringReader( shiori.request( sb.toString() )));
+	ShiorResponse res = new ShiorResponse(br);
+	try {
+	    br.close();
+	}
+	catch(Exception e){
+
+	}
+
+	return res;
     }
 
 }
