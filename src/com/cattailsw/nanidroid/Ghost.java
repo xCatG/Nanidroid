@@ -93,17 +93,17 @@ public class Ghost {
 	return "User";
     }
 
-    public void sendOnSecondChange(){
-	doShioriEvent("OnSecondChange", new String[]{"0", "0", "0", "1"});
+    public ShioriResponse sendOnSecondChange(){
+	return doShioriEvent("OnSecondChange", new String[]{"0", "0", "0", "1"});
     }
 
-    public void sendOnMinuteChange(){
-	doShioriEvent("OnMinuteChange", new String[]{"0", "0", "0", "1"});
+    public ShioriResponse sendOnMinuteChange(){
+	return doShioriEvent("OnMinuteChange", new String[]{"0", "0", "0", "1"});
     }
 
-    public ShiorResponse doShioriEvent(String event, String[] ref) {
+    public ShioriResponse doShioriEvent(String event, String[] ref) {
 	if ( shiori == null ) {
-	    return new ShiorResponse("SHIORI/2.0 500 Internal Server Error");
+	    return new ShioriResponse("SHIORI/2.0 500 Internal Server Error");
 	}
 
 	StringBuffer sb = new StringBuffer();
@@ -120,7 +120,7 @@ public class Ghost {
 	sb.append("\r\n");
 
 	BufferedReader br = new BufferedReader( new StringReader( shiori.request( sb.toString() )));
-	ShiorResponse res = new ShiorResponse(br);
+	ShioriResponse res = new ShioriResponse(br);
 	try {
 	    br.close();
 	}

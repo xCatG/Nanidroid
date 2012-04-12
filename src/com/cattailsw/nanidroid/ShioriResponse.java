@@ -3,20 +3,20 @@ package com.cattailsw.nanidroid;
 import java.util.Hashtable;
 import java.io.BufferedReader;
 
-public class ShiorResponse {
+public class ShioriResponse {
     String header;
     Hashtable<String, String> resp;
 
-    public ShiorResponse(String h) {
+    public ShioriResponse(String h) {
 	this(h, new Hashtable<String, String>(0));
     }
 
-    public ShiorResponse(String h, Hashtable<String, String> res) {
+    public ShioriResponse(String h, Hashtable<String, String> res) {
 	header = h;
 	resp = res;
     }
 
-    public ShiorResponse(BufferedReader br){
+    public ShioriResponse(BufferedReader br){
 	try {
 	    header = br.readLine();
 	}
