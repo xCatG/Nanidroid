@@ -110,7 +110,7 @@ public class Ghost {
 
 	StringBuffer sb = new StringBuffer();
 
-	sb.append("GET SHIORI/3.0\r\nSender: " + "\r\n");
+	sb.append("GET SHIORI/3.0\r\nSender: "+ Setup.NANIDROID + "\r\n");
 	sb.append("ID: " + event + "\r\n");
 
 	if ( ref != null ) {

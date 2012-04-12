@@ -30,4 +30,5 @@ public class PatternHolders {
     public static final Pattern ani_ptrn = Pattern.compile("^\\[(\\d+)(|,\\w+)\\]");
     public static final Pattern balloon_ptrn = Pattern.compile("^\\[(-?\\d+)\\]|^(\\d{1})");
 
+    public static final Pattern shiori_res_header_ptrn = Pattern.compile("^(\\w*)/(\\d*).(\\d*) (\\d{3}) ([[\\w][\\s]]*)$");
 }
