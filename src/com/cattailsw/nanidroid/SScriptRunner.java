@@ -545,11 +545,13 @@ public class SScriptRunner implements Runnable {
 	startPerSecondAnimation(sakura);
 	startPerSecondAnimation(kero);
 	
-	g.sendOnSecondChange();
+	ShioriResponse r = g.sendOnSecondChange();
+	parseShioriResponseAndInsert( r );
     }
 
     private void doPerMinuteEvent() {
-	g.sendOnMinuteChange();
+	ShioriResponse r = g.sendOnMinuteChange();
+	parseShioriResponseAndInsert( r );
     }
 
     private void doPerHourEvent() {
@@ -582,6 +584,10 @@ public class SScriptRunner implements Runnable {
 	    lastHour = hour;
 	}
 	//Log.d(TAG, "perClockEvent called at:["+hour+":"+minute+":"+seconds+"]");
+    }
+
+    private void parseShioriResponseAndInsert(ShioriResponse res){
+
     }
 
 }
