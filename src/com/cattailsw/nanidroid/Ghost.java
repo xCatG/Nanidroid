@@ -60,6 +60,8 @@ public class Ghost {
 	SurfaceReader sr = new SurfaceReader(mgr, master_shell, master_shell_surface );
 	if ( error == false )
 	    error = sr.error;
+
+	shiori = ShioriFactory.getInstance().getShiori( master_ghost );
     }
 
     public String getGhostDirName() {
