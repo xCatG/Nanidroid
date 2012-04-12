@@ -27,7 +27,17 @@ public class ShioriResponseTest extends TestCase {
 	assertEquals("2", m.group(2));
 	assertEquals("0", m.group(3));
 	assertEquals("500", m.group(4));
-	assertEquals("INTERNAL ERROR", m.group(5));	
+	assertEquals("INTERNAL ERROR", m.group(5));
+
+	res_header = "SHIORI/2.0 500";
+	m = PatternHolders.shiori_res_header_ptrn.matcher(res_header);
+	assertTrue(m.matches());
+	assertEquals("SHIORI", m.group(1));
+	assertEquals("2", m.group(2));
+	assertEquals("0", m.group(3));
+	assertEquals("500", m.group(4));
+	assertEquals("", m.group(5));
+	
     }
 
 
@@ -72,9 +82,11 @@ public class ShioriResponseTest extends TestCase {
 	r = new ShioriResponse(res_header);
 
 	p = r.getProtocolVersion();
-	assertNull(p);
-	assertEquals(500, r.getStatusCode());
-
+	assertNotNull(p);
+	assertEquals("SHIORI", p.getProtocol());
+	assertEquals(1, p.getMajor());
+	assertEquals(1, p.getMinor());
+	assertEquals(400, r.getStatusCode());
 
     }
 
