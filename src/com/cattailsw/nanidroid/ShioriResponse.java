@@ -94,4 +94,16 @@ public class ShioriResponse {
 	return resp.get(key);
     }
 
+    @Override
+    public String toString(){
+	StringBuilder sb = new StringBuilder();
+	sb.append("Response:" + _ver + " " + stat_code + "\n");
+	if ( resp != null ) {
+	    for( String k : resp.keySet()) {
+		sb.append(k + ": " + resp.get(k) + "\n");
+	    }
+	}
+	return  sb.toString();
+    }
+
 }
