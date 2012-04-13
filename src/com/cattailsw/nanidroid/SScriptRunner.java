@@ -46,6 +46,9 @@ public class SScriptRunner implements Runnable {
 	kero = k;
 	sakuraBalloon = bS;
 	keroBalloon = bK;
+
+	sakura.setUiEventCallback(cbSakura);
+	kero.setUiEventCallback(cbKero);
     }
 
     public void setGhost(Ghost _g){
@@ -462,6 +465,9 @@ public class SScriptRunner implements Runnable {
 	    sakuraSurfaceId = sid;
 	else
 	    keroSurfaceId = sid;
+	if ( g != null )
+	g.doShioriEvent("OnSurfaceChange", new String[]{"Reference0: " + sakuraSurfaceId, 
+							"Reference1: " + keroSurfaceId});
     }
 
     private void changeBalloon(String bid){
@@ -587,7 +593,101 @@ public class SScriptRunner implements Runnable {
     }
 
     private void parseShioriResponseAndInsert(ShioriResponse res){
-
+	//Log.d(TAG, "value=" + res.getKey("Value"));	
+	if ( res.getStatusCode() != 200 )
+	    return;
+	Log.d(TAG, res.toString());
+	msg = res.getKey("Value");
+	addMsgToQueue(new String[]{msg});
+	if ( !isRunning )
+	    run();
     }
 
+    private void doMouseClick(int x, int y, boolean sakura, int collid, int buttonid) {
+	if ( g != null ) {
+	    ShioriResponse r = g.doShioriEvent("OnMouseClick", new String[]{
+				"Reference0: " + x,
+				"Reference1: " + y,
+				"Reference2: 0",
+				"Reference3: " + ((sakura)?"0":"1"),
+				"Reference4: " + collid,
+				"Reference5: " + buttonid}
+				);
+	}
+    }
+
+    private void doMouseDblClick(int x, int y, boolean sakura, int collid, int buttonid) {
+	if ( g != null ) {
+	    ShioriResponse r = g.doShioriEvent("OnMouseDoubleClick", new String[]{
+				"Reference0: " + x,
+				"Reference1: " + y,
+				"Reference2: 0",
+				"Reference3: " + ((sakura)?"0":"1"),
+				"Reference4: " + collid,
+				"Reference5: " + buttonid}
+				);
+	}
+    }
+
+    private void doMouseWheel(int x, int y, int wheelO, boolean sakura, int collid) {
+	if ( g != null ) {
+	    ShioriResponse r = g.doShioriEvent("OnMouseWheel", new String[]{
+				"Reference0: " + x,
+				"Reference1: " + y,
+				"Reference2: " + wheelO,
+				"Reference3: " + ((sakura)?"0":"1"),
+				"Reference4: " + collid}
+				);
+	}
+    }
+
+    private void doMouseMove(int x, int y, int wheelO, boolean sakura, int collid) {
+	if ( g != null ) {
+	    ShioriResponse r = g.doShioriEvent("OnMouseMove", new String[]{
+				"Reference0: " + x,
+				"Reference1: " + y,
+				"Reference2: " + wheelO,
+				"Reference3: " + ((sakura)?"0":"1"),
+				"Reference4: " + collid}
+				);
+	}
+    }
+
+    private SakuraView.UIEventCallback cbSakura = new SakuraView.UIEventCallback() {
+	    public void onHit(int type, int x, int y, int orientation, int collId, int buttonid){
+		switch( type ) {
+		case SakuraView.UIEventCallback.TYPE_SINGLE_CLICK:
+		    doMouseClick(x, y, true, collId, buttonid);
+		    break;
+		case SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK:
+		    doMouseDblClick(x, y, true, collId, buttonid);
+		    break;
+		case SakuraView.UIEventCallback.TYPE_WHEEL:
+		    doMouseWheel(x, y, orientation, true, collId);
+		    break;
+		case SakuraView.UIEventCallback.TYPE_MOVE:
+		    doMouseMove(x, y, orientation, true, collId);
+		    break;
+		}
+	    }
+	};
+
+    private SakuraView.UIEventCallback cbKero = new SakuraView.UIEventCallback() {
+	    public void onHit(int type, int x, int y, int orientation, int collId, int buttonid){
+		switch( type ) {
+		case SakuraView.UIEventCallback.TYPE_SINGLE_CLICK:
+		    doMouseClick(x, y, false, collId, buttonid);
+		    break;
+		case SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK:
+		    doMouseDblClick(x, y, false, collId, buttonid);
+		    break;
+		case SakuraView.UIEventCallback.TYPE_WHEEL:
+		    doMouseWheel(x, y, orientation, false, collId);
+		    break;
+		case SakuraView.UIEventCallback.TYPE_MOVE:
+		    doMouseMove(x, y, orientation, false, collId);
+		    break;
+		}
+	    }
+	};    
 }

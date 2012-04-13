@@ -18,12 +18,29 @@ import android.util.Log;
 
 public class SakuraView extends ImageView {
     private static final String TAG = "SakuraView";
+
+    public interface UIEventCallback {
+	public static final int TYPE_SINGLE_CLICK = 0;
+	public static final int TYPE_DOUBLE_CLICK = 1;
+	public static final int TYPE_WHEEL = 2;
+	public static final int TYPE_MOVE = 3;
+	// type can be TYPE_SINGLE_CLICK
+	// TYPE_DOUBLE_CLICK
+	// TYPE_WHEEL
+	// x, y are local X,Y coordinates
+	// orientation can be -1, 0, 1; -1 means wheel down, 1 means wheel up, 0 means no wheel
+	// collId is collision area id defined in shellsurface
+	// buttonid is BTN_LEFT, BTN_RIGHT, BTN_WHEEL ?
+	public void onHit(int type, int x, int y, int orientation, int collId, int buttonId);
+    }
+
     SurfaceManager mgr = null;
     String currentSurfaceId = null;
     ShellSurface currentSurface = null;
     Context mCtx = null;
     AnimationDrawable animation = null;
     String currentAnimationId = null;
+    UIEventCallback mUCB = null;
 
     public SakuraView(Context ctx){
 	super(ctx);
@@ -38,6 +55,10 @@ public class SakuraView extends ImageView {
     public SakuraView(Context ctx, AttributeSet attrs, int defStyle) {
 	super(ctx, attrs, defStyle);
 	mCtx = ctx.getApplicationContext();
+    }
+
+    public void setUiEventCallback(UIEventCallback cb) {
+	mUCB = cb;
     }
 
     public void setMgr(SurfaceManager m) {
@@ -65,6 +86,10 @@ public class SakuraView extends ImageView {
 	    currentAnimationId = null;
 	}
 	this.setVisibility(View.VISIBLE);
+
+	if ( mUCB != null ) {
+
+	}
     }
 
     public boolean hasAnimation() {
