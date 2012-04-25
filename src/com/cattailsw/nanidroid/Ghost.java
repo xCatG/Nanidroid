@@ -112,7 +112,7 @@ public class Ghost {
 
 	sb.append("GET SHIORI/3.0\r\nSender: "+ Setup.NANIDROID + "\r\n");
 	sb.append("ID: " + event + "\r\n");
-
+	sb.append("SecurityLevel: local\r\n");
 	if ( ref != null ) {
 	    for ( int i = 0; i < ref.length; i++ ){
 		sb.append("Reference"+i+": " + ref[i] + "\r\n");
