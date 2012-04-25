@@ -14,15 +14,34 @@ public abstract class JNIShiori implements Shiori {
     }
 
     public String request(String req) {
-	return requestFromJNI(req);
+	return modResponseWithCharSet(requestFromJNI(req));
     }
 
     public void terminate(){
 	terminateFromJNI();
     }
 
+
+    private String modResponseWithCharSet(byte[] bytes) {
+	String s = new String(bytes);
+	int pos_charset = s.indexOf("Charset:");
+	if ( pos_charset == -1 ) {
+	    return s;
+	}
+	else {
+	    int pos_crlf = s.indexOf("\r\n", pos_charset);
+	    String charset = s.substring(pos_charset + 8, pos_crlf).trim();
+	    try {
+	    return new String(bytes, charset);
+	    }
+	    catch(Exception e){
+		return s;
+	    }
+	}
+    }
+
     public native String getModuleNameFromJNI();
-    public native String requestFromJNI(String req);
+    public native byte[] requestFromJNI(String req);
     public native void terminateFromJNI();
 
 }
