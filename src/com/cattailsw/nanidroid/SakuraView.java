@@ -15,6 +15,7 @@ import android.graphics.Bitmap.Config;
 import android.graphics.Color;
 import android.view.View;
 import android.util.Log;
+import android.view.MotionEvent;
 
 public class SakuraView extends ImageView {
     private static final String TAG = "SakuraView";
@@ -84,6 +85,7 @@ public class SakuraView extends ImageView {
 	    setImageDrawable(currentSurface.getSurfaceDrawable(mCtx.getResources()));
 	    animation = null;
 	    currentAnimationId = null;
+	    populateColRz();
 	}
 	this.setVisibility(View.VISIBLE);
 
@@ -151,6 +153,30 @@ public class SakuraView extends ImageView {
 	startAnimation();
     }
 
+    private Rect[] colRz = null;
+    private int[] colKeyz = null;
+
+    private void populateColRz() {
+	int colSize = currentSurface.getCollisionCount();
+	if ( colSize == 0 ) {
+	    colRz = null; // set it to null and return
+	    return;
+	}
+
+	colRz = new Rect[colSize];
+	colKeyz = new int[colSize];
+
+	Set<Integer> colKey = currentSurface.collisionAreas.keySet();
+	int i = 0;
+	for ( Integer k : colKey ) {
+	    colRz[i] = currentSurface.collisionAreas.get(k).rect;
+	    colKeyz[i] = k;
+	    Log.d(TAG, "col " + i + colRz[i]);
+	    i++;
+	}
+	Log.d(TAG, "col data populated with " + colSize + " areas");
+    }
+
     public void showCollisionArea() {
 	int colsize = currentSurface.getCollisionCount();
 	if ( colsize == 0 ) return;
@@ -176,6 +202,51 @@ public class SakuraView extends ImageView {
 	BitmapDrawable nb = new BitmapDrawable( bmpcopy );
 
 	setImageDrawable( nb );	
+    }
+
+
+ void printSamples(MotionEvent ev) {
+     final int historySize = ev.getHistorySize();
+     final int pointerCount = ev.getPointerCount();
+     String s = null;
+     for (int h = 0; h < historySize; h++) {
+         System.out.printf("At time %d:", ev.getHistoricalEventTime(h));
+         for (int p = 0; p < pointerCount; p++) {
+             s = String.format("  pointer %d: (%f,%f)",
+                 ev.getPointerId(p), ev.getHistoricalX(p, h), ev.getHistoricalY(p, h));
+	     Log.d(TAG, s);
+         }
+     }
+     Log.d(TAG, String.format("At time %d:", ev.getEventTime()));
+     for (int p = 0; p < pointerCount; p++) {
+         s = String.format("  pointer %d: (%f,%f)",
+             ev.getPointerId(p), ev.getX(p), ev.getY(p));
+	 Log.d(TAG, s);
+     }
+ }
+ 
+    int testColDect(int x, int y) {
+	if ( colRz == null )
+	    return -1;
+
+	for ( int i = 0; i < colRz.length; i++ ) {
+	    if ( colRz[i].contains(x, y) ) {
+		return colKeyz[i];
+	    }
+	}
+
+	return -1;
+    }
+
+    public final boolean onTouchEvent(final MotionEvent motionEvent) {
+	Log.d(TAG, "onTouchEvent");
+
+	//printSamples(motionEvent);
+
+	int cid = testColDect((int)motionEvent.getX(0), (int)motionEvent.getY(0));
+	if ( cid > -1)
+	Log.d(TAG, "test col at: " + cid);
+	return super.onTouchEvent(motionEvent);
     }
 
 }
