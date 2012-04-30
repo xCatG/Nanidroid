@@ -171,10 +171,10 @@ public class SakuraView extends ImageView {
 	for ( Integer k : colKey ) {
 	    colRz[i] = currentSurface.collisionAreas.get(k).rect;
 	    colKeyz[i] = k;
-	    Log.d(TAG, "col " + i + colRz[i]);
+	    //Log.d(TAG, "col " + i + colRz[i]);
 	    i++;
 	}
-	Log.d(TAG, "col data populated with " + colSize + " areas");
+	//Log.d(TAG, "col data populated with " + colSize + " areas");
     }
 
     public void showCollisionArea() {
@@ -244,8 +244,16 @@ public class SakuraView extends ImageView {
 	//printSamples(motionEvent);
 
 	int cid = testColDect((int)motionEvent.getX(0), (int)motionEvent.getY(0));
-	if ( cid > -1)
+	if ( cid > -1) {
 	Log.d(TAG, "test col at: " + cid);
+
+	if ( mUCB != null ) {
+	    mUCB.onHit(UIEventCallback.TYPE_DOUBLE_CLICK, 
+		       (int)motionEvent.getX(0),
+		       (int)motionEvent.getY(0), 0, cid, 0);
+	    
+	}
+	}
 	return super.onTouchEvent(motionEvent);
     }
 
