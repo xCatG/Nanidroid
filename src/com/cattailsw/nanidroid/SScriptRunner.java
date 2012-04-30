@@ -21,6 +21,7 @@ public class SScriptRunner implements Runnable {
 
     public interface StatusCallback {
 	public void stop();
+	public void canExit();
     }
 
     public static SScriptRunner getInstance(Context ctx) {
@@ -198,8 +199,11 @@ public class SScriptRunner implements Runnable {
 	bKeroId = "-1";
 	updateUI();
 
-	if ( cb != null )
+	if ( cb != null ) {
 	    cb.stop();
+	    if ( exitPending )
+		cb.canExit();
+	}
     }
 
     
@@ -733,7 +737,18 @@ public class SScriptRunner implements Runnable {
     }
     boolean restore = false;
     public void doRestore() {
+	Log.d(TAG, "doRestore called");
 	restore = true;
+    }
+
+    private boolean exitPending = false;
+    public void doExit() {
+	if ( g != null ) {
+	    ShioriResponse r = g.doShioriEvent("OnClose", null);
+	    if (r != null )
+		parseShioriResponseAndInsert(r);
+	}
+	exitPending = true;
     }
 
 }

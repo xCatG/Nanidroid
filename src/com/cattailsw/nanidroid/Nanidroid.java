@@ -41,6 +41,8 @@ import android.app.AlertDialog;
 import android.app.AlertDialog.Builder;
 import android.content.DialogInterface;
 import android.content.res.AssetManager;
+import android.os.Bundle;
+import android.os.Bundle;
 
 public class Nanidroid extends Activity
 {
@@ -60,6 +62,9 @@ public class Nanidroid extends Activity
     GhostMgr gm = null;
     List<InfoOnlyGhost> iglist = null;
 
+    private static final String MIN_TAG = "minimized";
+    private boolean restoreFromMinimize = false;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
@@ -77,6 +82,11 @@ public class Nanidroid extends Activity
 	    bSakura.setText("sd card error");
 	    return;
 	    // need to prompt SD card issue
+	}
+
+	if ( savedInstanceState != null ) {
+	    Log.d(TAG, "was minimized");
+	    restoreFromMinimize = savedInstanceState.getBoolean(MIN_TAG, false);
 	}
 
 	//mgr = SurfaceManager.getInstance();
@@ -125,6 +135,7 @@ public class Nanidroid extends Activity
 	ViewServer.get(this).addWindow(this);
     }
 
+
     private void updateSurfaceKeys(Ghost g) {
 	int keycount = g.mgr.getTotalSurfaceCount();
 	surfaceKeys = new String[keycount];
@@ -133,9 +144,26 @@ public class Nanidroid extends Activity
 	Arrays.sort(surfaceKeys);
     }
 
+    public void onRestoreInstanceState(Bundle inState) {
+	super.onRestoreInstanceState(inState);
+	Log.d(TAG, "was minimized");
+	restoreFromMinimize = inState.getBoolean(MIN_TAG, false);
+    }
+
+    public void onSaveInstanceState(Bundle outState) { 
+	if ( backPressed == false ) {
+	    Log.d(TAG, "act as mimizing");
+	    outState.putBoolean(MIN_TAG, true);
+	}
+	super.onSaveInstanceState(outState);
+    }
+
+
     public void onPause() {
 	super.onPause();
-	if ( runner!= null ) runner.stopClock();
+	if ( backPressed == false && runner != null ) {
+	    runner.doMinimize();
+	}
 	sendStopIntent();
     }
 
@@ -147,9 +175,34 @@ public class Nanidroid extends Activity
 
     public void onResume() {
 	super.onResume();
-	if ( runner != null ) runner.startClock();
+	if ( runner != null ) { 
+	    if ( restoreFromMinimize )
+		runner.doRestore();
+	    runner.startClock();
+	}
 	ViewServer.get(this).setFocusedWindow(this);
     }
+
+    boolean backPressed = false;
+
+    public void onBackPressed() {
+	backPressed = true;
+	if ( runner!= null ) { 
+	    runner.stopClock();
+	    runner.setCallback(mscb);
+	    runner.stop();
+	    runner.doExit();
+	}
+	else
+	    super.onBackPressed();
+	//runner.
+    }
+
+    private SScriptRunner.StatusCallback mscb = new SScriptRunner.StatusCallback() {
+	    public void stop() {}
+	    public void canExit() {finish();}
+	};
+
 
 
     private void checkAndUpdateLayoutParam() {
@@ -280,6 +333,7 @@ public class Nanidroid extends Activity
 
     private void showCollisionAreaOnImageView() {
 	sv.showCollisionArea();
+	kv.showCollisionArea();
     }
 
     public void runClick(View v){
@@ -310,7 +364,8 @@ public class Nanidroid extends Activity
 	//showReadme(new File("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/files/ghost/mana/readme.txt"), "mana");
     	//extractNar("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/cache/yumenikki.nar");
 	//runOnUiThread(runner);//.startClock();
-	runner.startClock();
+	//runner.startClock();
+	showCollisionAreaOnImageView();
     }
 
     private void extractNar(String targetPath){
