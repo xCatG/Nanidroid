@@ -95,12 +95,12 @@ public class Ghost {
 	return "User";
     }
 
-    public ShioriResponse sendOnSecondChange(){
-	return doShioriEvent("OnSecondChange", new String[]{"0", "0", "0", "1"});
+    public ShioriResponse sendOnSecondChange(int hour){
+	return doShioriEvent("OnSecondChange", new String[]{"" + hour, "0", "0", "1"});
     }
 
-    public ShioriResponse sendOnMinuteChange(){
-	return doShioriEvent("OnMinuteChange", new String[]{"0", "0", "0", "1"});
+    public ShioriResponse sendOnMinuteChange(int hour){
+	return doShioriEvent("OnMinuteChange", new String[]{"" + hour, "0", "0", "1"});
     }
 
     public ShioriResponse doShioriEvent(String event, String[] ref) {

@@ -389,6 +389,21 @@ public class SScriptRunner implements Runnable {
 	    break;
 	case 'b':
 	    return handle_balloon();
+	case 'w':
+	    leftString = msg.substring(charIndex, msg.length());
+	    m = PatternHolders.sqbracket_half_number.matcher(leftString);
+	    if ( m.find() ) {
+		charIndex += m.group().length();
+		try {
+		    waitTime = Long.parseLong(m.group(1));
+		    return true;
+		}
+		catch(Exception e) {
+
+		}
+		//waitTime = 
+	    }
+	    break;
 	default:
 	    break;
 	}
@@ -547,16 +562,16 @@ public class SScriptRunner implements Runnable {
 	}
     }
 
-    private void doPerSecondEvent() {
+    private void doPerSecondEvent(int hr) {
 	startPerSecondAnimation(sakura);
 	startPerSecondAnimation(kero);
 	
-	ShioriResponse r = g.sendOnSecondChange();
+	ShioriResponse r = g.sendOnSecondChange(hr);
 	parseShioriResponseAndInsert( r );
     }
 
-    private void doPerMinuteEvent() {
-	ShioriResponse r = g.sendOnMinuteChange();
+    private void doPerMinuteEvent(int hr) {
+	ShioriResponse r = g.sendOnMinuteChange(hr);
 	parseShioriResponseAndInsert( r );
     }
 
@@ -575,12 +590,12 @@ public class SScriptRunner implements Runnable {
 	seconds = seconds % 60;
 
 	if ( seconds - lastSec >= 1 || seconds == 0) {
-	    doPerSecondEvent();
+	    doPerSecondEvent(hour);
 	    lastSec = seconds;	   
 	}
 	// every minute
 	if ( minute - lastMin >= 1 || (lastMin == 59 && minute == 0)) {
-	    doPerMinuteEvent();
+	    doPerMinuteEvent(hour);
 	    lastMin = minute;
 	}
 
