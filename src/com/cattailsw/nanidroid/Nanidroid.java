@@ -161,8 +161,12 @@ public class Nanidroid extends Activity
 
     public void onPause() {
 	super.onPause();
-	if ( backPressed == false && runner != null ) {
-	    runner.doMinimize();
+	if ( runner!= null ) { 
+	    runner.stopClock();
+
+	    if ( backPressed == false ) {
+		runner.doMinimize();
+	    }
 	}
 	sendStopIntent();
     }
@@ -195,12 +199,15 @@ public class Nanidroid extends Activity
 	}
 	else
 	    super.onBackPressed();
-	//runner.
+
     }
 
     private SScriptRunner.StatusCallback mscb = new SScriptRunner.StatusCallback() {
 	    public void stop() {}
-	    public void canExit() {finish();}
+	    public void canExit() {
+		runner.setCallback(null);
+		finish();
+	    }
 	};
 
 

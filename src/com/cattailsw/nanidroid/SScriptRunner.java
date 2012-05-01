@@ -201,8 +201,10 @@ public class SScriptRunner implements Runnable {
 
 	if ( cb != null ) {
 	    cb.stop();
-	    if ( exitPending )
+	    if ( exitPending ) {
 		cb.canExit();
+		exitPending = false;
+	    }
 	}
     }
 
