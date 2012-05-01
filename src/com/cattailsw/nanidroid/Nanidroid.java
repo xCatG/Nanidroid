@@ -143,7 +143,7 @@ public class Nanidroid extends Activity
 	surfaceKeys = k.toArray(surfaceKeys);
 	Arrays.sort(surfaceKeys);
     }
-
+    /*
     public void onRestoreInstanceState(Bundle inState) {
 	super.onRestoreInstanceState(inState);
 	Log.d(TAG, "was minimized");
@@ -157,16 +157,16 @@ public class Nanidroid extends Activity
 	}
 	super.onSaveInstanceState(outState);
     }
-
+    */
 
     public void onPause() {
 	super.onPause();
 	if ( runner!= null ) { 
 	    runner.stopClock();
 
-	    if ( backPressed == false ) {
+	    /*	    if ( backPressed == false ) {
 		runner.doMinimize();
-	    }
+		}*/
 	}
 	sendStopIntent();
     }
@@ -180,17 +180,17 @@ public class Nanidroid extends Activity
     public void onResume() {
 	super.onResume();
 	if ( runner != null ) { 
-	    if ( restoreFromMinimize )
-		runner.doRestore();
+	    /*	    if ( restoreFromMinimize )
+	      runner.doRestore();*/
 	    runner.startClock();
 	}
 	ViewServer.get(this).setFocusedWindow(this);
     }
 
-    boolean backPressed = false;
+    //boolean backPressed = false;
 
     public void onBackPressed() {
-	backPressed = true;
+	//backPressed = true;
 	if ( runner!= null ) { 
 	    runner.stopClock();
 	    runner.setCallback(mscb);
