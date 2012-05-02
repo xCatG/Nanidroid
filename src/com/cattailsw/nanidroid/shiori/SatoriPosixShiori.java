@@ -1,4 +1,4 @@
-package com.cattailsw.nanidroid;
+package com.cattailsw.nanidroid.shiori;
 
 public class SatoriPosixShiori extends JNIShiori {
     static {

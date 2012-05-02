@@ -7,6 +7,8 @@ import java.io.File;
 import java.io.BufferedReader;
 import java.io.StringReader;
 
+import com.cattailsw.nanidroid.shiori.Shiori;
+
 public class Ghost {
     private static final String TAG = "Ghost";
 

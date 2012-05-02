@@ -1,4 +1,4 @@
-package com.cattailsw.nanidroid;
+package com.cattailsw.nanidroid.shiori;
 
 /* shiori-jni function calls should be named in the style of
    jstring Java_com_cattailsw_nanidroid_getModuleNameFromJNI(JNIEnv *env, jobject thiz)

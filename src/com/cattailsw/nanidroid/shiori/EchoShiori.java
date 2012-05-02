@@ -1,4 +1,4 @@
-package com.cattailsw.nanidroid;
+package com.cattailsw.nanidroid.shiori;
 
 import java.io.BufferedReader;
 import java.io.StringReader;
