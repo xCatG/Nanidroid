@@ -26,6 +26,7 @@ import java.util.Arrays;
 import android.util.Log;
 
 import com.android.debug.hv.ViewServer;
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 
 import android.widget.FrameLayout;
@@ -71,7 +72,7 @@ public class Nanidroid extends Activity
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
-
+        initGA();
 	sv = (SakuraView) findViewById(R.id.sakura_display);
 	kv = (KeroView) findViewById(R.id.kero_display);
 	bSakura = (Balloon) findViewById(R.id.bSakura);
@@ -135,6 +136,9 @@ public class Nanidroid extends Activity
 	ViewServer.get(this).addWindow(this);
     }
 
+    private void initGA(){
+    	AnalyticsUtils.getInstance(getApplicationContext(), Setup.UA_CODE, true);
+    }
 
     private void updateSurfaceKeys(Ghost g) {
 	int keycount = g.mgr.getTotalSurfaceCount();
@@ -184,6 +188,7 @@ public class Nanidroid extends Activity
 	      runner.doRestore();*/
 	    runner.startClock();
 	}
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/");
 	ViewServer.get(this).setFocusedWindow(this);
     }
 
