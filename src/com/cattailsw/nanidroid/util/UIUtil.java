@@ -8,4 +8,8 @@ public class UIUtil {
 	return Build.VERSION.SDK_INT > Build.VERSION_CODES.ECLAIR_MR1;
     }
 
+    public static boolean isGingerbread() { // 2.3
+	return Build.VERSION.SDK_INT > Build.VERSION_CODES.FROYO;
+    }
+
 }

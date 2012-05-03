@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Nanidroid</string>
+
+
+  <string name="dl_complete">Download Completed</string>
+  <string name="dl_note">%1$s is ready to be installed</string>
 </resources>

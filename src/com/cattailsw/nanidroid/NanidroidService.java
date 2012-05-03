@@ -15,6 +15,7 @@ import java.io.InputStream;
 
 import com.cattailsw.nanidroid.util.NetworkUtil;
 import com.cattailsw.nanidroid.util.NarUtil;
+import com.cattailsw.nanidroid.util.UIUtil;
 import android.content.Intent;
 import android.app.NotificationManager;
 import android.app.Notification;
@@ -22,6 +23,8 @@ import java.io.File;
 import android.app.PendingIntent;
 import java.util.List;
 import java.io.FileOutputStream;
+//import android.app.DownloadManager;
+//import android.app.DownloadManager.Request;
 
 /**
  * Describe class <code>HeadLineSensorService</code> here.
@@ -80,8 +83,14 @@ public class NanidroidService extends Service {
 	else if (action.equalsIgnoreCase( Intent.ACTION_RUN ) ) {
 	    Uri data = i.getData();
 	    if ( data != null ) {
+// 		if ( UIUtil.isGingerbread() == false ) {
 		NarDownloadTask n = new NarDownloadTask(data, startId);
 		n.execute(this);		
+// 		}
+// 		else {
+// 		    startDLMgr(data);
+// 		    stopSelf(startId);
+// 		}
 	    }
 	}
 	else if ( action.equalsIgnoreCase( ACTION_CAN_STOP ) ) {
@@ -197,11 +206,13 @@ public class NanidroidService extends Service {
 
 	    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-	    Notification n = new Notification(R.drawable.ic_launcher, "Download completed", System.currentTimeMillis());
+	    Notification n = new Notification(R.drawable.ic_launcher, getString(R.string.dl_complete), 
+					      System.currentTimeMillis());
 	    Intent ni = new Intent(NanidroidService.this, Nanidroid.class);
 	    ni.setData(Uri.fromFile(new File(result))).putExtra("DL_PKG",0);
 	    PendingIntent pi = PendingIntent.getActivity(NanidroidService.this, 0, ni, 0);
-	    n.setLatestEventInfo(getApplicationContext(), "Download completed", "dl", pi);
+	    String notetext = String.format(getString(R.string.dl_note), targeturi.getLastPathSegment());
+	    n.setLatestEventInfo(getApplicationContext(), getString(R.string.dl_complete), notetext, pi);
 	    n.flags = Notification.FLAG_AUTO_CANCEL;
 	    nm.notify(42, n);
 
@@ -211,5 +222,21 @@ public class NanidroidService extends Service {
 
 
     }
+    /*
+    private void startDLMgr(Uri data) {
+	DownloadManager dlmgr = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+	File extDir = getExternalCacheDir();
+	File targetPath = new File(extDir, data.getLastPathSegment());
 
+	DownloadManager.Request req = new DownloadManager.Request(data);
+	req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
+	    .setAllowedOverRoaming(false)
+	    .setTitle("Nanidroid")
+	    .setDescription("Downloading " + data.getLastPathSegment())
+	    .setDestinationInExternalFilesDir(getApplicationContext(), null,
+					      data.getLastPathSegment());
+	
+	long dlid = dlmgr.enqueue(req);
+    }
+    */
 }
