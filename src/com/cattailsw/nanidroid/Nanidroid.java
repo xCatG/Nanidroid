@@ -134,6 +134,7 @@ public class Nanidroid extends FragmentActivity
 
     private void initGA(){
     	AnalyticsUtils.getInstance(getApplicationContext(), Setup.UA_CODE, true);
+    	AnalyticsUtils.getInstance(getApplicationContext()).dispatch();
     }
 
     private void updateSurfaceKeys(Ghost g) {
