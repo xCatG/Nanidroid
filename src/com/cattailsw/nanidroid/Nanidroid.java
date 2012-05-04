@@ -462,4 +462,19 @@ public class Nanidroid extends Activity
 		handleIntent(intent);
 	}
 
+	public void onUpdate(View v) {
+		
+	}
+	
+	public void onListGhost(View v){
+		
+	}
+	
+	public void onHelp(View v) {
+		
+	}
+	
+	public void onMoreGhost(View v) {
+		
+	}
 }
