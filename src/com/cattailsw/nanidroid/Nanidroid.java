@@ -380,11 +380,12 @@ public class Nanidroid extends FragmentActivity
 
     private void showReadme(File readme, final String ghostId){
         DialogFragment newFragment = ReadmeDialogFragment.newInstance(readme, ghostId);
-        newFragment.show(getSupportFragmentManager(), "readmedialog");
+        newFragment.show(getSupportFragmentManager(), Setup.DLG_README);
      }
 
     private void showGhostInstalledDlg(String ghostId){
-
+    	DialogFragment f = NoReadmeSwitchDlg.newInstance(ghostId);
+    	f.show(getSupportFragmentManager(), Setup.DLG_NO_REAMDE);
     }
 
     int cGindex = 0;
@@ -465,7 +466,7 @@ public class Nanidroid extends FragmentActivity
 				
         DialogFragment newFragment = GhostListDialogFragment.newInstance(
                 R.string.list_ghost_dlg_title, gn, gm);
-        newFragment.show(getSupportFragmentManager(), "ghostlistdialog");		
+        newFragment.show(getSupportFragmentManager(), Setup.DLG_G_LIST);		
 	}
 	
 	static ArrayAdapter<String> gAdapter = null;

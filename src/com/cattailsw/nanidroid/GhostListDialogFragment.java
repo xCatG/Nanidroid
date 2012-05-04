@@ -38,12 +38,12 @@ public class GhostListDialogFragment extends DialogFragment {
                          	File readme = gm.getGhostReadMe(gnz[which]);
                          	if ( readme.exists() ){
                          		DialogFragment r = ReadmeDialogFragment.newInstance(readme, gnz[which]);
-                         		r.show(getFragmentManager(), "readmedialog");
+                         		r.show(getFragmentManager(), Setup.DLG_README);
                          	}
                          	else {
                          		// need to show a dialog asking user to switch or not?
                          		DialogFragment r = NoReadmeSwitchDlg.newInstance(gnz[which]);
-                         		r.show(getFragmentManager(), "noreadme");
+                         		r.show(getFragmentManager(), Setup.DLG_NO_REAMDE);
                          	}
                          }	
 					}
