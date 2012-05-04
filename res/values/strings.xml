@@ -15,4 +15,6 @@
   <string name="switch_to_ghost_btn_text">Switch to Ghost</string>
   <string name="new_ghost_installed_title">Installed New Ghost</string>
   <string name="close_btn_text">Close</string>
+  <string name="not_implemented">This functionality is not yet implemented</string>
+  <string name="not_implemeted_title">We\'re Sorry</string>
 </resources>

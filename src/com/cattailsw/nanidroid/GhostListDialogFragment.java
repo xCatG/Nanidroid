@@ -49,17 +49,17 @@ public class GhostListDialogFragment extends DialogFragment {
 					}
                 	
                 })
-                .setPositiveButton(android.R.string.ok,
+                .setPositiveButton(R.string.more_ghosts_btn_text,
                     new DialogInterface.OnClickListener() {
                         public void onClick(DialogInterface dialog, int whichButton) {
-           
+                        	((Nanidroid)getActivity()).getMoreGhost(1);
                         }
                     }
                 )
                 .setNegativeButton(android.R.string.cancel,
                     new DialogInterface.OnClickListener() {
                         public void onClick(DialogInterface dialog, int whichButton) {
-                            
+                            dialog.dismiss();
                         }
                     }
                 )

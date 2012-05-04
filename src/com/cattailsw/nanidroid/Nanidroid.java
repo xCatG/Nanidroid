@@ -446,6 +446,9 @@ public class Nanidroid extends FragmentActivity
 
 	public void onUpdate(View v) {
 		// need to show msg saying not implemented yet
+		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "Update", "", 0);
+		NotImplementedDlg n = new NotImplementedDlg();
+		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
 	}
 	
 	public void onListGhost(View v){
@@ -456,8 +459,15 @@ public class Nanidroid extends FragmentActivity
 		
 	}
 	
+	void getMoreGhost(int source) {
+		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "MoreGhost", 
+				source==0?"MainUI":Setup.DLG_G_LIST, source);
+		NotImplementedDlg n = new NotImplementedDlg();
+		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		
+	}
+	
 	public void onMoreGhost(View v) {
-		
+		getMoreGhost(0);
 	}
 	
 	private void showGhostListDlg() {

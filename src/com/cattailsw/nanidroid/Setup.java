@@ -9,4 +9,5 @@ class Setup {
     public static final String DLG_README = "readmedialog"; 
     public static final String DLG_NO_REAMDE = "noreadme";
     public static final String DLG_G_LIST = "ghostlistdialog";
+    public static final String DLG_NOT_IMPL = "notimplementedmsg";
 }
