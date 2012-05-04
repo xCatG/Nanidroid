@@ -12,17 +12,10 @@
 
 
 extern "C" {
-  JNIEXPORT jstring JNICALL Java_com_cattailsw_nanidroid_jnitest_JniTest_request(JNIEnv *env, jobject thiz, jstring req);
 
-  JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_jnitest_JniTest_request2(JNIEnv *env, jobject thiz, jstring req);
-
-
-  JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_jnitest_JniTest_load(JNIEnv *env, jobject thiz, jstring path);
-  JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_jnitest_JniTest_unload(JNIEnv *env, jobject thiz);
-
-  JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_JNIShiori_requestFromJNI(JNIEnv *env, jobject thiz, jstring req);
-  JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_SatoriPosixShiori_load(JNIEnv *env, jobject thiz, jstring path);
-  JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_SatoriPosixShiori_unload(JNIEnv *env, jobject thiz);
+  JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_shiori_JNIShiori_requestFromJNI(JNIEnv *env, jobject thiz, jstring req);
+  JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_load(JNIEnv *env, jobject thiz, jstring path);
+  JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_unload(JNIEnv *env, jobject thiz);
 
   int load(char* i_data, long i_data_len);
   int unload(void);
@@ -51,47 +44,17 @@ static jbyteArray make_jbyteArray_from_string(JNIEnv *env, const string& str) {
     return jbytes;
 }
 
-JNIEXPORT jbyteArray Java_com_cattailsw_nanidroid_jnitest_JniTest_request2(JNIEnv * env, jobject thiz, jstring req) {
+
+JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_shiori_JNIShiori_requestFromJNI(JNIEnv *env, jobject thiz, jstring req){
   string sRequest = make_utf8_string_from_jstring( env, req );
   
   string s = ((SakuraDLLHost*)&gSatori)->request( sRequest );
-
-  printString( s.c_str() ); 
-
+  //printString( s.c_str() ); 
   return make_jbyteArray_from_string(env, s);
 }
 
-JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_JNIShiori_requestFromJNI(JNIEnv *env, jobject thiz, jstring req){
-  string sRequest = make_utf8_string_from_jstring( env, req );
-  
-  string s = ((SakuraDLLHost*)&gSatori)->request( sRequest );
-  printString( s.c_str() ); 
-  return make_jbyteArray_from_string(env, s);
-}
 
-JNIEXPORT jstring Java_com_cattailsw_nanidroid_jnitest_JniTest_request(JNIEnv * env, jobject thiz, jstring req) {
-  string sRequest = make_utf8_string_from_jstring( env, req );
-  
-  string s = ((SakuraDLLHost*)&gSatori)->request( sRequest );
-
-  printString( s.c_str() ); 
-
-  return env->NewStringUTF(s.c_str());
-}
-
-JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_jnitest_JniTest_load(JNIEnv *env, jobject thiz, jstring path){
-  string sPath = make_utf8_string_from_jstring( env, path );
-  char* pPath = (char*)sPath.c_str();
-  long pLength = sPath.size();
-	load(pPath, pLength);
-
-}
-
-JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_jnitest_JniTest_unload(JNIEnv *env, jobject thiz){
-	unload();
-}
-
-JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_SatoriPosixShiori_load(JNIEnv *env, jobject thiz, jstring path) {
+JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_load(JNIEnv *env, jobject thiz, jstring path) {
 	setenv("SAORI_FALLBACK_ALWAYS", "value", 1);
   string sPath = make_utf8_string_from_jstring( env, path );
   
@@ -102,6 +65,6 @@ JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_SatoriPosixShiori_load(JNIEn
   load(pPath, pLength);
 }
 
-JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_SatoriPosixShiori_unload(JNIEnv *env, jobject thiz){
+JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_unload(JNIEnv *env, jobject thiz){
 	unload();
 }
