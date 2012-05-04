@@ -9,4 +9,5 @@
   <string name="update_btn_text">Update</string>
   <string name="help_btn_text">Help</string>
   <string name="more_ghosts_btn_text">More Ghost</string>
+  <string name="list_ghost_dlg_title">List of Installed Ghosts</string>
 </resources>

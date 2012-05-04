@@ -103,4 +103,10 @@ public class GhostMgr {
     public int getGhostCount(){
     	return (iglist == null)?0:iglist.size();
     }
+    
+    public File getGhostReadMe(String ghostId){
+    	String gPath = getGhostPath(getGhostId(ghostId));
+    	File readme = new File(gPath, "readme.txt");
+    	return readme;
+    }
 }

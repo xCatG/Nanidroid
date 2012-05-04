@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.os.Environment;
 import java.io.File;
@@ -23,6 +24,9 @@ import android.graphics.Paint.Style;
 import android.graphics.Color;
 import java.util.Collections;
 import java.util.Arrays;
+
+import android.support.v4.app.DialogFragment;
+import android.support.v4.app.FragmentActivity;
 import android.util.Log;
 
 import com.android.debug.hv.ViewServer;
@@ -46,7 +50,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Bundle;
 
-public class Nanidroid extends Activity
+public class Nanidroid extends FragmentActivity
 {
     private static final String TAG = "Nanidroid";
     //private ImageView sv = null;
@@ -375,7 +379,9 @@ public class Nanidroid extends Activity
     }
 
     private void showReadme(File readme, final String ghostId){
-	View readmeView = View.inflate(this, R.layout.installdlg, null);
+        DialogFragment newFragment = ReadmeDialogFragment.newInstance(readme, ghostId);
+        newFragment.show(getSupportFragmentManager(), "readmedialog");
+    	/*View readmeView = View.inflate(this, R.layout.installdlg, null);
 	WebView webView = (WebView) readmeView.findViewById(R.id.readme_view);
 	webView.setWebViewClient(new WebViewClient() {
 
@@ -399,7 +405,7 @@ public class Nanidroid extends Activity
 	    });
 
 	builder.show();
-	
+	*/
     }
 
     private void showGhostInstalledDlg(String ghostId){
@@ -418,7 +424,7 @@ public class Nanidroid extends Activity
 	    cGindex = 0;
     }
 
-    private void switchGhost(String nextId){
+    void switchGhost(String nextId){
     	Ghost g = null;
     	try {
 	g = gm.createGhost(nextId);
@@ -463,13 +469,13 @@ public class Nanidroid extends Activity
 	}
 
 	public void onUpdate(View v) {
-		
+		// need to show msg saying not implemented yet
 	}
 	
 	public void onListGhost(View v){
-		
+		showGhostListDlg();
 	}
-	
+
 	public void onHelp(View v) {
 		
 	}
@@ -477,4 +483,17 @@ public class Nanidroid extends Activity
 	public void onMoreGhost(View v) {
 		
 	}
+	
+	private void showGhostListDlg() {
+		String gn[] = gm.getGnames();
+		gAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1, gn);
+				
+        DialogFragment newFragment = GhostListDialogFragment.newInstance(
+                R.string.list_ghost_dlg_title, gn, gm);
+        newFragment.show(getSupportFragmentManager(), "ghostlistdialog");		
+	}
+	
+	static ArrayAdapter<String> gAdapter = null;
+	
+	
 }
