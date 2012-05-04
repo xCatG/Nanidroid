@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.widget.ArrayAdapter;
 import android.widget.ImageView;
+import android.widget.Toast;
 import android.os.Environment;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -13,6 +14,11 @@ import java.io.InputStream;
 import android.widget.TextView;
 import android.os.SystemClock;
 import android.graphics.drawable.AnimationDrawable;
+import android.view.ContextMenu;
+import android.view.ContextMenu.ContextMenuInfo;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import java.util.Set;
 import android.graphics.Rect;
@@ -128,6 +134,8 @@ public class Nanidroid extends FragmentActivity
 	//checkAndLoadAnimation();
 	sv.changeSurface(currentSurfaceKey);
 	kv.changeSurface("10");
+	
+	registerForContextMenu(findViewById(R.id.btn_help));
 	
 	ViewServer.get(this).addWindow(this);
     }
@@ -461,7 +469,7 @@ public class Nanidroid extends FragmentActivity
 	}
 
 	public void onHelp(View v) {
-		
+		openContextMenu(v);
 	}
 	
 	public void getMoreGhost(int source) {
@@ -484,6 +492,53 @@ public class Nanidroid extends FragmentActivity
 	}
 	
 	static ArrayAdapter<String> gAdapter = null;
+
+	@Override
+	public boolean onContextItemSelected (MenuItem item) {
+		int id = item.getItemId();
+		switch(id) {
+		case R.id.item_about:
+			showAbout();
+			return true;
+		case R.id.item_feedback:
+			showFeedback();
+			return true;
+		case R.id.item_general_help:
+			showHelp();
+			return true;
+		}		
+		// TODO Auto-generated method stub
+		return super.onOptionsItemSelected(item);
+	}
+
+
+	private void showHelp() {
+		// TODO Auto-generated method stub
+		Toast.makeText(this, "help clicked", Toast.LENGTH_SHORT).show();
+	}
+
+	private void showFeedback() {
+		// TODO Auto-generated method stub
+		//Toast.makeText(this, "feedback clicked", Toast.LENGTH_SHORT).show();
+		AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/feedback");
+		Uri feedbackUri = Uri.parse(getString(R.string.feedback_url));
+		startActivity(new Intent(Intent.ACTION_VIEW, feedbackUri));
+	}
+
+	private void showAbout() {
+		// TODO Auto-generated method stub
+		Toast.makeText(this, "about clicked", Toast.LENGTH_SHORT).show();
+	}
+
+	@Override
+	public void onCreateContextMenu(ContextMenu menu, View v,
+			ContextMenuInfo menuInfo) {
+		// TODO Auto-generated method stub
+		super.onCreateContextMenu(menu, v, menuInfo);
+		
+		MenuInflater inflater = getMenuInflater();		
+		inflater.inflate(R.menu.main_help_menu, menu);
+	}
 	
 	
 }

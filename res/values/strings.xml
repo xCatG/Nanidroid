@@ -17,4 +17,8 @@
   <string name="close_btn_text">Close</string>
   <string name="not_implemented">This functionality is not yet implemented</string>
   <string name="not_implemeted_title">We\'re Sorry</string>
+  <string name="menu_help">General Usage</string>
+  <string name="menu_about">About</string>
+  <string name="menu_feedback">Provide Feedback</string>
+  <string name="feedback_url">http://blog.cattail-sw.com/nanidroid-feedback/</string>
 </resources>
