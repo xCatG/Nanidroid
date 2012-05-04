@@ -753,4 +753,30 @@ public class SScriptRunner implements Runnable {
 	exitPending = true;
     }
 
+	public void doInstallBegin(String ghostId) {
+		if ( g != null ) {
+			String ref[] = new String[] {"ghost", ghostId, ghostId};
+			ShioriResponse r = g.doShioriEvent("OnInstallBegin", ref);
+			if ( r != null )
+				parseShioriResponseAndInsert(r);
+		}
+	}
+
+	public void doInstallComplete(String ghostId) {
+		if ( g != null ) {
+			String ref[] = new String[] {"ghost", ghostId, ghostId};
+			ShioriResponse r = g.doShioriEvent("OnInstallComplete", ref);
+			if ( r != null )
+				parseShioriResponseAndInsert(r);			
+		}
+	}
+	
+	public void doShioriEvent(String evt, String[] ref) {
+		if ( g != null ) {
+			ShioriResponse r = g.doShioriEvent(evt, ref);
+			if ( r != null )
+				parseShioriResponseAndInsert(r);
+		}
+	}
+
 }

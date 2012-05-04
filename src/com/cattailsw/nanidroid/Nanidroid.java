@@ -42,6 +42,7 @@ import android.app.AlertDialog;
 import android.app.AlertDialog.Builder;
 import android.content.DialogInterface;
 import android.content.res.AssetManager;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Bundle;
 
@@ -377,27 +378,74 @@ public class Nanidroid extends Activity
     	//extractNar("/mnt/sdcard/Android/data/com.cattailsw.nanidroid/cache/yumenikki.nar");
 	//runOnUiThread(runner);//.startClock();
 	//runner.startClock();
-	showCollisionAreaOnImageView();
+	//showCollisionAreaOnImageView();
+    	extractNar("/mnt/sdcard/2elf-2.41.nar", true);
     }
 
-    private void extractNar(String targetPath){
-	File dataDir = new File(getExternalFilesDir(null), "ghost");
+    private void extractNar(String targetPath) {
+    	extractNar(targetPath, false);
+    }
+    
+    private void extractNar(String targetPath, boolean force){
 	String ghostId = NarUtil.readNarGhostId(targetPath);
 
-	if ( gm.hasSameGhostId(ghostId) == false ) {
-	    String gPath = gm.installGhost(ghostId, targetPath);
-	    if ( gPath != null ){
+	if ( (gm.hasSameGhostId(ghostId) == false )|| force == true) {
+		if ( runner != null ) runner.doInstallBegin(ghostId);
+		
+		InstallTask i = new InstallTask(targetPath, ghostId);
+		i.execute(targetPath);
+		
+/*		String gPath = gm.installGhost(ghostId, targetPath);
+		if (gPath != null) {
+			onSuccessGhostInstall(ghostId, gPath);
+		} else {
+			if (runner != null)
+				runner.doShioriEvent("OnInstallFailure", null);
+		}*/
+	}
+	else {
+		if ( runner != null )runner.doShioriEvent("OnInstallRefuse", null);
+	}
+		
+    }
+
+	private void onSuccessGhostInstall(String ghostId, String gPath) {
+		if (runner != null)
+			runner.doInstallComplete(ghostId);
 		// should show readme if one present
 		Log.d(TAG, "ghost:" + ghostId + " installed at:" + gPath);
 		File readme = new File(gPath, "readme.txt");
-		if ( readme.exists() ) {
-		    showReadme(readme, ghostId);
+		if (readme.exists()) {
+			showReadme(readme, ghostId);
+		} else {
+			showGhostInstalledDlg(ghostId);
 		}
-		else {
-		    showGhostInstalledDlg(ghostId);
-		}
-	    }
 	}
+    
+    private class InstallTask extends AsyncTask<String, Integer, String> {
+		private String targetPath;
+		private String ghostId;
+
+    	InstallTask(String tPath, String gId) {
+    		targetPath = tPath;
+    		ghostId = gId;
+    	}
+    	
+		@Override
+		protected String doInBackground(String... params) {
+			String gPath = gm.installGhost(ghostId, targetPath);
+
+			return gPath;
+		}
+    	
+		public void onPostExecute(String gPath) {
+			if ( gPath != null ) {
+				onSuccessGhostInstall(ghostId, gPath);
+			}
+			else {
+				if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
+			}
+		}
     }
     
     private void runOnFirstExecution(){
