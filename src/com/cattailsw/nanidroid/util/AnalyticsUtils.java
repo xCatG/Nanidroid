@@ -84,8 +84,8 @@ public class AnalyticsUtils {
 
         // Unfortunately this needs to be synchronous.
         //mTracker.start(UACODE, 300, mApplicationContext);
-	mTracker.start(UACODE, mApplicationContext);
-
+        //mTracker.start(UACODE, mApplicationContext);
+        mTracker.startNewSession(UACODE, 300, mApplicationContext);
         //Log.d(TAG, "Initializing Analytics");
 
         // Since visitor CV's should only be declared the first time an app runs, check if

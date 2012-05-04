@@ -166,7 +166,7 @@ public class Nanidroid extends FragmentActivity
 	if ( runner != null ) { 
 	    runner.startClock();
 	}
-	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/");
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView(TAG);
 	ViewServer.get(this).setFocusedWindow(this);
     }
 
