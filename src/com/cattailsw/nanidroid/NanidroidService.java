@@ -23,8 +23,6 @@ import java.io.File;
 import android.app.PendingIntent;
 import java.util.List;
 import java.io.FileOutputStream;
-//import android.app.DownloadManager;
-//import android.app.DownloadManager.Request;
 
 /**
  * Describe class <code>HeadLineSensorService</code> here.
@@ -83,14 +81,9 @@ public class NanidroidService extends Service {
 	else if (action.equalsIgnoreCase( Intent.ACTION_RUN ) ) {
 	    Uri data = i.getData();
 	    if ( data != null ) {
-// 		if ( UIUtil.isGingerbread() == false ) {
 		NarDownloadTask n = new NarDownloadTask(data, startId);
 		n.execute(this);		
-// 		}
-// 		else {
-// 		    startDLMgr(data);
-// 		    stopSelf(startId);
-// 		}
+
 	    }
 	}
 	else if ( action.equalsIgnoreCase( ACTION_CAN_STOP ) ) {
@@ -169,10 +162,6 @@ public class NanidroidService extends Service {
 	    svcid = sid;
 	}
 
-	NarDownloadTask(Uri uri){
-	    this(uri, -1);
-	}
-	
 	public String doInBackground(Context... args) {
 	    try {
 		Context ctx = args[0];
@@ -222,21 +211,5 @@ public class NanidroidService extends Service {
 
 
     }
-    /*
-    private void startDLMgr(Uri data) {
-	DownloadManager dlmgr = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-	File extDir = getExternalCacheDir();
-	File targetPath = new File(extDir, data.getLastPathSegment());
 
-	DownloadManager.Request req = new DownloadManager.Request(data);
-	req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
-	    .setAllowedOverRoaming(false)
-	    .setTitle("Nanidroid")
-	    .setDescription("Downloading " + data.getLastPathSegment())
-	    .setDestinationInExternalFilesDir(getApplicationContext(), null,
-					      data.getLastPathSegment());
-	
-	long dlid = dlmgr.enqueue(req);
-    }
-    */
 }

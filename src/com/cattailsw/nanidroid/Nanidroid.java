@@ -113,20 +113,7 @@ public class Nanidroid extends Activity
 
 	Intent launchingIntent = getIntent();
 	handleIntent(launchingIntent);
-/*	String action = launchingIntent.getAction();
-	if ( launchingIntent.hasExtra("DL_PKG") ){
-	    Uri data = launchingIntent.getData();
-	    bKero.setText("launching to extract nar at:" + data);
-	}
-	else if (action!= null && action.equalsIgnoreCase(Intent.ACTION_VIEW) ) {
-	    // need to check the data?
-	    Log.d(TAG, " action_view with data:" + launchingIntent.getData());
-	    Uri target = launchingIntent.getData();
-	    if ( target != null )
-	    addNarToDownload(target);
-	    // enqueue to download
-	}
-*/
+
 	updateSurfaceKeys(g);
 	currentSurfaceKey = surfaceKeys[0];
 	currentSurface = g.mgr.getSakuraSurface(currentSurfaceKey);
@@ -148,30 +135,13 @@ public class Nanidroid extends Activity
 	surfaceKeys = k.toArray(surfaceKeys);
 	Arrays.sort(surfaceKeys);
     }
-    /*
-    public void onRestoreInstanceState(Bundle inState) {
-	super.onRestoreInstanceState(inState);
-	Log.d(TAG, "was minimized");
-	restoreFromMinimize = inState.getBoolean(MIN_TAG, false);
-    }
-
-    public void onSaveInstanceState(Bundle outState) { 
-	if ( backPressed == false ) {
-	    Log.d(TAG, "act as mimizing");
-	    outState.putBoolean(MIN_TAG, true);
-	}
-	super.onSaveInstanceState(outState);
-    }
-    */
+ 
 
     public void onPause() {
 	super.onPause();
 	if ( runner!= null ) { 
 	    runner.stopClock();
 
-	    /*	    if ( backPressed == false ) {
-		runner.doMinimize();
-		}*/
 	}
 	sendStopIntent();
     }
@@ -185,18 +155,13 @@ public class Nanidroid extends Activity
     public void onResume() {
 	super.onResume();
 	if ( runner != null ) { 
-	    /*	    if ( restoreFromMinimize )
-	      runner.doRestore();*/
 	    runner.startClock();
 	}
 	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/");
 	ViewServer.get(this).setFocusedWindow(this);
     }
 
-    //boolean backPressed = false;
-
     public void onBackPressed() {
-	//backPressed = true;
 	if ( runner!= null ) { 
 	    runner.stopClock();
 	    runner.setCallback(mscb);
@@ -217,52 +182,6 @@ public class Nanidroid extends Activity
 	};
 
 
-
-    private void checkAndUpdateLayoutParam() {
-	// we need to get actual width of fl
-	// then get width of sakura and kero
-	int layoutWidth = fl.getWidth();
-	int layoutHeight = fl.getHeight();
-	if ( layoutHeight <= 0 || layoutWidth <= 0 )
-	    return;
-
-	int sH = sv.currentSurface.origH;
-	int sW = sv.currentSurface.origW;
-	int kH = kv.currentSurface.origH;
-	int kW = kv.currentSurface.origW;
-
-	// need to compute the maximum allowed width and height for both kero and sakura
-	// first compare sW + kW and lW
-	float wScale = 1.0f;
-	if ( sW + kW > layoutWidth ) {
-	    wScale = ((float) layoutWidth / (float)(sW + kW) );
-	}
-
-	float hScale = 1.0f;
-	int vH = Math.max(sH, kH);
-	if ( vH > layoutHeight ) {
-	    hScale = ((float) layoutHeight / (float)vH );
-	}
-	
-	float scale = Math.min(wScale, hScale);
-	Log.d(TAG, "wScale:hScale="+wScale+":"+hScale+", [lH:lW]=["+layoutHeight+":"+layoutWidth+"],[sh:sw]="
-	      + sH + ":" + sW +"]");
-	FrameLayout.LayoutParams lpS = new FrameLayout.LayoutParams((int)(sW * scale),
-								    (int)(sH * scale),
-								    Gravity.BOTTOM | Gravity.RIGHT);
-	sv.setLayoutParams(lpS);
-	FrameLayout.LayoutParams lpK = new FrameLayout.LayoutParams((int)(kW*scale),
-								    (int)(kH*scale),
-								    Gravity.BOTTOM | Gravity.LEFT);
-	kv.setLayoutParams(lpK);
-	fl.invalidate();
-    }
-
-    /**
-     * Describe <code>onWindowFocusChanged</code> method here.
-     *
-     * @param flag a <code>boolean</code> value
-     */
     public void onWindowFocusChanged(boolean flag) {
 	lm.checkAndUpdateLayoutParam();
     }
@@ -394,14 +313,7 @@ public class Nanidroid extends Activity
 		
 		InstallTask i = new InstallTask(targetPath, ghostId);
 		i.execute(targetPath);
-		
-/*		String gPath = gm.installGhost(ghostId, targetPath);
-		if (gPath != null) {
-			onSuccessGhostInstall(ghostId, gPath);
-		} else {
-			if (runner != null)
-				runner.doShioriEvent("OnInstallFailure", null);
-		}*/
+
 	}
 	else {
 		if ( runner != null )runner.doShioriEvent("OnInstallRefuse", null);
@@ -466,13 +378,8 @@ public class Nanidroid extends Activity
 	View readmeView = View.inflate(this, R.layout.installdlg, null);
 	WebView webView = (WebView) readmeView.findViewById(R.id.readme_view);
 	webView.setWebViewClient(new WebViewClient() {
-		/*		@Override
-		public boolean shouldOverrideUrlLoading(WebView view, String url) {
-		    // Disable all links open from this web view.
-		    return false;
-		    }*/
+
 	    });
-	//webView.loadData(NarUtil.readTxt(readme), "text/plain", "UTF-8");
  	webView.loadDataWithBaseURL(Uri.fromFile(readme).toString(), NarUtil.readTxt(readme), 
  				    "text/html", "UTF-8", null);
 
