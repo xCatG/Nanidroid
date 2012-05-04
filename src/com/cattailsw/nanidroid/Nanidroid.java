@@ -30,6 +30,10 @@ import android.support.v4.app.FragmentActivity;
 import android.util.Log;
 
 import com.android.debug.hv.ViewServer;
+import com.cattailsw.nanidroid.dlgs.GhostListDialogFragment;
+import com.cattailsw.nanidroid.dlgs.NoReadmeSwitchDlg;
+import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
+import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 
@@ -400,7 +404,7 @@ public class Nanidroid extends FragmentActivity
 	    cGindex = 0;
     }
 
-    void switchGhost(String nextId){
+    public void switchGhost(String nextId){
     	Ghost g = null;
     	try {
 	g = gm.createGhost(nextId);
@@ -459,7 +463,7 @@ public class Nanidroid extends FragmentActivity
 		
 	}
 	
-	void getMoreGhost(int source) {
+	public void getMoreGhost(int source) {
 		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "MoreGhost", 
 				source==0?"MainUI":Setup.DLG_G_LIST, source);
 		NotImplementedDlg n = new NotImplementedDlg();
@@ -474,8 +478,7 @@ public class Nanidroid extends FragmentActivity
 		String gn[] = gm.getGnames();
 		gAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1, gn);
 				
-        DialogFragment newFragment = GhostListDialogFragment.newInstance(
-                R.string.list_ghost_dlg_title, gn, gm);
+        DialogFragment newFragment = GhostListDialogFragment.newInstance(gn, gm);
         newFragment.show(getSupportFragmentManager(), Setup.DLG_G_LIST);		
 	}
 	

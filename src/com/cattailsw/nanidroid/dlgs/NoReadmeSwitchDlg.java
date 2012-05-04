@@ -1,4 +1,8 @@
-package com.cattailsw.nanidroid;
+package com.cattailsw.nanidroid.dlgs;
+
+import com.cattailsw.nanidroid.Nanidroid;
+import com.cattailsw.nanidroid.R;
+import com.cattailsw.nanidroid.R.string;
 
 import android.app.AlertDialog;
 import android.app.Dialog;

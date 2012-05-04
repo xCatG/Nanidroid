@@ -1,7 +1,12 @@
-package com.cattailsw.nanidroid;
+package com.cattailsw.nanidroid.dlgs;
 
 import java.io.File;
 
+import com.cattailsw.nanidroid.Nanidroid;
+import com.cattailsw.nanidroid.R;
+import com.cattailsw.nanidroid.R.id;
+import com.cattailsw.nanidroid.R.layout;
+import com.cattailsw.nanidroid.R.string;
 import com.cattailsw.nanidroid.util.NarUtil;
 
 import android.app.Activity;

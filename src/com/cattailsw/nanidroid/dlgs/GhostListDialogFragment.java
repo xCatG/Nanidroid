@@ -1,6 +1,11 @@
-package com.cattailsw.nanidroid;
+package com.cattailsw.nanidroid.dlgs;
 
 import java.io.File;
+
+import com.cattailsw.nanidroid.GhostMgr;
+import com.cattailsw.nanidroid.Nanidroid;
+import com.cattailsw.nanidroid.R;
+import com.cattailsw.nanidroid.Setup;
 
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -8,14 +13,17 @@ import android.content.DialogInterface;
 import android.content.DialogInterface.OnClickListener;
 import android.os.Bundle;
 import android.support.v4.app.DialogFragment;
+import android.widget.ArrayAdapter;
+import android.widget.ListAdapter;
 
 public class GhostListDialogFragment extends DialogFragment {
 	String[] gnz = null;
 	GhostMgr gm = null;
-    public static GhostListDialogFragment newInstance(int title, String[] gnz, GhostMgr gm) {
+	ListAdapter adapter = null;
+    public static GhostListDialogFragment newInstance(String[] gnz, GhostMgr gm) {
     	GhostListDialogFragment frag = new GhostListDialogFragment();
         Bundle args = new Bundle();
-        args.putInt("title", title);
+        //args.putInt("title", title);
         frag.setArguments(args);
         frag.gnz = gnz;
         frag.gm = gm;
@@ -24,12 +32,12 @@ public class GhostListDialogFragment extends DialogFragment {
 
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-        int title = getArguments().getInt("title");
+    	adapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_list_item_1, gnz);
 
         return new AlertDialog.Builder(getActivity())
                 //.setIcon(R.drawable.alert_dialog_icon)
-                .setTitle(title)
-                .setAdapter(Nanidroid.gAdapter,new OnClickListener(){
+                .setTitle(R.string.list_ghost_dlg_title)
+                .setAdapter(adapter,new OnClickListener(){
 
 					@Override
 					public void onClick(DialogInterface dialog, int which) {
