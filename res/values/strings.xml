@@ -5,4 +5,8 @@
 
   <string name="dl_complete">Download Completed</string>
   <string name="dl_note">%1$s is ready to be installed</string>
+  <string name="list_ghost_btn_text">List Ghosts</string>
+  <string name="update_btn_text">Update</string>
+  <string name="help_btn_text">Help</string>
+  <string name="more_ghosts_btn_text">More Ghost</string>
 </resources>

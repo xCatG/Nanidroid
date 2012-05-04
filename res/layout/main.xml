@@ -4,52 +4,9 @@
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     >
-  <LinearLayout
-    android:orientation="horizontal"
-    android:layout_width="fill_parent"
-    android:layout_height="wrap_content"
-    >
-    <Button
-      android:id="@+id/btn1"
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
-      android:text="next s."
-      android:onClick="onNextSurface"
-      />
+  <include layout="@layout/dbg_btns"  android:layout_width="fill_parent" android:layout_height="wrap_content" android:visibility="gone"/>
 
-    <Button
-      android:id="@+id/btn2"
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
-      android:text="animate"
-      android:onClick="onAnimate"
-      />
-
-    <Button
-      android:id="@+id/btn3"
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
-      android:text="next G"
-      android:onClick="onNextGhost"
-      />
-
-    <Button
-      android:id="@+id/btn4"
-      android:layout_width="wrap_content"
-      android:layout_height="wrap_content"
-      android:text="run"
-      android:onClick="runClick"
-      />
-
-    <Button
-        android:id="@+id/button1"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="nar"
-        android:onClick="narTest"
-         />
-    
-  </LinearLayout>
+  <include layout="@layout/main_btns"  android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
 <FrameLayout
     android:layout_width="fill_parent"
