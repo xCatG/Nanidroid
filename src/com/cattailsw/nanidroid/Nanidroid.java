@@ -381,32 +381,7 @@ public class Nanidroid extends FragmentActivity
     private void showReadme(File readme, final String ghostId){
         DialogFragment newFragment = ReadmeDialogFragment.newInstance(readme, ghostId);
         newFragment.show(getSupportFragmentManager(), "readmedialog");
-    	/*View readmeView = View.inflate(this, R.layout.installdlg, null);
-	WebView webView = (WebView) readmeView.findViewById(R.id.readme_view);
-	webView.setWebViewClient(new WebViewClient() {
-
-	    });
- 	webView.loadDataWithBaseURL(Uri.fromFile(readme).toString(), NarUtil.readTxt(readme), 
- 				    "text/html", "UTF-8", null);
-
-	AlertDialog.Builder builder = new AlertDialog.Builder(this);
-	builder.setTitle("installed new ghost");	
-	builder.setView(readmeView);
-	builder.setNeutralButton(android.R.string.ok, new DialogInterface.OnClickListener(){
-		public void onClick(DialogInterface dlg, int which){
-		    dlg.dismiss();
-		}
-	    });
-	builder.setPositiveButton("switch to ghost", new DialogInterface.OnClickListener(){
-		public void onClick(DialogInterface dlg, int which){
-		    dlg.dismiss();
-		    switchGhost(ghostId);
-		}
-	    });
-
-	builder.show();
-	*/
-    }
+     }
 
     private void showGhostInstalledDlg(String ghostId){
 
