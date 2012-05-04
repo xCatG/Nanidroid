@@ -10,4 +10,9 @@
   <string name="help_btn_text">Help</string>
   <string name="more_ghosts_btn_text">More Ghost</string>
   <string name="list_ghost_dlg_title">List of Installed Ghosts</string>
+  <string name="no_readme_dlg_title">Switch to Ghost?</string>
+  <string name="no_readme_text">The ghost %1$s has no readme file to show.  Do you want to switch to it?</string>
+  <string name="switch_to_ghost_btn_text">Switch to Ghost</string>
+  <string name="new_ghost_installed_title">Installed New Ghost</string>
+  <string name="close_btn_text">Close</string>
 </resources>

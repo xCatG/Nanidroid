@@ -60,14 +60,14 @@ public class ReadmeDialogFragment extends DialogFragment {
 	 				    "text/html", "UTF-8", null);
 
 		AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
-		builder.setTitle("installed new ghost");	
+		builder.setTitle(R.string.new_ghost_installed_title);	
 		builder.setView(readmeView);
-		builder.setNeutralButton(android.R.string.ok, new DialogInterface.OnClickListener(){
+		builder.setNeutralButton(R.string.close_btn_text, new DialogInterface.OnClickListener(){
 			public void onClick(DialogInterface dlg, int which){
 			    dlg.dismiss();
 			}
 		    });
-		builder.setPositiveButton("switch to ghost", new DialogInterface.OnClickListener(){
+		builder.setPositiveButton(R.string.switch_to_ghost_btn_text, new DialogInterface.OnClickListener(){
 			public void onClick(DialogInterface dlg, int which){
 			    dlg.dismiss();
 				Activity act = ReadmeDialogFragment.this.getActivity();// getActivity();
