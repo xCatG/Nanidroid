@@ -4,6 +4,7 @@ import java.io.File;
 
 import com.cattailsw.nanidroid.util.NarUtil;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.DialogInterface;
@@ -69,11 +70,13 @@ public class ReadmeDialogFragment extends DialogFragment {
 		builder.setPositiveButton("switch to ghost", new DialogInterface.OnClickListener(){
 			public void onClick(DialogInterface dlg, int which){
 			    dlg.dismiss();
-			    ((Nanidroid)getActivity()).switchGhost(gid);
+				Activity act = ReadmeDialogFragment.this.getActivity();// getActivity();
+				if ( act != null )
+			    ((Nanidroid)act).switchGhost(gid);
 			}
 		    });
 
-		builder.show();
-		return new AlertDialog.Builder(getActivity()).create();
+		//builder.show();
+		return builder.create();
 	}
 }
