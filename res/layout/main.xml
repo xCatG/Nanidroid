@@ -46,7 +46,6 @@
     android:onClick="ivClick"
     />
   </FrameLayout>
-<!--  </RelativeLayout> -->
-<!--  </LinearLayout>-->
+
 </LinearLayout>
 
