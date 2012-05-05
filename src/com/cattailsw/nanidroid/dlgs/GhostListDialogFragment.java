@@ -32,7 +32,7 @@ public class GhostListDialogFragment extends DialogFragment {
 
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-    	adapter = new ArrayAdapter<String>(getActivity(), android.R.layout.simple_list_item_1, gnz);
+    	adapter = new ArrayAdapter<String>(getActivity(), R.layout.ghost_list_item, gnz);
 
         return new AlertDialog.Builder(getActivity())
                 //.setIcon(R.drawable.alert_dialog_icon)

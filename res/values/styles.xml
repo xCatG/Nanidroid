@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="NanidroidTheme" parent="@android:style/Theme.NoTitleBar"></style>
+    <style name="NanidroidTheme" parent="@android:style/Theme.NoTitleBar">
+        <item name="android:listViewStyle">@style/MyListViewStyle</item>
+    </style>
+    <style name="MyListViewStyle" parent="@android:style/Widget.ListView.White">
+        <item name="android:listSelector">@null</item>
+        <item name="android:overScrollFooter">@null</item>
+    </style>
     
 </resources>
