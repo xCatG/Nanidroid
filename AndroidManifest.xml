@@ -14,7 +14,7 @@
     <activity android:name="Nanidroid"
       android:label="@string/app_name"
       android:launchMode="singleInstance"
-      android:theme="@android:style/Theme.NoTitleBar">
+      android:theme="@style/NanidroidTheme">
       <intent-filter>
 	<action android:name="android.intent.action.MAIN" />
 	<category android:name="android.intent.category.LAUNCHER" />
@@ -30,7 +30,8 @@
       </intent-filter>
 
     </activity>
-    <service android:name=".NanidroidService" android:exported="false"></service>
+    <service android:name=".NanidroidService" android:exported="false" />
+    <activity android:name=".Preferences" android:theme="@style/NanidroidTheme" />
   </application>
   
 </manifest>

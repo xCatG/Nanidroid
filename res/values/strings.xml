@@ -22,4 +22,7 @@
   <string name="menu_feedback">Provide Feedback</string>
   <string name="feedback_url">http://blog.cattail-sw.com/nanidroid-feedback/</string>
   <string name="about_title">About Nanidroid</string>
+  <string name="setup_btn_text">Setup</string>
+  <string name="enable_analytic_title">Allow Anonymous Usage Data</string>
+  <string name="enable_analytic_desc">Allow using Google Analytics to collect anonymous usage data to help improve this product</string>
 </resources>

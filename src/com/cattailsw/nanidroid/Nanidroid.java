@@ -60,6 +60,7 @@ import android.content.res.AssetManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 
 public class Nanidroid extends FragmentActivity
 {
@@ -142,7 +143,9 @@ public class Nanidroid extends FragmentActivity
     }
 
     private void initGA(){
-    	AnalyticsUtils.getInstance(getApplicationContext(), Setup.UA_CODE, true);
+    	boolean enableGA = PreferenceManager.getDefaultSharedPreferences(getApplicationContext()).getBoolean(Setup.PREF_KEY_USE_ANALYTICS, true);
+    	
+    	AnalyticsUtils.getInstance(getApplicationContext(), Setup.UA_CODE, enableGA);
     	AnalyticsUtils.getInstance(getApplicationContext()).dispatch();
     }
 
@@ -529,7 +532,7 @@ public class Nanidroid extends FragmentActivity
 		AboutDialogFragment f = new AboutDialogFragment();
 		f.show(getSupportFragmentManager(), Setup.DLG_ABOUT);
 	}
-
+	
 	@Override
 	public void onCreateContextMenu(ContextMenu menu, View v,
 			ContextMenuInfo menuInfo) {
@@ -538,6 +541,18 @@ public class Nanidroid extends FragmentActivity
 		MenuInflater inflater = getMenuInflater();		
 		inflater.inflate(R.menu.main_help_menu, menu);
 	}
-	
+
+	public void onSetupClick(View v) {
+		showPreference();
+	}
+
+	private void showPreference() {
+		Intent intent = new Intent(Intent.ACTION_VIEW);
+
+		intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET);
+		intent.setClassName(Nanidroid.this, Preferences.class.getName());
+		AnalyticsUtils.getInstance(this).trackPageView("/Preference");
+		startActivity(intent);
+	}
 	
 }
