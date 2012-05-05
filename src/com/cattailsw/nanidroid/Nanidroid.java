@@ -525,7 +525,7 @@ public class Nanidroid extends FragmentActivity
 	}
 
 	private void showAbout() {
-		
+		AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/about");
 		AboutDialogFragment f = new AboutDialogFragment();
 		f.show(getSupportFragmentManager(), Setup.DLG_ABOUT);
 	}
