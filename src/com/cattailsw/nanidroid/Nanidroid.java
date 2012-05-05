@@ -36,6 +36,7 @@ import android.support.v4.app.FragmentActivity;
 import android.util.Log;
 
 import com.android.debug.hv.ViewServer;
+import com.cattailsw.nanidroid.dlgs.AboutDialogFragment;
 import com.cattailsw.nanidroid.dlgs.GhostListDialogFragment;
 import com.cattailsw.nanidroid.dlgs.NoReadmeSwitchDlg;
 import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
@@ -507,7 +508,6 @@ public class Nanidroid extends FragmentActivity
 			showHelp();
 			return true;
 		}		
-		// TODO Auto-generated method stub
 		return super.onOptionsItemSelected(item);
 	}
 
@@ -518,22 +518,21 @@ public class Nanidroid extends FragmentActivity
 	}
 
 	private void showFeedback() {
-		// TODO Auto-generated method stub
-		//Toast.makeText(this, "feedback clicked", Toast.LENGTH_SHORT).show();
+		
 		AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/feedback");
 		Uri feedbackUri = Uri.parse(getString(R.string.feedback_url));
 		startActivity(new Intent(Intent.ACTION_VIEW, feedbackUri));
 	}
 
 	private void showAbout() {
-		// TODO Auto-generated method stub
-		Toast.makeText(this, "about clicked", Toast.LENGTH_SHORT).show();
+		
+		AboutDialogFragment f = new AboutDialogFragment();
+		f.show(getSupportFragmentManager(), Setup.DLG_ABOUT);
 	}
 
 	@Override
 	public void onCreateContextMenu(ContextMenu menu, View v,
 			ContextMenuInfo menuInfo) {
-		// TODO Auto-generated method stub
 		super.onCreateContextMenu(menu, v, menuInfo);
 		
 		MenuInflater inflater = getMenuInflater();		

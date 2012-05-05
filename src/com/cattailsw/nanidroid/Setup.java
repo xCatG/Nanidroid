@@ -10,4 +10,5 @@ public class Setup {
     public static final String DLG_NO_REAMDE = "noreadme";
     public static final String DLG_G_LIST = "ghostlistdialog";
     public static final String DLG_NOT_IMPL = "notimplementedmsg";
+    public static final String DLG_ABOUT = "aboutdialog";
 }
