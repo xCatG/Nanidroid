@@ -125,7 +125,7 @@ public class Nanidroid extends FragmentActivity
 		runOnFirstExecution(); // extract first to file dir on sd card
 	
 	String lastId = gm.getLastRunGhostId();
-	if ( lastId == null ) lastId = "first";
+	if ( lastId == null ) lastId = "nanidroid";
 	Ghost g = gm.createGhost(lastId);
 	runner.setGhost(g);
 	gm.setLastRunGhost(g);
@@ -405,11 +405,11 @@ public class Nanidroid extends FragmentActivity
     private void runOnFirstExecution(){
     	AssetManager a = getAssets();
     	try {
-    		InputStream is = a.open("first.zip");
+    		InputStream is = a.open("nanidroid.zip");
     		File extDir = getExternalCacheDir();
-    		File targetPath = new File(extDir, "first.nar");
+    		File targetPath = new File(extDir, "nanidroid.nar");
     		NarUtil.copyFile(is, new FileOutputStream(targetPath));
-    		gm.installFirstGhost("first", targetPath.getPath());			
+    		gm.installFirstGhost("nanidroid", targetPath.getPath());			
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -577,5 +577,14 @@ public class Nanidroid extends FragmentActivity
 		AnalyticsUtils.getInstance(this).trackPageView("/Preference");
 		startActivity(intent);
 	}
-	
+
+    public void frameClick(View v){
+	//Toast.makeText(this, "frame touched", Toast.LENGTH_SHORT).show();
+	// toggle main button bar visibility
+	int vis = btnBar.getVisibility();
+	if ( vis != View.VISIBLE )
+	    btnBar.setVisibility(View.VISIBLE);
+	else
+	    btnBar.setVisibility(View.GONE);
+    }
 }
