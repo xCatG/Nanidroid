@@ -58,10 +58,15 @@ public class SurfaceReader {
 	try {
 	    InputStream is = new FileInputStream( new File(desc_path) );
 	    parse(is);
-	    scanFolderForPng(rootPath);
 	}
 	catch(FileNotFoundException e) {error = true;}
 	catch(IOException e) {error = true;}
+
+	try {
+	    scanFolderForPng(rootPath);
+	}
+	catch(Exception e) { error = true;}
+
     }
 
     public SurfaceReader(File f) {
@@ -70,11 +75,15 @@ public class SurfaceReader {
 	    Log.d(TAG, "rootpath = " + rootPath);
 	    InputStream is = new FileInputStream(f);
 	    parse(is);
-
-	    scanFolderForPng(rootPath);
 	}
 	catch(FileNotFoundException e) {}
 	catch(IOException e) {}
+
+	try {
+	    scanFolderForPng(rootPath);
+	}
+	catch(Exception e) { error = true;}
+
     }
 
     private void scanFolderForPng(String folderPath){
