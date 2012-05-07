@@ -63,7 +63,7 @@ public class Ghost {
 	if ( error == false )
 	    error = sr.error;
 
-	shiori = ShioriFactory.getInstance().getShiori( master_ghost );
+	shiori = ShioriFactory.getInstance().getShiori( master_ghost, ghostDesc );
     }
 
     public String getGhostDirName() {

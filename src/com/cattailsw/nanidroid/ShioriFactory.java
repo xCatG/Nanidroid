@@ -3,6 +3,9 @@ package com.cattailsw.nanidroid;
 import com.cattailsw.nanidroid.shiori.EchoShiori;
 import com.cattailsw.nanidroid.shiori.SatoriPosixShiori;
 import com.cattailsw.nanidroid.shiori.Shiori;
+import com.cattailsw.nanidroid.shiori.NanidroidShiori;
+import java.io.File;
+import java.util.Map;
 
 public class ShioriFactory {
 
@@ -18,11 +21,33 @@ public class ShioriFactory {
 	return _self;
     }
 
-    // path is the master ghost path
-    public Shiori getShiori(String path){
+    // path is the master ghost path 
+    public Shiori getShiori(String path, Map<String, String> masterDesc){
 
-	if( path.indexOf("2elf") != -1 )
+	// need to first read the shiori dll file name from descript.txt
+	String sdllname = masterDesc.get("shiori");
+
+	if ( sdllname.matches("Nanidroid") ) {
+	    return new NanidroidShiori();
+	}
+	else if ( sdllname.matches("satori.dll") ) {
 	    return new SatoriPosixShiori(path);
+	}
+	else if ( sdllname.matches("shiori.dll") ) {
+	    // need to do some more checking... argh
+	    if ( (new File(path, "kawarirc.kis")).exists() ) {
+		return new EchoShiori(); // should be kawari878
+	    }
+	    else if ( (new File(path, "kawari.ini") ).exists() ) {
+		return new EchoShiori(); // kawari 7 or something like this
+	    }
+	    else if ( (new File(path, "aya5.txt")).exists()) {
+		return new EchoShiori(); // assume yaya
+	    }	    
+	}
+	else if ( sdllname.matches("yaya.dll") ) {
+	    return new EchoShiori(); // should be yaya
+	}
 
 	return new EchoShiori();
     }
