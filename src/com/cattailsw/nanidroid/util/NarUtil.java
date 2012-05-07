@@ -18,6 +18,7 @@ import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.io.FileInputStream;
 import java.nio.charset.Charset;
+import java.io.FileNotFoundException;
 
 public class NarUtil {
     private static final String TAG = "NarUtil";
@@ -154,16 +155,33 @@ public class NarUtil {
     };
 
 
+    public static final String UTF8_BOM = "\uFEFF";
+
+    private static boolean hasUTF8BOM(File f) throws FileNotFoundException, IOException {
+	FileInputStream fis = new FileInputStream(f);
+	BufferedReader br = new BufferedReader(new InputStreamReader(fis, Charset.forName("UTF-8")));
+	String s = br.readLine();
+	boolean ret = false;
+	if ( s.startsWith(UTF8_BOM) )
+	    ret = true;
+
+	br.close();
+	return ret;
+    }
+
     public static String readTxt(File f){
 	StringBuilder sb = new StringBuilder("<html><body><pre>");
-	
 	try {
-	    BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f),Charset.forName("Shift_JIS")));
+	    boolean isUTF8Bom = hasUTF8BOM(f);
+	    BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f),
+									 (isUTF8Bom)?Charset.forName("UTF-8"):
+									 Charset.forName("Shift_JIS")));
 	    String line;
 	    while((line = br.readLine())!= null){
 		sb.append(line);
 		sb.append('\n');
 	    }
+	    br.close();
 	}
 	catch(Exception e){
 	    // do nothing
