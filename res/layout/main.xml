@@ -4,9 +4,9 @@
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     >
-  <include layout="@layout/dbg_btns"  android:layout_width="fill_parent" android:layout_height="wrap_content" android:visibility="gone"/>
+  <include layout="@layout/dbg_btns"  android:layout_width="fill_parent" android:layout_height="wrap_content" android:visibility="gone" android:id="@+id/dbg_btn_bar"/>
 
-  <include layout="@layout/main_btns"  android:layout_width="match_parent" android:layout_height="wrap_content"/>
+  <include layout="@layout/main_btns"  android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/btn_bar" android:visibility="gone"/>
 
 <FrameLayout
     android:layout_width="fill_parent"

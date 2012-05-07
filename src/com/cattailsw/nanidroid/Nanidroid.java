@@ -61,6 +61,8 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 
 public class Nanidroid extends FragmentActivity
 {
@@ -71,6 +73,9 @@ public class Nanidroid extends FragmentActivity
     private Balloon bSakura = null;
     private Balloon bKero = null;
     private FrameLayout fl = null;
+
+    private View btnBar = null;
+    private View dbgBar = null;
 
     AnimationDrawable anime = null;
     //SurfaceManager mgr = null;
@@ -89,12 +94,17 @@ public class Nanidroid extends FragmentActivity
     {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
+	boolean dbgBuild = isDbgBuild();
         initGA();
 	sv = (SakuraView) findViewById(R.id.sakura_display);
 	kv = (KeroView) findViewById(R.id.kero_display);
 	bSakura = (Balloon) findViewById(R.id.bSakura);
 	bKero = (Balloon) findViewById(R.id.bKero);
 	fl = (FrameLayout) findViewById(R.id.fl);
+	btnBar = findViewById(R.id.btn_bar);
+	dbgBar = findViewById(R.id.dbg_btn_bar);
+	if ( dbgBuild )
+	    dbgBar.setVisibility(View.VISIBLE);
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
 	    bSakura.setText("sd card error");
@@ -140,6 +150,17 @@ public class Nanidroid extends FragmentActivity
 	registerForContextMenu(findViewById(R.id.btn_help));
 	
 	ViewServer.get(this).addWindow(this);
+    }
+
+    private boolean isDbgBuild() {
+	try {
+	boolean isDebuggable =  ( 0 != ( getPackageManager().getApplicationInfo("com.cattailsw.nanidroid", 
+									       PackageManager.GET_META_DATA).flags &= ApplicationInfo.FLAG_DEBUGGABLE ) );
+	 return isDebuggable;
+	}
+	catch(Exception e){
+	    return false;
+	}
     }
 
     private void initGA(){
@@ -423,9 +444,11 @@ public class Nanidroid extends FragmentActivity
 	g = gm.createGhost(nextId);
     	}
     	catch(Exception e) {
-    		Log.d(TAG, "failed to switch to ghost:" + nextId);
-    		e.printStackTrace();
-    		return;
+	    // TODO fill failed switch event!
+	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("","","",0);
+	    Log.d(TAG, "failed to switch to ghost:" + nextId);
+	    e.printStackTrace();
+	    return;
     	}
 	sv.setMgr(g.mgr);
 	kv.setMgr(g.mgr);
