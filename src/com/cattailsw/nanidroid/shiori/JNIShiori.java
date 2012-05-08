@@ -22,7 +22,7 @@ public abstract class JNIShiori implements Shiori {
     }
 
 
-    private String modResponseWithCharSet(byte[] bytes) {
+    protected String modResponseWithCharSet(byte[] bytes) {
 	String s = new String(bytes);
 	int pos_charset = s.indexOf("Charset:");
 	if ( pos_charset == -1 ) {

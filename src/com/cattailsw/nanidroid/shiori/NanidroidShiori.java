@@ -19,7 +19,7 @@ import android.util.Log;
 public class NanidroidShiori extends EchoShiori {
     private static final String TAG = "NanidroidShiori";
     HashSet<String> igTable = new HashSet<String>();
-    private static final String RES_NO_CONTENT = "SHIORI/3.0 204 NO CONTENT";
+    public static final String RES_NO_CONTENT = "SHIORI/3.0 204 NO CONTENT";
     private static final String RES_HEADER = "SHIORI/3.0 200 OK\r\nSender: EchoShiori\r\nValue: ";
     String header = null;
 
