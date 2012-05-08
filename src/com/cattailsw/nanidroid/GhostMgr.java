@@ -115,4 +115,10 @@ public class GhostMgr {
     	if ( gid == -1 ) return null;
     	return iglist.get(gid).getSakuraName();    	
     }
+
+    public String getGhostPath(String id) {
+    	int gid = getGhostId(id);
+    	return getGhostPath(gid);
+
+    }
 }

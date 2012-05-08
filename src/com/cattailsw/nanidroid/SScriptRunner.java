@@ -774,9 +774,9 @@ public class SScriptRunner implements Runnable {
     }
 
     private boolean changingPending = false;
-    public void doGhostChanging(String nextName, String type) {
+    public void doGhostChanging(String nextName, String type, String nextPath) {
 	changingPending = true;
-	doShioriEvent("OnGhostChanging", new String[]{g.getSakuraName(), type, null, g.getGhostPath()});	
+	doShioriEvent("OnGhostChanging", new String[]{nextName, type, null, nextPath});	
     }
 
     public void doInstallBegin(String ghostId) {

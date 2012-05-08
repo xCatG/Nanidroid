@@ -475,9 +475,10 @@ String nextGhostId = null;
     		return;
     	}
     	nextGhostId = nextId;
+	String nextPath = gm.getGhostPath(nextId);
     	runner.clearMsgQueue();
     	runner.setCallback(mscb);
-    	runner.doGhostChanging(nextName, "manual");
+    	runner.doGhostChanging(nextName, "manual", nextPath);
 
 	//runner.doShioriEvent("OnGhostChanging", new String[]{g.getGhostName(), "manual", null, g.getGhostPath()});
 
