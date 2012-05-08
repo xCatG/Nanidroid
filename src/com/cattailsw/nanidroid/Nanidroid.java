@@ -251,6 +251,10 @@ public class Nanidroid extends FragmentActivity
 		runner.setCallback(null);
 		finish();
 	    }
+	    public void ghostSwitchScriptComplete() {
+		runner.setCallback(null);
+		ghostSwitchStep2();
+	    }
 	};
 
 
@@ -344,7 +348,8 @@ public class Nanidroid extends FragmentActivity
 	/*	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\h\\s[4]ksdjaklajdkasdjkl\\uasndklandklan\\s[300]\\nksjdklasjdk\\halalalsk\\e";
 	runner.addMsgToQueue(new String[]{cmd});
 	runner.run();*/
-	startService(new Intent(this, NanidroidService.class));	
+	//startService(new Intent(this, NanidroidService.class));	
+	runner.clearMsgQueue();
     }
 
     private void sendStopIntent(){
@@ -468,21 +473,33 @@ public class Nanidroid extends FragmentActivity
 	    cGindex = 0;
     }
 
+    Ghost nextG = null;
     public void switchGhost(String nextId){
     	Ghost g = null;
+
     	try {
 	g = gm.createGhost(nextId);
+	nextG = g;
     	}
     	catch(Exception e) {
 	    // TODO fill failed switch event!
-	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("","","",0);
+	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("Error","GhostSwitching",nextId,0);
 	    Log.d(TAG, "failed to switch to ghost:" + nextId);
 	    e.printStackTrace();
 	    return;
     	}
+
+	//runner.doShioriEvent("OnGhostChanging", new String[]{g.getGhostName(), "manual", null, g.getGhostPath()});
+	runner.clearMsgQueue();
+	runner.setCallback(mscb);
+	runner.doGhostChanging("manual");
+
+    }
+
+    public void ghostSwitchStep2() {
+	Ghost g = nextG;
 	sv.setMgr(g.mgr);
 	kv.setMgr(g.mgr);
-	runner.setGhost(g);
 	updateSurfaceKeys(g);
 	
 	keyindex = 0;
@@ -491,6 +508,9 @@ public class Nanidroid extends FragmentActivity
 	kv.changeSurface("10");
 	lm.checkAndUpdateLayoutParam();
 	gm.setLastRunGhost(g);
+	runner.setCallback(null);
+	runner.setGhost(g);
+	nextG = null;
     }
 
     private void handleIntent(Intent intent){

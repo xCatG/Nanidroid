@@ -22,6 +22,7 @@ public class SScriptRunner implements Runnable {
     public interface StatusCallback {
 	public void stop();
 	public void canExit();
+	public void ghostSwitchScriptComplete();
     }
 
     public static SScriptRunner getInstance(Context ctx) {
@@ -53,8 +54,18 @@ public class SScriptRunner implements Runnable {
     }
 
     public void setGhost(Ghost _g){
+	String lName = null;//g.getGhostName();
+	String lScript = null;
+
+	if ( g != null ) {
+	    lName = g.getGhostName();
+	    lScript = null;
+	}
+
 	g = _g;
 
+	if ( lName != null )
+	    doShioriEvent("OnGhostChanged", new String[]{lName, lScript});
     }
 
     public void setLayoutMgr(LayoutManager lm) {
@@ -193,6 +204,12 @@ public class SScriptRunner implements Runnable {
 	return inStr;
     }
 
+    public synchronized void clearMsgQueue(){
+	mMsgQueue.clear();
+	msg = null;
+	stop();
+    }
+
     public synchronized void stop() {
 	synchronized( isRunning ) {
 	    isRunning = false;
@@ -206,6 +223,11 @@ public class SScriptRunner implements Runnable {
 	    if ( exitPending ) {
 		cb.canExit();
 		exitPending = false;
+	    }
+
+	    if ( changingPending ) {
+		changingPending = false;
+		cb.ghostSwitchScriptComplete();
 	    }
 	}
     }
@@ -749,6 +771,12 @@ public class SScriptRunner implements Runnable {
     public void doExit() {
 	doShioriEvent("OnClose", null);
 	exitPending = true;
+    }
+
+    private boolean changingPending = false;
+    public void doGhostChanging(String type) {
+	changingPending = true;
+	doShioriEvent("OnGhostChanging", new String[]{g.getGhostName(), type, null, g.getGhostPath()});	
     }
 
     public void doInstallBegin(String ghostId) {
