@@ -247,10 +247,7 @@ public class Nanidroid extends FragmentActivity
 	    }
 	    public void ghostSwitchScriptComplete() {
 		runner.setCallback(null);
-		if ( nextG != null )
-		    ghostSwitchStep2();
-		else
-		    Log.d(TAG, "invalid state");
+		ghostSwitchStep2();
 	    }
 	};
 
@@ -470,32 +467,36 @@ public class Nanidroid extends FragmentActivity
 	    cGindex = 0;
     }
 
-    Ghost nextG = null;
+String nextGhostId = null;
     public void switchGhost(String nextId){
-    	Ghost g = null;
-
-    	try {
-	    g = gm.createGhost(nextId);
-	    nextG = g;
+    	String nextName = gm.getGhostSakuraName(nextId);
+    	if ( nextName == null ){
+    		Log.d(TAG, "invalid next ghost id");
+    		return;
     	}
-    	catch(Exception e) {
-	    // TODO fill failed switch event!
-	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("Error","GhostSwitching",nextId,0);
-	    Log.d(TAG, "failed to switch to ghost:" + nextId);
-	    e.printStackTrace();
-	    return;
-    	}
+    	nextGhostId = nextId;
+    	runner.clearMsgQueue();
+    	runner.setCallback(mscb);
+    	runner.doGhostChanging(nextName, "manual");
 
 	//runner.doShioriEvent("OnGhostChanging", new String[]{g.getGhostName(), "manual", null, g.getGhostPath()});
-	runner.clearMsgQueue();
-	runner.setCallback(mscb);
-	runner.doGhostChanging("manual");
 
     }
 
     public void ghostSwitchStep2() {
-	runner.setCallback(null);
-	Ghost g = nextG;
+    	Ghost g;
+    	try {
+    		g = gm.createGhost(nextGhostId);
+    		nextGhostId = null;
+    	}
+    	catch(Exception e) {
+	    // TODO fill failed switch event!
+	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("Error","GhostSwitching",nextGhostId,0);
+	    Log.d(TAG, "failed to switch to ghost:" + nextGhostId);
+	    e.printStackTrace();
+	    return;
+    	}
+
 	sv.setMgr(g.mgr);
 	kv.setMgr(g.mgr);
 	updateSurfaceKeys(g);
@@ -507,7 +508,6 @@ public class Nanidroid extends FragmentActivity
 	lm.checkAndUpdateLayoutParam();
 	gm.setLastRunGhost(g);
 	runner.setGhost(g);
-	nextG = null;
     }
 
     private void handleIntent(Intent intent){

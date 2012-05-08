@@ -109,4 +109,10 @@ public class GhostMgr {
     	File readme = new File(gPath, "readme.txt");
     	return readme;
     }
+    
+    public String getGhostSakuraName(String id){
+    	int gid = getGhostId(id);
+    	if ( gid == -1 ) return null;
+    	return iglist.get(gid).getSakuraName();    	
+    }
 }

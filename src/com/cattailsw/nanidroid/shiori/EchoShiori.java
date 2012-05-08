@@ -25,15 +25,19 @@ public class EchoShiori implements Shiori {
     public String request(String req) {
 	// need to parse the header and return request in sakura script
 	parseRequest(req);
-	if ( reqTable != null ) {
-	    if ( matchIgnoreId( reqTable.get("id") ) == false ) {
-		return "SHIORI/3.0 200 OK\r\nSender: EchoShiori\r\nValue: " + reqTable.get("id") + "\\e";
-	    }
-	    else
-		return "SHIORI/3.0 204 NO CONTENT";
-	}
+	return genResponse();
+    }
+    
+    protected String genResponse() {
+    	if ( reqTable != null ) {
+    	    if ( matchIgnoreId( reqTable.get("id") ) == false ) {
+    		return "SHIORI/3.0 200 OK\r\nSender: EchoShiori\r\nValue: " + reqTable.get("id") + "\\e";
+    	    }
+    	    else
+    		return "SHIORI/3.0 204 NO CONTENT";
+    	}
 
-	return "SHIORI/3.0 400 BAD REQUEST";
+    	return "SHIORI/3.0 400 BAD REQUEST";    	
     }
 
     public void terminate() {
