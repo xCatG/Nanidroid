@@ -43,6 +43,7 @@ import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
 import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
+import com.cattailsw.nanidroid.util.PrefUtil;
 
 import android.widget.FrameLayout;
 import android.view.Gravity;
@@ -122,7 +123,7 @@ public class Nanidroid extends FragmentActivity
 	runner = SScriptRunner.getInstance(this);
 	gm = new GhostMgr(this);
 	if ( gm.getGhostCount() == 0 )
-		runOnFirstExecution(); // extract first to file dir on sd card
+	    installFirstGhost(); // extract first to file dir on sd card
 	
 	String lastId = gm.getLastRunGhostId();
 	if ( lastId == null ) lastId = "nanidroid";
@@ -136,6 +137,11 @@ public class Nanidroid extends FragmentActivity
 	lm.setViews(fl, sv, kv, bSakura, bKero);
 	runner.setLayoutMgr(lm);
 
+	currentRunCount = getStartCount();
+	if ( currentRunCount == 0 )
+	    loadFirstRunScript();
+	currentRunCount++;
+	setStartCount(currentRunCount);
 
 	Intent launchingIntent = getIntent();
 	handleIntent(launchingIntent);
@@ -152,6 +158,8 @@ public class Nanidroid extends FragmentActivity
 	ViewServer.get(this).addWindow(this);
     }
 
+    private long currentRunCount = -1;
+
     private boolean isDbgBuild() {
 	try {
 	boolean isDebuggable =  ( 0 != ( getPackageManager().getApplicationInfo("com.cattailsw.nanidroid", 
@@ -161,6 +169,21 @@ public class Nanidroid extends FragmentActivity
 	catch(Exception e){
 	    return false;
 	}
+    }
+    
+    private static final String PREF_KEY_LAUNCH_TIME = "keylaunchtime";
+
+    private long getStartCount() {
+	return PrefUtil.getKeyValueLong(getApplicationContext(), PREF_KEY_LAUNCH_TIME);
+    }
+
+    private void setStartCount(long count) {
+	PrefUtil.setKey(getApplicationContext(), PREF_KEY_LAUNCH_TIME, count);
+    }
+
+    private void loadFirstRunScript() {
+	String s = "\\0Hello World.\\1Hello World\\w8\\w8";
+	runner.addMsgToQueue(new String[]{s});
     }
 
     private void initGA(){
@@ -198,9 +221,16 @@ public class Nanidroid extends FragmentActivity
 	super.onResume();
 	if ( runner != null ) { 
 	    runner.startClock();
+	    runner.run();
 	}
 	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView(TAG);
 	ViewServer.get(this).setFocusedWindow(this);
+    }
+
+    private void doOnBoot() {
+	String lastGid = gm.getLastRunGhostId();
+	//	String gname = 
+	runner.doShioriEvent("OnBoot", new String[]{""});
     }
 
     public void onBackPressed() {
@@ -402,7 +432,7 @@ public class Nanidroid extends FragmentActivity
 		}
     }
     
-    private void runOnFirstExecution(){
+    private void installFirstGhost(){
     	AssetManager a = getAssets();
     	try {
     		InputStream is = a.open("nanidroid.zip");

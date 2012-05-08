@@ -143,8 +143,10 @@ public class SScriptRunner implements Runnable {
 	startTime = SystemClock.uptimeMillis();
 	clockHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP);
 
-	
-	parseShioriResponseAndInsert(g.doShioriEvent(restore?"OnWindowStateRestore":"OnBoot", null));
+	if ( restore )
+	    parseShioriResponseAndInsert(g.doShioriEvent("OnWindowStateRestore", null));
+	else
+	    doBoot();
 	restore = false;
     }
 
@@ -745,38 +747,34 @@ public class SScriptRunner implements Runnable {
 
     private boolean exitPending = false;
     public void doExit() {
-	if ( g != null ) {
-	    ShioriResponse r = g.doShioriEvent("OnClose", null);
-	    if (r != null )
-		parseShioriResponseAndInsert(r);
-	}
+	doShioriEvent("OnClose", null);
 	exitPending = true;
     }
 
-	public void doInstallBegin(String ghostId) {
-		if ( g != null ) {
-			String ref[] = new String[] {"ghost", ghostId, ghostId};
-			ShioriResponse r = g.doShioriEvent("OnInstallBegin", ref);
-			if ( r != null )
-				parseShioriResponseAndInsert(r);
-		}
-	}
-
-	public void doInstallComplete(String ghostId) {
-		if ( g != null ) {
-			String ref[] = new String[] {"ghost", ghostId, ghostId};
-			ShioriResponse r = g.doShioriEvent("OnInstallComplete", ref);
-			if ( r != null )
-				parseShioriResponseAndInsert(r);			
-		}
-	}
+    public void doInstallBegin(String ghostId) {
+	String ref[] = new String[] {"ghost", ghostId, ghostId};
+	doShioriEvent("OnInstallBegin", ref);
+    }
+    
+    public void doInstallComplete(String ghostId) {
+	String ref[] = new String[] {"ghost", ghostId, ghostId};
+	doShioriEvent("OnInstallComplete", ref);
+    }
 	
-	public void doShioriEvent(String evt, String[] ref) {
-		if ( g != null ) {
-			ShioriResponse r = g.doShioriEvent(evt, ref);
-			if ( r != null )
-				parseShioriResponseAndInsert(r);
-		}
+    public void doShioriEvent(String evt, String[] ref) {
+	if ( g != null ) {
+	    ShioriResponse r = g.doShioriEvent(evt, ref);
+	    if ( r != null )
+		parseShioriResponseAndInsert(r);
 	}
+    }
+
+    public void doBoot() {
+	if ( g != null ) {
+	    String gshellname = g.getShellName();
+
+	    doShioriEvent("OnBoot", new String[]{gshellname});
+	}
+    }
 
 }

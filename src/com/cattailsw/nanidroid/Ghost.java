@@ -78,6 +78,10 @@ public class Ghost {
 	return ghostDesc.get("name");
     }
 
+    public String getShellName() {
+	return shellDesc.get("name");
+    }
+
     public String getCrafterName() {
 	if ( ghostDesc.get("craftmanw") != null )
 	    return ghostDesc.get("craftmanw");

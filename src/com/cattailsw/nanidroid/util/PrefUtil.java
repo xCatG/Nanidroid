@@ -8,7 +8,6 @@ public class PrefUtil {
 
     private static final String SHARED_PREFS = "CATTAILSW_NANIDROID_PREFS";
     
-
     public static SharedPreferences getSharedPreferences(Context context) {
 	return context.getSharedPreferences(SHARED_PREFS, 0);
     }
@@ -41,5 +40,11 @@ public class PrefUtil {
 	SharedPreferences sp = getSharedPreferences(ctx);
 	return sp.getString(key, null);
     }
+
+    public static long getKeyValueLong(Context ctx, String key) {
+	SharedPreferences sp = getSharedPreferences(ctx);
+	return sp.getLong(key, 0);
+    }
+
 
 }
