@@ -227,12 +227,6 @@ public class Nanidroid extends FragmentActivity
 	ViewServer.get(this).setFocusedWindow(this);
     }
 
-    private void doOnBoot() {
-	String lastGid = gm.getLastRunGhostId();
-	//	String gname = 
-	runner.doShioriEvent("OnBoot", new String[]{""});
-    }
-
     public void onBackPressed() {
 	if ( runner!= null ) { 
 	    runner.stopClock();
@@ -253,7 +247,10 @@ public class Nanidroid extends FragmentActivity
 	    }
 	    public void ghostSwitchScriptComplete() {
 		runner.setCallback(null);
-		ghostSwitchStep2();
+		if ( nextG != null )
+		    ghostSwitchStep2();
+		else
+		    Log.d(TAG, "invalid state");
 	    }
 	};
 
@@ -478,8 +475,8 @@ public class Nanidroid extends FragmentActivity
     	Ghost g = null;
 
     	try {
-	g = gm.createGhost(nextId);
-	nextG = g;
+	    g = gm.createGhost(nextId);
+	    nextG = g;
     	}
     	catch(Exception e) {
 	    // TODO fill failed switch event!
@@ -497,6 +494,7 @@ public class Nanidroid extends FragmentActivity
     }
 
     public void ghostSwitchStep2() {
+	runner.setCallback(null);
 	Ghost g = nextG;
 	sv.setMgr(g.mgr);
 	kv.setMgr(g.mgr);
@@ -508,7 +506,6 @@ public class Nanidroid extends FragmentActivity
 	kv.changeSurface("10");
 	lm.checkAndUpdateLayoutParam();
 	gm.setLastRunGhost(g);
-	runner.setCallback(null);
 	runner.setGhost(g);
 	nextG = null;
     }
