@@ -57,8 +57,9 @@ public class DescReader {
     }
 
     private Charset readFirstLineForCharset(BufferedReader br) throws IOException {
+	Charset c =Charset.forName("Shift_JIS"); 
 	if ( br.markSupported() == false )
-	    return Charset.forName("Shift_JIS");
+	    return c;
 
 	br.mark(20);
 	String line = br.readLine();
@@ -69,11 +70,17 @@ public class DescReader {
 	br.reset();
 	String [] cs = line.split(",");
 	if ( cs == null || cs.length != 2 )
-	    return Charset.forName("Shift_JIS");
+	    return c;
 	if ( cs[0].contains("charset") == false )
-	    return Charset.forName("Shift_JIS");
-	
-	return Charset.forName(cs[1]);
+	    return c;
+	try {
+	    c = Charset.forName(cs[1]);
+	}
+	catch(Exception e) {
+	    Log.d(TAG, "trouble charset is:" + cs[1]);
+	}
+
+	return c;
     }
 
     private void parse(InputStream is) throws IOException{
