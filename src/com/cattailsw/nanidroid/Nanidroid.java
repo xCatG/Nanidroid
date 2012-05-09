@@ -64,6 +64,8 @@ import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 
 public class Nanidroid extends FragmentActivity
 {
@@ -182,8 +184,17 @@ public class Nanidroid extends FragmentActivity
     }
 
     private void loadFirstRunScript() {
-	String s = "\\0Hello World.\\1Hello World\\w8\\w8";
-	runner.addMsgToQueue(new String[]{s});
+	try {
+	    BufferedReader br = new BufferedReader(new InputStreamReader(getResources().openRawResource(R.raw.first_run_script), "UTF-8"));
+
+	    for (String line = br.readLine(); line != null; line = br.readLine()) {
+		if (line.equals("") || line.startsWith("#")) continue;
+		runner.addMsgToQueue(new String[]{line});
+	    }
+	}
+	catch(Exception e) {
+	    runner.addMsgToQueue(new String[]{"\\0Oops, something wrong with first run script!\\e"});
+	}
     }
 
     private void initGA(){
