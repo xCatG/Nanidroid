@@ -116,6 +116,8 @@ public class SSParserTest extends AndroidTestCase {
 	    public void stop() {
 		stopCalled = true;
 	    }
+	    public void canExit() {}
+	    public void ghostSwitchScriptComplete(){}
 	};
     protected void setUp() throws Exception {
 	super.setUp();
@@ -329,5 +331,37 @@ public class SSParserTest extends AndroidTestCase {
 	String s = "http://xxx.xx.xx/xxx/xxx.nar";
 	Matcher m = url.matcher(s);
 	assertTrue( m.find());
+
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertTrue( m.find() );
+
+	s = "https://xxx.xxx.xxx/xxx/xxx.nar";
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertTrue( m.find() );
+
+	s = "http://11.22.33.44/~xxx/asdasdas_asdas/xx.nar";
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertTrue( m.find() );
+
+	s = "http://1.2.3.4/~%20easdjkasjdk/asjdklasjkl/sajdkls.asdkjl.nar";
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertTrue( m.find() );
+
+	s = "http://11.22.33.44/~xxx/asdasdas_asdas/xx.zip";
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertTrue( m.find() );
+
+	s = "http://1.2.3.4/~%20easdjkasjdk/asjdklasjkl/sajdkls.asdkjl_.zip";
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertTrue( m.find() );
+
+	s = "http://www.google.com/";
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertFalse( m.find() );
+
+	s = "http://www.google.com/.mp3";
+	m = PatternHolders.url_ptrn.matcher(s);
+	assertFalse( m.find() );
+
     }
 }

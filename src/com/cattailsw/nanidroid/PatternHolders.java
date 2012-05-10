@@ -31,4 +31,6 @@ public class PatternHolders {
     public static final Pattern balloon_ptrn = Pattern.compile("^\\[(-?\\d+)\\]|^(\\d{1})");
 
     public static final Pattern shiori_res_header_ptrn = Pattern.compile("^(\\w*)/(\\d*).(\\d*) (\\d{3})\\s*([[\\w][\\s]]*)$");
+
+    public static final Pattern url_ptrn = Pattern.compile("(([\\w]+:)?//)?(([\\d\\w]|%[a-fA-f\\d]{2,2})+(:([\\d\\w]|%[a-fA-f\\d]{2,2})+)?@)?([\\d\\w][-\\d\\w]{0,253}[\\d\\w]\\.)+[\\w]{2,4}(:[\\d]+)?(/([-+_~.\\d\\w]|%[a-fA-f\\d]{2,2})*)*(\\?(&?([-+_~.\\d\\w]|%[a-fA-f\\d]{2,2})=?)*)?(#([-+_~.\\d\\w]|%[a-fA-f\\d]{2,2})*)?.*(.nar|.zip)$");
 }
