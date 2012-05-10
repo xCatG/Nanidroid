@@ -37,6 +37,9 @@
   <string name="dlg_sel_nar_title">Select one file to install</string>
   <string name="dlg_sel_nar_install_text">Install</string>
   <string name="btn_dl_text">Download</string>
+
+  <string name="url_help_install">http://blog.cattail-sw.com/?p=197</string>
+
 <!--  <string name=""></string> -->
 
 </resources>

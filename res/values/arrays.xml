@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string-array name="more_g_items">
+    <item>@string/more_g_enter_url_text</item>
+    <item>@string/more_g_from_SD_text</item>
+    <item>@string/more_g_ghost_town_text</item>
+  </string-array>
+</resources>
