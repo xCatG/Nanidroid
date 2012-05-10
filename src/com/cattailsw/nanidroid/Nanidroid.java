@@ -569,7 +569,9 @@ String nextGhostId = null;
 	}
 
     public void onFinishURL(String url) {
-	Toast.makeText(this, "got url:" + url, Toast.LENGTH_SHORT).show();
+	//Toast.makeText(this, "got url:" + url, Toast.LENGTH_SHORT).show();
+	Uri targeturi = Uri.parse(url);
+	addNarToDownload(targeturi);
     }
 	
 	public void onMoreGhost(View v) {
