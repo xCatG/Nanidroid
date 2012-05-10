@@ -43,6 +43,7 @@ import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
 import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
 import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
 import com.cattailsw.nanidroid.dlgs.ErrMsgDlg;
+import com.cattailsw.nanidroid.dlgs.NarPickDlg;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
@@ -69,7 +70,8 @@ import android.content.pm.PackageManager;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
-public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener
+public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
+							   NarPickDlg.NarPickDlgListener
 {
     private static final String TAG = "Nanidroid";
     //private ImageView sv = null;
@@ -572,7 +574,7 @@ String nextGhostId = null;
 	}
 
     public void startInstallFromSDCard() {
-	File[] narz = NarUtil.listNarDir();
+	String[] narz = NarUtil.listNarDir();
 	if ( narz == null || narz.length == 0 ) {
 	    // show error dlg
 	    showNarErrDlg(narz==null);
@@ -581,7 +583,7 @@ String nextGhostId = null;
 	    showNarPickDlg(narz);
 	}
 	else {
-	    extractNar(narz[0].getAbsolutePath());
+	    extractNar(Environment.getExternalStorageDirectory() + "/nar/" + narz[0]);
 	}
     }
 
@@ -591,8 +593,14 @@ String nextGhostId = null;
 	e.show(getSupportFragmentManager(), Setup.DLG_ERR);
     }
 
-    public void showNarPickDlg(File[] narz) {
+    public void showNarPickDlg(String[] narz) {
 	Toast.makeText(this, "multiple nar exist", Toast.LENGTH_SHORT).show();
+	NarPickDlg n = new NarPickDlg(narz);
+	n.show(getSupportFragmentManager(), Setup.DLG_NAR_PICK);
+    }
+
+    public void onNarPick(String narName) {
+	extractNar(Environment.getExternalStorageDirectory() + "/nar/" + narName);	
     }
 
     public void showUrlDlg() {

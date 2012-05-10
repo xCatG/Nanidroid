@@ -47,14 +47,24 @@ public class NarUtil {
 
     // should return null if narDir is not a dir
     // should return array of length 0 if no file match?
-    public static File[] listNarDir() {
+    /*    public static File[] listNarDir() {
 	File narDir = new File(Environment.getExternalStorageDirectory(), "nar");
 	if ( narDir.exists() == false || narDir.isDirectory() == false )
 	    return null;
 
 	File[] ret = narDir.listFiles(narFilter);
 	return ret;
+	}*/
+
+    public static String[] listNarDir() {
+	File narDir = new File(Environment.getExternalStorageDirectory(), "nar");
+	if ( narDir.exists() == false || narDir.isDirectory() == false )
+	    return null;
+
+	String[] ret = narDir.list(narFilter);
+	return ret;
     }
+
 
     public static String readNarGhostId(String pathToArchive){
 	ZipFile nar = null;
