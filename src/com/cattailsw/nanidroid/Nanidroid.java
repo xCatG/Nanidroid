@@ -44,6 +44,7 @@ import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
 import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
 import com.cattailsw.nanidroid.dlgs.ErrMsgDlg;
 import com.cattailsw.nanidroid.dlgs.NarPickDlg;
+import com.cattailsw.nanidroid.dlgs.MoreGhostFuncDlg;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
@@ -71,7 +72,8 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
-							   NarPickDlg.NarPickDlgListener
+							   NarPickDlg.NarPickDlgListener,
+							   MoreGhostFuncDlg.MoreGhostFuncListener
 {
     private static final String TAG = "Nanidroid";
     //private ImageView sv = null;
@@ -570,7 +572,9 @@ String nextGhostId = null;
 	    /*		NotImplementedDlg n = new NotImplementedDlg();
 		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		*/
 	    //showUrlDlg();
-	    startInstallFromSDCard();
+	    //startInstallFromSDCard();
+	    MoreGhostFuncDlg n = new MoreGhostFuncDlg();
+	    n.show(getSupportFragmentManager(), Setup.DLG_MORE_G);
 	}
 
     public void startInstallFromSDCard() {
@@ -612,6 +616,11 @@ String nextGhostId = null;
 	//Toast.makeText(this, "got url:" + url, Toast.LENGTH_SHORT).show();
 	Uri targeturi = Uri.parse(url);
 	addNarToDownload(targeturi);
+    }
+
+    public void showGhostTown() {
+	NotImplementedDlg n = new NotImplementedDlg();
+	n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
     }
 	
 	public void onMoreGhost(View v) {
