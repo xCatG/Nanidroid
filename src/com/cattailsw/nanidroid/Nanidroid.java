@@ -172,9 +172,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     private boolean isDbgBuild() {
 	try {
-	boolean isDebuggable =  ( 0 != ( getPackageManager().getApplicationInfo("com.cattailsw.nanidroid", 
-									       PackageManager.GET_META_DATA).flags &= ApplicationInfo.FLAG_DEBUGGABLE ) );
-	 return isDebuggable;
+	    boolean isDebuggable =  ( 0 != ( getPackageManager().getApplicationInfo("com.cattailsw.nanidroid", 
+										    PackageManager.GET_META_DATA).flags &= ApplicationInfo.FLAG_DEBUGGABLE ) );
+	    return isDebuggable;
 	}
 	catch(Exception e){
 	    return false;
@@ -290,8 +290,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    animeIndex = currentSurface.getFirstAnimationIndex();
 	    sv.loadAnimation(""+animeIndex);
 	    /*anime = (AnimationDrawable) currentSurface.getAnimation(animeIndex, getResources());
-	    anime.setVisible(true, true);
-	    iv.setImageDrawable(anime);*/
+	      anime.setVisible(true, true);
+	      iv.setImageDrawable(anime);*/
 	    findViewById(R.id.btn2).setEnabled(true);
 	}
 
@@ -315,17 +315,17 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	Log.d(TAG, "loading surface:" + currentSurfaceKey);
 	currentSurface = sv.mgr.getSakuraSurface(currentSurfaceKey);
 	bSakura.setText("current drawable key: " + currentSurfaceKey + 
-		   ", animation count: " + currentSurface.getAnimationCount() +
-		   ", collision count: " + currentSurface.getCollisionCount()
-		   );
+			", animation count: " + currentSurface.getAnimationCount() +
+			", collision count: " + currentSurface.getCollisionCount()
+			);
 	checkAndLoadAnimation();
     }
     int animeIndex = 0;
 
     public void onAnimate(View v) {
 	//iv.setImageDrawable(anime);
-// 	anime.stop(); // stop previous animation?
-// 	anime.start();
+	// 	anime.stop(); // stop previous animation?
+	// 	anime.start();
 	sv.startAnimation();
 	
     }
@@ -359,8 +359,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void runClick(View v){
 	/*	String cmd ="\\habcdefghijklmnop\\uponmlkjihgfedcba\\h\\s[4]ksdjaklajdkasdjkl\\uasndklandklan\\s[300]\\nksjdklasjdk\\halalalsk\\e";
-	runner.addMsgToQueue(new String[]{cmd});
-	runner.run();*/
+	  runner.addMsgToQueue(new String[]{cmd});
+	  runner.run();*/
 	//startService(new Intent(this, NanidroidService.class));	
 	runner.clearMsgQueue();
     }
@@ -399,75 +399,75 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	String ghostId = NarUtil.readNarGhostId(targetPath);
 
 	if ( (gm.hasSameGhostId(ghostId) == false )|| force == true) {
-		if ( runner != null ) runner.doInstallBegin(ghostId);
+	    if ( runner != null ) runner.doInstallBegin(ghostId);
 		
-		InstallTask i = new InstallTask(targetPath, ghostId);
-		i.execute(targetPath);
+	    InstallTask i = new InstallTask(targetPath, ghostId);
+	    i.execute(targetPath);
 
 	}
 	else {
-		if ( runner != null )runner.doShioriEvent("OnInstallRefuse", null);
+	    if ( runner != null )runner.doShioriEvent("OnInstallRefuse", null);
 	}
 		
     }
 
-	private void onSuccessGhostInstall(String ghostId, String gPath) {
-		if (runner != null)
-			runner.doInstallComplete(ghostId);
-		// should show readme if one present
-		Log.d(TAG, "ghost:" + ghostId + " installed at:" + gPath);
-		File readme = new File(gPath, "readme.txt");
-		if (readme.exists()) {
-			showReadme(readme, ghostId);
-		} else {
-			showGhostInstalledDlg(ghostId);
-		}
+    private void onSuccessGhostInstall(String ghostId, String gPath) {
+	if (runner != null)
+	    runner.doInstallComplete(ghostId);
+	// should show readme if one present
+	Log.d(TAG, "ghost:" + ghostId + " installed at:" + gPath);
+	File readme = new File(gPath, "readme.txt");
+	if (readme.exists()) {
+	    showReadme(readme, ghostId);
+	} else {
+	    showGhostInstalledDlg(ghostId);
 	}
+    }
     
     private class InstallTask extends AsyncTask<String, Integer, String> {
-		private String targetPath;
-		private String ghostId;
+	private String targetPath;
+	private String ghostId;
 
     	InstallTask(String tPath, String gId) {
-    		targetPath = tPath;
-    		ghostId = gId;
+	    targetPath = tPath;
+	    ghostId = gId;
     	}
     	
-		@Override
-		protected String doInBackground(String... params) {
-			String gPath = gm.installGhost(ghostId, targetPath);
+	@Override
+	protected String doInBackground(String... params) {
+	    String gPath = gm.installGhost(ghostId, targetPath);
 
-			return gPath;
-		}
+	    return gPath;
+	}
     	
-		public void onPostExecute(String gPath) {
-			if ( gPath != null ) {
-				onSuccessGhostInstall(ghostId, gPath);
-			}
-			else {
-				if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
-			}
-		}
+	public void onPostExecute(String gPath) {
+	    if ( gPath != null ) {
+		onSuccessGhostInstall(ghostId, gPath);
+	    }
+	    else {
+		if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
+	    }
+	}
     }
     
     private void installFirstGhost(){
     	AssetManager a = getAssets();
     	try {
-    		InputStream is = a.open("nanidroid.zip");
-    		File extDir = getExternalCacheDir();
-    		File targetPath = new File(extDir, "nanidroid.nar");
-    		NarUtil.copyFile(is, new FileOutputStream(targetPath));
-    		gm.installFirstGhost("nanidroid", targetPath.getPath());			
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+	    InputStream is = a.open("nanidroid.zip");
+	    File extDir = getExternalCacheDir();
+	    File targetPath = new File(extDir, "nanidroid.nar");
+	    NarUtil.copyFile(is, new FileOutputStream(targetPath));
+	    gm.installFirstGhost("nanidroid", targetPath.getPath());			
+	} catch (IOException e) {
+	    // TODO Auto-generated catch block
+	    e.printStackTrace();
+	}
     }
 
     private void showReadme(File readme, final String ghostId){
         DialogFragment newFragment = ReadmeDialogFragment.newInstance(readme, ghostId);
         newFragment.show(getSupportFragmentManager(), Setup.DLG_README);
-     }
+    }
 
     private void showGhostInstalledDlg(String ghostId){
     	DialogFragment f = NoReadmeSwitchDlg.newInstance(ghostId);
@@ -486,12 +486,12 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    cGindex = 0;
     }
 
-String nextGhostId = null;
+    String nextGhostId = null;
     public void switchGhost(String nextId){
     	String nextName = gm.getGhostSakuraName(nextId);
     	if ( nextName == null ){
-    		Log.d(TAG, "invalid next ghost id");
-    		return;
+	    Log.d(TAG, "invalid next ghost id");
+	    return;
     	}
     	nextGhostId = nextId;
 	String nextPath = gm.getGhostPath(nextId);
@@ -506,8 +506,8 @@ String nextGhostId = null;
     public void ghostSwitchStep2() {
     	Ghost g;
     	try {
-    		g = gm.createGhost(nextGhostId);
-    		nextGhostId = null;
+	    g = gm.createGhost(nextGhostId);
+	    nextGhostId = null;
     	}
     	catch(Exception e) {
 	    // TODO fill failed switch event!
@@ -531,51 +531,51 @@ String nextGhostId = null;
     }
 
     private void handleIntent(Intent intent){
-		String action = intent.getAction();
-		if (intent.hasExtra("DL_PKG")) {
-			Uri data = intent.getData();
-			bKero.setText("launching to extract nar at:" + data);
+	String action = intent.getAction();
+	if (intent.hasExtra("DL_PKG")) {
+	    Uri data = intent.getData();
+	    bKero.setText("launching to extract nar at:" + data);
 
-			extractNar(data.getPath());// "/mnt/sdcard/2elf-2.41.nar");
-		}
-		if (action != null && action.equalsIgnoreCase(Intent.ACTION_VIEW)) {
-			// need to check the data?
-			Log.d(TAG, " action_view with data:" + intent.getData());
-			Uri target = intent.getData();
-			if (target != null)
-				addNarToDownload(target);
-		}
+	    extractNar(data.getPath());// "/mnt/sdcard/2elf-2.41.nar");
 	}
+	if (action != null && action.equalsIgnoreCase(Intent.ACTION_VIEW)) {
+	    // need to check the data?
+	    Log.d(TAG, " action_view with data:" + intent.getData());
+	    Uri target = intent.getData();
+	    if (target != null)
+		addNarToDownload(target);
+	}
+    }
     
-	public void onNewIntent(Intent intent) {
-		handleIntent(intent);
-	}
+    public void onNewIntent(Intent intent) {
+	handleIntent(intent);
+    }
 
-	public void onUpdate(View v) {
-		// need to show msg saying not implemented yet
-		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "Update", "", 0);
-		NotImplementedDlg n = new NotImplementedDlg();
-		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
-	}
+    public void onUpdate(View v) {
+	// need to show msg saying not implemented yet
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "Update", "", 0);
+	NotImplementedDlg n = new NotImplementedDlg();
+	n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
+    }
 	
-	public void onListGhost(View v){
-		showGhostListDlg();
-	}
+    public void onListGhost(View v){
+	showGhostListDlg();
+    }
 
-	public void onHelp(View v) {
-		openContextMenu(v);
-	}
+    public void onHelp(View v) {
+	openContextMenu(v);
+    }
 	
-	public void getMoreGhost(int source) {
-	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "MoreGhost", 
-				source==0?"MainUI":Setup.DLG_G_LIST, source);
-	    /*		NotImplementedDlg n = new NotImplementedDlg();
-		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		*/
-	    //showUrlDlg();
-	    //startInstallFromSDCard();
-	    MoreGhostFuncDlg n = new MoreGhostFuncDlg();
-	    n.show(getSupportFragmentManager(), Setup.DLG_MORE_G);
-	}
+    public void getMoreGhost(int source) {
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "MoreGhost", 
+								       source==0?"MainUI":Setup.DLG_G_LIST, source);
+	/*		NotImplementedDlg n = new NotImplementedDlg();
+	  n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		*/
+	//showUrlDlg();
+	//startInstallFromSDCard();
+	MoreGhostFuncDlg n = new MoreGhostFuncDlg();
+	n.show(getSupportFragmentManager(), Setup.DLG_MORE_G);
+    }
 
     public void startInstallFromSDCard() {
 	String[] narz = NarUtil.listNarDir();
@@ -619,82 +619,83 @@ String nextGhostId = null;
     }
 
     public void showGhostTown() {
+	AnalyticsUtils.getInstance(this).trackPageView("/ghost_town_portal");
 	NotImplementedDlg n = new NotImplementedDlg();
 	n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
     }
 	
-	public void onMoreGhost(View v) {
-		getMoreGhost(0);
-	}
+    public void onMoreGhost(View v) {
+	getMoreGhost(0);
+    }
 	
-	private void showGhostListDlg() {
-		String gn[] = gm.getGnames();
-		gAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1, gn);
+    private void showGhostListDlg() {
+	String gn[] = gm.getGnames();
+	gAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1, gn);
 				
         DialogFragment newFragment = GhostListDialogFragment.newInstance(gn, gm);
         newFragment.show(getSupportFragmentManager(), Setup.DLG_G_LIST);		
-	}
+    }
 	
-	static ArrayAdapter<String> gAdapter = null;
+    static ArrayAdapter<String> gAdapter = null;
 
-	@Override
-	public boolean onContextItemSelected (MenuItem item) {
-		int id = item.getItemId();
-		switch(id) {
-		case R.id.item_about:
-			showAbout();
-			return true;
-		case R.id.item_feedback:
-			showFeedback();
-			return true;
-		case R.id.item_general_help:
-			showHelp();
-			return true;
-		}		
-		return super.onOptionsItemSelected(item);
-	}
+    @Override
+    public boolean onContextItemSelected (MenuItem item) {
+	int id = item.getItemId();
+	switch(id) {
+	case R.id.item_about:
+	    showAbout();
+	    return true;
+	case R.id.item_feedback:
+	    showFeedback();
+	    return true;
+	case R.id.item_general_help:
+	    showHelp();
+	    return true;
+	}		
+	return super.onOptionsItemSelected(item);
+    }
 
 
-	private void showHelp() {
-		// TODO Auto-generated method stub
-		Toast.makeText(this, "help clicked", Toast.LENGTH_SHORT).show();
-	}
+    private void showHelp() {
+	// TODO Auto-generated method stub
+	Toast.makeText(this, "help clicked", Toast.LENGTH_SHORT).show();
+    }
 
-	private void showFeedback() {
+    private void showFeedback() {
 		
-		AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/feedback");
-		Uri feedbackUri = Uri.parse(getString(R.string.feedback_url));
-		startActivity(new Intent(Intent.ACTION_VIEW, feedbackUri));
-	}
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/feedback");
+	Uri feedbackUri = Uri.parse(getString(R.string.feedback_url));
+	startActivity(new Intent(Intent.ACTION_VIEW, feedbackUri));
+    }
 
-	private void showAbout() {
-		AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/about");
-		AboutDialogFragment f = new AboutDialogFragment();
-		f.show(getSupportFragmentManager(), Setup.DLG_ABOUT);
-	}
+    private void showAbout() {
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/about");
+	AboutDialogFragment f = new AboutDialogFragment();
+	f.show(getSupportFragmentManager(), Setup.DLG_ABOUT);
+    }
 	
-	@Override
-	public void onCreateContextMenu(ContextMenu menu, View v,
-			ContextMenuInfo menuInfo) {
-		super.onCreateContextMenu(menu, v, menuInfo);
+    @Override
+    public void onCreateContextMenu(ContextMenu menu, View v,
+				    ContextMenuInfo menuInfo) {
+	super.onCreateContextMenu(menu, v, menuInfo);
 		
 
-		MenuInflater inflater = getMenuInflater();		
-		inflater.inflate(R.menu.main_help_menu, menu);
-	}
+	MenuInflater inflater = getMenuInflater();		
+	inflater.inflate(R.menu.main_help_menu, menu);
+    }
 
-	public void onSetupClick(View v) {
-		showPreference();
-	}
+    public void onSetupClick(View v) {
+	showPreference();
+    }
 
-	private void showPreference() {
-		Intent intent = new Intent(Intent.ACTION_VIEW);
+    private void showPreference() {
+	Intent intent = new Intent(Intent.ACTION_VIEW);
 
-		intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET);
-		intent.setClassName(Nanidroid.this, Preferences.class.getName());
-		AnalyticsUtils.getInstance(this).trackPageView("/Preference");
-		startActivity(intent);
-	}
+	intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET);
+	intent.setClassName(Nanidroid.this, Preferences.class.getName());
+	AnalyticsUtils.getInstance(this).trackPageView("/Preference");
+	startActivity(intent);
+    }
 
     public void frameClick(View v){
 	//Toast.makeText(this, "frame touched", Toast.LENGTH_SHORT).show();
