@@ -41,6 +41,7 @@ import com.cattailsw.nanidroid.dlgs.GhostListDialogFragment;
 import com.cattailsw.nanidroid.dlgs.NoReadmeSwitchDlg;
 import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
 import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
+import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
@@ -67,7 +68,7 @@ import android.content.pm.PackageManager;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
-public class Nanidroid extends FragmentActivity
+public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener
 {
     private static final String TAG = "Nanidroid";
     //private ImageView sv = null;
@@ -559,11 +560,17 @@ String nextGhostId = null;
 	}
 	
 	public void getMoreGhost(int source) {
-		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "MoreGhost", 
+	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "MoreGhost", 
 				source==0?"MainUI":Setup.DLG_G_LIST, source);
-		NotImplementedDlg n = new NotImplementedDlg();
-		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		
+	    /*		NotImplementedDlg n = new NotImplementedDlg();
+		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		*/
+	    EnterUrlDlg u = new EnterUrlDlg();
+	    u.show(getSupportFragmentManager(), Setup.DLG_E_URL);
 	}
+
+    public void onFinishURL(String url) {
+	Toast.makeText(this, "got url:" + url, Toast.LENGTH_SHORT).show();
+    }
 	
 	public void onMoreGhost(View v) {
 		getMoreGhost(0);
