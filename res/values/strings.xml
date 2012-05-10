@@ -30,6 +30,7 @@
   <string name="more_g_from_SD_text">Install from SD card</string>
   <string name="more_g_ghost_town_text">Ghost Town portal</string>
   <string name="err_invalid_url">Invalid URL.  URL must end with .nar or .zip</string>
+  <string name="err_nar_title">Error installing from SD card</string>
   <string name="err_no_nar_folder">No Nar folder found on SD card</string>
   <string name="err_no_nar_file">No Nar file found</string>
   <string name="dlg_sel_nar_title">Select one file to install</string>

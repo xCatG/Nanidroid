@@ -12,6 +12,7 @@ public class Setup {
     public static final String DLG_NOT_IMPL = "notimplementedmsg";
     public static final String DLG_ABOUT = "aboutdialog";
     public static final String DLG_E_URL = "enterurldialog";
+    public static final String DLG_ERR = "errormsgdlg";
     
     public static final String PREF_KEY_USE_ANALYTICS = "enable_analytics";
 }

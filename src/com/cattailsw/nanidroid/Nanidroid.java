@@ -42,6 +42,7 @@ import com.cattailsw.nanidroid.dlgs.NoReadmeSwitchDlg;
 import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
 import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
 import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
+import com.cattailsw.nanidroid.dlgs.ErrMsgDlg;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
@@ -158,6 +159,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	
 	registerForContextMenu(findViewById(R.id.btn_help));
 	
+	NarUtil.createNarDirOnSDCard();
+
 	ViewServer.get(this).addWindow(this);
     }
 
@@ -564,9 +567,38 @@ String nextGhostId = null;
 				source==0?"MainUI":Setup.DLG_G_LIST, source);
 	    /*		NotImplementedDlg n = new NotImplementedDlg();
 		n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		*/
-	    EnterUrlDlg u = new EnterUrlDlg();
-	    u.show(getSupportFragmentManager(), Setup.DLG_E_URL);
+	    //showUrlDlg();
+	    startInstallFromSDCard();
 	}
+
+    public void startInstallFromSDCard() {
+	File[] narz = NarUtil.listNarDir();
+	if ( narz == null || narz.length == 0 ) {
+	    // show error dlg
+	    showNarErrDlg(narz==null);
+	}
+	else if ( narz.length > 1 ) {
+	    showNarPickDlg(narz);
+	}
+	else {
+	    extractNar(narz[0].getAbsolutePath());
+	}
+    }
+
+    public void showNarErrDlg(boolean dir) {
+	ErrMsgDlg e = ErrMsgDlg.newInstance(R.string.err_nar_title, 
+					    dir?R.string.err_no_nar_folder:R.string.err_no_nar_file);
+	e.show(getSupportFragmentManager(), Setup.DLG_ERR);
+    }
+
+    public void showNarPickDlg(File[] narz) {
+	Toast.makeText(this, "multiple nar exist", Toast.LENGTH_SHORT).show();
+    }
+
+    public void showUrlDlg() {
+	EnterUrlDlg u = new EnterUrlDlg();
+	u.show(getSupportFragmentManager(), Setup.DLG_E_URL);
+    }
 
     public void onFinishURL(String url) {
 	//Toast.makeText(this, "got url:" + url, Toast.LENGTH_SHORT).show();
@@ -629,6 +661,7 @@ String nextGhostId = null;
 			ContextMenuInfo menuInfo) {
 		super.onCreateContextMenu(menu, v, menuInfo);
 		
+
 		MenuInflater inflater = getMenuInflater();		
 		inflater.inflate(R.menu.main_help_menu, menu);
 	}

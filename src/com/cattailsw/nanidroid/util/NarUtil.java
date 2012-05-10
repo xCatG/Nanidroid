@@ -19,9 +19,42 @@ import java.io.InputStreamReader;
 import java.io.FileInputStream;
 import java.nio.charset.Charset;
 import java.io.FileNotFoundException;
+import android.content.Context;
+import android.os.Environment;
+import java.io.FilenameFilter;
 
 public class NarUtil {
     private static final String TAG = "NarUtil";
+
+    private static final FilenameFilter narFilter = new FilenameFilter() {
+	    public boolean accept(File dir, String filename) {
+		if ( filename.endsWith(".nar") || filename.endsWith(".zip") )
+		    return true;
+
+		return false;
+	    }
+	};
+
+    public static void createNarDirOnSDCard() {
+	File narDir = new File(Environment.getExternalStorageDirectory(), "nar");
+	if( narDir.exists() && narDir.isDirectory() )
+	    return;
+
+	boolean success = narDir.mkdirs();
+	if ( success == false )
+	    Log.d(TAG, "nar folder creation failed");
+    }
+
+    // should return null if narDir is not a dir
+    // should return array of length 0 if no file match?
+    public static File[] listNarDir() {
+	File narDir = new File(Environment.getExternalStorageDirectory(), "nar");
+	if ( narDir.exists() == false || narDir.isDirectory() == false )
+	    return null;
+
+	File[] ret = narDir.listFiles(narFilter);
+	return ret;
+    }
 
     public static String readNarGhostId(String pathToArchive){
 	ZipFile nar = null;
