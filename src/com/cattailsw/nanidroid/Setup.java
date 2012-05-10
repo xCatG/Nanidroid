@@ -15,6 +15,13 @@ public class Setup {
     public static final String DLG_ERR = "errormsgdlg";
     public static final String DLG_NAR_PICK = "narpickdlg";
     public static final String DLG_MORE_G = "moreghostdlg";
+
+    // category strings for analytics
+    public static final String ANA_BTN = "BtnClick";
+    public static final String ANA_PGM_FLOW = "ProgramFlow";
+    public static final String ANA_ERR = "Error";
+    public static final String ANA_UI_TOUCH = "UITouch";
+    //public static final String ANA_DLG = "Dialog";
     
     public static final String PREF_KEY_USE_ANALYTICS = "enable_analytics";
 }

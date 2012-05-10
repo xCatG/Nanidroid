@@ -407,15 +407,17 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	}
 	else {
 	    if ( runner != null )runner.doShioriEvent("OnInstallRefuse", null);
+	    AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -2);
 	}
 		
     }
 
     private void onSuccessGhostInstall(String ghostId, String gPath) {
-	if (runner != null)
-	    runner.doInstallComplete(ghostId);
+	if (runner != null) runner.doInstallComplete(ghostId);
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_PGM_FLOW, "ghost_install", ghostId, 1);
+
 	// should show readme if one present
-	Log.d(TAG, "ghost:" + ghostId + " installed at:" + gPath);
+	//Log.d(TAG, "ghost:" + ghostId + " installed at:" + gPath);
 	File readme = new File(gPath, "readme.txt");
 	if (readme.exists()) {
 	    showReadme(readme, ghostId);
@@ -446,6 +448,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    }
 	    else {
 		if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
+		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -1);
 	    }
 	}
     }
@@ -465,11 +468,13 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     private void showReadme(File readme, final String ghostId){
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/"+Setup.DLG_README+":ghostId");
         DialogFragment newFragment = ReadmeDialogFragment.newInstance(readme, ghostId);
         newFragment.show(getSupportFragmentManager(), Setup.DLG_README);
     }
 
     private void showGhostInstalledDlg(String ghostId){
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/"+Setup.DLG_NO_REAMDE+":ghostId");
     	DialogFragment f = NoReadmeSwitchDlg.newInstance(ghostId);
     	f.show(getSupportFragmentManager(), Setup.DLG_NO_REAMDE);
     }
@@ -498,6 +503,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     	runner.clearMsgQueue();
     	runner.setCallback(mscb);
     	runner.doGhostChanging(nextName, "manual", nextPath);
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_PGM_FLOW,"ghost_switch",nextGhostId,0);
 
 	//runner.doShioriEvent("OnGhostChanging", new String[]{g.getGhostName(), "manual", null, g.getGhostPath()});
 
@@ -511,8 +517,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     	}
     	catch(Exception e) {
 	    // TODO fill failed switch event!
-	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("Error","GhostSwitching",nextGhostId,0);
+	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR,"ghost_switch",nextGhostId,-1);
 	    Log.d(TAG, "failed to switch to ghost:" + nextGhostId);
+	    nextGhostId = null;
 	    e.printStackTrace();
 	    return;
     	}
@@ -553,7 +560,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void onUpdate(View v) {
 	// need to show msg saying not implemented yet
-	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "Update", "", 0);
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_BTN, "Update", "", 0);
 	NotImplementedDlg n = new NotImplementedDlg();
 	n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
     }
@@ -563,17 +570,19 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void onHelp(View v) {
+	AnalyticsUtils.getInstance(this).trackPageView("/Help_menu");
 	openContextMenu(v);
     }
 	
     public void getMoreGhost(int source) {
-	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent("BtnClick", "MoreGhost", 
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_BTN, "MoreGhost", 
 								       source==0?"MainUI":Setup.DLG_G_LIST, source);
 	/*		NotImplementedDlg n = new NotImplementedDlg();
 	  n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);		*/
 	//showUrlDlg();
 	//startInstallFromSDCard();
 	MoreGhostFuncDlg n = new MoreGhostFuncDlg();
+	AnalyticsUtils.getInstance(this).trackPageView("/"+Setup.DLG_MORE_G);
 	n.show(getSupportFragmentManager(), Setup.DLG_MORE_G);
     }
 
@@ -600,6 +609,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     public void showNarPickDlg(String[] narz) {
 	Toast.makeText(this, "multiple nar exist", Toast.LENGTH_SHORT).show();
 	NarPickDlg n = new NarPickDlg(narz);
+	AnalyticsUtils.getInstance(this).trackPageView("/"+Setup.DLG_NAR_PICK);
 	n.show(getSupportFragmentManager(), Setup.DLG_NAR_PICK);
     }
 
@@ -609,6 +619,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void showUrlDlg() {
 	EnterUrlDlg u = new EnterUrlDlg();
+	AnalyticsUtils.getInstance(this).trackPageView("/"+Setup.DLG_E_URL);
 	u.show(getSupportFragmentManager(), Setup.DLG_E_URL);
     }
 
@@ -631,9 +642,10 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     private void showGhostListDlg() {
 	String gn[] = gm.getGnames();
 	gAdapter = new ArrayAdapter<String>(this,android.R.layout.simple_list_item_1, gn);
-				
+	
+	AnalyticsUtils.getInstance(this).trackPageView("/"+Setup.DLG_G_LIST);
         DialogFragment newFragment = GhostListDialogFragment.newInstance(gn, gm);
-        newFragment.show(getSupportFragmentManager(), Setup.DLG_G_LIST);		
+        newFragment.show(getSupportFragmentManager(), Setup.DLG_G_LIST);	
     }
 	
     static ArrayAdapter<String> gAdapter = null;
@@ -701,8 +713,10 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	//Toast.makeText(this, "frame touched", Toast.LENGTH_SHORT).show();
 	// toggle main button bar visibility
 	int vis = btnBar.getVisibility();
-	if ( vis != View.VISIBLE )
+	if ( vis != View.VISIBLE ) {
+	    AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar");
 	    btnBar.setVisibility(View.VISIBLE);
+	}
 	else
 	    btnBar.setVisibility(View.GONE);
     }
