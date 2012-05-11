@@ -195,7 +195,7 @@ public class NanidroidService extends Service {
 
 	    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-	    Notification n = new Notification(R.drawable.ic_launcher, getString(R.string.dl_complete), 
+	    Notification n = new Notification(R.drawable.notification, getString(R.string.dl_complete), 
 					      System.currentTimeMillis());
 	    Intent ni = new Intent(NanidroidService.this, Nanidroid.class);
 	    ni.setData(Uri.fromFile(new File(result))).putExtra("DL_PKG",0);
