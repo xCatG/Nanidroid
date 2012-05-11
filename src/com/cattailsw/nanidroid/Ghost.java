@@ -66,6 +66,11 @@ public class Ghost {
 	shiori = ShioriFactory.getInstance().getShiori( master_ghost, ghostDesc );
     }
 
+    // because GhostMgr use ghost dir as its id, just return ghostDir here
+    public String getGhostId() {
+	return ghostDirName; 
+    }
+
     public String getGhostDirName() {
 	return ghostDirName;
     }
