@@ -32,5 +32,10 @@
   <string name="dlg_sel_nar_title">一つを選んでください</string>
   <string name="dlg_sel_nar_install_text">インストール</string>
   <string name="btn_dl_text">ダウンロード</string>
-    
+
+  <string name="help_install">ゴーストの追加</string>
+  <string name="url_help_install">http://blog.cattail-sw.com/?p=215</string>
+  <string name="help_supported_ops">機能の実装状況</string>
+  <string name="url_support_ops">http://blog.cattail-sw.com/?p=217</string>
+
 </resources>
