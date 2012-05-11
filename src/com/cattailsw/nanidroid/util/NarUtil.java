@@ -13,6 +13,9 @@ import java.io.File;
 import java.security.MessageDigest;
 
 import com.cattailsw.nanidroid.DescReader;
+import com.cattailsw.nanidroid.Setup;
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.InputStreamReader;
@@ -88,6 +91,7 @@ public class NarUtil {
 
 	} catch (IOException e) {
 	    // TODO Auto-generated catch block
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_extract", pathToArchive + ":" + e.getMessage(), -1);
 	    e.printStackTrace();
 	}
 	    return ret;
@@ -110,6 +114,7 @@ public class NarUtil {
 		    String type = r.getTable().get("type");
 		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
 			Log.d(TAG, "do not support " + type + " archive yet");
+			AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_install_not_support", type, -2);
 			
 			//return false;
 		    }
@@ -129,6 +134,7 @@ public class NarUtil {
 	    ret = true;
 	} catch (IOException e) {
 	    // TODO Auto-generated catch block
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_extract", tid + ":" + e.getMessage(), -1);
 	    e.printStackTrace();
 	    ret = false;
 	}
@@ -228,6 +234,7 @@ public class NarUtil {
 	}
 	catch(Exception e){
 	    // do nothing
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "readme_error", e.getMessage(), -1);
 	}
 	sb.append("</pre></body></html>");
 
