@@ -5,4 +5,10 @@
     <item>@string/more_g_from_SD_text</item>
     <item>@string/more_g_ghost_town_text</item>
   </string-array>
+
+  <string-array name="gen_usage_items">
+    <item>@string/help_install</item>
+    <item>@string/help_supported_ops</item>
+  </string-array>
+
 </resources>

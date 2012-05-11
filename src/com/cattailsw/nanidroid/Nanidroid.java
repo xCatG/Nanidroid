@@ -45,6 +45,7 @@ import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
 import com.cattailsw.nanidroid.dlgs.ErrMsgDlg;
 import com.cattailsw.nanidroid.dlgs.NarPickDlg;
 import com.cattailsw.nanidroid.dlgs.MoreGhostFuncDlg;
+import com.cattailsw.nanidroid.dlgs.HelpFuncDlg;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
@@ -670,7 +671,10 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     private void showHelp() {
 	// TODO Auto-generated method stub
-	Toast.makeText(this, "help clicked", Toast.LENGTH_SHORT).show();
+	//Toast.makeText(this, "help clicked", Toast.LENGTH_SHORT).show();
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/help");
+	HelpFuncDlg d = new HelpFuncDlg();
+	d.show(getSupportFragmentManager(), Setup.DLG_GEN_HELP);
     }
 
     private void showFeedback() {

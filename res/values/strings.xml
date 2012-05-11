@@ -38,7 +38,10 @@
   <string name="dlg_sel_nar_install_text">Install</string>
   <string name="btn_dl_text">Download</string>
 
+  <string name="help_install">How to Install New Ghosts</string>
   <string name="url_help_install">http://blog.cattail-sw.com/?p=197</string>
+  <string name="help_supported_ops">Show Supported Functions</string>
+  <string name="url_support_ops">http://blog.cattail-sw.com/?p=212</string>
 
 <!--  <string name=""></string> -->
 
