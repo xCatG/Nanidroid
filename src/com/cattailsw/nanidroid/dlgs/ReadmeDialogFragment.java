@@ -7,7 +7,9 @@ import com.cattailsw.nanidroid.R;
 import com.cattailsw.nanidroid.R.id;
 import com.cattailsw.nanidroid.R.layout;
 import com.cattailsw.nanidroid.R.string;
+import com.cattailsw.nanidroid.Setup;
 import com.cattailsw.nanidroid.util.NarUtil;
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -69,15 +71,18 @@ public class ReadmeDialogFragment extends DialogFragment {
 	builder.setView(readmeView);
 	builder.setNeutralButton(R.string.close_btn_text, new DialogInterface.OnClickListener(){
 		public void onClick(DialogInterface dlg, int which){
+		    AnalyticsUtils.getInstance(getActivity()).trackEvent(Setup.ANA_BTN, "close", "ghost_readme_dlg", 0);
 		    dlg.dismiss();
 		}
 	    });
 	builder.setPositiveButton(R.string.switch_to_ghost_btn_text, new DialogInterface.OnClickListener(){
 		public void onClick(DialogInterface dlg, int which){
 		    dlg.dismiss();
+		    AnalyticsUtils.getInstance(getActivity()).trackEvent(Setup.ANA_BTN, "ghost_switch", "ghost_readme_dlg", 0);
 		    Activity act = ReadmeDialogFragment.this.getActivity();// getActivity();
 		    if ( act != null )
 			((Nanidroid)act).switchGhost(gid);
+
 		}
 	    });
 

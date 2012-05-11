@@ -45,7 +45,7 @@ public class NoReadmeSwitchDlg extends DialogFragment {
 			
 		    @Override
 		    public void onClick(DialogInterface dialog, int which) {
-			    
+			AnalyticsUtils.getInstance(getActivity()).trackEvent(Setup.ANA_BTN, "close", "ghost_readme_dlg", 1);			
 			dialog.dismiss();				
 		    }
 		})
@@ -54,6 +54,7 @@ public class NoReadmeSwitchDlg extends DialogFragment {
 		    @Override
 		    public void onClick(DialogInterface dialog, int which) {
 			dialog.dismiss();
+			AnalyticsUtils.getInstance(getActivity()).trackEvent(Setup.ANA_BTN, "ghost_switch", "ghost_readme_dlg", 1);
 			((Nanidroid)getActivity()).switchGhost(gid);
 		    }
 		});
