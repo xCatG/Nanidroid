@@ -121,7 +121,7 @@ public class GhostMgr {
     	return getGhostPath(gid);
     }
 
-    public int getGhostLaunchCount(int gid) {
+    public int getGhostLaunchCount(int order) {
 	// TODO return actual launch count
 	return 0;
     }
