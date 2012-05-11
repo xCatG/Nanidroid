@@ -10,6 +10,7 @@ import android.util.Log;
 import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
 
 public class SScriptRunner implements Runnable {
     private static final String TAG = "SScriptRunner";
@@ -374,6 +375,7 @@ public class SScriptRunner implements Runnable {
 		case 'v':
 		    // ignore
 		    Log.d(TAG, "ignore unsupported " + c2 + " tag");
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport", c2, -1);
 		    break;
 		default:
 		    break;
@@ -416,11 +418,13 @@ public class SScriptRunner implements Runnable {
 	    if ( m.find() ) { // [xxx] is found in the sequence
 		charIndex += m.group().length(); // skip the whole matching [] portions
 		Log.d(TAG, "skipping unsupported tag _" + c + m.group());
+		AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport", "_" + c + m.group(), -1);
 	    }
 	    break;
 	case 'n':
 	case 'V':
 	    Log.d(TAG, "ignore unsupported _" + c + " tag");
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport", "_" + c, -1);
 	    break;
 	case 'b':
 	    return handle_balloon();
@@ -434,7 +438,7 @@ public class SScriptRunner implements Runnable {
 		    return true;
 		}
 		catch(Exception e) {
-
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_err", "_" + c + m.group(), -1);
 		}
 		//waitTime = 
 	    }
@@ -447,6 +451,8 @@ public class SScriptRunner implements Runnable {
     }
 
     private boolean handle_exclaim_type(String leftString) {
+	AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport", "exclaim_type", -1);
+
 	return false;
     }
 
@@ -472,6 +478,7 @@ public class SScriptRunner implements Runnable {
 	}
 	else {
 	    Log.d(TAG, "malformed \\s tag at index:" + charIndex);
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_err", "\\s" + left.substring(0,4), -1); // just record 4 more chars after \\s
 	}
 	return false;
     }
@@ -716,15 +723,19 @@ public class SScriptRunner implements Runnable {
 		ShioriResponse r = null;
 		switch( type ) {
 		case SakuraView.UIEventCallback.TYPE_SINGLE_CLICK:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "click", collId);
 		    r = doMouseClick(x, y, true, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "dblclick", collId);		    
 		    r = doMouseDblClick(x, y, true, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_WHEEL:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "wheel", collId);		    
 		    r= doMouseWheel(x, y, orientation, true, collId);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_MOVE:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "move", collId);
 		    r = doMouseMove(x, y, orientation, true, collId);
 		    break;
 		}
@@ -738,15 +749,19 @@ public class SScriptRunner implements Runnable {
 		ShioriResponse r = null;
 		switch( type ) {
 		case SakuraView.UIEventCallback.TYPE_SINGLE_CLICK:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "click", collId);
 		    r = doMouseClick(x, y, false, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "dblclick", collId);
 		    r = doMouseDblClick(x, y, false, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_WHEEL:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "wheel", collId);
 		    r = doMouseWheel(x, y, orientation, false, collId);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_MOVE:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "move", collId);
 		    r = doMouseMove(x, y, orientation, false, collId);
 		    break;
 		}
@@ -802,6 +817,8 @@ public class SScriptRunner implements Runnable {
 	    String gshellname = g.getShellName();
 
 	    doShioriEvent("OnBoot", new String[]{gshellname});
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW, "onboot", g.getGhostId(), 0);
+
 	}
     }
 
