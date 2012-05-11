@@ -6,6 +6,7 @@ import com.cattailsw.nanidroid.GhostMgr;
 import com.cattailsw.nanidroid.Nanidroid;
 import com.cattailsw.nanidroid.R;
 import com.cattailsw.nanidroid.Setup;
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
 
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -43,6 +44,10 @@ public class GhostListDialogFragment extends DialogFragment {
 		    public void onClick(DialogInterface dialog, int which) {
 			// TODO Auto-generated method stub
 			if ( which < gnz.length) {
+			    AnalyticsUtils.getInstance(getActivity())
+				.trackEvent(Setup.ANA_UI_TOUCH, "ghost_list_touch", gnz[which], 
+					    gm.getGhostLaunchCount(which));
+
 			    File readme = gm.getGhostReadMe(gnz[which]);
 			    if ( readme.exists() ){
 				DialogFragment r = ReadmeDialogFragment.newInstance(readme, gnz[which]);
@@ -67,6 +72,9 @@ public class GhostListDialogFragment extends DialogFragment {
 	    .setNegativeButton(android.R.string.cancel,
 			       new DialogInterface.OnClickListener() {
 				   public void onClick(DialogInterface dialog, int whichButton) {
+			    AnalyticsUtils.getInstance(getActivity())
+				.trackEvent(Setup.ANA_BTN, "ghost_list_cancel", "", 0);
+
 				       dialog.dismiss();
 				   }
 			       }

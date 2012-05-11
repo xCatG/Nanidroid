@@ -119,6 +119,11 @@ public class GhostMgr {
     public String getGhostPath(String id) {
     	int gid = getGhostId(id);
     	return getGhostPath(gid);
-
     }
+
+    public int getGhostLaunchCount(int gid) {
+	// TODO return actual launch count
+	return 0;
+    }
+
 }

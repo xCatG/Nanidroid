@@ -567,10 +567,12 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 	
     public void onListGhost(View v){
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0);
 	showGhostListDlg();
     }
 
     public void onHelp(View v) {
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_BTN, "help", "", 0);
 	AnalyticsUtils.getInstance(this).trackPageView("/Help_menu");
 	openContextMenu(v);
     }
@@ -588,6 +590,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void startInstallFromSDCard() {
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0);
 	String[] narz = NarUtil.listNarDir();
 	if ( narz == null || narz.length == 0 ) {
 	    // show error dlg
@@ -602,6 +605,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void showNarErrDlg(boolean dir) {
+	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR, "more_ghost_install_sd", 
+								       dir?"no_nar_folder":"no_nar_file", 
+								       dir?-1:-2);
 	ErrMsgDlg e = ErrMsgDlg.newInstance(R.string.err_nar_title, 
 					    dir?R.string.err_no_nar_folder:R.string.err_no_nar_file);
 	e.show(getSupportFragmentManager(), Setup.DLG_ERR);
