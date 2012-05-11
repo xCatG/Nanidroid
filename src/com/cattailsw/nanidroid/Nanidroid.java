@@ -72,6 +72,8 @@ import android.content.pm.PackageManager;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
+import org.acra.ErrorReporter;
+
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
 							   NarPickDlg.NarPickDlgListener,
 							   MoreGhostFuncDlg.MoreGhostFuncListener
@@ -137,6 +139,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	String lastId = gm.getLastRunGhostId();
 	if ( lastId == null ) lastId = "nanidroid";
 	Ghost g = gm.createGhost(lastId);
+	ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
 	runner.setGhost(g);
 	gm.setLastRunGhost(g);
 
@@ -515,6 +518,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     	try {
 	    g = gm.createGhost(nextGhostId);
 	    nextGhostId = null;
+	    ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
     	}
     	catch(Exception e) {
 	    // TODO fill failed switch event!
