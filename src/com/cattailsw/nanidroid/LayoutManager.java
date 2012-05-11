@@ -1,10 +1,8 @@
 package com.cattailsw.nanidroid;
 
-import android.widget.FrameLayout;
 import android.content.Context;
 import android.view.Gravity;
-import android.widget.FrameLayout.LayoutParams;
-import android.util.Log;
+import android.widget.FrameLayout;
 
 public class LayoutManager {
     private static final String TAG = "LayoutManager";

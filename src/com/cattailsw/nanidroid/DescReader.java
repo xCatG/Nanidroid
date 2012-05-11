@@ -1,19 +1,19 @@
 package com.cattailsw.nanidroid;
 
-import java.util.Map;
-import java.io.File;
-import java.io.InputStream;
-import java.io.FileNotFoundException;
-import java.util.HashMap;
-import java.io.InputStreamReader;
-import android.util.Log;
 import java.io.BufferedReader;
-import java.nio.charset.Charset;
+import java.io.File;
 import java.io.FileInputStream;
-import java.util.Hashtable;
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.FileReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
+import java.util.Hashtable;
+import java.util.Map;
+
 import android.os.SystemClock;
+import android.util.Log;
+
 import com.cattailsw.nanidroid.util.NarUtil;
 
 public class DescReader {

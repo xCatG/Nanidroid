@@ -1,78 +1,53 @@
 package com.cattailsw.nanidroid;
 
-import android.app.Activity;
-import android.os.Bundle;
-import android.widget.ArrayAdapter;
-import android.widget.ImageView;
-import android.widget.Toast;
-import android.os.Environment;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-
-import android.widget.TextView;
-import android.os.SystemClock;
-import android.graphics.drawable.AnimationDrawable;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
-import android.view.Menu;
-import android.view.MenuInflater;
-import android.view.MenuItem;
-import android.view.View;
-import java.util.Set;
-import android.graphics.Rect;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.Paint.Style;
-import android.graphics.Color;
-import java.util.Collections;
+import java.io.InputStreamReader;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
 
+import org.acra.ErrorReporter;
+
+import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
+import android.graphics.drawable.AnimationDrawable;
+import android.net.Uri;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.os.Environment;
+import android.preference.PreferenceManager;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.FragmentActivity;
 import android.util.Log;
+import android.view.ContextMenu;
+import android.view.ContextMenu.ContextMenuInfo;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.ArrayAdapter;
+import android.widget.FrameLayout;
+import android.widget.Toast;
 
 import com.android.debug.hv.ViewServer;
 import com.cattailsw.nanidroid.dlgs.AboutDialogFragment;
+import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
+import com.cattailsw.nanidroid.dlgs.ErrMsgDlg;
 import com.cattailsw.nanidroid.dlgs.GhostListDialogFragment;
+import com.cattailsw.nanidroid.dlgs.HelpFuncDlg;
+import com.cattailsw.nanidroid.dlgs.MoreGhostFuncDlg;
+import com.cattailsw.nanidroid.dlgs.NarPickDlg;
 import com.cattailsw.nanidroid.dlgs.NoReadmeSwitchDlg;
 import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
 import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
-import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
-import com.cattailsw.nanidroid.dlgs.ErrMsgDlg;
-import com.cattailsw.nanidroid.dlgs.NarPickDlg;
-import com.cattailsw.nanidroid.dlgs.MoreGhostFuncDlg;
-import com.cattailsw.nanidroid.dlgs.HelpFuncDlg;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
-
-import android.widget.FrameLayout;
-import android.view.Gravity;
-import android.content.Intent;
-import java.util.List;
-import android.net.Uri;
-import android.widget.FrameLayout.LayoutParams;
-import android.content.Intent;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.app.AlertDialog;
-import android.app.AlertDialog.Builder;
-import android.content.DialogInterface;
-import android.content.res.AssetManager;
-import android.os.AsyncTask;
-import android.os.Bundle;
-import android.os.Bundle;
-import android.preference.PreferenceManager;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-
-import org.acra.ErrorReporter;
 
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
 							   NarPickDlg.NarPickDlgListener,

@@ -1,15 +1,14 @@
 package com.cattailsw.nanidroid.dlgs;
 
-import com.cattailsw.nanidroid.R;
-import android.support.v4.app.DialogFragment;
-import android.app.Dialog;
-import android.os.Bundle;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.DialogInterface;
-import android.app.AlertDialog.Builder;
-import android.content.DialogInterface.OnClickListener;
-import android.net.Uri;
 import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.support.v4.app.DialogFragment;
+
+import com.cattailsw.nanidroid.R;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 
 public class HelpFuncDlg extends DialogFragment {

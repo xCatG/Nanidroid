@@ -1,16 +1,13 @@
 package com.cattailsw.nanidroid.dlgs;
 
-import com.cattailsw.nanidroid.R;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.DialogInterface;
+import android.os.Bundle;
 import android.support.v4.app.DialogFragment;
 import android.widget.ListAdapter;
-import android.os.Bundle;
-import android.widget.ArrayAdapter;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
-import android.widget.Toast;
-import android.app.AlertDialog.Builder;
-import android.content.DialogInterface.OnClickListener;
-import android.app.Dialog;
+
+import com.cattailsw.nanidroid.R;
 
 public class NarPickDlg extends DialogFragment {
 

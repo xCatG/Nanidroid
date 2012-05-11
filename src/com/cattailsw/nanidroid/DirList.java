@@ -1,11 +1,11 @@
 package com.cattailsw.nanidroid;
 
-import android.os.Environment;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
 import android.content.Context;
 import android.util.Log;
-import java.util.List;
-import java.util.ArrayList;
 
 public class DirList {
     private static final String TAG = "DirList";

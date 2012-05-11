@@ -1,21 +1,21 @@
 package com.cattailsw.nanidroid;
 
-import android.widget.ImageView;
-import android.content.Context;
-import android.util.AttributeSet;
-import android.graphics.drawable.AnimationDrawable;
-import android.graphics.Rect;
 import java.util.Set;
-import android.graphics.drawable.BitmapDrawable;
+
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Paint.Style;
-import android.graphics.Bitmap.Config;
-import android.graphics.Color;
-import android.view.View;
+import android.graphics.Rect;
+import android.graphics.drawable.AnimationDrawable;
+import android.graphics.drawable.BitmapDrawable;
+import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.View;
+import android.widget.ImageView;
 
 public class SakuraView extends ImageView {
     private static final String TAG = "SakuraView";

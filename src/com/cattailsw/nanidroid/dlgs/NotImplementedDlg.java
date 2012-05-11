@@ -1,13 +1,12 @@
 package com.cattailsw.nanidroid.dlgs;
 
-import com.cattailsw.nanidroid.R;
-import com.cattailsw.nanidroid.R.string;
-
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.support.v4.app.DialogFragment;
+
+import com.cattailsw.nanidroid.R;
 
 public class NotImplementedDlg extends DialogFragment {
 

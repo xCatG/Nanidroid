@@ -1,17 +1,13 @@
 package com.cattailsw.nanidroid.dlgs;
 
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.DialogInterface;
+import android.os.Bundle;
+import android.support.v4.app.DialogFragment;
+
 import com.cattailsw.nanidroid.R;
 import com.cattailsw.nanidroid.Setup;
-import com.cattailsw.nanidroid.Nanidroid;
-import android.support.v4.app.DialogFragment;
-import android.os.Bundle;
-import android.widget.ArrayAdapter;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
-import android.widget.Toast;
-import android.app.AlertDialog.Builder;
-import android.content.DialogInterface.OnClickListener;
-import android.app.Dialog;
 
 public class MoreGhostFuncDlg extends DialogFragment {
     public interface MoreGhostFuncListener {

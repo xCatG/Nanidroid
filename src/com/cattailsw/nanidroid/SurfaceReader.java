@@ -1,21 +1,20 @@
 package com.cattailsw.nanidroid;
 
-import java.util.Map;
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.InputStream;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FilenameFilter;
 import java.io.IOException;
-import java.util.List;
-import java.util.ArrayList;
-import android.util.Log;
-import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
-import java.util.HashMap;
-import java.io.FilenameFilter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
+
 import android.os.SystemClock;
+import android.util.Log;
 
 
 /* surface txt has structure like

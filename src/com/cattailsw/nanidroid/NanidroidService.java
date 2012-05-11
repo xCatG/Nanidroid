@@ -1,7 +1,13 @@
 package com.cattailsw.nanidroid;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.LinkedList;
 
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -11,18 +17,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.util.Log;
-import java.io.InputStream;
 
-import com.cattailsw.nanidroid.util.NetworkUtil;
 import com.cattailsw.nanidroid.util.NarUtil;
-import com.cattailsw.nanidroid.util.UIUtil;
-import android.content.Intent;
-import android.app.NotificationManager;
-import android.app.Notification;
-import java.io.File;
-import android.app.PendingIntent;
-import java.util.List;
-import java.io.FileOutputStream;
+import com.cattailsw.nanidroid.util.NetworkUtil;
 
 /**
  * Describe class <code>HeadLineSensorService</code> here.

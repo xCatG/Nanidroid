@@ -1,30 +1,26 @@
 package com.cattailsw.nanidroid.util;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.zip.ZipFile;
-import java.util.zip.ZipEntry;
-import java.util.List;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+import android.os.Environment;
 import android.util.Log;
-import java.io.FileOutputStream;
-import java.io.File;
-import java.security.MessageDigest;
 
 import com.cattailsw.nanidroid.DescReader;
 import com.cattailsw.nanidroid.Setup;
-import com.cattailsw.nanidroid.util.AnalyticsUtils;
-
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.InputStreamReader;
-import java.io.FileInputStream;
-import java.nio.charset.Charset;
-import java.io.FileNotFoundException;
-import android.content.Context;
-import android.os.Environment;
-import java.io.FilenameFilter;
 
 public class NarUtil {
     private static final String TAG = "NarUtil";

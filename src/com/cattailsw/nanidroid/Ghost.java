@@ -1,11 +1,11 @@
 package com.cattailsw.nanidroid;
 
-import java.util.Hashtable;
-import java.util.Map;
-import android.util.Log;
-import java.io.File;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.StringReader;
+import java.util.Map;
+
+import android.util.Log;
 
 import com.cattailsw.nanidroid.shiori.Shiori;
 

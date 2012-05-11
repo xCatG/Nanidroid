@@ -2,15 +2,6 @@ package com.cattailsw.nanidroid.dlgs;
 
 import java.io.File;
 
-import com.cattailsw.nanidroid.Nanidroid;
-import com.cattailsw.nanidroid.R;
-import com.cattailsw.nanidroid.R.id;
-import com.cattailsw.nanidroid.R.layout;
-import com.cattailsw.nanidroid.R.string;
-import com.cattailsw.nanidroid.Setup;
-import com.cattailsw.nanidroid.util.NarUtil;
-import com.cattailsw.nanidroid.util.AnalyticsUtils;
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -21,6 +12,12 @@ import android.support.v4.app.DialogFragment;
 import android.view.View;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+
+import com.cattailsw.nanidroid.Nanidroid;
+import com.cattailsw.nanidroid.R;
+import com.cattailsw.nanidroid.Setup;
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
+import com.cattailsw.nanidroid.util.NarUtil;
 
 public class ReadmeDialogFragment extends DialogFragment {
     public static ReadmeDialogFragment newInstance(File readme, String gid){

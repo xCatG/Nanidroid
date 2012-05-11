@@ -1,11 +1,7 @@
 package com.cattailsw.nanidroid.shiori;
 
-import java.io.BufferedReader;
-import java.io.StringReader;
 import java.util.HashSet;
 import java.util.Hashtable;
-
-import android.util.Log;
 
 /**
  * Describe class NanidroidShiori here.

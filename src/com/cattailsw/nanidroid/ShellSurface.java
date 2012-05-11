@@ -1,24 +1,23 @@
 package com.cattailsw.nanidroid;
 
-import android.graphics.drawable.Drawable;
 import java.io.File;
-import android.graphics.drawable.LayerDrawable;
-import java.util.List;
-import android.util.Log;
-import android.graphics.BitmapFactory;
-import android.content.res.Resources;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.Bitmap;
-import java.util.regex.Pattern;
-import android.graphics.Color;
-import java.util.regex.Matcher;
-import java.util.Hashtable;
-import java.util.Map;
 import java.util.ArrayList;
-import android.graphics.drawable.AnimationDrawable;
-import java.nio.ByteBuffer;
-import android.graphics.Rect;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.drawable.AnimationDrawable;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
+import android.util.Log;
 
 /*
  * surface should have 
