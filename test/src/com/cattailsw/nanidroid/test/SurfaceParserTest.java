@@ -28,6 +28,15 @@ public class SurfaceParserTest extends AndroidTestCase {
 		assertTrue(m.matches());
 		assertEquals(3, m.groupCount());
 		assertEquals("0,1,2", m.group(3));
+
+		t = "animation0.pattern0,move,0,150,0,-1";
+		m = PatternHolders.animation.matcher(t);
+		assertTrue(m.matches());
+
+		t = "animation0.pattern10,move,0,-150,0,-1";
+		m = PatternHolders.animation.matcher(t);
+		assertTrue(m.matches());
+
 	}
 	
 	public void testAnimationPattern2_Overlay() {
@@ -82,6 +91,71 @@ public class SurfaceParserTest extends AndroidTestCase {
 
     }
 
+    public void testElementParsing() {
+	String t = "element0,base,surface300.png,-22,1";
+	Matcher m = PatternHolders.element.matcher(t);
+	assertTrue(m.matches());
+
+	t = "element0,base,surface1.png,18,0";
+	m = PatternHolders.element.matcher(t);
+	assertTrue(m.matches());
+
+    }
+
+    public void testCollParsing() {
+	String t = "collision0,98,11,170,46,Head";
+	Matcher m = PatternHolders.collision.matcher(t);
+	assertTrue(m.matches());
+
+	t = "collision1,118,86,130,91,l-Lip";
+	m = PatternHolders.collision.matcher(t);
+	assertTrue(m.matches());
+
+    }
+
+    public void testPatternParsing() {
+	String t = "0pattern0,206,5,overlay,0,0";
+	Matcher m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "0pattern1,-1,15,overlay,0,0";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "0pattern0,102,5,overlay,106,66";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "0pattern11,103,5,overlay,106,66";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "0pattern20,102,15,overlay,106,66";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "0pattern30,-1,10,overlay,0,0";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "0pattern0,12,2,move,-16,0";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "0pattern26,12,2,move,-312,0";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+	t = "1pattern10,15,2,overlay,-40,-20";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+	t = "2pattern8,15,2,overlay,36,-27";
+	m = PatternHolders.pattern.matcher(t);
+	assertTrue(m.matches());
+
+    }
+
+
     public int[] getSurfaceIds(String line) {
 	if ( line.contains(",") ) {
 	    String [] ss = line.split(",");
@@ -99,7 +173,7 @@ public class SurfaceParserTest extends AndroidTestCase {
 	}
 	else {
 	    Matcher m = PatternHolders.surface_desc_ptrn.matcher(line);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		return new int[]{ Integer.parseInt(m.group(1)) };
 	    }
 	    return null;
@@ -139,6 +213,10 @@ public class SurfaceParserTest extends AndroidTestCase {
 	id = getSurfaceIds(t);
 	assertNull(id);
 
+	t = "surface1 xxxx";
+	id = getSurfaceIds(t);
+	assertEquals(1, id.length);
+	assertEquals(1, id[0]);
     }
 	
 }

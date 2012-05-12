@@ -19,6 +19,8 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
 import android.util.Log;
 
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
+
 /*
  * surface should have 
  * surface id (surface0~n in surface.txt)
@@ -291,8 +293,8 @@ public class ShellSurface {
 
 	    m = PatternHolders.element.matcher(s);
 	    if ( m.matches() ) {
-		Log.d(TAG, "string " + s + " matches element");
-		printMatch(m);
+		//Log.d(TAG, "string " + s + " matches element");
+		//printMatch(m);
 		// need to store this as the new self?
 		this.surfaceType = S_TYPE_ELEMENT;
 		handleElement(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5));
@@ -302,8 +304,8 @@ public class ShellSurface {
 	    // or point
 	    m = PatternHolders.point.matcher(s);
 	    if ( m.matches() ) {
-		Log.d(TAG, "string " + s + " matches point");
-		printMatch(m);
+		//Log.d(TAG, "string " + s + " matches point");
+		//printMatch(m);
 		continue;
 	    }
 
@@ -346,7 +348,7 @@ public class ShellSurface {
 	    }
 	    m = PatternHolders.animation_base.matcher(s);
 	    if ( m.matches() ) {
-		printMatch(m);
+		//printMatch(m);
 		String filename = (m.group(6)==null)?m.group(4):m.group(6);
 		handlePattern(m.group(1), m.group(2), filename, m.group(7), m.group(3), null, null);
 		continue;
@@ -361,12 +363,28 @@ public class ShellSurface {
 	    // or option
 	    m = PatternHolders.option.matcher( s );
 	    if ( m.matches() ) {
-		Log.d(TAG, "string " + s + " matches option");
-		printMatch(m);
+		//Log.d(TAG, "string " + s + " matches option");
+		//printMatch(m);
+		handleOptions(m.group());
 		continue;
 	    }
 
 	    Log.d(TAG, s + " matched nothing.");
+	    try {
+		AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface parse no_match", s, -1);
+	    }
+	    catch(Exception e) {
+		// too many errors can cause this line to crash...@_@
+	    }
+	}
+    }
+
+    private void handleOptions(String s) {
+	try {
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface parse not support", s, -1);
+	}
+	catch(Exception e) {
+
 	}
     }
 

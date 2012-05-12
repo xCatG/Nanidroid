@@ -145,7 +145,7 @@ public class SurfaceReader {
 	}
 	else {
 	    Matcher m = PatternHolders.surface_desc_ptrn.matcher(line);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		return new int[]{ Integer.parseInt(m.group(1)) };
 	    }
 	    return null;
