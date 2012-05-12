@@ -27,7 +27,7 @@ public class Ghost {
 	rootPath = ghostPath;
 	ghostDirName = (new File(ghostPath)).getName();
 	Log.d(TAG, "gdname="+ghostDirName);
-	mgr = new SurfaceManager();//SurfaceManager.getInstance();
+	mgr = new SurfaceManager(ghostDirName);//SurfaceManager.getInstance();
 	loadGhostInfo();
     }
 

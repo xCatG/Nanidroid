@@ -9,7 +9,7 @@ import java.util.Set;
 public class SurfaceManager {
 
     //private static SurfaceManager _self = null;
-    public SurfaceManager() {
+    public SurfaceManager(String ghostid) {
 
     }
 
@@ -19,6 +19,8 @@ public class SurfaceManager {
 
 // 	return _self;
 //     }
+    
+    String ghostId = null;
 
     Map<String, ShellSurface> surfaces = null;
     Map<String, String[]> sakuraAliasTable = null; // alias can be N-to-one?
@@ -63,6 +65,11 @@ public class SurfaceManager {
 
 
     public Drawable getSurfaceDrawable(String id, Resources res) {
+    	try {
 	return surfaces.get(id).getSurfaceDrawable(res);
+    	}
+    	catch (Exception e) {
+    		return null;
+    	}
     }
 }

@@ -16,6 +16,7 @@ import java.util.regex.Matcher;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
 
 /* surface txt has structure like
 
@@ -41,6 +42,7 @@ public class SurfaceReader {
     //Map<String, ShellSurface> table = null;
     boolean error = false;
     String rootPath = null;
+    String descPath = null;
     SurfaceManager mgr = null;
     
     public SurfaceReader(SurfaceManager m) {
@@ -53,6 +55,7 @@ public class SurfaceReader {
 
     public SurfaceReader(SurfaceManager m, String shell_root, String desc_path){
 	rootPath = shell_root;
+	descPath = desc_path;
 	mgr = m;
 	try {
 	    InputStream is = new FileInputStream( new File(desc_path) );
@@ -101,7 +104,7 @@ public class SurfaceReader {
 	for ( File f : filez ) {
 	    Log.d(TAG, "got " + f.getName() );
 	    // need to get id 
-	    String fn = f.getName();
+	    String fn = f.getName().toLowerCase();
 	    Matcher m = PatternHolders.surface_file_scan.matcher(fn);
 	    if ( m.matches() == false )
 		continue;
@@ -124,6 +127,32 @@ public class SurfaceReader {
 
     long parseTime = 0;
 
+
+    private int[] getSurfaceIds(String line) {
+	if ( line.contains(",") ) {
+	    String [] ss = line.split(",");
+	    String [] idz = new String[ss.length];
+	    int [] id = new int[ss.length];
+	    for ( int i = 0; i < ss.length; i++ ) {
+		Matcher m = PatternHolders.surface_desc_ptrn.matcher(ss[i]);
+		if ( m.matches() ) {
+		    idz[i] = m.group(1);
+		    id[i] = Integer.parseInt(idz[i]);
+		}
+	    }
+	    return id;
+
+	}
+	else {
+	    Matcher m = PatternHolders.surface_desc_ptrn.matcher(line);
+	    if ( m.matches() ) {
+		return new int[]{ Integer.parseInt(m.group(1)) };
+	    }
+	    return null;
+	}
+    }
+    
+
     private void parse(InputStream is) throws IOException {
 	parseTime = SystemClock.uptimeMillis();
 // 	if ( table == null )
@@ -135,6 +164,7 @@ public class SurfaceReader {
 	}
 	catch(Exception e) {
 	    Log.d(TAG, "error reading");
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface reading", descPath, 0);
 	    return;
 	}
 
@@ -158,6 +188,8 @@ public class SurfaceReader {
 	    // then check for }
 	    // put all info to create surface
 	    if ( line.startsWith("surface") ) {
+		int idz[] = getSurfaceIds(line);
+		/*
 		String id = line.substring(7); // strip off "surface"
 		if ( id.length() < 1 ) {
 		    Log.d(TAG, "incorrect surface declaration:" + line + " on line " + lineCount);
@@ -170,6 +202,11 @@ public class SurfaceReader {
 		catch(Exception e) {
 		    Log.d(TAG, "incorrect surface declaration:" + line + " on line " + lineCount );
 		    continue;
+		}
+		*/
+		if ( idz == null ) {
+		    Log.d(TAG, "incorrect surface declaration:" + line + " on line " + lineCount);
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface parse", descPath, lineCount);
 		}
 
 		String nextLine = reader.readLine();
@@ -191,10 +228,12 @@ public class SurfaceReader {
 			lines.add(nextLine);
 		    }
 		    while ( nextLine.startsWith("}") == false ) ;
-
+		    
+		    for ( int sid : idz ) {
 		    ShellSurface surface = new ShellSurface(rootPath, sid, lines);
 		    //table.put(id, surface);
-		    mgr.addSurface(id, surface);
+		    mgr.addSurface("" + sid, surface);
+		    }
 		}
 		else {
 		    Log.d(TAG, "error at line " + lineCount + ", expecting { but got:" + nextLine );

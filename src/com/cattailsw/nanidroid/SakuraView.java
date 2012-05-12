@@ -2,6 +2,8 @@ package com.cattailsw.nanidroid;
 
 import java.util.Set;
 
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
+
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -80,12 +82,20 @@ public class SakuraView extends ImageView {
 
 	if ( surfaceid.equalsIgnoreCase(currentSurfaceId) == false ){
 	    /*Log.d(TAG, "loading new surface:" + surfaceid);*/
+		try {
 	    currentSurfaceId = surfaceid;
 	    loadSurface(surfaceid);
 	    setImageDrawable(currentSurface.getSurfaceDrawable(mCtx.getResources()));
 	    animation = null;
 	    currentAnimationId = null;
 	    populateColRz();
+		}
+		catch(Exception e) {
+			String msg = mgr.ghostId + ":" + currentSurfaceId ;
+			if ( e != null )
+				msg += ":" + e.getMessage();
+			AnalyticsUtils.getInstance(mCtx).trackEvent(Setup.ANA_ERR, "surface load", msg , -1);
+		}
 	}
 	this.setVisibility(View.VISIBLE);
 
@@ -187,6 +197,8 @@ public class SakuraView extends ImageView {
 	    rz[i] = currentSurface.collisionAreas.get(k).rect;
 	    i++;
 	}
+	
+	try {
 	BitmapDrawable b = (BitmapDrawable) currentSurface.getSurfaceDrawable(mCtx.getResources());
 	Bitmap bmpcopy = b.getBitmap().copy(Bitmap.Config.ARGB_8888, true);
 	Canvas c = new Canvas(bmpcopy);
@@ -201,7 +213,11 @@ public class SakuraView extends ImageView {
 
 	BitmapDrawable nb = new BitmapDrawable( bmpcopy );
 
-	setImageDrawable( nb );	
+	setImageDrawable( nb );
+	}
+	catch(Exception e) {
+		
+	}
     }
 
 
