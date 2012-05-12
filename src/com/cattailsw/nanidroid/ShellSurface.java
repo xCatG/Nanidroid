@@ -92,8 +92,8 @@ public class ShellSurface {
     private void loadSurface(List<String> elements) {
 	if ( elements != null )
 	    loadElements(elements);
-
-	if ( surfaceType == S_TYPE_ELEMENT ) {
+	// sometimes elementList is 0...
+	if ( surfaceType == S_TYPE_ELEMENT && elementList.size() > 0 ) {
 	    origW = elementList.get(0).W;
 	    origH = elementList.get(0).H;
 	    targetW = origW;
