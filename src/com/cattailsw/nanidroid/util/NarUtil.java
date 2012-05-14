@@ -64,7 +64,6 @@ public class NarUtil {
 	return ret;
     }
 
-
     public static String readNarGhostId(String pathToArchive){
 	ZipFile nar = null;
 	String ret = null;
@@ -75,11 +74,13 @@ public class NarUtil {
 	    for ( ZipEntry e : entries ) {
 		// need to find "install.txt"
 		if ( e.getName().contains("install.txt")) {
-		    InputStream is = nar.getInputStream(e);
-		    DescReader r = new DescReader(is);
+		    File tmp = File.createTempFile("nanidroid", "tmp", new File("/mnt/sdcard/nar"));
+		    extractFileToPath(nar, tmp.getAbsolutePath(), e, true);
+		    DescReader r = new DescReader(tmp.getAbsolutePath());
+		    r.setTable(r.parse());
 
 		    ret = r.getTable().get("directory");
-		    is.close();
+		    tmp.delete();
 		    break;
 		}
 	    }
@@ -105,8 +106,11 @@ public class NarUtil {
 	    for ( ZipEntry e : entries ) {
 		// need to find "install.txt"
 		if ( e.getName().contains("install.txt")) {
-		    InputStream is = nar.getInputStream(e);
-		    DescReader r = new DescReader(is);
+		    File tmp = File.createTempFile("nanidroid", "tmp", new File("/mnt/sdcard/nar"));
+		    extractFileToPath(nar, tmp.getAbsolutePath(), e, true);
+		    DescReader r = new DescReader(tmp.getAbsolutePath());
+		    r.setTable(r.parse());
+		    tmp.delete();
 		    String type = r.getTable().get("type");
 		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
 			Log.d(TAG, "do not support " + type + " archive yet");
@@ -116,7 +120,6 @@ public class NarUtil {
 		    }
 		    String targetDirid = r.getTable().get("directory");
 		    String targetPath = installRoot + "/" + targetDirid;
-		    is.close();
 		    extractZipToPath(entries, nar, targetPath);
 		    break;
 		}
@@ -148,16 +151,27 @@ public class NarUtil {
 		//checkAndMakeDir(targetPath + e.getName());
 	    }
 	    else {
-		File f = new File(targetPath + "/" +  e.getName());
-		File fP = f.getParentFile();
-		if ( fP != null && fP.exists() == false ) fP.mkdirs();
-		FileOutputStream os = new FileOutputStream(f);
-		InputStream is = nar.getInputStream(e);
-		copyFile(is, os);
+		extractFileToPath(nar, targetPath, e, false);
 	    }
 	}
     }
 
+    private static void extractFileToPath(ZipFile nar, String targetPath, ZipEntry e, boolean ignorename) 
+	throws FileNotFoundException, IOException {
+	File f = null;
+	if ( ignorename ) 
+	    f = new File(targetPath);
+	else
+	    f = new File(targetPath + "/" +  e.getName());
+	File fP = f.getParentFile();
+	if ( fP != null && fP.exists() == false ) { boolean s =  fP.mkdirs();
+	Log.d(TAG, "fp make" + s);
+	}
+	FileOutputStream os = new FileOutputStream(f);
+	InputStream is = nar.getInputStream(e);
+	copyFile(is, os);
+    }
+    
     private static void checkAndMakeDir(String dir) {
 	File f = new File(dir);
 	if ( f.isDirectory() == false ) {

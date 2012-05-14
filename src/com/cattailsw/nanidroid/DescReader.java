@@ -17,7 +17,8 @@ import android.util.Log;
 import com.cattailsw.nanidroid.util.NarUtil;
 
 public class DescReader {
-    private static final String TAG = "DescReader";
+    private static final Charset DEF_CHARSET = Charset.forName("Shift_JIS");
+	private static final String TAG = "DescReader";
     private Map<String, String> table;
 
     String infilePath = null;
@@ -37,7 +38,7 @@ public class DescReader {
 	    parse(is);
 	}
 	catch(FileNotFoundException e) {}
-	catch(IOException e) {}
+	catch(IOException e) {e.printStackTrace();}
     }
 
     public DescReader(InputStream is) {
@@ -57,17 +58,17 @@ public class DescReader {
     }
 
     private Charset readFirstLineForCharset(BufferedReader br) throws IOException {
-	Charset c =Charset.forName("Shift_JIS"); 
+	Charset c =DEF_CHARSET; 
 	if ( br.markSupported() == false )
 	    return c;
 
-	br.mark(20);
+	//br.mark(20);
 	String line = br.readLine();
 
 	if ( line.startsWith( NarUtil.UTF8_BOM ) )
 	    line = line.substring(1);
 
-	br.reset();
+	//br.reset();
 	String [] cs = line.split(",");
 	if ( cs == null || cs.length != 2 )
 	    return c;
@@ -87,11 +88,14 @@ public class DescReader {
 	if ( getTable() == null )
 	    setTable(new Hashtable<String, String>());
        
+
+
 	BufferedReader reader = null;
-	reader = new BufferedReader(new InputStreamReader(is, Charset.forName("Shift_JIS")));
+	reader = new BufferedReader(new InputStreamReader(is, DEF_CHARSET));
 	Charset c = readFirstLineForCharset(reader);
-	if ( c.compareTo( Charset.forName("Shift_JIS") ) != 0 ) {// not SJIS
+	if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
 	    reader.close();
+	 
 	    reader = new BufferedReader(new InputStreamReader(is, c ) );
 	}
 
@@ -128,13 +132,14 @@ public class DescReader {
 	
 	BufferedReader reader = null;
 
-	reader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(infilePath)), 
-							  Charset.forName("Shift_JIS")));
+	File infile = new File(infilePath);
+	reader = new BufferedReader(new InputStreamReader(new FileInputStream(infile), 
+							  DEF_CHARSET));
 
 	Charset c = readFirstLineForCharset(reader);
-	if ( c.compareTo( Charset.forName("Shift_JIS") ) != 0 ) {// not SJIS
+	if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
 	    reader.close();
-	    reader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(infilePath)),
+	    reader = new BufferedReader(new InputStreamReader(new FileInputStream(infile),
 							      c ) );
 	}
 

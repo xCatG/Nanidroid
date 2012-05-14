@@ -390,6 +390,11 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     
     private void extractNar(String targetPath, boolean force){
 	String ghostId = NarUtil.readNarGhostId(targetPath);
+	if ( ghostId == null ) {
+		if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
+		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR, "ghost_install", "cannot read " + targetPath, -1);
+		return;
+	}
 
 	if ( (gm.hasSameGhostId(ghostId) == false )|| force == true) {
 	    if ( runner != null ) runner.doInstallBegin(ghostId);
