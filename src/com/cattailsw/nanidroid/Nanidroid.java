@@ -48,6 +48,7 @@ import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
+import android.app.WallpaperManager;
 
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
 							   NarPickDlg.NarPickDlgListener,
@@ -83,6 +84,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
         setContentView(R.layout.main);
 	boolean dbgBuild = isDbgBuild();
         initGA();
+	View bg = findViewById(android.R.id.content);
+	bg.setBackgroundDrawable( WallpaperManager.getInstance(getApplicationContext()).getFastDrawable() );
+
 	sv = (SakuraView) findViewById(R.id.sakura_display);
 	kv = (KeroView) findViewById(R.id.kero_display);
 	bSakura = (Balloon) findViewById(R.id.bSakura);
