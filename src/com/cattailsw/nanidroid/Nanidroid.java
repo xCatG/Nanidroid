@@ -50,6 +50,9 @@ import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
 import android.app.WallpaperManager;
 
+import com.google.ads.*;
+import android.widget.LinearLayout;
+
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
 							   NarPickDlg.NarPickDlgListener,
 							   MoreGhostFuncDlg.MoreGhostFuncListener
@@ -84,8 +87,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
         setContentView(R.layout.main);
 	boolean dbgBuild = isDbgBuild();
         initGA();
-	View bg = findViewById(android.R.id.content);
-	bg.setBackgroundDrawable( WallpaperManager.getInstance(getApplicationContext()).getFastDrawable() );
+	setBackground();
 
 	sv = (SakuraView) findViewById(R.id.sakura_display);
 	kv = (KeroView) findViewById(R.id.kero_display);
@@ -148,7 +150,14 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	
 	NarUtil.createNarDirOnSDCard();
 
+	addAdView();
+
 	ViewServer.get(this).addWindow(this);
+    }
+
+    private void setBackground() {
+	View bg = findViewById(android.R.id.content);
+	bg.setBackgroundDrawable( WallpaperManager.getInstance(getApplicationContext()).getFastDrawable() );
     }
 
     private long currentRunCount = -1;
@@ -214,6 +223,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void onDestroy() {
+	adView.destroy();
 	super.onDestroy();
 	ViewServer.get(this).removeWindow(this);
 	sendStopIntent();
@@ -713,4 +723,14 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	else
 	    btnBar.setVisibility(View.GONE);
     }
+
+    private AdView adView;
+
+    private void addAdView() {
+	adView = (AdView) findViewById(R.id.adview);//new AdView(this, AdSize.SMART_BANNER, Setup.ADMOB_PUB_ID);
+	AdRequest a = new AdRequest();
+	a.addTestDevice(AdRequest.TEST_EMULATOR);
+	adView.loadAd(a);
+    }
+
 }

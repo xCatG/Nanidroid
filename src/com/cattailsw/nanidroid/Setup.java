@@ -4,7 +4,7 @@ public class Setup {
     public static final String NANIDROID = "Nanidroid";
     
     public static final String UA_CODE = "UA-17040435-8";
-    
+    public static final String ADMOB_PUB_ID = "a14fb142abcb780";
     
     public static final String DLG_README = "readmedialog"; 
     public static final String DLG_NO_REAMDE = "noreadme";

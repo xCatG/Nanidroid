@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:ads="http://schemas.android.com/apk/lib/com.google.ads"
     android:orientation="vertical"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
     >
-  <include layout="@layout/dbg_btns"  android:layout_width="fill_parent" android:layout_height="wrap_content" android:visibility="gone" android:id="@+id/dbg_btn_bar"/>
+  <include layout="@layout/dbg_btns"  android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_alignParentTop="true" android:visibility="gone" android:id="@+id/dbg_btn_bar"/>
 
-  <include layout="@layout/main_btns"  android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/btn_bar" android:visibility="gone"/>
+  <include layout="@layout/main_btns"  android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_below="@id/dbg_btn_bar" android:id="@+id/btn_bar" android:visibility="gone"/>
 
+
+  
 <FrameLayout
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
-    android:id="@+id/fl"
+    android:id="@id/fl"
+    android:layout_below="@id/btn_bar"
+    android:layout_above="@id/adview"
     android:onClick="frameClick"
     >
 <com.cattailsw.nanidroid.Balloon
@@ -48,5 +53,7 @@
     />
   </FrameLayout>
 
-</LinearLayout>
+  <com.google.ads.AdView android:id="@id/adview" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true" ads:adSize="BANNER" ads:adUnitId="a14fb142abcb780" ads:testDevices="TEST_EMULATOR" ads:loadAdOnCreate="true"/>
+
+</RelativeLayout>
 
