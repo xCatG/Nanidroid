@@ -112,7 +112,7 @@ public class NarUtil {
 		    r.setTable(r.parse());
 		    tmp.delete();
 		    String type = r.getTable().get("type");
-		    if ( type.equalsIgnoreCase("ghost") == false ) { // do not support non-ghost archive
+		    if ( "ghost".equalsIgnoreCase(type) == false ) { // do not support non-ghost archive
 			Log.d(TAG, "do not support " + type + " archive yet");
 			AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_install_not_support", type, -2);
 			
