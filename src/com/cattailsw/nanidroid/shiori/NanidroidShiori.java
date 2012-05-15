@@ -18,8 +18,8 @@ public class NanidroidShiori extends EchoShiori {
     private static final String TAG = "NanidroidShiori";
     HashSet<String> igTable = new HashSet<String>();
     public static final String RES_NO_CONTENT = "SHIORI/3.0 204 NO CONTENT";
-    private static final String RES_HEADER = "SHIORI/3.0 200 OK\r\nSender: EchoShiori\r\nValue: ";
-    private static final String RES_END = "\\e\\r\\nCharset: UTF-8\\r\\n";
+    private static final String RES_HEADER = "SHIORI/3.0 200 OK\r\nSender: "+ TAG +"\r\nValue: ";
+    private static final String RES_END = "\r\nCharset: UTF-8\r\n";
 
     private static final String CONTENT_FILE_NAME = "content.txt";
 

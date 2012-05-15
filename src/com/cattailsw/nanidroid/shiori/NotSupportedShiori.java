@@ -7,7 +7,7 @@ public class NotSupportedShiori extends EchoShiori {
     private static final String TAG = "NotSupportedShiori";
     private static final String RES_NO_CONTENT = "SHIORI/3.0 204 NO CONTENT";
     private static final String RES_HEADER = "SHIORI/3.0 200 OK\r\nSender: EchoShiori\r\nValue: ";
-    private static final String RES_END = "\\e\\r\\n\\r\\n";
+    private static final String RES_END = "\\e\r\n\r\n";
 
     private Context mCtx = null;
 
