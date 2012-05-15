@@ -115,6 +115,10 @@ public class NanidroidShiori extends EchoShiori {
 	    return handleInstallFail();
 	}
 		
+
+	if ( evtTable.get(reqId) != null )
+	    return RES_HEADER + evtTable.get(reqId) + RES_END;
+
 	return RES_NO_CONTENT;
 	//	return super.genResponse();
     }
