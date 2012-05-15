@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.StringReader;
 import java.util.Map;
 
+import android.content.Context;
 import android.util.Log;
 
 import com.cattailsw.nanidroid.shiori.Shiori;
@@ -23,12 +24,19 @@ public class Ghost {
 
     protected boolean error = false;
 
-    public Ghost(String ghostPath) {
+    protected Context mCtx;
+
+    public Ghost(String ghostPath, Context ctx) {
 	rootPath = ghostPath;
 	ghostDirName = (new File(ghostPath)).getName();
 	Log.d(TAG, "gdname="+ghostDirName);
 	mgr = new SurfaceManager(ghostDirName);//SurfaceManager.getInstance();
+	mCtx = ctx;
 	loadGhostInfo();
+    }
+
+    public Ghost(String ghostPath) {
+	this(ghostPath, null);
     }
 
     public boolean ghostError(){
@@ -63,7 +71,7 @@ public class Ghost {
 	if ( error == false )
 	    error = sr.error;
 
-	shiori = ShioriFactory.getInstance().getShiori( master_ghost, ghostDesc );
+	shiori = ShioriFactory.getInstance().getShiori( master_ghost, ghostDesc, mCtx );
     }
 
     // because GhostMgr use ghost dir as its id, just return ghostDir here

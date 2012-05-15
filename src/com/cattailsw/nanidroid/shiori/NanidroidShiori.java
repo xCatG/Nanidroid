@@ -3,15 +3,8 @@ package com.cattailsw.nanidroid.shiori;
 import java.util.HashSet;
 import java.util.Hashtable;
 
-/**
- * Describe class NanidroidShiori here.
- *
- *
- * Created: Mon May 07 10:53:47 2012
- *
- * @author <a href="mailto:"></a>
- * @version 1.0
- */
+import android.content.Context;
+
 public class NanidroidShiori extends EchoShiori {
     private static final String TAG = "NanidroidShiori";
     HashSet<String> igTable = new HashSet<String>();
@@ -19,11 +12,16 @@ public class NanidroidShiori extends EchoShiori {
     private static final String RES_HEADER = "SHIORI/3.0 200 OK\r\nSender: EchoShiori\r\nValue: ";
     private static final String RES_END = "\\e\\r\\n\\r\\n";
     String header = null;
+    private Context mCtx = null;
 
     //    Hashtable<String, String> reqTable = null;
     
     public NanidroidShiori() {
 
+    }
+
+    public NanidroidShiori(Context ctx) {
+	mCtx = ctx;
     }
 
     public void terminate() {
@@ -37,7 +35,7 @@ public class NanidroidShiori extends EchoShiori {
     
     @Override
     protected String genResponse() {
-	if ( reqTable == null )
+	if ( reqTable == null  || mCtx == null )
 	    return super.genResponse();
 	
 	String reqId = reqTable.get("id");

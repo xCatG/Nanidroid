@@ -45,7 +45,7 @@ public class GhostMgr {
 	if ( id == -1 )
 	    return null;
 
-	return new Ghost(getGhostPath(id));
+	return new Ghost(getGhostPath(id), mCtx);
     }
 
     public String getLastRunGhostId(){
