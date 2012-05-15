@@ -822,4 +822,11 @@ public class SScriptRunner implements Runnable {
 	}
     }
 
+    public String getStringValueFromShiori(String id) {
+	if ( g != null )
+	    return g.getStringFromShiori(id);
+
+	return null;
+    }
+
 }
