@@ -70,7 +70,11 @@ public class EchoShiori implements Shiori {
 		line = null;
 	    }
 	    if ( line == null ) break;
-	    if ( line.indexOf(": ") == -1 ) { Log.d(TAG, "got a non recognized line\n"+ line); continue;}
+	    if ( line.indexOf(": ") == -1 ) { 
+		if ( line.length() > 0 )
+		Log.d(TAG, "got a non recognized line\n"+ line); 
+		continue;
+	    }
 
 	    String key = line.substring(0, line.indexOf(": ")).toLowerCase();
 	    String val = line.substring(line.indexOf(": ") + 2);
