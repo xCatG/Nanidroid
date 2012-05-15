@@ -36,7 +36,7 @@ public class ShioriFactory {
 	String sdllname = masterDesc.get("shiori");
 
 	if ( sdllname.matches("Nanidroid") ) {
-	    return new NanidroidShiori(ctx);
+	    return new NanidroidShiori(ctx, path);
 	}
 	else if ( sdllname.matches("satori.dll") ) {
 	    return new SatoriPosixShiori(path);
