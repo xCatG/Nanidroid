@@ -122,6 +122,18 @@ public class Ghost {
 	return doShioriEvent("OnMinuteChange", new String[]{"" + hour, "0", "0", "1"});
     }
 
+    // can return null
+    public String getStringFromShiori(String id) {
+	if (shiori == null )
+	    return null;
+
+	ShioriResponse r = doShioriEvent(id, null);
+	if ( r.getStatusCode() != 200 )
+	    return null;
+	
+	return r.getKey("Value");
+    }
+
     public ShioriResponse doShioriEvent(String event, String[] ref) {
 	if ( shiori == null ) {
 	    return new ShioriResponse("SHIORI/2.0 500 Internal Server Error");
