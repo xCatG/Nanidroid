@@ -111,7 +111,7 @@ public class DescReader {
 	    if ( line == null ) 
 		break;
 	    if ( line.indexOf(',') == -1 ) 
-		continue; // ignore lines started with ,
+		continue; // ignore lines without ,
 
 	    // should split line into pairs
 	    String[] pair = line.split(",");
