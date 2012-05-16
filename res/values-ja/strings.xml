@@ -25,17 +25,22 @@
   <string name="more_g_enter_url_text">URL入力</string>
   <string name="more_g_from_SD_text">SDカードから追加</string>
   <string name="more_g_ghost_town_text">ゴーストポータルサイト</string>
-  <string name="err_invalid_url">URLが間違っています。Httpから始まり、.narや.zipでおわりのURLだけがダウンロードできます。</string>
+  <string name="err_invalid_url">無効なURLです。URLは.narや.zipで終わらないといけません。</string>
   <string name="err_nar_title">エラー：SDカードから追加</string>
   <string name="err_no_nar_folder">SDカード上にはNarフォルダが見つかりません</string>
   <string name="err_no_nar_file">Narファイルが見つかりません</string>
-  <string name="dlg_sel_nar_title">一つを選んでください</string>
+  <string name="dlg_sel_nar_title">一のファイルを選んでインストールしてください</string>
   <string name="dlg_sel_nar_install_text">インストール</string>
   <string name="btn_dl_text">ダウンロード</string>
 
-  <string name="help_install">ゴーストの追加</string>
+  <string name="help_install">新しいゴーストのインストール</string>
   <string name="url_help_install">http://blog.cattail-sw.com/?p=215</string>
-  <string name="help_supported_ops">機能の実装状況</string>
+  <string name="help_supported_ops">対応した機能の表示</string>
   <string name="url_support_ops">http://blog.cattail-sw.com/?p=217</string>
+
+  <!--  <string name=""></string> -->
+  <string name="unsupported_shiori">\\0\\s0すみません、このゴーストのSHIORIモジュールはまだサポートされておりません。オリジナルのゴーストの喋る機能はまだ利用できません。\\e</string>
+  <string name="unsupported_shiori_ongchanging">\\0\\s0%1$sさんにゴーストを切り替えます\\e</string>
+  <string name="unsupported_shiori_onclose">\\0\\s0Nanidroidのご利用をいただき、ありがとうございました！\\e</string>
 
 </resources>

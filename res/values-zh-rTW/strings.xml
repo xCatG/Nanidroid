@@ -1,4 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    
+  <string name="dl_complete">下載完成</string>
+  <string name="dl_note">可以安裝%1$s</string>
+  <string name="list_ghost_btn_text">偽人格列表</string>
+  <string name="update_btn_text">更新</string>
+  <string name="help_btn_text">說明</string>
+  <string name="more_ghosts_btn_text">取得更多偽人格</string>
+  <string name="list_ghost_dlg_title">已安裝偽人格列表</string>
+  <string name="no_readme_dlg_title">切換偽人格嗎？</string>
+  <string name="no_readme_text">偽人格%1$s沒有可以顯示的說明文件。您想切換過去嗎？</string>
+  <string name="switch_to_ghost_btn_text">切換到偽人格</string>
+  <string name="new_ghost_installed_title">安裝了新的偽人格</string>
+  <string name="close_btn_text">關閉</string>
+  <string name="not_implemented">此功能尚未完成</string>
+  <string name="not_implemeted_title">很抱歉</string>
+  <string name="menu_help">使用說明</string>
+  <string name="menu_about">關於</string>
+  <string name="menu_feedback">提供建議</string>
+  <string name="about_title">關於Nanidroid</string>
+  <string name="setup_btn_text">設定</string>
+  <string name="enable_analytic_title">允許匿名使用資料</string>
+  <string name="enable_analytic_desc">允許使用Google Analytics收集匿名的使用資料，以幫助改善本產品</string>
+
+  <string name="more_g_title">取得更多偽人格</string>
+  <string name="more_g_enter_url_text">輸入網址</string>
+  <string name="more_g_from_SD_text">從SD卡安裝</string>
+  <string name="err_invalid_url">無效的URL。 URL必須以 .nar 或 .zip 結束</string>
+  <string name="err_nar_title">從SD卡安裝錯誤</string>
+  <string name="err_no_nar_folder">SD卡上沒有找到名為nar的資料夾</string>
+  <string name="err_no_nar_file">沒有發現.nar檔案</string>
+  <string name="dlg_sel_nar_title">選擇一個檔案來安裝</string>
+  <string name="dlg_sel_nar_install_text">安裝</string>
+  <string name="btn_dl_text">下載</string>
+
+  <string name="help_install">如何安裝新的偽人格</string>
+  <string name="help_supported_ops">目前本體支援的功能</string>
+
+<!--  <string name=""></string> -->
+  <string name="unsupported_shiori">\\0\\s0抱歉，這個偽人格使用Nanidroid尚未支援的SHIORI模組！將無法顯示偽人格專屬的對話等功能。\\e</string>
+  <string name="unsupported_shiori_ongchanging">\\0\\s0切換至偽人格%1$s\\e</string>
+  <string name="unsupported_shiori_onclose">\\0\\s0感謝您使用Nanidroid！\\e</string>    
 </resources>
