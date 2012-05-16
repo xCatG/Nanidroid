@@ -116,6 +116,22 @@ public class GhostMgr {
     	return iglist.get(gid).getSakuraName();    	
     }
 
+    public String getGhostDispName(String id) {
+	int gid = getGhostId(id);
+	if ( gid == -1 ) return null;
+	return iglist.get(gid).getGhostName();
+    }
+
+    public String[] getGDispNames() {
+	if ( iglist == null || iglist.size() == 0 )
+	    return null;
+	String[] ret = new String[iglist.size()];
+	for ( int i = 0; i < iglist.size() ; i++ ) {
+	    ret[i] = iglist.get(i).getGhostName();
+	}
+	return ret;
+    }
+
     public String getGhostPath(String id) {
     	int gid = getGhostId(id);
     	return getGhostPath(gid);

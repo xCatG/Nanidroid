@@ -355,7 +355,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	  runner.addMsgToQueue(new String[]{cmd});
 	  runner.run();*/
 	//startService(new Intent(this, NanidroidService.class));	
-	runner.clearMsgQueue();
+	//runner.clearMsgQueue();
+	Log.d(TAG, "get homeurl from shiori:" + runner.getStringValueFromShiori("homeurl"));
     }
 
     private void sendStopIntent(){
@@ -466,14 +467,14 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     private void showReadme(File readme, final String ghostId){
-	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/"+Setup.DLG_README+":ghostId");
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/"+Setup.DLG_README+":"+ghostId);
         DialogFragment newFragment = ReadmeDialogFragment.newInstance(readme, ghostId);
         newFragment.show(getSupportFragmentManager(), Setup.DLG_README);
     }
 
     private void showGhostInstalledDlg(String ghostId){
-	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/"+Setup.DLG_NO_REAMDE+":ghostId");
-    	DialogFragment f = NoReadmeSwitchDlg.newInstance(ghostId);
+	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView("/"+Setup.DLG_NO_REAMDE+":"+ghostId);
+    	DialogFragment f = NoReadmeSwitchDlg.newInstance(ghostId, gm.getGhostDispName(ghostId));
     	f.show(getSupportFragmentManager(), Setup.DLG_NO_REAMDE);
     }
 

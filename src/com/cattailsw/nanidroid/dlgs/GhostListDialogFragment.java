@@ -19,6 +19,7 @@ import android.widget.ListAdapter;
 
 public class GhostListDialogFragment extends DialogFragment {
     String[] gnz = null;
+    String[] gidz = null;
     GhostMgr gm = null;
     ListAdapter adapter = null;
     public static GhostListDialogFragment newInstance(String[] gnz, GhostMgr gm) {
@@ -26,19 +27,21 @@ public class GhostListDialogFragment extends DialogFragment {
         Bundle args = new Bundle();
         //args.putInt("title", title);
         frag.setArguments(args);
-        frag.gnz = gnz;
+        //frag.gnz = gnz;
         frag.gm = gm;
         return frag;
     }
 
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-    	adapter = new ArrayAdapter<String>(getActivity(), R.layout.ghost_list_item, gnz);
-
+    	//adapter = new ArrayAdapter<String>(getActivity(), R.layout.ghost_list_item, gnz);
+	gnz = gm.getGDispNames();
+	gidz = gm.getGnames();
         return new AlertDialog.Builder(getActivity())
 	    //.setIcon(R.drawable.alert_dialog_icon)
 	    .setTitle(R.string.list_ghost_dlg_title)
-	    .setAdapter(adapter,new OnClickListener(){
+	    .setItems(gnz,/*
+			    .setAdapter(adapter,*/new OnClickListener(){
 
 		    @Override
 		    public void onClick(DialogInterface dialog, int which) {
@@ -48,14 +51,14 @@ public class GhostListDialogFragment extends DialogFragment {
 				.trackEvent(Setup.ANA_UI_TOUCH, "ghost_list_touch", gnz[which], 
 					    gm.getGhostLaunchCount(which));
 
-			    File readme = gm.getGhostReadMe(gnz[which]);
+			    File readme = gm.getGhostReadMe(gidz[which]);
 			    if ( readme.exists() ){
-				DialogFragment r = ReadmeDialogFragment.newInstance(readme, gnz[which]);
+				DialogFragment r = ReadmeDialogFragment.newInstance(readme, gidz[which]);
 				r.show(getFragmentManager(), Setup.DLG_README);
 			    }
 			    else {
 				// need to show a dialog asking user to switch or not?
-				DialogFragment r = NoReadmeSwitchDlg.newInstance(gnz[which]);
+				DialogFragment r = NoReadmeSwitchDlg.newInstance(gidz[which], gnz[which]);
 				r.show(getFragmentManager(), Setup.DLG_NO_REAMDE);
 			    }
 			}	
