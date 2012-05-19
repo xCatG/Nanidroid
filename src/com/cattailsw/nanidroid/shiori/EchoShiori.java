@@ -82,4 +82,6 @@ public class EchoShiori implements Shiori {
 	}
     }
 
+    // do nothing
+    public void unloadShiori(){}
 }

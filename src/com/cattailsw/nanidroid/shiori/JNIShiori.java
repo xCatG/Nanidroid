@@ -21,6 +21,7 @@ public abstract class JNIShiori implements Shiori {
 	terminateFromJNI();
     }
 
+    abstract public void unloadShiori();
 
     protected String modResponseWithCharSet(byte[] bytes) {
 	String s = new String(bytes);

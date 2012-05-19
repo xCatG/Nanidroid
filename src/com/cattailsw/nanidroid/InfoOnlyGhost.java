@@ -28,4 +28,6 @@ public class InfoOnlyGhost extends Ghost {
 	}
     }
 
+    // do nothing
+    public void unload() {}
 }

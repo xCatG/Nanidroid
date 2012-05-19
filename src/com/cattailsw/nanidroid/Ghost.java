@@ -46,15 +46,15 @@ public class Ghost {
     protected void loadGhostInfo() {
 
 
-	String master_ghost = rootPath + "/ghost/master";
-	String master_ghost_desc = master_ghost + "/descript.txt";
+	String master_ghost = rootPath + "/ghost/master/";
+	String master_ghost_desc = master_ghost + "descript.txt";
 	DescReader ghost_dr = new DescReader(master_ghost_desc);
 
-	String master_shell = rootPath + "/shell/master";
-	String master_shell_desc = master_shell + "/descript.txt";
+	String master_shell = rootPath + "/shell/master/";
+	String master_shell_desc = master_shell + "descript.txt";
 	DescReader shell_dr = new DescReader(master_shell_desc);
 
-	String master_shell_surface = master_shell + "/surfaces.txt";
+	String master_shell_surface = master_shell + "surfaces.txt";
 
 	try {
 	    ghostDesc = ghost_dr.parse();
@@ -72,6 +72,10 @@ public class Ghost {
 	    error = sr.error;
 
 	shiori = ShioriFactory.getInstance().getShiori( master_ghost, ghostDesc, mCtx );
+    }
+
+    public void unload() {
+	shiori.unloadShiori();
     }
 
     // because GhostMgr use ghost dir as its id, just return ghostDir here

@@ -29,6 +29,7 @@ public class SatoriPosixShiori extends JNIShiori {
 	return modResponseWithCharSet(result);// super.request( tmp_r );
     }
 
+    @Override
     public void unloadShiori(){
 	unload();
     }

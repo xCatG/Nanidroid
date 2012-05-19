@@ -21,6 +21,7 @@ public class Kawari extends JNIShiori {
 	return modResponseWithCharSet(requestFromJNI(req.getBytes(Charset.forName("Shift_JIS"))));
     }
 
+    @Override
     public void unloadShiori(){
 	unload();
     }

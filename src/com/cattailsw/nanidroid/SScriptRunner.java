@@ -229,6 +229,7 @@ public class SScriptRunner implements Runnable {
 	    if ( changingPending ) {
 		changingPending = false;
 		cb.ghostSwitchScriptComplete();
+		g.unload();
 	    }
 	}
     }
