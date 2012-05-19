@@ -48,7 +48,7 @@ public class ShioriFactory {
 		return new Kawari(path); // should be kawari878
 	    }
 	    else if ( (new File(path, "kawari.ini") ).exists() ) {
-		return new Kawari(path); // kawari 7 or something like this
+		return new NotSupportedShiori(ctx); // kawari 7 or something like this
 	    }
 	    else if ( (new File(path, "aya5.txt")).exists()) {
 		return new NotSupportedShiori(ctx); // assume yaya
