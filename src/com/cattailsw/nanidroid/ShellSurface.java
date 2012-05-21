@@ -50,6 +50,7 @@ public class ShellSurface {
     public static final int TYPE_RESET = -1;
     public static final int TYPE_BASE = 0;
     public static final int TYPE_OVERLAY = 1;
+	public static final int TYPE_MOVE = 2;
 
     int surfaceId;
     int origW;
@@ -65,6 +66,7 @@ public class ShellSurface {
     Drawable surfaceDrawable = null;
     int surfaceType = 0;
 
+    
     //SurfaceManager mgr = null;
     public ShellSurface() {
 
@@ -73,8 +75,8 @@ public class ShellSurface {
     public ShellSurface(String path, int id, List<String> elements) {
 	surfaceId = id;
 	basePath = path;
-	selfFilename = basePath + "/surface" + surfaceId + ".png";
-	bp2 = String.format("%s%04d%s", basePath+"/surface", surfaceId, ".png");
+	selfFilename = basePath + "surface" + surfaceId + ".png";
+	bp2 = String.format("%s%04d%s", basePath+"surface", surfaceId, ".png");
 	Log.d(TAG, "bp2:" + bp2);
 	//mgr = SurfaceManager.getInstance();
 	loadSurface(elements);	
@@ -135,6 +137,7 @@ public class ShellSurface {
     Map<Integer, String> animationTypeTable = null;
     List<AnimationFrame> elementList = null;
 
+
     class Animation {
 	Animation(){}
 	Animation(String id, int interval){this.id = id; this.interval = interval;}
@@ -171,6 +174,17 @@ public class ShellSurface {
 	    this.animation = anime;
 	    return anime;
 	}
+	@Override
+	public String toString() {
+		StringBuilder sb = new StringBuilder();
+		sb.append("[Animation] id:" + id + ",interval:" + interval + "\n");
+		sb.append("  => dumping frames:\n");
+		for ( AnimationFrame f : frames) {
+			sb.append(f.toString());
+			sb.append("\n");
+		}
+		return sb.toString();
+	}
 
     }
 
@@ -195,11 +209,24 @@ public class ShellSurface {
 
 	    return refAnimationz[index];
 	}
+	@Override
+	public String toString() {
+		StringBuilder sb = new StringBuilder();
+		sb.append(super.toString());
+		sb.append("  => refidz:");
+		for ( String i : refidz) {
+			sb.append(i + ",");
+		}
+		sb.append("\n");
+		
+		return sb.toString();
+	}
     }
 
 
     class AnimationFrame{
 	String sid;
+
 	String filePath;
 	int time;
 	int frameType;
@@ -256,8 +283,17 @@ public class ShellSurface {
 		d = loadTransparentBitmapFromFile(filePath, res, opt);
 		return d;
 	    }
+	    else if ( frameType == TYPE_MOVE ) {
+	    	// move type not supported, return base surface for the time being...
+	    	d = getSurfaceDrawable(res);
+	    }
 
 	    return d;
+	}
+
+	@Override
+	public String toString() {
+		return "[AnimationFrame] sid=" + sid + ",FType="+frameType+ ",[W,H]=["+W+","+H+"],(startX,startY)=(" +startX+","+startY+")";
 	}
 
     }
@@ -440,7 +476,7 @@ public class ShellSurface {
 	}
 
 	/* filename is actual file name on file system, not surface id? */	
-	String fz = basePath + "/" + filename;
+	String fz = basePath + filename;
 	File file = new File(fz);
 	if ( file.exists() ) {
 	    
@@ -554,6 +590,9 @@ public class ShellSurface {
 	else if ( type.equalsIgnoreCase("overlay") || type.equalsIgnoreCase("overlayfast")) {
 	    return TYPE_OVERLAY;
 	}
+	else if ( type.equalsIgnoreCase("move")) {
+		return TYPE_MOVE;
+	}
 	// base
 	// overlay
 	// overlayfast
@@ -622,14 +661,14 @@ public class ShellSurface {
 	}
 	else {
 	    // first check file existance
-	    String fz = basePath + "/surface" + filename + ".png";
+	    String fz = basePath + "surface" + filename + ".png";
 	    File file = new File(fz);
 	    if ( file.exists() ) {
 
 		BitmapFactory.Options opt = readBitmapInfo(fz);
 
 		AnimationFrame f = new AnimationFrame();
-		f.sid = filename; // filename should really be called surface id...
+		f.sid = "" + index; // filename should really be called surface id...
 		f.filePath = fz;
 		f.frameType = lookupPatternType(pattern);
 		f.time = wait;
@@ -642,9 +681,10 @@ public class ShellSurface {
 	    }
 	    else {
 		AnimationFrame f = new AnimationFrame();
-		f.sid = filename;
+		f.sid = "" + index ;//filename;
 		f.startX = x;
 		f.startY = y;
+		f.frameType = lookupPatternType(pattern);
 		addFrameToAnimation(animationId, index, f);
 	    }
 	}
@@ -796,7 +836,7 @@ public class ShellSurface {
     }
 
     public Drawable getAnimation(String id, Resources res, SurfaceManager mgr) {
-	if ( animationTable.containsKey(id) )
+	if ( animationTable!= null && animationTable.containsKey(id) )
 	    return animationTable.get(id).getAnimation(res, mgr);
 	else 
 	    return null;
@@ -865,4 +905,63 @@ public class ShellSurface {
 	return dim;
     }
 
+    public String dumpSurfaceStat() {
+    	StringBuilder sb = new StringBuilder();    	
+   		sb.append("==================\n");
+
+   		sb = dumpElementList(sb);
+   		sb = dumpStat(sb);
+    	sb = dumpAnimation(sb);
+
+   		sb.append("==================\n");
+    	return sb.toString();
+    }
+
+    public StringBuilder dumpAnimation(StringBuilder sb) {
+    	if ( animationTable != null ) {
+    	
+    	sb.append("[dumping animation]\n");
+    	for(String k : animationTable.keySet()) {
+    		sb.append( animationTable.get(k).toString());
+    	}
+    	}
+    	
+    	if ( animationTypeTable != null ) {
+    	sb.append("[dumping animation type table]\n");
+    	for ( Integer i : animationTypeTable.keySet()) {
+    		sb.append(animationTypeTable.get(i));
+    		sb.append("\n");
+    	}
+    	sb.append("[done dumping animation type table]\n");
+    	}
+    	return sb;
+    }
+
+    public StringBuilder dumpStat(StringBuilder sb) {
+    	sb.append("[dumping surface status]");
+    	sb.append("surface id:" + surfaceId + "\n");
+    	sb.append("surface type:" + surfaceType + "\n");
+    	sb.append("surface filename:" + selfFilename + "\n");
+    	sb.append("[origW,origH]:[" + origW + "," + origH + "]\n");
+    	if ( animationTable != null )
+    	sb.append("animation count:" + animationTable.size() + "\n");
+    	return sb;
+    }
+
+    
+    // debug dumping functions...
+    public StringBuilder dumpElementList(StringBuilder sb) {    	
+    	if ( elementList != null && elementList.size() > 0) {
+
+    	sb.append("[dumping element list]\n");
+    	for(AnimationFrame e : elementList){
+    		sb.append(e.toString());
+    		sb.append("\n");
+    	}
+    	sb.append("[end of element list]\n");
+    	}
+    	return sb;
+    }
+
+    
 }

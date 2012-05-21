@@ -1,5 +1,7 @@
 package com.cattailsw.nanidroid;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import android.content.res.Resources;
@@ -81,5 +83,15 @@ public class SurfaceManager {
     	catch (Exception e) {
     		return null;
     	}	
+    }
+    
+    public String dumpSurfaces() {
+    	StringBuilder sb = new StringBuilder();
+    	ArrayList<String> kz = new ArrayList<String>(surfaces.keySet());
+    	Collections.sort(kz);
+    	for ( String k : kz) {
+    		sb.append(surfaces.get(k).dumpSurfaceStat());    	
+    	}
+    	return sb.toString();
     }
 }

@@ -36,6 +36,7 @@ import android.widget.Toast;
 
 import com.android.debug.hv.ViewServer;
 import com.cattailsw.nanidroid.dlgs.AboutDialogFragment;
+import com.cattailsw.nanidroid.dlgs.DbgMsgDlg;
 import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
 import com.cattailsw.nanidroid.dlgs.ErrMsgDlg;
 import com.cattailsw.nanidroid.dlgs.GhostListDialogFragment;
@@ -76,6 +77,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     GhostMgr gm = null;
     List<InfoOnlyGhost> iglist = null;
 
+    private Ghost currentGhost = null;
+    
     private static final String MIN_TAG = "minimized";
     private boolean restoreFromMinimize = false;
 
@@ -123,6 +126,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
 	runner.setGhost(g);
 	gm.setLastRunGhost(g);
+	currentGhost = g;
 
 	runner.setViews(sv, kv, bSakura, bKero);
 	sv.setMgr(g.mgr);
@@ -480,6 +484,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     int cGindex = 0;
     public void onNextGhost(View v){
+    	/*
 	String [] gname = gm.getGnames();// {"first","yohko","2elf"};
 	if ( gname == null )
 	    return;
@@ -488,6 +493,10 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	cGindex++;
 	if ( cGindex > gname.length -1)
 	    cGindex = 0;
+	    */
+    	String surfaceDbgMsg =currentGhost.mgr.dumpSurfaces();
+    	DbgMsgDlg d = DbgMsgDlg.newInstance(surfaceDbgMsg);
+    	d.show(getSupportFragmentManager(), Setup.DLG_DBG_MSG);
     }
 
     String nextGhostId = null;
@@ -523,7 +532,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    e.printStackTrace();
 	    return;
     	}
-
+    currentGhost = g;
 	sv.setMgr(g.mgr);
 	kv.setMgr(g.mgr);
 	updateSurfaceKeys(g);
