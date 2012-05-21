@@ -155,6 +155,10 @@ public class ShellSurface {
 	AnimationDrawable animation = null;
 
 	AnimationDrawable getAnimation(Resources res){
+	    return getAnimation(res, null);
+	}
+
+	AnimationDrawable getAnimation(Resources res, SurfaceManager mgr) {
 	    if ( animation != null )
 		return animation;
 
@@ -162,7 +166,7 @@ public class ShellSurface {
 	    AnimationDrawable anime = new AnimationDrawable();
 	    for ( int i = 0; i < frameCount; i++ ) {
 		AnimationFrame f = frames.get(i);
-		anime.addFrame( f.getDrawable(res), f.time /* *100 */ );
+		anime.addFrame( f.getDrawable(res, mgr), f.time /* *100 */ );
 	    }
 	    this.animation = anime;
 	    return anime;
@@ -181,6 +185,10 @@ public class ShellSurface {
 	AnimationDrawable []refAnimationz;
 
 	AnimationDrawable getAnimation(Resources res) {
+	    return getAnimation(res, null);
+	}
+
+	AnimationDrawable getAnimation(Resources res, SurfaceManager mgr) {
 	    int index = (int)(Math.random() * refidz.length);
 	    if ( refAnimationz[index] == null )
 		refAnimationz[index] = animationTable.get(refidz[index]).getAnimation(res);
@@ -191,6 +199,7 @@ public class ShellSurface {
 
 
     class AnimationFrame{
+	String sid;
 	String filePath;
 	int time;
 	int frameType;
@@ -200,7 +209,12 @@ public class ShellSurface {
 	int H;
 	Drawable d;
 
+
 	Drawable getDrawable(Resources res) {
+	    return getDrawable(res, null);
+	}
+
+	Drawable getDrawable(Resources res, SurfaceManager mgr) {	
 	    if ( d != null )
 		return d;
 
@@ -210,17 +224,33 @@ public class ShellSurface {
 		BitmapFactory.Options opt = new BitmapFactory.Options();
 		opt.inPreferredConfig = Bitmap.Config.ARGB_8888;
 
-		dz[1] = loadTransparentBitmapFromFile(filePath, res, opt);
+		if ( mgr != null && sid != null && mgr.containsSurface(sid) ) {
+		    dz[1] = mgr.getSurfaceDrawable(sid, res);
+		    // need to get the size of the surface...
+		    Rect d = mgr.getSurfaceRect(sid, res);
+		    if ( d != null ) {
+			W = d.width();
+			H = d.height();
+		    }
+		    else {
+			W = origW;
+			H = origH;
+		    }
+		}
+		else {
+		    dz[1] = loadTransparentBitmapFromFile(filePath, res, opt);
+		}
+
 		LayerDrawable ld = new LayerDrawable(dz);
 		ld.setLayerInset(1, startX, startY, origW - startX - W, origH - startY - H);
 		d = ld;
 		return d;
+		
 	    }
-
-	    if ( frameType == TYPE_RESET )
+	    else if ( frameType == TYPE_RESET ) {
 		return getSurfaceDrawable(res);
-
-	    if ( frameType == TYPE_BASE ) {
+	    }
+	    else if ( frameType == TYPE_BASE ) {
 		BitmapFactory.Options opt = new BitmapFactory.Options();
 		opt.inPreferredConfig = Bitmap.Config.ARGB_8888;
 		d = loadTransparentBitmapFromFile(filePath, res, opt);
@@ -599,6 +629,7 @@ public class ShellSurface {
 		BitmapFactory.Options opt = readBitmapInfo(fz);
 
 		AnimationFrame f = new AnimationFrame();
+		f.sid = filename; // filename should really be called surface id...
 		f.filePath = fz;
 		f.frameType = lookupPatternType(pattern);
 		f.time = wait;
@@ -607,6 +638,13 @@ public class ShellSurface {
 		f.W = opt.outWidth;
 		f.H = opt.outHeight;
 
+		addFrameToAnimation(animationId, index, f);
+	    }
+	    else {
+		AnimationFrame f = new AnimationFrame();
+		f.sid = filename;
+		f.startX = x;
+		f.startY = y;
 		addFrameToAnimation(animationId, index, f);
 	    }
 	}
@@ -754,8 +792,12 @@ public class ShellSurface {
     }
 
     public Drawable getAnimation(String id, Resources res) {
+	return getAnimation(id, res, null);
+    }
+
+    public Drawable getAnimation(String id, Resources res, SurfaceManager mgr) {
 	if ( animationTable.containsKey(id) )
-	    return animationTable.get(id).getAnimation(res);
+	    return animationTable.get(id).getAnimation(res, mgr);
 	else 
 	    return null;
     }
@@ -814,6 +856,13 @@ public class ShellSurface {
 	}
 	return null;
     }
-    
+
+    Rect dim = null;
+    public Rect getSurfaceDim(){
+	if ( dim == null )
+	    dim = new Rect(0, 0, origW, origH);
+
+	return dim;
+    }
 
 }

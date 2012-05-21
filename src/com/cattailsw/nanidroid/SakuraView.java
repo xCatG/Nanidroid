@@ -118,7 +118,8 @@ public class SakuraView extends ImageView {
     public void loadAnimation(String id) {
 	if ( animation == null || id.equalsIgnoreCase(currentAnimationId) == false ){
 	    Log.d(TAG, "loading animation:" + id);
-	    animation = (AnimationDrawable)currentSurface.getAnimation(id, mCtx.getResources());
+	    //animation = (AnimationDrawable)currentSurface.getAnimation(id, mCtx.getResources());
+	    animation = (AnimationDrawable)currentSurface.getAnimation(id, mCtx.getResources(), mgr);
 	    currentAnimationId = id;
 	}
 	animation.setVisible(true, true);

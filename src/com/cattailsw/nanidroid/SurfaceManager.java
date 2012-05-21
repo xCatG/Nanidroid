@@ -5,6 +5,7 @@ import java.util.Map;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import java.util.Set;
+import android.graphics.Rect;
 
 public class SurfaceManager {
 
@@ -71,5 +72,14 @@ public class SurfaceManager {
     	catch (Exception e) {
     		return null;
     	}
+    }
+
+    public Rect getSurfaceRect(String id, Resources res){
+    	try {
+	    return surfaces.get(id).getSurfaceDim();
+    	}
+    	catch (Exception e) {
+    		return null;
+    	}	
     }
 }
