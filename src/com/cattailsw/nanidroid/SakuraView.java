@@ -129,6 +129,7 @@ public class SakuraView extends ImageView {
     }
 
     public void startAnimation(){
+    	if ( animation == null) return;
 	animation.stop();
 	animation.start();
     }
