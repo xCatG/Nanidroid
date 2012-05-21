@@ -122,8 +122,10 @@ public class SakuraView extends ImageView {
 	    animation = (AnimationDrawable)currentSurface.getAnimation(id, mCtx.getResources(), mgr);
 	    currentAnimationId = id;
 	}
+	if ( animation != null ) {
 	animation.setVisible(true, true);
 	setImageDrawable( animation );
+	}
     }
 
     public void startAnimation(){
