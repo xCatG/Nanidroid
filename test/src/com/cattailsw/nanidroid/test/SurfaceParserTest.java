@@ -219,4 +219,23 @@ public class SurfaceParserTest extends AndroidTestCase {
 	assertEquals(1, id[0]);
     }
 	
+    public void testComment() {
+	String t = ";askjdaklsjdkals";
+	Matcher m = PatternHolders.comment_ptrn.matcher(t);
+	assertTrue(m.matches());
+
+	t = "// askdjklsd nkwenlkasl";
+	m = PatternHolders.comment_ptrn.matcher(t);
+	assertTrue(m.matches());
+
+	t = "abcde";
+	m = PatternHolders.comment_ptrn.matcher(t);
+	assertFalse(m.matches());
+
+
+	t = "abcde;//asldka;sldkl;";
+	m = PatternHolders.comment_ptrn.matcher(t);
+	assertFalse(m.matches());
+
+    }
 }
