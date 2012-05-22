@@ -539,6 +539,7 @@ public class ShellSurface {
     public static final int A_TYPE_RANDOM = 6;
     public static final int A_TYPE_LOOP = 7;
     public static final int A_TYPE_NEVER = 8;
+    public static final int A_TYPE_LAST = A_TYPE_NEVER + 1;
 
     private int lookupInterval(String in) {
 	if ( in.equalsIgnoreCase("sometimes") )

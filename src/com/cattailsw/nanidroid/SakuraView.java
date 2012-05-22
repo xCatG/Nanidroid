@@ -18,6 +18,9 @@ import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ImageView;
+import java.util.Collections;
+import java.util.List;
+import java.util.ArrayList;
 
 public class SakuraView extends ImageView {
     private static final String TAG = "SakuraView";
@@ -275,6 +278,23 @@ public class SakuraView extends ImageView {
 	}
 	}
 	return super.onTouchEvent(motionEvent);
+    }
+
+    public void surfaceExercise() {
+	try {
+	    // load surface, then load and run all animations
+	    List<String> keyz = new ArrayList<String>(mgr.getSurfaceKeys());
+	    Collections.sort(keyz);
+	    for ( String s : keyz ) {
+		changeSurface(s);
+		for ( int i = ShellSurface.A_TYPE_SOMETIMES; i < ShellSurface.A_TYPE_LAST; i++ ) {
+		    startAnimation(i);
+		}
+	    }
+	}
+	catch(Exception e) {
+	    e.printStackTrace();
+	}
     }
 
 }

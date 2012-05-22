@@ -94,11 +94,10 @@ public class DescReader {
 	BufferedReader reader = null;
 	reader = new BufferedReader(new InputStreamReader(is, DEF_CHARSET));
 	Charset c = readFirstLineForCharset(reader);
-	if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
-	    reader.close();
-	 
-	    reader = new BufferedReader(new InputStreamReader(is, c ) );
-	}
+	//if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
+	reader.close();
+	reader = new BufferedReader(new InputStreamReader(is, c ) );
+	//}
 
 	readLoop(reader, getTable());
 
@@ -138,11 +137,11 @@ public class DescReader {
 							  DEF_CHARSET));
 
 	Charset c = readFirstLineForCharset(reader);
-	if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
+//	if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
 	    reader.close();
 	    reader = new BufferedReader(new InputStreamReader(new FileInputStream(infile),
 							      c ) );
-	}
+//	}
 
 	readLoop(reader, ret);
 

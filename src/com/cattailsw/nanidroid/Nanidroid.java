@@ -360,7 +360,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	  runner.run();*/
 	//startService(new Intent(this, NanidroidService.class));	
 	//runner.clearMsgQueue();
-	Log.d(TAG, "get homeurl from shiori:" + runner.getStringValueFromShiori("homeurl"));
+	//Log.d(TAG, "get homeurl from shiori:" + runner.getStringValueFromShiori("homeurl"));
+	sv.surfaceExercise();
     }
 
     private void sendStopIntent(){
