@@ -15,6 +15,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import com.cattailsw.nanidroid.util.NarUtil;
+import com.cattailsw.nanidroid.util.AnalyticsUtils;
 
 public class DescReader {
     private static final Charset DEF_CHARSET = Charset.forName("Shift_JIS");
@@ -148,6 +149,7 @@ public class DescReader {
 	reader.close();
 	parseTime = SystemClock.uptimeMillis() - parseTime;
 	Log.d(TAG, "parsing took:" + parseTime + "ms");
+	AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PERF, "parsing time[ms]", infilePath, (int)parseTime);
 	return ret;
     }
 

@@ -243,7 +243,7 @@ public class SurfaceReader {
 	}
 	parseTime = SystemClock.uptimeMillis() - parseTime;
 	Log.d(TAG, "parse time:" + parseTime + "ms");
-
+	AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PERF, "parsing time[ms]", descPath, (int)parseTime);
     }
 
 }
