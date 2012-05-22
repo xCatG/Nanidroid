@@ -435,6 +435,12 @@ public class ShellSurface {
 		continue;
 	    }
 
+	    // skip comments
+	    m = PatternHolders.comment_ptrn.matcher( s );
+	    if( m.matches() ) {
+		continue;
+	    }
+
 	    Log.d(TAG, s + " matched nothing.");
 	    try {
 		AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface parse no_match", s, -1);
