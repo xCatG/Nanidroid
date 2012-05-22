@@ -643,14 +643,16 @@ public class ShellSurface {
 	int x = -1;
 	int y = -1;
 	int wait = -1;
+	int findex = -1;
 	try {
 	    index = Integer.parseInt(seq);
 	    wait = Integer.parseInt(waitTime);
 	    x = Integer.parseInt(x_in);
 	    y = Integer.parseInt(y_in);
+	    findex = Integer.parseInt(filename);
 	}
 	catch(Exception e ) {
-
+		e.printStackTrace();
 	}
 
 	if ( filename.equalsIgnoreCase("-1") ) {
@@ -668,7 +670,7 @@ public class ShellSurface {
 		BitmapFactory.Options opt = readBitmapInfo(fz);
 
 		AnimationFrame f = new AnimationFrame();
-		f.sid = "" + index; // filename should really be called surface id...
+		f.sid = "" + findex; // filename should really be called surface id...
 		f.filePath = fz;
 		f.frameType = lookupPatternType(pattern);
 		f.time = wait;
@@ -681,7 +683,7 @@ public class ShellSurface {
 	    }
 	    else {
 		AnimationFrame f = new AnimationFrame();
-		f.sid = "" + index ;//filename;
+		f.sid = "" + findex ;//filename;
 		f.startX = x;
 		f.startY = y;
 		f.frameType = lookupPatternType(pattern);
