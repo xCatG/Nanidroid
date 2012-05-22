@@ -792,7 +792,13 @@ public class SScriptRunner implements Runnable {
     private boolean changingPending = false;
     public void doGhostChanging(String nextName, String type, String nextPath) {
 	changingPending = true;
-	doShioriEvent("OnGhostChanging", new String[]{nextName, type, null, nextPath});	
+	boolean hasRes = doShioriEvent("OnGhostChanging", new String[]{nextName, type, null, nextPath});	
+	/*	if ( hasRes == false ) {
+	    msg = null;
+	    if( cb != null ) {
+		stop();	    
+	    }
+	    }*/
     }
 
     public void doInstallBegin(String ghostId) {
@@ -805,12 +811,15 @@ public class SScriptRunner implements Runnable {
 	doShioriEvent("OnInstallComplete", ref);
     }
 	
-    public void doShioriEvent(String evt, String[] ref) {
+    public boolean doShioriEvent(String evt, String[] ref) {
 	if ( g != null ) {
 	    ShioriResponse r = g.doShioriEvent(evt, ref);
-	    if ( r != null )
+	    if ( r != null ) {
 		parseShioriResponseAndInsert(r);
+		return true;
+	    }
 	}
+	return false;
     }
 
     public void doBoot() {
