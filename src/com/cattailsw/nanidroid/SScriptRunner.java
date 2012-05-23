@@ -24,6 +24,8 @@ public class SScriptRunner implements Runnable {
 	public void stop();
 	public void canExit();
 	public void ghostSwitchScriptComplete();
+	//public void showUserInputBox(String id);
+	//public void showUserSelection(int timeout);
     }
 
     public static SScriptRunner getInstance(Context ctx) {
@@ -39,6 +41,7 @@ public class SScriptRunner implements Runnable {
     Balloon keroBalloon = null;
     Ghost g = null;
     Context mCtx = null;
+    //private boolean paused = false;
 
     private SScriptRunner(Context ctx) {
 	mCtx = ctx.getApplicationContext();
