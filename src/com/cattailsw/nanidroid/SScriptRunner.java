@@ -65,8 +65,15 @@ public class SScriptRunner implements Runnable {
 
 	g = _g;
 
-	if ( lName != null )
-	    doShioriEvent("OnGhostChanged", new String[]{lName, lScript});
+	if ( lName != null ) {
+	    if ( g.getCreateCount() > 1 ) {
+		doShioriEvent("OnGhostChanged", new String[]{lName, lScript});
+	    }
+	    else {
+		doShioriEvent("OnFirstBoot", new String[]{"0"});
+		AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW, "onfirstboot", g.getGhostId(), 0);
+	    }
+	}
     }
 
     public void setLayoutMgr(LayoutManager lm) {
@@ -661,113 +668,97 @@ public class SScriptRunner implements Runnable {
 	    run();
     }
 
-    private ShioriResponse doMouseClick(int x, int y, boolean sakura, int collid, int buttonid) {
-	if ( g != null ) {
-	    ShioriResponse r = g.doShioriEvent("OnMouseClick", new String[]{
-				"Reference0: " + x,
-				"Reference1: " + y,
-				"Reference2: 0",
-				"Reference3: " + ((sakura)?"0":"1"),
-				"Reference4: " + collid,
-				"Reference5: " + buttonid}
-				);
-	    return r;
-	}
-	return null;
+    private void doMouseClick(int x, int y, boolean sakura, int collid, int buttonid) {
+	doShioriEvent("OnMouseClick", new String[]{
+			  "" + x,
+			  "" + y,
+			  "0",
+			  ((sakura)?"0":"1"),
+			  "" + collid,
+			  "" + buttonid,
+			  "touch"}
+		      );
     }
 
-    private ShioriResponse doMouseDblClick(int x, int y, boolean sakura, int collid, int buttonid) {
-	if ( g != null ) {
-	    ShioriResponse r = g.doShioriEvent("OnMouseDoubleClick", new String[]{
-				"Reference0: " + x,
-				"Reference1: " + y,
-				"Reference2: 0",
-				"Reference3: " + ((sakura)?"0":"1"),
-				"Reference4: " + collid,
-				"Reference5: " + buttonid}
+    private void doMouseDblClick(int x, int y, boolean sakura, int collid, int buttonid) {
+	doShioriEvent("OnMouseDoubleClick", new String[]{
+				"" + x,
+				"" + y,
+				"0",
+				((sakura)?"0":"1"),
+				"" + collid,
+				"" + buttonid,
+				"touch"}
 				);
-	    return r;
-	}
-	return null;
     }
 
-    private ShioriResponse doMouseWheel(int x, int y, int wheelO, boolean sakura, int collid) {
-	if ( g != null ) {
-	    ShioriResponse r = g.doShioriEvent("OnMouseWheel", new String[]{
-				"Reference0: " + x,
-				"Reference1: " + y,
-				"Reference2: " + wheelO,
-				"Reference3: " + ((sakura)?"0":"1"),
-				"Reference4: " + collid}
-				);
-	    return r;
-	}
-	return null;
+    private void doMouseWheel(int x, int y, int wheelO, boolean sakura, int collid) {
+	doShioriEvent("OnMouseWheel", new String[]{
+			  "" + x,
+			  "" + y,
+			  "" + wheelO,
+			  ((sakura)?"0":"1"),
+			  "" + collid,
+			  null,
+			  "touch"}
+		      );
     }
 
-    private ShioriResponse doMouseMove(int x, int y, int wheelO, boolean sakura, int collid) {
-	if ( g != null ) {
-	    ShioriResponse r = g.doShioriEvent("OnMouseMove", new String[]{
-				"Reference0: " + x,
-				"Reference1: " + y,
-				"Reference2: " + wheelO,
-				"Reference3: " + ((sakura)?"0":"1"),
-				"Reference4: " + collid}
-				);
-	    return r;
-	}
-	return null;
+    private void doMouseMove(int x, int y, int wheelO, boolean sakura, int collid) {
+	doShioriEvent("OnMouseMove", new String[] {
+			  ""+x, 
+			  ""+y, 
+			  ""+wheelO, 
+			  ((sakura)?"0":"1"), 
+			  ""+collid,
+			  null,
+			  "touch"
+		      });
     }
 
     private SakuraView.UIEventCallback cbSakura = new SakuraView.UIEventCallback() {
 	    public void onHit(int type, int x, int y, int orientation, int collId, int buttonid){
-		ShioriResponse r = null;
 		switch( type ) {
 		case SakuraView.UIEventCallback.TYPE_SINGLE_CLICK:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "click", collId);
-		    r = doMouseClick(x, y, true, collId, buttonid);
+		    doMouseClick(x, y, true, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "dblclick", collId);		    
-		    r = doMouseDblClick(x, y, true, collId, buttonid);
+		    doMouseDblClick(x, y, true, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_WHEEL:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "wheel", collId);		    
-		    r= doMouseWheel(x, y, orientation, true, collId);
+		    doMouseWheel(x, y, orientation, true, collId);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_MOVE:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "move", collId);
-		    r = doMouseMove(x, y, orientation, true, collId);
+		    doMouseMove(x, y, orientation, true, collId);
 		    break;
 		}
-		if ( r != null ) 
-		    parseShioriResponseAndInsert(r);
 	    }
 	};
 
     private SakuraView.UIEventCallback cbKero = new SakuraView.UIEventCallback() {
 	    public void onHit(int type, int x, int y, int orientation, int collId, int buttonid){
-		ShioriResponse r = null;
 		switch( type ) {
 		case SakuraView.UIEventCallback.TYPE_SINGLE_CLICK:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "click", collId);
-		    r = doMouseClick(x, y, false, collId, buttonid);
+		    doMouseClick(x, y, false, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "dblclick", collId);
-		    r = doMouseDblClick(x, y, false, collId, buttonid);
+		    doMouseDblClick(x, y, false, collId, buttonid);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_WHEEL:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "wheel", collId);
-		    r = doMouseWheel(x, y, orientation, false, collId);
+		    doMouseWheel(x, y, orientation, false, collId);
 		    break;
 		case SakuraView.UIEventCallback.TYPE_MOVE:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "move", collId);
-		    r = doMouseMove(x, y, orientation, false, collId);
+		    doMouseMove(x, y, orientation, false, collId);
 		    break;
 		}
-		if ( r != null )
-		    parseShioriResponseAndInsert(r);
 	    }
 	};    
 
@@ -825,10 +816,17 @@ public class SScriptRunner implements Runnable {
     public void doBoot() {
 	if ( g != null ) {
 	    String gshellname = g.getShellName();
-
-	    doShioriEvent("OnBoot", new String[]{gshellname});
-	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW, "onboot", g.getGhostId(), 0);
-
+	    long cCount = g.getCreateCount();
+	    Log.d(TAG, gshellname + " create count" + cCount);
+	    if ( cCount > 1 ) {
+		doShioriEvent("OnBoot", new String[]{gshellname});
+		AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW, "onboot", g.getGhostId(), (int)cCount);
+	    }
+	    else {
+		Log.d(TAG, "do OnFirstBoot");
+		doShioriEvent("OnFirstBoot", new String[]{"0"});
+		AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW, "onfirstboot", g.getGhostId(), 0);
+	    }
 	}
     }
 

@@ -30,4 +30,6 @@ public class InfoOnlyGhost extends Ghost {
 
     // do nothing
     public void unload() {}
+    @Override
+    protected void incrementCreateCount() {} // do nothing
 }

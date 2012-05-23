@@ -9,10 +9,12 @@ import android.content.Context;
 import android.util.Log;
 
 import com.cattailsw.nanidroid.shiori.Shiori;
+import com.cattailsw.nanidroid.util.PrefUtil;
 
 public class Ghost {
     private static final String TAG = "Ghost";
 
+    private static final String KEY_CREATE_COUNT_PREFIX = "createcount_ghost";
 
     SurfaceManager mgr = null;
     Shiori shiori = null;
@@ -33,6 +35,7 @@ public class Ghost {
 	mgr = new SurfaceManager(ghostDirName);//SurfaceManager.getInstance();
 	mCtx = ctx;
 	loadGhostInfo();
+	incrementCreateCount();
     }
 
     public Ghost(String ghostPath) {
@@ -41,6 +44,15 @@ public class Ghost {
 
     public boolean ghostError(){
 	return error;
+    }
+
+    protected void incrementCreateCount() {
+	long cCount = getCreateCount();
+	PrefUtil.setKey(mCtx, KEY_CREATE_COUNT_PREFIX + ghostDirName, cCount+1);
+    }
+
+    public long getCreateCount() {
+	return PrefUtil.getKeyValueLong(mCtx, KEY_CREATE_COUNT_PREFIX + ghostDirName);
     }
 
     protected void loadGhostInfo() {
