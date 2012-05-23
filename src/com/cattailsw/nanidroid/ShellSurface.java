@@ -149,11 +149,12 @@ public class ShellSurface {
 	    	}
 	    }
 	    frames.add(index, f);
-	    Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
+	    //Log.d(TAG, "animation " + id + " has " + frames.size() + "frames");
 	}
 	int interval;
 	String id;
 	boolean exclusive;
+	boolean hasError = false;
 	List<AnimationFrame> frames;
 	AnimationDrawable animation = null;
 
@@ -164,12 +165,20 @@ public class ShellSurface {
 	AnimationDrawable getAnimation(Resources res, SurfaceManager mgr) {
 	    if ( animation != null )
 		return animation;
+	    if ( hasError )
+	    	return null;
 
 	    int frameCount = frames.size();
 	    AnimationDrawable anime = new AnimationDrawable();
 	    for ( int i = 0; i < frameCount; i++ ) {
 		AnimationFrame f = frames.get(i);
-		anime.addFrame( f.getDrawable(res, mgr), f.time /* *100 */ );
+		Drawable ad = f.getDrawable(res, mgr); 
+		if ( ad == null ) {
+			AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "load animation", selfFilename + ":" + id, -100);
+			hasError = true;
+			return null;
+		}
+		anime.addFrame( ad , f.time /* *100 */ );
 	    }
 	    this.animation = anime;
 	    return anime;
@@ -177,7 +186,7 @@ public class ShellSurface {
 	@Override
 	public String toString() {
 		StringBuilder sb = new StringBuilder();
-		sb.append("[Animation] id:" + id + ",interval:" + interval + "\n");
+		sb.append("[Animation] id:" + id + ((hasError)?"[ERROR]":"")+ ",interval:" + interval + "\n");
 		sb.append("  => dumping frames:\n");
 		for ( AnimationFrame f : frames) {
 			sb.append(f.toString());
@@ -235,7 +244,7 @@ public class ShellSurface {
 	int W;
 	int H;
 	Drawable d;
-
+	boolean hasError = false;
 
 	Drawable getDrawable(Resources res) {
 	    return getDrawable(res, null);
@@ -243,7 +252,9 @@ public class ShellSurface {
 
 	Drawable getDrawable(Resources res, SurfaceManager mgr) {	
 	    if ( d != null )
-		return d;
+	    	return d;
+	    if ( hasError == true )
+	    	return null;
 
 	    if ( frameType == TYPE_OVERLAY ) {
 		Drawable []dz = new Drawable[2];
@@ -264,8 +275,12 @@ public class ShellSurface {
 			H = origH;
 		    }
 		}
-		else {
+		else if ( filePath != null ){
 		    dz[1] = loadTransparentBitmapFromFile(filePath, res, opt);
+		}
+		else if ( filePath == null ) {
+			hasError = true;
+			return null;
 		}
 
 		LayerDrawable ld = new LayerDrawable(dz);
@@ -293,7 +308,7 @@ public class ShellSurface {
 
 	@Override
 	public String toString() {
-		return "[AnimationFrame] sid=" + sid + ",FType="+frameType+ ",[W,H]=["+W+","+H+"],(startX,startY)=(" +startX+","+startY+")";
+		return "[AnimationFrame] sid=" + sid + ((hasError)?"[ERROR]":"") + ",FType="+frameType+ ",[W,H]=["+W+","+H+"],(startX,startY)=(" +startX+","+startY+")";
 	}
 
     }
@@ -778,6 +793,8 @@ public class ShellSurface {
     private Drawable loadTransparentBitmapFromFile(String filename, Resources res, BitmapFactory.Options opt) {
 	Log.d(TAG, "loading " + filename);
 	Bitmap bmp = BitmapFactory.decodeFile(filename, opt);
+	if ( bmp == null )
+		return null;
 // 	Log.d(TAG, " -> bitmap config:" + bmp.getConfig());
 
 	int colorVal = bmp.getPixel(0,0);

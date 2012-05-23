@@ -164,7 +164,7 @@ public class SakuraView extends ImageView {
 
 	if ( id.equalsIgnoreCase(currentAnimationId) == false )
 	    loadAnimation(id);
-	else
+	else if ( animation != null )
 	    animation.setVisible(true, true);
 
 	startAnimation();
