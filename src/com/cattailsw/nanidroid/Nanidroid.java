@@ -387,7 +387,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	//runOnUiThread(runner);//.startClock();
 	//runner.startClock();
 	//showCollisionAreaOnImageView();
-    	extractNar("/mnt/sdcard/2elf-2.41.nar", true);
+    	//extractNar("/mnt/sdcard/2elf-2.41.nar", true);
+	startService(new Intent(this, NanidroidService.class));	
     }
 
     private void extractNar(String targetPath) {
@@ -533,7 +534,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    e.printStackTrace();
 	    return;
     	}
-    currentGhost = g;
+	currentGhost = g;
 	sv.setMgr(g.mgr);
 	kv.setMgr(g.mgr);
 	updateSurfaceKeys(g);
