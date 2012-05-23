@@ -364,4 +364,41 @@ public class SSParserTest extends AndroidTestCase {
 	assertFalse( m.find() );
 
     }
+
+    public void testQChoice() {
+	// suppose \\q is stripped away already, just need to match the brackets
+	String s = "[abc,asdkllaskdl;asdkl asdsa]";
+	Matcher m = PatternHolders.sqbracket_q_title.matcher(s);
+	assertTrue( m.find() );
+	assertEquals( 3, m.groupCount());
+	assertEquals( "abc", m.group(1) );
+	assertEquals( "asdkllaskdl;asdkl asdsa", m.group(2) );
+	assertEquals( "", m.group(3));
+
+	s = "[abc asds,asdkllaskdl;asdkl asdsa,askdlaks;,qwewqew]";
+	m = PatternHolders.sqbracket_q_title.matcher(s);
+	assertTrue( m.find() );
+	assertEquals("abc asds", m.group(1));
+	assertEquals("asdkllaskdl;asdkl asdsa", m.group(2));
+	assertEquals("askdlaks;,qwewqew", m.group(3));
+
+	s = "[abc asds,asdkllaskdl asdkl asdsa 1,askdlaks;,qwewqew]";
+	m = PatternHolders.sqbracket_q_title.matcher(s);
+	assertTrue( m.find() );
+
+	s = "[aagasdds asdqwewe]";
+	m = PatternHolders.sqbracket_q_title.matcher(s);
+	assertFalse( m.find() );
+
+	s = "[qkw qwe qwewe,OnXXXXXX XXXX]";
+	m = PatternHolders.sqbracket_q_title.matcher(s);
+	assertTrue( m.find() );
+
+	m = PatternHolders.sqbracket_q_withOn.matcher(s);
+	assertTrue(m.find());
+	assertEquals("qkw qwe qwewe", m.group(1));
+	assertEquals("OnXXXXXX XXXX", m.group(2));
+	
+    }
+
 }

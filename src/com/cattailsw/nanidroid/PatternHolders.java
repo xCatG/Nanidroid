@@ -36,4 +36,8 @@ public class PatternHolders {
     public static final Pattern url_ptrn = Pattern.compile("(([\\w]+:)?//)?(([\\d\\w]|%[a-fA-f\\d]{2,2})+(:([\\d\\w]|%[a-fA-f\\d]{2,2})+)?@)?([\\d\\w][-\\d\\w]{0,253}[\\d\\w]\\.)+[\\w]{2,4}(:[\\d]+)?(/([-+_~.\\d\\w]|%[a-fA-f\\d]{2,2})*)*(\\?(&?([-+_~.\\d\\w]|%[a-fA-f\\d]{2,2})=?)*)?(#([-+_~.\\d\\w]|%[a-fA-f\\d]{2,2})*)?.*(.nar|.zip)$");
 
     public static final Pattern comment_ptrn = Pattern.compile("(^//|^;).*$");
+
+    // Patterns for Sakura Script
+    public static final Pattern sqbracket_q_title = Pattern.compile("^\\[([^,]*),([^,]*),*(.*)\\]");
+    public static final Pattern sqbracket_q_withOn = Pattern.compile("^\\[([^,]*),(On[^,]*),*(.*)\\]");
 }
