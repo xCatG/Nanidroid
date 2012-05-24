@@ -365,7 +365,11 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	//startService(new Intent(this, NanidroidService.class));	
 	//runner.clearMsgQueue();
 	//Log.d(TAG, "get homeurl from shiori:" + runner.getStringValueFromShiori("homeurl"));
-	sv.surfaceExercise();
+	//sv.surfaceExercise();
+	String cmd = "\\![open,inputbox,lalala]";
+ 	runner.addMsgToQueue(new String[]{cmd});
+ 	runner.run();
+	
     }
 
     private void sendStopIntent(){
@@ -393,7 +397,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	//showCollisionAreaOnImageView();
     	//extractNar("/mnt/sdcard/2elf-2.41.nar", true);
 	//startService(new Intent(this, NanidroidService.class));
-	String cmd = "\\0\\q[abc,ouch]abcdefg\\n\\q[def,ouchtwo]\\e";
+
+
+	String cmd = "\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e";
 	runner.addMsgToQueue(new String[]{cmd});
 	runner.run();
     }
@@ -766,7 +772,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     public void onFinishUserInput(String id, String userinput){
 	Log.d(TAG, "got user input:" + userinput);
 	runner.resumeEvt();
-	runner.doShioriEvent("OnUserInput", new String[]{id, userinput});
+	//	runner.doShioriEvent("OnUserInput", new String[]{id, userinput});
+	runner.doUserInput(id, userinput);
     }
 
     public void onCancelInput() {
@@ -781,7 +788,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void onChoiceSelect(String id) {
-	runner.doShioriEvent("OnChoiceSelect", new String[]{id});
+	//runner.doShioriEvent("OnChoiceSelect", new String[]{id});
+	runner.doOnChoiceSelect(id);
     }
 
     public void showUserSelection(String[] textlabel, String[] ids) {

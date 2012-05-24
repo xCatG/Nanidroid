@@ -921,4 +921,12 @@ public class SScriptRunner implements Runnable {
 	return null;
     }
 
+    public void doUserInput(String id, String input) {
+	doShioriEvent("OnUserInput", new String[]{id, input});
+    }
+
+    public void doOnChoiceSelect(String id) {
+	doShioriEvent("OnChoiceSelect", new String[]{id});
+    }
+
 }
