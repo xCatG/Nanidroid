@@ -44,6 +44,7 @@ public class UserInputDlg extends DialogFragment {
 		    UserInputDlg.this.dismiss();
 		}
 	    });
+	getDialog().setTitle(R.string.user_input_dlg_title);
 	return v;
     }
 
