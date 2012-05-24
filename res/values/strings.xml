@@ -44,6 +44,7 @@
   <string name="url_support_ops">http://blog.cattail-sw.com/?p=212</string>
   
   <string name="user_input_dlg_title">Input</string>
+  <string name="user_sel_dlg_title">Please Select One</string>
 
 <!--  <string name=""></string> -->
   <string name="unsupported_shiori">\\0\\s0Sorry, this Ghost is using a SHIORI that is not yet supported by Nanidroid!\\e</string>

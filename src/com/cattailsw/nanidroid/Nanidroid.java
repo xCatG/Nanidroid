@@ -47,18 +47,19 @@ import com.cattailsw.nanidroid.dlgs.NoReadmeSwitchDlg;
 import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
 import com.cattailsw.nanidroid.dlgs.UserInputDlg;
 import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
+import com.cattailsw.nanidroid.dlgs.UserSelectDlg;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
 import android.app.WallpaperManager;
 
 import com.google.ads.*;
-import android.widget.LinearLayout;
 
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
 							   NarPickDlg.NarPickDlgListener,
 							   MoreGhostFuncDlg.MoreGhostFuncListener,
 							   UserInputDlg.UserInputListener,
+							   UserSelectDlg.UserSelDlgListener,
 							   SScriptRunner.UICallback
 {
     private static final String TAG = "Nanidroid";
@@ -392,7 +393,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	//showCollisionAreaOnImageView();
     	//extractNar("/mnt/sdcard/2elf-2.41.nar", true);
 	//startService(new Intent(this, NanidroidService.class));
-	String cmd = "\\![open,inputbox,lalala]";
+	String cmd = "\\0\\q[abc,ouch]abcdefg\\n\\q[def,ouchtwo]\\e";
 	runner.addMsgToQueue(new String[]{cmd});
 	runner.run();
     }
@@ -770,6 +771,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void onCancelInput() {
 	Log.d(TAG, "user cancel");
+	runner.resumeEvt();
     }
 
     public void showUserInputBox(String id) {
@@ -778,7 +780,13 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	e.show(getSupportFragmentManager(), Setup.DLG_USR_INPUT);
     }
 
-    public void showUserSelection() {
-	// not yet defined
+    public void onChoiceSelect(String id) {
+	runner.doShioriEvent("OnChoiceSelect", new String[]{id});
+    }
+
+    public void showUserSelection(String[] textlabel, String[] ids) {
+	// 
+	UserSelectDlg f = UserSelectDlg.newInstance(textlabel, ids);
+	f.show(getSupportFragmentManager(), Setup.DLG_USR_SEL);
     }
 }
