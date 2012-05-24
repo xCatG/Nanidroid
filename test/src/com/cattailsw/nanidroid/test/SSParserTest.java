@@ -6,6 +6,7 @@ import android.content.Context;
 import android.util.Log;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Vector;
 
 public class SSParserTest extends AndroidTestCase {
     private static final String TAG = "SSParserTest";
@@ -386,6 +387,12 @@ public class SSParserTest extends AndroidTestCase {
 	m = PatternHolders.sqbracket_q_title.matcher(s);
 	assertTrue( m.find() );
 
+	s = "[abc,asds]\\nasdkllaskdl asdkl asdsa 1,askdlaks;,qwewqew]";
+	m = PatternHolders.sqbracket_q_title.matcher(s);
+	assertTrue( m.find() );
+	assertEquals("abc", m.group(1));
+	assertEquals("asds", m.group(2));
+
 	s = "[aagasdds asdqwewe]";
 	m = PatternHolders.sqbracket_q_title.matcher(s);
 	assertFalse( m.find() );
@@ -399,6 +406,49 @@ public class SSParserTest extends AndroidTestCase {
 	assertEquals("qkw qwe qwewe", m.group(1));
 	assertEquals("OnXXXXXX XXXX", m.group(2));
 	
+    }
+
+
+    public void testFindQ() {
+	String s = "[a,xxx]\\n\\q[b,yyy]\\n\\q[c,zzz]\\n\\e";
+	// we want two arrays, qText={"a","b","c"} and qIdz={"xxx","yyy","zzz"}
+	// to display in separate dlg...?
+
+	// actually, what we have is "[a,xxx]\\n\\q[b,yyy]\\n\\q[c,zzz]\\n\\e"
+	Matcher m = PatternHolders.sqbracket_q_title.matcher(s);
+	assertTrue(m.find());
+	Log.d(TAG, "matched:" + m.group());
+	Vector<String> vtext =  new Vector<String>();
+	Vector<String> vidz =  new Vector<String>();
+
+	vtext.add(m.group(1));
+	vidz.add(m.group(2));
+	String l = s.substring(m.group().length());
+	Log.d(TAG, "left=" + l);
+	m = PatternHolders.q_choice_ptrn.matcher(l);
+
+	assertTrue(m.find());
+	assertEquals("b", m.group(1));
+	assertEquals("yyy", m.group(2));
+	vtext.add(m.group(1));
+	vidz.add(m.group(2));
+	while( m.find() ) {
+	    vtext.add(m.group(1));
+	    vidz.add(m.group(2));
+	}
+
+	assertEquals(3, vtext.size());
+	assertEquals(3, vidz.size());
+
+	s = "\\q[a,sdkjkl asdas,lwkel;qwk]\\nakjkaljsdkladkjlasd\\q[aksdjkkjkl, oqwjeop lalk;,aijpqjl ,asldkl;]\\n\\e";
+	m = PatternHolders.q_choice_ptrn.matcher(s);
+	assertTrue(m.find());
+	assertEquals("a", m.group(1));
+	assertEquals("sdkjkl asdas", m.group(2));
+
+	assertTrue(m.find());
+	assertEquals("aksdjkkjkl", m.group(1));
+	assertEquals(" oqwjeop lalk;", m.group(2));
     }
 
     public void testInputCmd() {
