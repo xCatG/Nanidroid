@@ -16,9 +16,6 @@ public class SScriptRunner implements Runnable {
     private static final String TAG = "SScriptRunner";
 
     private static SScriptRunner _self = null;
-    private static final ConcurrentLinkedQueue<String> mMsgQueue = new ConcurrentLinkedQueue<String>();
-
-    private LayoutManager layoutMgr = null;
 
     public interface StatusCallback {
 	public void stop();
@@ -28,6 +25,11 @@ public class SScriptRunner implements Runnable {
 	//public void showUserSelection(int timeout);
     }
 
+    public interface UICallback {
+	public void showUserInputBox(String id);
+	public void showUserSelection();
+    }
+
     public static SScriptRunner getInstance(Context ctx) {
 	if ( _self == null )
 	    _self = new SScriptRunner(ctx);
@@ -35,13 +37,55 @@ public class SScriptRunner implements Runnable {
 	return _self;
     }
 
-    SakuraView sakura = null;
-    KeroView kero = null;
-    Balloon sakuraBalloon = null;
-    Balloon keroBalloon = null;
-    Ghost g = null;
-    Context mCtx = null;
+    public static final long WAIT_UNIT = 50; // wait unit is 50ms
+    public static final long WAIT_YEN_E = 1000; // wait one second before clearing?
+
+    private static final int RUN = 42;
+    private static final int STOP = RUN+1;
+    private static final int INC_CLOCK = STOP + 1;
+    private static final long CLOCK_STEP = 1000;
+
+    private static final ConcurrentLinkedQueue<String> mMsgQueue = new ConcurrentLinkedQueue<String>();
+
+    private LayoutManager layoutMgr = null;
+    private SakuraView sakura = null;
+    private KeroView kero = null;
+    private Balloon sakuraBalloon = null;
+    private Balloon keroBalloon = null;
+    private Ghost g = null;
+    private Context mCtx = null;
+    private UICallback ucb = null;
+    private StatusCallback cb = null;
     //private boolean paused = false;
+    private Boolean isRunning = false;
+    private String msg = null;
+    private boolean no_wait_mode = false;
+    private long startTime = 0;
+    private boolean sync = false;
+    private boolean wholeline = false;
+    private boolean sakuraTalk = false;
+    private StringBuilder sakuraMsg = new StringBuilder();
+    private StringBuilder keroMsg = new StringBuilder();
+    private long waitTime = WAIT_UNIT;
+    private int charIndex = 0;
+
+    private String sakuraSurfaceId = "0";
+    private String keroSurfaceId = "10";
+    private String sakuraAnimationId = null;
+    private String keroAnimationId = null;
+
+    private String bSakuraId = "0";
+    private String bKeroId = "-1";
+
+    private int talkAnimeControl  = 0;
+    private int lastSec = 0;
+    private int lastMin = 0;
+    private int lastHour = 0;
+
+    private boolean restore = false;
+    private boolean exitPending = false;
+    private boolean changingPending = false;
+    private boolean paused = false;
 
     private SScriptRunner(Context ctx) {
 	mCtx = ctx.getApplicationContext();
@@ -92,24 +136,26 @@ public class SScriptRunner implements Runnable {
 	    mMsgQueue.add(s);
     }
     
-    private Boolean isRunning = false;
 
-    private String msg = null;
-
-    private boolean no_wait_mode = false;
     public void setNoWaitMode(boolean wait){
 	no_wait_mode = wait;
     }
 
-    private StatusCallback cb = null;
     public void setCallback(StatusCallback c){
 	cb = c;
     }
 
-    private static final int RUN = 42;
-    private static final int STOP = RUN+1;
-    private static final int INC_CLOCK = STOP + 1;
-    private static final long CLOCK_STEP = 1000;
+    public void setUICallback(UICallback c) {
+	ucb = c;
+    }
+
+    public void resumeEvt() {
+	if ( isRunning && paused ) {
+	    paused = false;
+	    loopHandler.sendEmptyMessage(RUN);
+	}
+    }
+
     private Handler loopHandler = new Handler() {
 	    @Override
 	    public void handleMessage(Message m) {
@@ -132,6 +178,7 @@ public class SScriptRunner implements Runnable {
 	};
 
     private void loopControl() {
+	if ( paused ) return;
 	if (msg != null && charIndex < msg.length() ){
 	    parseMsg();
 	    updateUI();
@@ -158,7 +205,6 @@ public class SScriptRunner implements Runnable {
 	}
     }
 
-    private long startTime = 0;
 
     void startClock() {
 	Log.d(TAG, "startClock called");
@@ -262,24 +308,6 @@ public class SScriptRunner implements Runnable {
 	keroAnimationId = null;
     }
 
-    public static final long WAIT_UNIT = 50; // wait unit is 50ms
-    public static final long WAIT_YEN_E = 1000; // wait one second before clearing?
-
-    private boolean sync = false;
-    private boolean wholeline = false;
-    private boolean sakuraTalk = false;
-    private StringBuilder sakuraMsg = new StringBuilder();
-    private StringBuilder keroMsg = new StringBuilder();
-    private long waitTime = WAIT_UNIT;
-    private int charIndex = 0;
-
-    private String sakuraSurfaceId = "0";
-    private String keroSurfaceId = "10";
-    private String sakuraAnimationId = null;
-    private String keroAnimationId = null;
-
-    private String bSakuraId = "0";
-    private String bKeroId = "-1";
 
     private void appendChar(char c) {
 	if ( sync ) {
@@ -462,9 +490,29 @@ public class SScriptRunner implements Runnable {
     }
 
     private boolean handle_exclaim_type(String leftString) {
-	AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport", "exclaim_type", -1);
-
+	Matcher m = PatternHolders.open_input.matcher(leftString);
+	if ( m.find() ) {
+	    charIndex += m.group().length();
+	    String id = m.group(1);
+	    openUserInputBox(id);
+	}
+	else {
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport", "exclaim_type", -1);
+	}
 	return false;
+    }
+
+    private void openUserInputBox(String id){
+	if ( id == null ){
+	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_err", "open input box", -1);
+	    return;
+	}
+
+	// enter pause mode
+	if ( ucb != null ) {
+	    paused = true;
+	    ucb.showUserInputBox(id);
+	}
     }
 
     // should break out of loop to perform surface update immediately upon hitting this tag
@@ -555,7 +603,6 @@ public class SScriptRunner implements Runnable {
 	}
     }
 
-    private int talkAnimeControl  = 0;
     private void updateUI() {
 	sakura.changeSurface(sakuraSurfaceId);
 	kero.changeSurface(keroSurfaceId);
@@ -601,9 +648,6 @@ public class SScriptRunner implements Runnable {
 	if ( talkAnimeControl == 10 )
 	    talkAnimeControl = 0;
     }
-    private int lastSec = 0;
-    private int lastMin = 0;
-    private int lastHour = 0;
 
     private void startPerSecondAnimation(SakuraView target){
 	double p = Math.random();
@@ -771,19 +815,17 @@ public class SScriptRunner implements Runnable {
 	    ShioriResponse r = g.doShioriEvent("OnWindowStateMinimize", null);	    
 	}
     }
-    boolean restore = false;
+
     public void doRestore() {
 	Log.d(TAG, "doRestore called");
 	restore = true;
     }
 
-    private boolean exitPending = false;
     public void doExit() {
 	doShioriEvent("OnClose", null);
 	exitPending = true;
     }
 
-    private boolean changingPending = false;
     public void doGhostChanging(String nextName, String type, String nextPath) {
 	changingPending = true;
 	boolean hasRes = doShioriEvent("OnGhostChanging", new String[]{nextName, type, null, nextPath});	

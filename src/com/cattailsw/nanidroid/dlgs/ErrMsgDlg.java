@@ -8,11 +8,21 @@ import android.support.v4.app.DialogFragment;
 
 public class ErrMsgDlg extends DialogFragment {
 
+    public interface ErrDlgCallback {
+	public void onDismiss(int flag);
+    }
+
     private static final String S_TITLE = "title";
     private static final String S_MSG = "msg";
-private int tR;
-private int mR;
+    private int tR;
+    private int mR;
+    private int flag;
+    private ErrDlgCallback cb;
     public static ErrMsgDlg newInstance(int titleRes, int msgRes) {
+	return newInstance(titleRes, msgRes, null, -1);
+    }
+
+    public static ErrMsgDlg newInstance(int titleRes, int msgRes, ErrDlgCallback cb, int flag) {
 	ErrMsgDlg frag = new ErrMsgDlg();
         Bundle args = new Bundle();
         args.putInt(S_TITLE, titleRes);
@@ -20,6 +30,8 @@ private int mR;
         frag.setArguments(args);
         frag.tR = titleRes;
         frag.mR = msgRes;
+	frag.cb = cb;
+	frag.flag = flag;
 	return frag;
     }
 
@@ -37,6 +49,8 @@ private int mR;
 			public void onClick(DialogInterface dialog, int which) {
 				// TODO Auto-generated method stub
 				dialog.dismiss();
+				if ( cb != null )
+				    cb.onDismiss(flag);
 			}
 		});
 		

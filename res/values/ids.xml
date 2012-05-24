@@ -2,4 +2,6 @@
 <resources>
     <item type="id" name="fl" />
     <item type="id" name="adview" />
+  <item type="id" name="ok_btn" />
+  <item type="id" name="cancel_btn" />
 </resources>

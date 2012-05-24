@@ -16,7 +16,8 @@ public class Setup {
     public static final String DLG_NAR_PICK = "narpickdlg";
     public static final String DLG_MORE_G = "moreghostdlg";
     public static final String DLG_GEN_HELP = "generalhelpdlg";
-	public static final String DLG_DBG_MSG = "dlgdebugmessage";
+    public static final String DLG_DBG_MSG = "dlgdebugmessage";
+    public static final String DLG_USR_INPUT = "dlguserinput";
 
     // category strings for analytics
     public static final String ANA_BTN = "BtnClick";

@@ -45,6 +45,7 @@ import com.cattailsw.nanidroid.dlgs.MoreGhostFuncDlg;
 import com.cattailsw.nanidroid.dlgs.NarPickDlg;
 import com.cattailsw.nanidroid.dlgs.NoReadmeSwitchDlg;
 import com.cattailsw.nanidroid.dlgs.NotImplementedDlg;
+import com.cattailsw.nanidroid.dlgs.UserInputDlg;
 import com.cattailsw.nanidroid.dlgs.ReadmeDialogFragment;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
 import com.cattailsw.nanidroid.util.NarUtil;
@@ -56,7 +57,9 @@ import android.widget.LinearLayout;
 
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
 							   NarPickDlg.NarPickDlgListener,
-							   MoreGhostFuncDlg.MoreGhostFuncListener
+							   MoreGhostFuncDlg.MoreGhostFuncListener,
+							   UserInputDlg.UserInputListener,
+							   SScriptRunner.UICallback
 {
     private static final String TAG = "Nanidroid";
     //private ImageView sv = null;
@@ -133,7 +136,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	kv.setMgr(g.mgr);
 	lm.setViews(fl, sv, kv, bSakura, bKero);
 	runner.setLayoutMgr(lm);
-
+	runner.setUICallback(this);
 	currentRunCount = getStartCount();
 	if ( currentRunCount == 0 )
 	    loadFirstRunScript();
@@ -388,7 +391,10 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	//runner.startClock();
 	//showCollisionAreaOnImageView();
     	//extractNar("/mnt/sdcard/2elf-2.41.nar", true);
-	startService(new Intent(this, NanidroidService.class));	
+	//startService(new Intent(this, NanidroidService.class));
+	String cmd = "\\![open,inputbox,lalala]";
+	runner.addMsgToQueue(new String[]{cmd});
+	runner.run();
     }
 
     private void extractNar(String targetPath) {
@@ -750,4 +756,29 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	adView.loadAd(a);
     }
 
+    ErrMsgDlg.ErrDlgCallback ecb = new ErrMsgDlg.ErrDlgCallback() {
+	    public void onDismiss(int flag) {
+		runner.resumeEvt();
+	    }
+	};
+
+    public void onFinishUserInput(String id, String userinput){
+	Log.d(TAG, "got user input:" + userinput);
+	runner.resumeEvt();
+	runner.doShioriEvent("OnUserInput", new String[]{id, userinput});
+    }
+
+    public void onCancelInput() {
+	Log.d(TAG, "user cancel");
+    }
+
+    public void showUserInputBox(String id) {
+	// should show a user input box
+	UserInputDlg e = new UserInputDlg(id);
+	e.show(getSupportFragmentManager(), Setup.DLG_USR_INPUT);
+    }
+
+    public void showUserSelection() {
+	// not yet defined
+    }
 }
