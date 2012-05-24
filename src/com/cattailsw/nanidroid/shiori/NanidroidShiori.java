@@ -108,7 +108,7 @@ public class NanidroidShiori extends EchoShiori {
 	else if ( reqId.equalsIgnoreCase("OnClose") ) {
 	    return handleOnClose();
 	}
-	else if ( reqId.equalsIgnoreCase("OnBoot")) {
+	else if ( reqId.equalsIgnoreCase("OnBoot") || reqId.equalsIgnoreCase("OnFirstBoot")) {
 	    return handleOnBoot();
 	}
 	else if ( reqId.equalsIgnoreCase("OnInstallFailure") ) {

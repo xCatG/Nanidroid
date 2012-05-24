@@ -25,7 +25,10 @@ public class NotSupportedShiori extends EchoShiori {
 	    return super.genResponse();
 
 	String req = reqTable.get("id");
-	if ( req.equalsIgnoreCase("OnGhostChanged")) {
+	if ( req.equalsIgnoreCase("OnGhostChanged") || 
+	     req.equalsIgnoreCase("OnFirstBoot") || 
+	     req.equalsIgnoreCase("OnBoot")
+	     ) {
 	    return RES_HEADER + mCtx.getString(R.string.unsupported_shiori) + RES_END;
 	}
 	else if ( req.equalsIgnoreCase("OnGhostChanging") ) {
