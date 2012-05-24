@@ -40,4 +40,5 @@ public class PatternHolders {
     // Patterns for Sakura Script
     public static final Pattern sqbracket_q_title = Pattern.compile("^\\[([^,]*),([^,]*),*(.*)\\]");
     public static final Pattern sqbracket_q_withOn = Pattern.compile("^\\[([^,]*),(On[^,]*),*(.*)\\]");
+    public static final Pattern open_input = Pattern.compile("^\\[open,inputbox,(.*)\\]");
 }

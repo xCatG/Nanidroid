@@ -401,4 +401,21 @@ public class SSParserTest extends AndroidTestCase {
 	
     }
 
+    public void testInputCmd() {
+	String s = "[open,inputbox,XXXX XXX XXXX]";
+	Matcher m = PatternHolders.open_input.matcher(s);
+	assertTrue( m.find() );
+	assertEquals( 1, m.groupCount());
+	assertEquals("XXXX XXX XXXX", m.group(1));
+
+	s = "[abc asds,asdkllaskdl asdkl asdsa 1,askdlaks;,qwewqew]";
+	m = PatternHolders.open_input.matcher(s);
+	assertFalse( m.find() );
+
+	s = "[open,kakaka]";
+	m = PatternHolders.open_input.matcher(s);
+	assertFalse( m.find() );
+
+    }
+
 }
