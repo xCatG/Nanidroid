@@ -154,6 +154,10 @@ public class SScriptRunner implements Runnable {
 	    paused = false;
 	    loopHandler.sendEmptyMessage(RUN);
 	}
+	else {
+		if ( paused ) paused = false;
+		run();
+	}
     }
 
     private Handler loopHandler = new Handler() {
@@ -278,13 +282,13 @@ public class SScriptRunner implements Runnable {
 	if ( cb != null ) {
 	    cb.stop();
 	    if ( exitPending ) {
-		cb.canExit();
+		if ( cb != null ) cb.canExit();
 		exitPending = false;
 	    }
 
 	    if ( changingPending ) {
 		changingPending = false;
-		cb.ghostSwitchScriptComplete();
+		if ( cb != null ) cb.ghostSwitchScriptComplete();
 		g.unload();
 	    }
 	}
@@ -417,6 +421,7 @@ public class SScriptRunner implements Runnable {
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport", "" + c2, -1);
 		    break;
 		default:
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_unsupport_other", "" + c2, -1);
 		    break;
 		}
 	    }
