@@ -45,6 +45,8 @@
   
   <string name="user_input_dlg_title">Input</string>
   <string name="user_sel_dlg_title">Please Select One</string>
+  <string name="err_title">Error</string>
+  <string name="err_no_sdcard">No SD Card! Aborting</string>
 
 <!--  <string name=""></string> -->
   <string name="unsupported_shiori">\\0\\s0Sorry, this Ghost is using a SHIORI that is not yet supported by Nanidroid!\\e</string>

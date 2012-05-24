@@ -86,6 +86,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     private static final String MIN_TAG = "minimized";
     private boolean restoreFromMinimize = false;
 
+    private static final int FLAG_SD_ERR = 42;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
@@ -108,6 +110,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
 	    bSakura.setText("sd card error");
+	    ErrMsgDlg e = ErrMsgDlg.newInstance(R.string.err_title, R.string.err_no_sdcard, 
+						ecb, FLAG_SD_ERR);
+	    e.show(getSupportFragmentManager(), Setup.DLG_ERR);
 	    return;
 	    // need to prompt SD card issue
 	}
@@ -231,7 +236,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void onDestroy() {
-	adView.destroy();
+	if ( adView != null ) adView.destroy();
 	super.onDestroy();
 	ViewServer.get(this).removeWindow(this);
 	sendStopIntent();
@@ -765,7 +770,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     ErrMsgDlg.ErrDlgCallback ecb = new ErrMsgDlg.ErrDlgCallback() {
 	    public void onDismiss(int flag) {
-		runner.resumeEvt();
+		if ( FLAG_SD_ERR == flag )
+		    Nanidroid.this.finish();
 	    }
 	};
 
