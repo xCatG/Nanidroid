@@ -366,6 +366,37 @@ public class SSParserTest extends AndroidTestCase {
 
     }
 
+    boolean uscbCalled = false;
+    SScriptRunner.UICallback tcwr_ucb = new SScriptRunner.UICallback() {
+		public void showUserInputBox(String id) {}
+		public void showUserSelection(String []t, String[] i) {
+		    uscbCalled = true;
+		    Log.d(TAG, "showUserSelection called");
+		    assertEquals(2, t.length);
+		    assertEquals(2, i.length);
+		    assertEquals("fgh", t[0]);
+		    assertEquals("lmno", t[1]);
+		    assertEquals("lalala asda", i[0]);
+		    assertEquals("lalala aaaa", i[1]);
+		}
+	};
+
+    public void testChoiceWithRunner() {
+	String s = "\\0abcde\\q[fgh,lalala asda]ijk\\q[lmno,lalala aaaa]\\e";
+	bSakura = new DummyBalloon(mContext);
+	sr.setViews(sakura, kero, bSakura, bKero);
+	uscbCalled = false;
+	sr.setUICallback(tcwr_ucb);
+	sr.addMsgToQueue(new String[]{s});
+	sr.run();
+
+	Log.d(TAG, "sakura text"+bSakura.dispText);
+	assertEquals("abcdefghijklmno", bSakura.dispText);
+	assertTrue(uscbCalled);
+	sr.setUICallback(null);
+    }
+
+
     public void testQChoice() {
 	// suppose \\q is stripped away already, just need to match the brackets
 	String s = "[abc,asdkllaskdl;asdkl asdsa]";
@@ -449,6 +480,16 @@ public class SSParserTest extends AndroidTestCase {
 	assertTrue(m.find());
 	assertEquals("aksdjkkjkl", m.group(1));
 	assertEquals(" oqwjeop lalk;", m.group(2));
+    }
+
+    public void testReplaceQ() {
+	String s = "\\q[aaaa,bbbb]\\n\\q[bbbb,askjdaklsdj]\\n\\q[cccc,askjasd]\\e";
+	Matcher m = PatternHolders.q_choice_ptrn.matcher(s);
+	while( m.find() ) {
+	    s = m.replaceFirst(m.group(1));
+	    m = PatternHolders.q_choice_ptrn.matcher(s);
+	}
+	assertEquals("aaaa\\nbbbb\\ncccc\\e", s);
     }
 
     public void testInputCmd() {

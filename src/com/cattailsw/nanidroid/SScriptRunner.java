@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
+import java.util.Vector;
 
 public class SScriptRunner implements Runnable {
     private static final String TAG = "SScriptRunner";
@@ -27,7 +28,7 @@ public class SScriptRunner implements Runnable {
 
     public interface UICallback {
 	public void showUserInputBox(String id);
-	public void showUserSelection();
+	public void showUserSelection(String []textlabel, String[] ids);
     }
 
     public static SScriptRunner getInstance(Context ctx) {
@@ -411,6 +412,10 @@ public class SScriptRunner implements Runnable {
 		    if ( handle_balloon() )
 			break loop;
 		    break;
+		case 'q':
+		    if ( handle_selection() )
+			break loop;
+		    break;
 		case '-':
 		case '4':
 		case '5':
@@ -578,6 +583,35 @@ public class SScriptRunner implements Runnable {
 	    return true;
 	}
 	
+	return false;
+    }
+
+    private boolean handle_selection() {
+	// \q[text,Id] or \q[text,Id,xxx,x,x]?
+	// text to display is
+	// text from \q, then anything follow...
+	// but text needs to be formatted as a clickable span
+	charIndex = charIndex -2;// back up until \q
+	//String left = msg.substring(charIndex, msg.length());
+	Matcher m = PatternHolders.q_choice_ptrn.matcher(msg);
+	Vector<String> labels = new Vector<String>(2);
+	Vector<String> ids = new Vector<String>(2);
+	while(m.find()) {
+	    //Log.d(TAG, "found:" + m.group());
+	    msg = m.replaceFirst(m.group(1));
+	    //Log.d(TAG, "msg=" + msg);
+	    labels.add(m.group(1));
+	    ids.add(m.group(2));
+	    m = PatternHolders.q_choice_ptrn.matcher(msg);
+	}
+
+	if ( ucb != null ) {
+	    String[] lbl = new String[labels.size()];//(String[])labels.toArray();
+	    labels.toArray(lbl);
+	    String[] idz = new String[ids.size()];
+	    ids.toArray(idz);
+	    ucb.showUserSelection(lbl, idz);
+	}
 	return false;
     }
 
