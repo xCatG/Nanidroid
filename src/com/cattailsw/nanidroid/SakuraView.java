@@ -158,7 +158,7 @@ public class SakuraView extends ImageView {
 	// do nothing for the time being
 	String id = currentSurface.getAnimationIdByType(type);
 	if ( id == null ) { // no such type animation
-	    if ( type!=ShellSurface.A_TYPE_TALK) Log.d(TAG, "no animation of type:" + type);
+	    //	    if ( type!=ShellSurface.A_TYPE_TALK ) Log.d(TAG, "no animation of type:" + type);
 	    return;
 	}
 
