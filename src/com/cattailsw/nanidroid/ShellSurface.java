@@ -50,7 +50,7 @@ public class ShellSurface {
     public static final int TYPE_RESET = -1;
     public static final int TYPE_BASE = 0;
     public static final int TYPE_OVERLAY = 1;
-	public static final int TYPE_MOVE = 2;
+    public static final int TYPE_MOVE = 2;
 
     int surfaceId;
     int origW;
