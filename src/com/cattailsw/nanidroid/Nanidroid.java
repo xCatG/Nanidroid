@@ -215,6 +215,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     private void createGhost() {
 	String lastId = gm.getLastRunGhostId();
 	if ( lastId == null ) lastId = "nanidroid";
+	mGH.sendEmptyMessage(MSG_LOAD_F);
+
 	Ghost g = gm.createGhost(lastId);
 	ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
 	runner.setGhost(g);
@@ -241,13 +243,13 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	dbgBar = findViewById(R.id.dbg_btn_bar);
 	prog = findViewById(R.id.progress);
 	progText = (TextView) findViewById(R.id.progress_text);
+	progText.setText(R.string.prog_startup);
 	if ( dbgBuild )
 	    dbgBar.setVisibility(View.VISIBLE);
 
 	registerForContextMenu(findViewById(R.id.btn_help));
 	
-	showProgress();
-	
+	showProgress();	
     }
 
     private void showProgress() {
@@ -386,7 +388,29 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    }
 	};
 	
-    private Handler mGH = new Handler();
+    private static final int MSG_START = 2019;
+    private static final int MSG_LOAD_F = 2020;
+    private static final int MSG_LOAD_N = 2021;
+    private Handler mGH = new Handler(){
+	    @Override
+	    public void handleMessage(Message m) {
+		switch( m.what ) {
+		case MSG_START:
+		    progText.setText(R.string.prog_startup);
+		    break;
+		case MSG_LOAD_F:
+		    String s = String.format(getString(R.string.load_g), 
+					     gm.getGhostDispName(gm.getLastRunGhostId()));
+		    progText.setText(s);
+		    break;
+		case MSG_LOAD_N:
+		    s = String.format(getString(R.string.load_g), 
+				      gm.getGhostDispName(nextGhostId));
+		    progText.setText(s);
+		    break;
+		}
+	    }	   
+	};
     private Runnable ghostSwitchStep2Caller = new Runnable() {
 	    public void run() {
 		showProgress();
@@ -652,6 +676,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	new AsyncTask<Void, Void, Void>() {
 	    @Override
 	    protected void onPreExecute() {
+		mGH.sendEmptyMessage(MSG_LOAD_N);
 		showProgress();
 	    }
 
