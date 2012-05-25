@@ -21,9 +21,12 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Message;
 import android.preference.PreferenceManager;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.FragmentActivity;
+import android.support.v4.app.FragmentTransaction;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
@@ -76,6 +79,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     private View btnBar = null;
     private View dbgBar = null;
+    private View prog = null;
 
     AnimationDrawable anime = null;
     //SurfaceManager mgr = null;
@@ -112,39 +116,97 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    return;
 	    // need to prompt SD card issue
 	}
-
+	/*
+	  FragmentTransaction t = getSupportFragmentManager().beginTransaction();
+	  SplashFragment s = new SplashFragment();
+	  t.add(R.id.fl, s);
+	  t.commit();
+	*/
 	checkIsRestore(savedInstanceState);
-
-	createSvcs();
-
-	if ( gm.getGhostCount() == 0 )
-	    installFirstGhost(); // extract first to file dir on sd card
-	
-	createGhost();
-
-	setGhostToRunner(currentGhost);
-
-	currentRunCount = getStartCount();
-	if ( currentRunCount == 0 )
-	    loadFirstRunScript();
-	currentRunCount++;
-	setStartCount(currentRunCount);
-
-	Intent launchingIntent = getIntent();
-	handleIntent(launchingIntent);
-
-	dbgRelatedSetup(currentGhost);
-		
-	NarUtil.createNarDirOnSDCard();
-
-	addAdView();
-
-	ViewServer.get(this).addWindow(this);
-    }
-
-    private void createSvcs() {
-	lm = LayoutManager.getInstance(this);
+	// this has to be created in UI thread
 	runner = SScriptRunner.getInstance(this);
+
+	//mHandler.sendEmptyMessage(0);
+	initOnSeparateThread();
+	/*	
+	  createSvcs();
+
+	  if ( gm.getGhostCount() == 0 )
+	  installFirstGhost(); // extract first to file dir on sd card
+	
+	  createGhost();
+
+	  setGhostToRunner(currentGhost);
+
+	  currentRunCount = getStartCount();
+	  if ( currentRunCount == 0 )
+	  loadFirstRunScript();
+	  currentRunCount++;
+	  setStartCount(currentRunCount);
+
+	  Intent launchingIntent = getIntent();
+	  handleIntent(launchingIntent);
+
+	  dbgRelatedSetup(currentGhost);
+		
+	  NarUtil.createNarDirOnSDCard();
+
+
+	  ViewServer.get(this).addWindow(this);
+	  t = getSupportFragmentManager().beginTransaction();
+	  t.detach(s);
+	  t.commit();
+	*/
+	addAdView();
+	ViewServer.get(this).addWindow(this);
+
+    }
+    private boolean initComplete= false;
+    private void initOnSeparateThread(){
+    	new AsyncTask<Void, Void, Void>(){
+
+	    @Override
+	    protected Void doInBackground(Void... params) {
+		createSvcs2ndThread();
+
+		if ( gm.getGhostCount() == 0 )
+		    installFirstGhost(); // extract first to file dir on sd card
+				
+		createGhost();
+
+		setGhostToRunner(currentGhost);
+
+		currentRunCount = getStartCount();
+		if ( currentRunCount == 0 )
+		    loadFirstRunScript();
+		currentRunCount++;
+		setStartCount(currentRunCount);
+
+					
+		NarUtil.createNarDirOnSDCard();
+
+		return null;
+	    }
+
+	    @Override
+	    protected void onPostExecute(Void result) {
+		// TODO Auto-generated method stub
+		Intent launchingIntent = getIntent();
+		handleIntent(launchingIntent);
+
+		dbgRelatedSetup(currentGhost);
+		hideProgress();
+		initComplete = true;
+		runner.startClock();
+		runner.run();
+	    }
+    	
+    	}.execute();
+    }
+   	
+    // only svcs that can be created on separate thread are here
+    private void createSvcs2ndThread() {
+	lm = LayoutManager.getInstance(this);
 	gm = new GhostMgr(this);
     }
 
@@ -175,12 +237,28 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	fl = (FrameLayout) findViewById(R.id.fl);
 	btnBar = findViewById(R.id.btn_bar);
 	dbgBar = findViewById(R.id.dbg_btn_bar);
+	prog = findViewById(R.id.progressBar1);
 	if ( dbgBuild )
 	    dbgBar.setVisibility(View.VISIBLE);
 
 	registerForContextMenu(findViewById(R.id.btn_help));
+	
+	showProgress();
+	
     }
 
+    private void showProgress() {
+	Log.d(TAG, "showing progress");
+	fl.setVisibility(View.INVISIBLE);
+	prog.setVisibility(View.VISIBLE);
+    }
+
+    private void hideProgress() {
+	prog.setVisibility(View.INVISIBLE);
+	fl.setVisibility(View.VISIBLE);
+    }
+
+	
     private boolean checkIsRestore(Bundle savedInstanceState) {
 	if ( savedInstanceState != null ) {
 	    Log.d(TAG, "was minimized");
@@ -273,7 +351,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void onResume() {
 	super.onResume();
-	if ( runner != null ) { 
+	if ( initComplete && runner != null ) { 
 	    runner.startClock();
 	    runner.run();
 	}
@@ -301,13 +379,21 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    }
 	    public void ghostSwitchScriptComplete() {
 		runner.setCallback(null);
+		//mGH.post(ghostSwitchStep2Caller);
+		runOnUiThread(ghostSwitchStep2Caller);
+	    }
+	};
+	
+    private Handler mGH = new Handler();
+    private Runnable ghostSwitchStep2Caller = new Runnable() {
+	    public void run() {
+		showProgress();
 		ghostSwitchStep2();
 	    }
 	};
 
-
     public void onWindowFocusChanged(boolean flag) {
-	lm.checkAndUpdateLayoutParam();
+	if ( initComplete) lm.checkAndUpdateLayoutParam();
     }
 
     private void checkAndLoadAnimation() {
@@ -361,8 +447,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	//iv.setImageDrawable(anime);
 	// 	anime.stop(); // stop previous animation?
 	// 	anime.start();
-	sv.startAnimation();
-	
+	//sv.startAnimation();
+	showCollisionAreaOnImageView();
+	//showProgress();
     }
 
     private void pickNextAnimation() {
@@ -377,14 +464,6 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void onShowCollision(View v){
 	showCollisionAreaOnImageView();
-    }
-
-
-    public void ivClick(View v) {
-	//anime.start();
-	//showCollisionAreaOnImageView();
-	pickNextAnimation();
-	//runner.run();
     }
 
     private void showCollisionAreaOnImageView() {
@@ -445,9 +524,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     private void extractNar(String targetPath, boolean force){
 	String ghostId = NarUtil.readNarGhostId(targetPath);
 	if ( ghostId == null ) {
-		if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
-		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR, "ghost_install", "cannot read " + targetPath, -1);
-		return;
+	    if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
+	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR, "ghost_install", "cannot read " + targetPath, -1);
+	    return;
 	}
 
 	if ( (gm.hasSameGhostId(ghostId) == false )|| force == true) {
@@ -534,15 +613,15 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     int cGindex = 0;
     public void onNextGhost(View v){
     	/*
-	String [] gname = gm.getGnames();// {"first","yohko","2elf"};
-	if ( gname == null )
-	    return;
+	  String [] gname = gm.getGnames();// {"first","yohko","2elf"};
+	  if ( gname == null )
+	  return;
 
-	switchGhost(gname[cGindex]);
-	cGindex++;
-	if ( cGindex > gname.length -1)
-	    cGindex = 0;
-	    */
+	  switchGhost(gname[cGindex]);
+	  cGindex++;
+	  if ( cGindex > gname.length -1)
+	  cGindex = 0;
+	*/
     	String surfaceDbgMsg =currentGhost.mgr.dumpSurfaces();
     	DbgMsgDlg d = DbgMsgDlg.newInstance(surfaceDbgMsg);
     	d.show(getSupportFragmentManager(), Setup.DLG_DBG_MSG);
@@ -567,32 +646,50 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void ghostSwitchStep2() {
-    	Ghost g;
-    	try {
-	    g = gm.createGhost(nextGhostId);
-	    nextGhostId = null;
-	    ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
-    	}
-    	catch(Exception e) {
-	    // TODO fill failed switch event!
-	    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR,"ghost_switch",nextGhostId,-1);
-	    Log.d(TAG, "failed to switch to ghost:" + nextGhostId);
-	    nextGhostId = null;
-	    e.printStackTrace();
-	    return;
-    	}
-	currentGhost = g;
-	sv.setMgr(g.mgr);
-	kv.setMgr(g.mgr);
-	updateSurfaceKeys(g);
+
+	new AsyncTask<Void, Void, Void>() {
+	    @Override
+	    protected void onPreExecute() {
+		showProgress();
+	    }
+
+	    @Override
+	    protected Void doInBackground(Void... params) {
+		Ghost g;
+		try {
+		    g = gm.createGhost(nextGhostId);
+		    nextGhostId = null;
+		    ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
+		}
+		catch(Exception e) {
+		    // TODO fill failed switch event!
+		    AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR,"ghost_switch",nextGhostId,-1);
+		    Log.d(TAG, "failed to switch to ghost:" + nextGhostId);
+		    nextGhostId = null;
+		    e.printStackTrace();
+		    return null;
+		}
+		currentGhost = g;
+		sv.setMgr(g.mgr);
+		kv.setMgr(g.mgr);
+		updateSurfaceKeys(g);
 	
-	keyindex = 0;
-	currentSurfaceKey = surfaceKeys[keyindex];	
-	sv.changeSurface(currentSurfaceKey);
-	kv.changeSurface("10");
-	lm.checkAndUpdateLayoutParam();
-	gm.setLastRunGhost(g);
-	runner.setGhost(g);
+		keyindex = 0;
+		currentSurfaceKey = surfaceKeys[keyindex];	
+		return null;
+	    }
+
+	    @Override
+	    protected void onPostExecute(Void result){
+		hideProgress();
+		sv.changeSurface(currentSurfaceKey);
+		kv.changeSurface("10");
+		lm.checkAndUpdateLayoutParam();
+		gm.setLastRunGhost(currentGhost);
+		runner.setGhost(currentGhost);
+	    }
+
+	}.execute();
     }
 
     private void handleIntent(Intent intent){
