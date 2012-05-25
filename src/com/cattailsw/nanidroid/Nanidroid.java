@@ -63,6 +63,10 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 							   SScriptRunner.UICallback
 {
     private static final String TAG = "Nanidroid";
+    private static final String PREF_KEY_LAUNCH_TIME = "keylaunchtime";
+    private static final String MIN_TAG = "minimized";
+
+    private static final int FLAG_SD_ERR = 42;
     //private ImageView sv = null;
     private SakuraView sv = null;
     private KeroView kv = null;
@@ -83,10 +87,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     private Ghost currentGhost = null;
     
-    private static final String MIN_TAG = "minimized";
     private boolean restoreFromMinimize = false;
 
-    private static final int FLAG_SD_ERR = 42;
+    private long currentRunCount = -1;
 
     /** Called when the activity is first created. */
     @Override
@@ -98,15 +101,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
         initGA();
 	setBackground();
 
-	sv = (SakuraView) findViewById(R.id.sakura_display);
-	kv = (KeroView) findViewById(R.id.kero_display);
-	bSakura = (Balloon) findViewById(R.id.bSakura);
-	bKero = (Balloon) findViewById(R.id.bKero);
-	fl = (FrameLayout) findViewById(R.id.fl);
-	btnBar = findViewById(R.id.btn_bar);
-	dbgBar = findViewById(R.id.dbg_btn_bar);
-	if ( dbgBuild )
-	    dbgBar.setVisibility(View.VISIBLE);
+	setupViews(dbgBuild);
+
 	// need to get a list of ghosts on sd card
 	if ( Environment.getExternalStorageState().equalsIgnoreCase(Environment.MEDIA_MOUNTED) == false ) {
 	    bSakura.setText("sd card error");
@@ -117,32 +113,17 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    // need to prompt SD card issue
 	}
 
-	if ( savedInstanceState != null ) {
-	    Log.d(TAG, "was minimized");
-	    restoreFromMinimize = savedInstanceState.getBoolean(MIN_TAG, false);
-	}
+	checkIsRestore(savedInstanceState);
 
-	//mgr = SurfaceManager.getInstance();
-	lm = LayoutManager.getInstance(this);
-	runner = SScriptRunner.getInstance(this);
-	gm = new GhostMgr(this);
+	createSvcs();
+
 	if ( gm.getGhostCount() == 0 )
 	    installFirstGhost(); // extract first to file dir on sd card
 	
-	String lastId = gm.getLastRunGhostId();
-	if ( lastId == null ) lastId = "nanidroid";
-	Ghost g = gm.createGhost(lastId);
-	ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
-	runner.setGhost(g);
-	gm.setLastRunGhost(g);
-	currentGhost = g;
+	createGhost();
 
-	runner.setViews(sv, kv, bSakura, bKero);
-	sv.setMgr(g.mgr);
-	kv.setMgr(g.mgr);
-	lm.setViews(fl, sv, kv, bSakura, bKero);
-	runner.setLayoutMgr(lm);
-	runner.setUICallback(this);
+	setGhostToRunner(currentGhost);
+
 	currentRunCount = getStartCount();
 	if ( currentRunCount == 0 )
 	    loadFirstRunScript();
@@ -152,15 +133,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	Intent launchingIntent = getIntent();
 	handleIntent(launchingIntent);
 
-	updateSurfaceKeys(g);
-	currentSurfaceKey = surfaceKeys[0];
-	currentSurface = g.mgr.getSakuraSurface(currentSurfaceKey);
-	//checkAndLoadAnimation();
-	sv.changeSurface(currentSurfaceKey);
-	kv.changeSurface("10");
-	
-	registerForContextMenu(findViewById(R.id.btn_help));
-	
+	dbgRelatedSetup(currentGhost);
+		
 	NarUtil.createNarDirOnSDCard();
 
 	addAdView();
@@ -168,12 +142,59 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	ViewServer.get(this).addWindow(this);
     }
 
+    private void createSvcs() {
+	lm = LayoutManager.getInstance(this);
+	runner = SScriptRunner.getInstance(this);
+	gm = new GhostMgr(this);
+    }
+
+    private void createGhost() {
+	String lastId = gm.getLastRunGhostId();
+	if ( lastId == null ) lastId = "nanidroid";
+	Ghost g = gm.createGhost(lastId);
+	ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
+	runner.setGhost(g);
+	gm.setLastRunGhost(g);
+	currentGhost = g;
+    }
+
+    private void setGhostToRunner(Ghost g) {
+	runner.setViews(sv, kv, bSakura, bKero);
+	sv.setMgr(g.mgr);
+	kv.setMgr(g.mgr);
+	lm.setViews(fl, sv, kv, bSakura, bKero);
+	runner.setLayoutMgr(lm);
+	runner.setUICallback(this);
+    }
+
+    private void setupViews(boolean dbgBuild) {
+	sv = (SakuraView) findViewById(R.id.sakura_display);
+	kv = (KeroView) findViewById(R.id.kero_display);
+	bSakura = (Balloon) findViewById(R.id.bSakura);
+	bKero = (Balloon) findViewById(R.id.bKero);
+	fl = (FrameLayout) findViewById(R.id.fl);
+	btnBar = findViewById(R.id.btn_bar);
+	dbgBar = findViewById(R.id.dbg_btn_bar);
+	if ( dbgBuild )
+	    dbgBar.setVisibility(View.VISIBLE);
+
+	registerForContextMenu(findViewById(R.id.btn_help));
+    }
+
+    private boolean checkIsRestore(Bundle savedInstanceState) {
+	if ( savedInstanceState != null ) {
+	    Log.d(TAG, "was minimized");
+	    restoreFromMinimize = savedInstanceState.getBoolean(MIN_TAG, false);
+	    return restoreFromMinimize;
+	}
+	return false;
+    }
+
     private void setBackground() {
 	View bg = findViewById(android.R.id.content);
 	bg.setBackgroundDrawable( WallpaperManager.getInstance(getApplicationContext()).getFastDrawable() );
     }
 
-    private long currentRunCount = -1;
 
     private boolean isDbgBuild() {
 	try {
@@ -186,7 +207,6 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	}
     }
     
-    private static final String PREF_KEY_LAUNCH_TIME = "keylaunchtime";
 
     private long getStartCount() {
 	return PrefUtil.getKeyValueLong(getApplicationContext(), PREF_KEY_LAUNCH_TIME);
@@ -215,6 +235,15 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     	
     	AnalyticsUtils.getInstance(getApplicationContext(), Setup.UA_CODE, enableGA);
     	AnalyticsUtils.getInstance(getApplicationContext()).dispatch();
+    }
+
+    private void dbgRelatedSetup(Ghost g) {
+	updateSurfaceKeys(g);
+	currentSurfaceKey = surfaceKeys[0];
+	currentSurface = g.mgr.getSakuraSurface(currentSurfaceKey);
+	//checkAndLoadAnimation();
+	sv.changeSurface(currentSurfaceKey);
+	kv.changeSurface("10");
     }
 
     private void updateSurfaceKeys(Ghost g) {
