@@ -36,6 +36,7 @@ import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.FrameLayout;
 import android.widget.Toast;
+import android.widget.TextView;
 
 import com.android.debug.hv.ViewServer;
 import com.cattailsw.nanidroid.dlgs.AboutDialogFragment;
@@ -80,6 +81,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     private View btnBar = null;
     private View dbgBar = null;
     private View prog = null;
+    private TextView progText = null;
 
     AnimationDrawable anime = null;
     //SurfaceManager mgr = null;
@@ -237,7 +239,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	fl = (FrameLayout) findViewById(R.id.fl);
 	btnBar = findViewById(R.id.btn_bar);
 	dbgBar = findViewById(R.id.dbg_btn_bar);
-	prog = findViewById(R.id.progressBar1);
+	prog = findViewById(R.id.progress);
+	progText = (TextView) findViewById(R.id.progress_text);
 	if ( dbgBuild )
 	    dbgBar.setVisibility(View.VISIBLE);
 
@@ -248,7 +251,6 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     private void showProgress() {
-	Log.d(TAG, "showing progress");
 	fl.setVisibility(View.INVISIBLE);
 	prog.setVisibility(View.VISIBLE);
     }
