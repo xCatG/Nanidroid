@@ -116,7 +116,7 @@ public class SurfaceReader {
 		if ( mgr.containsSurface(idpart) )
 		    continue;
 		else {
-		    mgr.addSurface(idpart, new ShellSurface(folderPath, id, null));
+		    mgr.addSurface(idpart, new ShellSurface(folderPath, f.getName(), id, null));
 		}
 	    }
 	    catch(Exception e) {

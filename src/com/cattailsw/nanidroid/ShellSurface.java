@@ -72,14 +72,21 @@ public class ShellSurface {
 
     }
 
+    public ShellSurface(String path, String selfName, int id, List<String> elements) {
+    	surfaceId = id;
+    	basePath = path;
+    	if ( selfName == null )
+    		selfFilename = basePath + "surface" + surfaceId + ".png";
+    	else
+    		selfFilename = basePath + selfName;
+    	bp2 = String.format("%s%04d%s", basePath+"surface", surfaceId, ".png");
+    	Log.d(TAG, "bp2:" + bp2);
+    	//mgr = SurfaceManager.getInstance();
+    	loadSurface(elements);	    	
+    }
+    
     public ShellSurface(String path, int id, List<String> elements) {
-	surfaceId = id;
-	basePath = path;
-	selfFilename = basePath + "surface" + surfaceId + ".png";
-	bp2 = String.format("%s%04d%s", basePath+"surface", surfaceId, ".png");
-	Log.d(TAG, "bp2:" + bp2);
-	//mgr = SurfaceManager.getInstance();
-	loadSurface(elements);	
+    	this(path, null, id, elements);
     }
 
     public ShellSurface(String path, int id) {
