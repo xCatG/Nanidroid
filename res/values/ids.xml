@@ -4,4 +4,6 @@
     <item type="id" name="adview" />
   <item type="id" name="ok_btn" />
   <item type="id" name="cancel_btn" />
+  <item type="id" name="progress" />
+  <item type="id" name="progress_text" />
 </resources>

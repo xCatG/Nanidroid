@@ -9,7 +9,7 @@
 
   <include layout="@layout/main_btns"  android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_below="@id/dbg_btn_bar" android:id="@+id/btn_bar" android:visibility="gone"/>
 
-
+  <include android:id="@id/progress" layout="@layout/progress_wait" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_centerInParent="true" />"
   
 <FrameLayout
     android:layout_width="fill_parent"
@@ -42,14 +42,12 @@
     android:layout_width="180dp"
     android:layout_height="240dp"
     android:layout_gravity="bottom|right"
-    android:onClick="ivClick"
     />
   <com.cattailsw.nanidroid.KeroView
     android:id="@+id/kero_display"
     android:layout_width="126dp"
     android:layout_height="168dp"
     android:layout_gravity="bottom|left"
-    android:onClick="ivClick"
     />
   </FrameLayout>
 
