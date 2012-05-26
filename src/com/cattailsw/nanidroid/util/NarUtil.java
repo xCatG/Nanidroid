@@ -21,6 +21,8 @@ import android.util.Log;
 
 import com.cattailsw.nanidroid.DescReader;
 import com.cattailsw.nanidroid.Setup;
+import java.util.Comparator;
+import java.util.List;
 
 public class NarUtil {
     private static final String TAG = "NarUtil";
@@ -71,18 +73,16 @@ public class NarUtil {
 	    nar = new ZipFile(pathToArchive);
 		
 	    ArrayList<ZipEntry> entries = (ArrayList<ZipEntry>) Collections.list(nar.entries());
-	    for ( ZipEntry e : entries ) {
+	    ZipEntry e = findRootInstallTxt(entries);
 		// need to find "install.txt"
 		if ( e.getName().contains("install.txt")) {
 		    File tmp = File.createTempFile("nanidroid", "tmp", new File("/mnt/sdcard/nar"));
-		    extractFileToPath(nar, tmp.getAbsolutePath(), e, true);
+		    extractFileToPath(nar, tmp.getAbsolutePath(), e, true, false);
 		    DescReader r = new DescReader(tmp.getAbsolutePath());
 		    r.setTable(r.parse());
 
 		    ret = r.getTable().get("directory");
 		    tmp.delete();
-		    break;
-		}
 	    }
 	    nar.close();
 
@@ -95,6 +95,40 @@ public class NarUtil {
 
     }
 
+    private static boolean shouldStrip(String filename) {
+	Log.d(TAG, "check should strip:" + filename);
+	return !filename.toLowerCase().startsWith("install.txt");
+    }
+
+    // sort by filename length first, then by string compareTo
+    private static Comparator<ZipEntry> zipFilenameCompare = new Comparator<ZipEntry>() {
+	public int compare(ZipEntry lhs, ZipEntry rhs) {
+	    String ls = lhs.getName(); String rs = rhs.getName();
+	    if ( ls.length() == rs.length() )
+	    return lhs.getName().compareTo(rhs.getName());
+	    else if ( ls.length() > rs.length() )
+		return 1;
+	    return -1;
+	}
+    };
+
+    private static ZipEntry findRootInstallTxt(List<ZipEntry> entries) {
+	List<ZipEntry> iz = new ArrayList<ZipEntry>();
+	for ( ZipEntry e: entries ) {
+	    if ( e.getName().contains("install.txt") )
+		iz.add(e);
+	}
+
+	if ( iz.size() == 1 )
+	    return iz.get(0);
+
+	//Log.d(TAG, "has " + iz.size() + " install.txts");
+	// sort to get shortest one 
+	Collections.sort(iz, zipFilenameCompare);
+	//Log.d(TAG, "first" + iz.get(0).getName() + ", last" + iz.get(iz.size() -1).getName());
+	return iz.get(0);
+    }
+
     public static boolean readNarArchive(String pathToArchive, String installRoot, String tid){
 	ZipFile nar = null;
 	boolean ret = false;
@@ -103,27 +137,28 @@ public class NarUtil {
 		
 	    ArrayList<ZipEntry> entries = (ArrayList<ZipEntry>) Collections.list(nar.entries());
 	    if ( tid == null ) {
-	    for ( ZipEntry e : entries ) {
-		// need to find "install.txt"
-		if ( e.getName().contains("install.txt")) {
-		    File tmp = File.createTempFile("nanidroid", "tmp", new File("/mnt/sdcard/nar"));
-		    extractFileToPath(nar, tmp.getAbsolutePath(), e, true);
-		    DescReader r = new DescReader(tmp.getAbsolutePath());
-		    r.setTable(r.parse());
-		    tmp.delete();
-		    String type = r.getTable().get("type");
-		    if ( "ghost".equalsIgnoreCase(type) == false ) { // do not support non-ghost archive
-			Log.d(TAG, "do not support " + type + " archive yet");
-			AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_install_not_support", type, -2);
+		Collections.sort(entries, zipFilenameCompare);
+		
+		ZipEntry e = findRootInstallTxt(entries);
+
+		Log.d(TAG, "entry name=" + e.getName());
+		boolean strip = shouldStrip(e.getName());
+		File tmp = File.createTempFile("nanidroid", "tmp", new File("/mnt/sdcard/nar"));
+		extractFileToPath(nar, tmp.getAbsolutePath(), e, true, false);
+		DescReader r = new DescReader(tmp.getAbsolutePath());
+		r.setTable(r.parse());
+		tmp.delete();
+		String type = r.getTable().get("type");
+		if ( "ghost".equalsIgnoreCase(type) == false ) { // do not support non-ghost archive
+		    Log.d(TAG, "do not support " + type + " archive yet");
+		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_install_not_support", type, -2);
 			
-			//return false;
-		    }
-		    String targetDirid = r.getTable().get("directory");
-		    String targetPath = installRoot + "/" + targetDirid;
-		    extractZipToPath(entries, nar, targetPath);
-		    break;
+		    //return false;
 		}
-	    }
+		String targetDirid = r.getTable().get("directory");
+		String targetPath = installRoot + "/" + targetDirid;
+		extractZipToPath(entries, nar, targetPath, strip);
+	    
 	    }else{
 	    	
 	    	extractZipToPath(entries, nar, installRoot + "/" + tid);
@@ -142,8 +177,12 @@ public class NarUtil {
 	return ret;
     }
 
+    private static void extractZipToPath(ArrayList<ZipEntry> entries, ZipFile nar,  String targetPath) throws IOException {
+	extractZipToPath(entries, nar, targetPath, false);
+    }
+
     private static void extractZipToPath(ArrayList<ZipEntry> entries, 
-					 ZipFile nar,  String targetPath) throws IOException {
+					 ZipFile nar,  String targetPath, boolean strip) throws IOException {
 	Log.d(TAG, " =>extracting to" + targetPath);
 	checkAndMakeDir(targetPath);
 	for ( ZipEntry e : entries ) {
@@ -151,18 +190,31 @@ public class NarUtil {
 		//checkAndMakeDir(targetPath + e.getName());
 	    }
 	    else {
-		extractFileToPath(nar, targetPath, e, false);
+		extractFileToPath(nar, targetPath, e, false, strip);
 	    }
 	}
     }
 
-    private static void extractFileToPath(ZipFile nar, String targetPath, ZipEntry e, boolean ignorename) 
+
+    private static String stripExtraLevel(String inPath){
+	Log.d(TAG, "inPath is:" + inPath);
+	// find first '/' in the path and return substring
+	int firstSlashIndex = inPath.indexOf('/');
+	if ( firstSlashIndex > 0 ) {
+	    return inPath.substring(firstSlashIndex+1);
+	}
+	return inPath;
+    }
+
+    private static void extractFileToPath(ZipFile nar, String targetPath, ZipEntry e, boolean ignorename, boolean strip) 
 	throws FileNotFoundException, IOException {
 	File f = null;
 	if ( ignorename ) 
 	    f = new File(targetPath);
-	else
-	    f = new File(targetPath + "/" +  e.getName());
+	else {
+	    
+	    f = new File(targetPath + "/" +  (strip?stripExtraLevel(e.getName()):e.getName()) );
+	}
 	File fP = f.getParentFile();
 	if ( fP != null && fP.exists() == false ) { boolean s =  fP.mkdirs();
 	Log.d(TAG, "fp make" + s);
