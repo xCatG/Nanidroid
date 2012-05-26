@@ -19,13 +19,20 @@ public class InfoOnlyGhost extends Ghost {
 
 	try {
 	    ghostDesc = ghost_dr.parse();
-	    shellDesc = shell_dr.parse();
 	}
 	catch(Exception e){
 	    Log.d(TAG, "desc parsing error");
 	    e.printStackTrace();
 	    error = true;
 	}
+	try {
+	    shellDesc = shell_dr.parse();
+	}
+	catch(Exception e) {
+		Log.d(TAG, "shell desc parse error");
+		e.printStackTrace();
+	}
+	
     }
 
     // do nothing

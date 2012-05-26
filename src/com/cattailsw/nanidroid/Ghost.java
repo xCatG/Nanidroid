@@ -70,13 +70,20 @@ public class Ghost {
 
 	try {
 	    ghostDesc = ghost_dr.parse();
-	    shellDesc = shell_dr.parse();
 	}
 	catch(Exception e){
 	    Log.d(TAG, "desc parsing error");
 	    e.printStackTrace();
 	    error = true;
 	    return;
+	}
+	
+	try {		
+	    shellDesc = shell_dr.parse();		
+	}
+	catch(Exception e) {
+		Log.d(TAG, "shell desc parse error, but we will continue");
+		e.printStackTrace();
 	}
 
 	SurfaceReader sr = new SurfaceReader(mgr, master_shell, master_shell_surface );
@@ -108,7 +115,8 @@ public class Ghost {
     }
 
     public String getShellName() {
-	return shellDesc.get("name");
+    	if ( shellDesc == null ) return "master";
+    	return shellDesc.get("name");
     }
 
     public String getCrafterName() {
