@@ -32,30 +32,41 @@ public class ShioriFactory {
 	return getShiori(path, masterDesc, null);
     }
 
+    private Shiori checkShioriByPath(String path, Context ctx) {
+	// need to do some more checking... argh
+	if ( (new File(path, "kawarirc.kis")).exists() ) {
+	    return new Kawari(path); // should be kawari878
+	}
+	else if ( (new File(path, "kawari.ini") ).exists() ) {
+	    return new NotSupportedShiori(ctx); // kawari 7 or something like this
+	}
+	else if ( (new File(path, "aya5.txt")).exists()) {
+	    return new NotSupportedShiori(ctx); // assume yaya
+	}
+
+	return new NotSupportedShiori(ctx);
+    }
+
     public Shiori getShiori(String path, Map<String, String> masterDesc, Context ctx) {
 	// need to first read the shiori dll file name from descript.txt
 	String sdllname = masterDesc.get("shiori");
-
-	if ( sdllname.matches("Nanidroid") ) {
-	    return new NanidroidShiori(ctx, path);
+	if ( sdllname == null ){
+	    // check path for files...
+	    return checkShioriByPath(path, ctx);
 	}
-	else if ( sdllname.matches("satori.dll") ) {
-	    return new SatoriPosixShiori(path);
-	}
-	else if ( sdllname.matches("shiori.dll") ) {
-	    // need to do some more checking... argh
-	    if ( (new File(path, "kawarirc.kis")).exists() ) {
-		return new Kawari(path); // should be kawari878
+	else {
+	    if ( sdllname.matches("Nanidroid") ) {
+		return new NanidroidShiori(ctx, path);
 	    }
-	    else if ( (new File(path, "kawari.ini") ).exists() ) {
-		return new NotSupportedShiori(ctx); // kawari 7 or something like this
+	    else if ( sdllname.matches("satori.dll") ) {
+		return new SatoriPosixShiori(path);
 	    }
-	    else if ( (new File(path, "aya5.txt")).exists()) {
-		return new NotSupportedShiori(ctx); // assume yaya
-	    }	    
-	}
-	else if ( sdllname.matches("yaya.dll") ) {
-	    return new NotSupportedShiori(ctx); // should be yaya
+	    else if ( sdllname.matches("shiori.dll") ) {
+		return checkShioriByPath(path, ctx);
+	    }
+	    else if ( sdllname.matches("yaya.dll") ) {
+		return new NotSupportedShiori(ctx); // should be yaya
+	    }
 	}
 
 	return new NotSupportedShiori(ctx);
