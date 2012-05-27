@@ -760,7 +760,7 @@ public class SScriptRunner implements Runnable {
 			  "" + y,
 			  "0",
 			  ((sakura)?"0":"1"),
-			  "" + collid,
+			  ((collid>-1)?""+collid:""),
 			  "" + buttonid,
 			  "touch"}
 		      );
@@ -768,13 +768,13 @@ public class SScriptRunner implements Runnable {
 
     private void doMouseDblClick(int x, int y, boolean sakura, int collid, int buttonid) {
 	doShioriEvent("OnMouseDoubleClick", new String[]{
-				"" + x,
-				"" + y,
-				"0",
-				((sakura)?"0":"1"),
-				"" + collid,
-				"" + buttonid,
-				"touch"}
+			  "" + x,
+			  "" + y,
+			  "0",
+			  ((sakura)?"0":"1"),
+			  ((collid>-1)?""+collid:""),
+			  "" + buttonid,
+			  "touch"}
 				);
     }
 
@@ -784,7 +784,7 @@ public class SScriptRunner implements Runnable {
 			  "" + y,
 			  "" + wheelO,
 			  ((sakura)?"0":"1"),
-			  "" + collid,
+			  ((collid>-1)?""+collid:""),
 			  null,
 			  "touch"}
 		      );
@@ -796,7 +796,7 @@ public class SScriptRunner implements Runnable {
 			  ""+y, 
 			  ""+wheelO, 
 			  ((sakura)?"0":"1"), 
-			  ""+collid,
+			  ((collid>-1)?""+collid:""),
 			  null,
 			  "touch"
 		      });
