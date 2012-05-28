@@ -80,7 +80,7 @@ public class ShellSurface {
     	else
     		selfFilename = basePath + selfName;
     	bp2 = String.format("%s%04d%s", basePath+"surface", surfaceId, ".png");
-    	Log.d(TAG, "bp2:" + bp2);
+//    	Log.d(TAG, "bp2:" + bp2);
     	//mgr = SurfaceManager.getInstance();
     	loadSurface(elements);	    	
     }
