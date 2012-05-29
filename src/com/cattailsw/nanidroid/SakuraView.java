@@ -267,16 +267,13 @@ public class SakuraView extends ImageView {
 	//printSamples(motionEvent);
 
 	int cid = testColDect((int)motionEvent.getX(0), (int)motionEvent.getY(0));
-	if ( cid > -1) {
-	    Log.d(TAG, "test col at: " + cid);
+	//if ( cid > -1) {
+	Log.d(TAG, "test col at: " + cid);
 
-	    if ( mUCB != null ) {
-		mUCB.onHit(UIEventCallback.TYPE_DOUBLE_CLICK, 
-			   (int)motionEvent.getX(0),
-			   (int)motionEvent.getY(0), 0, cid, 0);
-	    
-	    }
-	    return false;
+	if ( mUCB != null ) {
+	    mUCB.onHit(UIEventCallback.TYPE_DOUBLE_CLICK, 
+		       (int)motionEvent.getX(0),
+		       (int)motionEvent.getY(0), 0, cid, 0);
 	}
 	return super.onTouchEvent(motionEvent);
     }
