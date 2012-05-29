@@ -603,9 +603,11 @@ public class SScriptRunner implements Runnable {
 	    labels.add(m.group(1));
 	    ids.add(m.group(2));
 	    m = PatternHolders.q_choice_ptrn.matcher(msg);
+
 	}
 
 	if ( ucb != null ) {
+	    wholeline = true;
 	    String[] lbl = new String[labels.size()];//(String[])labels.toArray();
 	    labels.toArray(lbl);
 	    String[] idz = new String[ids.size()];
@@ -827,6 +829,7 @@ public class SScriptRunner implements Runnable {
 
     private SakuraView.UIEventCallback cbKero = new SakuraView.UIEventCallback() {
 	    public void onHit(int type, int x, int y, int orientation, int collId, int buttonid){
+		clearMsgQueue();
 		switch( type ) {
 		case SakuraView.UIEventCallback.TYPE_SINGLE_CLICK:
 		    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "click", collId);
@@ -926,6 +929,8 @@ public class SScriptRunner implements Runnable {
     }
 
     public void doOnChoiceSelect(String id) {
+	// before doing choice select, need to clear current queue...
+	clearMsgQueue();
 	doShioriEvent("OnChoiceSelect", new String[]{id});
     }
 
