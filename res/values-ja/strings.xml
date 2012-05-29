@@ -38,6 +38,14 @@
   <string name="help_supported_ops">対応した機能の表示</string>
   <string name="url_support_ops">http://blog.cattail-sw.com/?p=217</string>
 
+  <string name="user_input_dlg_title">入力してください</string>
+  <string name="user_sel_dlg_title">一つを選んってください</string>
+  <string name="err_title">エラー</string>
+  <string name="err_no_sdcard">SDカードがございません。続けません。</string>
+  
+  <string name="prog_startup">Nanidroid起動中</string>
+  <string name="load_g">ゴーストデータ読込中：\n%1$s&#8230;</string>
+
   <!--  <string name=""></string> -->
   <string name="unsupported_shiori">\\0\\s0すみません、このゴーストのSHIORIモジュールはまだサポートされておりません。オリジナルのゴーストの喋る機能はまだ利用できません。\\e</string>
   <string name="unsupported_shiori_ongchanging">\\0\\s0%1$sさんにゴーストを切り替えます\\e</string>
