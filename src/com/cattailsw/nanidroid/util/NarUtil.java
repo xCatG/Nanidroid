@@ -232,6 +232,41 @@ public class NarUtil {
 	}
     }
 
+    public static String md5ToString(byte[] md5in) {
+	String signature2 = "";
+
+	for (int i=0; i < md5in.length; i++) {
+	    signature2 +=
+		Integer.toString( ( md5in[i] & 0xff ) + 0x100, 16).substring( 1 );
+	}
+	return signature2;
+    }
+
+
+    public static byte[] createMD5(FileInputStream is) throws IOException {
+	MessageDigest digester = null;
+	try {
+	    digester = MessageDigest.getInstance("MD5");
+	    byte[] buffer = new byte[16*1024]; // 16k
+	    int length = 0;
+	    while( (length = is.read(buffer) ) > 0) {
+		digester.update(buffer, 0, length);
+	    }
+	}
+	catch(Exception e){
+	    e.printStackTrace();
+	}
+	finally {
+	    is.close();
+	}
+
+	if ( digester != null ) {
+	    return digester.digest();
+	}
+
+	return null;
+    }
+
     public static byte[] copyFile(InputStream is, FileOutputStream os) 
 	throws IOException{
 	MessageDigest digester = null;

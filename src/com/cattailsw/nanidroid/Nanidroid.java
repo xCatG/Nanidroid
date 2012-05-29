@@ -743,8 +743,24 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     public void onUpdate(View v) {
 	// need to show msg saying not implemented yet
 	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_BTN, "Update", "", 0);
-	NotImplementedDlg n = new NotImplementedDlg();
-	n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
+	//NotImplementedDlg n = new NotImplementedDlg();
+	//n.show(getSupportFragmentManager(), Setup.DLG_NOT_IMPL);
+
+	// grab the necessary info and launch the update task through service?
+	// we need url
+	//Log.d(TAG, "get homeurl from shiori:" + runner.getStringValueFromShiori("homeurl"));
+	String homeurl = runner.getStringValueFromShiori("homeurl");
+	if ( homeurl != null ) {
+	    // do OnUpdateBegin
+	    runner.doShioriEvent("OnUpdateBegin", new String[]{currentGhost.getGhostName(), 
+							       currentGhost.getGhostPath()});
+
+	    // create update intent...?
+	    Intent i = NanidroidService.createUpdateIntent(this, homeurl, currentGhost.getGhostId(), 
+							   currentGhost.getGhostPath());
+	    startService(i);
+	    // need to do updatebegin here...
+	}
     }
 	
     public void onListGhost(View v){
