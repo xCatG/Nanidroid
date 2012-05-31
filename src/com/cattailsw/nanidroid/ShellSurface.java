@@ -210,6 +210,7 @@ public class ShellSurface {
 	    this.id = id;
 	    refidz = idz;
 	    refAnimationz = new AnimationDrawable[refidz.length];
+	    Log.d(TAG, "alt ani:"+id+",with " + refidz.length + " animations");
 	}		
 	String [] refidz;
 	AnimationDrawable []refAnimationz;
@@ -371,8 +372,14 @@ public class ShellSurface {
 
 	for ( String s : elements ) {
 	    // need to check if its collusion
-	    Matcher m = PatternHolders.collision.matcher(s);
-	    if ( m.matches() ) {
+	    // skip comments
+	    Matcher m = PatternHolders.comment_ptrn.matcher( s );
+	    if( m.find() ) {
+		continue;
+	    }
+
+	    m = PatternHolders.collision.matcher(s);
+	    if ( m.find() ) {
 		//Log.d(TAG, "string " + s + " matches collision");
 		//printMatch(m);
 		handleCollision(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5), m.group(6));
@@ -380,7 +387,7 @@ public class ShellSurface {
 	    }
 
 	    m = PatternHolders.element.matcher(s);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		//Log.d(TAG, "string " + s + " matches element");
 		//printMatch(m);
 		// need to store this as the new self?
@@ -391,7 +398,7 @@ public class ShellSurface {
 
 	    // or point
 	    m = PatternHolders.point.matcher(s);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		//Log.d(TAG, "string " + s + " matches point");
 		//printMatch(m);
 		continue;
@@ -399,21 +406,21 @@ public class ShellSurface {
 
 	    // or interval
 	    m = PatternHolders.interval.matcher( s );
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		//Log.d(TAG, "string " + s + " matches interval");
 		//printMatch(m);
 		handleInterval(m.group(1), m.group(2));
 		continue;
 	    }
 	    m = PatternHolders.animation_interval.matcher(s);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		handleInterval(m.group(1), m.group(2));
 		continue;
 	    }
 
 	    // or pattern
 	    m = PatternHolders.pattern.matcher( s );
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		//Log.d(TAG, "string " + s + " matches pattern");
 		//printMatch(m);
 		handlePattern(m.group(1), m.group(2),m.group(3), m.group(4), m.group(5), m.group(6), m.group(7) );
@@ -421,7 +428,7 @@ public class ShellSurface {
 	    }
 
 	    m = PatternHolders.animation.matcher(s);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		if ( m.group(4) == null ){
 		    //printMatch(m);
 		    handlePattern(m.group(1), m.group(2), m.group(6), m.group(7), m.group(5), m.group(8), m.group(9) );
@@ -435,7 +442,7 @@ public class ShellSurface {
 		continue;
 	    }
 	    m = PatternHolders.animation_base.matcher(s);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		//printMatch(m);
 		String filename = (m.group(6)==null)?m.group(4):m.group(6);
 		handlePattern(m.group(1), m.group(2), filename, m.group(7), m.group(3), null, null);
@@ -443,23 +450,23 @@ public class ShellSurface {
 	    }
 
 	    m = PatternHolders.pattern_base.matcher(s);
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		printMatch(m);
 		handlePattern(m.group(1), m.group(2),m.group(3), m.group(4), m.group(5), null, null );
 		continue;
 	    }
 	    // or option
 	    m = PatternHolders.option.matcher( s );
-	    if ( m.matches() ) {
+	    if ( m.find() ) {
 		//Log.d(TAG, "string " + s + " matches option");
 		//printMatch(m);
 		handleOptions(m.group());
 		continue;
 	    }
 
-	    // skip comments
-	    m = PatternHolders.comment_ptrn.matcher( s );
-	    if( m.matches() ) {
+	    m = PatternHolders.pattern_alt.matcher( s );
+	    if ( m.find() ) {
+		addAltAnimation(m.group(1), m.group(3), "\\.");
 		continue;
 	    }
 
@@ -636,11 +643,23 @@ public class ShellSurface {
 	return TYPE_BASE;
     }
 
+    private void addAltAnimation(String aId, String refidz, String splitter) {
+	String[] ridz = refidz.split(splitter);
+	Log.d(TAG, "splitng " + refidz + "with '" + splitter + "'");
+	addAltAnimation(aId, ridz);
+    }
+
     private void addAltAnimation(String aId, String refidz) {
 	// refidz should be in the form of 1,2,3,4,5,...,N
 	String [] ridz = refidz.split(",");
-	if ( ridz == null )
+	addAltAnimation(aId, ridz);
+    }
+
+    private void addAltAnimation(String aId, String ridz[]) {
+	if ( ridz == null ){
+	    Log.d(TAG, "addAltAnimation, ridz is null");
 	    return;
+	}
 	prepareAnimationTable();
 	AltAnimation a = new AltAnimation(aId, ridz);
 	if ( animationTable.containsKey(aId) )

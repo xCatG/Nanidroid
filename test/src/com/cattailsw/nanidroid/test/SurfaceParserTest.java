@@ -155,6 +155,19 @@ public class SurfaceParserTest extends AndroidTestCase {
 
     }
 
+    public void testPatternAltStart() {
+	String t = "	1pattern0,0,0,alternativestart,[2.3.4.5]";
+	Matcher m = PatternHolders.pattern_alt.matcher(t);
+	assertTrue(m.find());
+	assertEquals("2.3.4.5", m.group(3));
+	assertEquals("1", m.group(1));
+	assertEquals("0", m.group(2));
+
+	t = "1pattern0,0,0,alternativestart,[2.3.4]";
+	m = PatternHolders.pattern_alt.matcher(t);
+	assertTrue(m.find());
+	assertEquals("2.3.4", m.group(3));
+    }
 
     public int[] getSurfaceIds(String line) {
 	if ( line.contains(",") ) {
