@@ -324,8 +324,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	currentSurfaceKey = surfaceKeys[0];
 	currentSurface = g.mgr.getSakuraSurface(currentSurfaceKey);
 	//checkAndLoadAnimation();
-	sv.changeSurface(currentSurfaceKey);
-	kv.changeSurface("10");
+	//sv.changeSurface(currentSurfaceKey);
+	//kv.changeSurface("10");
     }
 
     private void updateSurfaceKeys(Ghost g) {
@@ -428,7 +428,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	lm.checkAndUpdateLayoutParam();
 	//checkAndUpdateLayoutParam();
 
-
+	
 	if (sv.hasAnimation() == false ){
 	    findViewById(R.id.btn2).setEnabled(false);
 	}
@@ -441,7 +441,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	      iv.setImageDrawable(anime);*/
 	    findViewById(R.id.btn2).setEnabled(true);
 	}
-
+    
     }
 
     SurfaceReader sr = null;
@@ -709,8 +709,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    @Override
 	    protected void onPostExecute(Void result){
 		hideProgress();
-		sv.changeSurface(currentSurfaceKey);
-		kv.changeSurface("10");
+		/*		sv.changeSurface(currentSurfaceKey);
+		  kv.changeSurface("10");*/
 		lm.checkAndUpdateLayoutParam();
 		gm.setLastRunGhost(currentGhost);
 		runner.setGhost(currentGhost);

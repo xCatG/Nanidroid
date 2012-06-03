@@ -305,9 +305,9 @@ public class SScriptRunner implements Runnable {
 	keroMsg.setLength(0);
 	msg = "";
 	charIndex = 0;
-	sakuraSurfaceId = "0";
-	keroSurfaceId = "10";
-	bSakuraId = "0";
+	//sakuraSurfaceId = "0";
+	//keroSurfaceId = "10";
+	bSakuraId = "-1";
 	bKeroId = "-1";
 	sakuraAnimationId = null;
 	keroAnimationId = null;
