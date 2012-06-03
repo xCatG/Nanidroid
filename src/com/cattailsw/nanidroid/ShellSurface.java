@@ -124,6 +124,11 @@ public class ShellSurface {
 		selfFilename = bp2;
 	}
 
+	updateOrigWH();
+
+    }
+
+    private void updateOrigWH(){
 	BitmapFactory.Options opt = readBitmapInfo(selfFilename);
 
 	origW = opt.outWidth;
@@ -137,8 +142,18 @@ public class ShellSurface {
 	    Log.d(TAG, "surface" + surfaceId + " (w,h)=(" + origW + "," + origH + ")");
 	}
 	targetW = origW; targetH = origH;
+    }
+
+    public void updateFilename(String fname) {
+	if ( fname == null ) {
+	    return;
+	}
+	selfFilename = fname;
+
+	updateOrigWH();
 
     }
+
 
     Map<String, Animation> animationTable = null;
     Map<Integer, String> animationTypeTable = null;
@@ -195,6 +210,7 @@ public class ShellSurface {
 		StringBuilder sb = new StringBuilder();
 		sb.append("[Animation] id:" + id + ((hasError)?"[ERROR]":"")+ ",interval:" + interval + "\n");
 		sb.append("  => dumping frames:\n");
+		if ( frames != null )
 		for ( AnimationFrame f : frames) {
 			sb.append(f.toString());
 			sb.append("\n");
@@ -645,7 +661,7 @@ public class ShellSurface {
 
     private void addAltAnimation(String aId, String refidz, String splitter) {
 	String[] ridz = refidz.split(splitter);
-	Log.d(TAG, "splitng " + refidz + "with '" + splitter + "'");
+	//Log.d(TAG, "splitng " + refidz + "with '" + splitter + "'");
 	addAltAnimation(aId, ridz);
     }
 
@@ -960,9 +976,9 @@ public class ShellSurface {
     public String dumpSurfaceStat() {
     	StringBuilder sb = new StringBuilder();    	
    		sb.append("==================\n");
+   		sb = dumpStat(sb);
 
    		sb = dumpElementList(sb);
-   		sb = dumpStat(sb);
     	sb = dumpAnimation(sb);
 
    		sb.append("==================\n");

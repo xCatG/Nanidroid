@@ -113,8 +113,16 @@ public class SurfaceReader {
 		int id = Integer.parseInt(idpart);
 		// we do this to strip out 0s
 		idpart = "" + id;
-		if ( mgr.containsSurface(idpart) )
+		if ( mgr.containsSurface(idpart) ){
+			// check if the surface filename is correct...
+			ShellSurface s = mgr.getSurface(idpart);
+			if ( f.getAbsolutePath().compareTo(s.selfFilename) != 0){
+				Log.d(TAG, "update shell file path to correct filename:"+f.getAbsolutePath());
+				//s.selfFilename = f.getAbsolutePath();
+				s.updateFilename(f.getAbsolutePath());
+			}
 		    continue;
+		}
 		else {
 		    mgr.addSurface(idpart, new ShellSurface(folderPath, f.getName(), id, null));
 		}

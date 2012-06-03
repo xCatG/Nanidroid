@@ -52,6 +52,14 @@ public class SurfaceManager {
 	return surfaces.keySet();
     }
 
+    // this can result in null!!
+    public ShellSurface getSurface(String id){
+    	if ( surfaces.containsKey(id))
+    		return surfaces.get(id);
+    	
+    	return null;
+    }
+    
     public ShellSurface getSakuraSurface(String id) {
 	if ( surfaces.containsKey(id) )
 	return surfaces.get(id);
