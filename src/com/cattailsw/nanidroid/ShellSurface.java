@@ -150,7 +150,8 @@ public class ShellSurface {
 	}
 	selfFilename = fname;
 
-	updateOrigWH();
+	if ( surfaceType != S_TYPE_ELEMENT )
+	    updateOrigWH();
 
     }
 
