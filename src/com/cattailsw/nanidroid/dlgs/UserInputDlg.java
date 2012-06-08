@@ -21,11 +21,25 @@ public class UserInputDlg extends DialogFragment {
     private Button okBtn = null;
     private Button cancleBtn = null;
     private String id = null;
+    public UserInputDlg() {
+    	
+    }
+    
     public UserInputDlg(String iid){
 	id = iid;
     }
 
-    public View onCreateView(final LayoutInflater layoutInflater, ViewGroup container, final Bundle bundle) {
+    @Override
+	public void onSaveInstanceState(Bundle arg0) {
+    	arg0.putString("id", id);
+
+		super.onSaveInstanceState(arg0);
+	}
+
+	public View onCreateView(final LayoutInflater layoutInflater, ViewGroup container, final Bundle bundle) {
+		if ( id == null )
+			id = bundle.getString("id");
+		
 	View v = layoutInflater.inflate(R.layout.dlg_user_input, container);
 	mEdit = (EditText) v.findViewById(R.id.user_in);
 	okBtn = (Button) v.findViewById(R.id.ok_btn);

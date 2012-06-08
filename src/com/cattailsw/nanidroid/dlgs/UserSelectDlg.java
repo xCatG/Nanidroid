@@ -27,7 +27,17 @@ public class UserSelectDlg extends DialogFragment {
     String[] idz;
 
     @Override
+	public void onSaveInstanceState(Bundle arg0) {
+    	arg0.putStringArray("labels", labels);
+    	arg0.putStringArray("idz", idz);
+		super.onSaveInstanceState(arg0);
+	}
+
+	@Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
+		if ( labels == null ) labels = savedInstanceState.getStringArray("labels");
+		if ( idz == null ) idz = savedInstanceState.getStringArray("idz");
+		
             return new AlertDialog.Builder(getActivity())
 		.setCancelable(false)
 		.setTitle(R.string.user_sel_dlg_title)
