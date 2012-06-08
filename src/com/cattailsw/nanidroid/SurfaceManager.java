@@ -29,6 +29,8 @@ public class SurfaceManager {
     Map<String, String[]> sakuraAliasTable = null; // alias can be N-to-one?
     Map<String, String[]> keroAliasTable = null;
 
+    private static ShellSurface nulSurface = new ShellSurface(); // a null surface
+    
     public int addSurface(String id, ShellSurface s) {
 	if ( surfaces == null )
 	    surfaces = new HashMap<String, ShellSurface>();
@@ -63,15 +65,19 @@ public class SurfaceManager {
     public ShellSurface getSakuraSurface(String id) {
 	if ( surfaces.containsKey(id) )
 	return surfaces.get(id);
-	else
+	else if ( surfaces.containsKey("0"))
 	    return surfaces.get("0");
+	else
+		return nulSurface;
     }
 
     public ShellSurface getKeroSurface(String id) {
 	if ( surfaces.containsKey(id) )
 	    return surfaces.get(id);
-	else
+	else if ( surfaces.containsKey("10"))
 	    return surfaces.get("10");
+	else 
+		return nulSurface;//we should have a dummy shellsurface...
     }
 
 

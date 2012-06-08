@@ -45,6 +45,7 @@ import com.cattailsw.nanidroid.util.AnalyticsUtils;
  */
 public class ShellSurface {
     private static final String TAG = "ShellSurface";
+    public static final int S_TYPE_NULL = -1;
     public static final int S_TYPE_BASE = 0;
     public static final int S_TYPE_ELEMENT = 1;
     public static final int TYPE_RESET = -1;
@@ -53,18 +54,18 @@ public class ShellSurface {
     public static final int TYPE_MOVE = 2;
 
     int surfaceId;
-    int origW;
-    int origH;
+    int origW = 0;
+    int origH = 0;
 
-    int targetW;
-    int targetH;
+    int targetW = 0;
+    int targetH = 0;
 
-    String basePath;
+    String basePath = null;
     String selfFilename = null;
     String bp2 = null;
     
     Drawable surfaceDrawable = null;
-    int surfaceType = 0;
+    int surfaceType = S_TYPE_NULL;
 
     
     //SurfaceManager mgr = null;
@@ -73,6 +74,7 @@ public class ShellSurface {
     }
 
     public ShellSurface(String path, String selfName, int id, List<String> elements) {
+    	surfaceType = S_TYPE_BASE;
     	surfaceId = id;
     	basePath = path;
     	if ( selfName == null )
@@ -807,6 +809,9 @@ public class ShellSurface {
 	    surfaceDrawable = loadTransparentBitmapFromFile(selfFilename, res, opt);
 
 	    return surfaceDrawable;
+	}
+	else if ( surfaceType == S_TYPE_NULL ) {
+		return null;
 	}
 	else {
 	    // type is S_TYPE_ELEMENT
