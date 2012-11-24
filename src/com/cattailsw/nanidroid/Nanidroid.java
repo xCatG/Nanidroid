@@ -159,7 +159,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	  t.detach(s);
 	  t.commit();
 	*/
-	addAdView();
+	//addAdView();
 	ViewServer.get(this).addWindow(this);
 
     }
@@ -347,7 +347,6 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void onDestroy() {
-	if ( adView != null ) adView.destroy();
 	super.onDestroy();
 	ViewServer.get(this).removeWindow(this);
 	sendStopIntent();
@@ -928,14 +927,6 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    btnBar.setVisibility(View.GONE);
     }
 
-    private AdView adView;
-
-    private void addAdView() {
-	adView = (AdView) findViewById(R.id.adview);//new AdView(this, AdSize.SMART_BANNER, Setup.ADMOB_PUB_ID);
-	AdRequest a = new AdRequest();
-	a.addTestDevice(AdRequest.TEST_EMULATOR);
-	adView.loadAd(a);
-    }
 
     ErrMsgDlg.ErrDlgCallback ecb = new ErrMsgDlg.ErrDlgCallback() {
 	    public void onDismiss(int flag) {

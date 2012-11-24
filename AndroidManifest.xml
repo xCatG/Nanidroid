@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
   package="com.cattailsw.nanidroid"
-  android:versionCode="5"
-  android:versionName="0.2.2">
+  android:versionCode="6"
+  android:versionName="open_0.1">
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
@@ -36,9 +36,6 @@
     </activity>
     <service android:name=".NanidroidService" android:exported="false" />
     <activity android:name=".Preferences" android:theme="@style/NanidroidTheme" />
-
-    <activity android:name="com.google.ads.AdActivity"
-              android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"/>
 
   </application>
   

@@ -51,7 +51,5 @@
     />
   </FrameLayout>
 
-  <com.google.ads.AdView android:id="@id/adview" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentBottom="true" ads:adSize="BANNER" ads:adUnitId="a14fb142abcb780" ads:testDevices="TEST_EMULATOR" ads:loadAdOnCreate="true"/>
-
 </RelativeLayout>
 
