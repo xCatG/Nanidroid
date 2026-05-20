@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ghost_list_bg">#FFFFFFFF</color>
+    <color name="ghost_list_text">#FF000000</color>
+    
+</resources>

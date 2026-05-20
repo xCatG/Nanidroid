@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:ads="http://schemas.android.com/apk/lib/com.google.ads"
+    android:orientation="vertical"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    >
+  <include layout="@layout/dbg_btns"  android:layout_width="fill_parent" android:layout_height="wrap_content" android:layout_alignParentTop="true" android:visibility="gone" android:id="@+id/dbg_btn_bar"/>
+
+  <include layout="@layout/main_btns"  android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_below="@id/dbg_btn_bar" android:id="@+id/btn_bar" android:visibility="gone"/>
+
+  <include android:id="@id/progress" layout="@layout/progress_wait" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_centerInParent="true" />"
+  
+<FrameLayout
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:id="@id/fl"
+    android:layout_below="@id/btn_bar"
+    android:layout_above="@id/adview"
+    android:onClick="frameClick"
+    >
+<com.cattailsw.nanidroid.Balloon
+    android:id="@+id/bKero"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/balloon"
+      android:layout_gravity="top|left"
+      android:textColor="#000000"
+    />
+<com.cattailsw.nanidroid.Balloon
+    android:id="@+id/bSakura"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/balloon"
+      android:layout_gravity="top|right"
+      android:textColor="#000000"      
+    />
+
+
+  <com.cattailsw.nanidroid.SakuraView
+    android:id="@+id/sakura_display"
+    android:layout_width="180dp"
+    android:layout_height="240dp"
+    android:layout_gravity="bottom|right"
+    />
+  <com.cattailsw.nanidroid.KeroView
+    android:id="@+id/kero_display"
+    android:layout_width="126dp"
+    android:layout_height="168dp"
+    android:layout_gravity="bottom|left"
+    />
+  </FrameLayout>
+
+</RelativeLayout>
+
