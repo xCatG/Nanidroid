@@ -25,23 +25,25 @@ open class Ghost {
     var error = false
     var mCtx: Context?
 
-    constructor(ghostPath: String, ctx: Context?) {
+    constructor(ghostPath: String, ctx: Context?, infoOnly: Boolean = false) {
         rootPath = ghostPath
         ghostDirName = File(ghostPath).name
         Log.d(TAG, "gdname=$ghostDirName")
         mgr = SurfaceManager(ghostDirName)
         mCtx = ctx?.applicationContext
-        loadGhostInfo()
-        incrementCreateCount()
+        loadGhostInfoInternal(infoOnly)
+        if (!infoOnly) {
+            incrementCreateCountInternal()
+        }
     }
 
-    constructor(ghostPath: String) : this(ghostPath, null)
+    constructor(ghostPath: String) : this(ghostPath, null, false)
 
     fun ghostError(): Boolean {
         return error
     }
 
-    protected open fun incrementCreateCount() {
+    private fun incrementCreateCountInternal() {
         val cCount = getCreateCount()
         val context = mCtx
         if (context != null) {
@@ -54,7 +56,7 @@ open class Ghost {
         return PrefUtil.getKeyValueLong(context, KEY_CREATE_COUNT_PREFIX + ghostDirName)
     }
 
-    protected open fun loadGhostInfo() {
+    private fun loadGhostInfoInternal(infoOnly: Boolean) {
         val masterGhost = "$rootPath/ghost/master/"
         val masterGhostDesc = "${masterGhost}descript.txt"
         val ghostDr = DescReader(masterGhostDesc)
@@ -81,12 +83,13 @@ open class Ghost {
             e.printStackTrace()
         }
 
-        val sr = SurfaceReader(mgr!!, masterShell, masterShellSurface)
-        if (!error) {
-            error = sr.error
+        if (!infoOnly) {
+            val sr = SurfaceReader(mgr!!, masterShell, masterShellSurface)
+            if (!error) {
+                error = sr.error
+            }
+            shiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
         }
-
-        shiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
     }
 
     open fun unload() {

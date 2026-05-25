@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -41,6 +42,9 @@ class MainActivity : ComponentActivity() {
         }
 
         enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 102)
+        }
         setContent {
             NanidroidTheme {
                 Surface(
@@ -99,7 +103,7 @@ class MainActivity : ComponentActivity() {
         startService(i)
     }
 
-    fun extractNar(path: String) {
+    fun extractNar(path: String, onInstallComplete: (() -> Unit)? = null) {
         val ghostId = NarUtil.readNarGhostId(path)
         if (ghostId == null) {
             runner.doShioriEvent("OnInstallFailure", null)
@@ -114,6 +118,7 @@ class MainActivity : ComponentActivity() {
                 if (gPath != null) {
                     runner.doInstallComplete(ghostId)
                     gm.refreshGhost()
+                    onInstallComplete?.invoke()
                     Toast.makeText(this@MainActivity, "Ghost $ghostId installed!", Toast.LENGTH_SHORT).show()
                 } else {
                     runner.doShioriEvent("OnInstallFailure", null)
@@ -132,7 +137,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        runner.stopClock()
+        if (!OverlayMascotService.isRunning) {
+            runner.stopClock()
+        }
         sendStopIntent()
     }
 

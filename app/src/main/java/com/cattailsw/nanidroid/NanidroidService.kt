@@ -160,8 +160,11 @@ class NanidroidService : Service() {
                         return@withContext null
                     }
 
-                    val stream = NetworkUtil.getURLStream(this@NanidroidService, targetUrl)
-                    NarUtil.copyFile(stream, FileOutputStream(targetPath))
+                    NetworkUtil.getURLStream(this@NanidroidService, targetUrl).use { stream ->
+                        FileOutputStream(targetPath).use { os ->
+                            NarUtil.copyFile(stream, os)
+                        }
+                    }
                     targetPath.absolutePath
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -227,9 +230,15 @@ class NanidroidService : Service() {
                         }
                     }
 
+                    if (!NarUtil.isPathSafe(ghostRoot, uFile)) {
+                        throw SecurityException("Malicious update filename: $uFile")
+                    }
                     val targetPath = "$ghostRoot/$uFile"
-                    val isStream = NetworkUtil.getURLStream(this@NanidroidService, ufileUrl)
-                    val md5 = NarUtil.copyFile(isStream, FileOutputStream(targetPath))
+                    val md5 = NetworkUtil.getURLStream(this@NanidroidService, ufileUrl).use { isStream ->
+                        FileOutputStream(targetPath).use { os ->
+                            NarUtil.copyFile(isStream, os)
+                        }
+                    }
                     val md5String = md5?.let { NarUtil.md5ToString(it) } ?: ""
                     Log.d(TAG, "downloaded $targetPath w md5:$md5String")
 
@@ -263,6 +272,10 @@ class NanidroidService : Service() {
                             )
                         }
 
+                        if (!NarUtil.isPathSafe(ghostRoot, p.first)) {
+                            failedReason = "security error: path traversal"
+                            break
+                        }
                         val furi = Uri.withAppendedPath(base, p.first)
                         val fname = "$ghostRoot/${p.first}.tmp"
                         val fn = File(fname)
@@ -270,8 +283,11 @@ class NanidroidService : Service() {
                         if (fp != null && !fp.exists()) fp.mkdirs()
                         Log.d(TAG, "dl:${p.first} to $fname from $furi")
 
-                        val stream = NetworkUtil.getURLStream(this@NanidroidService, furi.toString())
-                        val dlMd5 = NarUtil.copyFile(stream, FileOutputStream(fname))
+                        val dlMd5 = NetworkUtil.getURLStream(this@NanidroidService, furi.toString()).use { stream ->
+                            FileOutputStream(fname).use { os ->
+                                NarUtil.copyFile(stream, os)
+                            }
+                        }
                         val md5s = dlMd5?.let { NarUtil.md5ToString(it) } ?: ""
 
                         withContext(Dispatchers.Main) {
@@ -357,6 +373,9 @@ class NanidroidService : Service() {
                 }
 
                 Log.d(TAG, "pair=${p[0]},${p[1]}")
+                if (!NarUtil.isPathSafe(ghostRoot, p[0])) {
+                    throw IOException("Security Exception: Path traversal detected in updates file: ${p[0]}")
+                }
                 val fz = File(ghostRoot, p[0])
                 Log.d(TAG, "file is=${fz.absolutePath}")
                 if (!fz.exists()) {

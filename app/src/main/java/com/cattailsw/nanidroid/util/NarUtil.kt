@@ -14,6 +14,7 @@ import java.io.FilenameFilter
 import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.io.OutputStream
 import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.util.ArrayList
@@ -61,21 +62,23 @@ object NarUtil {
 
     @JvmStatic
     fun readNarGhostId(pathToArchive: String): String? {
-        var nar: ZipFile? = null
         var ret: String? = null
         try {
-            nar = ZipFile(pathToArchive)
-            val entries = ArrayList(Collections.list(nar.entries()))
-            val e = findRootInstallTxt(entries)
-            if (e != null && e.name.contains("install.txt")) {
-                val tmp = File.createTempFile("nanidroid", "tmp")
-                extractFileToPath(nar, tmp.absolutePath, e, ignorename = true, strip = false)
-                val r = DescReader(tmp.absolutePath)
-                r.table = r.parse()
-                ret = r.table?.get("directory")
-                tmp.delete()
+            ZipFile(pathToArchive).use { nar ->
+                val entries = ArrayList(Collections.list(nar.entries()))
+                val e = findRootInstallTxt(entries)
+                if (e != null && e.name.contains("install.txt")) {
+                    val tmp = File.createTempFile("nanidroid", "tmp")
+                    try {
+                        extractFileToPath(nar, tmp.absolutePath, e, ignorename = true, strip = false)
+                        val r = DescReader(tmp.absolutePath)
+                        r.table = r.parse()
+                        ret = r.table?.get("directory")
+                    } finally {
+                        tmp.delete()
+                    }
+                }
             }
-            nar.close()
         } catch (e: IOException) {
             AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_extract", "$pathToArchive:${e.message}", -1)
             e.printStackTrace()
@@ -104,39 +107,45 @@ object NarUtil {
 
     @JvmStatic
     fun readNarArchive(pathToArchive: String, installRoot: String, tid: String?): Boolean {
-        var nar: ZipFile? = null
         var ret = false
         try {
-            nar = ZipFile(pathToArchive)
-            val entries = ArrayList(Collections.list(nar.entries()))
-            if (tid == null) {
-                Collections.sort(entries, zipFilenameCompare)
-                val e = findRootInstallTxt(entries)
-                if (e == null) {
-                    nar.close()
-                    return false
+            ZipFile(pathToArchive).use { nar ->
+                val entries = ArrayList(Collections.list(nar.entries()))
+                if (tid == null) {
+                    Collections.sort(entries, zipFilenameCompare)
+                    val e = findRootInstallTxt(entries)
+                    if (e == null) {
+                        return false
+                    }
+                    Log.d(TAG, "entry name=${e.name}")
+                    val strip = shouldStrip(e.name)
+                    val tmp = File.createTempFile("nanidroid", "tmp")
+                    try {
+                        extractFileToPath(nar, tmp.absolutePath, e, ignorename = true, strip = false)
+                        val r = DescReader(tmp.absolutePath)
+                        r.table = r.parse()
+                        val type = r.table?.get("type")
+                        if (!"ghost".equals(type, ignoreCase = true)) {
+                            Log.d(TAG, "do not support $type archive yet")
+                            AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_install_not_support", type ?: "null", -2)
+                        }
+                        val targetDirid = r.table?.get("directory") ?: "unknown"
+                        if (!isPathSafe(installRoot, targetDirid)) {
+                            throw SecurityException("Malicious install directory detected: $targetDirid")
+                        }
+                        val targetPath = File(installRoot, targetDirid).absolutePath
+                        extractZipToPath(entries, nar, targetPath, strip)
+                    } finally {
+                        tmp.delete()
+                    }
+                } else {
+                    if (!isPathSafe(installRoot, tid)) {
+                        throw SecurityException("Malicious install directory detected: $tid")
+                    }
+                    extractZipToPath(entries, nar, File(installRoot, tid).absolutePath)
                 }
-                Log.d(TAG, "entry name=${e.name}")
-                val strip = shouldStrip(e.name)
-                val tmp = File.createTempFile("nanidroid", "tmp")
-                extractFileToPath(nar, tmp.absolutePath, e, ignorename = true, strip = false)
-                val r = DescReader(tmp.absolutePath)
-                r.table = r.parse()
-                tmp.delete()
-
-                val type = r.table?.get("type")
-                if (!"ghost".equals(type, ignoreCase = true)) {
-                    Log.d(TAG, "do not support $type archive yet")
-                    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_install_not_support", type ?: "null", -2)
-                }
-                val targetDirid = r.table?.get("directory") ?: "unknown"
-                val targetPath = "$installRoot/$targetDirid"
-                extractZipToPath(entries, nar, targetPath, strip)
-            } else {
-                extractZipToPath(entries, nar, "$installRoot/$tid")
+                ret = true
             }
-            nar.close()
-            ret = true
         } catch (e: IOException) {
             AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "nar_extract", "$tid:${e.message}", -1)
             e.printStackTrace()
@@ -170,19 +179,26 @@ object NarUtil {
     }
 
     private fun extractFileToPath(nar: ZipFile, targetPath: String, e: ZipEntry, ignorename: Boolean, strip: Boolean) {
+        val canonicalTargetPath = File(targetPath).canonicalPath
         val f = if (ignorename) {
-            File(targetPath)
+            File(canonicalTargetPath)
         } else {
-            File(targetPath + "/" + if (strip) stripExtraLevel(e.name) else e.name)
+            val destFile = File(canonicalTargetPath, if (strip) stripExtraLevel(e.name) else e.name)
+            if (!destFile.canonicalPath.startsWith(canonicalTargetPath + File.separator)) {
+                throw SecurityException("Malicious ZIP entry detected: ${e.name}")
+            }
+            destFile
         }
         val fP = f.parentFile
         if (fP != null && !fP.exists()) {
             val s = fP.mkdirs()
             Log.d(TAG, "fp make$s")
         }
-        val os = FileOutputStream(f)
-        val isStream = nar.getInputStream(e)
-        copyFile(isStream, os)
+        nar.getInputStream(e).use { isStream ->
+            FileOutputStream(f).use { os ->
+                copyFile(isStream, os)
+            }
+        }
     }
 
     private fun checkAndMakeDir(dir: String) {
@@ -205,7 +221,7 @@ object NarUtil {
     }
 
     @JvmStatic
-    fun createMD5(isStream: FileInputStream): ByteArray? {
+    fun createMD5(isStream: InputStream): ByteArray? {
         var digester: MessageDigest? = null
         try {
             digester = MessageDigest.getInstance("MD5")
@@ -217,50 +233,46 @@ object NarUtil {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-        } finally {
-            try {
-                isStream.close()
-            } catch (e: Exception) {
-                // ignore
-            }
         }
         return digester?.digest()
     }
 
     @JvmStatic
-    fun copyFile(isStream: InputStream, os: FileOutputStream): ByteArray? {
+    fun copyFile(isStream: InputStream, os: OutputStream): ByteArray? {
         var digester: MessageDigest? = null
         try {
-            digester = MessageDigest.getInstance("MD5")
-            val buffer = ByteArray(16 * 1024)
-            while (true) {
-                val length = isStream.read(buffer)
-                if (length <= 0) break
-                os.write(buffer, 0, length)
-                digester.update(buffer, 0, length)
+            isStream.use { input ->
+                os.use { output ->
+                    digester = MessageDigest.getInstance("MD5")
+                    val buffer = ByteArray(16 * 1024)
+                    while (true) {
+                        val length = input.read(buffer)
+                        if (length <= 0) break
+                        output.write(buffer, 0, length)
+                        digester?.update(buffer, 0, length)
+                    }
+                    output.flush()
+                }
             }
-            os.flush()
-            os.close()
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
-            try {
-                isStream.close()
-            } catch (e: Exception) {
-                // ignore
-            }
             Log.d(TAG, "done copying")
         }
         return digester?.digest()
     }
 
     private fun hasUTF8BOM(f: File): Boolean {
-        val fis = FileInputStream(f)
-        val br = BufferedReader(InputStreamReader(fis, Charset.forName("UTF-8")))
-        val s = br.readLine()
-        val ret = s != null && s.startsWith(UTF8_BOM)
-        br.close()
-        return ret
+        return try {
+            FileInputStream(f).use { fis ->
+                BufferedReader(InputStreamReader(fis, Charsets.UTF_8)).use { br ->
+                    val s = br.readLine()
+                    s != null && s.startsWith(UTF8_BOM)
+                }
+            }
+        } catch (e: Exception) {
+            false
+        }
     }
 
     @JvmStatic
@@ -268,22 +280,36 @@ object NarUtil {
         val sb = java.lang.StringBuilder("<html><body><pre>")
         try {
             val isUTF8Bom = hasUTF8BOM(f)
-            val br = BufferedReader(
-                InputStreamReader(
-                    FileInputStream(f),
-                    if (isUTF8Bom) Charset.forName("UTF-8") else Charset.forName("Shift_JIS")
-                )
-            )
-            while (true) {
-                val line = br.readLine() ?: break
-                sb.append(line)
-                sb.append('\n')
+            FileInputStream(f).use { fis ->
+                BufferedReader(
+                    InputStreamReader(
+                        fis,
+                        if (isUTF8Bom) Charsets.UTF_8 else Charset.forName("Shift_JIS")
+                    )
+                ).use { br ->
+                    while (true) {
+                        val line = br.readLine() ?: break
+                        sb.append(line)
+                        sb.append('\n')
+                    }
+                }
             }
-            br.close()
         } catch (e: Exception) {
             AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "readme_error", e.message ?: "null", -1)
         }
         sb.append("</pre></body></html>")
         return sb.toString()
+    }
+
+    @JvmStatic
+    fun isPathSafe(rootPath: String, filePath: String): Boolean {
+        if (File(filePath).isAbsolute) return false
+        return try {
+            val root = File(rootPath).canonicalFile
+            val file = File(root, filePath).canonicalFile
+            file.path.startsWith(root.path + File.separator)
+        } catch (e: Exception) {
+            false
+        }
     }
 }

@@ -79,7 +79,10 @@ JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_loa
   
   long pLength = sPath.size();
   char* pPath = (char*)malloc(pLength + 1);
-  strcpy(pPath, sPath.c_str());
+  if (pPath != NULL) {
+    memcpy(pPath, sPath.data(), pLength);
+    pPath[pLength] = '\0';
+  }
   //(char*)sPath.c_str();
   load(pPath, pLength);
 }

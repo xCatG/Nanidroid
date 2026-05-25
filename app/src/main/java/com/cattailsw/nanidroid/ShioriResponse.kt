@@ -42,11 +42,11 @@ class ShioriResponse {
             }
             if (line == null) break
 
-            if (line.indexOf(":") == -1) // not a "xxx: xxx" format line, ignore
-                continue
+            val idx = line.indexOf(":")
+            if (idx == -1) continue
 
-            val key = line.substring(0, line.indexOf(":"))
-            val valStr = line.substring(line.indexOf(":") + 2) // from end of ": " to end of line
+            val key = line.substring(0, idx).trim()
+            val valStr = line.substring(idx + 1).trim()
             response?.put(key, valStr)
         }
     }

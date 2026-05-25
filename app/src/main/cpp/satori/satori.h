@@ -13,7 +13,7 @@
 #include	"../_/simple_stack.h"
 
 // れしばへの送信
-#include	"../_/sender.h"
+#include	"../_/Sender.h"
 
 // SAORI関連
 #include	"shiori_plugin.h"
