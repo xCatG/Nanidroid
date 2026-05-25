@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
+import java.lang.ref.WeakReference
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -29,7 +30,9 @@ class SScriptRunner private constructor(context: Context) : Runnable {
         private const val RUN = 42
         private const val STOP = RUN + 1
         private const val INC_CLOCK = STOP + 1
+        private const val RESET_SURFACE = INC_CLOCK + 1
         private const val CLOCK_STEP: Long = 1000
+        private const val RESET_TIMEOUT: Long = 5000
 
         private val mMsgQueue = ConcurrentLinkedQueue<String>()
 
@@ -54,10 +57,16 @@ class SScriptRunner private constructor(context: Context) : Runnable {
     }
 
     private var layoutMgr: LayoutManager? = null
-    private var sakura: SakuraView? = null
-    private var kero: KeroView? = null
-    private var sakuraBalloon: Balloon? = null
-    private var keroBalloon: Balloon? = null
+    private var sakuraRef: WeakReference<SakuraView>? = null
+    private var keroRef: WeakReference<KeroView>? = null
+    private var sakuraBalloonRef: WeakReference<Balloon>? = null
+    private var keroBalloonRef: WeakReference<Balloon>? = null
+
+    private val sakura: SakuraView? get() = sakuraRef?.get()
+    private val kero: KeroView? get() = keroRef?.get()
+    private val sakuraBalloon: Balloon? get() = sakuraBalloonRef?.get()
+    private val keroBalloon: Balloon? get() = keroBalloonRef?.get()
+
     private var g: Ghost? = null
     private var ucb: UICallback? = null
     private var cb: StatusCallback? = null
@@ -99,6 +108,8 @@ class SScriptRunner private constructor(context: Context) : Runnable {
                 loopControl()
             } else if (m.what == STOP) {
                 stop()
+            } else if (m.what == RESET_SURFACE) {
+                resetSurfacesToDefault()
             }
         }
     }
@@ -113,12 +124,21 @@ class SScriptRunner private constructor(context: Context) : Runnable {
     }
 
     fun setViews(s: SakuraView?, k: KeroView?, bS: Balloon?, bK: Balloon?) {
-        sakura = s
-        kero = k
-        sakuraBalloon = bS
-        keroBalloon = bK
+        sakuraRef = s?.let { WeakReference(it) }
+        keroRef = k?.let { WeakReference(it) }
+        sakuraBalloonRef = bS?.let { WeakReference(it) }
+        keroBalloonRef = bK?.let { WeakReference(it) }
         sakura?.setUiEventCallback(cbSakura)
-        kero?.setUiEventCallback(cbKero)
+        k?.setUiEventCallback(cbKero)
+    }
+
+    fun clearViews() {
+        sakura?.setUiEventCallback(null)
+        kero?.setUiEventCallback(null)
+        sakuraRef = null
+        keroRef = null
+        sakuraBalloonRef = null
+        keroBalloonRef = null
     }
 
     fun setGhost(_g: Ghost?) {
@@ -230,6 +250,7 @@ class SScriptRunner private constructor(context: Context) : Runnable {
 
     @Synchronized
     override fun run() {
+        cancelResetTimeout()
         if (isRunning) return
         isRunning = true
 
@@ -263,6 +284,7 @@ class SScriptRunner private constructor(context: Context) : Runnable {
     fun clearMsgQueue() {
         mMsgQueue.clear()
         msg = null
+        cancelResetTimeout()
         stop()
     }
 
@@ -272,6 +294,11 @@ class SScriptRunner private constructor(context: Context) : Runnable {
         bSakuraId = "-1"
         bKeroId = "-1"
         updateUI()
+
+        cancelResetTimeout()
+        if (!no_wait_mode) {
+            loopHandler.sendEmptyMessageDelayed(RESET_SURFACE, RESET_TIMEOUT)
+        }
 
         cb?.let {
             it.stop()
@@ -299,6 +326,18 @@ class SScriptRunner private constructor(context: Context) : Runnable {
         bKeroId = "-1"
         sakuraAnimationId = null
         keroAnimationId = null
+        talkAnimeControl = 0
+    }
+
+    private fun resetSurfacesToDefault() {
+        sakuraSurfaceId = "0"
+        keroSurfaceId = "10"
+        updateUI()
+        g?.doShioriEvent("OnSurfaceChange", arrayOf("Reference0: $sakuraSurfaceId", "Reference1: $keroSurfaceId"))
+    }
+
+    fun cancelResetTimeout() {
+        loopHandler.removeMessages(RESET_SURFACE)
     }
 
     private fun appendChar(c: Char) {
@@ -438,7 +477,7 @@ class SScriptRunner private constructor(context: Context) : Runnable {
                 if (m.find()) {
                     charIndex += m.group().length
                     try {
-                        waitTime = m.group(1).toLong()
+                        waitTime = m.group(1)?.toLong() ?: 0L
                         return true
                     } catch (e: Exception) {
                         AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC, "tag_err", "_$c${m.group()}", -1)

@@ -77,14 +77,12 @@ class DescReader {
         if (table == null) {
             table = Hashtable()
         }
-        var reader = BufferedReader(InputStreamReader(isStream, DEF_CHARSET))
-        val c = readFirstLineForCharset(reader)
-        try {
-            reader.close()
-        } catch (e: IOException) {
-            // ignore
-        }
-        reader = BufferedReader(InputStreamReader(isStream, c))
+        val bytes = isStream.readBytes()
+        val defaultReader = BufferedReader(InputStreamReader(bytes.inputStream(), DEF_CHARSET))
+        val c = readFirstLineForCharset(defaultReader)
+        defaultReader.close()
+
+        val reader = BufferedReader(InputStreamReader(bytes.inputStream(), c))
         readLoop(reader, table!!)
         reader.close()
     }

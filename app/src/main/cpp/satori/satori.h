@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------
 
-	w—¢Xi‚³‚Æ‚èjx
+	ã€é‡Œã€…ï¼ˆã•ã¨ã‚Šï¼‰ã€
 
 ---------------------------------------------------------------------------*/
 #ifndef SATORI_H
@@ -8,21 +8,21 @@
 
 
 //---------------------------------------------------------------------------
-// ”Ä—p‚Ìƒc[ƒ‹—Ş
+// æ±ç”¨ã®ãƒ„ãƒ¼ãƒ«é¡
 #include	"../_/stltool.h"
 #include	"../_/simple_stack.h"
 
-// ‚ê‚µ‚Î‚Ö‚Ì‘—M
+// ã‚Œã—ã°ã¸ã®é€ä¿¡
 #include	"../_/sender.h"
 
-// SAORIŠÖ˜A
+// SAORIé–¢é€£
 #include	"shiori_plugin.h"
 
-// SakuraDLL‚Æ‚µ‚ÄŒÄ‚Ño‚³‚ê‚é‚½‚ß‚Ì\‘¢
+// SakuraDLLã¨ã—ã¦å‘¼ã³å‡ºã•ã‚Œã‚‹ãŸã‚ã®æ§‹é€ 
 #include	"SakuraDLLHost.h"
 
 //---------------------------------------------------------------------------
-// «‘‚ğŠi”[‚·‚é\‘¢
+// è¾æ›¸ã‚’æ ¼ç´ã™ã‚‹æ§‹é€ 
 
 typedef string Word;
 typedef strvec Talk;
@@ -39,12 +39,12 @@ class AllTalks : public Families<Talk> {};
 #endif	//	_DEBUG
 
 //---------------------------------------------------------------------------
-// ’è”“I‚È
+// å®šæ•°çš„ãª
 
 static const char	ret_dlmt[3] = { 13, 10, 0 };
 static const char	byte1_dlmt[2] = { 1, 0 };
 
-// ƒo[ƒWƒ‡ƒ“•¶š—ñ‚Æ‚©
+// ãƒãƒ¼ã‚¸ãƒ§ãƒ³æ–‡å­—åˆ—ã¨ã‹
 extern const char* gSatoriName;
 extern const char* gSatoriNameW;
 extern const char* gSatoriCraftman;
@@ -59,20 +59,20 @@ static const int RESPONSE_HISTORY_SIZE=64;
 
 class escaper
 {
-	// ƒGƒXƒP[ƒvŒã•¶šB
-	// ’u‚«Š·‚¦‹@”\‚ğ‚½‚È‚¢ƒJƒbƒR‚ÍAˆê’U‚±‚ê+id+”¼Šp‹ó”’‚É’u‚«Š·‚¦‚éB
-	// •¶šƒR[ƒhã‚Ísjis‚Ìˆê•¶š‚Æ‚µ‚Äˆµ‚í‚ê‚é‚ªAŠY“–‚·‚é•¶š‚Í–³‚¢Bƒ_ƒ‚ÈˆÄB
+	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—å¾Œæ–‡å­—ã€‚
+	// ç½®ãæ›ãˆæ©Ÿèƒ½ã‚’æŒãŸãªã„ã‚«ãƒƒã‚³ã¯ã€ä¸€æ—¦ã“ã‚Œ+id+åŠè§’ç©ºç™½ã«ç½®ãæ›ãˆã‚‹ã€‚
+	// æ–‡å­—ã‚³ãƒ¼ãƒ‰ä¸Šã¯sjisã®ä¸€æ–‡å­—ã¨ã—ã¦æ‰±ã‚ã‚Œã‚‹ãŒã€è©²å½“ã™ã‚‹æ–‡å­—ã¯ç„¡ã„ã€‚ãƒ€ãƒ¡ãªæ¡ˆã€‚
 	static const char sm_escape_sjis_code[3];
 
 	//map<string, int> m_str2id;
 	vector<string> m_id2str;
 
 public:
-	// ˆø”•¶š—ñ‚ğó‚¯æ‚èAƒƒ“ƒo‚ÉŠi”[‚µAuƒGƒXƒP[ƒv‚³‚ê‚½•¶š—ñv‚ğ•Ô‚·B
+	// å¼•æ•°æ–‡å­—åˆ—ã‚’å—ã‘å–ã‚Šã€ãƒ¡ãƒ³ãƒã«æ ¼ç´ã—ã€ã€Œã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸæ–‡å­—åˆ—ã€ã‚’è¿”ã™ã€‚
 	string insert(const string& i_str);
-	// ‘ÎÛ•¶š—ñ’†‚ÉŠÜ‚Ü‚ê‚éuƒGƒXƒP[ƒv‚³‚ê‚½•¶š—ñv‚ğŒ³‚É–ß‚·B
+	// å¯¾è±¡æ–‡å­—åˆ—ä¸­ã«å«ã¾ã‚Œã‚‹ã€Œã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸæ–‡å­—åˆ—ã€ã‚’å…ƒã«æˆ»ã™ã€‚
 	void unescape(string& io_str);
-	// ƒƒ“ƒo‚ğƒNƒŠƒA
+	// ãƒ¡ãƒ³ãƒã‚’ã‚¯ãƒªã‚¢
 	void clear();
 };
 
@@ -81,212 +81,212 @@ class Satori : public Evalcator, public SakuraDLLHost
 {
 
 private:
-	string	mBaseFolder;	// satori.dll‚Ì‘¶İ‚·‚éƒtƒHƒ‹ƒ_
-	string	mExeFolder;		// –{‘Ì.exe‚Ì‘¶İ‚·‚éƒtƒHƒ‹ƒ_
+	string	mBaseFolder;	// satori.dllã®å­˜åœ¨ã™ã‚‹ãƒ•ã‚©ãƒ«ãƒ€
+	string	mExeFolder;		// æœ¬ä½“.exeã®å­˜åœ¨ã™ã‚‹ãƒ•ã‚©ãƒ«ãƒ€
 
-	// ƒŠƒNƒGƒXƒg“à—e
-	string	mStatusLine;	// ƒŠƒNƒGƒXƒg‚Ìˆês–Ú
-	strmap	mRequestMap;	// : ƒZƒpƒŒ[ƒg‚³‚ê‚Ä‚½key:value
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆå†…å®¹
+	string	mStatusLine;	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆã®ä¸€è¡Œç›®
+	strmap	mRequestMap;	// : ã‚»ãƒ‘ãƒ¬ãƒ¼ãƒˆã•ã‚Œã¦ãŸkey:value
 	string	mRequestID;		// SHIORI/3.0 ID
 	string	mRequestCommand;	// GET, NOTIFY, ...
 	string	mRequestType;		// SHIORI / SAORI / MAKOTO
 	string	mRequestVersion;	// 1.0, 2.x, 3.0
-	bool	mIsMateria;	// ‚Ü‚Ä‚è‚ ‚Í“Áêˆ—‚ª—v‚é
+	bool	mIsMateria;	// ã¾ã¦ã‚Šã‚ã¯ç‰¹æ®Šå‡¦ç†ãŒè¦ã‚‹
 	strvec	mReferences;
 	enum { SAORI, SHIORI2, SHIORI3, MAKOTO2, UNKNOWN } mRequestMode;
-	// Ši”[‚³‚ê‚½ƒƒ“ƒo‚©‚çResponse‚ğì¬B•Ô’l‚ÍƒXƒe[ƒ^ƒXƒR[ƒhB
+	// æ ¼ç´ã•ã‚ŒãŸãƒ¡ãƒ³ãƒã‹ã‚‰Responseã‚’ä½œæˆã€‚è¿”å€¤ã¯ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ã‚³ãƒ¼ãƒ‰ã€‚
 	int		CreateResponse(strmap& oResponse);
-	// SHIORI/3.0 ID‚ªOn‚Ån‚Ü‚Á‚Ä‚½ê‡ACreateResponse‚©‚çŒÄ‚Î‚ê‚é
+	// SHIORI/3.0 IDãŒOnã§å§‹ã¾ã£ã¦ãŸå ´åˆã€CreateResponseã‹ã‚‰å‘¼ã°ã‚Œã‚‹
 	int		EventOperation(string iEvent, map<string,string> &oResponse);
 
-	// –ß‚è’lmap
+	// æˆ»ã‚Šå€¤map
 	strmap mResponseMap;
 
-	// ’u‚«Š·‚¦«‘
+	// ç½®ãæ›ãˆè¾æ›¸
 	strmap	replace_before_dic;
 	strmap	replace_after_dic;
 
-	inimap	mCharacters;	// characters.ini‚Ì“à—e
+	inimap	mCharacters;	// characters.iniã®å†…å®¹
 
-	// •¶š—ñ‚ÌƒGƒXƒP[ƒv‚Æ‘‚«–ß‚µ
+	// æ–‡å­—åˆ—ã®ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã¨æ›¸ãæˆ»ã—
 	escaper m_escaper;
 
-	// SAORI/“à•”–½—ß‚ğŒÄ‚Ño‚·Û‚Ìˆø”‹æØ‚è‚Æ‚È‚é•¶š—ñŒQ
+	// SAORI/å†…éƒ¨å‘½ä»¤ã‚’å‘¼ã³å‡ºã™éš›ã®å¼•æ•°åŒºåˆ‡ã‚Šã¨ãªã‚‹æ–‡å­—åˆ—ç¾¤
 	set<string>	mDelimiters;
 
-	// ‘S‚Ä‚Ì–ƒg[ƒN
+	// å…¨ã¦ã®ï¼Šãƒˆãƒ¼ã‚¯
 	AllTalks	talks;
-	// —’è‹` ...ƒWƒƒƒ“ƒ‹•ª‚¯‚³‚ê‚½•¡”‚Ì’PŒêB
+	// ï¼ å®šç¾© ...ã‚¸ãƒ£ãƒ³ãƒ«åˆ†ã‘ã•ã‚ŒãŸè¤‡æ•°ã®å˜èªã€‚
 	AllWords	words;
 
 
-	// •Ï”
+	// ï¼„å¤‰æ•°
 	strmap	variables;
-	// ©“®ƒAƒ“ƒJ[
+	// è‡ªå‹•ã‚¢ãƒ³ã‚«ãƒ¼
 	set<string>	anchors;
 
-	// •Ï”‚ÌÁ‹B‰½‚©‚Æ–â‘è‚ª‚ ‚é‚ç‚µ‚¢‚æH
+	// å¤‰æ•°ã®æ¶ˆå»ã€‚ä½•ã‹ã¨å•é¡ŒãŒã‚ã‚‹ã‚‰ã—ã„ã‚ˆï¼Ÿ
 	void	erase_var(const string& key);
 
-	// “®“I‚É“o˜^‚³‚ê‚½’PŒêBwords‚É‚àû˜^‚·‚éBsatori_savedata.txt‚É•Û‘¶‚·‚é‚Ì‚ª–Ú“IB
-	map<string, vector<const Word*> >	mAppendedWords; // set‚Å‚È‚­vector‚È‚Ì‚Íud•¡‰ñ”ğF¸‡/~‡v‚É”õ‚¦‚ÄB
+	// å‹•çš„ã«ç™»éŒ²ã•ã‚ŒãŸå˜èªã€‚wordsã«ã‚‚åéŒ²ã™ã‚‹ã€‚satori_savedata.txtã«ä¿å­˜ã™ã‚‹ã®ãŒç›®çš„ã€‚
+	map<string, vector<const Word*> >	mAppendedWords; // setã§ãªãvectorãªã®ã¯ã€Œé‡è¤‡å›é¿ï¼šæ˜‡é †/é™é †ã€ã«å‚™ãˆã¦ã€‚
 
-	// –ß‚µ‚½ƒg[ƒN‚Ì—š—ğ
+	// æˆ»ã—ãŸãƒˆãƒ¼ã‚¯ã®å±¥æ­´
 	deque<string>	mResponseHistory;
 
-	// callˆø”stack À‘•©‘Ì‚ÍÄ‹AB
+	// callå¼•æ•°stack å®Ÿè£…è‡ªä½“ã¯å†å¸°ã€‚
 	simple_stack<strvec>	mCallStack;
 
-	// ’PŒêƒ`ƒFƒCƒ“
-	//map<string, set<string> >	mRelationalWord;	// <’PŒê, <‘®«> > 
-	//set<string>	mUsedRelation;	// <g—p‚³‚ê‚½‘®«> ‚Pƒg[ƒN‚ÅƒŠƒZƒbƒgB–¾¦ƒŠƒZƒbƒg‚à‰ÂB
+	// å˜èªãƒã‚§ã‚¤ãƒ³
+	//map<string, set<string> >	mRelationalWord;	// <å˜èª, <å±æ€§> > 
+	//set<string>	mUsedRelation;	// <ä½¿ç”¨ã•ã‚ŒãŸå±æ€§> ï¼‘ãƒˆãƒ¼ã‚¯ã§ãƒªã‚»ãƒƒãƒˆã€‚æ˜ç¤ºãƒªã‚»ãƒƒãƒˆã‚‚å¯ã€‚
 
-	// ‘I‘ğ•ªŠò‚Ì‹L˜^    map<ID, pair<NUMBER, LABEL> >@
-	// ‚æ‚­l‚¦‚½‚çA‘I‘ğ€–Ú‚Æ‚é‚¾‚¯‚È‚ç‘S‚­•s—v‚¾‚Á‚½B‚Ü‚Ÿ‘S‘Ìæ“¾‚Å‚«‚Ä‚àˆ«‚­‚Í–³‚¢‚¯‚Ç
+	// é¸æŠåˆ†å²ã®è¨˜éŒ²    map<ID, pair<NUMBER, LABEL> >ã€€
+	// ã‚ˆãè€ƒãˆãŸã‚‰ã€é¸æŠé …ç›®ã¨ã‚‹ã ã‘ãªã‚‰å…¨ãä¸è¦ã ã£ãŸã€‚ã¾ãå…¨ä½“å–å¾—ã§ãã¦ã‚‚æ‚ªãã¯ç„¡ã„ã‘ã©
 	map<string, pair<int, string> >	question_record;
 
-	int	second_from_last_talk;	// ÅŒã‚É’‚Á‚Ä‚©‚ç‚ÌŒo‰ßŠÔ
+	int	second_from_last_talk;	// æœ€å¾Œã«å–‹ã£ã¦ã‹ã‚‰ã®çµŒéæ™‚é–“
 
-	// ‚È‚Å‚ç‚ê‰ñ”Bkey‚Í‚È‚Å‚ç‚ê‰ÓŠAvalue‚Í‰ñ”B
+	// ãªã§ã‚‰ã‚Œå›æ•°ã€‚keyã¯ãªã§ã‚‰ã‚Œç®‡æ‰€ã€valueã¯å›æ•°ã€‚
 	strintmap	nade_count;
-	// ‚È‚Å‚ç‚ê—LŒøŠúŠÔ
+	// ãªã§ã‚‰ã‚Œæœ‰åŠ¹æœŸé–“
 	int	nade_valid_time;
-		// SecondChange–ˆ‚ÉŒ¸­A‚R•bŠÔmove‚ª‚±‚È‚¢‚Ænade_count‚ğ‘SƒNƒŠƒAB
-		// nade_count‚ªnade_sensitivity‚ğ‰z‚¦‚é‚Æ‚»‚ÌƒCƒxƒ“ƒg‚ª”­¶Anade_count‚ğ‘SƒNƒŠƒAB
-	bool	insert_nade_talk_at_other_talk;	// ’‚Á‚Ä‚éÅ’†‚Ì‚È‚Å”½‰—L–³
-	int		nade_valid_time_initializer;	// ‚È‚Å‚ç‚ê‘±•b”i‚È‚ÅƒZƒbƒVƒ‡ƒ“‚ÌŠúŒÀj
-	int		nade_sensitivity;				// ‚È‚Å‚ç‚ê‰ä–‰ñ”i”­“®‚Ü‚Å‚Ì‰ñ”j
+		// SecondChangeæ¯ã«æ¸›å°‘ã€ï¼“ç§’é–“moveãŒã“ãªã„ã¨nade_countã‚’å…¨ã‚¯ãƒªã‚¢ã€‚
+		// nade_countãŒnade_sensitivityã‚’è¶Šãˆã‚‹ã¨ãã®ã‚¤ãƒ™ãƒ³ãƒˆãŒç™ºç”Ÿã€nade_countã‚’å…¨ã‚¯ãƒªã‚¢ã€‚
+	bool	insert_nade_talk_at_other_talk;	// å–‹ã£ã¦ã‚‹æœ€ä¸­ã®ãªã§åå¿œæœ‰ç„¡
+	int		nade_valid_time_initializer;	// ãªã§ã‚‰ã‚ŒæŒç¶šç§’æ•°ï¼ˆãªã§ã‚»ãƒƒã‚·ãƒ§ãƒ³ã®æœŸé™ï¼‰
+	int		nade_sensitivity;				// ãªã§ã‚‰ã‚Œæˆ‘æ…¢å›æ•°ï¼ˆç™ºå‹•ã¾ã§ã®å›æ•°ï¼‰
 
 
-	strintmap	koro_count;	// ‚±‚ë‚±‚ë‰ñ”
-	int	koro_valid_time;	// ‚±‚ë‚±‚ë—LŒøŠúŠÔ
+	strintmap	koro_count;	// ã“ã‚ã“ã‚å›æ•°
+	int	koro_valid_time;	// ã“ã‚ã“ã‚æœ‰åŠ¹æœŸé–“
 
-	// ’‚èŠÔŠui•bjB‚O‚È‚ç–Ù‚éB•Ï”
+	// å–‹ã‚Šé–“éš”ï¼ˆç§’ï¼‰ã€‚ï¼ãªã‚‰é»™ã‚‹ã€‚ï¼„å¤‰æ•°
 	int	talk_interval;
-	// ’‚èŠÔŠuŒë·iŠÔŠu‚É‘Î‚·‚é“j•Ï”
+	// å–‹ã‚Šé–“éš”èª¤å·®ï¼ˆé–“éš”ã«å¯¾ã™ã‚‹ï¼…ï¼‰ï¼„å¤‰æ•°
 	int	talk_interval_random;
-	// Ÿ‰ñ©”­’‚è‚Ü‚Å‚ÌŠÔB’‚é‚ÆƒŠƒZƒbƒgB•Ï”
+	// æ¬¡å›è‡ªç™ºå–‹ã‚Šã¾ã§ã®æ™‚é–“ã€‚å–‹ã‚‹ã¨ãƒªã‚»ãƒƒãƒˆã€‚ï¼„å¤‰æ•°
 	int	talk_interval_count;
-	// ©“®‘}“üƒEƒFƒCƒg‚Ì”{—¦BÈ—ª100B
+	// è‡ªå‹•æŒ¿å…¥ã‚¦ã‚§ã‚¤ãƒˆã®å€ç‡ã€‚çœç•¥æ™‚100ã€‚
 	int	rate_of_auto_insert_wait;
 
-	// •t‰Á•¶š—ñ
+	// ä»˜åŠ æ–‡å­—åˆ—
 	string	append_at_scope_change;
 	string	append_at_scope_change_with_sakura_script;
 	string	append_at_talk_start;
 	string	append_at_talk_end;
 
 
-	// ‚µ‚á‚×‚èŠÇ—BSentenceToSakuraScript‚Ì–¢Ä‹AŒÄ‚Ño‚µ‚É‰Šú‰»B
-	int		speaker;		// ˜bÒ
-	set<int>	speaked_speaker;		// ­‚µ‚Å‚à’‚Á‚½H
+	// ã—ã‚ƒã¹ã‚Šç®¡ç†ã€‚SentenceToSakuraScriptã®æœªå†å¸°å‘¼ã³å‡ºã—æ™‚ã«åˆæœŸåŒ–ã€‚
+	int		speaker;		// è©±è€…
+	set<int>	speaked_speaker;		// å°‘ã—ã§ã‚‚å–‹ã£ãŸï¼Ÿ
 	bool	is_speaked(int n) { return speaked_speaker.find(n) != speaked_speaker.end(); }
 	bool	is_speaked_anybody() { return speaked_speaker.size()>0; }
 	int		characters;
 	int		question_num;
-	set<int>	surface_changed_before_speak;	// ‰ï˜b‘O‚ÉƒT[ƒtƒFƒX‚ªØ‚è‘Ö‚¦w¦‚ª‚ ‚Á‚½H
+	set<int>	surface_changed_before_speak;	// ä¼šè©±å‰ã«ã‚µãƒ¼ãƒ•ã‚§ã‚¹ãŒåˆ‡ã‚Šæ›¿ãˆæŒ‡ç¤ºãŒã‚ã£ãŸï¼Ÿ
 
 
-	// ‰ß‹‚ÌƒJƒbƒR’u‚«Š·‚¦‚ğ‹L‰¯B”½•œi‚gHj‚Åg—p
-	// SentenceToSakuraScript‚ÌÄ‹A‚É“¯Šú‚·‚éB
+	// éå»ã®ã‚«ãƒƒã‚³ç½®ãæ›ãˆã‚’è¨˜æ†¶ã€‚åå¾©ï¼ˆï¼¨ï¼Ÿï¼‰ã§ä½¿ç”¨
+	// SentenceToSakuraScriptã®å†å¸°ã«åŒæœŸã™ã‚‹ã€‚
 	simple_stack<strvec>	kakko_replace_history;	
 
-	// ‰ï˜bƒT[ƒtƒFƒX–ß‚µE•Ï”
+	// ä¼šè©±æ™‚ã‚µãƒ¼ãƒ•ã‚§ã‚¹æˆ»ã—ãƒ»ï¼„å¤‰æ•°
 	bool	surface_restore_at_talk;
 	map<int, int>	default_surface;
 	map<int, int>	surface_add_value;
-	map<int, int>	next_default_surface; // “r’†‚Ådef_surface‚ğØ‚èŠ·‚¦‚Ä‚àA‚»‚Ìrequest‚Å‚Íg‚í‚È‚¢
+	map<int, int>	next_default_surface; // é€”ä¸­ã§def_surfaceã‚’åˆ‡ã‚Šæ›ãˆã¦ã‚‚ã€ãã®requestã§ã¯ä½¿ã‚ãªã„
 	string	surface_restore_string();
 
-	// ‚Î‚é[‚ñˆÊ’u
-	map<int, bool>	validBalloonOffset;	// 1‰ñ‚Å‚àİ’è‚³‚ê‚½‚ç—LŒø ‚Â[‚©•Ğ•û‚¾‚¯‚¾‚ÆˆÓ–¡–³‚©‚Á‚½B‚Ş‚£B
+	// ã°ã‚‹ãƒ¼ã‚“ä½ç½®
+	map<int, bool>	validBalloonOffset;	// 1å›ã§ã‚‚è¨­å®šã•ã‚ŒãŸã‚‰æœ‰åŠ¹ ã¤ãƒ¼ã‹ç‰‡æ–¹ã ã‘ã ã¨æ„å‘³ç„¡ã‹ã£ãŸã€‚ã‚€ã…ã€‚
 	map<int, string>	BalloonOffset;
 
-	// ŠÔŒnî•ñæ“¾—p
+	// æ™‚é–“ç³»æƒ…å ±å–å¾—ç”¨
 #ifdef POSIX
 	unsigned long tick_count_at_load, tick_count_total;
 #else
 	DWORD	tick_count_at_load, tick_count_total;
 #endif
 	
-	// ƒT[ƒtƒFƒX
+	// ã‚µãƒ¼ãƒ•ã‚§ã‚¹
 	map<int, int>	cur_surface;
 	map<int, int>	last_talk_exiting_surface;
-	// –ˆ•bXV‚³‚ê‚éuó‘Ôv
+	// æ¯ç§’æ›´æ–°ã•ã‚Œã‚‹ã€ŒçŠ¶æ…‹ã€
 	bool	mikire_flag,kasanari_flag,can_talk_flag;
 
-	// COMMUNICATEü‚è
+	// COMMUNICATEå‘¨ã‚Š
 #ifdef POSIX
-	bool updateGhostsInfo() { return true; } // ‰½‚à‚µ‚È‚¢B
+	bool updateGhostsInfo() { return true; } // ä½•ã‚‚ã—ãªã„ã€‚
 #else
-	bool	updateGhostsInfo();	// FMO‚©‚çî•ñæ“¾
+	bool	updateGhostsInfo();	// FMOã‹ã‚‰æƒ…å ±å–å¾—
 #endif
-	vector<strmap>	ghosts_info;	// FMO‚Ì“à—e‚»‚Ì‚Ü‚ÜB0‚Í©•ª©gA1`‚Í‡”Ô‚Ç‚¨‚èB
-	strmap*	find_ghost_info(string name);	// ghosts_info‚ğŒŸõA“Á’è‚ÌƒS[ƒXƒg‚Ìî•ñ‚ğ“¾‚é
+	vector<strmap>	ghosts_info;	// FMOã®å†…å®¹ãã®ã¾ã¾ã€‚0ã¯è‡ªåˆ†è‡ªèº«ã€1ï½ã¯é †ç•ªã©ãŠã‚Šã€‚
+	strmap*	find_ghost_info(string name);	// ghosts_infoã‚’æ¤œç´¢ã€ç‰¹å®šã®ã‚´ãƒ¼ã‚¹ãƒˆã®æƒ…å ±ã‚’å¾—ã‚‹
 
-	string	mCommunicateFor;	// ˜b‚µ‚©‚¯‘ÎÛƒS[ƒXƒgB¨‚Åİ’è‚³‚êresponse‚ÉTo‚ğ‚Â‚¯‚é
-	set<string>	mCommunicateLog;	// ‰ï˜bƒƒOBŒJ‚è•Ô‚µ‚ª‚ ‚Á‚½ê‡‚Í‰ï˜b‘Å‚¿Ø‚è
+	string	mCommunicateFor;	// è©±ã—ã‹ã‘å¯¾è±¡ã‚´ãƒ¼ã‚¹ãƒˆã€‚â†’ã§è¨­å®šã•ã‚Œresponseã«Toã‚’ã¤ã‘ã‚‹
+	set<string>	mCommunicateLog;	// ä¼šè©±ãƒ­ã‚°ã€‚ç¹°ã‚Šè¿”ã—ãŒã‚ã£ãŸå ´åˆã¯ä¼šè©±æ‰“ã¡åˆ‡ã‚Š
 
-	// ŠeƒZƒNƒVƒ‡ƒ“‚ÌƒƒO“f‚«—L–³B
+	// å„ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã®ãƒ­ã‚°åãæœ‰ç„¡ã€‚
 	bool	fRequestLog, fOperationLog, fResponseLog;
 
-	// •Ï”‚É‚æ‚èƒŠƒ[ƒh‚ªw¦‚³‚ê‚½‚çONB
+	// å¤‰æ•°ã«ã‚ˆã‚Šãƒªãƒ­ãƒ¼ãƒ‰ãŒæŒ‡ç¤ºã•ã‚ŒãŸã‚‰ONã€‚
 	bool	reload_flag;
-	// «‘ƒtƒHƒ‹ƒ_
+	// è¾æ›¸ãƒ•ã‚©ãƒ«ãƒ€
 	strvec	dic_folder;
 
-	// TEACH‚³‚ê‚é•Ï”–¼
+	// TEACHã•ã‚Œã‚‹å¤‰æ•°å
 	string	teach_genre;
 
-	// ƒ^ƒCƒ}–¼F”­˜b‚Ü‚Å‚Ì•b”
+	// ã‚¿ã‚¤ãƒåï¼šç™ºè©±ã¾ã§ã®ç§’æ•°
 	strintmap	timer;
 
-	// ŒvZ‚Í‘ÎÛ‚Ì‚È‚¢ƒJƒbƒR‚ğ‚O‚É’u‚«Š·‚¦‚éB‚»‚Ì‚½‚ß‚Ìƒtƒ‰ƒOB
+	// è¨ˆç®—æ™‚ã¯å¯¾è±¡ã®ãªã„ã‚«ãƒƒã‚³ã‚’ï¼ã«ç½®ãæ›ãˆã‚‹ã€‚ãã®ãŸã‚ã®ãƒ•ãƒ©ã‚°ã€‚
 	bool	unkakko_for_calcurate;
 
-	// ƒg[ƒN‚Ì—\–ñ
+	// ãƒˆãƒ¼ã‚¯ã®äºˆç´„
 	map<int, string>	reserved_talk;
 
-	// u“Æ©ƒCƒxƒ“ƒg‚É‚æ‚émateriaƒCƒxƒ“ƒg‚Ì’u‚«Š·‚¦v‚Ì‚½‚ß‚ÌƒXƒNƒŠƒvƒg“ü‚ê
+	// ã€Œç‹¬è‡ªã‚¤ãƒ™ãƒ³ãƒˆã«ã‚ˆã‚‹materiaã‚¤ãƒ™ãƒ³ãƒˆã®ç½®ãæ›ãˆã€ã®ãŸã‚ã®ã‚¹ã‚¯ãƒªãƒ—ãƒˆå…¥ã‚Œ
 	string	on_loaded_script;
 	string	on_unloading_script;
 
-	// xƒvƒ‰ƒOƒCƒ“
+	// æ ãƒ—ãƒ©ã‚°ã‚¤ãƒ³
 	ShioriPlugins	mShioriPlugins;
 	string	inc_call(const string&, const strvec&, strvec&, bool is_secure);
 
-	// ˆÀ‘SH
+	// å®‰å…¨ï¼Ÿ
 	bool	secure_flag;
 
-	// ’¼‘O‚Ì•\¦‘I‘ğˆ
+	// ç›´å‰ã®è¡¨ç¤ºé¸æŠè‚¢
 	string	last_choice_name;
 
-	// ƒZ[ƒuƒf[ƒ^•Û‘¶‚ÌˆÃ†‰»—L–³
+	// ã‚»ãƒ¼ãƒ–ãƒ‡ãƒ¼ã‚¿ä¿å­˜æ™‚ã®æš—å·åŒ–æœ‰ç„¡
 	bool	fEncodeSavedata;
-	// ‚³‚¨‚èˆø”‚ğŒvZ‚·‚é‚©
+	// ã•ãŠã‚Šå¼•æ•°ã‚’è¨ˆç®—ã™ã‚‹ã‹
 	enum { SACM_ON, SACM_OFF, SACM_AUTO } mSaoriArgumentCalcMode;
 
-	// ©“®ƒZ[ƒuŠÔŠu
+	// è‡ªå‹•ã‚»ãƒ¼ãƒ–é–“éš”
 	int	mAutoSaveInterval;
 	int	mAutoSaveCurrentCount;
 
-	// «‘î•ñ
+	// è¾æ›¸æƒ…å ±
 	int	numWord, numParentheres, numSurfaceChange,
 		numDictionary, numDictionarySize;
 
-	// ƒVƒXƒeƒ€î•ñŒn ----------
+	// ã‚·ã‚¹ãƒ†ãƒ æƒ…å ±ç³» ----------
 
 	enum { UNDEFINED, WIN95, WIN98, WINME, WINNT, WIN2K, WINXP } mOSType;
 
 #ifndef POSIX
-	// ƒ}ƒ‹ƒ`ƒ‚ƒjƒ^
-	bool	is_single_monitor;	// ÅãˆÊB‚±‚ê‚ªfalse‚È‚ç‚ÎˆÈ‰º‚ğg‚Á‚Ä‚Í‚¢‚¯‚È‚¢
+	// ãƒãƒ«ãƒãƒ¢ãƒ‹ã‚¿
+	bool	is_single_monitor;	// æœ€ä¸Šä½ã€‚ã“ã‚ŒãŒfalseãªã‚‰ã°ä»¥ä¸‹ã‚’ä½¿ã£ã¦ã¯ã„ã‘ãªã„
 	RECT	desktop_rect;
 	RECT	max_screen_rect;
 	map<int, HWND>	characters_hwnd;
 #endif
 
-	// ƒƒ“ƒoŠÖ”
+	// ãƒ¡ãƒ³ãƒé–¢æ•°
 
 	void	InitMembers();
 
@@ -301,19 +301,19 @@ private:
 	bool	GetURLList(const string& name, string& result);
 	bool	GetRecommendsiteSentence(const string& name, string& result);
 
-	// w’èƒCƒxƒ“ƒg–³‚¢ê‡AƒCƒxƒ“ƒg–¼‚Ì’u‚«Š·‚¦‚à‚µ‚Äioevent‚ğ•Ô‚·B‚»‚ê‚Å‚à–³‚¢‚È‚çfalse
+	// æŒ‡å®šã‚¤ãƒ™ãƒ³ãƒˆç„¡ã„å ´åˆã€ã‚¤ãƒ™ãƒ³ãƒˆåã®ç½®ãæ›ãˆã‚‚ã—ã¦ioeventã‚’è¿”ã™ã€‚ãã‚Œã§ã‚‚ç„¡ã„ãªã‚‰false
 	bool	FindEventTalk(string& ioevent);
 
-	// CommunicateŒ`®ŒŸõBŠY“–‚È‚µ‚È‚çfalseBand_mode‚ªtrue‚È‚ç‘S’PŒêˆê’vˆÈŠO‚Í–³Œø‚Æ‚·‚é
+	// Communicateå½¢å¼æ¤œç´¢ã€‚è©²å½“ãªã—ãªã‚‰falseã€‚and_modeãŒtrueãªã‚‰å…¨å˜èªä¸€è‡´ä»¥å¤–ã¯ç„¡åŠ¹ã¨ã™ã‚‹
 	bool	TalkSearch(const string& iSentence, string& oScript, bool iAndMode);
 
-	// ƒVƒXƒeƒ€•Ï”İ’è‚Ì“®ì
+	// ã‚·ã‚¹ãƒ†ãƒ å¤‰æ•°è¨­å®šæ™‚ã®å‹•ä½œ
 	bool	system_variable_operation(string key, string value, string* result=NULL);
 
-	// “à•”B•Ô’l‚Í‘±s‚Ì—L–³B‘±s‚ÍSentenceName‚ğGetSentenceB
+	// å†…éƒ¨ã€‚è¿”å€¤ã¯ç¶šè¡Œã®æœ‰ç„¡ã€‚ç¶šè¡Œæ™‚ã¯SentenceNameã‚’GetSentenceã€‚
 	bool	GetSentence(string& ioSentenceName, string& oResultScript);
 
-	// ®‚ğ•]‰¿‚µAŒ‹‰Ê‚Ì^‹U’l‚ğ•Ô‚·
+	// å¼ã‚’è©•ä¾¡ã—ã€çµæœã®çœŸå½å€¤ã‚’è¿”ã™
 	bool evalcate_to_bool(const Condition& i_cond);
 
 public:
@@ -321,7 +321,7 @@ public:
 	Satori() {}
 	~Satori() {}
 
-	// SHIORI/3.0ƒCƒ“ƒ^ƒtƒF[ƒX
+	// SHIORI/3.0ã‚¤ãƒ³ã‚¿ãƒ•ã‚§ãƒ¼ã‚¹
 	virtual bool load(const string& i_base_folder);
 	virtual bool unload();
 	virtual int	request(
@@ -334,22 +334,22 @@ public:
 		string& o_protocol_version,
 		strpairvec& o_data);
 
-	// •Ï”“™‚Ìƒf[ƒ^‚ğƒtƒ@ƒCƒ‹‚É•Û‘¶
+	// å¤‰æ•°ç­‰ã®ãƒ‡ãƒ¼ã‚¿ã‚’ãƒ•ã‚¡ã‚¤ãƒ«ã«ä¿å­˜
 	bool	Save(bool isOnUnload=false);	
 
-	// strvec‚©‚ç‚³‚­‚çƒXƒNƒŠƒvƒg‚ğ¶¬‚·‚é
+	// strvecã‹ã‚‰ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã‚’ç”Ÿæˆã™ã‚‹
 	string	SentenceToSakuraScript(const strvec& vec);
-	// strvec‚ÉƒvƒŠƒvƒƒZƒX‚ğŠ|‚¯‚½ŒãA‚³‚­‚çƒXƒNƒŠƒvƒg‚ğ¶¬‚·‚éB‚³‚Æ‚è‚Ä—p
+	// strvecã«ãƒ—ãƒªãƒ—ãƒ­ã‚»ã‚¹ã‚’æ›ã‘ãŸå¾Œã€ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã‚’ç”Ÿæˆã™ã‚‹ã€‚ã•ã¨ã‚Šã¦ç”¨
 	string	SentenceToSakuraScript_with_PreProcess(const strvec& vec);
-	// w’è‚³‚ê‚½–¼‘O‚Ì–•¶‚ğæ“¾‚·‚é
+	// æŒ‡å®šã•ã‚ŒãŸåå‰ã®ï¼Šæ–‡ã‚’å–å¾—ã™ã‚‹
 	string	GetSentence(const string& name);
-	// ˆø”‚É“n‚³‚ê‚½‚à‚Ì‚ğ‰½‚©‚Ì–¼‘O‚Å‚ ‚é‚Æ‚µA’u‚«Š·‚¦‘ÎÛ‚ª‚ ‚ê‚Î’u‚«Š·‚¦‚éB
+	// å¼•æ•°ã«æ¸¡ã•ã‚ŒãŸã‚‚ã®ã‚’ä½•ã‹ã®åå‰ã§ã‚ã‚‹ã¨ã—ã€ç½®ãæ›ãˆå¯¾è±¡ãŒã‚ã‚Œã°ç½®ãæ›ãˆã‚‹ã€‚
 	bool	Call(const string& word, string& result);
 	string	Call(const string& word) { string result; Call(word, result); return result; }
-	// —¢XƒŒƒxƒ‹‚Å‚ÌŒvZ‚ğs‚¤B–ß‚è’l‚Í¬”ÛB
+	// é‡Œã€…ãƒ¬ãƒ™ãƒ«ã§ã®è¨ˆç®—ã‚’è¡Œã†ã€‚æˆ»ã‚Šå€¤ã¯æˆå¦ã€‚
 	bool calculate(const string& iExpression, string& oResult);
 
-	// ÅI’u‚«Š·‚¦ˆ—B’uŠ·Œã‚ÌƒXƒNƒŠƒvƒg‚ª’†g‚ª–³‚¢iÀs‚µ‚Ä‚à‚µ‚È‚­‚Ä‚àˆêj‚Æ”»’f‚µ‚½‚çfalse‚ğ•Ô‚·B
+	// æœ€çµ‚ç½®ãæ›ãˆå‡¦ç†ã€‚ç½®æ›å¾Œã®ã‚¹ã‚¯ãƒªãƒ—ãƒˆãŒä¸­èº«ãŒç„¡ã„ï¼ˆå®Ÿè¡Œã—ã¦ã‚‚ã—ãªãã¦ã‚‚ä¸€ç·’ï¼‰ã¨åˆ¤æ–­ã—ãŸã‚‰falseã‚’è¿”ã™ã€‚
 	bool	Translate(string& script);
 
 };
@@ -365,6 +365,20 @@ int		random();
 
 
 
+
+#include <string>
+#include <cstdlib>
+#include <stdexcept>
+
+inline int satori_stoi_safe(const std::string& str, std::size_t* pos = 0, int base = 10) {
+    if (str.empty()) return 0;
+    try {
+        return std::stoi(str, pos, base);
+    } catch (...) {
+        return 0;
+    }
+}
+#define stoi(str, ...) satori_stoi_safe(str, ##__VA_ARGS__)
 
 //---------------------------------------------------------------------------
 #endif

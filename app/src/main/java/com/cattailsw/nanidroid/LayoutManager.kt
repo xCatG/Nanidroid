@@ -3,14 +3,15 @@ package com.cattailsw.nanidroid
 import android.content.Context
 import android.view.Gravity
 import android.widget.FrameLayout
+import java.lang.ref.WeakReference
 
 class LayoutManager private constructor(context: Context) {
     private val mCtx: Context = context.applicationContext
-    private var sv: SakuraView? = null
-    private var kv: KeroView? = null
-    private var bSakura: Balloon? = null
-    private var bKero: Balloon? = null
-    private var fl: FrameLayout? = null
+    private var sv: WeakReference<SakuraView>? = null
+    private var kv: WeakReference<KeroView>? = null
+    private var bSakura: WeakReference<Balloon>? = null
+    private var bKero: WeakReference<Balloon>? = null
+    private var fl: WeakReference<FrameLayout>? = null
 
     companion object {
         private var _self: LayoutManager? = null
@@ -25,28 +26,37 @@ class LayoutManager private constructor(context: Context) {
     }
 
     fun setViews(f: FrameLayout?, s: SakuraView?, k: KeroView?, bS: Balloon?, bK: Balloon?) {
-        fl = f
-        sv = s
-        kv = k
-        bSakura = bS
-        bKero = bK
+        fl = f?.let { WeakReference(it) }
+        sv = s?.let { WeakReference(it) }
+        kv = k?.let { WeakReference(it) }
+        bSakura = bS?.let { WeakReference(it) }
+        bKero = bK?.let { WeakReference(it) }
+    }
+
+    fun clearViews() {
+        fl = null
+        sv = null
+        kv = null
+        bSakura = null
+        bKero = null
     }
 
     fun checkAndUpdateLayoutParam() {
-        val layout = fl ?: return
-        val sakuraView = sv ?: return
-        val keroView = kv ?: return
-        val sakuraBalloon = bSakura ?: return
-        val keroBalloon = bKero ?: return
+        val layout = fl?.get() ?: return
+        val sakuraView = sv?.get() ?: return
+        val keroView = kv?.get() ?: return
+        val sakuraBalloon = bSakura?.get() ?: return
+        val keroBalloon = bKero?.get() ?: return
 
         val layoutWidth = layout.width
         val layoutHeight = layout.height
         if (layoutHeight <= 0 || layoutWidth <= 0) return
 
-        val sH = sakuraView.currentSurface?.origH ?: 300
-        val sW = sakuraView.currentSurface?.origW ?: 200
-        val kH = keroView.currentSurface?.origH ?: 300
-        val kW = keroView.currentSurface?.origW ?: 200
+        val density = mCtx.resources.displayMetrics.density
+        val sH = ((sakuraView.currentSurface?.origH ?: 300) * density).toInt()
+        val sW = ((sakuraView.currentSurface?.origW ?: 200) * density).toInt()
+        val kH = ((keroView.currentSurface?.origH ?: 300) * density).toInt()
+        val kW = ((keroView.currentSurface?.origW ?: 200) * density).toInt()
 
         var wScale = 1.0f
         if (sW + kW > layoutWidth) {

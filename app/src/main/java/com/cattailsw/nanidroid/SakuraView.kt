@@ -223,14 +223,25 @@ open class SakuraView @JvmOverloads constructor(
 
     override fun onTouchEvent(motionEvent: MotionEvent): Boolean {
         Log.d(TAG, "onTouchEvent")
+        val x = motionEvent.getX(0)
+        val y = motionEvent.getY(0)
 
-        val cid = testColDect(motionEvent.getX(0).toInt(), motionEvent.getY(0).toInt())
-        Log.d(TAG, "test col at: $cid")
+        val origW = currentSurface?.origW ?: 200
+        val origH = currentSurface?.origH ?: 300
+
+        val scaleX = if (width > 0) width.toFloat() / origW else 1.0f
+        val scaleY = if (height > 0) height.toFloat() / origH else 1.0f
+
+        val origX = (x / scaleX).toInt()
+        val origY = (y / scaleY).toInt()
+
+        val cid = testColDect(origX, origY)
+        Log.d(TAG, "onTouchEvent: raw(${x.toInt()}, ${y.toInt()}) -> mapped($origX, $origY), col at: $cid")
 
         mUCB?.onHit(
             UIEventCallback.TYPE_DOUBLE_CLICK,
-            motionEvent.getX(0).toInt(),
-            motionEvent.getY(0).toInt(),
+            origX,
+            origY,
             0,
             cid,
             0

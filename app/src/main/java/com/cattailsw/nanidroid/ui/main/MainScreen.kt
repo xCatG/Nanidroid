@@ -36,9 +36,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import com.cattailsw.nanidroid.*
 import com.cattailsw.nanidroid.R
 import java.io.File
@@ -50,10 +55,8 @@ fun MainScreen(
     modifier: Modifier = Modifier,
     viewModel: MainScreenViewModel = viewModel()
 ) {
-    val context = LocalContext.current
-    
     LaunchedEffect(Unit) {
-        viewModel.init(context)
+        viewModel.init()
     }
 
     val activeGhost by viewModel.activeGhost.collectAsStateWithLifecycle()
@@ -68,7 +71,7 @@ fun MainScreen(
     if (currentInputBoxId != null) {
         var textValue by remember { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { viewModel.onInputCancel(context) },
+            onDismissRequest = { viewModel.onInputCancel() },
             title = { Text("Mascot Prompt") },
             text = {
                 Column {
@@ -82,12 +85,12 @@ fun MainScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = { viewModel.onInputSubmit(context, currentInputBoxId, textValue) }) {
+                Button(onClick = { viewModel.onInputSubmit(currentInputBoxId, textValue) }) {
                     Text("OK")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.onInputCancel(context) }) {
+                TextButton(onClick = { viewModel.onInputCancel() }) {
                     Text("Cancel")
                 }
             }
@@ -97,7 +100,7 @@ fun MainScreen(
     // Shiori/Sakura Script prompted Selection Menu Dialog
     if (currentSelection != null) {
         AlertDialog(
-            onDismissRequest = { viewModel.onSelectionCancel(context) },
+            onDismissRequest = { viewModel.onSelectionCancel() },
             title = { Text("Choose Option") },
             text = {
                 LazyColumn(
@@ -108,7 +111,7 @@ fun MainScreen(
                         val label = currentSelection.labels[idx]
                         val selId = currentSelection.ids[idx]
                         Button(
-                            onClick = { viewModel.onSelectionSelect(context, selId) },
+                            onClick = { viewModel.onSelectionSelect(selId) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(label)
@@ -118,7 +121,7 @@ fun MainScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { viewModel.onSelectionCancel(context) }) {
+                TextButton(onClick = { viewModel.onSelectionCancel() }) {
                     Text("Cancel")
                 }
             }
@@ -130,13 +133,14 @@ fun MainScreen(
         installedGhosts = installedGhosts,
         isOverlayEnabled = isOverlayEnabled,
         consoleLogs = consoleLogs,
-        onSwitchGhost = { id -> viewModel.switchGhost(context, id) },
-        onToggleOverlay = { enabled -> viewModel.toggleOverlay(context, enabled) },
-        onRefreshGhosts = { viewModel.refreshInstalledGhosts(context) },
+        onSwitchGhost = { id -> viewModel.switchGhost(id) },
+        onToggleOverlay = { enabled -> viewModel.toggleOverlay(enabled) },
+        onRefreshGhosts = { viewModel.refreshInstalledGhosts() },
         modifier = modifier
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MainDashboard(
     activeGhost: Ghost?,
@@ -149,6 +153,7 @@ internal fun MainDashboard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    var showBottomSheet by remember { mutableStateOf(false) }
     
     val fileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -169,7 +174,41 @@ internal fun MainDashboard(
         }
     }
 
-    BoxWithConstraints(
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = "NANIDROID MASCOT HUB",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFF38BDF8),
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = "Desktop Ukagaka/Nanika Mascot Engine",
+                            fontSize = 10.sp,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showBottomSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = Color.White
+                )
+            )
+        },
+        containerColor = Color.Transparent,
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -180,130 +219,67 @@ internal fun MainDashboard(
                     )
                 )
             )
-    ) {
-        val isWide = maxWidth > 650.dp
-        
-        Column(
+    ) { paddingValues ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(paddingValues)
         ) {
-            HeaderSection()
+            HologramChamber(activeGhost = activeGhost)
+        }
+    }
 
-            if (isWide) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1.1f)
-                            .fillMaxHeight()
-                    ) {
-                        HologramChamber(activeGhost = activeGhost)
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .weight(1.2f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        ControlCenterCard(
-                            activeGhost = activeGhost,
-                            isOverlayEnabled = isOverlayEnabled,
-                            onToggleOverlay = onToggleOverlay,
-                            onInstallClick = { fileLauncher.launch("*/*") },
-                            onUpdateClick = {
-                                activeGhost?.let { g ->
-                                    val runner = SScriptRunner.getInstance(context)
-                                    val homeurl = runner.getStringValueFromShiori("homeurl")
-                                    if (homeurl != null) {
-                                        val name = g.getGhostName() ?: ""
-                                        val path = g.getGhostPath() ?: ""
-                                        runner.doShioriEvent("OnUpdateBegin", arrayOf(name, path))
-                                        val intent = NanidroidService.createUpdateIntent(context, homeurl, g.getGhostId(), g.getGhostPath())
-                                        context.startService(intent)
-                                        Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "No homeurl defined for updates.", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            onPreferencesClick = {
-                                val intent = Intent(context, Preferences::class.java)
-                                context.startActivity(intent)
+    if (showBottomSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showBottomSheet = false },
+            containerColor = Color(0xFF1E293B),
+            contentColor = Color.White,
+            dragHandle = { BottomSheetDefaults.DragHandle(color = Color(0xFF94A3B8)) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                ControlCenterCard(
+                    activeGhost = activeGhost,
+                    isOverlayEnabled = isOverlayEnabled,
+                    onToggleOverlay = onToggleOverlay,
+                    onInstallClick = { fileLauncher.launch("*/*") },
+                    onUpdateClick = {
+                        activeGhost?.let { g ->
+                            val runner = SScriptRunner.getInstance(context)
+                            val homeurl = runner.getStringValueFromShiori("homeurl")
+                            if (homeurl != null) {
+                                val name = g.getGhostName() ?: ""
+                                val path = g.getGhostPath() ?: ""
+                                runner.doShioriEvent("OnUpdateBegin", arrayOf(name, path))
+                                val intent = NanidroidService.createUpdateIntent(context, homeurl, g.getGhostId(), g.getGhostPath())
+                                context.startService(intent)
+                                Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "No homeurl defined for updates.", Toast.LENGTH_SHORT).show()
                             }
-                        )
-
-                        CatalogCard(
-                            installedGhosts = installedGhosts,
-                            activeGhostId = activeGhost?.getGhostId() ?: "",
-                            onSwitchGhost = onSwitchGhost,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        ConsoleCard(
-                            consoleLogs = consoleLogs,
-                            modifier = Modifier.height(150.dp)
-                        )
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(350.dp)
-                    ) {
-                        HologramChamber(activeGhost = activeGhost)
-                    }
-
-                    ControlCenterCard(
-                        activeGhost = activeGhost,
-                        isOverlayEnabled = isOverlayEnabled,
-                        onToggleOverlay = onToggleOverlay,
-                        onInstallClick = { fileLauncher.launch("*/*") },
-                        onUpdateClick = {
-                            activeGhost?.let { g ->
-                                val runner = SScriptRunner.getInstance(context)
-                                val homeurl = runner.getStringValueFromShiori("homeurl")
-                                if (homeurl != null) {
-                                    val name = g.getGhostName() ?: ""
-                                    val path = g.getGhostPath() ?: ""
-                                    runner.doShioriEvent("OnUpdateBegin", arrayOf(name, path))
-                                    val intent = NanidroidService.createUpdateIntent(context, homeurl, g.getGhostId(), g.getGhostPath())
-                                    context.startService(intent)
-                                    Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "No homeurl defined for updates.", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
-                        onPreferencesClick = {
-                            val intent = Intent(context, Preferences::class.java)
-                            context.startActivity(intent)
                         }
-                    )
+                    },
+                    onPreferencesClick = {
+                        val intent = Intent(context, Preferences::class.java)
+                        context.startActivity(intent)
+                    }
+                )
 
-                    CatalogCard(
-                        installedGhosts = installedGhosts,
-                        activeGhostId = activeGhost?.getGhostId() ?: "",
-                        onSwitchGhost = onSwitchGhost,
-                        modifier = Modifier.height(200.dp)
-                    )
+                CatalogCard(
+                    installedGhosts = installedGhosts,
+                    activeGhostId = activeGhost?.getGhostId() ?: "",
+                    onSwitchGhost = onSwitchGhost
+                )
 
-                    ConsoleCard(
-                        consoleLogs = consoleLogs,
-                        modifier = Modifier.height(140.dp)
-                    )
-                }
+                ConsoleCard(
+                    consoleLogs = consoleLogs,
+                    modifier = Modifier.height(150.dp)
+                )
             }
         }
     }
@@ -393,12 +369,57 @@ fun HologramChamber(activeGhost: Ghost?) {
     }
 }
 
+data class MascotViews(
+    val layout: FrameLayout,
+    val sakura: SakuraView,
+    val kero: KeroView,
+    val bSakura: Balloon,
+    val bKero: Balloon
+)
+
 @Composable
 fun InAppMascotView(
     activeGhost: Ghost?,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var viewsRef by remember { mutableStateOf<MascotViews?>(null) }
+
+    DisposableEffect(lifecycleOwner, activeGhost) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val views = viewsRef
+                if (views != null && activeGhost != null) {
+                    val lm = LayoutManager.getInstance(context)
+                    val runner = SScriptRunner.getInstance(context)
+                    
+                    views.sakura.mgr = activeGhost.mgr
+                    views.kero.mgr = activeGhost.mgr
+                    
+                    lm.setViews(views.layout, views.sakura, views.kero, views.bSakura, views.bKero)
+                    runner.setViews(views.sakura, views.kero, views.bSakura, views.bKero)
+                    runner.setGhost(activeGhost)
+                    runner.setLayoutMgr(lm)
+                    
+                    views.layout.post {
+                        lm.checkAndUpdateLayoutParam()
+                    }
+                    
+                    runner.stopClock()
+                    runner.startClock()
+                    runner.run()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            LayoutManager.getInstance(context).clearViews()
+            SScriptRunner.getInstance(context).clearViews()
+        }
+    }
+
     AndroidView(
         factory = { ctx ->
             val layout = FrameLayout(ctx).apply {
@@ -442,7 +463,13 @@ fun InAppMascotView(
                 layout.post {
                     lm.checkAndUpdateLayoutParam()
                 }
+
+                runner.stopClock()
+                runner.startClock()
+                runner.run()
             }
+            
+            viewsRef = MascotViews(layout, sv, kv, bSakura, bKero)
             layout
         },
         update = { layout ->
@@ -593,7 +620,7 @@ fun CatalogCard(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Text(
@@ -607,17 +634,17 @@ fun CatalogCard(
 
             if (installedGhosts.isEmpty()) {
                 Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("No ghosts found in storage.", color = Color(0xFF64748B), fontSize = 13.sp)
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(installedGhosts) { info ->
+                    installedGhosts.forEach { info ->
                         val isActive = info.id.equals(activeGhostId, ignoreCase = true)
                         Row(
                             modifier = Modifier

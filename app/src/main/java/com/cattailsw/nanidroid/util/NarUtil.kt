@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.util
 
+import android.content.Context
 import android.os.Environment
 import android.util.Log
 import com.cattailsw.nanidroid.DescReader
@@ -41,8 +42,8 @@ object NarUtil {
     }
 
     @JvmStatic
-    fun createNarDirOnSDCard() {
-        val narDir = File(Environment.getExternalStorageDirectory(), "nar")
+    fun createNarDirOnSDCard(context: Context) {
+        val narDir = context.getExternalFilesDir("nar") ?: return
         if (narDir.exists() && narDir.isDirectory) return
 
         val success = narDir.mkdirs()
@@ -52,8 +53,8 @@ object NarUtil {
     }
 
     @JvmStatic
-    fun listNarDir(): Array<String>? {
-        val narDir = File(Environment.getExternalStorageDirectory(), "nar")
+    fun listNarDir(context: Context): Array<String>? {
+        val narDir = context.getExternalFilesDir("nar") ?: return null
         if (!narDir.exists() || !narDir.isDirectory) return null
         return narDir.list(narFilter)
     }
@@ -67,7 +68,7 @@ object NarUtil {
             val entries = ArrayList(Collections.list(nar.entries()))
             val e = findRootInstallTxt(entries)
             if (e != null && e.name.contains("install.txt")) {
-                val tmp = File.createTempFile("nanidroid", "tmp", File("/mnt/sdcard/nar"))
+                val tmp = File.createTempFile("nanidroid", "tmp")
                 extractFileToPath(nar, tmp.absolutePath, e, ignorename = true, strip = false)
                 val r = DescReader(tmp.absolutePath)
                 r.table = r.parse()
@@ -117,7 +118,7 @@ object NarUtil {
                 }
                 Log.d(TAG, "entry name=${e.name}")
                 val strip = shouldStrip(e.name)
-                val tmp = File.createTempFile("nanidroid", "tmp", File("/mnt/sdcard/nar"))
+                val tmp = File.createTempFile("nanidroid", "tmp")
                 extractFileToPath(nar, tmp.absolutePath, e, ignorename = true, strip = false)
                 val r = DescReader(tmp.absolutePath)
                 r.table = r.parse()

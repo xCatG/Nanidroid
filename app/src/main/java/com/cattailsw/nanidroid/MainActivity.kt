@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.lifecycle.lifecycleScope
 import java.io.File
 import java.io.FileOutputStream
 
@@ -106,7 +107,7 @@ class MainActivity : ComponentActivity() {
         }
         if (!gm.hasSameGhostId(ghostId)) {
             runner.doInstallBegin(ghostId)
-            CoroutineScope(Dispatchers.Main).launch {
+            lifecycleScope.launch {
                 val gPath = withContext(Dispatchers.IO) {
                     gm.installGhost(ghostId, path)
                 }

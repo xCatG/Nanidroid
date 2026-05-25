@@ -30,7 +30,7 @@ open class Ghost {
         ghostDirName = File(ghostPath).name
         Log.d(TAG, "gdname=$ghostDirName")
         mgr = SurfaceManager(ghostDirName)
-        mCtx = ctx
+        mCtx = ctx?.applicationContext
         loadGhostInfo()
         incrementCreateCount()
     }

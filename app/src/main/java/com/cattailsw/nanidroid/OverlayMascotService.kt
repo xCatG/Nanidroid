@@ -68,7 +68,15 @@ class OverlayMascotService : Service() {
             .setContentIntent(pendingIntent)
             .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun setupOverlay() {
@@ -147,6 +155,8 @@ class OverlayMascotService : Service() {
         super.onDestroy()
         val runner = SScriptRunner.getInstance(this)
         runner.stopClock()
+        runner.clearViews()
+        LayoutManager.getInstance(this).clearViews()
         
         overlayLayout?.let {
             windowManager?.removeView(it)

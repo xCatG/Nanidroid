@@ -19,6 +19,9 @@ class SSParserTest {
 
     companion object {
         private const val TAG = "SSParserTest"
+        
+        @JvmStatic
+        val activeViews = ArrayList<Any>()
     }
 
     lateinit var mContext: Context
@@ -122,7 +125,16 @@ class SSParserTest {
         kero = DummyKeroView(mContext)
         bSakura = DummyBalloon(mContext)
         bKero = DummyBalloon(mContext)
+        
+        activeViews.clear()
+        activeViews.add(sakura!!)
+        activeViews.add(kero!!)
+        activeViews.add(bSakura!!)
+        activeViews.add(bKero!!)
+        
         sr = SScriptRunner.getInstance(mContext)
+        sr?.stopClock()
+        sr?.cancelResetTimeout()
         sr!!.clearMsgQueue()
         sr!!.setViews(sakura, kero, bSakura, bKero)
         sr!!.setNoWaitMode(true)
@@ -131,6 +143,9 @@ class SSParserTest {
     @After
     fun tearDown() {
         sr?.stop()
+        sr?.stopClock()
+        sr?.cancelResetTimeout()
+        activeViews.clear()
     }
 
     @Test
@@ -295,13 +310,14 @@ class SSParserTest {
     @Test
     fun testAnimation() {
         sakura = DummySakuraView(mContext)
+        activeViews.add(sakura!!)
         sr!!.setViews(sakura, kero, bSakura, bKero)
 
         val cmd = "\\halala\\i[0]opqrstmnopqrst\\e"
         sr!!.addMsgToQueue(arrayOf(cmd))
         sr!!.run()
 
-        assertEquals(2, sakura!!.talkCalledTime)
+        assertEquals(3, sakura!!.talkCalledTime)
         assertEquals("0", sakura!!.aid)
     }
 

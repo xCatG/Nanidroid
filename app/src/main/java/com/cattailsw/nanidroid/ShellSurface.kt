@@ -179,6 +179,7 @@ class ShellSurface {
                 }
                 anime.addFrame(ad, f.time)
             }
+            anime.isOneShot = (interval != A_TYPE_LOOP)
             this.animation = anime
             return anime
         }
@@ -608,7 +609,7 @@ class ShellSurface {
         if (filename.equals("-1", ignoreCase = true)) {
             val f = AnimationFrame()
             f.frameType = TYPE_RESET
-            f.time = wait
+            f.time = if (wait >= 0) wait else 0
             addFrameToAnimation(animationId, index, f)
         } else {
             val fz = basePath + "surface" + filename + ".png"
@@ -619,7 +620,7 @@ class ShellSurface {
                 f.sid = findex.toString()
                 f.filePath = fz
                 f.frameType = lookupPatternType(pattern)
-                f.time = wait
+                f.time = if (wait >= 0) wait else 0
                 f.startX = x
                 f.startY = y
                 f.W = opt.outWidth
@@ -632,6 +633,7 @@ class ShellSurface {
                 f.startX = x
                 f.startY = y
                 f.frameType = lookupPatternType(pattern)
+                f.time = if (wait >= 0) wait else 0
                 addFrameToAnimation(animationId, index, f)
             }
         }

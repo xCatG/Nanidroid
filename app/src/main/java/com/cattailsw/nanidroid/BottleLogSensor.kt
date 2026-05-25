@@ -10,13 +10,13 @@ class BottleLogSensor : SSTPBottleSensor() {
         @JvmStatic
         @Throws(ApiException::class, ParseException::class)
         fun getPageContent(ctx: Context): LinkedList<String> {
-            return getUrlContent(ctx)
+            return getAssetContent(ctx)
         }
 
         @JvmStatic
         @Synchronized
         @Throws(ApiException::class)
-        private fun getUrlContent(ctx: Context): LinkedList<String> {
+        private fun getAssetContent(ctx: Context): LinkedList<String> {
             return try {
                 val assetManager = ctx.assets
                 val isStream = assetManager.open("sstpbottlelog.log")

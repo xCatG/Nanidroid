@@ -88,7 +88,6 @@ target_compile_definitions(kawari8 PRIVATE
 
 target_compile_options(kawari8 PRIVATE
     -Wno-write-strings
-    -fpermissive
 )
 
 target_link_libraries(kawari8
@@ -139,7 +138,6 @@ target_compile_definitions(satoriya PRIVATE
 )
 
 target_compile_options(satoriya PRIVATE
-    -fpermissive
 )
 
 target_link_libraries(satoriya

@@ -8,7 +8,8 @@ import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cattailsw.nanidroid.Ghost
 import com.cattailsw.nanidroid.GhostMgr
@@ -19,7 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class MainScreenViewModel : ViewModel() {
+class MainScreenViewModel(application: Application) : AndroidViewModel(application) {
+    private var isInitialized = false
     private val _activeGhost = MutableStateFlow<Ghost?>(null)
     val activeGhost: StateFlow<Ghost?> = _activeGhost.asStateFlow()
 
@@ -40,13 +42,15 @@ class MainScreenViewModel : ViewModel() {
 
     data class SelectionData(val labels: Array<String>, val ids: Array<String>)
 
-    fun init(context: Context) {
+    fun init() {
+        if (isInitialized) return
+        val context = getApplication<Application>()
         val gm = GhostMgr(context)
         val lastGhostId = gm.getLastRunGhostId() ?: "nanidroid"
         val ghost = gm.createGhost(lastGhostId)
         _activeGhost.value = ghost
-        refreshInstalledGhosts(context)
-        updateOverlayState(context)
+        refreshInstalledGhosts()
+        updateOverlayState()
         
         val runner = SScriptRunner.getInstance(context)
         runner.setUICallback(object : SScriptRunner.UICallback {
@@ -60,34 +64,36 @@ class MainScreenViewModel : ViewModel() {
                 currentSelection = SelectionData(textlabel, ids)
             }
         })
+        isInitialized = true
     }
 
-    fun onInputSubmit(context: Context, id: String, text: String) {
+    fun onInputSubmit(id: String, text: String) {
         currentInputBoxId = null
-        val runner = SScriptRunner.getInstance(context)
+        val runner = SScriptRunner.getInstance(getApplication())
         runner.doUserInput(id, text)
     }
 
-    fun onInputCancel(context: Context) {
+    fun onInputCancel() {
         currentInputBoxId = null
-        val runner = SScriptRunner.getInstance(context)
+        val runner = SScriptRunner.getInstance(getApplication())
         runner.resumeEvt()
     }
 
-    fun onSelectionSelect(context: Context, id: String) {
+    fun onSelectionSelect(id: String) {
         currentSelection = null
-        val runner = SScriptRunner.getInstance(context)
+        val runner = SScriptRunner.getInstance(getApplication())
         runner.doOnChoiceSelect(id)
     }
 
-    fun onSelectionCancel(context: Context) {
+    fun onSelectionCancel() {
         currentSelection = null
-        val runner = SScriptRunner.getInstance(context)
+        val runner = SScriptRunner.getInstance(getApplication())
         runner.resumeEvt()
     }
 
-    fun refreshInstalledGhosts(context: Context) {
+    fun refreshInstalledGhosts() {
         viewModelScope.launch {
+            val context = getApplication<Application>()
             val gm = GhostMgr(context)
             gm.refreshGhost()
             val ids = gm.getGnames() ?: emptyArray()
@@ -103,9 +109,10 @@ class MainScreenViewModel : ViewModel() {
         }
     }
 
-    fun switchGhost(context: Context, id: String) {
+    fun switchGhost(id: String) {
         viewModelScope.launch {
             logConsole("Switching ghost to $id...")
+            val context = getApplication<Application>()
             val gm = GhostMgr(context)
             val runner = SScriptRunner.getInstance(context)
             
@@ -119,8 +126,8 @@ class MainScreenViewModel : ViewModel() {
                 logConsole("Successfully loaded ghost: ${g.getGhostId()}")
                 
                 if (_isOverlayEnabled.value) {
-                    toggleOverlay(context, false)
-                    toggleOverlay(context, true)
+                    toggleOverlay(false)
+                    toggleOverlay(true)
                 }
             } else {
                 logConsole("Error loading ghost: $id")
@@ -128,7 +135,8 @@ class MainScreenViewModel : ViewModel() {
         }
     }
 
-    fun toggleOverlay(context: Context, enabled: Boolean) {
+    fun toggleOverlay(enabled: Boolean) {
+        val context = getApplication<Application>()
         if (enabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
                 logConsole("Permission missing: System Alert Window overlay")
@@ -150,7 +158,7 @@ class MainScreenViewModel : ViewModel() {
         }
     }
 
-    fun updateOverlayState(context: Context) {
+    fun updateOverlayState() {
         // Overlay service status check
     }
 

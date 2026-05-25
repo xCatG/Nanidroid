@@ -343,37 +343,36 @@ class NanidroidService : Service() {
 
     private fun getUpdateMd5z(ufile: String, ghostRoot: String, ghostId: String): List<Pair<String, String>> {
         val f = File(ufile)
-        val br = BufferedReader(FileReader(f))
         val ret = ArrayList<Pair<String, String>>()
-        var line = br.readLine()
-        while (line != null) {
-            var p = line.split("\u0001").toTypedArray()
-            if (p.size < 2) {
-                p = line.split(",").toTypedArray()
+        BufferedReader(FileReader(f)).use { br ->
+            var line = br.readLine()
+            while (line != null) {
+                var p = line.split("\u0001").toTypedArray()
                 if (p.size < 2) {
-                    br.close()
-                    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "update_error", ghostId, -99)
-                    throw IOException("invalid update file format")
+                    p = line.split(",").toTypedArray()
+                    if (p.size < 2) {
+                        AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "update_error", ghostId, -99)
+                        throw IOException("invalid update file format")
+                    }
                 }
-            }
 
-            Log.d(TAG, "pair=${p[0]},${p[1]}")
-            val fz = File(ghostRoot, p[0])
-            Log.d(TAG, "file is=${fz.absolutePath}")
-            if (!fz.exists()) {
-                Log.d(TAG, "local file not exist")
-                ret.add(Pair(p[0], p[1]))
-            } else {
-                val fmd5 = NarUtil.createMD5(FileInputStream(fz))
-                val fmd5s = fmd5?.let { NarUtil.md5ToString(it) } ?: ""
-                if (p[1].compareTo(fmd5s) != 0) {
-                    Log.d(TAG, "MD5 checksum mismatch:${p[1]}")
+                Log.d(TAG, "pair=${p[0]},${p[1]}")
+                val fz = File(ghostRoot, p[0])
+                Log.d(TAG, "file is=${fz.absolutePath}")
+                if (!fz.exists()) {
+                    Log.d(TAG, "local file not exist")
                     ret.add(Pair(p[0], p[1]))
+                } else {
+                    val fmd5 = FileInputStream(fz).use { fis -> NarUtil.createMD5(fis) }
+                    val fmd5s = fmd5?.let { NarUtil.md5ToString(it) } ?: ""
+                    if (p[1].compareTo(fmd5s) != 0) {
+                        Log.d(TAG, "MD5 checksum mismatch:${p[1]}")
+                        ret.add(Pair(p[0], p[1]))
+                    }
                 }
+                line = br.readLine()
             }
-            line = br.readLine()
         }
-        br.close()
         return ret
     }
 
