@@ -419,8 +419,12 @@ fun InAppMascotView(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            val runner = SScriptRunner.getInstance(context)
+            runner.setGhost(null)
+            runner.stopClock()
+            runner.clearMsgQueue()
+            runner.clearViews()
             LayoutManager.getInstance(context).clearViews()
-            SScriptRunner.getInstance(context).clearViews()
         }
     }
 

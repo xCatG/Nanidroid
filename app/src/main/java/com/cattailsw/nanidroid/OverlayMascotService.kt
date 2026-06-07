@@ -154,7 +154,9 @@ class OverlayMascotService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         val runner = SScriptRunner.getInstance(this)
+        runner.setGhost(null)
         runner.stopClock()
+        runner.clearMsgQueue()
         runner.clearViews()
         LayoutManager.getInstance(this).clearViews()
         

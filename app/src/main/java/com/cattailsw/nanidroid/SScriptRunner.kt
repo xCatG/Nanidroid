@@ -178,6 +178,9 @@ class SScriptRunner(
     fun cancel() {
         scriptEngine.cancel()
         scope.cancel()
+        if (engineDispatcher is Closeable) {
+            engineDispatcher.close()
+        }
     }
 
     fun cancelResetTimeout() {
@@ -274,36 +277,6 @@ class SScriptRunner(
         )
     }
 
-    private fun doMouseWheel(x: Int, y: Int, wheelO: Int, sakuraTalk: Boolean, collid: Int) {
-        doShioriEvent(
-            "OnMouseWheel",
-            arrayOf(
-                x.toString(),
-                y.toString(),
-                wheelO.toString(),
-                if (sakuraTalk) "0" else "1",
-                if (collid > -1) collid.toString() else "",
-                "",
-                "touch"
-            )
-        )
-    }
-
-    private fun doMouseMove(x: Int, y: Int, wheelO: Int, sakuraTalk: Boolean, collid: Int) {
-        doShioriEvent(
-            "OnMouseMove",
-            arrayOf(
-                x.toString(),
-                y.toString(),
-                wheelO.toString(),
-                if (sakuraTalk) "0" else "1",
-                if (collid > -1) collid.toString() else "",
-                "",
-                "touch"
-            )
-        )
-    }
-
     private val cbSakura = object : SakuraView.UIEventCallback {
         override fun onHit(type: Int, x: Int, y: Int, orientation: Int, collId: Int, buttonId: Int) {
             when (type) {
@@ -314,14 +287,6 @@ class SScriptRunner(
                 SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK -> {
                     AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "dblclick", collId)
                     doMouseDblClick(x, y, true, collId, buttonId)
-                }
-                SakuraView.UIEventCallback.TYPE_WHEEL -> {
-                    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "wheel", collId)
-                    doMouseWheel(x, y, orientation, true, collId)
-                }
-                SakuraView.UIEventCallback.TYPE_MOVE -> {
-                    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "sakuraview_touch", "move", collId)
-                    doMouseMove(x, y, orientation, true, collId)
                 }
             }
         }
@@ -337,14 +302,6 @@ class SScriptRunner(
                 SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK -> {
                     AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "dblclick", collId)
                     doMouseDblClick(x, y, false, collId, buttonId)
-                }
-                SakuraView.UIEventCallback.TYPE_WHEEL -> {
-                    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "wheel", collId)
-                    doMouseWheel(x, y, orientation, false, collId)
-                }
-                SakuraView.UIEventCallback.TYPE_MOVE -> {
-                    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "move", collId)
-                    doMouseMove(x, y, orientation, false, collId)
                 }
             }
         }

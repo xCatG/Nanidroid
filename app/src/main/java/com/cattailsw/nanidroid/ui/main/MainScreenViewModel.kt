@@ -170,6 +170,12 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
         _consoleLogs.value = current
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        val runner = SScriptRunner.getInstance(getApplication())
+        runner.setUICallback(null)
+    }
 }
 
 data class GhostInfo(

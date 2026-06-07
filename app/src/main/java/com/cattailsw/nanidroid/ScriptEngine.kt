@@ -23,6 +23,7 @@ data class MascotUiState(
     val talkAnimeControl: Int = 0
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ScriptEngine(
     private var g: Ghost?,
     private val engineDispatcher: CoroutineDispatcher,
@@ -381,8 +382,8 @@ class ScriptEngine(
                     }
                     'n' -> {
                         appendChar('\n')
-                        val rest = currentScript.substring(charIndex)
-                        val m = PatternHolders.sqbracket_half_number.matcher(rest)
+                        val m = PatternHolders.sqbracket_half_number.matcher(currentScript)
+                        m.region(charIndex, currentScript.length)
                         if (m.find()) {
                             charIndex += m.group().length
                         }
@@ -432,8 +433,8 @@ class ScriptEngine(
             's' -> sync = !sync
             'q' -> wholeline = !wholeline
             'l', 'a', 'v' -> {
-                val rest = currentScript.substring(charIndex)
-                val m = PatternHolders.sqbracket_half_number.matcher(rest)
+                val m = PatternHolders.sqbracket_half_number.matcher(currentScript)
+                m.region(charIndex, currentScript.length)
                 if (m.find()) {
                     charIndex += m.group().length
                 }
@@ -443,8 +444,8 @@ class ScriptEngine(
             }
             'b' -> return handle_balloon()
             'w' -> {
-                val rest = currentScript.substring(charIndex)
-                val m = PatternHolders.sqbracket_half_number.matcher(rest)
+                val m = PatternHolders.sqbracket_half_number.matcher(currentScript)
+                m.region(charIndex, currentScript.length)
                 if (m.find()) {
                     charIndex += m.group().length
                     try {
@@ -460,13 +461,14 @@ class ScriptEngine(
     }
 
     private fun handle_exclaim_type(): Boolean {
-        val leftString = currentScript.substring(charIndex)
-        val m = PatternHolders.open_input.matcher(leftString)
+        val m = PatternHolders.open_input.matcher(currentScript)
+        m.region(charIndex, currentScript.length)
         if (m.find()) {
             charIndex += m.group().length
             val id = m.group(1)
             if (id != null) {
                 openUserInputBox(id)
+                return true
             }
         }
         return false
@@ -480,8 +482,8 @@ class ScriptEngine(
     }
 
     private fun handle_surface(): Boolean {
-        val left = currentScript.substring(charIndex)
-        val m = PatternHolders.surface_ptrn.matcher(left)
+        val m = PatternHolders.surface_ptrn.matcher(currentScript)
+        m.region(charIndex, currentScript.length)
         if (m.find()) {
             val sid = m.group(2) ?: m.group(1) ?: "0"
             changeSurface(sid)
@@ -492,8 +494,8 @@ class ScriptEngine(
     }
 
     private fun handle_balloon(): Boolean {
-        val left = currentScript.substring(charIndex)
-        val m = PatternHolders.balloon_ptrn.matcher(left)
+        val m = PatternHolders.balloon_ptrn.matcher(currentScript)
+        m.region(charIndex, currentScript.length)
         if (m.find()) {
             val sid = m.group(2) ?: m.group(1) ?: "0"
             changeBalloon(sid)
@@ -504,8 +506,8 @@ class ScriptEngine(
     }
 
     private fun handle_animation(): Boolean {
-        val left = currentScript.substring(charIndex)
-        val m = PatternHolders.ani_ptrn.matcher(left)
+        val m = PatternHolders.ani_ptrn.matcher(currentScript)
+        m.region(charIndex, currentScript.length)
         if (m.find()) {
             val aid = m.group(1)
             if (aid != null) {

@@ -19,4 +19,17 @@ class TapClassifierTest {
         val result = classifier.classifyTap(now = 1500L, lastTapTime = 1100L)
         assertEquals(TapClassifier.TapType.SINGLE, result)
     }
+    @Test
+    fun classifyTap_returnsDouble_whenExactlyOnTimeout() {
+        val classifier = TapClassifier(doubleTapTimeoutMs = 300L)
+        val result = classifier.classifyTap(now = 1400L, lastTapTime = 1100L)
+        assertEquals(TapClassifier.TapType.DOUBLE, result)
+    }
+
+    @Test
+    fun classifyTap_returnsSingle_whenExactlyOneMsOverTimeout() {
+        val classifier = TapClassifier(doubleTapTimeoutMs = 300L)
+        val result = classifier.classifyTap(now = 1401L, lastTapTime = 1100L)
+        assertEquals(TapClassifier.TapType.SINGLE, result)
+    }
 }

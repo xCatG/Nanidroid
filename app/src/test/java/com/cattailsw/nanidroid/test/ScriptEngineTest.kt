@@ -1,8 +1,11 @@
 package com.cattailsw.nanidroid.test
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.cattailsw.nanidroid.*
+import com.cattailsw.nanidroid.ui.main.MainScreenViewModel
+import com.cattailsw.nanidroid.shiori.Shiori
 import com.cattailsw.nanidroid.test.support.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -147,9 +150,16 @@ class ScriptEngineTest {
 
     @Test
     fun shioriRequest_runsOffMainDispatcher() = runBlocking {
-        // Here we must prove JNI/Shiori runs off main thread.
-        val thread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-        val fakeShiori = FakeShiori(responses = mapOf("OnFirstBoot" to "\\hhi\\e"))
+        val deferredThread = CompletableDeferred<Thread>()
+        val fakeShiori = object : Shiori {
+            override fun getModuleName(): String = "Fake"
+            override fun terminate() {}
+            override fun unloadShiori() {}
+            override fun request(req: String): String {
+                deferredThread.complete(Thread.currentThread())
+                return "SHIORI/3.0 200 OK\r\nSender: Fake\r\nValue: \\hhi\\e\r\nCharset: UTF-8\r\n\r\n"
+            }
+        }
         val ghost = object : Ghost("testPath") {
             init {
                 this.shiori = fakeShiori
@@ -158,25 +168,18 @@ class ScriptEngineTest {
             override fun incrementCreateCount() {}
             override fun getCreateCount(): Long = 1L
         }
-
+        val thread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
         val engine = ScriptEngine(ghost, thread, Dispatchers.Main)
         engine.setGhost(ghost)
-        
-        // Trigger boot which calls Shiori
         engine.startClock()
 
-        // Wait a bit for background thread to run (real sleep)
-        delay(200)
+        val jniThread = withTimeout(2000) { deferredThread.await() }
 
         engine.stopClock()
         engine.cancel()
         thread.close()
 
-        assertTrue(fakeShiori.calls.isNotEmpty())
-        for (call in fakeShiori.calls) {
-            // It should be running on the executor's thread, not main
-            assertFalse(call.thread.name.contains("main", ignoreCase = true))
-        }
+        assertFalse(jniThread.name.contains("main", ignoreCase = true))
     }
 
     @Test
@@ -349,8 +352,13 @@ class ScriptEngineTest {
         customScope.bindViews(engine)
 
         val cmd = "\\habcde\\e"
+        assertFalse(statusStopCalled)
         engine.addMsgToQueue(arrayOf(cmd))
         customScope.launch { engine.run() }
+        advanceTimeBy(100)
+        runCurrent()
+        assertFalse(statusStopCalled)
+
         advanceUntilIdle()
         assertTrue(statusStopCalled)
         customScope.cancel()
@@ -359,7 +367,21 @@ class ScriptEngineTest {
     @Test
     fun testChoiceWithRunner() = runTest(testDispatcher) {
         val customScope = CoroutineScope(testDispatcher + SupervisorJob())
-        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        val fakeShiori = FakeShiori(
+            responses = mapOf(
+                "OnChoiceSelect" to "\\habcdechosen!\\e"
+            )
+        )
+        val ghost = object : Ghost("testPath") {
+            init {
+                this.shiori = fakeShiori
+            }
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+        }
+        val engine = ScriptEngine(ghost, testDispatcher, testDispatcher)
+        engine.setGhost(ghost)
         engine.setUICallback(uiCallback)
         customScope.bindViews(engine)
 
@@ -370,6 +392,11 @@ class ScriptEngineTest {
 
         assertEquals("abcde", bSakura?.dispText)
         assertTrue(selectionCallbackCalled)
+
+        engine.doOnChoiceSelect("lalala asda")
+        advanceUntilIdle()
+
+        assertEquals("abcdechosen!", bSakura?.dispText)
         customScope.cancel()
     }
 
@@ -505,4 +532,260 @@ class ScriptEngineTest {
 
         customScope.cancel()
     }
+
+    @Test
+    fun getStringValueFromShiori_retrievesValueFromShiori() = runTest(testDispatcher) {
+        val fakeShiori = FakeShiori(responses = mapOf("homeurl" to "http://example.com"))
+        val ghost = object : Ghost("testPath") {
+            init {
+                this.shiori = fakeShiori
+            }
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+        }
+
+        val engine = ScriptEngine(ghost, testDispatcher, testDispatcher)
+        val value = engine.getStringValueFromShiori("homeurl")
+        assertEquals("http://example.com", value)
+    }
+
+    @Test
+    fun userInput_clearsQueueResumesEngineAndPlaysResponse() = runTest(testDispatcher) {
+        val fakeShiori = FakeShiori(
+            responses = mapOf("OnUserInput" to "\\hresponse_from_input\\e"),
+            defaultResponse = ""
+        )
+        val ghost = object : Ghost("testPath") {
+            init {
+                this.shiori = fakeShiori
+            }
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+        }
+
+        var inputShown = false
+        var inputId: String? = null
+        val customUiCallback = object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) {
+                inputShown = true
+                inputId = id
+            }
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {}
+        }
+
+        val engine = ScriptEngine(ghost, testDispatcher, testDispatcher)
+        engine.setGhost(ghost)
+        engine.setUICallback(customUiCallback)
+
+        val customScope = CoroutineScope(testDispatcher + SupervisorJob())
+        customScope.bindViews(engine)
+
+        engine.addMsgToQueue(arrayOf("\\habc\\![open,inputbox,inputid]\\hdef\\e"))
+        customScope.launch { engine.run() }
+        advanceUntilIdle()
+
+        assertTrue(inputShown)
+        assertEquals("inputid", inputId)
+        assertEquals("abc", bSakura?.dispText)
+
+        engine.doUserInput("inputid", "user_entered_text")
+        advanceUntilIdle()
+
+        val inputCall = fakeShiori.calls.firstOrNull { it.request.contains("ID: OnUserInput") }
+        assertNotNull(inputCall)
+        assertTrue(inputCall!!.request.contains("Reference0: inputid"))
+        assertTrue(inputCall.request.contains("Reference1: user_entered_text"))
+
+        assertEquals("response_from_input", bSakura?.dispText)
+        customScope.cancel()
+    }
+
+    @Test
+    fun normalCompletion_triggersStop_clearsBalloonAndResetsSurfaces() = runTest(testDispatcher) {
+        val customScope = CoroutineScope(testDispatcher + SupervisorJob())
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        customScope.bindViews(engine)
+
+        engine.addMsgToQueue(arrayOf("\\h\\s[5]\\u\\s[15]abc\\e"))
+        customScope.launch { engine.run() }
+        advanceUntilIdle()
+
+        advanceTimeBy(5500)
+        runCurrent()
+
+        assertEquals("0", engine.uiState.value.sakuraSurfaceId)
+        assertEquals("10", engine.uiState.value.keroSurfaceId)
+        assertFalse(engine.uiState.value.sakuraBalloonVisible)
+        assertFalse(engine.uiState.value.keroBalloonVisible)
+        customScope.cancel()
+    }
+
+    @Test
+    fun cancellation_guardsAgainstDoubleStop() = runTest(testDispatcher) {
+        val customScope = CoroutineScope(testDispatcher + SupervisorJob())
+        var stopCount = 0
+        val customStatusCallback = object : SScriptRunner.StatusCallback {
+            override fun stop() {
+                stopCount++
+            }
+            override fun canExit() {}
+            override fun ghostSwitchScriptComplete() {}
+        }
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        engine.setStatusCallback(customStatusCallback)
+        customScope.bindViews(engine)
+
+        engine.addMsgToQueue(arrayOf("\\habc\\e"))
+        customScope.launch { engine.run() }
+        advanceTimeBy(50)
+        runCurrent()
+
+        engine.clearMsgQueue()
+        advanceUntilIdle()
+
+        assertEquals(1, stopCount)
+        customScope.cancel()
+    }
+
+    @Test
+    fun newScript_cancelsPendingResetSurfaceJob() = runTest(testDispatcher) {
+        val customScope = CoroutineScope(testDispatcher + SupervisorJob())
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        customScope.bindViews(engine)
+
+        // 1. Queue first script: execution takes 1150ms (3 chars * 50ms + 1000ms wait at \e)
+        engine.addMsgToQueue(arrayOf("\\h\\s[5]abc\\e"))
+        customScope.launch { engine.run() }
+        
+        // Advance 2000ms total. 
+        // Script 1 finishes at 1150ms. So reset job has been running for 850ms.
+        advanceTimeBy(2000)
+        runCurrent()
+        assertEquals("5", engine.uiState.value.sakuraSurfaceId)
+
+        // 2. Queue second script: should cancel the pending reset job
+        engine.addMsgToQueue(arrayOf("\\h\\s[8]def\\e"))
+        
+        // Advance another 2000ms.
+        // Second script starts at 2000ms, takes 1150ms (finishes at 3150ms).
+        // A new reset job is scheduled to run at 3150 + 5000 = 8150ms.
+        // At 4000ms (2000 + 2000), surface ID should be "8".
+        advanceTimeBy(2000)
+        runCurrent()
+        assertEquals("8", engine.uiState.value.sakuraSurfaceId)
+
+        // 3. Advance to 7000ms (another 3000ms).
+        // If the first reset job was NOT cancelled, it would have fired at 1150ms + 5000ms = 6150ms, resetting surface to 0.
+        // Since it was cancelled, surface should still be "8".
+        // At 7000ms, we are still before the second reset job's trigger (8150ms).
+        advanceTimeBy(3000)
+        runCurrent()
+        assertEquals("8", engine.uiState.value.sakuraSurfaceId)
+
+        // 4. Advance past second reset job trigger (8150ms, so 2000ms more = 9000ms)
+        advanceTimeBy(2000)
+        runCurrent()
+        assertEquals("0", engine.uiState.value.sakuraSurfaceId)
+
+        customScope.cancel()
+    }
+
+    @Test
+    fun sequentialJniCalls_separatedByDelay_executeOnSameThread() = runBlocking {
+        val dispatcher = Executors.newSingleThreadExecutor { Thread(it, "NanidroidJniThread") }.asCoroutineDispatcher()
+        val fakeShiori = FakeShiori(defaultResponse = "\\hhello\\e")
+        val ghost = object : Ghost("testPath") {
+            init {
+                this.shiori = fakeShiori
+            }
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+        }
+        val engine = ScriptEngine(ghost, dispatcher, Dispatchers.Main)
+        engine.setGhost(ghost)
+
+        engine.doShioriEvent("Event1", null)
+        delay(100)
+        engine.doShioriEvent("Event2", null)
+        delay(100)
+
+        engine.cancel()
+        dispatcher.close()
+
+        val calls = fakeShiori.calls
+        assertTrue(calls.size >= 2)
+        val thread1 = calls[0].thread
+        val thread2 = calls[1].thread
+        assertEquals(thread1, thread2)
+        assertEquals("NanidroidJniThread", thread1.name)
+    }
+
+    @Test
+    fun mainScreenViewModel_onCleared_nullifiesRunnerUICallback() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val runner = SScriptRunner.getInstance(application)
+        
+        val viewModel = MainScreenViewModel(application)
+        viewModel.init()
+        
+        val ucbField = SScriptRunner::class.java.getDeclaredField("ucb").apply { isAccessible = true }
+        assertNotNull(ucbField.get(runner))
+
+        val onClearedMethod = androidx.lifecycle.ViewModel::class.java.getDeclaredMethod("onCleared").apply {
+            isAccessible = true
+        }
+        onClearedMethod.invoke(viewModel)
+        assertNull(ucbField.get(runner))
+    }
+
+    @Test
+    fun cleanupR7_clearsStateAndStopsJobs() = runTest(testDispatcher) {
+        val fakeShiori = FakeShiori(defaultResponse = "\\hhello\\e")
+        val ghost = object : Ghost("testPath") {
+            init {
+                this.shiori = fakeShiori
+            }
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+        }
+        val engine = ScriptEngine(ghost, testDispatcher, testDispatcher)
+        engine.setGhost(ghost)
+        engine.startClock()
+        engine.addMsgToQueue(arrayOf("\\hhello\\e"))
+
+        engine.setGhost(null)
+        engine.stopClock()
+        engine.clearMsgQueue()
+
+        val clockJobField = ScriptEngine::class.java.getDeclaredField("clockJob").apply { isAccessible = true }
+        assertNull(clockJobField.get(engine))
+
+        val ghostField = ScriptEngine::class.java.getDeclaredField("g").apply { isAccessible = true }
+        assertNull(ghostField.get(engine))
+
+        val scriptJobField = ScriptEngine::class.java.getDeclaredField("scriptJob").apply { isAccessible = true }
+        assertNull(scriptJobField.get(engine))
+
+        engine.cancel()
+    }
+
+    @Test
+    fun runner_clearViews_nullifiesReferencesAndCallbacks() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val runner = SScriptRunner.getInstance(application)
+        val sakuraView = DummySakuraView(application)
+        val keroView = DummyKeroView(application)
+        runner.setViews(sakuraView, keroView, null, null)
+        
+        val sakuraRefField = SScriptRunner::class.java.getDeclaredField("sakuraRef").apply { isAccessible = true }
+        assertNotNull(sakuraRefField.get(runner))
+
+        runner.clearViews()
+        assertNull(sakuraRefField.get(runner))
+    }
 }
+
