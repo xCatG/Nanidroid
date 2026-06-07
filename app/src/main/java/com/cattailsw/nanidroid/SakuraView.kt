@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Point
 import android.graphics.Rect
 import android.graphics.drawable.AnimationDrawable
 import android.graphics.drawable.BitmapDrawable
@@ -25,7 +26,17 @@ open class SakuraView @JvmOverloads constructor(
 
     companion object {
         private const val TAG = "SakuraView"
+
+        @JvmStatic
+        fun mapToSurfaceCoords(x: Float, y: Float, viewWidth: Int, viewHeight: Int, origW: Int, origH: Int): Point {
+            val scaleX = if (viewWidth > 0) viewWidth.toFloat() / origW else 1.0f
+            val scaleY = if (viewHeight > 0) viewHeight.toFloat() / origH else 1.0f
+            return Point((x / scaleX).toInt(), (y / scaleY).toInt())
+        }
     }
+
+    private val tapClassifier = TapClassifier(android.view.ViewConfiguration.getDoubleTapTimeout().toLong())
+    private var lastTapTime = 0L
 
     interface UIEventCallback {
         companion object {
@@ -222,31 +233,48 @@ open class SakuraView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(motionEvent: MotionEvent): Boolean {
-        Log.d(TAG, "onTouchEvent")
-        val x = motionEvent.getX(0)
-        val y = motionEvent.getY(0)
+        Log.d(TAG, "onTouchEvent: ${motionEvent.action}")
+        if (motionEvent.action == MotionEvent.ACTION_UP) {
+            performClick()
 
-        val origW = currentSurface?.origW ?: 200
-        val origH = currentSurface?.origH ?: 300
+            val x = motionEvent.getX(0)
+            val y = motionEvent.getY(0)
 
-        val scaleX = if (width > 0) width.toFloat() / origW else 1.0f
-        val scaleY = if (height > 0) height.toFloat() / origH else 1.0f
+            val origW = currentSurface?.origW ?: 200
+            val origH = currentSurface?.origH ?: 300
 
-        val origX = (x / scaleX).toInt()
-        val origY = (y / scaleY).toInt()
+            val mapped = mapToSurfaceCoords(x, y, width, height, origW, origH)
+            val origX = mapped.x
+            val origY = mapped.y
 
-        val cid = testColDect(origX, origY)
-        Log.d(TAG, "onTouchEvent: raw(${x.toInt()}, ${y.toInt()}) -> mapped($origX, $origY), col at: $cid")
+            val cid = testColDect(origX, origY)
+            Log.d(TAG, "onTouchEvent UP: raw(${x.toInt()}, ${y.toInt()}) -> mapped($origX, $origY), col at: $cid")
 
-        mUCB?.onHit(
-            UIEventCallback.TYPE_DOUBLE_CLICK,
-            origX,
-            origY,
-            0,
-            cid,
-            0
-        )
-        return super.onTouchEvent(motionEvent)
+            val now = motionEvent.eventTime
+            val tapType = tapClassifier.classifyTap(now, lastTapTime)
+            lastTapTime = now
+
+            val type = if (tapType == TapClassifier.TapType.DOUBLE) {
+                UIEventCallback.TYPE_DOUBLE_CLICK
+            } else {
+                UIEventCallback.TYPE_SINGLE_CLICK
+            }
+
+            mUCB?.onHit(
+                type,
+                origX,
+                origY,
+                0,
+                cid,
+                0
+            )
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 
     fun surfaceExercise() {

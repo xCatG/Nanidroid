@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import com.cattailsw.nanidroid.*
+import com.cattailsw.nanidroid.test.support.*
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.After
@@ -13,7 +14,6 @@ import org.robolectric.RobolectricTestRunner
 import java.util.Vector
 import java.util.regex.Matcher
 import java.util.regex.Pattern
-
 @RunWith(RobolectricTestRunner::class)
 class SSParserTest {
 
@@ -30,83 +30,6 @@ class SSParserTest {
     var bSakura: DummyBalloon? = null
     var bKero: DummyBalloon? = null
     var sr: SScriptRunner? = null
-
-    inner class DummyKeroView(ctx: Context) : KeroView(ctx) {
-        var sid: String? = null
-        var aid: String? = null
-        var aidz: String? = null
-
-        override fun changeSurface(id: String) {
-            if (this.sid == null) {
-                this.sid = id
-            } else {
-                this.sid = "${this.sid},$id"
-            }
-        }
-
-        override fun loadAnimation(id: String) {
-            aid = id
-            if (aidz == null) {
-                aidz = id
-            } else {
-                aidz += ",$id"
-            }
-        }
-
-        override fun startTalkingAnimation() {}
-        override fun startAnimation() {}
-    }
-
-    inner class DummySakuraView(ctx: Context) : SakuraView(ctx) {
-        var sid: String? = null
-        var stext: String? = null
-        var talkCalledTime = 0
-        var aid: String? = null
-        var aidz: String? = null
-
-        override fun changeSurface(id: String) {
-            Log.d(TAG, " sid => $id")
-            if (this.sid == null) {
-                this.sid = id
-                this.stext = id
-            } else if (!sid.equals(id, ignoreCase = true)) {
-                this.sid = id
-                this.stext = "${this.stext},$id"
-            }
-        }
-
-        override fun startTalkingAnimation() {
-            talkCalledTime++
-            Log.d(TAG, "startTalkingAnimation called $talkCalledTime times")
-        }
-
-        override fun loadAnimation(id: String) {
-            aid = id
-            if (aidz == null) {
-                aidz = id
-            } else {
-                aidz += ",$id"
-            }
-        }
-
-        override fun startAnimation() {}
-    }
-
-    inner class DummyBalloon(ctx: Context) : Balloon(ctx) {
-        var dispText: String? = null
-        var textVal: String? = null
-
-        override fun setText(str: String) {
-            Log.d(TAG, "got text:$str")
-            if (this.textVal == null) {
-                this.textVal = str
-                dispText = str
-            } else {
-                dispText = str
-                this.textVal = this.textVal + str
-            }
-        }
-    }
 
     var stopCalled = false
     private val c = object : SScriptRunner.StatusCallback {
@@ -400,7 +323,7 @@ class SSParserTest {
         sr!!.run()
 
         Log.d(TAG, "sakura text" + bSakura!!.dispText)
-        assertEquals("abcdefghijklmno", bSakura!!.dispText)
+        assertEquals("abcde", bSakura!!.dispText)
         assertTrue(uscbCalled)
         sr!!.setUICallback(null)
     }

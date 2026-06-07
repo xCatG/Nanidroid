@@ -291,8 +291,11 @@ class SScriptRunner private constructor(context: Context) : Runnable {
     @Synchronized
     fun stop() {
         isRunning = false
+        paused = false
         bSakuraId = "-1"
         bKeroId = "-1"
+        sakuraMsg.setLength(0)
+        keroMsg.setLength(0)
         updateUI()
 
         cancelResetTimeout()
@@ -317,6 +320,7 @@ class SScriptRunner private constructor(context: Context) : Runnable {
     private fun reset() {
         sync = false
         wholeline = false
+        paused = false
         sakuraTalk = true
         sakuraMsg.setLength(0)
         keroMsg.setLength(0)
@@ -579,7 +583,8 @@ class SScriptRunner private constructor(context: Context) : Runnable {
             val idz = Array(ids.size) { ids[it] }
             ucb?.showUserSelection(lbl, idz)
         }
-        return false
+        paused = true
+        return true
     }
 
     private fun changeSurface(sid: String) {
@@ -814,7 +819,6 @@ class SScriptRunner private constructor(context: Context) : Runnable {
 
     private val cbKero = object : SakuraView.UIEventCallback {
         override fun onHit(type: Int, x: Int, y: Int, orientation: Int, collId: Int, buttonId: Int) {
-            clearMsgQueue()
             when (type) {
                 SakuraView.UIEventCallback.TYPE_SINGLE_CLICK -> {
                     AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_UI_TOUCH, "keroview_touch", "click", collId)
