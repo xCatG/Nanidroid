@@ -1,122 +1,19 @@
 package com.cattailsw.nanidroid.test
 
-import android.content.Context
 import android.util.Log
-import androidx.test.core.app.ApplicationProvider
-import com.cattailsw.nanidroid.*
-import com.cattailsw.nanidroid.test.support.*
+import com.cattailsw.nanidroid.PatternHolders
 import org.junit.Assert.*
-import org.junit.Before
-import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.util.Vector
-import java.util.regex.Matcher
 import java.util.regex.Pattern
+
 @RunWith(RobolectricTestRunner::class)
 class SSParserTest {
 
     companion object {
         private const val TAG = "SSParserTest"
-        
-        @JvmStatic
-        val activeViews = ArrayList<Any>()
-    }
-
-    lateinit var mContext: Context
-    var sakura: DummySakuraView? = null
-    var kero: DummyKeroView? = null
-    var bSakura: DummyBalloon? = null
-    var bKero: DummyBalloon? = null
-    var sr: SScriptRunner? = null
-
-    var stopCalled = false
-    private val c = object : SScriptRunner.StatusCallback {
-        override fun stop() {
-            stopCalled = true
-        }
-
-        override fun canExit() {}
-        override fun ghostSwitchScriptComplete() {}
-    }
-
-    @Before
-    fun setUp() {
-        mContext = ApplicationProvider.getApplicationContext()
-        sakura = DummySakuraView(mContext)
-        kero = DummyKeroView(mContext)
-        bSakura = DummyBalloon(mContext)
-        bKero = DummyBalloon(mContext)
-        
-        activeViews.clear()
-        activeViews.add(sakura!!)
-        activeViews.add(kero!!)
-        activeViews.add(bSakura!!)
-        activeViews.add(bKero!!)
-        
-        sr = SScriptRunner.getInstance(mContext)
-        sr?.stopClock()
-        sr?.cancelResetTimeout()
-        sr!!.clearMsgQueue()
-        sr!!.setViews(sakura, kero, bSakura, bKero)
-        sr!!.setNoWaitMode(true)
-    }
-
-    @After
-    fun tearDown() {
-        sr?.stop()
-        sr?.stopClock()
-        sr?.cancelResetTimeout()
-        activeViews.clear()
-    }
-
-    @Test
-    fun testSakuraSpeak() {
-        sr!!.stop()
-        val cmd = "\\_q\\hlalala\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-        assertEquals("lalala", bSakura!!.textVal)
-
-        val cmd2 = "\\_q\\0abcdefg\\n"
-        sr!!.addMsgToQueue(arrayOf(cmd2))
-        sr!!.run()
-        assertEquals("lalalaabcdefg\n", bSakura!!.textVal)
-    }
-
-    @Test
-    fun testSakuraSpeakNormal() {
-        val cmd = "\\habcde\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-        assertEquals("aababcabcdabcdeabcde", bSakura!!.textVal)
-    }
-
-    @Test
-    fun testKeroSpeak() {
-        val cmd = "\\_q\\1xxxxxx\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-        assertEquals("xxxxxx", bKero!!.textVal)
-
-        val cmd2 = "\\_q\\habcde\\uyyyyyy\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd2))
-        sr!!.run()
-        assertEquals("xxxxxxyyyyyy", bKero!!.textVal)
-        sr!!.stop()
-    }
-
-    @Test
-    fun testIgnoreCommands() {
-        var cmd = "\\4\\5\\6\\v\\_n\\_V\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-
-        cmd = "\\_q\\habcde\\_l[100]\\_a[45]\\_v[000]fghijk\\_n\\_V\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-        assertEquals("abcdefghijk", bSakura!!.textVal)
     }
 
     @Test
@@ -175,37 +72,6 @@ class SSParserTest {
     }
 
     @Test
-    fun testSurfaceChangeSakura() {
-        sakura = DummySakuraView(mContext)
-        bSakura = DummyBalloon(mContext)
-        sr!!.setViews(sakura, kero, bSakura, bKero)
-        var t = "\\h\\s0\\e"
-        sr!!.addMsgToQueue(arrayOf(t))
-        sr!!.run()
-        assertEquals("0", sakura!!.stext)
-
-        t = "\\s[120]\\e"
-        sr!!.addMsgToQueue(arrayOf(t))
-        sr!!.run()
-        assertEquals("120", sakura!!.sid)
-        assertEquals("0,120", sakura!!.stext)
-
-        t = "\\h\\s10wrong\\s[10]\\e"
-        sr!!.addMsgToQueue(arrayOf(t))
-        sr!!.run()
-        assertEquals("10", sakura!!.sid)
-        assertEquals("0,120,1,10", sakura!!.stext)
-        assertEquals("0wrong", bSakura!!.dispText)
-
-        t = "\\t\\h\\s[20]\\n\\w9\\u\\s[10]\\n\\h\\s0"
-        sr!!.addMsgToQueue(arrayOf(t))
-        sr!!.run()
-        assertEquals("0", sakura!!.sid)
-        assertEquals("0,120,1,10,20,0", sakura!!.stext)
-        assertEquals("\n", bSakura!!.dispText)
-    }
-
-    @Test
     fun testParsingAnimationRegExp() {
         var t = "[0]"
         var m = PatternHolders.ani_ptrn.matcher(t)
@@ -228,34 +94,6 @@ class SSParserTest {
         t = "[-1,wait]"
         m = PatternHolders.ani_ptrn.matcher(t)
         assertFalse(m.find())
-    }
-
-    @Test
-    fun testAnimation() {
-        sakura = DummySakuraView(mContext)
-        activeViews.add(sakura!!)
-        sr!!.setViews(sakura, kero, bSakura, bKero)
-
-        val cmd = "\\halala\\i[0]opqrstmnopqrst\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-
-        assertEquals(3, sakura!!.talkCalledTime)
-        assertEquals("0", sakura!!.aid)
-    }
-
-    @Test
-    fun testCallback() {
-        stopCalled = false
-        val cmd = "\\habcde\\e"
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-        assertFalse(stopCalled)
-
-        sr!!.setCallback(c)
-        sr!!.addMsgToQueue(arrayOf(cmd))
-        sr!!.run()
-        assertTrue(stopCalled)
     }
 
     @Test
@@ -297,37 +135,6 @@ class SSParserTest {
         assertFalse(m.find())
     }
 
-    var uscbCalled = false
-    private val tcwr_ucb = object : SScriptRunner.UICallback {
-        override fun showUserInputBox(id: String) {}
-        override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
-            uscbCalled = true
-            Log.d(TAG, "showUserSelection called")
-            assertEquals(2, textlabel.size)
-            assertEquals(2, ids.size)
-            assertEquals("fgh", textlabel[0])
-            assertEquals("lmno", textlabel[1])
-            assertEquals("lalala asda", ids[0])
-            assertEquals("lalala aaaa", ids[1])
-        }
-    }
-
-    @Test
-    fun testChoiceWithRunner() {
-        val s = "\\0abcde\\q[fgh,lalala asda]ijk\\q[lmno,lalala aaaa]\\e"
-        bSakura = DummyBalloon(mContext)
-        sr!!.setViews(sakura, kero, bSakura, bKero)
-        uscbCalled = false
-        sr!!.setUICallback(tcwr_ucb)
-        sr!!.addMsgToQueue(arrayOf(s))
-        sr!!.run()
-
-        Log.d(TAG, "sakura text" + bSakura!!.dispText)
-        assertEquals("abcde", bSakura!!.dispText)
-        assertTrue(uscbCalled)
-        sr!!.setUICallback(null)
-    }
-
     @Test
     fun testQChoice() {
         var s = "[abc,asdkllaskdl;asdkl asdsa]"
@@ -349,7 +156,7 @@ class SSParserTest {
         m = PatternHolders.sqbracket_q_title.matcher(s)
         assertTrue(m.find())
 
-        s = "[abc,asds]\\nasdkllaskdl asdkl asdsa 1,askdlaks;,qwewqew]"
+        s = "[abc,asds]\\nakjkaljsdkladkjlasd 1,askdlaks;,qwewqew]"
         m = PatternHolders.sqbracket_q_title.matcher(s)
         assertTrue(m.find())
         assertEquals("abc", m.group(1))

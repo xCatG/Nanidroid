@@ -7,6 +7,8 @@ import com.cattailsw.nanidroid.Ghost
 import com.cattailsw.nanidroid.SakuraView
 import com.cattailsw.nanidroid.SScriptRunner
 import com.cattailsw.nanidroid.test.support.*
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -14,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class TouchEventTest {
 
@@ -25,6 +28,7 @@ class TouchEventTest {
     private var sr: SScriptRunner? = null
     private lateinit var fakeShiori: FakeShiori
     private lateinit var testGhost: TestGhost
+    private lateinit var testDispatcher: TestDispatcher
 
     class TestGhost(ctx: Context) : Ghost("fake_path", ctx) {
         override fun loadGhostInfo() {}
@@ -35,6 +39,7 @@ class TouchEventTest {
     @Before
     fun setUp() {
         mContext = ApplicationProvider.getApplicationContext()
+        testDispatcher = StandardTestDispatcher()
         sakura = DummySakuraView(mContext)
         kero = DummyKeroView(mContext)
         bSakura = DummyBalloon(mContext)
@@ -49,20 +54,19 @@ class TouchEventTest {
             shiori = fakeShiori
         }
 
-        sr = SScriptRunner.getInstance(mContext)
-        sr?.stopClock()
-        sr?.cancelResetTimeout()
-        sr!!.clearMsgQueue()
+        val runner = SScriptRunner(mContext, testDispatcher, testDispatcher)
+        SScriptRunner.setTestInstance(runner)
+        sr = runner
+
         sr!!.setViews(sakura, kero, bSakura, bKero)
-        sr!!.setNoWaitMode(true)
         sr!!.setGhost(testGhost)
     }
 
     @After
     fun tearDown() {
-        sr?.stop()
-        sr?.stopClock()
-        sr?.cancelResetTimeout()
+        sr?.clearViews()
+        sr?.cancel()
+        SScriptRunner.setTestInstance(null)
     }
 
     @Test
@@ -103,7 +107,7 @@ class TouchEventTest {
     }
 
     @Test
-    fun keroTouch_doesNotClearQueueMidScript() {
+    fun keroTouch_doesNotClearQueueMidScript() = runTest(testDispatcher) {
         val cmd2 = "\\hghijk\\e"
         
         sr!!.addMsgToQueue(arrayOf(cmd2))
@@ -115,6 +119,9 @@ class TouchEventTest {
             SakuraView.UIEventCallback.TYPE_SINGLE_CLICK,
             10, 20, 0, -1, 0
         )
+        
+        // Let all background processing execute
+        advanceUntilIdle()
         
         // SScriptRunner should NOT have cleared the queue, so cmd2 is still processed.
         // The mock response to Kero single click is cmd1 ("clicked"), which is added to the queue.

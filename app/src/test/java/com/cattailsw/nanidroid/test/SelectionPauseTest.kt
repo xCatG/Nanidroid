@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.cattailsw.nanidroid.Ghost
 import com.cattailsw.nanidroid.SScriptRunner
 import com.cattailsw.nanidroid.test.support.*
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -12,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class SelectionPauseTest {
 
@@ -23,6 +26,7 @@ class SelectionPauseTest {
     private var sr: SScriptRunner? = null
     private lateinit var fakeShiori: FakeShiori
     private lateinit var testGhost: TestGhost
+    private lateinit var testDispatcher: TestDispatcher
 
     class TestGhost(ctx: Context) : Ghost("fake_path", ctx) {
         override fun loadGhostInfo() {}
@@ -55,6 +59,7 @@ class SelectionPauseTest {
     @Before
     fun setUp() {
         mContext = ApplicationProvider.getApplicationContext()
+        testDispatcher = StandardTestDispatcher()
         sakura = DummySakuraView(mContext)
         kero = DummyKeroView(mContext)
         bSakura = DummyBalloon(mContext)
@@ -69,12 +74,11 @@ class SelectionPauseTest {
             shiori = fakeShiori
         }
 
-        sr = SScriptRunner.getInstance(mContext)
-        sr?.stopClock()
-        sr?.cancelResetTimeout()
-        sr!!.clearMsgQueue()
+        val runner = SScriptRunner(mContext, testDispatcher, testDispatcher)
+        SScriptRunner.setTestInstance(runner)
+        sr = runner
+
         sr!!.setViews(sakura, kero, bSakura, bKero)
-        sr!!.setNoWaitMode(true)
         sr!!.setGhost(testGhost)
         sr!!.setUICallback(ucb)
         sr!!.setCallback(c)
@@ -88,16 +92,15 @@ class SelectionPauseTest {
     fun tearDown() {
         sr?.setUICallback(null)
         sr?.setCallback(null)
-        sr?.stop()
-        sr?.stopClock()
-        sr?.cancelResetTimeout()
+        sr?.cancel()
+        SScriptRunner.setTestInstance(null)
     }
 
     @Test
-    fun choice_pausesRunner_andDoesNotDumpLabelsIntoBalloon() {
+    fun choice_pausesRunner_andDoesNotDumpLabelsIntoBalloon() = runTest(testDispatcher) {
         val s = "\\0abcde\\q[fgh,id1]ijk\\q[lmno,id2]\\e"
         sr!!.addMsgToQueue(arrayOf(s))
-        sr!!.run()
+        advanceUntilIdle()
 
         // Behavioral assertions for "paused":
         // 1. Balloon should show only the pre-choice text (abcde), not choice labels or post-choice text.
@@ -113,13 +116,14 @@ class SelectionPauseTest {
     }
 
     @Test
-    fun choiceSelect_discardsPausedScript_andFiresOnChoiceSelect() {
+    fun choiceSelect_discardsPausedScript_andFiresOnChoiceSelect() = runTest(testDispatcher) {
         val s = "\\0abcde\\q[fgh,id1]ijk\\q[lmno,id2]\\e"
         sr!!.addMsgToQueue(arrayOf(s))
-        sr!!.run()
+        advanceUntilIdle()
 
         // Now fire selection
         sr!!.doOnChoiceSelect("id1")
+        advanceUntilIdle()
 
         // Assert that FakeShiori got OnChoiceSelect with id1
         val choiceCall = fakeShiori.calls.firstOrNull { it.request.contains("ID: OnChoiceSelect") }
