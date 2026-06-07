@@ -166,6 +166,9 @@ class ScriptEngine(
     fun cancel() {
         stopClock()
         scope.cancel()
+        if (engineDispatcher is java.io.Closeable) {
+            (engineDispatcher as java.io.Closeable).close()
+        }
     }
 
     fun resumeEvt() {
@@ -175,59 +178,48 @@ class ScriptEngine(
     }
 
     suspend fun run() {
-        println("DEBUG ENGINE: run() started on thread ${Thread.currentThread().name}")
         withContext(engineDispatcher) {
-            println("DEBUG ENGINE: run() inside withContext on thread ${Thread.currentThread().name}")
             isRunning = true
             try {
                 while (isActive) {
-                    println("DEBUG ENGINE: run() waiting for message on queue...")
                     val rawMsg = msgQueue.receive()
-                    println("DEBUG ENGINE: run() received rawMsg = '$rawMsg'")
                     val rewritten = rewriteMsg(rawMsg) ?: continue
-                    println("DEBUG ENGINE: run() rewrittenMsg = '$rewritten'")
                     reset()
                     currentScript = rewritten
-                    
+
+                    var wasCancelled = false
                     supervisorScope {
-                        println("DEBUG ENGINE: run() launching executeScript job")
                         val job = launch {
                             executeScript()
                         }
                         scriptJob = job
-                        job.join()
-                        scriptJob = null
-                        println("DEBUG ENGINE: run() executeScript job joined")
-                    }
-                    
-                    if (msgQueue.isEmpty) {
-                        println("DEBUG ENGINE: run() msgQueue is empty, invoking cb?.stop()")
-                        withContext(mainDispatcher) {
-                            cb?.stop()
+                        try {
+                            job.join()
+                        } finally {
+                            wasCancelled = job.isCancelled
+                            scriptJob = null
                         }
+                    }
+
+                    if (!wasCancelled && msgQueue.isEmpty) {
+                        stop()
                     }
                 }
             } finally {
                 isRunning = false
-                println("DEBUG ENGINE: run() finished")
             }
         }
     }
 
     private suspend fun executeScript() {
-        println("DEBUG ENGINE: executeScript() started with '$currentScript'")
         charIndex = 0
         while (charIndex < currentScript.length) {
             yield()
             if (paused) {
-                println("DEBUG ENGINE: executeScript() is paused, suspending...")
                 _pausedFlow.first { !it }
-                println("DEBUG ENGINE: executeScript() resumed")
                 continue
             }
-            println("DEBUG ENGINE: executeScript() calling parseMsg() at charIndex = $charIndex")
             parseMsg()
-            println("DEBUG ENGINE: executeScript() after parseMsg(), emitting state. charIndex = $charIndex, waitTime = $waitTime")
             emitUiState()
             if (waitTime > 0) {
                 delay(waitTime)
@@ -235,7 +227,6 @@ class ScriptEngine(
                 yield()
             }
         }
-        println("DEBUG ENGINE: executeScript() finished")
     }
 
     private fun emitUiState() {
@@ -253,7 +244,6 @@ class ScriptEngine(
             keroAnimationId = keroAnimationId,
             talkAnimeControl = talkAnimeControl
         )
-        println("DEBUG ENGINE: emitUiState() emitting $state")
         _uiState.value = state
 
         // Reset emitted animation IDs after emitting
@@ -267,6 +257,7 @@ class ScriptEngine(
     }
 
     private fun reset() {
+        cancelResetTimeout()
         sync = false
         wholeline = false
         paused = false
@@ -601,7 +592,7 @@ class ScriptEngine(
     private fun parseShioriResponseAndInsert(res: ShioriResponse) {
         if (res.statusCode != 200) return
         val value = res.getKey("Value")
-        if (value != null) {
+        if (!value.isNullOrBlank()) {
             addMsgToQueue(arrayOf(value))
         }
     }
@@ -692,11 +683,12 @@ class ScriptEngine(
         doShioriEvent("OnInstallComplete", ref)
     }
 
-    fun getStringValueFromShiori(id: String): String? = runBlocking(engineDispatcher) {
+    suspend fun getStringValueFromShiori(id: String): String? = withContext(engineDispatcher) {
         g?.getStringFromShiori(id)
     }
 
     fun doUserInput(id: String, input: String) {
+        clearMsgQueue()
         doShioriEvent("OnUserInput", arrayOf(id, input))
     }
 

@@ -1,7 +1,9 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
+import java.io.Closeable
 import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
 import android.util.Log
 import android.view.View
 import com.cattailsw.nanidroid.util.AnalyticsUtils
@@ -10,7 +12,12 @@ import kotlinx.coroutines.*
 class SScriptRunner(
     context: Context,
     private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
-    private val engineDispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(1)
+    // R5: pin all JNI work to one dedicated thread (the native Satori/Kawari engines
+    // keep process-global / per-thread state). The thread is a daemon so a leaked
+    // engine loop parked on msgQueue.receive() never blocks JVM (or test-fork) shutdown.
+    private val engineDispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "NanidroidJniThread").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
 ) : Runnable {
 
     companion object {
@@ -372,7 +379,7 @@ class SScriptRunner(
         return true
     }
 
-    fun getStringValueFromShiori(id: String): String? {
+    suspend fun getStringValueFromShiori(id: String): String? {
         return scriptEngine.getStringValueFromShiori(id)
     }
 

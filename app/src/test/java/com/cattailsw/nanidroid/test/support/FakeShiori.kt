@@ -22,7 +22,11 @@ class FakeShiori(
         val eventId = idLine?.substringAfter("ID:")?.trim() ?: ""
 
         val script = responses[eventId] ?: defaultResponse
-        return "SHIORI/3.0 200 OK\r\nSender: FakeShiori\r\nValue: $script\r\nCharset: UTF-8\r\n\r\n"
+        return if (script.isNullOrBlank()) {
+            "SHIORI/3.0 204 No Content\r\nSender: FakeShiori\r\nCharset: UTF-8\r\n\r\n"
+        } else {
+            "SHIORI/3.0 200 OK\r\nSender: FakeShiori\r\nValue: $script\r\nCharset: UTF-8\r\n\r\n"
+        }
     }
 
     override fun terminate() {}

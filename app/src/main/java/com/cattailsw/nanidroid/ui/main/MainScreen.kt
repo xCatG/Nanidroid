@@ -48,6 +48,7 @@ import com.cattailsw.nanidroid.*
 import com.cattailsw.nanidroid.R
 import java.io.File
 import java.io.FileOutputStream
+import kotlinx.coroutines.launch
 
 @Composable
 fun MainScreen(
@@ -153,8 +154,9 @@ internal fun MainDashboard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var showBottomSheet by remember { mutableStateOf(false) }
-    
+
     val fileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -250,17 +252,19 @@ internal fun MainDashboard(
                     onInstallClick = { fileLauncher.launch("*/*") },
                     onUpdateClick = {
                         activeGhost?.let { g ->
-                            val runner = SScriptRunner.getInstance(context)
-                            val homeurl = runner.getStringValueFromShiori("homeurl")
-                            if (homeurl != null) {
-                                val name = g.getGhostName() ?: ""
-                                val path = g.getGhostPath() ?: ""
-                                runner.doShioriEvent("OnUpdateBegin", arrayOf(name, path))
-                                val intent = NanidroidService.createUpdateIntent(context, homeurl, g.getGhostId(), g.getGhostPath())
-                                context.startService(intent)
-                                Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "No homeurl defined for updates.", Toast.LENGTH_SHORT).show()
+                            coroutineScope.launch {
+                                val runner = SScriptRunner.getInstance(context)
+                                val homeurl = runner.getStringValueFromShiori("homeurl")
+                                if (homeurl != null) {
+                                    val name = g.getGhostName() ?: ""
+                                    val path = g.getGhostPath() ?: ""
+                                    runner.doShioriEvent("OnUpdateBegin", arrayOf(name, path))
+                                    val intent = NanidroidService.createUpdateIntent(context, homeurl, g.getGhostId(), g.getGhostPath())
+                                    context.startService(intent)
+                                    Toast.makeText(context, "Checking for updates...", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "No homeurl defined for updates.", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     },

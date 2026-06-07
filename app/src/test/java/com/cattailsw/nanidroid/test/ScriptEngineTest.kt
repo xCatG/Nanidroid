@@ -300,25 +300,25 @@ class ScriptEngineTest {
         var t = "\\h\\s0\\e"
         engine.addMsgToQueue(arrayOf(t))
         customScope.launch { engine.run() }
-        advanceUntilIdle()
+        advanceTimeBy(2000)
         assertEquals("0", sakura?.stext)
 
         t = "\\s[120]\\e"
         engine.addMsgToQueue(arrayOf(t))
-        advanceUntilIdle()
+        advanceTimeBy(2000)
         assertEquals("120", sakura?.sid)
         assertEquals("0,120", sakura?.stext)
 
         t = "\\h\\s10wrong\\s[10]\\e"
         engine.addMsgToQueue(arrayOf(t))
-        advanceUntilIdle()
+        advanceTimeBy(2000)
         assertEquals("10", sakura?.sid)
         assertEquals("0,120,1,10", sakura?.stext)
         assertEquals("0wrong", bSakura?.dispText)
 
         t = "\\t\\h\\s[20]\\n\\w9\\u\\s[10]\\n\\h\\s0"
         engine.addMsgToQueue(arrayOf(t))
-        advanceUntilIdle()
+        advanceTimeBy(5000)
         assertEquals("0", sakura?.sid)
         assertEquals("0,120,1,10,20,0", sakura?.stext)
         assertEquals("\n", bSakura?.dispText)
