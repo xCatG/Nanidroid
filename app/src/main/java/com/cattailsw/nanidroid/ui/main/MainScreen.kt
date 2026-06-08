@@ -430,9 +430,11 @@ fun InAppMascotView(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        // Register this Compose host. The effect keys on (lifecycleOwner, activeGhost), so it
-        // re-runs (dispose + re-enter) when activeGhost changes — one attach per effect instance
-        // pairs with one detach per onDispose, keeping the refcount balanced across that.
+        // Register this Compose host. The effect keys on (lifecycleOwner, activeGhost), so a ghost
+        // switch re-runs the effect: onDispose (detach) then re-enter (attach). When this in-app
+        // view is the sole host, that momentarily drops the refcount to 0 and tears the engine
+        // down; it self-heals on the next ON_RESUME re-init above. This is intentional and matches
+        // the prior behavior — do not "fix" it by re-keying the effect.
         SScriptRunner.getInstance(context).attach()
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)

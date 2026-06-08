@@ -11,7 +11,12 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -54,6 +59,12 @@ class HostRefcountTest {
         val engine: ScriptEngine = runner.getScriptEngine()
         val gField = ScriptEngine::class.java.getDeclaredField("g").apply { isAccessible = true }
         return gField.get(engine)
+    }
+
+    /** Reflects the private `hostCount` field on SScriptRunner. */
+    private fun hostCount(runner: SScriptRunner): Int {
+        val field = SScriptRunner::class.java.getDeclaredField("hostCount").apply { isAccessible = true }
+        return field.getInt(runner)
     }
 
     @Test
@@ -99,5 +110,61 @@ class HostRefcountTest {
         val tornDown = runner.detach()
         assertTrue("attach+detach after underflow still tears down", tornDown)
         assertNull("ghost cleared after teardown", engineGhost(runner))
+    }
+
+    /**
+     * Hammers attach()/detach() from many real threads released simultaneously via a start gate.
+     * Equal numbers of attach and detach overall must leave hostCount at exactly 0, and the
+     * synchronized critical section must keep the count consistent (no lost updates / no underflow
+     * exceptions) under contention. This exercises the atomicity claim across true parallelism,
+     * unlike the single-threaded tests above.
+     */
+    @Test
+    fun concurrentAttachDetach_maintainsCountIntegrity() {
+        val runner = newRunner()
+
+        val threadCount = 100
+        val startGate = CountDownLatch(1)
+        val doneGate = CountDownLatch(threadCount)
+        val failures = CopyOnWriteArrayList<Throwable>()
+        val pool = Executors.newFixedThreadPool(threadCount)
+
+        repeat(threadCount) {
+            pool.execute {
+                try {
+                    // All threads block here until released together to maximize contention.
+                    startGate.await()
+                    repeat(200) {
+                        runner.attach()
+                        runner.detach()
+                    }
+                } catch (t: Throwable) {
+                    failures.add(t)
+                } finally {
+                    doneGate.countDown()
+                }
+            }
+        }
+
+        startGate.countDown()
+        assertTrue(
+            "all worker threads should finish within timeout",
+            doneGate.await(30, TimeUnit.SECONDS)
+        )
+        pool.shutdown()
+        assertTrue(
+            "thread pool should terminate",
+            pool.awaitTermination(30, TimeUnit.SECONDS)
+        )
+
+        assertTrue(
+            "no thread should have thrown; got: ${failures.joinToString { it.toString() }}",
+            failures.isEmpty()
+        )
+        assertEquals(
+            "balanced attach/detach across all threads must leave hostCount at 0",
+            0,
+            hostCount(runner)
+        )
     }
 }
