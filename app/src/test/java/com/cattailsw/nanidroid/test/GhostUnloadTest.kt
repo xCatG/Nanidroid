@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.test
 import com.cattailsw.nanidroid.Ghost
 import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -31,5 +32,6 @@ class GhostUnloadTest {
         ghost.unload()
 
         assertEquals(1, unloadCount)
+        assertNull(ghost.shiori)
     }
 }
