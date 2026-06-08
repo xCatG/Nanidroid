@@ -78,4 +78,15 @@ class ShioriResponseTest {
         assertEquals(1, p?.minor)
         assertEquals(400, r.statusCode)
     }
+
+    @Test
+    fun testHeaderParsingNoSpace() {
+        val rawResponse = "SHIORI/3.0 200 OK\r\nSender:MySender\r\nCharset:UTF-8\r\nValue:Hello World\r\n\r\n"
+        val reader = java.io.BufferedReader(java.io.StringReader(rawResponse))
+        val r = ShioriResponse(reader)
+
+        assertEquals("MySender", r.getKey("Sender"))
+        assertEquals("UTF-8", r.getKey("Charset"))
+        assertEquals("Hello World", r.getKey("Value"))
+    }
 }

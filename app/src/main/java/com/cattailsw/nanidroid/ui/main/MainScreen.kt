@@ -168,8 +168,9 @@ internal fun MainDashboard(
                         input.copyTo(output)
                     }
                 }
-                (context as? MainActivity)?.extractNar(cacheFile.absolutePath)
-                onRefreshGhosts()
+                (context as? MainActivity)?.extractNar(cacheFile.absolutePath) {
+                    onRefreshGhosts()
+                }
             } catch (e: Exception) {
                 Toast.makeText(context, "Error staging NAR file: ${e.message}", Toast.LENGTH_LONG).show()
             }
@@ -227,7 +228,7 @@ internal fun MainDashboard(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            HologramChamber(activeGhost = activeGhost)
+            HologramChamber(activeGhost = activeGhost, isOverlayEnabled = isOverlayEnabled)
         }
     }
 
@@ -308,7 +309,7 @@ fun HeaderSection() {
 }
 
 @Composable
-fun HologramChamber(activeGhost: Ghost?) {
+fun HologramChamber(activeGhost: Ghost?, isOverlayEnabled: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "hologram")
     val scanY by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -355,6 +356,7 @@ fun HologramChamber(activeGhost: Ghost?) {
             if (activeGhost != null) {
                 InAppMascotView(
                     activeGhost = activeGhost,
+                    isOverlayEnabled = isOverlayEnabled,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -384,36 +386,47 @@ data class MascotViews(
 @Composable
 fun InAppMascotView(
     activeGhost: Ghost?,
+    isOverlayEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var viewsRef by remember { mutableStateOf<MascotViews?>(null) }
 
-    DisposableEffect(lifecycleOwner, activeGhost) {
+    DisposableEffect(lifecycleOwner, activeGhost, isOverlayEnabled, viewsRef) {
+        val lm = LayoutManager.getInstance(context)
+        val runner = SScriptRunner.getInstance(context)
+
+        fun bindViews() {
+            val views = viewsRef ?: return
+            val ghost = activeGhost ?: return
+            
+            if (!isOverlayEnabled) {
+                views.sakura.mgr = ghost.mgr
+                views.kero.mgr = ghost.mgr
+                
+                lm.setViews(views.layout, views.sakura, views.kero, views.bSakura, views.bKero)
+                runner.setViews(views.sakura, views.kero, views.bSakura, views.bKero)
+                runner.setGhost(ghost)
+                runner.setLayoutMgr(lm)
+                
+                views.layout.post {
+                    lm.checkAndUpdateLayoutParam()
+                }
+                
+                runner.stopClock()
+                runner.startClock()
+                runner.run()
+            }
+        }
+
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            bindViews()
+        }
+
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                val views = viewsRef
-                if (views != null && activeGhost != null) {
-                    val lm = LayoutManager.getInstance(context)
-                    val runner = SScriptRunner.getInstance(context)
-                    
-                    views.sakura.mgr = activeGhost.mgr
-                    views.kero.mgr = activeGhost.mgr
-                    
-                    lm.setViews(views.layout, views.sakura, views.kero, views.bSakura, views.bKero)
-                    runner.setViews(views.sakura, views.kero, views.bSakura, views.bKero)
-                    runner.setGhost(activeGhost)
-                    runner.setLayoutMgr(lm)
-                    
-                    views.layout.post {
-                        lm.checkAndUpdateLayoutParam()
-                    }
-                    
-                    runner.stopClock()
-                    runner.startClock()
-                    runner.run()
-                }
+                bindViews()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -458,27 +471,6 @@ fun InAppMascotView(
             layout.addView(sv)
             layout.addView(kv)
 
-            val lm = LayoutManager.getInstance(ctx)
-            val runner = SScriptRunner.getInstance(ctx)
-
-            if (activeGhost != null) {
-                sv.mgr = activeGhost.mgr
-                kv.mgr = activeGhost.mgr
-
-                lm.setViews(layout, sv, kv, bSakura, bKero)
-                runner.setViews(sv, kv, bSakura, bKero)
-                runner.setGhost(activeGhost)
-                runner.setLayoutMgr(lm)
-                
-                layout.post {
-                    lm.checkAndUpdateLayoutParam()
-                }
-
-                runner.stopClock()
-                runner.startClock()
-                runner.run()
-            }
-            
             viewsRef = MascotViews(layout, sv, kv, bSakura, bKero)
             layout
         },

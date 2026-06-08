@@ -33,8 +33,9 @@ class DescReader {
 
     constructor(f: File) {
         try {
-            val isStream = FileInputStream(f)
-            parse(isStream)
+            FileInputStream(f).use { isStream ->
+                parse(isStream)
+            }
         } catch (e: FileNotFoundException) {
             // ignore
         } catch (e: IOException) {
@@ -45,7 +46,7 @@ class DescReader {
     constructor(isStream: InputStream) {
         try {
             dbgOutput = true
-            parse(isStream)
+            isStream.use { parse(it) }
         } catch (e: Exception) {
             Log.d(TAG, "parsing inputstream error")
             e.printStackTrace()
@@ -107,12 +108,16 @@ class DescReader {
         parseTime = SystemClock.uptimeMillis()
         val ret = Hashtable<String, String>()
         val infile = File(infilePath!!)
-        var reader = BufferedReader(InputStreamReader(FileInputStream(infile), DEF_CHARSET))
-        val c = readFirstLineForCharset(reader)
-        reader.close()
-        reader = BufferedReader(InputStreamReader(FileInputStream(infile), c))
-        readLoop(reader, ret)
-        reader.close()
+        val c = FileInputStream(infile).use { fis ->
+            BufferedReader(InputStreamReader(fis, DEF_CHARSET)).use { reader ->
+                readFirstLineForCharset(reader)
+            }
+        }
+        FileInputStream(infile).use { fis ->
+            BufferedReader(InputStreamReader(fis, c)).use { reader ->
+                readLoop(reader, ret)
+            }
+        }
         parseTime = SystemClock.uptimeMillis() - parseTime
         Log.d(TAG, "parsing took:${parseTime}ms")
         AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PERF, "parsing time[ms]", infilePath ?: "", parseTime.toInt())

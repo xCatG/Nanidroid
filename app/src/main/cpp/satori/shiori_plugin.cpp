@@ -11,13 +11,13 @@
 #endif
 #include	<assert.h>
 #include	"../_/stltool.h"
-#include	"../_/sender.h"
+#include	"../_/Sender.h"
 #include	"shiori_plugin.h"
 #include	"console_application.h"
 #include	<sstream>
 using namespace std;
 
-// ‚Ç‚¤‚É‚©‚µ‚½‚¢
+// ã©ã†ã«ã‹ã—ãŸã„
 void	PluginError(const string& str)
 {
 #ifdef POSIX
@@ -28,25 +28,25 @@ void	PluginError(const string& str)
 }
 
 #ifdef POSIX
-// dllƒT[ƒ`ƒpƒXŠÖ˜AB
-// POSIXã‚Å‚ÍA‚ ‚é“Á’è‚ÌêŠ‚ÉDLL‚Æ“¯–¼‚Ìƒ‰ƒCƒuƒ‰ƒŠ‚ğ’u‚­–‚ÅSAORI‚É‘Î‰‚·‚éB
-// DLL‚Æ“¯–¼‚Æ‚Í‰]‚Á‚Ä‚àA‚»‚ê‚ÍƒVƒ“ƒ{ƒŠƒbƒNƒŠƒ“ƒN‚Å‚ ‚é‚×‚«‚ÅA—á‚¦‚ÎŸ‚Ì‚æ‚¤‚É‚Å‚ ‚éB
+// dllã‚µãƒ¼ãƒãƒ‘ã‚¹é–¢é€£ã€‚
+// POSIXä¸Šã§ã¯ã€ã‚ã‚‹ç‰¹å®šã®å ´æ‰€ã«DLLã¨åŒåã®ãƒ©ã‚¤ãƒ–ãƒ©ãƒªã‚’ç½®ãäº‹ã§SAORIã«å¯¾å¿œã™ã‚‹ã€‚
+// DLLã¨åŒåã¨ã¯äº‘ã£ã¦ã‚‚ã€ãã‚Œã¯ã‚·ãƒ³ãƒœãƒªãƒƒã‚¯ãƒªãƒ³ã‚¯ã§ã‚ã‚‹ã¹ãã§ã€ä¾‹ãˆã°æ¬¡ã®ã‚ˆã†ã«ã§ã‚ã‚‹ã€‚
 // % pwd
 // /home/foo/.saori
 // % ls -l
 // -rwxr-xr-x x foo bar xxxxx 1 1 00:00 libssu.so
 // lrwxr-xr-x x foo bar xxxxx 1 1 00:00 ssu.dll -> libssu.so
 //
-// ƒpƒX‚ÍŠÂ‹«•Ï” SAORI_FALLBACK_PATH ‚©‚çæ“¾‚·‚éB‚±‚ê‚ÍƒRƒƒ“‹æØ‚è‚Ìâ‘ÎƒpƒX‚Å‚ ‚éB
+// ãƒ‘ã‚¹ã¯ç’°å¢ƒå¤‰æ•° SAORI_FALLBACK_PATH ã‹ã‚‰å–å¾—ã™ã‚‹ã€‚ã“ã‚Œã¯ã‚³ãƒ­ãƒ³åŒºåˆ‡ã‚Šã®çµ¶å¯¾ãƒ‘ã‚¹ã§ã‚ã‚‹ã€‚
 static vector<string> posix_dll_search_path;
 static bool posix_dll_search_path_is_ready = false;
 static string posix_search_fallback_dll(const string& dllfile) {
-    // dllfile‚Í’T‚µ‚½‚¢ƒtƒ@ƒCƒ‹DLL–¼BƒpƒX‹æØ‚è•¶š‚Í/B
-    // ‘ã‘Öƒ‰ƒCƒuƒ‰ƒŠ‚ªŒ©•t‚©‚ê‚Î‚»‚Ìâ‘ÎƒpƒX‚ğA
-    // Œ©•t‚¯‚ç‚ê‚È‚¯‚ê‚Î‹ó•¶š—ñ‚ğ•Ô‚·B
+    // dllfileã¯æ¢ã—ãŸã„ãƒ•ã‚¡ã‚¤ãƒ«DLLåã€‚ãƒ‘ã‚¹åŒºåˆ‡ã‚Šæ–‡å­—ã¯/ã€‚
+    // ä»£æ›¿ãƒ©ã‚¤ãƒ–ãƒ©ãƒªãŒè¦‹ä»˜ã‹ã‚Œã°ãã®çµ¶å¯¾ãƒ‘ã‚¹ã‚’ã€
+    // è¦‹ä»˜ã‘ã‚‰ã‚Œãªã‘ã‚Œã°ç©ºæ–‡å­—åˆ—ã‚’è¿”ã™ã€‚
     
     if (!posix_dll_search_path_is_ready) {
-	// SAORI_FALLBACK_PATH‚ğŒ©‚éB
+	// SAORI_FALLBACK_PATHã‚’è¦‹ã‚‹ã€‚
 	char* cstr_path = getenv("SAORI_FALLBACK_PATH");
 	if (cstr_path != NULL) {
 	    split(cstr_path, ":", posix_dll_search_path);
@@ -64,7 +64,7 @@ static string posix_search_fallback_dll(const string& dllfile) {
 	string fpath = *ite + '/' + fname;
 	struct stat sb;
 	if (stat(fpath.c_str(), &sb) == 0) {
-	    // ‘ã‘Öƒ‰ƒCƒuƒ‰ƒŠ‚ª‘¶İ‚·‚é‚æ‚¤‚¾B‚±‚êˆÈã‚Ìƒ`ƒFƒbƒN‚ÍÈ—ªB
+	    // ä»£æ›¿ãƒ©ã‚¤ãƒ–ãƒ©ãƒªãŒå­˜åœ¨ã™ã‚‹ã‚ˆã†ã ã€‚ã“ã‚Œä»¥ä¸Šã®ãƒã‚§ãƒƒã‚¯ã¯çœç•¥ã€‚
 	    return fpath;
 	}
     }
@@ -76,7 +76,7 @@ bool ShioriPlugins::load(const string& iBaseFolder)
 {
 	mBaseFolder = iBaseFolder;
 
-	// mBaseFolder‚ªƒXƒ‰ƒbƒVƒ…‚ÅI‚í‚Á‚Ä‚¢‚È‚¯‚ê‚ÎA•t‚¯‚éB
+	// mBaseFolderãŒã‚¹ãƒ©ãƒƒã‚·ãƒ¥ã§çµ‚ã‚ã£ã¦ã„ãªã‘ã‚Œã°ã€ä»˜ã‘ã‚‹ã€‚
 	if ( false == mBaseFolder.empty() && mBaseFolder[mBaseFolder.length() - 1] != DIR_CHAR)
 	{
 	    mBaseFolder += DIR_CHAR;
@@ -87,31 +87,31 @@ bool ShioriPlugins::load(const string& iBaseFolder)
 bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 {
 	strvec	vec;
-	split(iPluginLine, ",", vec);	// ƒJƒ“ƒ}‹æØ‚è‚Å•ªŠ„
-	if ( vec.size()<2 || vec[0].size()==0 ) {	// ŒÄ‚Ño‚µ–¼‚Æ‘Š‘ÎƒpƒX‚ª•K{
-		PluginError(iPluginLine + ": İ’èƒtƒ@ƒCƒ‹‚Ì‘®‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+	split(iPluginLine, ",", vec);	// ã‚«ãƒ³ãƒåŒºåˆ‡ã‚Šã§åˆ†å‰²
+	if ( vec.size()<2 || vec[0].size()==0 ) {	// å‘¼ã³å‡ºã—åã¨ç›¸å¯¾ãƒ‘ã‚¹ãŒå¿…é ˆ
+		PluginError(iPluginLine + ": è¨­å®šãƒ•ã‚¡ã‚¤ãƒ«ã®æ›¸å¼ãŒæ­£ã—ãã‚ã‚Šã¾ã›ã‚“ã€‚");
 		return	false;
 	}
 	if ( mCallData.find(vec[0]) != mCallData.end() ) {
-		PluginError(vec[0] + ": “¯‚¶ŒÄ‚Ño‚µ–¼‚ª•¡”’è‹`‚³‚ê‚Ä‚¢‚Ü‚·B");
+		PluginError(vec[0] + ": åŒã˜å‘¼ã³å‡ºã—åãŒè¤‡æ•°å®šç¾©ã•ã‚Œã¦ã„ã¾ã™ã€‚");
 		return	false;
 	}
 
-	// ƒtƒHƒ‹ƒ_‹æØ‚è‚ğŠÂ‹«‚É‰‚¶‚Ä•û‚É“ˆê
+	// ãƒ•ã‚©ãƒ«ãƒ€åŒºåˆ‡ã‚Šã‚’ç’°å¢ƒã«å¿œã˜ã¦æ–¹ã«çµ±ä¸€
 	string filename = unify_dir_char(vec[1]);
 	string fullpath = unify_dir_char(mBaseFolder + filename);
 
 	if ( mDllData.find(fullpath) != mDllData.end() ) 
 	{
-		// Šù‚É“o˜^Ï‚İ‚È‚çQÆ‚ğ‘‚â‚·
+		// æ—¢ã«ç™»éŒ²æ¸ˆã¿ãªã‚‰å‚ç…§ã‚’å¢—ã‚„ã™
 		mDllData[fullpath].mRefCount += 1;
 	}
 	else 
 	{
-		// –¢“o˜^‚È‚ç“Ç‚İ‚Ş
+		// æœªç™»éŒ²ãªã‚‰èª­ã¿è¾¼ã‚€
 
 #ifndef POSIX
-		// ƒlƒbƒgƒ[ƒNXVASAORI.dll‚ªã‘‚«‚Å‚«‚¸dl2‚Æ‚µ‚Ä•Û‘¶‚³‚ê‚é–â‘è‚Éb’è‘Îˆ
+		// ãƒãƒƒãƒˆãƒ¯ãƒ¼ã‚¯æ›´æ–°æ™‚ã€SAORI.dllãŒä¸Šæ›¸ãã§ããšdl2ã¨ã—ã¦ä¿å­˜ã•ã‚Œã‚‹å•é¡Œã«æš«å®šå¯¾å‡¦
 		if ( compare_tail(fullpath, ".dll") )
 		{
 			string	dl2 = fullpath;
@@ -121,27 +121,27 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 			{
 				fclose(fp);
 				
-				// .dll‚ğÁ‚µ‚Ä.dl2‚ğ.dll‚ÉƒŠƒl[ƒ€‚·‚éB
+				// .dllã‚’æ¶ˆã—ã¦.dl2ã‚’.dllã«ãƒªãƒãƒ¼ãƒ ã™ã‚‹ã€‚
 				::DeleteFile(fullpath.c_str());
 				::MoveFile(dl2.c_str(), fullpath.c_str());
 			}
 		}
 #endif
 		
-		// ƒtƒ@ƒCƒ‹‚Ì‘¶İ‚ğŠm”F
+		// ãƒ•ã‚¡ã‚¤ãƒ«ã®å­˜åœ¨ã‚’ç¢ºèª
 		FILE*	fp = fopen(fullpath.c_str(), "rb");
 		if ( fp == NULL )
 		{
 #ifdef POSIX
             PluginError(fullpath + ": failed to open");
 #else
-			PluginError(fullpath + ": ƒvƒ‰ƒOƒCƒ“‚ª‘¶İ‚µ‚Ü‚¹‚ñB");
+			PluginError(fullpath + ": ãƒ—ãƒ©ã‚°ã‚¤ãƒ³ãŒå­˜åœ¨ã—ã¾ã›ã‚“ã€‚");
 #endif
 			return	false;
 		}
 		fclose(fp);
 
-		// ƒtƒ@ƒCƒ‹–¼EƒtƒHƒ‹ƒ_–¼EŠg’£q‚ğ•ª—£
+		// ãƒ•ã‚¡ã‚¤ãƒ«åãƒ»ãƒ•ã‚©ãƒ«ãƒ€åãƒ»æ‹¡å¼µå­ã‚’åˆ†é›¢
 		const char*	lastyen = NULL;
 		const char*	lastdot = NULL;
 		const char*	p = fullpath.c_str();
@@ -163,9 +163,9 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 		string	extention(lastdot+1);
 
 #ifdef POSIX
-		// ŠÂ‹«•Ï” SAORI_FALLBACK_ALWAYS ‚ª’è‹`‚³‚ê‚Ä‚¢‚ÄAŠ‚Â
-		// ‹ó‚Å‚à"0"‚Å‚à‚È‚¯‚ê‚ÎA‚±‚Ìdllƒtƒ@ƒCƒ‹‚ğŠJ‚¢‚Ä‚İ‚é–‚Í
-		// ‰‚ß‚©‚ç‚â‚ç‚È‚¢B‚»‚¤‚Å‚È‚¯‚ê‚ÎA‚µ‚Édlopen‚µ‚Ä‚İ‚éB
+		// ç’°å¢ƒå¤‰æ•° SAORI_FALLBACK_ALWAYS ãŒå®šç¾©ã•ã‚Œã¦ã„ã¦ã€ä¸”ã¤
+		// ç©ºã§ã‚‚"0"ã§ã‚‚ãªã‘ã‚Œã°ã€ã“ã®dllãƒ•ã‚¡ã‚¤ãƒ«ã‚’é–‹ã„ã¦ã¿ã‚‹äº‹ã¯
+		// åˆã‚ã‹ã‚‰ã‚„ã‚‰ãªã„ã€‚ãã†ã§ãªã‘ã‚Œã°ã€è©¦ã—ã«dlopenã—ã¦ã¿ã‚‹ã€‚
 		char* env_fallback_always = getenv("SAORI_FALLBACK_ALWAYS");
 		bool fallback_always = false;
 		if (env_fallback_always != NULL) {
@@ -179,22 +179,22 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 		if (!fallback_always) {
 		    void* handle = dlopen(fullpath.c_str(), RTLD_LAZY);
 		    if (handle != NULL) {
-			// load, unload, request‚ğæo‚µ‚Ä‚İ‚éB
+			// load, unload, requestã‚’å–å‡ºã—ã¦ã¿ã‚‹ã€‚
 			void* sym_load = dlsym(handle, "load");
 			void* sym_unload = dlsym(handle, "unload");
 			void* sym_request = dlsym(handle, "request");
 			if (sym_load != NULL && sym_unload != NULL && sym_request != NULL) {
-			    // ‚È‚ñ‚Æ³í‚É“Ç‚ß‚Ä‚µ‚Ü‚Á‚½BÀŒ±–Ú“I‚Åì‚Á‚½ŠÂ‹«‚¾‚ë‚¤‚©B
+			    // ãªã‚“ã¨æ­£å¸¸ã«èª­ã‚ã¦ã—ã¾ã£ãŸã€‚å®Ÿé¨“ç›®çš„ã§ä½œã£ãŸç’°å¢ƒã ã‚ã†ã‹ã€‚
 			    do_fallback = false;
 			}
 		    }
 		    dlclose(handle);
 		}
 		if (do_fallback) {
-		    // ‘ã‘Öƒ‰ƒCƒuƒ‰ƒŠ‚ğ’T‚·B
+		    // ä»£æ›¿ãƒ©ã‚¤ãƒ–ãƒ©ãƒªã‚’æ¢ã™ã€‚
 		    string fallback_lib = posix_search_fallback_dll(filename+"."+extention);
 		    if (fallback_lib.length() == 0) {
-			// –³‚¢B
+			// ç„¡ã„ã€‚
 			char* cstr_path = getenv("SAORI_FALLBACK_PATH");
 			string fallback_path =
 			    (cstr_path == NULL ?
@@ -209,20 +209,20 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 			cerr << "SAORI: using " << fallback_lib << " instead of " << fullpath << endl;
 		    }
 
-		    // QÆƒJƒEƒ“ƒg‚Ég‚¤‚½‚ßAfullpath‚Í‘Š·‚¦‚È‚¢B
-		    // dll_full_path‚Ì‚İB
+		    // å‚ç…§ã‚«ã‚¦ãƒ³ãƒˆã«ä½¿ã†ãŸã‚ã€fullpathã¯æ›¸æ›ãˆãªã„ã€‚
+		    // dll_full_pathã®ã¿ã€‚
 		    dll_full_path = fallback_lib;
 		}
 #endif
 
-		// POSIXŠÂ‹«‚Å‚ÍAƒ‰ƒCƒuƒ‰ƒŠ–¼‚É*.dllˆÈŠO‚à‹–‚·B
+		// POSIXç’°å¢ƒã§ã¯ã€ãƒ©ã‚¤ãƒ–ãƒ©ãƒªåã«*.dllä»¥å¤–ã‚‚è¨±ã™ã€‚
 #ifdef POSIX
 		if ( 1 )
 #else
 		if ( compare_tail(fullpath, ".dll") )
 #endif
 		{
-			// ƒvƒ‰ƒOƒCƒ“DLL‚ğƒ[ƒh
+			// ãƒ—ãƒ©ã‚°ã‚¤ãƒ³DLLã‚’ãƒ­ãƒ¼ãƒ‰
 			mDllData[fullpath].mRefCount=1;
 			extern const char* gSatoriName;
 			if ( !(mDllData[fullpath].mSaoriClient.load(gSatoriName, "Shift_JIS", foldername+DIR_CHAR, dll_full_path)) )
@@ -231,21 +231,21 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 				return	false;
 			}
 
-			// ƒo[ƒWƒ‡ƒ“Šm”F
+			// ãƒãƒ¼ã‚¸ãƒ§ãƒ³ç¢ºèª
 			string ver = mDllData[fullpath].mSaoriClient.get_version("Local");
 			if ( ver != "SAORI/1.0" )
 			{
-				PluginError(fullpath + ": SAORI/1.0‚Ìdll‚Å‚Í‚ ‚è‚Ü‚¹‚ñBGET Version‚Ì–ß‚è’l‚ª–¢‘Î‰‚Ì‚à‚Ì‚Å‚µ‚½B(" + ver + ")");
+				PluginError(fullpath + ": SAORI/1.0ã®dllã§ã¯ã‚ã‚Šã¾ã›ã‚“ã€‚GET Versionã®æˆ»ã‚Šå€¤ãŒæœªå¯¾å¿œã®ã‚‚ã®ã§ã—ãŸã€‚(" + ver + ")");
 				mDllData.erase(fullpath);
 				return	false;
 			}
 		}
 	}
 
-	// ŒÄ‚Ño‚µ–¼map‚É“o˜^
+	// å‘¼ã³å‡ºã—åmapã«ç™»éŒ²
 	mCallData[vec[0]].mDllPath = fullpath;
 #ifdef POSIX
-	mCallData[vec[0]].mIsBasic = false; // Šg’£q‚Å‚Í”»’f‚Å‚«‚È‚¢‚Ì‚ÅA‚Æ‚è‚ ‚¦‚¸Saori Basic‚ÌƒTƒ|[ƒg‚Í–³‚µc
+	mCallData[vec[0]].mIsBasic = false; // æ‹¡å¼µå­ã§ã¯åˆ¤æ–­ã§ããªã„ã®ã§ã€ã¨ã‚Šã‚ãˆãšSaori Basicã®ã‚µãƒãƒ¼ãƒˆã¯ç„¡ã—â€¦
 #else
 	mCallData[vec[0]].mIsBasic = !compare_tail(fullpath, ".dll");
 #endif
@@ -273,17 +273,17 @@ void	ShioriPlugins::unload()
 string	ShioriPlugins::request(const string& iCallName, const strvec& iArguments, strvec& oResults, const string& iSecurityLevel) {
 
 	if ( mCallData.find(iCallName) == mCallData.end() ) {
-		PluginError(iCallName + ": ‚±‚ÌŒÄ‚Ño‚µ–¼‚Í’è‹`‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB");
+		PluginError(iCallName + ": ã“ã®å‘¼ã³å‡ºã—åã¯å®šç¾©ã•ã‚Œã¦ã„ã¾ã›ã‚“ã€‚");
 		return	"";
 	}
 	CallData&	theCallData = mCallData[iCallName];
 
 	if ( theCallData.mIsBasic ) 
 	{
-		// SAORI-basic‚ÌŒÄ‚Ño‚µ
+		// SAORI-basicã®å‘¼ã³å‡ºã—
 
-		// ‚³‚¨‚×[‚ÍexternalŒÄ‚Ño‚µ‚ğ”»•Ê‚·‚é”\—Í‚ª–³‚¢‚Ì‚ÅiŠÂ‹«•Ï”“™‚Å“n‚¹‚Î‚¢‚¢Hj
-		// ‚±‚Ì“_‚Å‘S‚ÄØ‚è‚Ü‚·B-universal‚ÍƒŠƒNƒGƒXƒg‚Ésecurity levelƒwƒbƒ_‚ğ“n‚µASAORI‘¤‚Å”»•Ê‚µ‚Ä‚¢‚½‚¾‚«‚Ü‚·B
+		// ã•ãŠã¹ãƒ¼ã¯externalå‘¼ã³å‡ºã—ã‚’åˆ¤åˆ¥ã™ã‚‹èƒ½åŠ›ãŒç„¡ã„ã®ã§ï¼ˆç’°å¢ƒå¤‰æ•°ç­‰ã§æ¸¡ã›ã°ã„ã„ï¼Ÿï¼‰
+		// ã“ã®æ™‚ç‚¹ã§å…¨ã¦åˆ‡ã‚Šã¾ã™ã€‚-universalã¯ãƒªã‚¯ã‚¨ã‚¹ãƒˆæ™‚ã«security levelãƒ˜ãƒƒãƒ€ã‚’æ¸¡ã—ã€SAORIå´ã§åˆ¤åˆ¥ã—ã¦ã„ãŸã ãã¾ã™ã€‚
 		if ( iSecurityLevel != "local" && iSecurityLevel != "Local" )
 			return	""; 
 
@@ -301,29 +301,29 @@ string	ShioriPlugins::request(const string& iCallName, const strvec& iArguments,
 			out);
 		if ( r != "" )
 		{
-			// ƒGƒ‰[
+			// ã‚¨ãƒ©ãƒ¼
 			PluginError(iCallName + ": " + r);
 			return "";
 		}
 		else
 		{
-			// ³íI—¹
+			// æ­£å¸¸çµ‚äº†
 			return out;
 		}
 	}
 	else 
 	{
-		// SAORI-universal‚ÌŒÄ‚Ño‚µ
+		// SAORI-universalã®å‘¼ã³å‡ºã—
 
 		//---------------------
-		// ƒŠƒNƒGƒXƒgì¬
+		// ãƒªã‚¯ã‚¨ã‚¹ãƒˆä½œæˆ
 
 		vector<string> req;
 		req.insert(req.end(), theCallData.mPreDefinedArguments.begin(), theCallData.mPreDefinedArguments.end());
 		req.insert(req.end(), iArguments.begin(), iArguments.end());
 
 		//---------------------
-		// ƒŠƒNƒGƒXƒgÀs
+		// ãƒªã‚¯ã‚¨ã‚¹ãƒˆå®Ÿè¡Œ
 
 		assert( mDllData.find(theCallData.mDllPath) != mDllData.end() );
 
@@ -335,7 +335,7 @@ string	ShioriPlugins::request(const string& iCallName, const strvec& iArguments,
 			 oResults);
 
 		//---------------------
-		// •Ô“š‚É‘Îˆ
+		// è¿”ç­”ã«å¯¾å‡¦
 
 		switch (return_code)
 		{
@@ -343,13 +343,13 @@ string	ShioriPlugins::request(const string& iCallName, const strvec& iArguments,
 		case 204:
 			break;
 		case 400:
-			PluginError(theCallData.mDllPath + ": 400 Bad Request / ŒÄ‚Ño‚µ‚Ì•s”õ");
+			PluginError(theCallData.mDllPath + ": 400 Bad Request / å‘¼ã³å‡ºã—ã®ä¸å‚™");
 			break;
 		case 500:
-			PluginError(theCallData.mDllPath + ": 500 Internal Server Error / saori“à‚Å‚ÌƒGƒ‰[");
+			PluginError(theCallData.mDllPath + ": 500 Internal Server Error / saoriå†…ã§ã®ã‚¨ãƒ©ãƒ¼");
 			break;
 		default:
-			PluginError(theCallData.mDllPath + ": " + itos(return_code) + "? / ’è‹`‚³‚ê‚Ä‚¢‚È‚¢ƒXƒe[ƒ^ƒX‚ğ•Ô‚µ‚Ü‚µ‚½B");
+			PluginError(theCallData.mDllPath + ": " + itos(return_code) + "? / å®šç¾©ã•ã‚Œã¦ã„ãªã„ã‚¹ãƒ†ãƒ¼ã‚¿ã‚¹ã‚’è¿”ã—ã¾ã—ãŸã€‚");
 			break;
 		}
 

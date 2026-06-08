@@ -44,13 +44,13 @@ istream& operator>>(istream& i, strintmap& o) {
 	return	i;
 }
 
-// ƒXƒgƒŠ[ƒ€‚©‚çAƒfƒŠƒ~ƒ^‚Ü‚Å‚ğ“Ç‚İ‚ñ‚Åstring‚ÉŠi”[
+// ã‚¹ãƒˆãƒªãƒ¼ãƒ ã‹ã‚‰ã€ãƒ‡ãƒªãƒŸã‚¿ã¾ã§ã‚’èª­ã¿è¾¼ã‚“ã§stringã«æ ¼ç´
 bool	getline(istream& i, string& o, int delimtier) {
 	if ( i.peek() == EOF )
-		return	false;	// ƒtƒ@ƒCƒ‹‚ÌI’[‚Å‚·‚ª‚ÈB
+		return	false;	// ãƒ•ã‚¡ã‚¤ãƒ«ã®çµ‚ç«¯ã§ã™ãŒãªã€‚
 
-	int	c;	// ˆê•¶š•Û
-	stringstream	line;	// s‚ğŠi”[‚·‚éƒXƒgƒŠ[ƒ€
+	int	c;	// ä¸€æ–‡å­—ä¿æŒ
+	stringstream	line;	// è¡Œã‚’æ ¼ç´ã™ã‚‹ã‚¹ãƒˆãƒªãƒ¼ãƒ 
 	while ( (c=i.get()) != delimtier && c!=EOF)
 		line.put(c);
 	o=line.str();
@@ -59,10 +59,10 @@ bool	getline(istream& i, string& o, int delimtier) {
 
 bool	getline(istream& i, int& o, int delimtier) {
 	if ( i.peek() == EOF )
-		return	false;	// ƒtƒ@ƒCƒ‹‚ÌI’[‚Å‚·‚ª‚ÈB
+		return	false;	// ãƒ•ã‚¡ã‚¤ãƒ«ã®çµ‚ç«¯ã§ã™ãŒãªã€‚
 
 	o=0;
-	int	c;	// ˆê•¶š•Û
+	int	c;	// ä¸€æ–‡å­—ä¿æŒ
 	while ( (c=i.get()) != delimtier && c!=EOF) {
 		if ( isdigit(c) ) {
 			o *= 10;
@@ -92,11 +92,11 @@ bool	arealphabets(const string& s) {
 			continue;
 		if ( c>='A' && c<='Z' )
 			continue;
-		if ( c==(-126) ) {	// sjis‚É‚¨‚¯‚é‚`-‚y,‚-‚š‚ğŠÜ‚Ş‚PƒoƒCƒg–Ú
+		if ( c==(-126) ) {	// sjisã«ãŠã‘ã‚‹ï¼¡-ï¼º,ï½-ï½šã‚’å«ã‚€ï¼‘ãƒã‚¤ãƒˆç›®
 			c = *p++;
-			if ( c>=("‚`")[1] && c<=("‚y")[1] )
+			if ( c>=("ï¼¡")[1] && c<=("ï¼º")[1] )
 				continue;
-			if ( c>=("‚")[1] && c<=("‚š")[1] )
+			if ( c>=("ï½")[1] && c<=("ï½š")[1] )
 				continue;
 		}
 		return	false;
@@ -124,13 +124,13 @@ bool	replace_first(string& str, const string& before, const string& after) {
 int	replace(string& str, const string& before, const string& after) {
 	if ( str=="" || before=="" ) return 0;
 
-	// •¶š—ñ’·‚ÌŒvZ—p
+	// æ–‡å­—åˆ—é•·ã®è¨ˆç®—ç”¨
 	const int		beforeLength = before.size();
 	const int		afterLength = after.size();
 	const int		textLength = str.size();
 	const int		diffLength = afterLength - beforeLength;
 
-	// ’u‚«Š·‚¦‘ÎÛ‚ª‚¢‚­‚Â‚ ‚é‚©‚ğƒJƒEƒ“ƒg‚µ‚Ä‚¨‚­
+	// ç½®ãæ›ãˆå¯¾è±¡ãŒã„ãã¤ã‚ã‚‹ã‹ã‚’ã‚«ã‚¦ãƒ³ãƒˆã—ã¦ãŠã
 	const char*	found=str.c_str();
 	int	count=0;
 	while ( (found=strstr_hz(found, before.c_str())) != NULL ) {
@@ -139,34 +139,34 @@ int	replace(string& str, const string& before, const string& after) {
 	}
 	if ( count==0 ) return 0;
 
-	// ’†ŠÔƒoƒbƒtƒ@‚ğŠm•Û
+	// ä¸­é–“ãƒãƒƒãƒ•ã‚¡ã‚’ç¢ºä¿
 	char*	buf = new char[textLength + diffLength*count + 1];
 
-	// ’u‚«Š·‚¦ƒ‹[ƒv
+	// ç½®ãæ›ãˆãƒ«ãƒ¼ãƒ—
 	const char*	pread = str.c_str();
 	char*	pwrite = buf;
 	found = str.c_str();
 	while ( (found=strstr_hz(pread, before.c_str())) != NULL ) {
-		// ‘ÎÛ•¶š—ñ’¼‘O‚Ü‚Å‚ğƒRƒs[
+		// å¯¾è±¡æ–‡å­—åˆ—ç›´å‰ã¾ã§ã‚’ã‚³ãƒ”ãƒ¼
 		strncpy(pwrite, pread, found-pread);
 		pwrite += found-pread;
 		pread = found;
 
-		// ’u‚«Š·‚¦•¶š—ñ‚ğƒRƒs[
+		// ç½®ãæ›ãˆæ–‡å­—åˆ—ã‚’ã‚³ãƒ”ãƒ¼
 		strcpy(pwrite, after.c_str());
 		pwrite += afterLength;
 		pread += beforeLength;
 	}
-	// c‚è‚ğƒRƒs[
+	// æ®‹ã‚Šã‚’ã‚³ãƒ”ãƒ¼
 	strcpy(pwrite, pread);
 
-	// ‰ß‹‚Ì—Ìˆæ‚ğ‰ğ•úAƒoƒbƒtƒ@‚ÌÀ‘Ì‚ğ“à—e‚Æ‚·‚éB
+	// éå»ã®é ˜åŸŸã‚’è§£æ”¾ã€ãƒãƒƒãƒ•ã‚¡ã®å®Ÿä½“ã‚’å†…å®¹ã¨ã™ã‚‹ã€‚
 	str = buf;
-	delete buf;
+	delete[] buf;
 	return	count;
 }
 
-// •¶š—ñÁ‹
+// æ–‡å­—åˆ—æ¶ˆå»
 bool	erase_first(string& str, const string& before) {
 	int	pos = str.find(before);
 	if ( pos == string::npos )
@@ -177,11 +177,11 @@ bool	erase_first(string& str, const string& before) {
 int	erase(string& str, const string& before) {
 	if ( str=="" || before=="" ) return 0;
 
-	// •¶š—ñ’·‚ÌŒvZ—p
+	// æ–‡å­—åˆ—é•·ã®è¨ˆç®—ç”¨
 	const int		beforeLength = before.size();
 	const int		textLength = str.size();
 
-	// ’u‚«Š·‚¦‘ÎÛ‚ª‚¢‚­‚Â‚ ‚é‚©‚ğƒJƒEƒ“ƒg‚µ‚Ä‚¨‚­
+	// ç½®ãæ›ãˆå¯¾è±¡ãŒã„ãã¤ã‚ã‚‹ã‹ã‚’ã‚«ã‚¦ãƒ³ãƒˆã—ã¦ãŠã
 	const char*	found=str.c_str();
 	int	count=0;
 	while ( (found=strstr_hz(found, before.c_str())) != NULL ) {
@@ -190,10 +190,10 @@ int	erase(string& str, const string& before) {
 	}
 	if ( count==0 ) return 0;
 
-	// ’†ŠÔƒoƒbƒtƒ@‚ğŠm•Û
+	// ä¸­é–“ãƒãƒƒãƒ•ã‚¡ã‚’ç¢ºä¿
 	char*	buf = new char[textLength - beforeLength*count + 1];
 
-	// Á‹ƒ‹[ƒv
+	// æ¶ˆå»ãƒ«ãƒ¼ãƒ—
 	const char*	pread = str.c_str();
 	char*	pwrite = buf;
 	found = str.c_str();
@@ -202,16 +202,16 @@ int	erase(string& str, const string& before) {
 		pwrite += found-pread;
 		pread = found+beforeLength;
 	}
-	// c‚è‚ğƒRƒs[
+	// æ®‹ã‚Šã‚’ã‚³ãƒ”ãƒ¼
 	strcpy(pwrite, pread);
 
-	// ‰ß‹‚Ì—Ìˆæ‚ğ‰ğ•úAƒoƒbƒtƒ@‚ÌÀ‘Ì‚ğ“à—e‚Æ‚·‚éB
+	// éå»ã®é ˜åŸŸã‚’è§£æ”¾ã€ãƒãƒƒãƒ•ã‚¡ã®å®Ÿä½“ã‚’å†…å®¹ã¨ã™ã‚‹ã€‚
 	str = buf;
-	delete buf;
+	delete[] buf;
 	return	count;
 }
 
-// ‘ÎÛŒê‹å‚Ì”‚ğ”‚¦‚é
+// å¯¾è±¡èªå¥ã®æ•°ã‚’æ•°ãˆã‚‹
 int	count(const string& str, const string& target) {
 	const char*	found=str.c_str();
 	int	count=0;
@@ -223,7 +223,7 @@ int	count(const string& str, const string& target) {
 }
 
 
-// ƒtƒ@ƒCƒ‹‚Ì‘¶İ‚ğŠm”F
+// ãƒ•ã‚¡ã‚¤ãƒ«ã®å­˜åœ¨ã‚’ç¢ºèª
 bool	is_exist_file(const string& iFileName) {
 	ifstream	in(iFileName.c_str());
 	if ( !in.is_open() )
@@ -241,7 +241,7 @@ bool	strvec_from_file(
 	if ( !in.is_open() )
 		return	false;
 	while ( in.peek() != EOF ) {
-		// ‚Ps“Ç‚İ‚İ
+		// ï¼‘è¡Œèª­ã¿è¾¼ã¿
 		stringstream	line;
 		int	c;
 		while ( (c=in.get()) != '\n' && c!=EOF) {
@@ -278,7 +278,7 @@ bool	strmap_from_file(strmap& o, const string& iFileName, const string& dlmt)
 		return	false;
 	while ( in.peek() != EOF )
 	{
-		// ‚Ps“Ç‚İ‚İ
+		// ï¼‘è¡Œèª­ã¿è¾¼ã¿
 		string line;
 		int	c;
 		while ( (c=in.get()) != '\n' && c!=EOF)
@@ -554,23 +554,23 @@ string	set_filename(const string& str, const char* new_filename) {
 
 
 
-// .iniƒtƒ@ƒCƒ‹‚ğ“Ç‚İ‚İ
+// .iniãƒ•ã‚¡ã‚¤ãƒ«ã‚’èª­ã¿è¾¼ã¿
 bool	inimap::load(const string& iFileName) {
 	this->clear();
 
-	// ƒtƒ@ƒCƒ‹‚ğŠJ‚­
+	// ãƒ•ã‚¡ã‚¤ãƒ«ã‚’é–‹ã
 	ifstream	in(iFileName.c_str());
 	if ( !in.is_open() )
 		return	false;
-	// Œ»İ‚ÌƒZƒNƒVƒ‡ƒ“‚Ö‚ÌƒCƒeƒŒ[ƒ^
+	// ç¾åœ¨ã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã¸ã®ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿
 	inimap::iterator	theSection = this->end();
 
-	// Šes‚É‘Î‚µˆ—
+	// å„è¡Œã«å¯¾ã—å‡¦ç†
 	while ( in.peek() != EOF ) {
 
-		string	str;	// ‚±‚Ìƒ‹[ƒv‚Åˆµ‚¤s•¶š—ñ
+		string	str;	// ã“ã®ãƒ«ãƒ¼ãƒ—ã§æ‰±ã†è¡Œæ–‡å­—åˆ—
 
-		{// ‚Ps“Ç‚İ‚ñ‚Åstr‚ÉŠi”[
+		{// ï¼‘è¡Œèª­ã¿è¾¼ã‚“ã§strã«æ ¼ç´
 			stringstream	line;
 			int	c;
 			while ( (c=in.get()) != '\n' && c!=EOF) {
@@ -582,33 +582,33 @@ bool	inimap::load(const string& iFileName) {
 		}
 
 		if ( str.empty() ) {
-			// ‹ós
+			// ç©ºè¡Œ
 		}
 		else if ( str.size()>=2 && str[0]=='[' ) {
-			// ƒZƒNƒVƒ‡ƒ“–¼‚Ìİ’ès [SectionName]
+			// ã‚»ã‚¯ã‚·ãƒ§ãƒ³åã®è¨­å®šè¡Œ [SectionName]
 			string::size_type	end_pos = str.find(']', 1);
 			if ( end_pos == string::npos )
-				return	false;	// •Â‚¶ƒJƒbƒR‚Ì–³‚¢‘åƒJƒbƒR‚ğ”­Œ©AˆÙí‚Æ‚İ‚È‚·
-			string	section_name = str.substr(1, end_pos-1); // ƒZƒNƒVƒ‡ƒ“–¼æ“¾
+				return	false;	// é–‰ã˜ã‚«ãƒƒã‚³ã®ç„¡ã„å¤§ã‚«ãƒƒã‚³ã‚’ç™ºè¦‹ã€ç•°å¸¸ã¨ã¿ãªã™
+			string	section_name = str.substr(1, end_pos-1); // ã‚»ã‚¯ã‚·ãƒ§ãƒ³åå–å¾—
 			pair<inimap::iterator, bool> result = 
-				this->insert( inimap::value_type(section_name, strmap()) ); // map‚É‘}“ü
-			theSection = result.first;	// Œ»İ‚ÌƒZƒNƒVƒ‡ƒ“‚ğw‚·ƒCƒeƒŒ[ƒ^‚ğæ“¾
+				this->insert( inimap::value_type(section_name, strmap()) ); // mapã«æŒ¿å…¥
+			theSection = result.first;	// ç¾åœ¨ã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã‚’æŒ‡ã™ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿ã‚’å–å¾—
 		}
 		else {
-			// ’Êí‚Ìs key=value
+			// é€šå¸¸ã®è¡Œ key=value
 			string::size_type	eq_pos = str.find('=', 0);
 			if ( eq_pos == string::npos )
-				continue;	// []‚à=‚à–³‚­‹ós‚Å‚à‚È‚¢–­‚Ès
+				continue;	// []ã‚‚=ã‚‚ç„¡ãç©ºè¡Œã§ã‚‚ãªã„å¦™ãªè¡Œ
 
-			// theSection‚ª–¢İ’è‚Ì‚Ü‚Ü‚±‚±‚É—ˆ‚½‚Æ‚«‚Í–³–¼‚ÌƒZƒNƒVƒ‡ƒ“‚ğİ’è
+			// theSectionãŒæœªè¨­å®šã®ã¾ã¾ã“ã“ã«æ¥ãŸã¨ãã¯ç„¡åã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã‚’è¨­å®š
 			if (theSection == this->end())
 			{
 				pair<inimap::iterator, bool> result = 
-					this->insert( inimap::value_type("", strmap()) ); // map‚É‘}“ü
-				theSection = result.first;	// Œ»İ‚ÌƒZƒNƒVƒ‡ƒ“‚ğw‚·ƒCƒeƒŒ[ƒ^‚ğæ“¾
+					this->insert( inimap::value_type("", strmap()) ); // mapã«æŒ¿å…¥
+				theSection = result.first;	// ç¾åœ¨ã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã‚’æŒ‡ã™ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿ã‚’å–å¾—
 			}
 
-			// map‚É‘}“ü
+			// mapã«æŒ¿å…¥
 			string	key = str.substr(0, eq_pos);
 			string	value = str.substr(eq_pos+1, string::npos);
 			theSection->second[key] = value;
@@ -617,42 +617,42 @@ bool	inimap::load(const string& iFileName) {
 	return	true;
 }
 
-// .iniƒtƒ@ƒCƒ‹‚Ö•Û‘¶
+// .iniãƒ•ã‚¡ã‚¤ãƒ«ã¸ä¿å­˜
 bool	inimap::save(const string& iFileName) const {
 
-	// ƒtƒ@ƒCƒ‹‚ğŠJ‚­
+	// ãƒ•ã‚¡ã‚¤ãƒ«ã‚’é–‹ã
 	ofstream	out(iFileName.c_str());
 	if ( !out.is_open() )
 		return	false;
 
 	for (inimap::const_iterator i=this->begin() ; i!=this->end() ; ++i)
 	{
-		out << "[" << i->first << "]" << endl;	// [SectionName]‚ğo—Í
+		out << "[" << i->first << "]" << endl;	// [SectionName]ã‚’å‡ºåŠ›
 		for (strmap::const_iterator j=i->second.begin() ; j!=i->second.end() ; ++j)
-			out << j->first << "=" << j->second << endl;	// key=value‚ğo—Í
+			out << j->first << "=" << j->second << endl;	// key=valueã‚’å‡ºåŠ›
 	}
 
 	return	true;
 }
 
 
-// .iniƒtƒ@ƒCƒ‹‚ğ“Ç‚İ‚İ
+// .iniãƒ•ã‚¡ã‚¤ãƒ«ã‚’èª­ã¿è¾¼ã¿
 bool	inivec::load(const string& iFileName) {
 	this->clear();
 
-	// ƒtƒ@ƒCƒ‹‚ğŠJ‚­
+	// ãƒ•ã‚¡ã‚¤ãƒ«ã‚’é–‹ã
 	ifstream	in(iFileName.c_str());
 	if ( !in.is_open() )
 		return	false;
-	// Œ»İ‚ÌƒZƒNƒVƒ‡ƒ“‚Ö‚ÌƒCƒeƒŒ[ƒ^
+	// ç¾åœ¨ã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã¸ã®ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿
 	iterator	theSection = this->end();
 
-	// Šes‚É‘Î‚µˆ—
+	// å„è¡Œã«å¯¾ã—å‡¦ç†
 	while ( in.peek() != EOF ) {
 
-		string	str;	// ‚±‚Ìƒ‹[ƒv‚Åˆµ‚¤s•¶š—ñ
+		string	str;	// ã“ã®ãƒ«ãƒ¼ãƒ—ã§æ‰±ã†è¡Œæ–‡å­—åˆ—
 
-		{// ‚Ps“Ç‚İ‚ñ‚Åstr‚ÉŠi”[
+		{// ï¼‘è¡Œèª­ã¿è¾¼ã‚“ã§strã«æ ¼ç´
 			int	c;
 			while ( (c=in.get()) != '\n' && c!=EOF) {
 			    if (c != '\r') {
@@ -662,29 +662,29 @@ bool	inivec::load(const string& iFileName) {
 		}
 
 		if ( str.empty() ) {
-			// ‹ós
+			// ç©ºè¡Œ
 		}
 		else if ( str.size()>=2 && str[0]=='[' ) {
-			// ƒZƒNƒVƒ‡ƒ“–¼‚Ìİ’ès [SectionName]
+			// ã‚»ã‚¯ã‚·ãƒ§ãƒ³åã®è¨­å®šè¡Œ [SectionName]
 			string::size_type	end_pos = str.find(']', 1);
 			if ( end_pos == string::npos )
-				return	false;	// •Â‚¶ƒJƒbƒR‚Ì–³‚¢‘åƒJƒbƒR‚ğ”­Œ©AˆÙí‚Æ‚İ‚È‚·
-			string	section_name = str.substr(1, end_pos-1); // ƒZƒNƒVƒ‡ƒ“–¼æ“¾
+				return	false;	// é–‰ã˜ã‚«ãƒƒã‚³ã®ç„¡ã„å¤§ã‚«ãƒƒã‚³ã‚’ç™ºè¦‹ã€ç•°å¸¸ã¨ã¿ãªã™
+			string	section_name = str.substr(1, end_pos-1); // ã‚»ã‚¯ã‚·ãƒ§ãƒ³åå–å¾—
 			
-			this->push_back( value_type(section_name, strpairvec()) ); // vector‚É’Ç‰Á
-			--(theSection = this->end());	// Œ»İ‚ÌƒZƒNƒVƒ‡ƒ“‚ğw‚·ƒCƒeƒŒ[ƒ^‚ğæ“¾
+			this->push_back( value_type(section_name, strpairvec()) ); // vectorã«è¿½åŠ 
+			--(theSection = this->end());	// ç¾åœ¨ã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã‚’æŒ‡ã™ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿ã‚’å–å¾—
 		}
 		else {
-			// ’Êí‚Ìs key=value
+			// é€šå¸¸ã®è¡Œ key=value
 			string::size_type	eq_pos = str.find('=', 0);
 			if ( eq_pos == string::npos )
-				continue;	// []‚à=‚à–³‚­‹ós‚Å‚à‚È‚¢–­‚Ès
+				continue;	// []ã‚‚=ã‚‚ç„¡ãç©ºè¡Œã§ã‚‚ãªã„å¦™ãªè¡Œ
 
-			// theSection‚ª–¢İ’è‚Ì‚Ü‚Ü‚±‚±‚É—ˆ‚½‚Æ‚«‚Í–³–¼‚ÌƒZƒNƒVƒ‡ƒ“‚ğİ’è
+			// theSectionãŒæœªè¨­å®šã®ã¾ã¾ã“ã“ã«æ¥ãŸã¨ãã¯ç„¡åã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã‚’è¨­å®š
 			if (theSection == this->end())
 			{
-				this->push_back( value_type("", strpairvec()) ); // vector‚É’Ç‰Á
-				--(theSection = this->end());	// Œ»İ‚ÌƒZƒNƒVƒ‡ƒ“‚ğw‚·ƒCƒeƒŒ[ƒ^‚ğæ“¾
+				this->push_back( value_type("", strpairvec()) ); // vectorã«è¿½åŠ 
+				--(theSection = this->end());	// ç¾åœ¨ã®ã‚»ã‚¯ã‚·ãƒ§ãƒ³ã‚’æŒ‡ã™ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿ã‚’å–å¾—
 			}
 	
 			string	key = str.substr(0, eq_pos);
@@ -711,7 +711,7 @@ int		random() {
 }
 #endif
 
-// printfŒİŠ·‚Å•¶š—ñ‚ğ¶¬‚µAstringŒ^‚Å•Ô‚·B
+// printfäº’æ›ã§æ–‡å­—åˆ—ã‚’ç”Ÿæˆã—ã€stringå‹ã§è¿”ã™ã€‚
 #include	<cstdarg>
 string	stringf(const char* iFormat, ...) {
 	static const int BUF_SIZE = 4096;

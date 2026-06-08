@@ -37,7 +37,7 @@ public:
 	string join(const string& i_delimiter="")
 	{
 		string r;
-		for (iterator i=begin() ; i!=end() ;)
+		for (iterator i=begin() ; i!=end() ; ++i)
 		{
 			if ( i!=begin() )
 				r += i_delimiter;

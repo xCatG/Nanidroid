@@ -40,7 +40,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     var currentSelection by mutableStateOf<SelectionData?>(null)
         private set
 
-    data class SelectionData(val labels: Array<String>, val ids: Array<String>)
+    data class SelectionData(val labels: List<String>, val ids: List<String>)
 
     fun init() {
         if (isInitialized) return
@@ -61,7 +61,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
 
             override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
                 logConsole("Prompt: Choice selection requested")
-                currentSelection = SelectionData(textlabel, ids)
+                currentSelection = SelectionData(textlabel.toList(), ids.toList())
             }
         })
         isInitialized = true
@@ -115,7 +115,7 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
             val context = getApplication<Application>()
             val gm = GhostMgr(context)
             val runner = SScriptRunner.getInstance(context)
-            
+            _activeGhost.value?.unload()
             val g = gm.createGhost(id)
             if (g != null) {
                 gm.setLastRunGhost(g)

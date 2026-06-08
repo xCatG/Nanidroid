@@ -50,17 +50,23 @@ class NanidroidShiori : EchoShiori {
     private fun readContent(contentFile: File) {
         if (contentFile.exists()) {
             evtTable = Hashtable()
-            val isStream = FileInputStream(contentFile)
-            val br = BufferedReader(InputStreamReader(isStream, Charset.forName("UTF-8")))
-            while (true) {
-                val line = br.readLine() ?: break
-                if (line.startsWith(";")) continue
-                val idx = line.indexOf(',')
-                if (idx == -1) continue // bad line
+            try {
+                FileInputStream(contentFile).use { isStream ->
+                    BufferedReader(InputStreamReader(isStream, Charsets.UTF_8)).use { br ->
+                        while (true) {
+                            val line = br.readLine() ?: break
+                            if (line.startsWith(";")) continue
+                            val idx = line.indexOf(',')
+                            if (idx == -1) continue // bad line
 
-                val key = line.substring(0, idx)
-                val valStr = line.substring(idx + 1)
-                evtTable?.put(key, valStr)
+                            val key = line.substring(0, idx)
+                            val valStr = line.substring(idx + 1)
+                            evtTable?.put(key, valStr)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
