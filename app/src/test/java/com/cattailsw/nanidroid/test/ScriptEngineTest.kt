@@ -915,8 +915,8 @@ class ScriptEngineTest {
         // ghostSwitchScriptComplete should have fired exactly once
         assertEquals("ghostSwitchScriptComplete should fire once", 1, switchCompleteCount)
 
-        // ghostA should be unloaded (by setGhost(ghostB) inside the callback)
-        assertTrue("outgoing ghostA must be unloaded", ghostAUnloadCount > 0)
+        // ghostA should be unloaded exactly once (by setGhost(ghostB) inside the callback)
+        assertEquals("outgoing ghostA must be unloaded exactly once", 1, ghostAUnloadCount)
 
         // CRITICAL: ghostB (the incoming ghost) must NEVER be unloaded
         assertEquals("incoming ghostB must NOT be unloaded by stop()'s changingPending branch", 0, ghostBUnloadCount)
