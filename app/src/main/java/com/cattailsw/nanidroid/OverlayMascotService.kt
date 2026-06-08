@@ -20,6 +20,7 @@ class OverlayMascotService : Service() {
         private const val TAG = "OverlayMascotService"
         private const val CHANNEL_ID = "overlay_mascot_channel"
         private const val NOTIFICATION_ID = 101
+        @JvmStatic var isRunning: Boolean = false
     }
 
     private var windowManager: WindowManager? = null
@@ -33,6 +34,7 @@ class OverlayMascotService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         createNotificationChannel()
         startForegroundService()
         setupOverlay()
@@ -153,6 +155,7 @@ class OverlayMascotService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
         val runner = SScriptRunner.getInstance(this)
         runner.setGhost(null)
         runner.stopClock()

@@ -348,6 +348,5 @@ class SScriptRunner(
         scriptEngine.doOnChoiceSelect(id)
     }
 
-    @OptIn(InternalCoroutinesApi::class)
     fun getScriptEngine(): ScriptEngine = scriptEngine
 }

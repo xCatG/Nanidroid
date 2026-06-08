@@ -103,6 +103,7 @@ class ScriptEngine(
         }
 
         if (g != ghost) {
+            g?.unload()
             bootedGhostId = null
         }
 
@@ -136,7 +137,6 @@ class ScriptEngine(
     }
 
     fun startClock() {
-        Log.d(TAG, "startClock called")
         if (clockJob != null && clockJob?.isActive == true) {
             return // Clock idempotency
         }

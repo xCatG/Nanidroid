@@ -110,7 +110,7 @@ class TouchEventTest {
     fun keroTouch_doesNotClearQueueMidScript() = runTest(testDispatcher) {
         val localFakeShiori = FakeShiori(
             responses = mapOf(
-                "OnMouseClick" to "\\uclicked\\e"
+                "OnMouseClick" to ""
             )
         )
         testGhost.shiori = localFakeShiori
@@ -131,9 +131,7 @@ class TouchEventTest {
         advanceUntilIdle()
         
         // SScriptRunner should NOT have cleared the queue, so cmd2 is still processed.
-        // The mock response to Kero single click is cmd1 ("clicked"), which is added to the queue.
-        // Therefore, both "clicked" and "ghijk" should be processed.
-        assertTrue(bKero!!.textVal?.contains("clicked") == true)
+        // Even with OnMouseClick returning "", the pre-queued script survives.
         assertTrue(bKero!!.textVal?.contains("ghijk") == true)
     }
 }

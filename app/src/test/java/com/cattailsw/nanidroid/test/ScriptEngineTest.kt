@@ -83,14 +83,11 @@ class ScriptEngineTest {
 
     private fun CoroutineScope.bindViews(engine: ScriptEngine) {
         launch {
-            println("DEBUG: Collector launched")
             engine.uiState.collect { state ->
-                println("DEBUG: Collected state: $state")
                 sakura?.changeSurface(state.sakuraSurfaceId)
                 kero?.changeSurface(state.keroSurfaceId)
 
                 if (state.sakuraBalloonVisible) {
-                    println("DEBUG: Sakura balloon visible, text: '${state.sakuraBalloonText}'")
                     bSakura?.setText(state.sakuraBalloonText)
                     if (state.sakuraAnimationId == null && state.talkAnimeControl == 0) {
                         sakura?.startTalkingAnimation()
@@ -98,7 +95,6 @@ class ScriptEngineTest {
                 }
                 
                 if (state.keroBalloonVisible) {
-                    println("DEBUG: Kero balloon visible, text: '${state.keroBalloonText}'")
                     bKero?.setText(state.keroBalloonText)
                     if (state.keroAnimationId == null && state.talkAnimeControl == 0) {
                         kero?.startTalkingAnimation()
@@ -213,28 +209,20 @@ class ScriptEngineTest {
 
     @Test
     fun testSakuraSpeak() = runTest(testDispatcher) {
-        System.err.println("DEBUG ERR: testSakuraSpeak started")
         val customScope = CoroutineScope(testDispatcher + SupervisorJob())
         val engine = ScriptEngine(null, testDispatcher, testDispatcher)
         
-        System.err.println("DEBUG ERR: launching collector")
         customScope.launch {
-            System.err.println("DEBUG ERR: collector coroutine started")
             engine.uiState.collect { state ->
-                System.err.println("DEBUG ERR: collected state: $state")
                 bSakura?.setText(state.sakuraBalloonText)
             }
         }
 
         engine.addMsgToQueue(arrayOf("\\_q\\hlalala\\e"))
-        System.err.println("DEBUG ERR: launching engine run")
         customScope.launch { 
-            System.err.println("DEBUG ERR: engine run coroutine started")
             engine.run() 
         }
-        System.err.println("DEBUG ERR: calling advanceUntilIdle")
         advanceUntilIdle()
-        System.err.println("DEBUG ERR: after advanceUntilIdle, textVal = ${bSakura?.textVal}")
         assertEquals("lalala", bSakura?.textVal)
 
         engine.addMsgToQueue(arrayOf("\\_q\\0abcdefg\\n"))
@@ -348,19 +336,33 @@ class ScriptEngineTest {
     fun testCallback() = runTest(testDispatcher) {
         val customScope = CoroutineScope(testDispatcher + SupervisorJob())
         val engine = ScriptEngine(null, testDispatcher, testDispatcher)
-        engine.setStatusCallback(statusCallback)
         customScope.bindViews(engine)
 
         val cmd = "\\habcde\\e"
-        assertFalse(statusStopCalled)
+        
+        // 1. Without callback registered
+        engine.setStatusCallback(null)
         engine.addMsgToQueue(arrayOf(cmd))
-        customScope.launch { engine.run() }
+        val job1 = customScope.launch { engine.run() }
+        advanceUntilIdle()
+        assertFalse(statusStopCalled)
+        job1.cancel()
+
+        // 2. With callback registered
+        engine.setStatusCallback(statusCallback)
+        engine.addMsgToQueue(arrayOf(cmd))
+        val job2 = customScope.launch { engine.run() }
+        
+        // Before completion
         advanceTimeBy(100)
         runCurrent()
         assertFalse(statusStopCalled)
 
+        // After completion
         advanceUntilIdle()
         assertTrue(statusStopCalled)
+        job2.cancel()
+
         customScope.cancel()
     }
 
@@ -786,6 +788,25 @@ class ScriptEngineTest {
 
         runner.clearViews()
         assertNull(sakuraRefField.get(runner))
+    }
+
+    @Test
+    fun setGhostNull_unloadsGhostNativeResources() {
+        var unloadCalled = false
+        val ghost = object : Ghost("testPath") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+            override fun unload() {
+                unloadCalled = true
+            }
+        }
+        val engine = ScriptEngine(ghost, testDispatcher, testDispatcher)
+        engine.setGhost(ghost)
+        assertFalse(unloadCalled)
+
+        engine.setGhost(null)
+        assertTrue(unloadCalled)
     }
 }
 

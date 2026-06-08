@@ -42,11 +42,6 @@ android {
     }
 
     testOptions {
-      unitTests.all {
-        it.testLogging {
-          showStandardStreams = true
-        }
-      }
     }
 
     packaging {
