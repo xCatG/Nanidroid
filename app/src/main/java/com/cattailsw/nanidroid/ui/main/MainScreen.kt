@@ -430,14 +430,16 @@ fun InAppMascotView(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        // Register this Compose host. The effect keys on (lifecycleOwner, activeGhost), so it
+        // re-runs (dispose + re-enter) when activeGhost changes — one attach per effect instance
+        // pairs with one detach per onDispose, keeping the refcount balanced across that.
+        SScriptRunner.getInstance(context).attach()
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            if (!OverlayMascotService.isRunning) {
-                val runner = SScriptRunner.getInstance(context)
-                runner.setGhost(null)
-                runner.stopClock()
-                runner.clearMsgQueue()
-                runner.clearViews()
+            // Engine teardown runs only when the last host detaches. The overlay startup transient
+            // (overlay requested but its onCreate not yet run while this detaches) is acceptable and
+            // self-healing: the overlay's setupOverlay re-inits the engine.
+            if (SScriptRunner.getInstance(context).detach()) {
                 LayoutManager.getInstance(context).clearViews()
             }
         }
