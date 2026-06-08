@@ -297,7 +297,12 @@ class ScriptEngine(
                 if (changingPending) {
                     changingPending = false
                     it.ghostSwitchScriptComplete()
-                    g?.unload()
+                    // Do NOT call g?.unload() here. setGhost(newGhost) is the single owner
+                    // of unloading: it unloads the outgoing ghost before swapping. Calling
+                    // unload() here is racy — if the host calls setGhost(newGhost) synchronously
+                    // inside ghostSwitchScriptComplete() (which is the documented pattern, per
+                    // legacy Nanidroid.java ghostSwitchStep2), then g already points to the
+                    // INCOMING ghost and this line would unload the wrong (new) ghost.
                 }
             }
         }
