@@ -116,12 +116,6 @@ class NanidroidService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        runner?.let { r ->
-            r.setGhost(null)
-            r.stopClock()
-            r.clearMsgQueue()
-            r.clearViews()
-        }
         Log.d(TAG, "onDestroy: called")
         mHandler.removeMessages(HTTP_TASK_START)
         serviceScope.cancel()
