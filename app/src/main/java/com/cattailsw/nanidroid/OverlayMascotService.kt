@@ -20,6 +20,14 @@ class OverlayMascotService : Service() {
         private const val TAG = "OverlayMascotService"
         private const val CHANNEL_ID = "overlay_mascot_channel"
         private const val NOTIFICATION_ID = 101
+
+        // Read-only liveness hint: true while the overlay service is alive. This is NOT a teardown
+        // guard — engine teardown ownership belongs to the SScriptRunner host refcount (attach/detach).
+        // It exists only so MainActivity.onPause can keep the clock running for an active overlay
+        // when the app is backgrounded.
+        @JvmStatic
+        var isRunning: Boolean = false
+            private set
     }
 
     private var windowManager: WindowManager? = null
@@ -33,6 +41,7 @@ class OverlayMascotService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         SScriptRunner.getInstance(this).attach()
         createNotificationChannel()
         startForegroundService()
@@ -154,6 +163,7 @@ class OverlayMascotService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
         val runner = SScriptRunner.getInstance(this)
         // Engine teardown runs only when the last rendering host detaches. LayoutManager holds
         // a Context, so its teardown stays here gated on detach() returning true.
