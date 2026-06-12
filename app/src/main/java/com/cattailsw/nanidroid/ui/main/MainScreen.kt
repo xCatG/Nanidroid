@@ -393,6 +393,28 @@ fun InAppMascotView(
     val lifecycleOwner = LocalLifecycleOwner.current
     var viewsRef by remember { mutableStateOf<MascotViews?>(null) }
 
+    // Host attach/detach tracks this composable's PRESENCE only — it is keyed on the stable
+    // lifecycleOwner, NEVER on activeGhost. A prior version keyed the whole effect on activeGhost,
+    // so a ghost switch disposed+recreated it: onDispose (detach) then re-enter (attach). When this
+    // in-app view was the sole host, that dropped the refcount to 0 and tore the engine down via
+    // setGhost(null), which unloaded the INCOMING ghost (its shiori nulled by the idempotent unload),
+    // leaving the newly selected ghost dead. Keeping attach/detach off the ghost key holds the
+    // refcount steady across switches; the binding effect below rebinds without any teardown.
+    DisposableEffect(lifecycleOwner) {
+        val runner = SScriptRunner.getInstance(context)
+        runner.attach()
+        onDispose {
+            // Engine teardown runs only when the last host detaches. The overlay startup transient
+            // (overlay requested but its onCreate not yet run while this detaches) is acceptable and
+            // self-healing: the overlay's setupOverlay re-inits the engine.
+            if (runner.detach()) {
+                LayoutManager.getInstance(context).clearViews()
+            }
+        }
+    }
+
+    // Ghost binding re-runs on ghost/overlay/views changes WITHOUT touching the host refcount, so a
+    // ghost switch rebinds smoothly instead of detaching and tearing the engine down.
     DisposableEffect(lifecycleOwner, activeGhost, isOverlayEnabled, viewsRef) {
         val lm = LayoutManager.getInstance(context)
         val runner = SScriptRunner.getInstance(context)
@@ -400,20 +422,20 @@ fun InAppMascotView(
         fun bindViews() {
             val views = viewsRef ?: return
             val ghost = activeGhost ?: return
-            
+
             if (!isOverlayEnabled) {
                 views.sakura.mgr = ghost.mgr
                 views.kero.mgr = ghost.mgr
-                
+
                 lm.setViews(views.layout, views.sakura, views.kero, views.bSakura, views.bKero)
                 runner.setViews(views.sakura, views.kero, views.bSakura, views.bKero)
                 runner.setGhost(ghost)
                 runner.setLayoutMgr(lm)
-                
+
                 views.layout.post {
                     lm.checkAndUpdateLayoutParam()
                 }
-                
+
                 runner.stopClock()
                 runner.startClock()
                 runner.run()
@@ -430,20 +452,8 @@ fun InAppMascotView(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        // Register this Compose host. The effect keys on (lifecycleOwner, activeGhost), so a ghost
-        // switch re-runs the effect: onDispose (detach) then re-enter (attach). When this in-app
-        // view is the sole host, that momentarily drops the refcount to 0 and tears the engine
-        // down; it self-heals on the next ON_RESUME re-init above. This is intentional and matches
-        // the prior behavior — do not "fix" it by re-keying the effect.
-        SScriptRunner.getInstance(context).attach()
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            // Engine teardown runs only when the last host detaches. The overlay startup transient
-            // (overlay requested but its onCreate not yet run while this detaches) is acceptable and
-            // self-healing: the overlay's setupOverlay re-inits the engine.
-            if (SScriptRunner.getInstance(context).detach()) {
-                LayoutManager.getInstance(context).clearViews()
-            }
         }
     }
 

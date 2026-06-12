@@ -791,7 +791,7 @@ class ScriptEngineTest {
     }
 
     @Test
-    fun setGhostNull_unloadsGhostNativeResources() {
+    fun setGhostNull_unloadsGhostNativeResources() = runTest(testDispatcher) {
         var unloadCalled = false
         val ghost = object : Ghost("testPath") {
             override fun loadGhostInfo() {}
@@ -803,14 +803,46 @@ class ScriptEngineTest {
         }
         val engine = ScriptEngine(ghost, testDispatcher, testDispatcher)
         engine.setGhost(ghost)
+        advanceUntilIdle()
         assertFalse(unloadCalled)
 
         engine.setGhost(null)
+        // unload() is dispatched onto the engine dispatcher (R5: JNI pinned off-Main), so it runs
+        // only after the scheduler advances — not synchronously on the caller's thread.
+        advanceUntilIdle()
         assertTrue(unloadCalled)
     }
 
     @Test
-    fun setGhost_switchingGhosts_unloadsOutgoingOnly() {
+    fun setGhost_dispatchesOutgoingUnloadToEngineDispatcher_notSynchronously() = runTest(testDispatcher) {
+        var unloadCount = 0
+        val ghostA = object : Ghost("pathA") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+            override fun unload() { unloadCount++ }
+        }
+        val ghostB = object : Ghost("pathB") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+        }
+
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        engine.setGhost(ghostA)
+        engine.setGhost(ghostB)
+
+        // The unload of the outgoing ghostA must NOT run synchronously on the caller (main) thread —
+        // it is dispatched to the single engine thread to serialize with in-flight doShioriEvent and
+        // keep JNI/disk I/O off the UI thread. Before advancing, nothing has run.
+        assertEquals("unload must be dispatched, not run on the caller thread", 0, unloadCount)
+
+        advanceUntilIdle()
+        assertEquals("outgoing ghostA unloaded exactly once on the engine dispatcher", 1, unloadCount)
+    }
+
+    @Test
+    fun setGhost_switchingGhosts_unloadsOutgoingOnly() = runTest(testDispatcher) {
         var ghostAUnloadCount = 0
         var ghostBUnloadCount = 0
 
@@ -831,16 +863,15 @@ class ScriptEngineTest {
 
         val engine = ScriptEngine(null, testDispatcher, testDispatcher)
         engine.setGhost(ghostA)
-        assertEquals("ghostA set: no unload yet", 0, ghostAUnloadCount)
-        assertEquals("ghostB not involved yet", 0, ghostBUnloadCount)
-
         engine.setGhost(ghostB)
+        // Drain the dispatched unload(s).
+        advanceUntilIdle()
         assertEquals("ghostA should be unloaded exactly once", 1, ghostAUnloadCount)
         assertEquals("ghostB (incoming) must NOT be unloaded", 0, ghostBUnloadCount)
     }
 
     @Test
-    fun setGhost_sameGhostTwice_doesNotUnload() {
+    fun setGhost_sameGhostTwice_doesNotUnload() = runTest(testDispatcher) {
         var unloadCount = 0
         val ghostA = object : Ghost("pathA") {
             override fun loadGhostInfo() {}
@@ -851,9 +882,8 @@ class ScriptEngineTest {
 
         val engine = ScriptEngine(null, testDispatcher, testDispatcher)
         engine.setGhost(ghostA)
-        assertEquals("first setGhost: no unload", 0, unloadCount)
-
         engine.setGhost(ghostA)
+        advanceUntilIdle()
         assertEquals("same ghost set twice: g != ghost guard prevents unload", 0, unloadCount)
     }
 
