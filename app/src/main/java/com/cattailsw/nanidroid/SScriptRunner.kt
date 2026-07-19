@@ -68,6 +68,46 @@ class SScriptRunner(
     private val scope = CoroutineScope(mainDispatcher + SupervisorJob())
     private val scriptEngine = ScriptEngine(null, engineDispatcher, mainDispatcher)
 
+    // R7-B part 2: refcount of active rendering hosts (overlay service + in-app Compose view).
+    // Replaces the fragile OverlayMascotService.isRunning flag. The count is instance state on
+    // this process-wide singleton; engine teardown runs exactly when the last host detaches.
+    private val hostLock = Any()
+    private var hostCount = 0
+
+    /** Registers an active rendering host. Balanced by a later [detach]. */
+    fun attach() {
+        synchronized(hostLock) {
+            hostCount++
+        }
+    }
+
+    /**
+     * Deregisters a rendering host. When the last host detaches (count reaches 0) the engine
+     * is torn down and this returns true; otherwise returns false. The count is clamped at 0,
+     * so a detach with no attached hosts is a no-op returning false (never goes negative).
+     */
+    fun detach(): Boolean {
+        synchronized(hostLock) {
+            if (hostCount <= 0) {
+                hostCount = 0
+                return false
+            }
+            hostCount--
+            if (hostCount == 0) {
+                teardownEngine()
+                return true
+            }
+            return false
+        }
+    }
+
+    private fun teardownEngine() {
+        setGhost(null)
+        stopClock()
+        clearMsgQueue()
+        clearViews()
+    }
+
     private val engineCallback = object : StatusCallback {
         override fun stop() {
             clientCallback?.stop()

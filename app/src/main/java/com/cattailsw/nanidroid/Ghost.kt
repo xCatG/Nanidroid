@@ -90,7 +90,9 @@ open class Ghost {
     }
 
     open fun unload() {
-        shiori?.unloadShiori()
+        val s = shiori
+        shiori = null
+        s?.unloadShiori()
     }
 
     fun getGhostId(): String {

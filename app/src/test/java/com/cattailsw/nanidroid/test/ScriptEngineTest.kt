@@ -791,7 +791,7 @@ class ScriptEngineTest {
     }
 
     @Test
-    fun setGhostNull_unloadsGhostNativeResources() {
+    fun setGhostNull_unloadsGhostNativeResources() = runTest(testDispatcher) {
         var unloadCalled = false
         val ghost = object : Ghost("testPath") {
             override fun loadGhostInfo() {}
@@ -803,10 +803,155 @@ class ScriptEngineTest {
         }
         val engine = ScriptEngine(ghost, testDispatcher, testDispatcher)
         engine.setGhost(ghost)
+        advanceUntilIdle()
         assertFalse(unloadCalled)
 
         engine.setGhost(null)
+        // unload() is dispatched onto the engine dispatcher (R5: JNI pinned off-Main), so it runs
+        // only after the scheduler advances — not synchronously on the caller's thread.
+        advanceUntilIdle()
         assertTrue(unloadCalled)
+    }
+
+    @Test
+    fun setGhost_dispatchesOutgoingUnloadToEngineDispatcher_notSynchronously() = runTest(testDispatcher) {
+        var unloadCount = 0
+        val ghostA = object : Ghost("pathA") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+            override fun unload() { unloadCount++ }
+        }
+        val ghostB = object : Ghost("pathB") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+        }
+
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        engine.setGhost(ghostA)
+        engine.setGhost(ghostB)
+
+        // The unload of the outgoing ghostA must NOT run synchronously on the caller (main) thread —
+        // it is dispatched to the single engine thread to serialize with in-flight doShioriEvent and
+        // keep JNI/disk I/O off the UI thread. Before advancing, nothing has run.
+        assertEquals("unload must be dispatched, not run on the caller thread", 0, unloadCount)
+
+        advanceUntilIdle()
+        assertEquals("outgoing ghostA unloaded exactly once on the engine dispatcher", 1, unloadCount)
+    }
+
+    @Test
+    fun setGhost_switchingGhosts_unloadsOutgoingOnly() = runTest(testDispatcher) {
+        var ghostAUnloadCount = 0
+        var ghostBUnloadCount = 0
+
+        // ghostDirName is derived from the path, and getGhostName() reads ghostDesc["name"]
+        // which is empty for test ghosts — that's fine, setGhost uses reference equality (g != ghost).
+        val ghostA = object : Ghost("pathA") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+            override fun unload() { ghostAUnloadCount++ }
+        }
+        val ghostB = object : Ghost("pathB") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+            override fun unload() { ghostBUnloadCount++ }
+        }
+
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        engine.setGhost(ghostA)
+        engine.setGhost(ghostB)
+        // Drain the dispatched unload(s).
+        advanceUntilIdle()
+        assertEquals("ghostA should be unloaded exactly once", 1, ghostAUnloadCount)
+        assertEquals("ghostB (incoming) must NOT be unloaded", 0, ghostBUnloadCount)
+    }
+
+    @Test
+    fun setGhost_sameGhostTwice_doesNotUnload() = runTest(testDispatcher) {
+        var unloadCount = 0
+        val ghostA = object : Ghost("pathA") {
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+            override fun unload() { unloadCount++ }
+        }
+
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        engine.setGhost(ghostA)
+        engine.setGhost(ghostA)
+        advanceUntilIdle()
+        assertEquals("same ghost set twice: g != ghost guard prevents unload", 0, unloadCount)
+    }
+
+    @Test
+    fun ghostSwitchCompletion_doesNotUnloadIncomingGhost() = runTest(testDispatcher) {
+        // This test exercises the dangerous race:
+        // 1. doGhostChanging() sets changingPending=true with ghostA as current
+        // 2. ghostA's OnGhostChanging script finishes, stop() fires
+        // 3. stop()'s changingPending branch calls ghostSwitchScriptComplete, which the host uses
+        //    to call setGhost(ghostB) — setGhost correctly unloads ghostA (outgoing)
+        // 4. If stop()'s changingPending branch ALSO calls g?.unload() AFTER ghostSwitchScriptComplete,
+        //    it would now unload ghostB (the incoming ghost) — the bug we're fixing.
+        var ghostAUnloadCount = 0
+        var ghostBUnloadCount = 0
+
+        val ghostA = object : Ghost("pathA") {
+            init {
+                this.shiori = FakeShiori(responses = mapOf(
+                    "OnGhostChanging" to "\\hSwitching!\\e"
+                ))
+            }
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 2L
+            override fun unload() { ghostAUnloadCount++ }
+        }
+        val ghostB = object : Ghost("pathB") {
+            init { this.shiori = FakeShiori(defaultResponse = "") }
+            override fun loadGhostInfo() {}
+            override fun incrementCreateCount() {}
+            override fun getCreateCount(): Long = 1L
+            override fun unload() { ghostBUnloadCount++ }
+        }
+
+        val engine = ScriptEngine(null, testDispatcher, testDispatcher)
+        engine.setGhost(ghostA)
+
+        // Track when ghostSwitchScriptComplete fires so we can simulate host calling setGhost(ghostB)
+        var switchCompleteCount = 0
+        engine.setStatusCallback(object : SScriptRunner.StatusCallback {
+            override fun stop() {}
+            override fun canExit() {}
+            override fun ghostSwitchScriptComplete() {
+                switchCompleteCount++
+                // Simulate the host swapping ghost in response to ghostSwitchScriptComplete.
+                // setGhost(ghostB) here correctly unloads ghostA (outgoing).
+                engine.setGhost(ghostB)
+            }
+        })
+
+        // Trigger the ghost-changing flow
+        engine.doGhostChanging("GhostB", "change", "/path/to/ghostB")
+
+        // Run the engine until the OnGhostChanging script completes and stop() fires
+        val customScope = CoroutineScope(testDispatcher + SupervisorJob())
+        customScope.launch { engine.run() }
+        advanceUntilIdle()
+
+        // ghostSwitchScriptComplete should have fired exactly once
+        assertEquals("ghostSwitchScriptComplete should fire once", 1, switchCompleteCount)
+
+        // ghostA should be unloaded exactly once (by setGhost(ghostB) inside the callback)
+        assertEquals("outgoing ghostA must be unloaded exactly once", 1, ghostAUnloadCount)
+
+        // CRITICAL: ghostB (the incoming ghost) must NEVER be unloaded
+        assertEquals("incoming ghostB must NOT be unloaded by stop()'s changingPending branch", 0, ghostBUnloadCount)
+
+        customScope.cancel()
     }
 }
 

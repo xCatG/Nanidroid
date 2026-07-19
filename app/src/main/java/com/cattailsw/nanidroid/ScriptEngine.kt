@@ -103,7 +103,15 @@ class ScriptEngine(
         }
 
         if (g != ghost) {
-            g?.unload()
+            // Unload the OUTGOING ghost on the engine dispatcher, never the caller's thread.
+            // unload() calls unloadShiori() — a JNI call that may touch disk — and SHIORI access is
+            // pinned to engineDispatcher (R5). Dispatching here serializes the unload after any
+            // in-flight doShioriEvent on the single engine thread, eliminating the main-thread data
+            // race / native use-after-free and keeping JNI/disk I/O off the UI thread (ANR). The
+            // outgoing reference is captured so the correct ghost is unloaded despite being async;
+            // Ghost.unload() is idempotent, so a later teardown unload is a harmless no-op.
+            val outgoing = g
+            scope.launch { outgoing?.unload() }
             bootedGhostId = null
         }
 
@@ -297,7 +305,12 @@ class ScriptEngine(
                 if (changingPending) {
                     changingPending = false
                     it.ghostSwitchScriptComplete()
-                    g?.unload()
+                    // Do NOT call g?.unload() here. setGhost(newGhost) is the single owner
+                    // of unloading: it unloads the outgoing ghost before swapping. Calling
+                    // unload() here is racy — if the host calls setGhost(newGhost) synchronously
+                    // inside ghostSwitchScriptComplete() (which is the documented pattern, per
+                    // legacy Nanidroid.java ghostSwitchStep2), then g already points to the
+                    // INCOMING ghost and this line would unload the wrong (new) ghost.
                 }
             }
         }
