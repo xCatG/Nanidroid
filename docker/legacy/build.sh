@@ -31,6 +31,8 @@ EOF
 
 # The original tree was maintained on a case-insensitive filesystem. Preserve
 # it verbatim and add aliases only inside the disposable Linux build copy.
+# These links intentionally do not use -f: BUILD_ROOT was recreated above, and
+# a future real file at an alias path must fail visibly rather than be replaced.
 ln -s Sender.h "${BUILD_ROOT}/jni/_/sender.h"
 ln -s Utilities.h "${BUILD_ROOT}/jni/_/utilities.h"
 ln -s satori.h "${BUILD_ROOT}/jni/satori/Satori.h"

@@ -132,7 +132,12 @@ def main() -> int:
         args.output.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    except (ArtifactError, OSError, subprocess.CalledProcessError) as error:
+    except subprocess.CalledProcessError as error:
+        print(f"legacy APK validation failed: {error}", file=sys.stderr)
+        if error.stderr:
+            print(f"aapt error output:\n{error.stderr}", file=sys.stderr)
+        return 1
+    except (ArtifactError, OSError) as error:
         print(f"legacy APK validation failed: {error}", file=sys.stderr)
         return 1
 

@@ -3,15 +3,20 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from inspect_legacy_apk import ArtifactError, inspect_apk, parse_badging
+from inspect_legacy_apk import ArtifactError, inspect_apk, main, parse_badging
 
 
 EXPECTED_BADGING = """\
@@ -107,6 +112,30 @@ class InspectApkTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ArtifactError, "not a valid ZIP"):
             inspect_apk(apk, EXPECTED_BADGING)
+
+
+class CommandLineTest(unittest.TestCase):
+    @mock.patch("inspect_legacy_apk.subprocess.run")
+    @mock.patch("inspect_legacy_apk._arguments")
+    def test_reports_aapt_stderr(
+        self, arguments: mock.Mock, run: mock.Mock
+    ) -> None:
+        arguments.return_value = SimpleNamespace(
+            apk=Path("broken.apk"),
+            aapt=Path("aapt"),
+            output=Path("report.json"),
+        )
+        run.side_effect = subprocess.CalledProcessError(
+            1, ["aapt", "dump", "badging"], stderr="ERROR: corrupt manifest"
+        )
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("aapt error output:", stderr.getvalue())
+        self.assertIn("ERROR: corrupt manifest", stderr.getvalue())
 
 
 if __name__ == "__main__":
