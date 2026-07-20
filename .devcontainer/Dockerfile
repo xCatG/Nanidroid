@@ -53,6 +53,6 @@ WORKDIR /workspaces/Nanidroid
 USER ${USERNAME}
 
 RUN git config --global --add safe.directory /workspaces/Nanidroid \
-    && git config --global core.autocrlf true
+    && git config --global core.autocrlf input
 
 CMD ["sleep", "infinity"]

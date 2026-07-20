@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -15,12 +16,15 @@ def version(command: list[str]) -> dict[str, object]:
     executable = shutil.which(command[0])
     if executable is None:
         return {"available": False}
-    result = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        return {"available": False, "executable": executable, "error": str(error)}
     output = (result.stdout or result.stderr).strip().splitlines()
     return {
         "available": result.returncode == 0,
@@ -40,7 +44,7 @@ def main() -> int:
 
     report = {
         "java": version(["java", "-version"]),
-        "python": version(["python", "--version"]),
+        "python": version([sys.executable, "--version"]),
         "cmake": version(["cmake", "--version"]),
         "ninja": version(["ninja", "--version"]),
         "git": version(["git", "--version"]),

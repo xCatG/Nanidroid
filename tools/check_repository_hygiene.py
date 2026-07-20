@@ -62,14 +62,22 @@ def sha256(path: Path) -> str:
 def main() -> int:
     tracked = tracked_files()
     failures: list[str] = []
+    forbidden_names_lower = {name.lower() for name in FORBIDDEN_NAMES}
+    forbidden_parts_lower = {part.lower() for part in FORBIDDEN_PARTS}
+    forbidden_suffixes_lower = {suffix.lower() for suffix in FORBIDDEN_SUFFIXES}
 
     for relative in tracked:
         path = Path(relative)
-        if path.name in FORBIDDEN_NAMES:
+        name_lower = path.name.lower()
+        parts_lower = {part.lower() for part in path.parts}
+        relative_lower = relative.lower()
+        if name_lower in forbidden_names_lower:
             failures.append(f"forbidden tracked file: {relative}")
-        if FORBIDDEN_PARTS.intersection(path.parts):
+        if forbidden_parts_lower.intersection(parts_lower):
             failures.append(f"forbidden tracked output directory: {relative}")
-        if any(relative.endswith(suffix) for suffix in FORBIDDEN_SUFFIXES):
+        if any(
+            relative_lower.endswith(suffix) for suffix in forbidden_suffixes_lower
+        ):
             failures.append(f"forbidden tracked generated artifact: {relative}")
 
     data = json.loads(INVENTORY.read_text(encoding="utf-8"))
