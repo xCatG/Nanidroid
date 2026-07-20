@@ -61,17 +61,11 @@ set(NANIDROID_KAWARI8_FLAGS
   -frtti
   -fexceptions
   -fpermissive
-  -Os
   -Wno-write-strings
+  -Os
 )
 set(NANIDROID_KAWARI8_INCLUDES
   kawari8
-  kawari8/include
-  kawari8/libkawari
-  kawari8/kis
-  kawari8/misc
-  kawari8/saori
-  kawari8/shiori
 )
 set(NANIDROID_KAWARI8_LINK_LIBRARIES log dl)
 

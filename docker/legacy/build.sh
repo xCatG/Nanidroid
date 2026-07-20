@@ -8,7 +8,12 @@ readonly APK_REPORT="${OUTPUT_ROOT}/Nanidroid-debug.json"
 readonly NDK_NATIVE_ROOT="${OUTPUT_ROOT}/native-ndk-build"
 readonly CMAKE_NATIVE_ROOT="${OUTPUT_ROOT}/native-cmake"
 readonly GRADLE_NATIVE_ROOT="${OUTPUT_ROOT}/native"
+readonly NATIVE_STAGE="${OUTPUT_ROOT}/.native-stage"
+readonly STAGE_NDK_NATIVE_ROOT="${NATIVE_STAGE}/native-ndk-build"
+readonly STAGE_CMAKE_NATIVE_ROOT="${NATIVE_STAGE}/native-cmake"
+readonly STAGE_GRADLE_NATIVE_ROOT="${NATIVE_STAGE}/native"
 readonly CMAKE_BUILD_ROOT="${BUILD_ROOT}/cmake-build"
+readonly NDK_BUILD_LOG="${BUILD_ROOT}/ndk-build.log"
 readonly READELF="${ANDROID_NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-readelf"
 readonly STRIP="${ANDROID_NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-strip"
 readonly NATIVE_ABI=armeabi
@@ -18,13 +23,32 @@ readonly NATIVE_STL=gnustl_static
 readonly NATIVE_ARM_MODE=thumb
 readonly NATIVE_NDK=r14b
 
+if [[ -z "${OUTPUT_ROOT}" || "${OUTPUT_ROOT}" == "/" ]]; then
+  echo "refusing unsafe output root: ${OUTPUT_ROOT}" >&2
+  exit 2
+fi
+mkdir -p "${OUTPUT_ROOT}"
+rm -rf \
+  "${NDK_NATIVE_ROOT}" \
+  "${CMAKE_NATIVE_ROOT}" \
+  "${GRADLE_NATIVE_ROOT}" \
+  "${NATIVE_STAGE}"
+rm -f \
+  "${OUTPUT_ROOT}/native-ndk-build.json" \
+  "${OUTPUT_ROOT}/native-cmake.json" \
+  "${OUTPUT_ROOT}/native-parity.json" \
+  "${OUTPUT_ROOT}/Nanidroid-debug.apk" \
+  "${APK_REPORT}"
+mkdir -p "${NATIVE_STAGE}"
+trap 'rm -rf "${NATIVE_STAGE}"' EXIT
+
 if [[ ! -f "${SOURCE_ROOT}/AndroidManifest.xml" ]]; then
   echo "source root does not contain AndroidManifest.xml: ${SOURCE_ROOT}" >&2
   exit 2
 fi
 
 rm -rf "${BUILD_ROOT}"
-mkdir -p "${BUILD_ROOT}" "${OUTPUT_ROOT}"
+mkdir -p "${BUILD_ROOT}"
 
 # Build outside the read-only source mount. This prevents Ant, ndk-build, and
 # the debug keystore generator from dirtying the checkout on any host OS.
@@ -73,7 +97,8 @@ cd "${BUILD_ROOT}"
   APP_PLATFORM=android-9 \
   APP_ABI=armeabi \
   APP_CPPFLAGS="-frtti -fexceptions -fpermissive" \
-  NDK_TOOLCHAIN_VERSION=4.9
+  NDK_TOOLCHAIN_VERSION=4.9 \
+  V=1 2>&1 | tee "${NDK_BUILD_LOG}"
 
 # Keep the Ant reference APK on the ndk-build output. The CMake candidate is
 # built and parity-checked independently below, then copied to the existing
@@ -92,13 +117,14 @@ fi
 python3 "${BUILD_ROOT}/tools/inspect_legacy_apk.py" \
   "${apk}" \
   --aapt "${ANDROID_SDK_ROOT}/build-tools/25.0.3/aapt" \
-  --output "${APK_REPORT}"
+  --output "${NATIVE_STAGE}/Nanidroid-debug.json"
 
 cmake \
   -S "${BUILD_ROOT}/jni" \
   -B "${CMAKE_BUILD_ROOT}" \
   -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE= \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${CMAKE_BUILD_ROOT}/native/${NATIVE_ABI}" \
   -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
   -DANDROID_NDK="${ANDROID_NDK_HOME}" \
@@ -116,12 +142,11 @@ cmake --build "${CMAKE_BUILD_ROOT}" -- -j2
   "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/libkawari8.so \
   "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/libsatoriya.so
 
-rm -rf "${NDK_NATIVE_ROOT}" "${CMAKE_NATIVE_ROOT}" "${GRADLE_NATIVE_ROOT}"
 mkdir -p \
-  "${NDK_NATIVE_ROOT}/${NATIVE_ABI}" \
-  "${CMAKE_NATIVE_ROOT}/${NATIVE_ABI}"
-cp "${BUILD_ROOT}"/libs/"${NATIVE_ABI}"/*.so "${NDK_NATIVE_ROOT}/${NATIVE_ABI}/"
-cp "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/*.so "${CMAKE_NATIVE_ROOT}/${NATIVE_ABI}/"
+  "${STAGE_NDK_NATIVE_ROOT}/${NATIVE_ABI}" \
+  "${STAGE_CMAKE_NATIVE_ROOT}/${NATIVE_ABI}"
+cp "${BUILD_ROOT}"/libs/"${NATIVE_ABI}"/*.so "${STAGE_NDK_NATIVE_ROOT}/${NATIVE_ABI}/"
+cp "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/*.so "${STAGE_CMAKE_NATIVE_ROOT}/${NATIVE_ABI}/"
 
 readonly NATIVE_INSPECTOR="${BUILD_ROOT}/tools/inspect_native_contract.py"
 readonly NATIVE_INSPECT_ARGS=(
@@ -133,29 +158,41 @@ readonly NATIVE_INSPECT_ARGS=(
   --stl "${NATIVE_STL}"
   --arm-mode "${NATIVE_ARM_MODE}"
   --ndk "${NATIVE_NDK}"
+  --ndk-root "${ANDROID_NDK_HOME}"
 )
 
 python3 "${NATIVE_INSPECTOR}" inspect \
-  "${NDK_NATIVE_ROOT}" \
+  "${STAGE_NDK_NATIVE_ROOT}" \
   --build-system ndk-build \
+  --build-evidence "${NDK_BUILD_LOG}" \
   "${NATIVE_INSPECT_ARGS[@]}" \
-  --output "${OUTPUT_ROOT}/native-ndk-build.json"
+  --output "${NATIVE_STAGE}/native-ndk-build.json"
 python3 "${NATIVE_INSPECTOR}" inspect \
-  "${CMAKE_NATIVE_ROOT}" \
+  "${STAGE_CMAKE_NATIVE_ROOT}" \
   --build-system cmake \
+  --build-evidence "${CMAKE_BUILD_ROOT}" \
   --cmake-cache "${CMAKE_BUILD_ROOT}/CMakeCache.txt" \
   "${NATIVE_INSPECT_ARGS[@]}" \
-  --output "${OUTPUT_ROOT}/native-cmake.json"
+  --output "${NATIVE_STAGE}/native-cmake.json"
 python3 "${NATIVE_INSPECTOR}" compare \
-  "${OUTPUT_ROOT}/native-ndk-build.json" \
-  "${OUTPUT_ROOT}/native-cmake.json" \
-  --output "${OUTPUT_ROOT}/native-parity.json"
+  "${NATIVE_STAGE}/native-ndk-build.json" \
+  "${NATIVE_STAGE}/native-cmake.json" \
+  --output "${NATIVE_STAGE}/native-parity.json"
 
-# Publish the existing Gradle native input only after exact native parity.
-mkdir -p "${GRADLE_NATIVE_ROOT}/${NATIVE_ABI}"
-cp "${CMAKE_NATIVE_ROOT}/${NATIVE_ABI}"/*.so "${GRADLE_NATIVE_ROOT}/${NATIVE_ABI}/"
+# Stage and atomically promote all native outputs only after exact parity.
+cp -a "${STAGE_CMAKE_NATIVE_ROOT}" "${STAGE_GRADLE_NATIVE_ROOT}"
+cp "${apk}" "${NATIVE_STAGE}/Nanidroid-debug.apk"
+mv "${STAGE_NDK_NATIVE_ROOT}" "${NDK_NATIVE_ROOT}"
+mv "${STAGE_CMAKE_NATIVE_ROOT}" "${CMAKE_NATIVE_ROOT}"
+mv "${STAGE_GRADLE_NATIVE_ROOT}" "${GRADLE_NATIVE_ROOT}"
+mv "${NATIVE_STAGE}/native-ndk-build.json" "${OUTPUT_ROOT}/native-ndk-build.json"
+mv "${NATIVE_STAGE}/native-cmake.json" "${OUTPUT_ROOT}/native-cmake.json"
+mv "${NATIVE_STAGE}/native-parity.json" "${OUTPUT_ROOT}/native-parity.json"
+mv "${NATIVE_STAGE}/Nanidroid-debug.json" "${APK_REPORT}"
+mv "${NATIVE_STAGE}/Nanidroid-debug.apk" "${OUTPUT_ROOT}/Nanidroid-debug.apk"
 
-cp "${apk}" "${OUTPUT_ROOT}/Nanidroid-debug.apk"
+rmdir "${NATIVE_STAGE}"
+trap - EXIT
 
 echo "legacy and CMake-parity artifacts:"
 find "${OUTPUT_ROOT}" -maxdepth 3 -type f -printf '  %P\n' | sort

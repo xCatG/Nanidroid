@@ -28,6 +28,13 @@ EXPECTED_ELF = {
     "eabi": "Version5 EABI",
     "floatAbi": "soft-float ABI",
 }
+EXPECTED_ARM_ATTRIBUTES = {
+    "Tag_CPU_name": "arm1022e",
+    "Tag_CPU_arch": "v5TE",
+    "Tag_ARM_ISA_use": "Yes",
+    "Tag_THUMB_ISA_use": "Thumb-1",
+}
+EXPECTED_NDK_REVISION = "14.1.3816874"
 
 
 class NativeContractError(ValueError):
@@ -78,6 +85,23 @@ def _dynamic_values(dynamic: str, tag: str) -> list[str]:
     )
 
 
+def _arm_attributes(output: str) -> dict[str, str]:
+    attributes: dict[str, str] = {}
+    for match in re.finditer(
+        r"^\s*(Tag_[A-Za-z0-9_]+):\s*(.+?)\s*$",
+        output,
+        re.MULTILINE,
+    ):
+        attributes[match.group(1)] = match.group(2).strip('"')
+    for key, expected in EXPECTED_ARM_ATTRIBUTES.items():
+        actual = attributes.get(key)
+        if actual != expected:
+            _fail(
+                f"ARM attribute {key} changed: expected {expected}, got {actual}"
+            )
+    return dict(sorted(attributes.items()))
+
+
 def _jni_exports(symbol_table: str) -> list[str]:
     symbols: set[str] = set()
     for line in symbol_table.splitlines():
@@ -97,7 +121,30 @@ def _jni_exports(symbol_table: str) -> list[str]:
 
 
 def _normalized_path(base: str, value: str) -> str:
-    return posixpath.normpath(posixpath.join(base, value.replace("\\", "/")))
+    portable = value.replace("\\", "/")
+    if posixpath.isabs(portable):
+        _fail(f"path must be project-relative, got absolute path: {value}")
+    normalized = posixpath.normpath(posixpath.join(base, portable))
+    if normalized == ".." or normalized.startswith("../"):
+        _fail(f"path escapes the project root: {value}")
+    if (base == "jni" or base.startswith("jni/")) and not (
+        normalized == "jni" or normalized.startswith("jni/")
+    ):
+        _fail(f"path escapes the native source root: {value}")
+    return normalized
+
+
+def _ordered_unique(values: list[str], field: str) -> list[str]:
+    observed: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in observed:
+            continue
+        observed.add(value)
+        result.append(value)
+    if not result:
+        _fail(f"{field} must not be empty")
+    return result
 
 
 def _expand_make(value: str, variables: dict[str, str]) -> str:
@@ -137,11 +184,13 @@ def _module(
 ) -> dict[str, object]:
     return {
         "name": name,
-        "sourceFiles": sorted(set(sources)),
+        "sourceFiles": _ordered_unique(sources, f"{name} source files"),
         "definitions": sorted(set(definitions)),
-        "materialFlags": sorted(set(flags)),
-        "includeRoots": sorted(set(includes)),
-        "linkLibraries": sorted(set(link_libraries)),
+        "materialFlags": _ordered_unique(flags, f"{name} material flags"),
+        "includeRoots": _ordered_unique(includes, f"{name} include roots"),
+        "linkLibraries": _ordered_unique(
+            link_libraries, f"{name} link libraries"
+        ),
     }
 
 
@@ -194,11 +243,15 @@ def inspect_android_mk(project_root: Path) -> list[dict[str, object]]:
                     ]
                     + [effective_optimization]
                 )
-                includes_value = variables.get(
-                    "LOCAL_CPP_INCLUDES",
-                    variables.get("LOCAL_C_INCLUDES", ""),
+                # NDK r14b adds LOCAL_PATH for every module and applies
+                # LOCAL_C_INCLUDES. The historical LOCAL_CPP_INCLUDES spelling
+                # in Kawari is not present in its real V=1 compiler commands.
+                # Normalize the effective search roots, while the evidence
+                # parser below independently requires the same observed order.
+                includes_value = variables.get("LOCAL_C_INCLUDES", base)
+                include_tokens = shlex.split(
+                    _expand_make(includes_value, variables)
                 )
-                include_tokens = shlex.split(_expand_make(includes_value, variables))
                 link_tokens = shlex.split(
                     _expand_make(variables.get("LOCAL_LDLIBS", ""), variables)
                 )
@@ -253,7 +306,49 @@ def inspect_cmake(project_root: Path) -> list[dict[str, object]]:
     path = project_root / "jni/CMakeLists.txt"
     if not path.is_file():
         _fail(f"CMake candidate declaration does not exist: {path}")
+    text = path.read_text(encoding="utf-8")
     values = _cmake_sets(path)
+    commands = re.findall(r"(?mi)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(", text)
+    allowed_commands = {
+        "cmake_minimum_required",
+        "project",
+        "set",
+        "add_library",
+        "target_include_directories",
+        "target_compile_definitions",
+        "target_compile_options",
+        "target_link_libraries",
+        "set_target_properties",
+    }
+    unexpected_commands = [
+        command for command in commands if command.lower() not in allowed_commands
+    ]
+    expected_counts = {
+        "add_library": 2,
+        "target_include_directories": 2,
+        "target_compile_definitions": 2,
+        "target_compile_options": 2,
+        "target_link_libraries": 2,
+        "set_target_properties": 2,
+    }
+    invalid_counts = {
+        command: commands.count(command)
+        for command, expected_count in expected_counts.items()
+        if commands.count(command) != expected_count
+    }
+    set_names = re.findall(r"(?mi)^\s*set\(\s*([A-Za-z_][A-Za-z0-9_]*)", text)
+    invalid_sets = [
+        name for name in set_names if not name.startswith("NANIDROID_")
+    ]
+    duplicate_sets = sorted(
+        {name for name in set_names if set_names.count(name) > 1}
+    )
+    if unexpected_commands or invalid_counts or invalid_sets or duplicate_sets:
+        _fail(
+            "undeclared CMake mutation detected: "
+            f"commands={unexpected_commands}, counts={invalid_counts}, "
+            f"sets={invalid_sets}, duplicateSets={duplicate_sets}"
+        )
     modules: list[dict[str, object]] = []
     for key in ("KAWARI8", "SATORIYA"):
         prefix = f"NANIDROID_{key}_"
@@ -281,7 +376,7 @@ def inspect_cmake(project_root: Path) -> list[dict[str, object]]:
             )
         )
 
-    compact = re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+    compact = re.sub(r"\s+", " ", text)
     for key in ("KAWARI8", "SATORIYA"):
         variable = f"NANIDROID_{key}"
         required_wiring = (
@@ -302,6 +397,506 @@ def inspect_cmake(project_root: Path) -> list[dict[str, object]]:
 
     _validate_modules(modules, "CMake")
     return sorted(modules, key=lambda module: str(module["name"]))
+
+
+def inspect_application_mk(project_root: Path) -> dict[str, object]:
+    """Verify the tracked Application.mk values used by the reference."""
+    path = project_root / "jni/Application.mk"
+    if not path.is_file():
+        _fail(f"Application.mk does not exist: {path}")
+    values: dict[str, str] = {}
+    for line in _logical_make_lines(path.read_text(encoding="utf-8")):
+        assignment = re.match(
+            r"^([A-Za-z0-9_]+)\s*(?::=|=)\s*(.*?)\s*$",
+            line,
+        )
+        if assignment is not None:
+            values[assignment.group(1)] = assignment.group(2)
+    stl = values.get("APP_STL")
+    if stl != "gnustl_static":
+        _fail(f"Application.mk APP_STL changed: expected gnustl_static, got {stl}")
+    cpp_flags = shlex.split(values.get("APP_CPPFLAGS", ""))
+    if cpp_flags != ["-frtti", "-fexceptions"]:
+        _fail(
+            "Application.mk APP_CPPFLAGS changed: expected "
+            f"['-frtti', '-fexceptions'], got {cpp_flags}"
+        )
+    return {"stl": stl, "cppFlags": cpp_flags}
+
+
+def _project_relative_path(
+    value: str,
+    *,
+    project_root: Path,
+    directory: Path,
+) -> str:
+    path = Path(value)
+    if not path.is_absolute():
+        path = directory / path
+    resolved = path.resolve(strict=False)
+    root = project_root.resolve(strict=False)
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError:
+        _fail(f"build evidence path escapes the project root: {value}")
+
+
+def _option_values(tokens: list[str], option: str) -> list[str]:
+    values: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == option and index + 1 < len(tokens):
+            values.append(tokens[index + 1])
+            index += 2
+            continue
+        if token.startswith(option) and token != option:
+            values.append(token[len(option) :])
+        index += 1
+    return values
+
+
+def _definitions(tokens: list[str]) -> list[str]:
+    definitions = [
+        value for value in _option_values(tokens, "-D") if value != "ANDROID"
+    ]
+    by_name: dict[str, str] = {}
+    for definition in definitions:
+        name = definition.split("=", 1)[0]
+        previous = by_name.get(name)
+        if previous is not None and previous != definition:
+            _fail(
+                f"conflicting compile definitions for {name}: "
+                f"{previous}, {definition}"
+            )
+        by_name[name] = definition
+    return sorted(by_name.values())
+
+
+def _last_matching(tokens: list[str], pattern: str) -> str:
+    matches = [token for token in tokens if re.fullmatch(pattern, token)]
+    return matches[-1] if matches else ""
+
+
+def _compile_flags(tokens: list[str]) -> dict[str, object]:
+    return {
+        "optimization": _last_matching(tokens, r"-O(?:0|1|2|3|s|g|fast)"),
+        "exceptions": _last_matching(tokens, r"-f(?:no-)?exceptions"),
+        "rtti": _last_matching(tokens, r"-f(?:no-)?rtti"),
+        "permissive": "-fpermissive" in tokens,
+        "writeStringsWarning": (
+            "-Wno-write-strings" if "-Wno-write-strings" in tokens else ""
+        ),
+    }
+
+
+def _target_flags(tokens: list[str]) -> dict[str, str]:
+    arm_flag = _last_matching(tokens, r"-m(?:thumb|arm)")
+    float_flag = _last_matching(tokens, r"-m(?:soft|hard)-float")
+    return {
+        "armMode": arm_flag.removeprefix("-m"),
+        "cpuArch": _last_matching(tokens, r"-march=.+").partition("=")[2],
+        "cpuTune": _last_matching(tokens, r"-mtune=.+").partition("=")[2],
+        "floatAbi": (
+            float_flag.removeprefix("-m").removesuffix("-float")
+        ),
+    }
+
+
+def _expected_compile_flags(module: dict[str, object]) -> dict[str, object]:
+    return _compile_flags([str(value) for value in module["materialFlags"]])
+
+
+def _compile_record(
+    tokens: list[str],
+    *,
+    directory: Path,
+    project_root: Path,
+    ndk_root: Path,
+    modules_by_source: dict[str, dict[str, object]],
+    expected_abi: str,
+    expected_api: str,
+) -> tuple[str, dict[str, object], str]:
+    if "-c" not in tokens:
+        _fail("compile evidence does not contain -c")
+    source_index = tokens.index("-c") + 1
+    if source_index >= len(tokens):
+        _fail("compile evidence has no source after -c")
+    source = _project_relative_path(
+        tokens[source_index],
+        project_root=project_root,
+        directory=directory,
+    )
+    module = modules_by_source.get(source)
+    if module is None:
+        _fail(f"compile evidence contains undeclared source: {source}")
+
+    compiler = Path(tokens[0]).resolve(strict=False)
+    expected_compiler = (
+        ndk_root
+        / "toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin"
+        / "arm-linux-androideabi-g++"
+    ).resolve(strict=False)
+    if compiler != expected_compiler:
+        _fail(
+            f"compiler path changed: expected {expected_compiler}, got {compiler}"
+        )
+
+    sysroots = _option_values(tokens, "--sysroot")
+    if len(sysroots) != 1 or f"/platforms/{expected_api}/arch-arm" not in sysroots[0]:
+        _fail(
+            f"compile sysroot/API changed: expected {expected_api}, got {sysroots}"
+        )
+    if not any(f"/libs/{expected_abi}/" in token for token in tokens):
+        _fail(
+            f"compile STL ABI evidence changed: expected {expected_abi}"
+        )
+
+    includes: list[str] = []
+    for include in _option_values(tokens, "-I"):
+        try:
+            relative = _project_relative_path(
+                include,
+                project_root=project_root,
+                directory=directory,
+            )
+        except NativeContractError:
+            include_path = Path(include)
+            if not include_path.is_absolute():
+                include_path = directory / include_path
+            resolved_include = include_path.resolve(strict=False)
+            try:
+                resolved_include.relative_to(ndk_root.resolve(strict=False))
+            except ValueError:
+                _fail(
+                    "compile include path escapes both the project and frozen "
+                    f"NDK roots: {resolved_include}"
+                )
+            continue
+        if relative not in includes:
+            includes.append(relative)
+
+    definitions = _definitions(tokens)
+    expected_definitions = sorted(str(value) for value in module["definitions"])
+    if definitions != expected_definitions:
+        _fail(
+            f"{module['name']} compile definitions changed for {source}: "
+            f"expected {expected_definitions}, got {definitions}"
+        )
+    flags = _compile_flags(tokens)
+    expected_flags = _expected_compile_flags(module)
+    if flags != expected_flags:
+        _fail(
+            f"{module['name']} compile flags changed for {source}: "
+            f"expected {expected_flags}, got {flags}"
+        )
+    expected_includes = [str(value) for value in module["includeRoots"]]
+    if includes != expected_includes:
+        _fail(
+            f"{module['name']} include ordering changed for {source}: "
+            f"expected {expected_includes}, got {includes}"
+        )
+    target_flags = _target_flags(tokens)
+    expected_target = {
+        "armMode": "thumb",
+        "cpuArch": "armv5te",
+        "cpuTune": "xscale",
+        "floatAbi": "soft",
+    }
+    if target_flags != expected_target:
+        _fail(
+            f"{module['name']} target compile flags changed for {source}: "
+            f"expected {expected_target}, got {target_flags}"
+        )
+    return str(module["name"]), {
+        "source": source,
+        "definitions": definitions,
+        "materialFlags": flags,
+        "includeRoots": includes,
+        "targetFlags": target_flags,
+    }, expected_compiler.as_posix()
+
+
+def _command_tokens(command: object) -> list[str]:
+    if isinstance(command, list) and all(
+        isinstance(value, str) for value in command
+    ):
+        return command
+    if isinstance(command, str):
+        return shlex.split(command)
+    _fail(f"build evidence command has unsupported shape: {command!r}")
+
+
+def _compile_commands(
+    *,
+    build_system: str,
+    evidence: Path,
+) -> list[tuple[list[str], Path]]:
+    if build_system == "cmake":
+        path = evidence / "compile_commands.json"
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise NativeContractError(
+                f"cannot read CMake compile commands {path}: {error}"
+            ) from error
+        if not isinstance(entries, list):
+            _fail(f"{path} does not contain a JSON array")
+        commands: list[tuple[list[str], Path]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                _fail(f"invalid CMake compile entry: {entry!r}")
+            raw_command = entry.get("arguments", entry.get("command"))
+            commands.append(
+                (
+                    _command_tokens(raw_command),
+                    Path(str(entry.get("directory", evidence))),
+                )
+            )
+        return commands
+
+    try:
+        lines = evidence.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise NativeContractError(
+            f"cannot read ndk-build command log {evidence}: {error}"
+        ) from error
+    commands = []
+    for line in lines:
+        if "arm-linux-androideabi-g++" not in line:
+            continue
+        tokens = shlex.split(line)
+        if "-c" in tokens:
+            commands.append((tokens, evidence.parent))
+    return commands
+
+
+def _object_source_order(
+    tokens: list[str],
+    expected_sources: list[str],
+) -> list[str]:
+    source_by_stem: dict[str, str] = {}
+    for source in expected_sources:
+        stem = Path(source).stem
+        if stem in source_by_stem:
+            _fail(f"cannot map duplicate source stem in link evidence: {stem}")
+        source_by_stem[stem] = source
+    observed: list[str] = []
+    for token in tokens:
+        if not token.endswith(".o"):
+            continue
+        name = Path(token).name
+        if name.endswith(".cpp.o"):
+            stem = name[: -len(".cpp.o")]
+        else:
+            stem = Path(name).stem
+        source = source_by_stem.get(stem)
+        if source is not None:
+            observed.append(source)
+    return observed
+
+
+def _link_command(
+    *,
+    build_system: str,
+    evidence: Path,
+    module_name: str,
+) -> list[str]:
+    library = (
+        "libkawari8.so" if module_name == "kawari8" else "libsatoriya.so"
+    )
+    if build_system == "cmake":
+        path = evidence / f"CMakeFiles/{module_name}.dir/link.txt"
+        try:
+            return shlex.split(path.read_text(encoding="utf-8"))
+        except OSError as error:
+            raise NativeContractError(
+                f"cannot read CMake link evidence {path}: {error}"
+            ) from error
+    try:
+        lines = evidence.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise NativeContractError(
+            f"cannot read ndk-build link log {evidence}: {error}"
+        ) from error
+    matches = [
+        shlex.split(line)
+        for line in lines
+        if "arm-linux-androideabi-g++" in line
+        and "-shared" in line
+        and library in line
+    ]
+    if len(matches) != 1:
+        _fail(
+            f"expected one ndk-build link command for {library}, got {len(matches)}"
+        )
+    return matches[0]
+
+
+def _verify_ndk_identity(ndk_root: Path) -> str:
+    properties = ndk_root / "source.properties"
+    try:
+        text = properties.read_text(encoding="utf-8")
+    except OSError as error:
+        raise NativeContractError(
+            f"cannot read NDK identity {properties}: {error}"
+        ) from error
+    match = re.search(r"(?m)^Pkg\.Revision\s*=\s*(\S+)\s*$", text)
+    revision = match.group(1) if match is not None else ""
+    if revision != EXPECTED_NDK_REVISION or ndk_root.name != "android-ndk-r14b":
+        _fail(
+            "NDK identity changed: expected android-ndk-r14b "
+            f"{EXPECTED_NDK_REVISION}, got {ndk_root.name} {revision}"
+        )
+    return "r14b"
+
+
+def inspect_build_evidence(
+    *,
+    build_system: str,
+    evidence: Path,
+    project_root: Path,
+    ndk_root: Path,
+    modules: list[dict[str, object]],
+    expected_abi: str,
+    expected_api: str,
+) -> dict[str, object]:
+    """Normalize real compile and link commands from each native engine."""
+    measured_ndk = _verify_ndk_identity(ndk_root)
+    commands = _compile_commands(build_system=build_system, evidence=evidence)
+    if not commands:
+        _fail(f"{build_system} produced no compile command evidence")
+    modules_by_source = {
+        str(source): module
+        for module in modules
+        for source in module["sourceFiles"]
+    }
+    records: dict[str, list[dict[str, object]]] = {
+        str(module["name"]): [] for module in modules
+    }
+    compiler_paths: set[str] = set()
+    for tokens, directory in commands:
+        module_name, record, compiler_path = _compile_record(
+            tokens,
+            directory=directory,
+            project_root=project_root,
+            ndk_root=ndk_root,
+            modules_by_source=modules_by_source,
+            expected_abi=expected_abi,
+            expected_api=expected_api,
+        )
+        records[module_name].append(record)
+        compiler_paths.add(compiler_path)
+    if len(compiler_paths) != 1:
+        _fail(f"compiler paths changed within {build_system}: {compiler_paths}")
+    compiler_path = next(iter(compiler_paths))
+    try:
+        compiler_dump_version = subprocess.run(
+            [compiler_path, "-dumpversion"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        compiler_banner = subprocess.run(
+            [compiler_path, "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()[0]
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise NativeContractError(
+            f"cannot measure compiler version from {compiler_path}: {error}"
+        ) from error
+    expected_banner = (
+        "arm-linux-androideabi-g++ (GCC) 4.9.x 20150123 (prerelease)"
+    )
+    if compiler_dump_version != "4.9.x" or compiler_banner != expected_banner:
+        _fail(
+            "compiler version changed: expected r14b GCC "
+            f"4.9.x/20150123, got {compiler_dump_version!r}, "
+            f"{compiler_banner!r}"
+        )
+
+    normalized_modules: list[dict[str, object]] = []
+    for module in modules:
+        name = str(module["name"])
+        module_records = records[name]
+        observed_sources = [str(record["source"]) for record in module_records]
+        expected_sources = [str(value) for value in module["sourceFiles"]]
+        if observed_sources != expected_sources:
+            _fail(
+                f"{name} compile source ordering changed: "
+                f"expected {expected_sources}, got {observed_sources}"
+            )
+        configurations = [
+            {
+                key: value
+                for key, value in record.items()
+                if key != "source"
+            }
+            for record in module_records
+        ]
+        if not configurations or any(
+            configuration != configurations[0]
+            for configuration in configurations[1:]
+        ):
+            _fail(f"{name} compile configuration differs between sources")
+
+        link_tokens = _link_command(
+            build_system=build_system,
+            evidence=evidence,
+            module_name=name,
+        )
+        link_sources = _object_source_order(link_tokens, expected_sources)
+        if link_sources != expected_sources:
+            _fail(
+                f"{name} link object ordering changed: "
+                f"expected {expected_sources}, got {link_sources}"
+            )
+        expected_libraries = [str(value) for value in module["linkLibraries"]]
+        observed_libraries = [
+            token[2:]
+            for token in link_tokens
+            if token.startswith("-l") and token[2:] in expected_libraries
+        ]
+        if observed_libraries != expected_libraries:
+            _fail(
+                f"{name} link library ordering changed: "
+                f"expected {expected_libraries}, got {observed_libraries}"
+            )
+        stl_archives = [
+            token for token in link_tokens if token.endswith("libgnustl_static.a")
+        ]
+        if len(stl_archives) != 1 or (
+            f"/gnu-libstdc++/4.9/libs/{expected_abi}/libgnustl_static.a"
+            not in stl_archives[0]
+        ):
+            _fail(
+                f"{name} static STL link evidence changed: {stl_archives}"
+            )
+        normalized_modules.append(
+            {
+                "name": name,
+                "compiler": (
+                    "toolchains/arm-linux-androideabi-4.9/"
+                    "prebuilt/linux-x86_64/bin/arm-linux-androideabi-g++"
+                ),
+                "compilerVersion": compiler_banner,
+                "sourceFiles": observed_sources,
+                **configurations[0],
+                "linkSourceFiles": link_sources,
+                "linkLibraries": observed_libraries,
+                "stl": "gnustl_static",
+            }
+        )
+
+    return {
+        "ndk": measured_ndk,
+        "ndkRevision": EXPECTED_NDK_REVISION,
+        "abi": expected_abi,
+        "api": expected_api,
+        "modules": normalized_modules,
+    }
 
 
 def _validate_modules(modules: list[dict[str, object]], source: str) -> None:
@@ -349,6 +944,8 @@ def _verify_cmake_cache(
         "ANDROID_STL": stl,
         "ANDROID_TOOLCHAIN": "gcc",
         "ANDROID_ARM_MODE": arm_mode,
+        "CMAKE_BUILD_TYPE": "",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
     }
     for key, required in expected.items():
         actual = values.get(key)
@@ -391,9 +988,13 @@ def inspect_native_directory(
     stl: str,
     arm_mode: str,
     ndk: str,
+    ndk_root: Path,
+    build_evidence: Path,
     cmake_cache: Path | None = None,
 ) -> dict[str, object]:
     """Return normalized build declarations and stable ELF/JNI facts."""
+    if compiler != "gcc-4.9":
+        _fail(f"requested compiler changed: expected gcc-4.9, got {compiler}")
     if not root.is_dir():
         _fail(f"native artifact directory does not exist: {root}")
     observed = sorted(
@@ -402,6 +1003,13 @@ def inspect_native_directory(
     expected = sorted(EXPECTED_LIBRARIES)
     if observed != expected:
         _fail(f"native library paths changed: expected {expected}, got {observed}")
+
+    application_mk = inspect_application_mk(project_root)
+    if stl != application_mk["stl"]:
+        _fail(
+            f"requested STL differs from Application.mk: {stl}, "
+            f"{application_mk['stl']}"
+        )
 
     if build_system == "ndk-build":
         modules = inspect_android_mk(project_root)
@@ -420,6 +1028,30 @@ def inspect_native_directory(
         )
     else:
         _fail(f"unsupported build system: {build_system}")
+
+    measured_build = inspect_build_evidence(
+        build_system=build_system,
+        evidence=build_evidence,
+        project_root=project_root,
+        ndk_root=ndk_root,
+        modules=modules,
+        expected_abi=abi,
+        expected_api=api,
+    )
+    if measured_build["ndk"] != ndk:
+        _fail(
+            f"measured NDK differs from requested NDK: "
+            f"{measured_build['ndk']}, {ndk}"
+        )
+    measured_arm_modes = {
+        str(module["targetFlags"]["armMode"])
+        for module in measured_build["modules"]
+    }
+    if measured_arm_modes != {arm_mode}:
+        _fail(
+            f"measured ARM mode differs from requested mode: "
+            f"{measured_arm_modes}, {arm_mode}"
+        )
 
     libraries: list[dict[str, object]] = []
     hashes: dict[str, str] = {}
@@ -462,6 +1094,14 @@ def inspect_native_directory(
                 "module": module_name,
                 "path": relative_path,
                 "elf": elf,
+                "armAttributes": _arm_attributes(
+                    _readelf(
+                        readelf,
+                        "--arch-specific",
+                        "--wide",
+                        library=library,
+                    )
+                ),
                 "soname": sonames[0],
                 "needed": _dynamic_values(dynamic, "NEEDED"),
                 "jniExports": jni_exports,
@@ -478,14 +1118,17 @@ def inspect_native_directory(
         },
         "contract": {
             "toolchain": {
-                "ndk": ndk,
-                "abi": abi,
-                "api": api,
-                "compiler": compiler,
-                "stl": stl,
-                "armMode": arm_mode,
+                "ndk": measured_build["ndk"],
+                "ndkRevision": measured_build["ndkRevision"],
+                "abi": measured_build["abi"],
+                "api": measured_build["api"],
+                "compiler": "gcc-4.9",
+                "stl": application_mk["stl"],
+                "armMode": next(iter(measured_arm_modes)),
             },
+            "applicationMake": application_mk,
             "modules": modules,
+            "buildEvidence": measured_build["modules"],
             "libraries": libraries,
         },
     }
@@ -541,6 +1184,7 @@ def compare_native_contracts(
             "module names and normalized source sets",
             "definitions, material flags, include roots, and link libraries",
             "ELF class/data/machine/EABI/float ABI",
+            "ELF ARM/Thumb/CPU attributes",
             "SONAME and DT_NEEDED",
             "exported JNI symbols",
         ],
@@ -592,6 +1236,8 @@ def _arguments() -> argparse.Namespace:
     inspect_parser.add_argument("--stl", required=True)
     inspect_parser.add_argument("--arm-mode", required=True)
     inspect_parser.add_argument("--ndk", required=True)
+    inspect_parser.add_argument("--ndk-root", type=Path, required=True)
+    inspect_parser.add_argument("--build-evidence", type=Path, required=True)
     inspect_parser.add_argument("--cmake-cache", type=Path)
     inspect_parser.add_argument("--output", type=Path, required=True)
 
@@ -617,6 +1263,8 @@ def main() -> int:
                 stl=args.stl,
                 arm_mode=args.arm_mode,
                 ndk=args.ndk,
+                ndk_root=args.ndk_root,
+                build_evidence=args.build_evidence,
                 cmake_cache=args.cmake_cache,
             )
         else:

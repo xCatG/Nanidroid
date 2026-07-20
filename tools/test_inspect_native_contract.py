@@ -19,7 +19,9 @@ from inspect_native_contract import (
     NativeContractError,
     _verify_cmake_cache,
     compare_native_contracts,
+    inspect_application_mk,
     inspect_android_mk,
+    inspect_build_evidence,
     inspect_cmake,
     inspect_native_directory,
 )
@@ -53,6 +55,14 @@ SATORI_SYMBOLS = """\
 Symbol table '.dynsym' contains 2 entries:
    Num:    Value  Size Type    Bind   Vis      Ndx Name
      1: 00002000    24 FUNC    GLOBAL DEFAULT   10 Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_load
+"""
+ARM_ATTRIBUTES = """\
+Attribute Section: aeabi
+File Attributes
+  Tag_CPU_name: "arm1022e"
+  Tag_CPU_arch: v5TE
+  Tag_ARM_ISA_use: Yes
+  Tag_THUMB_ISA_use: Thumb-1
 """
 
 
@@ -130,6 +140,114 @@ class NativeContractTest(unittest.TestCase):
             inspect_cmake(PROJECT_ROOT),
         )
 
+    def test_rejects_a_cmake_source_escape(self) -> None:
+        project = self.root / "project"
+        cmake = project / "jni" / "CMakeLists.txt"
+        cmake.parent.mkdir(parents=True)
+        cmake.write_text(
+            (PROJECT_ROOT / "jni" / "CMakeLists.txt")
+            .read_text(encoding="utf-8")
+            .replace(
+                "kawari8/libkawari/kawari_engine.cpp",
+                "../outside.cpp",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(NativeContractError, "escapes"):
+            inspect_cmake(project)
+
+    def test_rejects_an_undeclared_cmake_target_mutation(self) -> None:
+        project = self.root / "project"
+        cmake = project / "jni" / "CMakeLists.txt"
+        cmake.parent.mkdir(parents=True)
+        cmake.write_text(
+            (PROJECT_ROOT / "jni" / "CMakeLists.txt").read_text(encoding="utf-8")
+            + "\ntarget_compile_options(kawari8 PRIVATE -fno-exceptions)\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(NativeContractError, "undeclared CMake mutation"):
+            inspect_cmake(project)
+
+    def test_rejects_application_mk_stl_drift(self) -> None:
+        project = self.root / "project"
+        application_mk = project / "jni" / "Application.mk"
+        application_mk.parent.mkdir(parents=True)
+        application_mk.write_text(
+            "APP_CPPFLAGS := -frtti -fexceptions\nAPP_STL := c++_static\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(NativeContractError, "APP_STL"):
+            inspect_application_mk(project)
+
+    def test_rejects_actual_compile_flag_drift(self) -> None:
+        project = self.root / "project"
+        (project / "jni").mkdir(parents=True)
+        evidence = self.root / "ndk-build.log"
+        evidence.write_text(
+            "/opt/android-ndk-r14b/toolchains/arm-linux-androideabi-4.9/"
+            "prebuilt/linux-x86_64/bin/arm-linux-androideabi-g++ "
+            "-DANDROID -DPOSIX -DNDEBUG -fno-exceptions -frtti -Os "
+            "-mthumb -march=armv5te -mtune=xscale -msoft-float "
+            "--sysroot /opt/android-ndk-r14b/platforms/android-9/arch-arm "
+            "-I/opt/android-ndk-r14b/sources/cxx-stl/gnu-libstdc++/4.9/"
+            "libs/armeabi/include "
+            f"-I{project}/jni/kawari8 -c "
+            f"{project}/jni/kawari8/libkawari/kawari_engine.cpp -o one.o\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(NativeContractError, "compile flags"):
+            inspect_build_evidence(
+                build_system="ndk-build",
+                evidence=evidence,
+                project_root=project,
+                ndk_root=Path("/opt/android-ndk-r14b"),
+                modules=inspect_android_mk(PROJECT_ROOT),
+                expected_abi="armeabi",
+                expected_api="android-9",
+            )
+
+    def test_rejects_actual_compile_include_escape(self) -> None:
+        project = self.root / "project"
+        (project / "jni").mkdir(parents=True)
+        evidence = self.root / "ndk-build.log"
+        evidence.write_text(
+            "/opt/android-ndk-r14b/toolchains/arm-linux-androideabi-4.9/"
+            "prebuilt/linux-x86_64/bin/arm-linux-androideabi-g++ "
+            "-DANDROID -DPOSIX -DNDEBUG -fexceptions -frtti -Os "
+            "-mthumb -march=armv5te -mtune=xscale -msoft-float "
+            "--sysroot /opt/android-ndk-r14b/platforms/android-9/arch-arm "
+            "-I/opt/android-ndk-r14b/sources/cxx-stl/gnu-libstdc++/4.9/"
+            "libs/armeabi/include "
+            "-I/tmp/undeclared-native-header "
+            f"-I{project}/jni/kawari8 -c "
+            f"{project}/jni/kawari8/libkawari/kawari_engine.cpp -o one.o\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(NativeContractError, "include path escapes"):
+            inspect_build_evidence(
+                build_system="ndk-build",
+                evidence=evidence,
+                project_root=project,
+                ndk_root=Path("/opt/android-ndk-r14b"),
+                modules=inspect_android_mk(PROJECT_ROOT),
+                expected_abi="armeabi",
+                expected_api="android-9",
+            )
+
+    @mock.patch(
+        "inspect_native_contract.inspect_build_evidence",
+        return_value={
+            "ndk": "r14b",
+            "ndkRevision": "14.1.3816874",
+            "abi": "armeabi",
+            "api": "android-9",
+            "modules": [
+                {"targetFlags": {"armMode": "thumb"}},
+                {"targetFlags": {"armMode": "thumb"}},
+            ],
+        },
+    )
     @mock.patch("inspect_native_contract._verify_cmake_cache", return_value="3.22.1")
     @mock.patch("inspect_native_contract.inspect_cmake")
     @mock.patch("inspect_native_contract.subprocess.run")
@@ -138,6 +256,7 @@ class NativeContractTest(unittest.TestCase):
         run: mock.Mock,
         cmake_modules: mock.Mock,
         _cache: mock.Mock,
+        _evidence: mock.Mock,
     ) -> None:
         self._write_libraries()
         cmake_modules.return_value = [module("kawari8"), module("satoriya")]
@@ -152,6 +271,8 @@ class NativeContractTest(unittest.TestCase):
                     if library.endswith("libkawari8.so")
                     else SATORI_DYNAMIC
                 )
+            elif "--arch-specific" in arguments:
+                stdout = ARM_ATTRIBUTES
             else:
                 stdout = (
                     KAWARI_SYMBOLS
@@ -172,6 +293,8 @@ class NativeContractTest(unittest.TestCase):
             stl="gnustl_static",
             arm_mode="thumb",
             ndk="r14b",
+            ndk_root=Path("/opt/android-ndk-r14b"),
+            build_evidence=self.root / "cmake",
             cmake_cache=self.root / "CMakeCache.txt",
         )
 
@@ -209,6 +332,8 @@ class NativeContractTest(unittest.TestCase):
                 stl="gnustl_static",
                 arm_mode="thumb",
                 ndk="r14b",
+                ndk_root=Path("/opt/android-ndk-r14b"),
+                build_evidence=self.root / "cmake",
                 cmake_cache=self.root / "CMakeCache.txt",
             )
 
@@ -222,6 +347,8 @@ class NativeContractTest(unittest.TestCase):
                     "ANDROID_STL:STRING=gnustl_static",
                     "ANDROID_TOOLCHAIN:STRING=gcc",
                     "ANDROID_ARM_MODE:STRING=thumb",
+                    "CMAKE_BUILD_TYPE:STRING=",
+                    "CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON",
                     "NANIDROID_CXX_COMPILER:INTERNAL=/ndk/bin/arm-linux-androideabi-g++",
                     "NANIDROID_CXX_COMPILER_ID:INTERNAL=GNU",
                     "NANIDROID_CXX_COMPILER_VERSION:INTERNAL=4.9.0",
