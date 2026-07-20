@@ -5,6 +5,18 @@ readonly SOURCE_ROOT="${SOURCE_ROOT:-/workspace}"
 readonly BUILD_ROOT="${BUILD_ROOT:-/tmp/nanidroid-legacy-build}"
 readonly OUTPUT_ROOT="${OUTPUT_ROOT:-/out}"
 readonly APK_REPORT="${OUTPUT_ROOT}/Nanidroid-debug.json"
+readonly NDK_NATIVE_ROOT="${OUTPUT_ROOT}/native-ndk-build"
+readonly CMAKE_NATIVE_ROOT="${OUTPUT_ROOT}/native-cmake"
+readonly GRADLE_NATIVE_ROOT="${OUTPUT_ROOT}/native"
+readonly CMAKE_BUILD_ROOT="${BUILD_ROOT}/cmake-build"
+readonly READELF="${ANDROID_NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-readelf"
+readonly STRIP="${ANDROID_NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-strip"
+readonly NATIVE_ABI=armeabi
+readonly NATIVE_API=android-9
+readonly NATIVE_COMPILER=gcc-4.9
+readonly NATIVE_STL=gnustl_static
+readonly NATIVE_ARM_MODE=thumb
+readonly NATIVE_NDK=r14b
 
 if [[ ! -f "${SOURCE_ROOT}/AndroidManifest.xml" ]]; then
   echo "source root does not contain AndroidManifest.xml: ${SOURCE_ROOT}" >&2
@@ -63,6 +75,9 @@ cd "${BUILD_ROOT}"
   APP_CPPFLAGS="-frtti -fexceptions -fpermissive" \
   NDK_TOOLCHAIN_VERSION=4.9
 
+# Keep the Ant reference APK on the ndk-build output. The CMake candidate is
+# built and parity-checked independently below, then copied to the existing
+# Gradle native input only after both engines link successfully.
 ant clean debug
 
 apk="$(find "${BUILD_ROOT}/bin" -maxdepth 1 -type f -name '*-debug.apk' -print -quit)"
@@ -79,10 +94,70 @@ python3 "${BUILD_ROOT}/tools/inspect_legacy_apk.py" \
   --aapt "${ANDROID_SDK_ROOT}/build-tools/25.0.3/aapt" \
   --output "${APK_REPORT}"
 
-rm -rf "${OUTPUT_ROOT}/native"
-mkdir -p "${OUTPUT_ROOT}/native/armeabi"
-cp "${apk}" "${OUTPUT_ROOT}/Nanidroid-debug.apk"
-cp "${BUILD_ROOT}"/libs/armeabi/*.so "${OUTPUT_ROOT}/native/armeabi/"
+cmake \
+  -S "${BUILD_ROOT}/jni" \
+  -B "${CMAKE_BUILD_ROOT}" \
+  -G "Unix Makefiles" \
+  -DCMAKE_BUILD_TYPE= \
+  -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${CMAKE_BUILD_ROOT}/native/${NATIVE_ABI}" \
+  -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+  -DANDROID_NDK="${ANDROID_NDK_HOME}" \
+  -DANDROID_TOOLCHAIN=gcc \
+  -DANDROID_ABI="${NATIVE_ABI}" \
+  -DANDROID_PLATFORM="${NATIVE_API}" \
+  -DANDROID_STL="${NATIVE_STL}" \
+  -DANDROID_ARM_MODE="${NATIVE_ARM_MODE}"
+cmake --build "${CMAKE_BUILD_ROOT}" -- -j2
 
-echo "legacy artifacts:"
+# ndk-build installs stripped release libraries. Apply the same frozen r14b
+# strip tool to the CMake products before inspection, publication, and Gradle
+# packaging so ignored debug-section differences do not inflate the APK.
+"${STRIP}" --strip-unneeded \
+  "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/libkawari8.so \
+  "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/libsatoriya.so
+
+rm -rf "${NDK_NATIVE_ROOT}" "${CMAKE_NATIVE_ROOT}" "${GRADLE_NATIVE_ROOT}"
+mkdir -p \
+  "${NDK_NATIVE_ROOT}/${NATIVE_ABI}" \
+  "${CMAKE_NATIVE_ROOT}/${NATIVE_ABI}"
+cp "${BUILD_ROOT}"/libs/"${NATIVE_ABI}"/*.so "${NDK_NATIVE_ROOT}/${NATIVE_ABI}/"
+cp "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/*.so "${CMAKE_NATIVE_ROOT}/${NATIVE_ABI}/"
+
+readonly NATIVE_INSPECTOR="${BUILD_ROOT}/tools/inspect_native_contract.py"
+readonly NATIVE_INSPECT_ARGS=(
+  --readelf "${READELF}"
+  --project-root "${BUILD_ROOT}"
+  --abi "${NATIVE_ABI}"
+  --api "${NATIVE_API}"
+  --compiler "${NATIVE_COMPILER}"
+  --stl "${NATIVE_STL}"
+  --arm-mode "${NATIVE_ARM_MODE}"
+  --ndk "${NATIVE_NDK}"
+)
+
+python3 "${NATIVE_INSPECTOR}" inspect \
+  "${NDK_NATIVE_ROOT}" \
+  --build-system ndk-build \
+  "${NATIVE_INSPECT_ARGS[@]}" \
+  --output "${OUTPUT_ROOT}/native-ndk-build.json"
+python3 "${NATIVE_INSPECTOR}" inspect \
+  "${CMAKE_NATIVE_ROOT}" \
+  --build-system cmake \
+  --cmake-cache "${CMAKE_BUILD_ROOT}/CMakeCache.txt" \
+  "${NATIVE_INSPECT_ARGS[@]}" \
+  --output "${OUTPUT_ROOT}/native-cmake.json"
+python3 "${NATIVE_INSPECTOR}" compare \
+  "${OUTPUT_ROOT}/native-ndk-build.json" \
+  "${OUTPUT_ROOT}/native-cmake.json" \
+  --output "${OUTPUT_ROOT}/native-parity.json"
+
+# Publish the existing Gradle native input only after exact native parity.
+mkdir -p "${GRADLE_NATIVE_ROOT}/${NATIVE_ABI}"
+cp "${CMAKE_NATIVE_ROOT}/${NATIVE_ABI}"/*.so "${GRADLE_NATIVE_ROOT}/${NATIVE_ABI}/"
+
+cp "${apk}" "${OUTPUT_ROOT}/Nanidroid-debug.apk"
+
+echo "legacy and CMake-parity artifacts:"
 find "${OUTPUT_ROOT}" -maxdepth 3 -type f -printf '  %P\n' | sort
+echo "Native CMake candidate matches the frozen ndk-build contract:"
+cat "${OUTPUT_ROOT}/native-parity.json"
