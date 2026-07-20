@@ -20,7 +20,8 @@ network access, ambient storage, wall-clock time, or randomness.
 ## Fixture manifest
 
 The hashes identify the exact raw byte sequences, independently of source-file
-encoding or test-result rendering.
+encoding or test-result rendering. Each test mechanically recalculates its
+fixture hash before asking the production parser for a semantic result.
 
 | Fixture | Provenance | Raw encoding and line endings | SHA-256 | Expected semantic outcome | Classification |
 | --- | --- | --- | --- | --- | --- |
@@ -40,13 +41,15 @@ requirement when the parser is redesigned.
 
 ## Verification
 
-Run after the frozen legacy-native artifacts have been generated:
+The standard container build runs the unit tests and APK parity checks in one
+lane after the frozen legacy-native artifacts have been generated:
 
 ```text
-docker compose -f .devcontainer/compose.yaml run --rm dev \
-  ./gradlew --no-daemon testDebugUnitTest
+docker compose -f .devcontainer/compose.yaml run --rm dev ./docker/gradle/build.sh
 ```
 
-The command emits the normal Gradle JUnit XML and HTML reports under
+The command fails if Gradle does not emit JUnit XML. It copies that XML to the
+existing CI artifact tree at `artifacts/gradle/test-results/`. Gradle also
+retains its normal XML and HTML reports under
 `build/test-results/testDebugUnitTest/` and
 `build/reports/tests/testDebugUnitTest/`.

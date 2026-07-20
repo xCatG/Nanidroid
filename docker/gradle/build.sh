@@ -4,6 +4,8 @@ set -euo pipefail
 readonly SOURCE_ROOT="${SOURCE_ROOT:-/workspaces/Nanidroid}"
 readonly OUTPUT_ROOT="${OUTPUT_ROOT:-${SOURCE_ROOT}/artifacts/gradle}"
 readonly APK="${SOURCE_ROOT}/build/outputs/apk/debug/Nanidroid-debug.apk"
+readonly TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/testDebugUnitTest"
+readonly TEST_ARTIFACT_ROOT="${OUTPUT_ROOT}/test-results"
 readonly REFERENCE_REPORT="${SOURCE_ROOT}/artifacts/legacy/Nanidroid-debug.json"
 readonly AAPT="${ANDROID_SDK_ROOT}/build-tools/36.0.0/aapt"
 readonly APKSIGNER="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
@@ -17,14 +19,29 @@ if [[ ! -f "${REFERENCE_REPORT}" ]]; then
   exit 2
 fi
 
-./gradlew --no-daemon assembleDebug
+./gradlew --no-daemon testDebugUnitTest assembleDebug
 
 if [[ ! -f "${APK}" ]]; then
   echo "Gradle completed without producing the expected APK: ${APK}" >&2
   exit 1
 fi
 
+if [[ ! -d "${TEST_RESULTS_ROOT}" ]]; then
+  echo "Gradle completed without producing the expected JUnit directory: ${TEST_RESULTS_ROOT}" >&2
+  exit 1
+fi
+
+mapfile -t test_result_files < <(
+  find "${TEST_RESULTS_ROOT}" -maxdepth 1 -type f -name 'TEST-*.xml' -print | sort
+)
+if (( ${#test_result_files[@]} == 0 )); then
+  echo "Gradle completed without producing JUnit XML in: ${TEST_RESULTS_ROOT}" >&2
+  exit 1
+fi
+
 mkdir -p "${OUTPUT_ROOT}"
+mkdir -p "${TEST_ARTIFACT_ROOT}"
+cp "${test_result_files[@]}" "${TEST_ARTIFACT_ROOT}/"
 "${APKSIGNER}" verify "${APK}"
 "${ZIPALIGN}" -c 4 "${APK}"
 
