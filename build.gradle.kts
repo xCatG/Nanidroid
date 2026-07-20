@@ -1,6 +1,8 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
@@ -39,6 +41,40 @@ abstract class VerifyLegacyNativeLibraries : DefaultTask() {
     }
 }
 
+abstract class VerifyD1TestIsolation : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val testSources: ConfigurableFileCollection
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val allowedSource: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        val allowed = allowedSource.get().asFile
+        val unexpected = testSources.files
+            .filterNot { it == allowed }
+            .map { it.invariantSeparatorsPath }
+            .sorted()
+
+        if (unexpected.isNotEmpty()) {
+            throw GradleException(
+                buildString {
+                    appendLine(
+                        "D1 temporarily enables Android default-return stubs for app JVM tests."
+                    )
+                    appendLine(
+                        "Isolate or remove unitTests.isReturnDefaultValues before adding broader tests."
+                    )
+                    appendLine("Unexpected JVM test sources:")
+                    unexpected.forEach { appendLine("  - $it") }
+                }
+            )
+        }
+    }
+}
+
 val verifyLegacyNativeLibraries by tasks.registering(VerifyLegacyNativeLibraries::class) {
     group = "verification"
     description = "Checks that PR B1 produced the native libraries packaged by Gradle."
@@ -68,7 +104,7 @@ android {
             jniLibs.setSrcDirs(listOf(legacyNativeDirectory))
         }
         getByName("test") {
-            java.setSrcDirs(listOf("test/jvm"))
+            java.srcDir("test/jvm")
         }
     }
 
@@ -92,6 +128,28 @@ dependencies {
     implementation(files("libs/acra-4.2.3.jar"))
     implementation(files("libs/libGoogleAnalytics.jar"))
     testImplementation("junit:junit:4.13.2")
+}
+
+val d1CharacterizationTest =
+    "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java"
+val d1JvmTestSources = files(
+    fileTree("src/test") {
+        include("**/*.java", "**/*.kt")
+    },
+    fileTree("test/jvm") {
+        include("**/*.java", "**/*.kt")
+    },
+)
+
+val verifyD1TestIsolation by tasks.registering(VerifyD1TestIsolation::class) {
+    group = "verification"
+    description = "Keeps Android default-return stubs isolated to the D1 characterization."
+    testSources.from(d1JvmTestSources)
+    allowedSource.set(layout.projectDirectory.file(d1CharacterizationTest))
+}
+
+tasks.matching { it.name == "testDebugUnitTest" }.configureEach {
+    dependsOn(verifyD1TestIsolation)
 }
 
 tasks.named("preBuild").configure {

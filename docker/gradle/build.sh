@@ -19,29 +19,40 @@ if [[ ! -f "${REFERENCE_REPORT}" ]]; then
   exit 2
 fi
 
+rm -rf "${TEST_RESULTS_ROOT}" "${TEST_ARTIFACT_ROOT}"
+mkdir -p "${TEST_ARTIFACT_ROOT}"
+
+set +e
 ./gradlew --no-daemon testDebugUnitTest assembleDebug
+gradle_status=$?
+set -e
+
+test_result_files=()
+if [[ -d "${TEST_RESULTS_ROOT}" ]]; then
+  mapfile -t test_result_files < <(
+    find "${TEST_RESULTS_ROOT}" -maxdepth 1 -type f -name 'TEST-*.xml' -print | sort
+  )
+fi
+if (( ${#test_result_files[@]} > 0 )); then
+  cp "${test_result_files[@]}" "${TEST_ARTIFACT_ROOT}/"
+fi
+
+if (( gradle_status != 0 )); then
+  echo "Gradle failed with status ${gradle_status}; copied available JUnit XML to ${TEST_ARTIFACT_ROOT}" >&2
+  exit "${gradle_status}"
+fi
+
+if (( ${#test_result_files[@]} == 0 )); then
+  echo "Gradle completed without producing JUnit XML in: ${TEST_RESULTS_ROOT}" >&2
+  exit 1
+fi
 
 if [[ ! -f "${APK}" ]]; then
   echo "Gradle completed without producing the expected APK: ${APK}" >&2
   exit 1
 fi
 
-if [[ ! -d "${TEST_RESULTS_ROOT}" ]]; then
-  echo "Gradle completed without producing the expected JUnit directory: ${TEST_RESULTS_ROOT}" >&2
-  exit 1
-fi
-
-mapfile -t test_result_files < <(
-  find "${TEST_RESULTS_ROOT}" -maxdepth 1 -type f -name 'TEST-*.xml' -print | sort
-)
-if (( ${#test_result_files[@]} == 0 )); then
-  echo "Gradle completed without producing JUnit XML in: ${TEST_RESULTS_ROOT}" >&2
-  exit 1
-fi
-
 mkdir -p "${OUTPUT_ROOT}"
-mkdir -p "${TEST_ARTIFACT_ROOT}"
-cp "${test_result_files[@]}" "${TEST_ARTIFACT_ROOT}/"
 "${APKSIGNER}" verify "${APK}"
 "${ZIPALIGN}" -c 4 "${APK}"
 

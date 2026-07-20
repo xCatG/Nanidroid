@@ -16,9 +16,9 @@ import org.junit.rules.TemporaryFolder;
 /**
  * Characterizes descriptor bytes as a semantic metadata map.
  *
- * <p>Tests prefixed {@code requiredInvariant_} describe behavior that future parser
- * implementations must preserve. Tests prefixed {@code legacyObserved_} record current behavior
- * for migration review without declaring it desirable.
+ * <p>Tests prefixed {@code requiredMigrationInvariant_} describe behavior that a mechanical
+ * parser replacement must preserve pending the long-term supported-format decision. Tests
+ * prefixed {@code legacyObserved_} record current behavior without declaring it desirable.
  */
 public class DescReaderCharacterizationTest {
     @Rule
@@ -27,7 +27,8 @@ public class DescReaderCharacterizationTest {
     private int fixtureIndex;
 
     @Test
-    public void requiredInvariant_defaultShiftJisBytesProduceMetadata() throws Exception {
+    public void requiredMigrationInvariant_defaultShiftJisBytesProduceMetadata()
+            throws Exception {
         byte[] fixture = bytes(
                 0x6e, 0x61, 0x6d, 0x65, 0x2c, 0x94, 0x4c, 0x0d, 0x0a,
                 0x73, 0x61, 0x6b, 0x75, 0x72, 0x61, 0x2e, 0x6e, 0x61, 0x6d, 0x65, 0x2c,
@@ -43,7 +44,8 @@ public class DescReaderCharacterizationTest {
     }
 
     @Test
-    public void requiredInvariant_utf8BomAndDeclaredCharsetProduceMetadata() throws Exception {
+    public void requiredMigrationInvariant_utf8BomAndDeclaredCharsetProduceMetadata()
+            throws Exception {
         byte[] fixture = bytes(
                 0xef, 0xbb, 0xbf,
                 0x63, 0x68, 0x61, 0x72, 0x73, 0x65, 0x74, 0x2c,
@@ -62,7 +64,8 @@ public class DescReaderCharacterizationTest {
     }
 
     @Test
-    public void requiredInvariant_declaredUtf8WithoutBomProducesMetadata() throws Exception {
+    public void requiredMigrationInvariant_declaredUtf8WithoutBomProducesMetadata()
+            throws Exception {
         byte[] fixture = bytes(
                 0x63, 0x68, 0x61, 0x72, 0x73, 0x65, 0x74, 0x2c,
                 0x55, 0x54, 0x46, 0x2d, 0x38, 0x0a,
@@ -77,7 +80,8 @@ public class DescReaderCharacterizationTest {
     }
 
     @Test
-    public void requiredInvariant_lfAndCrLfHaveTheSameSemanticResult() throws Exception {
+    public void requiredMigrationInvariant_lfAndCrLfHaveTheSameSemanticResult()
+            throws Exception {
         byte[] lf = "name,Cat\nsakura.name,Sakura\n".getBytes(Charset.forName("US-ASCII"));
         byte[] crlf = "name,Cat\r\nsakura.name,Sakura\r\n"
                 .getBytes(Charset.forName("US-ASCII"));
@@ -88,7 +92,13 @@ public class DescReaderCharacterizationTest {
                 "efbc8332340260a373759e27b4a473d62f957e0faef3c3120e9b4f3841aea9f2",
                 crlf);
 
-        assertEquals(parse(lf), parse(crlf));
+        Map<String, String> lfMetadata = parse(lf);
+        Map<String, String> crlfMetadata = parse(crlf);
+
+        assertEquals("Cat", lfMetadata.get("name"));
+        assertEquals("Sakura", lfMetadata.get("sakura.name"));
+        assertEquals(2, lfMetadata.size());
+        assertEquals(lfMetadata, crlfMetadata);
     }
 
     @Test
