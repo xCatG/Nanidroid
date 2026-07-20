@@ -67,6 +67,9 @@ android {
             assets.setSrcDirs(listOf("assets"))
             jniLibs.setSrcDirs(listOf(legacyNativeDirectory))
         }
+        getByName("test") {
+            java.setSrcDirs(listOf("test/jvm"))
+        }
     }
 
     buildFeatures {
@@ -78,12 +81,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
     implementation(files("libs/android-support-v4.jar"))
     implementation(files("libs/acra-4.2.3.jar"))
     implementation(files("libs/libGoogleAnalytics.jar"))
+    testImplementation("junit:junit:4.13.2")
 }
 
 tasks.named("preBuild").configure {

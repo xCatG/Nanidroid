@@ -8,6 +8,7 @@ behavior is safe or required.
 | --- | --- | --- |
 | Package name and upgrade identity | Required invariant | Preserve `com.cattailsw.nanidroid` unless a release decision explicitly changes it. |
 | Ghost metadata and shell discovery | Required invariant | Characterize before translation. |
+| Descriptor decoding and metadata pairs | Required invariant with legacy exceptions | Preserve default Shift-JIS, declared UTF-8, non-ASCII metadata, and LF/CRLF equivalence. Duplicate-key replacement, ignored extra-comma lines, unsupported-charset fallback, malformed-byte replacement, and empty-input failure are legacy-observed only and require an explicit product decision before changing. |
 | Sakura Script parsing and event order | Required invariant | Compare semantic event traces, not incidental view updates. |
 | Kawari and Satori SHIORI responses | Required invariant | Use licensed fixtures and byte-level differential tests. |
 | JNI class names and exported symbols | Required invariant through native migration | Keep Java façades stable until the native ABI is frozen. |
