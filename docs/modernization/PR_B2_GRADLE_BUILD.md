@@ -67,10 +67,10 @@ generated resource IDs are non-final. The unused Ads SDK import is removed
 because the missing SDK has no live call site. No other production Java, XML
 resource, dependency, or native source is changed.
 
-## CI bootstrap note
+## CI bootstrap
 
-The workflow in this PR builds both lanes for future pull requests targeting
-`feature/modernization`. GitHub loads `pull_request` workflow definitions from
-the base branch, so PR B2 itself can run the already-merged B1 lane but cannot
-exercise its newly added Gradle job until this workflow exists on the
-integration branch. The commands above are the equivalent local gate.
+GitHub only triggers a `pull_request` workflow when the workflow file exists on
+the repository's default branch. Workflow-only PR #9 therefore placed the same
+file on `master`, scoped to pull requests targeting `feature/modernization`.
+That leaves the stable application untouched while allowing this PR and later
+modernization slices to run both build lanes.
