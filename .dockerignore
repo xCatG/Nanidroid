@@ -1,2 +1,6 @@
 *
 !.devcontainer/Dockerfile
+!docker/
+!docker/legacy/
+!docker/legacy/Dockerfile
+!docker/legacy/build.sh

@@ -37,7 +37,9 @@ The application manifest declares:
 
 ## Known baseline limitations
 
-- A clean historical Ant/NDK build has not yet been reproduced.
+- A clean Ant/NDK reference build is defined by
+  [`PR_B1_LEGACY_BUILD.md`](PR_B1_LEGACY_BUILD.md). The exact historical
+  release toolchain and release APK remain unavailable.
 - The SDK, build-tools, JDK, and NDK versions used for the last known release
   are not recorded in the repository.
 - `jni/Application.mk` requires the removed `gnustl_static` runtime.
@@ -47,7 +49,8 @@ The application manifest declares:
   currently available in the repository.
 
 PR B must resolve or explicitly document these gaps before claiming build
-parity.
+parity. PR B1 records a repeatable reference build without claiming equality
+to an unavailable historical APK.
 
 ## Tracked opaque artifacts
 
