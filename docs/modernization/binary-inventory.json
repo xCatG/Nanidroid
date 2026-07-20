@@ -1,0 +1,53 @@
+{
+  "baselineCommit": "c22e1531cc1cd9424314d57e7bc34ccb91d84cc5",
+  "artifacts": [
+    {
+      "path": "assets/nanidroid.zip",
+      "bytes": 74537,
+      "sha256": "2ebf24a2be8255011c5e004459a58dd1317eb7b12a55adcbe6b8b2977c89dc2d",
+      "kind": "bootstrap-ghost-archive",
+      "status": "preserve",
+      "notes": "Packaged application asset; contains a small default ghost and shell."
+    },
+    {
+      "path": "jni/satori/lib.exe",
+      "bytes": 827341,
+      "sha256": "e45ef75c4f4e4f0ca5abdcbfcfdd3daeff490f84ed5ac145ab7157d9d786cee0",
+      "kind": "windows-pe-binary",
+      "status": "investigate",
+      "notes": "Begins with the MZ signature; historical build role and redistribution provenance are unresolved."
+    },
+    {
+      "path": "jni/satori/satori.so",
+      "bytes": 702940,
+      "sha256": "418f2e53ce08a9a596b5af5b80d4610d02da0a19843a9dc9c853cdc813998ac1",
+      "kind": "windows-pe-binary",
+      "status": "investigate",
+      "notes": "Despite the extension, begins with the MZ signature rather than the ELF signature."
+    },
+    {
+      "path": "libs/acra-4.2.3.jar",
+      "bytes": 78737,
+      "sha256": "ab85fe16f075c85a339656260e49117bde9182b67a111399bab51ff2edc7f78a",
+      "kind": "runtime-dependency",
+      "status": "preserve-until-replaced",
+      "notes": "Referenced by CatTailApplication and Nanidroid."
+    },
+    {
+      "path": "libs/android-support-v4.jar",
+      "bytes": 385685,
+      "sha256": "e955250539d082174b72e155650a7092a5fca6757c6220477e8bbb68d6dd7780",
+      "kind": "runtime-dependency",
+      "status": "preserve-until-replaced",
+      "notes": "Legacy Android support library used throughout the application."
+    },
+    {
+      "path": "libs/libGoogleAnalytics.jar",
+      "bytes": 46189,
+      "sha256": "d86c6f9af3dd27d3da304e9a1e77acbaa3ca09f83ec4129acbf875002e15aa53",
+      "kind": "runtime-dependency",
+      "status": "privacy-review",
+      "notes": "Referenced by AnalyticsUtils; removal or replacement requires an explicit privacy decision."
+    }
+  ]
+}

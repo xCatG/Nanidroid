@@ -1,0 +1,14 @@
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    init: true
+    volumes:
+      - ..:/workspaces/Nanidroid
+      - gradle-cache:/home/vscode/.gradle
+    working_dir: /workspaces/Nanidroid
+    command: sleep infinity
+
+volumes:
+  gradle-cache:

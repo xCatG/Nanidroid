@@ -1,0 +1,16 @@
+# Keep PR A from normalizing the untouched legacy tree. A later mechanical PR
+# can adopt a repository-wide policy without mixing line endings with behavior.
+.dockerignore text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.devcontainer/** text eol=lf
+.github/** text eol=lf
+docs/modernization/** text eol=lf
+tools/** text eol=lf
+
+*.jar binary
+*.zip binary
+*.png binary
+*.9.png binary
+*.so binary
+*.exe binary
