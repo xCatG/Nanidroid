@@ -1,0 +1,19 @@
+{
+  "name": "Nanidroid modernization",
+  "dockerComposeFile": "compose.yaml",
+  "service": "dev",
+  "workspaceFolder": "/workspaces/Nanidroid",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "shutdownAction": "stopCompose",
+  "postCreateCommand": "python tools/verify_environment.py",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "ms-python.python",
+        "redhat.java"
+      ]
+    }
+  }
+}
