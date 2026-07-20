@@ -85,9 +85,11 @@ They are migration candidates, not generated junk.
 - CMake, Ninja, Make, Python, Git, and binary inspection tools
 - a persistent Gradle cache
 
-The devcontainer is a thin adapter over Docker Compose. It deliberately does
-not install an Android platform, build-tools, NDK, emulator, or Gradle version
-yet. PR B will pin those packages after the legacy toolchain investigation.
+The devcontainer is a thin adapter over Docker Compose. PR A deliberately did
+not install an Android platform, Build Tools, NDK, emulator, or Gradle version.
+PR B2 now extends that foundation with the API 15 compile surface, Build Tools
+36.0.0, Platform Tools, and the checksummed Gradle 9.5.0 wrapper. Native
+compilation remains isolated in the frozen PR B1 container until PR C.
 
 The Android emulator remains a Windows-host or CI/KVM responsibility.
 
@@ -96,7 +98,8 @@ infrastructure. Normalizing the legacy source tree would create a large,
 behavior-free diff and belongs in a later isolated mechanical change if needed.
 
 Building or using Android SDK tooling is subject to Google's Android SDK
-License Agreement. The repository does not pre-accept SDK component licenses.
+License Agreement. Building the PR B2 dev image accepts the component licenses
+non-interactively before installing the pinned SDK packages.
 
 ## Acceptance gates
 

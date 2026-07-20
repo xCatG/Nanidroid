@@ -37,15 +37,20 @@ ln -s Sender.h "${BUILD_ROOT}/jni/_/sender.h"
 ln -s Utilities.h "${BUILD_ROOT}/jni/_/utilities.h"
 ln -s satori.h "${BUILD_ROOT}/jni/satori/Satori.h"
 
-# The Ads SDK is absent from the repository and its sole import has no live
-# references (the only call site is commented out). Remove only that import
-# from the disposable copy and fail if the expected legacy shape changes.
-readonly NANIDROID_JAVA="${BUILD_ROOT}/src/com/cattailsw/nanidroid/Nanidroid.java"
-if [[ "$(grep -c '^import com\.google\.ads\.\*;' "${NANIDROID_JAVA}")" -ne 1 ]]; then
-  echo "unexpected com.google.ads import count in Nanidroid.java" >&2
+# AGP 9 requires the package namespace and SDK levels in Gradle instead of the
+# manifest. Ant still reads them from XML, so restore the same frozen values
+# only in its build copy.
+readonly LEGACY_MANIFEST="${BUILD_ROOT}/AndroidManifest.xml"
+if grep -q '<uses-sdk\|^[[:space:]]*package=' "${LEGACY_MANIFEST}"; then
+  echo "unexpected Ant-only metadata in the Gradle-compatible source manifest" >&2
   exit 1
 fi
-sed -i '/^import com\.google\.ads\.\*;/d' "${NANIDROID_JAVA}"
+sed -i \
+  '/<manifest xmlns:android=/a\  package="com.cattailsw.nanidroid"' \
+  "${LEGACY_MANIFEST}"
+sed -i \
+  '/<application /i\  <uses-sdk android:minSdkVersion="9" android:targetSdkVersion="13" />' \
+  "${LEGACY_MANIFEST}"
 
 cd "${BUILD_ROOT}"
 
