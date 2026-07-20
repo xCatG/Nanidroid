@@ -1,0 +1,11 @@
+name: nanidroid-legacy
+
+services:
+  build:
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: docker/legacy/Dockerfile
+    volumes:
+      - ../..:/workspace:ro
+      - ../../artifacts/legacy:/out

@@ -4,6 +4,7 @@
 .gitattributes text eol=lf
 .gitignore text eol=lf
 .devcontainer/** text eol=lf
+docker/** text eol=lf
 .github/** text eol=lf
 docs/modernization/** text eol=lf
 tools/** text eol=lf
