@@ -6,6 +6,7 @@ readonly OUTPUT_ROOT="${OUTPUT_ROOT:-${SOURCE_ROOT}/artifacts/gradle}"
 readonly APK="${SOURCE_ROOT}/build/outputs/apk/debug/Nanidroid-debug.apk"
 readonly TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/testDebugUnitTest"
 readonly TEST_ARTIFACT_ROOT="${OUTPUT_ROOT}/test-results"
+readonly PROJECT_CACHE_ROOT="${PROJECT_CACHE_ROOT:-${GRADLE_USER_HOME:-/tmp/nanidroid-gradle}/project-cache}"
 readonly REFERENCE_REPORT="${SOURCE_ROOT}/artifacts/legacy/Nanidroid-debug.json"
 readonly CMAKE_NATIVE_ROOT="${SOURCE_ROOT}/artifacts/legacy/native-cmake"
 readonly BUILD_TOOLS_ROOT="${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION:?ANDROID_BUILD_TOOLS_VERSION is required}"
@@ -22,10 +23,10 @@ if [[ ! -f "${REFERENCE_REPORT}" ]]; then
 fi
 
 rm -rf "${TEST_RESULTS_ROOT}" "${TEST_ARTIFACT_ROOT}"
-mkdir -p "${TEST_ARTIFACT_ROOT}"
+mkdir -p "${TEST_ARTIFACT_ROOT}" "${PROJECT_CACHE_ROOT}"
 
 set +e
-./gradlew --no-daemon testDebugUnitTest assembleDebug
+./gradlew --no-daemon --project-cache-dir "${PROJECT_CACHE_ROOT}" testDebugUnitTest assembleDebug
 gradle_status=$?
 set -e
 

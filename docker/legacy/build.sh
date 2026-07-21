@@ -54,6 +54,7 @@ mkdir -p "${BUILD_ROOT}"
 # the debug keystore generator from dirtying the checkout on any host OS.
 rsync -a \
   --exclude /.git/ \
+  --exclude /.gradle/ \
   --exclude /artifacts/ \
   --exclude /bin/ \
   --exclude /obj/ \
