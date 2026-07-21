@@ -864,7 +864,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    showHelp();
 	    return true;
 	}
-	return super.onOptionsItemSelected(item);
+	return super.onContextItemSelected(item);
     }
 
 
