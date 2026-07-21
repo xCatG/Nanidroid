@@ -11,12 +11,15 @@ ARG ANDROID_PLATFORM_TOOLS_VERSION=29.0.6
 ARG ANDROID_PLATFORM_TOOLS_SHA1=e95ed28330406705d47fe96bafb589be6c1f2f23
 ARG ANDROID_NDK_VERSION=r14b
 ARG ANDROID_NDK_SHA1=becd161da6ed9a823e25be5c02955d9cbca1dbeb
+ARG CMAKE_VERSION=3.22.1
+ARG CMAKE_SHA256=73565c72355c6652e9db149249af36bcab44d9d478c5546fd926e69ad6b43640
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ANDROID_HOME=/opt/android-sdk
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
 ENV ANDROID_NDK_HOME=/opt/android-ndk-r14b
-ENV PATH=/opt/android-sdk/tools:/opt/android-sdk/build-tools/25.0.3:/opt/android-ndk-r14b:${PATH}
+ENV CMAKE_HOME=/opt/cmake-3.22.1
+ENV PATH=/opt/cmake-3.22.1/bin:/opt/android-sdk/tools:/opt/android-sdk/build-tools/25.0.3:/opt/android-ndk-r14b:${PATH}
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -58,6 +61,7 @@ RUN set -eux; \
     test -n "${root}"; \
     mkdir -p "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"; \
     cp -a "${root}/." "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/"; \
+    chmod -R a+rX "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"; \
     rm -rf "${archive}" "${staging}"
 
 RUN set -eux; \
@@ -73,6 +77,7 @@ RUN set -eux; \
     test -n "${root}"; \
     mkdir -p "${ANDROID_SDK_ROOT}/platforms/android-${ANDROID_PLATFORM_VERSION}"; \
     cp -a "${root}/." "${ANDROID_SDK_ROOT}/platforms/android-${ANDROID_PLATFORM_VERSION}/"; \
+    chmod -R a+rX "${ANDROID_SDK_ROOT}/platforms/android-${ANDROID_PLATFORM_VERSION}"; \
     rm -rf "${archive}" "${staging}"
 
 # NDK r14 is the last generation documented to support API 9, and it retains
@@ -87,18 +92,30 @@ RUN set -eux; \
     rm "${archive}"
 
 RUN set -eux; \
+    archive=/tmp/cmake.tar.gz; \
+    curl --fail --location --retry 3 \
+      "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" \
+      --output "${archive}"; \
+    echo "${CMAKE_SHA256}  ${archive}" | sha256sum --check -; \
+    mkdir -p "${CMAKE_HOME}"; \
+    tar -xzf "${archive}" --strip-components=1 -C "${CMAKE_HOME}"; \
+    rm "${archive}"
+
+RUN set -eux; \
     archive=/tmp/platform-tools.zip; \
     curl --fail --location --retry 3 \
       "https://dl.google.com/android/repository/platform-tools_r${ANDROID_PLATFORM_TOOLS_VERSION}-linux.zip" \
       --output "${archive}"; \
     echo "${ANDROID_PLATFORM_TOOLS_SHA1}  ${archive}" | sha1sum --check -; \
     unzip -q "${archive}" -d "${ANDROID_SDK_ROOT}"; \
+    chmod -R a+rX "${ANDROID_SDK_ROOT}/platform-tools"; \
     rm "${archive}"
 
 COPY docker/legacy/build.sh /usr/local/bin/build-nanidroid-legacy
 RUN chmod 0755 /usr/local/bin/build-nanidroid-legacy \
     && java -version \
     && ant -version \
+    && cmake --version \
     && "${ANDROID_NDK_HOME}/ndk-build" --version \
     && "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/aapt" version
 

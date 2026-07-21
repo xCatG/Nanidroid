@@ -7,9 +7,11 @@ readonly APK="${SOURCE_ROOT}/build/outputs/apk/debug/Nanidroid-debug.apk"
 readonly TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/testDebugUnitTest"
 readonly TEST_ARTIFACT_ROOT="${OUTPUT_ROOT}/test-results"
 readonly REFERENCE_REPORT="${SOURCE_ROOT}/artifacts/legacy/Nanidroid-debug.json"
-readonly AAPT="${ANDROID_SDK_ROOT}/build-tools/36.0.0/aapt"
-readonly APKSIGNER="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
-readonly ZIPALIGN="${ANDROID_SDK_ROOT}/build-tools/36.0.0/zipalign"
+readonly CMAKE_NATIVE_ROOT="${SOURCE_ROOT}/artifacts/legacy/native-cmake"
+readonly BUILD_TOOLS_ROOT="${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION:?ANDROID_BUILD_TOOLS_VERSION is required}"
+readonly AAPT="${BUILD_TOOLS_ROOT}/aapt"
+readonly APKSIGNER="${BUILD_TOOLS_ROOT}/apksigner"
+readonly ZIPALIGN="${BUILD_TOOLS_ROOT}/zipalign"
 
 cd "${SOURCE_ROOT}"
 
@@ -65,6 +67,11 @@ python3 tools/compare_apk_contracts.py \
   "${REFERENCE_REPORT}" \
   "${OUTPUT_ROOT}/Nanidroid-debug.json" \
   --output "${OUTPUT_ROOT}/parity.json"
+
+python3 tools/verify_apk_native_payload.py \
+  "${APK}" \
+  --candidate-root "${CMAKE_NATIVE_ROOT}" \
+  --output "${OUTPUT_ROOT}/native-payload.json"
 
 cp "${APK}" "${OUTPUT_ROOT}/Nanidroid-debug.apk"
 

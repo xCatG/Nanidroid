@@ -9,6 +9,7 @@ docker/** text eol=lf
 docs/modernization/** text eol=lf
 test/jvm/** text eol=lf
 tools/** text eol=lf
+jni/CMakeLists.txt text eol=lf
 *.gradle.kts text eol=lf
 gradle.properties text eol=lf
 gradlew text eol=lf

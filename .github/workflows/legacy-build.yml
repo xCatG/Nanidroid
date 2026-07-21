@@ -27,15 +27,30 @@ jobs:
           python3 -m unittest discover -s tools -p 'test_*.py'
           python3 tools/check_repository_hygiene.py
 
+      - name: Prepare writable artifact directories
+        run: mkdir -p artifacts/legacy artifacts/gradle
+
       - name: Build and validate legacy APK
         run: |
           docker compose -f docker/legacy/compose.yaml build
-          docker compose -f docker/legacy/compose.yaml run --rm build
+          docker compose -f docker/legacy/compose.yaml run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp/nanidroid-home \
+            --env JAVA_TOOL_OPTIONS=-Duser.home=/tmp/nanidroid-home \
+            --entrypoint /bin/bash \
+            build -lc \
+              'mkdir -p "$HOME/.android" && exec /usr/local/bin/build-nanidroid-legacy'
 
       - name: Build and compare Gradle APK
         run: |
           docker compose -f .devcontainer/compose.yaml build
-          docker compose -f .devcontainer/compose.yaml run --rm dev ./docker/gradle/build.sh
+          docker compose -f .devcontainer/compose.yaml run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp/nanidroid-home \
+            --env GRADLE_USER_HOME=/tmp/nanidroid-gradle \
+            --env JAVA_TOOL_OPTIONS=-Duser.home=/tmp/nanidroid-home \
+            dev bash -lc \
+              'mkdir -p "$HOME/.android" "$GRADLE_USER_HOME" && ./docker/gradle/build.sh'
 
       - name: Upload reference and Gradle artifacts
         if: always()
