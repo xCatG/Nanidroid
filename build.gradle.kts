@@ -52,9 +52,9 @@ abstract class VerifyD1TestIsolation : DefaultTask() {
 
     @TaskAction
     fun verify() {
-        val allowed = allowedSource.get().asFile
+        val allowed = allowedSource.get().asFile.canonicalFile
         val unexpected = testSources.files
-            .filterNot { it == allowed }
+            .filterNot { it.canonicalFile == allowed }
             .map { it.invariantSeparatorsPath }
             .sorted()
 
