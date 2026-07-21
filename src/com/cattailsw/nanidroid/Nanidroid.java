@@ -57,8 +57,6 @@ import com.cattailsw.nanidroid.util.NarUtil;
 import com.cattailsw.nanidroid.util.PrefUtil;
 import android.app.WallpaperManager;
 
-import com.google.ads.*;
-
 public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgListener,
 							   NarPickDlg.NarPickDlgListener,
 							   MoreGhostFuncDlg.MoreGhostFuncListener,
@@ -856,18 +854,17 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     @Override
     public boolean onContextItemSelected (MenuItem item) {
 	int id = item.getItemId();
-	switch(id) {
-	case R.id.item_about:
+	if (id == R.id.item_about) {
 	    showAbout();
 	    return true;
-	case R.id.item_feedback:
+	} else if (id == R.id.item_feedback) {
 	    showFeedback();
 	    return true;
-	case R.id.item_general_help:
+	} else if (id == R.id.item_general_help) {
 	    showHelp();
 	    return true;
-	}		
-	return super.onOptionsItemSelected(item);
+	}
+	return super.onContextItemSelected(item);
     }
 
 

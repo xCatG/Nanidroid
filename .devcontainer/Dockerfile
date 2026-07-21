@@ -5,10 +5,13 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 ARG ANDROID_COMMAND_LINE_TOOLS_VERSION=14742923
 ARG ANDROID_COMMAND_LINE_TOOLS_SHA1=48833c34b761c10cb20bcd16582129395d121b27
+ARG ANDROID_PLATFORM_VERSION=15
+ARG ANDROID_BUILD_TOOLS_VERSION=36.0.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ANDROID_HOME=/opt/android-sdk
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
+ENV ANDROID_BUILD_TOOLS_VERSION=${ANDROID_BUILD_TOOLS_VERSION}
 ENV PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:${PATH}
 
 RUN apt-get update \
@@ -43,6 +46,16 @@ RUN set -eux; \
     unzip -q "${archive}" -d /tmp/android-command-line-tools; \
     mv /tmp/android-command-line-tools/cmdline-tools/* "${ANDROID_HOME}/cmdline-tools/latest/"; \
     rm -rf "${archive}" /tmp/android-command-line-tools
+
+# Building the image accepts the Android SDK licenses non-interactively, then
+# installs only the API 15 compile surface used by the frozen Ant build and the
+# modern Build Tools required by AGP 9.3.
+RUN yes | sdkmanager --licenses >/dev/null \
+    && sdkmanager \
+        "platforms;android-${ANDROID_PLATFORM_VERSION}" \
+        "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+        "platform-tools" \
+    && rm -rf /root/.android
 
 RUN groupadd --gid "${USER_GID}" "${USERNAME}" \
     && useradd --uid "${USER_UID}" --gid "${USER_GID}" --create-home --shell /bin/bash "${USERNAME}" \

@@ -59,11 +59,14 @@ to the historical `armeabi` ABI. The lane supplies GCC 4.9 and
 lookup accepted by the original compiler generation; tracked native sources
 remain untouched. The disposable build copy also receives case aliases for
 `Sender.h`, `Utilities.h`, and `satori.h`, whose include spellings relied on
-the case-insensitive historical host filesystem. Finally, it removes the
-unresolved `com.google.ads.*` import from the copy: the Ads SDK is absent, the
-imported types have no live references, and the only `addAdView` call is
-already commented out. The shim asserts that exactly one such import exists
-so a later source change cannot be hidden.
+the case-insensitive historical host filesystem.
+
+PR B2 removes the unused `com.google.ads.*` import from the tracked Java source:
+the Ads SDK is absent, the imported types have no live references, and the only
+`addAdView` call is already commented out. AGP 9 also requires the package
+namespace and SDK levels in Gradle rather than the source manifest. To keep
+this frozen Ant lane comparable, its disposable build copy restores the same
+package, minimum SDK 9, and target SDK 13 metadata before packaging.
 
 ## Executable artifact contract
 

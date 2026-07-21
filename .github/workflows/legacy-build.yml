@@ -1,4 +1,4 @@
-name: Legacy build
+name: Legacy and Gradle builds
 
 on:
   workflow_dispatch:
@@ -24,18 +24,38 @@ jobs:
 
       - name: Test artifact contract and repository hygiene
         run: |
-          python3 -m unittest tools/test_inspect_legacy_apk.py
+          python3 -m unittest discover -s tools -p 'test_*.py'
           python3 tools/check_repository_hygiene.py
+
+      - name: Prepare writable artifact directories
+        run: mkdir -p artifacts/legacy artifacts/gradle
 
       - name: Build and validate legacy APK
         run: |
           docker compose -f docker/legacy/compose.yaml build
-          docker compose -f docker/legacy/compose.yaml run --rm build
+          docker compose -f docker/legacy/compose.yaml run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp/nanidroid-home \
+            --env JAVA_TOOL_OPTIONS=-Duser.home=/tmp/nanidroid-home \
+            --entrypoint /bin/bash \
+            build -lc \
+              'mkdir -p "$HOME/.android" && exec /usr/local/bin/build-nanidroid-legacy'
 
-      - name: Upload reference artifacts
+      - name: Build and compare Gradle APK
+        run: |
+          docker compose -f .devcontainer/compose.yaml build
+          docker compose -f .devcontainer/compose.yaml run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp/nanidroid-home \
+            --env GRADLE_USER_HOME=/tmp/nanidroid-gradle \
+            --env JAVA_TOOL_OPTIONS=-Duser.home=/tmp/nanidroid-home \
+            dev bash -lc \
+              'mkdir -p "$HOME/.android" "$GRADLE_USER_HOME" && ./docker/gradle/build.sh'
+
+      - name: Upload reference and Gradle artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: nanidroid-legacy-${{ github.sha }}
-          path: artifacts/legacy/
+          name: nanidroid-builds-${{ github.sha }}
+          path: artifacts/
           if-no-files-found: error
           retention-days: 7

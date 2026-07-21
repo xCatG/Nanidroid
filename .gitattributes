@@ -8,6 +8,11 @@ docker/** text eol=lf
 .github/** text eol=lf
 docs/modernization/** text eol=lf
 tools/** text eol=lf
+*.gradle.kts text eol=lf
+gradle.properties text eol=lf
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+gradle/wrapper/gradle-wrapper.properties text eol=lf
 
 *.jar binary
 *.zip binary
