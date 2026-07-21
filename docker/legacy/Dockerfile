@@ -58,6 +58,7 @@ RUN set -eux; \
     test -n "${root}"; \
     mkdir -p "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"; \
     cp -a "${root}/." "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/"; \
+    chmod -R a+rX "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}"; \
     rm -rf "${archive}" "${staging}"
 
 RUN set -eux; \
@@ -73,6 +74,7 @@ RUN set -eux; \
     test -n "${root}"; \
     mkdir -p "${ANDROID_SDK_ROOT}/platforms/android-${ANDROID_PLATFORM_VERSION}"; \
     cp -a "${root}/." "${ANDROID_SDK_ROOT}/platforms/android-${ANDROID_PLATFORM_VERSION}/"; \
+    chmod -R a+rX "${ANDROID_SDK_ROOT}/platforms/android-${ANDROID_PLATFORM_VERSION}"; \
     rm -rf "${archive}" "${staging}"
 
 # NDK r14 is the last generation documented to support API 9, and it retains
@@ -93,6 +95,7 @@ RUN set -eux; \
       --output "${archive}"; \
     echo "${ANDROID_PLATFORM_TOOLS_SHA1}  ${archive}" | sha1sum --check -; \
     unzip -q "${archive}" -d "${ANDROID_SDK_ROOT}"; \
+    chmod -R a+rX "${ANDROID_SDK_ROOT}/platform-tools"; \
     rm "${archive}"
 
 COPY docker/legacy/build.sh /usr/local/bin/build-nanidroid-legacy
