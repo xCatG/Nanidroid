@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from inspect_native_contract import (
     NativeContractError,
+    _jni_exports,
+    _object_source_order,
     _verify_cmake_cache,
     compare_native_contracts,
     inspect_application_mk,
@@ -134,6 +136,23 @@ class NativeContractTest(unittest.TestCase):
         (abi / "libkawari8.so").write_bytes(b"\x7fELF-kawari")
         (abi / "libsatoriya.so").write_bytes(b"\x7fELF-satori")
 
+    def test_jni_exports_use_fixed_readelf_columns(self) -> None:
+        symbol_table = """\
+     1: 00001000    24 FUNC    GLOBAL DEFAULT   10 Java_example_load trailing-column
+"""
+
+        self.assertEqual(_jni_exports(symbol_table), ["Java_example_load"])
+
+    def test_link_object_order_accepts_common_c_and_cpp_extensions(self) -> None:
+        expected = ["jni/alpha.c", "jni/beta.cc", "jni/gamma.cpp"]
+        tokens = [
+            "/tmp/alpha.c.o",
+            "/tmp/beta.cc.o",
+            "/tmp/gamma.cpp.o",
+        ]
+
+        self.assertEqual(_object_source_order(tokens, expected), expected)
+
     def test_actual_android_mk_and_cmake_declarations_normalize_identically(self) -> None:
         self.assertEqual(
             inspect_android_mk(PROJECT_ROOT),
@@ -180,7 +199,12 @@ class NativeContractTest(unittest.TestCase):
         with self.assertRaisesRegex(NativeContractError, "APP_STL"):
             inspect_application_mk(project)
 
-    def test_rejects_actual_compile_flag_drift(self) -> None:
+    @mock.patch(
+        "inspect_native_contract._verify_ndk_identity", return_value="r14b"
+    )
+    def test_rejects_actual_compile_flag_drift(
+        self, _verify_ndk_identity_mock: mock.Mock
+    ) -> None:
         project = self.root / "project"
         (project / "jni").mkdir(parents=True)
         evidence = self.root / "ndk-build.log"
@@ -207,7 +231,12 @@ class NativeContractTest(unittest.TestCase):
                 expected_api="android-9",
             )
 
-    def test_rejects_actual_compile_include_escape(self) -> None:
+    @mock.patch(
+        "inspect_native_contract._verify_ndk_identity", return_value="r14b"
+    )
+    def test_rejects_actual_compile_include_escape(
+        self, _verify_ndk_identity_mock: mock.Mock
+    ) -> None:
         project = self.root / "project"
         (project / "jni").mkdir(parents=True)
         evidence = self.root / "ndk-build.log"

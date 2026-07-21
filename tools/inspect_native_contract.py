@@ -108,9 +108,9 @@ def _jni_exports(symbol_table: str) -> list[str]:
         fields = line.split()
         if len(fields) < 8:
             continue
-        symbol = fields[-1].split("@", 1)[0]
-        section = fields[-2]
-        binding = fields[-4]
+        symbol = fields[7].split("@", 1)[0]
+        section = fields[6]
+        binding = fields[4]
         if (
             symbol.startswith("Java_")
             and section != "UND"
@@ -686,10 +686,7 @@ def _object_source_order(
         if not token.endswith(".o"):
             continue
         name = Path(token).name
-        if name.endswith(".cpp.o"):
-            stem = name[: -len(".cpp.o")]
-        else:
-            stem = Path(name).stem
+        stem = Path(name[:-2]).stem
         source = source_by_stem.get(stem)
         if source is not None:
             observed.append(source)
