@@ -80,11 +80,17 @@ selection APIs that use `Math.random()`.
 2. After temporarily admitting the exact source, the semantic snapshot
    intentionally expected the first reset wait to be `51`. Three D5 tests ran;
    the required snapshot failed with the unchanged production value `50`, while
-   every other collision, animation, frame, and offset field matched.
+   every other required collision, animation, frame-type, and wait field
+   matched. Offset behavior is asserted only by the separate legacy-observed
+   test.
 3. Temporary missing-expected, ordinary unexpected `test/jvm`, and unexpected
    `src/testRelease` paths were each rejected by the Gradle guard and the
    independent Python exact-source oracle. The failures named the relevant
    missing or unexpected path.
+4. During adversarial review, offsets were first removed only from the required
+   expectation while the snapshot helper still emitted `offset=0,0`. The
+   required test failed on exactly that extra field, demonstrating the oracle
+   was still coupled to the legacy-only behavior before the helper was fixed.
 
 The fresh worktree initially lacked generated native artifacts. The first two
 non-root legacy attempts compiled but failed at Ant signing because Android's
@@ -106,8 +112,8 @@ Fixture writing/hashing, numeric id sorting, platform-normalized path
 construction, and semantic snapshots share small test helpers. The snapshot
 sorts collision, interval-type, and animation keys and retains frame list
 order. The test also asserts that `surfaces.txt` is the temporary shell's sole
-file. Absolute temporary paths are asserted separately from the portable
-semantic snapshot.
+file. Absolute temporary paths and legacy reset-frame offsets are asserted
+separately from the portable required semantic snapshot.
 
 ## Harness isolation
 

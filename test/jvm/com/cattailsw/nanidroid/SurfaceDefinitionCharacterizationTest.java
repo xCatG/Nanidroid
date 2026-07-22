@@ -63,8 +63,8 @@ public class SurfaceDefinitionCharacterizationTest {
                 "collision:0:Head:start=1,2:size=10x20",
                 "animation-type:2=0",
                 "animation:0:interval=2:exclusive=false",
-                "frame:0:sid=null:type=-1:wait=50:offset=0,0",
-                "frame:1:sid=null:type=-1:wait=75:offset=0,0");
+                "frame:0:sid=null:type=-1:wait=50",
+                "frame:1:sid=null:type=-1:wait=75");
         assertEquals(expectedModel, semanticSnapshot(surface0));
         assertEquals(expectedModel, semanticSnapshot(surface10));
         assertEquals(expectedModel, semanticSnapshot(surface2));
@@ -159,8 +159,7 @@ public class SurfaceDefinitionCharacterizationTest {
                 ShellSurface.AnimationFrame frame = animation.frames.get(index);
                 snapshot.add(
                         "frame:" + index + ":sid=" + frame.sid + ":type=" + frame.frameType
-                                + ":wait=" + frame.time
-                                + ":offset=" + frame.startX + "," + frame.startY);
+                                + ":wait=" + frame.time);
             }
         }
         return snapshot;
