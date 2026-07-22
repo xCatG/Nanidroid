@@ -146,6 +146,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/ShioriEnvelopeCharacterizationTest.java",
+    "test/jvm/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java",
 )
 val jvmTestSources = files(
     fileTree("src") {
