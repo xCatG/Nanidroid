@@ -28,6 +28,9 @@ class BuildScriptContractTest(unittest.TestCase):
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/ShioriEnvelopeCharacterizationTest.java"
+            ),
         }
         actual = {
             pathlib.PurePosixPath(path.relative_to(project_root).as_posix())
