@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
@@ -50,6 +51,7 @@ public class SurfaceDefinitionCharacterizationTest {
         LoadedFixture loaded = loadGroupedSurfacesFixture();
 
         assertFalse(loaded.reader.error);
+        assertArrayEquals(new String[] {"surfaces.txt"}, loaded.shellRoot.list());
         assertEquals(Arrays.asList("0", "2", "10"), sortedSurfaceIds(loaded.manager));
 
         ShellSurface surface0 = loaded.manager.getSurface("0");
@@ -59,6 +61,7 @@ public class SurfaceDefinitionCharacterizationTest {
 
         List<String> expectedModel = Arrays.asList(
                 "collision:0:Head:start=1,2:size=10x20",
+                "animation-type:2=0",
                 "animation:0:interval=2:exclusive=false",
                 "frame:0:sid=null:type=-1:wait=50:offset=0,0",
                 "frame:1:sid=null:type=-1:wait=75:offset=0,0");
@@ -141,6 +144,10 @@ public class SurfaceDefinitionCharacterizationTest {
                     "collision:" + collision.id + ":" + collision.name
                             + ":start=" + collision.startX + "," + collision.startY
                             + ":size=" + collision.W + "x" + collision.H);
+        }
+
+        for (Integer type : new TreeSet<Integer>(surface.animationTypeTable.keySet())) {
+            snapshot.add("animation-type:" + type + "=" + surface.animationTypeTable.get(type));
         }
 
         for (String animationId : new TreeSet<String>(surface.animationTable.keySet())) {

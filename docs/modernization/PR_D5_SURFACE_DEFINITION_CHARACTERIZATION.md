@@ -57,7 +57,7 @@ Required during a mechanical parser replacement:
   root using the platform path separator;
 - collision id, name, start point, width, and height are preserved;
 - the conventional old and new animation grammars normalize to the same talk
-  interval, ordered reset-frame types, and waits;
+  interval-to-animation mapping, ordered reset-frame types, and waits;
 - exact manager lookup succeeds, generic missing lookup returns null, and
   missing Sakura/Kero ids fall back to loaded surfaces `0`/`10`.
 
@@ -104,8 +104,10 @@ the same task.
 
 Fixture writing/hashing, numeric id sorting, platform-normalized path
 construction, and semantic snapshots share small test helpers. The snapshot
-sorts collision and animation keys and retains frame list order. Absolute
-temporary paths are asserted separately from the portable semantic snapshot.
+sorts collision, interval-type, and animation keys and retains frame list
+order. The test also asserts that `surfaces.txt` is the temporary shell's sole
+file. Absolute temporary paths are asserted separately from the portable
+semantic snapshot.
 
 ## Harness isolation
 
