@@ -14,13 +14,14 @@ return defaults in local JVM tests. For this slice those calls are limited to
 timing/logging; assertions cover only the returned metadata map.
 
 The default-return setting applies to the app's JVM test task. D1 initially
-used a Gradle guardrail that permitted only this characterization source. D2
-and D3 extend that guard to an exact three-file allowlist for the descriptor,
-Sakura Script, and SHIORI envelope characterizations. Discovery covers every
-conventional app JVM unit-test tree under `src/test*` plus `test/jvm`; it does
-not include production or `androidTest` trees. Adding any other JVM test still
-fails before execution with instructions to isolate or remove the setting.
-This is a temporary harness constraint, not a pattern for later unit tests.
+used a Gradle guardrail that permitted only this characterization source. D2,
+D3, and D5 extend that guard to an exact four-file allowlist for the descriptor,
+Sakura Script, SHIORI envelope, and surface-definition characterizations. D4 is
+deferred separately. Discovery covers every conventional app JVM unit-test tree
+under `src/test*` plus `test/jvm`; it does not include production or
+`androidTest` trees. Adding any other JVM test still fails before execution
+with instructions to isolate or remove the setting. This is a temporary harness
+constraint, not a pattern for later unit tests.
 
 All fixtures are original synthetic byte sequences embedded directly in
 `DescReaderCharacterizationTest`. They do not depend on community ghosts,

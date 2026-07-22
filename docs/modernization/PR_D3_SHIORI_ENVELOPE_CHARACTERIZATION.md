@@ -84,13 +84,14 @@ The executable exact-source allowlist now contains only:
 - `DescReaderCharacterizationTest.java`
 - `SakuraScriptCharacterizationTest.java`
 - `ShioriEnvelopeCharacterizationTest.java`
+- `SurfaceDefinitionCharacterizationTest.java`
 
-Any missing expected source, or any fourth Java or Kotlin source under a
+Any missing expected source, or any fifth Java or Kotlin source under a
 conventional app JVM unit-test tree matching `src/test*` or under `test/jvm/`,
 fails `verifyCharacterizationTestIsolation`. Production and `androidTest`
 trees are excluded. Every generated app task matching `test*UnitTest` depends
 on that guard, so a future unit-test variant inherits the same fail-closed
-boundary.
+boundary. D5 adds the fourth source; D4 remains deferred separately.
 
 The normal container pipeline still compiles both ARM `armeabi` engines,
 checks ndk-build/CMake facts and JNI exports, packages their exact payload, and
@@ -127,8 +128,9 @@ Focused characterization:
   --tests com.cattailsw.nanidroid.ShioriEnvelopeCharacterizationTest
 ```
 
-The standard container pipeline runs D1, D2, and D3, requires fresh JUnit XML,
-assembles the APK, and executes the frozen APK/native parity gates:
+The standard container pipeline runs D1, D2, D3, and D5, requires fresh JUnit
+XML, assembles the APK, and executes the frozen APK/native parity gates. D4
+remains deferred separately:
 
 ```text
 docker compose -f .devcontainer/compose.yaml run --rm dev \
