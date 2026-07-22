@@ -13,11 +13,13 @@ runtime-specific harness setting makes unimplemented Android framework methods
 return defaults in local JVM tests. For this slice those calls are limited to
 timing/logging; assertions cover only the returned metadata map.
 
-The default-return setting applies to the app's JVM test task, so a Gradle
-guardrail currently permits only this characterization source under
-`src/test/` and `test/jvm/`. Adding any other JVM test fails before execution
-with instructions to isolate or remove the setting. This is a temporary harness
-constraint, not a pattern for later unit tests.
+The default-return setting applies to the app's JVM test task. D1 initially
+used a Gradle guardrail that permitted only this characterization source under
+`src/test/` and `test/jvm/`. D2 extends that guard to an exact two-file
+allowlist for the descriptor and Sakura Script characterizations. Adding any
+other JVM test still fails before execution with instructions to isolate or
+remove the setting. This is a temporary harness constraint, not a pattern for
+later unit tests.
 
 All fixtures are original synthetic byte sequences embedded directly in
 `DescReaderCharacterizationTest`. They do not depend on community ghosts,
