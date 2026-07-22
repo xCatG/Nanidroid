@@ -148,8 +148,8 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/ShioriEnvelopeCharacterizationTest.java",
 )
 val jvmTestSources = files(
-    fileTree("src/test") {
-        include("**/*.java", "**/*.kt")
+    fileTree("src") {
+        include("test*/**/*.java", "test*/**/*.kt")
     },
     fileTree("test/jvm") {
         include("**/*.java", "**/*.kt")

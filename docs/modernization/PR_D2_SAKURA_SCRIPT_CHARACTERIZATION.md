@@ -79,7 +79,8 @@ still rejected. A temporary `testReleaseUnitTest` task plus an unexpected source
 also confirmed that a future release-named unit-test task inherits the guard;
 the current Android configuration does not generate a real release unit-test
 task. D3 later extended the same bidirectional guard to an exact three-file
-allowlist and confirmed that an arbitrary fourth source is rejected.
+allowlist. A later adversarial probe confirmed that a fourth source in the
+variant-specific `src/testDebug/java` tree is also rejected.
 
 ## Harness isolation
 
@@ -90,12 +91,14 @@ allowlist guard. The allowlist contains exactly:
 - `SakuraScriptCharacterizationTest.java`
 - `ShioriEnvelopeCharacterizationTest.java`
 
-Any missing expected source, or any other Java or Kotlin source under
-`src/test/` or `test/jvm/`, fails `verifyCharacterizationTestIsolation`. Every
-generated app task matching `test*UnitTest` depends on that guard. This project
-currently generates only `testDebugUnitTest`; the task-name rule also protects
-future app unit-test variants without attaching to unrelated tasks. D2 does not
-turn the default-return setting into a general unit-test policy.
+Any missing expected source, or any other Java or Kotlin source under a
+conventional app JVM unit-test tree matching `src/test*` or under `test/jvm/`,
+fails `verifyCharacterizationTestIsolation`. Production and `androidTest`
+trees are not admitted by that discovery model. Every generated app task
+matching `test*UnitTest` depends on the guard. This project currently generates
+only `testDebugUnitTest`; the task-name rule also protects future app unit-test
+variants without attaching to unrelated tasks. D2 does not turn the
+default-return setting into a general unit-test policy.
 
 ## Non-goals and limits
 

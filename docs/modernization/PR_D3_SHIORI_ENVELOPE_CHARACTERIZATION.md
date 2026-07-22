@@ -55,6 +55,10 @@ tests do not assert `Hashtable` iteration order or `ShioriResponse.toString()`.
    intentionally expected `\hDOG:ready\e`. All eight D3 tests executed and
    that single semantic assertion failed against the decoded and parsed
    `\h猫:ready\e` value.
+3. A temporary `src/testDebug/java/.../UnexpectedVariantTest.java` source
+   passed the original guard, exposing a variant-root discovery gap. After
+   broadening both executable source oracles, the unchanged probe failed in
+   each and was named as the unexpected source.
 
 ### Green
 
@@ -79,10 +83,12 @@ The executable exact-source allowlist now contains only:
 - `SakuraScriptCharacterizationTest.java`
 - `ShioriEnvelopeCharacterizationTest.java`
 
-Any missing expected source, or any fourth Java or Kotlin source under
-`src/test/` or `test/jvm/`, fails `verifyCharacterizationTestIsolation`. Every
-generated app task matching `test*UnitTest` depends on that guard, so a future
-unit-test variant inherits the same fail-closed boundary.
+Any missing expected source, or any fourth Java or Kotlin source under a
+conventional app JVM unit-test tree matching `src/test*` or under `test/jvm/`,
+fails `verifyCharacterizationTestIsolation`. Production and `androidTest`
+trees are excluded. Every generated app task matching `test*UnitTest` depends
+on that guard, so a future unit-test variant inherits the same fail-closed
+boundary.
 
 The normal container pipeline still compiles both ARM `armeabi` engines,
 checks ndk-build/CMake facts and JNI exports, packages their exact payload, and
