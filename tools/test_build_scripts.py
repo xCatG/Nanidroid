@@ -19,15 +19,35 @@ class BuildScriptContractTest(unittest.TestCase):
 
         self.assertIn('--project-cache-dir "${PROJECT_CACHE_ROOT}"', build_script)
 
-    def test_default_return_stubs_have_an_exact_characterization_allowlist(self):
+    def test_characterization_sources_are_the_exact_expected_set(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        expected = {
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java"
+            ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java"
+            ),
+        }
+        actual = {
+            pathlib.PurePosixPath(path.relative_to(project_root).as_posix())
+            for root in (project_root / "src" / "test", project_root / "test" / "jvm")
+            if root.is_dir()
+            for path in root.rglob("*")
+            if path.suffix in {".java", ".kt"}
+        }
+
+        self.assertEqual(expected, actual)
+
+    def test_default_return_stub_guard_wires_every_app_unit_test_task(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         gradle_build = (project_root / "build.gradle.kts").read_text(encoding="utf-8")
 
         self.assertIn("VerifyCharacterizationTestIsolation", gradle_build)
-        self.assertIn("DescReaderCharacterizationTest.java", gradle_build)
-        self.assertIn("SakuraScriptCharacterizationTest.java", gradle_build)
-        self.assertIn("filterNot { it.canonicalFile in allowed }", gradle_build)
-        self.assertIn("dependsOn(verifyCharacterizationTestIsolation)", gradle_build)
+        self.assertIn("val missing = (expected - actual)", gradle_build)
+        self.assertIn("val unexpected = (actual - expected)", gradle_build)
+        self.assertIn('it.name.startsWith("test")', gradle_build)
+        self.assertIn('it.name.endsWith("UnitTest")', gradle_build)
 
 
 if __name__ == "__main__":

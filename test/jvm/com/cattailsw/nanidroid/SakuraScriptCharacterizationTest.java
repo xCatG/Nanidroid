@@ -85,6 +85,16 @@ public class SakuraScriptCharacterizationTest {
     }
 
     @Test
+    public void requiredMigrationInvariant_distinctSurfaceTransitionsAndAnimationStartsAreOrdered() {
+        assertTrace(
+                "6fdd70fdfa7ba5db2e83a36481a963ed516bd595b7cfeb0fc131edbb94685047",
+                "\\h\\s[120]\\s[120]\\i[3]\\i[3]\\e",
+                "surface:sakura:120",
+                "animation:sakura:3",
+                "animation:sakura:3");
+    }
+
+    @Test
     public void legacyObserved_choicesAreReportedThenTheirLabelsContinueAsText() {
         assertTrace(
                 "85a129feecd76e217ff9495e44e159bc7db0088a830e3aaf28f4f74ecac08687",
@@ -101,6 +111,25 @@ public class SakuraScriptCharacterizationTest {
                 "\\hA\\4\\5\\6\\v\\_n\\_V\\_l[half]B\\e",
                 "text:sakura:A",
                 "text:sakura:AB");
+    }
+
+    @Test
+    public void recorder_animationEventRequiresProductionStartAfterLoad() {
+        Context context = new MockContext();
+        Trace animationTrace = new Trace();
+        RecordingSakuraView sakura =
+                new RecordingSakuraView(context, "sakura", animationTrace);
+        RecordingKeroView kero = new RecordingKeroView(context, animationTrace);
+
+        sakura.loadAnimation("3");
+        kero.loadAnimation("4");
+        assertEquals(new ArrayList<String>(), animationTrace.events());
+
+        sakura.startAnimation();
+        kero.startAnimation();
+        assertEquals(
+                Arrays.asList("animation:sakura:3", "animation:kero:4"),
+                animationTrace.events());
     }
 
     private void runScript(String fixture) {
@@ -166,6 +195,7 @@ public class SakuraScriptCharacterizationTest {
         private final String speaker;
         private final Trace trace;
         private String surface;
+        private String pendingAnimation;
 
         RecordingSakuraView(Context context, String speaker, Trace trace) {
             super(context);
@@ -183,12 +213,15 @@ public class SakuraScriptCharacterizationTest {
 
         @Override
         public void loadAnimation(String id) {
-            trace.add("animation:" + speaker + ":" + id);
+            pendingAnimation = id;
         }
 
         @Override
         public void startAnimation() {
-            // Loading identifies the semantic animation event; timing is out of scope.
+            if (pendingAnimation != null) {
+                trace.add("animation:" + speaker + ":" + pendingAnimation);
+                pendingAnimation = null;
+            }
         }
 
         @Override
@@ -200,6 +233,7 @@ public class SakuraScriptCharacterizationTest {
     private static final class RecordingKeroView extends KeroView {
         private final Trace trace;
         private String surface;
+        private String pendingAnimation;
 
         RecordingKeroView(Context context, Trace trace) {
             super(context);
@@ -216,12 +250,15 @@ public class SakuraScriptCharacterizationTest {
 
         @Override
         public void loadAnimation(String id) {
-            trace.add("animation:kero:" + id);
+            pendingAnimation = id;
         }
 
         @Override
         public void startAnimation() {
-            // Loading identifies the semantic animation event; timing is out of scope.
+            if (pendingAnimation != null) {
+                trace.add("animation:kero:" + pendingAnimation);
+                pendingAnimation = null;
+            }
         }
 
         @Override

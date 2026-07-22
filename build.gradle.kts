@@ -1,7 +1,11 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -44,19 +48,22 @@ abstract class VerifyCharacterizationTestIsolation : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val testSources: ConfigurableFileCollection
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val allowedSources: ConfigurableFileCollection
+    @get:Input
+    abstract val expectedSourcePaths: ListProperty<String>
+
+    @get:Internal
+    abstract val projectRoot: DirectoryProperty
 
     @TaskAction
     fun verify() {
-        val allowed = allowedSources.files.map { it.canonicalFile }.toSet()
-        val unexpected = testSources.files
-            .filterNot { it.canonicalFile in allowed }
-            .map { it.invariantSeparatorsPath }
-            .sorted()
+        val expected = expectedSourcePaths.get()
+            .map { projectRoot.get().asFile.resolve(it).canonicalFile }
+            .toSet()
+        val actual = testSources.files.map { it.canonicalFile }.toSet()
+        val missing = (expected - actual).map { it.invariantSeparatorsPath }.sorted()
+        val unexpected = (actual - expected).map { it.invariantSeparatorsPath }.sorted()
 
-        if (unexpected.isNotEmpty()) {
+        if (missing.isNotEmpty() || unexpected.isNotEmpty()) {
             throw GradleException(
                 buildString {
                     appendLine(
@@ -66,8 +73,14 @@ abstract class VerifyCharacterizationTestIsolation : DefaultTask() {
                     appendLine(
                         "Isolate or remove unitTests.isReturnDefaultValues before adding broader tests."
                     )
-                    appendLine("Unexpected JVM test sources:")
-                    unexpected.forEach { appendLine("  - $it") }
+                    if (missing.isNotEmpty()) {
+                        appendLine("Missing expected JVM test sources:")
+                        missing.forEach { appendLine("  - $it") }
+                    }
+                    if (unexpected.isNotEmpty()) {
+                        appendLine("Unexpected JVM test sources:")
+                        unexpected.forEach { appendLine("  - $it") }
+                    }
                 }
             )
         }
@@ -147,10 +160,13 @@ val verifyCharacterizationTestIsolation by
     group = "verification"
     description = "Keeps Android default-return stubs isolated to allowlisted characterizations."
     testSources.from(jvmTestSources)
-    allowedSources.from(characterizationTests.map(layout.projectDirectory::file))
+    expectedSourcePaths.set(characterizationTests)
+    projectRoot.set(layout.projectDirectory)
 }
 
-tasks.matching { it.name == "testDebugUnitTest" }.configureEach {
+tasks.matching {
+    it.name.startsWith("test") && it.name.endsWith("UnitTest")
+}.configureEach {
     dependsOn(verifyCharacterizationTestIsolation)
 }
 
