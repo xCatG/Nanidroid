@@ -38,11 +38,13 @@ production code sees it. Line endings are CRLF throughout.
 | Malformed response header | US-ASCII | `99997cf5a309a81b7acb95da3516e7aaf3a0323cc061ff3934a56a0a5f19de59` | Status remains 500 and protocol object remains null | Legacy-observed; not required |
 | `Sender:MySender` without a space | US-ASCII | `29053bae20237169e87e33e40e148f13d1bde289896c2e4c1967237403c6ad13` | Parser stores `ySender` | Legacy-observed bug; not required |
 | `Charset: UTF-8` without a following CRLF | US-ASCII | `dbfabe1afac086fbc15674bed87102f75103ce9867d435b722ccbdcdaaa7ef03` | Decoder throws `StringIndexOutOfBoundsException` | Legacy-observed bug; not required |
-| Unsupported declared charset with ASCII-only body | US-ASCII | `e66239bc9c2537cd336b4791f02e5077b4ecd6f242cf395da369cd9da1b33708` | Platform-default fallback is deterministic for this ASCII fixture | Legacy-observed; not required |
+| Unsupported declared charset with ASCII-only body | US-ASCII | `e66239bc9c2537cd336b4791f02e5077b4ecd6f242cf395da369cd9da1b33708` | Exact ASCII response text and fields are preserved in the pinned harness | Legacy-observed; not required |
 
-The unsupported-charset case deliberately does not freeze platform-default
-decoding for non-ASCII bytes. That result can vary by runtime. Likewise, the
-tests do not assert `Hashtable` iteration order or `ShioriResponse.toString()`.
+The unsupported-charset case does not identify which fallback decoder is used:
+ASCII bytes have the same result under the relevant ASCII-compatible host
+decoders. It therefore makes no claim about unsupported declarations with
+non-ASCII bytes. Likewise, the tests do not assert `Hashtable` iteration order
+or `ShioriResponse.toString()`.
 
 ## TDD evidence
 
@@ -106,7 +108,7 @@ This slice does not characterize:
   integration;
 - protocol-spec conformance or a long-term response/error policy;
 - fixes for truncated headers, malformed charset declarations, case-sensitive
-  keys, duplicate keys, or platform-default decoding;
+  keys, duplicate keys, or the unsupported-charset fallback policy;
 - Kotlin translation, source moves, dependencies, SDK/target/ABI changes, or a
   replacement for Android's `ProtocolVersion` type.
 

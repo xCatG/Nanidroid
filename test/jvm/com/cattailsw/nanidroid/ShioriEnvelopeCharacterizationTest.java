@@ -153,7 +153,7 @@ public class ShioriEnvelopeCharacterizationTest {
     }
 
     @Test
-    public void legacyObserved_unsupportedCharsetFallsBackToPlatformDefaultForAscii()
+    public void legacyObserved_unsupportedDeclaredCharsetPreservesAsciiBodyInPinnedHarness()
             throws Exception {
         String raw = "SHIORI/3.0 200 OK\r\n"
                 + "Charset: X-NANIDROID\r\n"
