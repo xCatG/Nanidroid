@@ -1,9 +1,11 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.tasks.InputFile
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -41,34 +43,44 @@ abstract class VerifyLegacyNativeLibraries : DefaultTask() {
     }
 }
 
-abstract class VerifyD1TestIsolation : DefaultTask() {
+abstract class VerifyCharacterizationTestIsolation : DefaultTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val testSources: ConfigurableFileCollection
 
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val allowedSource: RegularFileProperty
+    @get:Input
+    abstract val expectedSourcePaths: ListProperty<String>
+
+    @get:Internal
+    abstract val projectRoot: DirectoryProperty
 
     @TaskAction
     fun verify() {
-        val allowed = allowedSource.get().asFile.canonicalFile
-        val unexpected = testSources.files
-            .filterNot { it.canonicalFile == allowed }
-            .map { it.invariantSeparatorsPath }
-            .sorted()
+        val expected = expectedSourcePaths.get()
+            .map { projectRoot.get().asFile.resolve(it).canonicalFile }
+            .toSet()
+        val actual = testSources.files.map { it.canonicalFile }.toSet()
+        val missing = (expected - actual).map { it.invariantSeparatorsPath }.sorted()
+        val unexpected = (actual - expected).map { it.invariantSeparatorsPath }.sorted()
 
-        if (unexpected.isNotEmpty()) {
+        if (missing.isNotEmpty() || unexpected.isNotEmpty()) {
             throw GradleException(
                 buildString {
                     appendLine(
-                        "D1 temporarily enables Android default-return stubs for app JVM tests."
+                        "Characterization tests temporarily enable Android " +
+                            "default-return stubs for app JVM tests."
                     )
                     appendLine(
                         "Isolate or remove unitTests.isReturnDefaultValues before adding broader tests."
                     )
-                    appendLine("Unexpected JVM test sources:")
-                    unexpected.forEach { appendLine("  - $it") }
+                    if (missing.isNotEmpty()) {
+                        appendLine("Missing expected JVM test sources:")
+                        missing.forEach { appendLine("  - $it") }
+                    }
+                    if (unexpected.isNotEmpty()) {
+                        appendLine("Unexpected JVM test sources:")
+                        unexpected.forEach { appendLine("  - $it") }
+                    }
                 }
             )
         }
@@ -130,9 +142,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-val d1CharacterizationTest =
-    "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java"
-val d1JvmTestSources = files(
+val characterizationTests = listOf(
+    "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java",
+    "test/jvm/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java",
+)
+val jvmTestSources = files(
     fileTree("src/test") {
         include("**/*.java", "**/*.kt")
     },
@@ -141,15 +155,19 @@ val d1JvmTestSources = files(
     },
 )
 
-val verifyD1TestIsolation by tasks.registering(VerifyD1TestIsolation::class) {
+val verifyCharacterizationTestIsolation by
+    tasks.registering(VerifyCharacterizationTestIsolation::class) {
     group = "verification"
-    description = "Keeps Android default-return stubs isolated to the D1 characterization."
-    testSources.from(d1JvmTestSources)
-    allowedSource.set(layout.projectDirectory.file(d1CharacterizationTest))
+    description = "Keeps Android default-return stubs isolated to allowlisted characterizations."
+    testSources.from(jvmTestSources)
+    expectedSourcePaths.set(characterizationTests)
+    projectRoot.set(layout.projectDirectory)
 }
 
-tasks.matching { it.name == "testDebugUnitTest" }.configureEach {
-    dependsOn(verifyD1TestIsolation)
+tasks.matching {
+    it.name.startsWith("test") && it.name.endsWith("UnitTest")
+}.configureEach {
+    dependsOn(verifyCharacterizationTestIsolation)
 }
 
 tasks.named("preBuild").configure {
