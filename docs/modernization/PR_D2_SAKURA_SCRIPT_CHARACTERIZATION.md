@@ -78,7 +78,8 @@ event. A negative guard check confirms that an arbitrary third JVM source is
 still rejected. A temporary `testReleaseUnitTest` task plus an unexpected source
 also confirmed that a future release-named unit-test task inherits the guard;
 the current Android configuration does not generate a real release unit-test
-task.
+task. D3 later extended the same bidirectional guard to an exact three-file
+allowlist and confirmed that an arbitrary fourth source is rejected.
 
 ## Harness isolation
 
@@ -87,6 +88,7 @@ allowlist guard. The allowlist contains exactly:
 
 - `DescReaderCharacterizationTest.java`
 - `SakuraScriptCharacterizationTest.java`
+- `ShioriEnvelopeCharacterizationTest.java`
 
 Any missing expected source, or any other Java or Kotlin source under
 `src/test/` or `test/jvm/`, fails `verifyCharacterizationTestIsolation`. Every
@@ -121,7 +123,7 @@ Focused characterization:
   --tests com.cattailsw.nanidroid.SakuraScriptCharacterizationTest
 ```
 
-The standard container pipeline runs both D1 and D2 tests, requires fresh
+The standard container pipeline now runs D1, D2, and D3 tests, requires fresh
 JUnit XML, assembles the APK, and executes the frozen APK/native parity gates:
 
 ```text
