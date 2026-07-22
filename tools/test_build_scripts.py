@@ -46,8 +46,14 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn("VerifyCharacterizationTestIsolation", gradle_build)
         self.assertIn("val missing = (expected - actual)", gradle_build)
         self.assertIn("val unexpected = (actual - expected)", gradle_build)
-        self.assertIn('it.name.startsWith("test")', gradle_build)
-        self.assertIn('it.name.endsWith("UnitTest")', gradle_build)
+
+        normalized_gradle_build = " ".join(gradle_build.split())
+        complete_unit_test_wiring = (
+            'tasks.matching { it.name.startsWith("test") && '
+            'it.name.endsWith("UnitTest") }.configureEach { '
+            "dependsOn(verifyCharacterizationTestIsolation) }"
+        )
+        self.assertIn(complete_unit_test_wiring, normalized_gradle_build)
 
 
 if __name__ == "__main__":
