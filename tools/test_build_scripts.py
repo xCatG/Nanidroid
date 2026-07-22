@@ -28,10 +28,19 @@ class BuildScriptContractTest(unittest.TestCase):
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/ShioriEnvelopeCharacterizationTest.java"
+            ),
         }
+        unit_test_roots = [
+            root
+            for root in (project_root / "src").iterdir()
+            if root.is_dir() and root.name.startswith("test")
+        ]
+        unit_test_roots.append(project_root / "test" / "jvm")
         actual = {
             pathlib.PurePosixPath(path.relative_to(project_root).as_posix())
-            for root in (project_root / "src" / "test", project_root / "test" / "jvm")
+            for root in unit_test_roots
             if root.is_dir()
             for path in root.rglob("*")
             if path.suffix in {".java", ".kt"}
