@@ -233,6 +233,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarArchiveInventoryValidatorTest.java",
+    "test/jvm/com/cattailsw/nanidroid/install/NarDescriptorParserTest.java",
 )
 val jvmTestSources = files(
     fileTree("src") {
