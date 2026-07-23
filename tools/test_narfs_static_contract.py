@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import copy
+import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import inspect_narfs_static as static
 from inspect_narfs_static import (
     StaticContractError,
     compare_contracts,
@@ -29,11 +31,14 @@ HEADER_ARM64 = """\
   Machine:                           AArch64
   Type:                              REL (Relocatable file)
 """
-HEADER_PROBE_ARM = HEADER_ARM.replace("REL (Relocatable file)", "EXEC (Executable file)")
+HEADER_PROBE_ARM = HEADER_ARM.replace(
+    "REL (Relocatable file)", "EXEC (Executable file)\n  Entry point address:               0x8000"
+)
 HEADER_PROBE_ARM64 = HEADER_ARM64.replace(
-    "REL (Relocatable file)", "EXEC (Executable file)"
+    "REL (Relocatable file)", "DYN (Shared object file)\n  Entry point address:               0xcf0"
 )
 SYMBOLS = """\
+File: archive(narfs_core.o)
   Num: Value Size Type Bind Vis Ndx Name
    20: 0 10 FUNC GLOBAL DEFAULT 1 narfs_default_options
    21: 0 20 FUNC GLOBAL DEFAULT 1 narfs_inspect
@@ -41,6 +46,8 @@ SYMBOLS = """\
    23: 0 0 NOTYPE GLOBAL DEFAULT UND fstatat
    24: 0 0 NOTYPE GLOBAL DEFAULT UND close
 """
+PROGRAM_ARM = " INTERP 0 0\n [Requesting program interpreter: /system/bin/linker]\n"
+PROGRAM_ARM64 = " INTERP 0 0\n [Requesting program interpreter: /system/bin/linker64]\n"
 ATTRIBUTES = """\
   Tag_CPU_name: "5TE"
   Tag_CPU_arch: v5TE
@@ -68,6 +75,8 @@ def fake_readelf(arguments, **kwargs):
         output = ATTRIBUTES
     elif "--dynamic" in command:
         output = DYNAMIC
+    elif "--program-headers" in command:
+        output = PROGRAM_ARM64 if "arm64" in arguments[-1] else PROGRAM_ARM
     elif "--dyn-syms" in command:
         output = SYMBOLS
     else:
@@ -130,6 +139,24 @@ class NarfsStaticContractTest(unittest.TestCase):
             )
         self.assertEqual("AArch64", report["architecture"])
 
+    @mock.patch("inspect_narfs_static.subprocess.run", side_effect=fake_readelf)
+    def test_dyn_probe_requires_positive_android_pie_evidence(self, run):
+        run.side_effect = lambda arguments, **kwargs: (
+            subprocess.CompletedProcess(arguments, 0, "", "")
+            if "--program-headers" in arguments
+            else fake_readelf(arguments, **kwargs)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "arm64-v8a"
+            root.mkdir()
+            archive, probe = root / "libnarfs_core.a", root / "narfs_core_link_probe"
+            archive.write_bytes(b"!<arch>\n")
+            probe.write_bytes(b"\x7fELF")
+            with self.assertRaisesRegex(StaticContractError, "interpreter"):
+                inspect_artifacts(
+                    archive, probe, Path("readelf"), abi="arm64-v8a", api="android-21"
+                )
+
     @mock.patch("inspect_narfs_static.subprocess.run", side_effect=forbidden_readelf)
     def test_forbidden_import_is_rejected(self, _run):
         with tempfile.TemporaryDirectory() as directory:
@@ -145,12 +172,81 @@ class NarfsStaticContractTest(unittest.TestCase):
                 )
 
     def test_parity_rejects_material_drift(self):
-        reference = {"contract": {"module": "narfs_core", "needed": ["libc.so"]}}
+        reference = {
+            "contract": {
+                "declaration": dict(static.EXPECTED), "abi": "armeabi",
+                "api": "android-9", "architecture": "ARMv5TE Thumb-1",
+                "exports": list(static.EXPORTS), "globalDefinitions": list(static.EXPORTS),
+                "imports": ["close"], "needed": ["libc.so"], "archiveSources": [static.EXPECTED["source"]],
+                "build": {"sources": [static.EXPECTED["source"], "test/native/narfs_link_probe.c"],
+                          "flags": static.EXPECTED["flags"], "include": static.EXPECTED["include"],
+                          "sysroot": "platforms/android-9/arch-arm", "compiler": "arm-linux-androideabi-gcc"},
+                "probe": {"elfType": "EXEC", "interpreter": "/system/bin/linker"},
+            },
+            "provenance": {"buildSystem": "ndk-build", "archiveSha256": "0" * 64,
+                           "archiveMembers": ["narfs_core.o"], "toolchainImports": []},
+        }
         self.assertEqual("equivalent", compare_contracts(reference, copy.deepcopy(reference))["status"])
         changed = copy.deepcopy(reference)
         changed["contract"]["needed"].append("libcrypto.so")
         with self.assertRaisesRegex(StaticContractError, "differs"):
             compare_contracts(reference, changed)
+
+        invalid = ({}, {"contract": None}, [], {"contract": {"abi": 9}})
+        for malformed in invalid:
+            with self.subTest(malformed=malformed), self.assertRaisesRegex(
+                StaticContractError, "report|schema"
+            ):
+                compare_contracts(malformed, copy.deepcopy(reference))
+
+    def test_measured_build_evidence_rejects_mutations(self):
+        inspect = getattr(static, "inspect_build_evidence")
+        base = [
+            "/ndk/bin/arm-linux-androideabi-gcc --sysroot=/ndk/platforms/android-9/arch-arm "
+            "-I/tmp/jni/narfs -march=armv5te -mtune=xscale -msoft-float -mthumb "
+            "-std=c99 -Wall -Wextra -Werror -o CMakeFiles/narfs_core.dir/narfs/narfs_core.c.o "
+            "-c /tmp/jni/narfs/narfs_core.c",
+            "/ndk/bin/arm-linux-androideabi-gcc --sysroot=/ndk/platforms/android-9/arch-arm "
+            "-I/tmp/jni/narfs -march=armv5te -mtune=xscale -msoft-float -mthumb "
+            "-std=c99 -Wall -Wextra -Werror -o CMakeFiles/narfs_core_link_probe.dir/probe.o "
+            "-c /tmp/test/native/narfs_link_probe.c",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "compile_commands.json"
+            def audit(commands):
+                evidence.write_text(json.dumps([{"command": value} for value in commands]))
+                return inspect(evidence, "cmake", "armeabi", "android-9")
+            self.assertEqual(2, len(audit(base)["sources"]))
+            mutations = (
+                base + [base[0].replace("narfs_core.c", "extra.c")],
+                [base[0] + " -Wno-error", base[1]],
+                base + [base[0]],
+            )
+            for commands in mutations:
+                with self.subTest(commands=commands), self.assertRaises(StaticContractError):
+                    audit(commands)
+
+    @mock.patch("inspect_narfs_static.subprocess.run", side_effect=fake_readelf)
+    def test_archive_member_and_all_global_definitions_are_exact(self, run):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "armeabi"
+            root.mkdir()
+            archive, probe = root / "libnarfs_core.a", root / "narfs_core_link_probe"
+            archive.write_bytes(b"!<arch>\n")
+            probe.write_bytes(b"\x7fELF")
+            for mutation in (
+                "\nFile: archive(extra.o)\n",
+                "\n 25: 0 10 FUNC GLOBAL DEFAULT 1 unrelated_global\n",
+            ):
+                run.side_effect = lambda arguments, mutation=mutation, **kwargs: (
+                    subprocess.CompletedProcess(arguments, 0, SYMBOLS + mutation, "")
+                    if "--symbols" in arguments else fake_readelf(arguments, **kwargs)
+                )
+                with self.subTest(mutation=mutation), self.assertRaises(StaticContractError):
+                    inspect_artifacts(
+                        archive, probe, Path("readelf"), abi="armeabi", api="android-9",
+                        build_system="ndk-build",
+                    )
 
     def test_build_scripts_execute_all_static_gates(self):
         legacy = (ROOT / "docker/legacy/build.sh").read_text(encoding="utf-8")
