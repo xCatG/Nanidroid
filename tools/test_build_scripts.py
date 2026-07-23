@@ -1,4 +1,5 @@
 import pathlib
+import re
 import subprocess
 import unittest
 
@@ -131,6 +132,18 @@ class BuildScriptContractTest(unittest.TestCase):
         }
 
         self.assertEqual(expected, actual)
+
+    def test_active_nanidroid_view_server_calls_use_the_compatibility_boundary(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        nanidroid = (
+            project_root / "src" / "com" / "cattailsw" / "nanidroid" / "Nanidroid.java"
+        ).read_text(encoding="utf-8")
+        active_source = re.sub(r"/\*.*?\*/", "", nanidroid, flags=re.DOTALL)
+
+        self.assertNotIn("ViewServer.get(", active_source)
+        self.assertEqual(1, active_source.count("ViewServerLifecycle.onActivityCreated(this);"))
+        self.assertEqual(1, active_source.count("ViewServerLifecycle.onActivityResumed(this);"))
+        self.assertEqual(1, active_source.count("ViewServerLifecycle.onActivityDestroyed(this);"))
 
     def test_default_return_stub_guard_wires_every_app_unit_test_task(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

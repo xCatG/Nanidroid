@@ -151,7 +151,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	  NarUtil.createNarDirOnSDCard();
 
 
-	  ViewServerLifecycle.onActivityCreated(this);
+	  ViewServer.get(this).addWindow(this);
 	  t = getSupportFragmentManager().beginTransaction();
 	  t.detach(s);
 	  t.commit();
