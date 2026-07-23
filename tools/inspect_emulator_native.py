@@ -41,6 +41,7 @@ EXPECTED_CACHE = {
     "ANDROID_STL": "gnustl_static",
     "ANDROID_TOOLCHAIN": "gcc",
 }
+EXPECTED_NDK_REVISION = "14.1.3816874"
 
 
 class NativeContractError(ValueError):
@@ -71,18 +72,41 @@ def _cache_values(path: Path) -> dict[str, str]:
     return values
 
 
-def _verify_cache(path: Path) -> dict[str, str]:
+def _verify_ndk(ndk_root: Path) -> None:
+    properties = ndk_root / "source.properties"
+    if not properties.is_file():
+        _fail(f"NDK source.properties does not exist: {properties}")
+    match = re.search(
+        r"^Pkg\.Revision\s*=\s*(.+?)\s*$",
+        properties.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    revision = match.group(1) if match is not None else ""
+    if ndk_root.name != "android-ndk-r14b" or revision != EXPECTED_NDK_REVISION:
+        _fail(
+            "NDK revision changed: expected android-ndk-r14b "
+            f"{EXPECTED_NDK_REVISION}, got {ndk_root.name} {revision}"
+        )
+
+
+def _verify_cache(path: Path, ndk_root: Path) -> dict[str, str]:
+    _verify_ndk(ndk_root)
     values = _cache_values(path)
     for name, expected in EXPECTED_CACHE.items():
         actual = values.get(name)
         if actual != expected:
             _fail(f"CMake cache {name} changed: expected {expected}, got {actual}")
     compiler = values.get("NANIDROID_CXX_COMPILER", "")
-    if not compiler.endswith(
-        "/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/"
-        "aarch64-linux-android-g++"
+    expected_compiler = (
+        ndk_root
+        / "toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin"
+        / "aarch64-linux-android-g++"
+    )
+    if (
+        Path(compiler).resolve(strict=False)
+        != expected_compiler.resolve(strict=False)
     ):
-        _fail(f"CMake compiler changed: {compiler}")
+        _fail(f"CMake compiler changed: expected {expected_compiler}, got {compiler}")
     if values.get("NANIDROID_CXX_COMPILER_ID") != "GNU" or not re.fullmatch(
         r"4\.9(?:\.\d+)?", values.get("NANIDROID_CXX_COMPILER_VERSION", "")
     ):
@@ -93,6 +117,7 @@ def _verify_cache(path: Path) -> dict[str, str]:
         )
     return {
         "ndk": "r14b",
+        "ndkRevision": EXPECTED_NDK_REVISION,
         "abi": EXPECTED_CACHE["ANDROID_ABI"],
         "api": EXPECTED_CACHE["ANDROID_PLATFORM"],
         "compiler": "gcc-4.9",
@@ -140,6 +165,7 @@ def inspect_native_directory(
     readelf: Path,
     cmake_cache: Path,
     *,
+    ndk_root: Path,
     project_root: Path | None = None,
     readelf_runner: Callable[[Path, tuple[str, ...], Path], str] = _subprocess_readelf,
 ) -> dict[str, object]:
@@ -148,7 +174,7 @@ def inspect_native_directory(
     expected = sorted(EXPECTED_LIBRARIES)
     if observed != expected:
         _fail(f"native library paths changed: expected {expected}, got {observed}")
-    toolchain = _verify_cache(cmake_cache)
+    toolchain = _verify_cache(cmake_cache, ndk_root)
     modules = inspect_cmake(project_root) if project_root is not None else []
 
     libraries: list[dict[str, object]] = []
@@ -209,6 +235,7 @@ def main() -> int:
     parser.add_argument("--readelf", type=Path, required=True)
     parser.add_argument("--cmake-cache", type=Path, required=True)
     parser.add_argument("--project-root", type=Path, required=True)
+    parser.add_argument("--ndk-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -216,6 +243,7 @@ def main() -> int:
             args.root,
             args.readelf,
             args.cmake_cache,
+            ndk_root=args.ndk_root,
             project_root=args.project_root,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)

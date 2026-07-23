@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import zipfile
@@ -43,11 +44,35 @@ def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _approved_arm64_hashes(contract: Path) -> dict[str, str]:
+    expected_paths = {
+        "arm64-v8a/libkawari8.so",
+        "arm64-v8a/libsatoriya.so",
+    }
+    try:
+        report = json.loads(contract.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise PayloadError(
+            f"cannot read ARM64 native contract {contract}: {error}"
+        ) from error
+    hashes = report.get("sha256") if isinstance(report, dict) else None
+    if not isinstance(hashes, dict) or set(hashes) != expected_paths or any(
+        not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+        for value in hashes.values()
+    ):
+        _fail(
+            "ARM64 native contract hashes changed: expected exact paths "
+            f"{sorted(expected_paths)}, got {hashes}"
+        )
+    return hashes
+
+
 def verify_emulator_apk(
     apk: Path,
     badging: str,
     legacy_root: Path,
     arm64_root: Path,
+    arm64_contract: Path,
 ) -> dict[str, object]:
     """Require exactly two engines in each approved ABI and identical bytes."""
     package = parse_badging(badging)
@@ -55,6 +80,17 @@ def verify_emulator_apk(
         _fail(f"package metadata changed: expected {EXPECTED_PACKAGE}, got {package}")
 
     roots = {"legacy": legacy_root, "arm64": arm64_root}
+    approved_arm64 = _approved_arm64_hashes(arm64_contract)
+    for relative, expected_hash in approved_arm64.items():
+        candidate = arm64_root / relative
+        if not candidate.is_file():
+            _fail(f"candidate native library does not exist: {candidate}")
+        actual_hash = _sha256(candidate.read_bytes())
+        if actual_hash != expected_hash:
+            _fail(
+                f"ARM64 native contract hash differs for {relative}: "
+                f"expected {expected_hash}, got {actual_hash}"
+            )
     expected_entries = sorted(EXPECTED_PAYLOAD)
     try:
         with zipfile.ZipFile(apk) as archive:
@@ -100,6 +136,7 @@ def main() -> int:
     parser.add_argument("--aapt", type=Path, required=True)
     parser.add_argument("--legacy-root", type=Path, required=True)
     parser.add_argument("--arm64-root", type=Path, required=True)
+    parser.add_argument("--arm64-contract", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -114,6 +151,7 @@ def main() -> int:
             completed.stdout,
             args.legacy_root,
             args.arm64_root,
+            args.arm64_contract,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

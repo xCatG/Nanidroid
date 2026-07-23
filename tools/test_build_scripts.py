@@ -30,6 +30,8 @@ class BuildScriptContractTest(unittest.TestCase):
         gradle_build = (project_root / "build.gradle.kts").read_text(encoding="utf-8")
 
         self.assertIn('OUTPUT_ROOT="${OUTPUT_ROOT:-/out}"', native_script)
+        self.assertIn('case "${BUILD_ROOT}" in', native_script)
+        self.assertIn('/tmp/*)', native_script)
         self.assertIn('CMAKE_BUILD_ROOT="${BUILD_ROOT}/cmake-arm64-build"', native_script)
         self.assertIn("-DANDROID_ABI=arm64-v8a", native_script)
         self.assertIn("-DANDROID_PLATFORM=android-21", native_script)
@@ -37,6 +39,11 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn("assembleEmulator", apk_script)
         self.assertIn('create("emulator")', gradle_build)
         self.assertIn('dir("artifacts/emulator/native")', gradle_build)
+        self.assertIn("docker/legacy/compose.yaml run --rm emulator-native", gradle_build)
+
+        clear_native = native_script.index('rm -rf "${NATIVE_ROOT}"')
+        configure = native_script.index("cmake \\")
+        self.assertLess(clear_native, configure)
 
     def test_characterization_sources_are_the_exact_expected_set(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

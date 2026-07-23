@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import sys
 import tempfile
 import unittest
 import zipfile
-import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -37,6 +39,19 @@ class VerifyEmulatorApkTest(unittest.TestCase):
             directory.mkdir(parents=True)
             (directory / "libkawari8.so").write_bytes(b"\x7fELF-kawari-" + suffix)
             (directory / "libsatoriya.so").write_bytes(b"\x7fELF-satori-" + suffix)
+        self.arm64_contract = self.root / "native-contract.json"
+        self._write_arm64_contract()
+
+    def _write_arm64_contract(self) -> None:
+        hashes = {
+            f"arm64-v8a/{name}": hashlib.sha256(
+                (self.arm64_root / "arm64-v8a" / name).read_bytes()
+            ).hexdigest()
+            for name in ("libkawari8.so", "libsatoriya.so")
+        }
+        self.arm64_contract.write_text(
+            json.dumps({"sha256": hashes}), encoding="utf-8"
+        )
 
     def _apk(self, entries: dict[str, bytes]) -> Path:
         apk = self.root / "Nanidroid-emulator.apk"
@@ -64,6 +79,7 @@ class VerifyEmulatorApkTest(unittest.TestCase):
             EMULATOR_BADGING,
             self.legacy_root,
             self.arm64_root,
+            self.arm64_contract,
         )
 
         self.assertEqual(report["status"], "identical")
@@ -75,14 +91,22 @@ class VerifyEmulatorApkTest(unittest.TestCase):
         entries.pop("lib/arm64-v8a/libsatoriya.so")
         with self.assertRaisesRegex(PayloadError, "native entries changed"):
             verify_emulator_apk(
-                self._apk(entries), EMULATOR_BADGING, self.legacy_root, self.arm64_root
+                self._apk(entries),
+                EMULATOR_BADGING,
+                self.legacy_root,
+                self.arm64_root,
+                self.arm64_contract,
             )
 
         entries = self._exact_entries()
         entries["lib/x86_64/libsurprise.so"] = b"\x7fELF-extra"
         with self.assertRaisesRegex(PayloadError, "native entries changed"):
             verify_emulator_apk(
-                self._apk(entries), EMULATOR_BADGING, self.legacy_root, self.arm64_root
+                self._apk(entries),
+                EMULATOR_BADGING,
+                self.legacy_root,
+                self.arm64_root,
+                self.arm64_contract,
             )
 
     def test_rejects_a_payload_byte_mismatch(self) -> None:
@@ -90,7 +114,11 @@ class VerifyEmulatorApkTest(unittest.TestCase):
         entries["lib/arm64-v8a/libkawari8.so"] += b"changed"
         with self.assertRaisesRegex(PayloadError, "payload differs"):
             verify_emulator_apk(
-                self._apk(entries), EMULATOR_BADGING, self.legacy_root, self.arm64_root
+                self._apk(entries),
+                EMULATOR_BADGING,
+                self.legacy_root,
+                self.arm64_root,
+                self.arm64_contract,
             )
 
     def test_rejects_badging_without_the_exact_two_abi_profile(self) -> None:
@@ -103,6 +131,21 @@ class VerifyEmulatorApkTest(unittest.TestCase):
                 badging,
                 self.legacy_root,
                 self.arm64_root,
+                self.arm64_contract,
+            )
+
+    def test_rejects_candidate_and_apk_mutated_after_native_inspection(self) -> None:
+        changed = b"\x7fELF-mutated-after-inspection"
+        (self.arm64_root / "arm64-v8a" / "libkawari8.so").write_bytes(changed)
+        entries = self._exact_entries()
+
+        with self.assertRaisesRegex(PayloadError, "native contract hash differs"):
+            verify_emulator_apk(
+                self._apk(entries),
+                EMULATOR_BADGING,
+                self.legacy_root,
+                self.arm64_root,
+                self.arm64_contract,
             )
 
 

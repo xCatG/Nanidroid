@@ -51,13 +51,19 @@ class InspectEmulatorNativeTest(unittest.TestCase):
         self.native.mkdir(parents=True)
         for name in ("libkawari8.so", "libsatoriya.so"):
             (self.native / name).write_bytes(b"\x7fELF" + name.encode())
+        self.ndk = self.root / "android-ndk-r14b"
+        self.ndk.mkdir()
+        (self.ndk / "source.properties").write_text(
+            "Pkg.Desc = Android NDK\nPkg.Revision = 14.1.3816874\n",
+            encoding="utf-8",
+        )
         self.cache = self.root / "CMakeCache.txt"
         self.cache.write_text(
             "ANDROID_ABI:STRING=arm64-v8a\n"
             "ANDROID_PLATFORM:STRING=android-21\n"
             "ANDROID_STL:STRING=gnustl_static\n"
             "ANDROID_TOOLCHAIN:STRING=gcc\n"
-            "NANIDROID_CXX_COMPILER:INTERNAL=/opt/android-ndk-r14b/toolchains/"
+            f"NANIDROID_CXX_COMPILER:INTERNAL={self.ndk.as_posix()}/toolchains/"
             "aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/"
             "aarch64-linux-android-g++\n"
             "NANIDROID_CXX_COMPILER_ID:INTERNAL=GNU\n"
@@ -79,6 +85,7 @@ class InspectEmulatorNativeTest(unittest.TestCase):
             self.root / "native",
             Path("readelf"),
             self.cache,
+            ndk_root=self.ndk,
             readelf_runner=self._readelf,
         )
 
@@ -94,6 +101,7 @@ class InspectEmulatorNativeTest(unittest.TestCase):
                 self.root / "native",
                 Path("readelf"),
                 self.cache,
+                ndk_root=self.ndk,
                 readelf_runner=self._readelf,
             )
 
@@ -110,6 +118,21 @@ class InspectEmulatorNativeTest(unittest.TestCase):
                 self.root / "native",
                 Path("readelf"),
                 self.cache,
+                ndk_root=self.ndk,
+                readelf_runner=self._readelf,
+            )
+
+    def test_rejects_ndk_revision_drift(self) -> None:
+        (self.ndk / "source.properties").write_text(
+            "Pkg.Desc = Android NDK\nPkg.Revision = 14.1.9999999\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(NativeContractError, "NDK revision changed"):
+            inspect_native_directory(
+                self.root / "native",
+                Path("readelf"),
+                self.cache,
+                ndk_root=self.ndk,
                 readelf_runner=self._readelf,
             )
 

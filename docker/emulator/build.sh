@@ -6,6 +6,7 @@ readonly OUTPUT_ROOT="${OUTPUT_ROOT:-${SOURCE_ROOT}/artifacts/emulator/apk}"
 readonly APK="${SOURCE_ROOT}/build/outputs/apk/emulator/Nanidroid-emulator.apk"
 readonly LEGACY_NATIVE_ROOT="${SOURCE_ROOT}/artifacts/legacy/native"
 readonly ARM64_NATIVE_ROOT="${SOURCE_ROOT}/artifacts/emulator/native"
+readonly ARM64_NATIVE_CONTRACT="${SOURCE_ROOT}/artifacts/emulator/native-contract.json"
 readonly PROJECT_CACHE_ROOT="${PROJECT_CACHE_ROOT:-${GRADLE_USER_HOME:-/tmp/nanidroid-gradle}/emulator-project-cache}"
 readonly BUILD_TOOLS_ROOT="${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION:?ANDROID_BUILD_TOOLS_VERSION is required}"
 readonly AAPT="${BUILD_TOOLS_ROOT}/aapt"
@@ -30,6 +31,7 @@ python3 tools/verify_emulator_apk.py \
   --aapt "${AAPT}" \
   --legacy-root "${LEGACY_NATIVE_ROOT}" \
   --arm64-root "${ARM64_NATIVE_ROOT}" \
+  --arm64-contract "${ARM64_NATIVE_CONTRACT}" \
   --output "${OUTPUT_ROOT}/native-payload.json"
 
 cp "${APK}" "${OUTPUT_ROOT}/Nanidroid-emulator.apk"

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 readonly SOURCE_ROOT="${SOURCE_ROOT:-/workspace}"
-readonly BUILD_ROOT="${BUILD_ROOT:-/tmp/nanidroid-emulator-build}"
+readonly REQUESTED_BUILD_ROOT="${BUILD_ROOT:-/tmp/nanidroid-emulator-build}"
+readonly BUILD_ROOT="$(readlink -m -- "${REQUESTED_BUILD_ROOT}")"
 readonly OUTPUT_ROOT="${OUTPUT_ROOT:-/out}"
 readonly NDK_ROOT="${ANDROID_NDK_HOME:-/opt/android-ndk-r14b}"
 readonly CMAKE_BUILD_ROOT="${BUILD_ROOT}/cmake-arm64-build"
@@ -17,12 +18,21 @@ if [[ -z "${OUTPUT_ROOT}" || "${OUTPUT_ROOT}" == "/" ]]; then
   echo "refusing unsafe output root: ${OUTPUT_ROOT}" >&2
   exit 2
 fi
+case "${BUILD_ROOT}" in
+  /tmp/*) ;;
+  *)
+    echo "refusing build root outside /tmp: ${BUILD_ROOT}" >&2
+    exit 2
+    ;;
+esac
 if [[ ! -f "${SOURCE_ROOT}/jni/CMakeLists.txt" ]]; then
   echo "source root does not contain jni/CMakeLists.txt: ${SOURCE_ROOT}" >&2
   exit 2
 fi
 
 rm -rf "${BUILD_ROOT}" "${STAGE_ROOT}"
+rm -rf "${NATIVE_ROOT}"
+rm -f "${CONTRACT_REPORT}"
 mkdir -p "${BUILD_ROOT}" "${STAGE_NATIVE_ROOT}/arm64-v8a"
 trap 'rm -rf "${STAGE_ROOT}"' EXIT
 
@@ -56,13 +66,12 @@ python3 "${SOURCE_ROOT}/tools/inspect_emulator_native.py" \
   "${STAGE_NATIVE_ROOT}" \
   --readelf "${READELF}" \
   --cmake-cache "${CMAKE_BUILD_ROOT}/CMakeCache.txt" \
+  --ndk-root "${NDK_ROOT}" \
   --project-root "${SOURCE_ROOT}" \
   --output "${STAGE_ROOT}/native-contract.json"
 
 # Publish only a fully inspected pair. This root is separate from every
 # artifacts/legacy native path consumed by the frozen debug build.
-rm -rf "${NATIVE_ROOT}"
-rm -f "${CONTRACT_REPORT}"
 mv "${STAGE_NATIVE_ROOT}" "${NATIVE_ROOT}"
 mv "${STAGE_ROOT}/native-contract.json" "${CONTRACT_REPORT}"
 rmdir "${STAGE_ROOT}"

@@ -37,12 +37,15 @@ disposable source copy, build directory, cache, staging root, and output root.
 | CMake build directory | `/tmp/nanidroid-emulator-build/cmake-arm64-build` |
 | Published native root | `artifacts/emulator/native` |
 
-`inspect_emulator_native.py` reads the real CMake cache and the stripped ELF
-files with the r14b AArch64 `readelf`. It reuses C1's strict CMake-declaration
+`inspect_emulator_native.py` requires `source.properties` revision
+`14.1.3816874`, reads the real CMake cache, and reads the stripped ELF files
+with the r14b AArch64 `readelf`. It reuses C1's strict CMake-declaration
 parser to require the exact two modules, source lists, definitions, flags,
 include roots, and link libraries. It then requires exact library paths,
 ELF64/AArch64 identity, SONAME, `DT_NEEDED`, and exported JNI symbols. A stage
-is published only after that inspection succeeds.
+is published only after that inspection succeeds. Published ARM64 outputs and
+their report are removed before a new attempt, so a failed rebuild cannot
+leave a stale candidate available to Gradle.
 
 The verified ARM64 artifacts from the final local run were:
 
@@ -68,6 +71,10 @@ four entries—no missing or additional ABI or library is allowed:
 - `lib/armeabi/libsatoriya.so`
 
 Every entry must be byte-identical to its separately approved staged input.
+Before comparing APK bytes, the verifier also hashes the two staged ARM64
+files and requires them to match the exact hashes in `native-contract.json`.
+This rejects both stale outputs after a failed attempt and mutation after ELF
+inspection.
 The final verified payload hashes were:
 
 | APK entry | SHA-256 |
@@ -77,10 +84,10 @@ The final verified payload hashes were:
 | `lib/armeabi/libkawari8.so` | `9b8d31d6e06d6b8b6a2d8ec208cf200872a78c3204f299e0c1e038720dadf067` |
 | `lib/armeabi/libsatoriya.so` | `9f72243c7609ca82258e82b0e76bf05dd89488e477e6d67a2bc12b865044b8ec` |
 
-The local debug APK was 2,045,672 bytes with SHA-256
-`7b460cdfd9c09dfa14f60cbb708050413755f78bb4e3175a0e2ee988303dcc4f`.
-The final local emulator APK was 2,963,956 bytes with SHA-256
-`b913253b978c39b679d922221e08883c98d850f22c4f0cc6a854ed7897799956`.
+The final local debug APK was 2,045,671 bytes with SHA-256
+`380a734c1b23cd73c388f3fb63210dedf95b1c9a5e6b1634c7f14f86aada4c01`.
+The final local emulator APK was 2,963,955 bytes with SHA-256
+`da68d152ec1a3174d4fb55c0f40743078e6534a3949d9b49360744f4651998c3`.
 Debug signing metadata makes whole-APK bytes nondeterministic, so these hashes
 are provenance only. The structural APK comparator and byte-exact native
 payload reports are the gates.
@@ -114,6 +121,13 @@ The unchanged standard pipeline also passed:
 The first Gradle configuration run also caught eager lookup of the generated
 `preEmulatorBuild` task. The final wiring uses lazy task matching; both
 `assembleDebug` and `assembleEmulator` then completed successfully.
+
+Adversarial hardening added RED cases for a candidate and APK changed together
+after native inspection, an unsafe caller-controlled build root, stale-output
+ordering, exact NDK revision drift, and incorrect missing-ARM64 remediation.
+The final scripts clear prior published ARM64 outputs before building,
+constrain the disposable build root beneath `/tmp`, bind candidate bytes to the
+native report, and direct missing inputs to the `emulator-native` service.
 
 ### REFACTOR
 
@@ -157,8 +171,9 @@ The unchanged app then crashed at `Nanidroid.java:161` because legacy
 `NetworkOnMainThreadException` on the modern runtime.
 
 C2 intentionally does not include the proven-but-uncommitted SDK gate or any
-other ViewServer fix. Therefore C2 proves a reproducible, installable ARM64
-artifact and native selection path; it does **not** claim a successful app
+other ViewServer fix. Therefore C2 produces a reproducible, structurally
+install-ready ARM64 artifact. ARM64 selection was observed only with the
+disposable pre-C2 artifact; C2 does **not** claim a successful final-artifact
 launch or UI smoke. D6 must resolve and test that lifecycle/runtime blocker in
 a separate behavior-changing PR.
 

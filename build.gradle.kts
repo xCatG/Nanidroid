@@ -3,6 +3,7 @@ import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
@@ -25,10 +26,16 @@ val requiredEmulatorNativeLibraries = listOf(
     emulatorNativeDirectory.file("arm64-v8a/libsatoriya.so"),
 )
 
-abstract class VerifyLegacyNativeLibraries : DefaultTask() {
+abstract class VerifyNativeLibraries : DefaultTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val libraries: ConfigurableFileCollection
+
+    @get:Input
+    abstract val artifactLabel: Property<String>
+
+    @get:Input
+    abstract val buildCommand: Property<String>
 
     @TaskAction
     fun verify() {
@@ -36,12 +43,9 @@ abstract class VerifyLegacyNativeLibraries : DefaultTask() {
         if (missing.isNotEmpty()) {
             throw GradleException(
                 buildString {
-                    appendLine("Missing frozen legacy native libraries:")
+                    appendLine("Missing ${artifactLabel.get()} native libraries:")
                     missing.forEach { appendLine("  - $it") }
-                    append(
-                        "Run `docker compose -f docker/legacy/compose.yaml " +
-                            "run --rm build` before assembling with Gradle."
-                    )
+                    append("Run `${buildCommand.get()}` before assembling with Gradle.")
                 }
             )
         }
@@ -92,16 +96,22 @@ abstract class VerifyCharacterizationTestIsolation : DefaultTask() {
     }
 }
 
-val verifyLegacyNativeLibraries by tasks.registering(VerifyLegacyNativeLibraries::class) {
+val verifyLegacyNativeLibraries by tasks.registering(VerifyNativeLibraries::class) {
     group = "verification"
     description = "Checks that PR B1 produced the native libraries packaged by Gradle."
     libraries.from(requiredLegacyNativeLibraries)
+    artifactLabel.set("frozen legacy")
+    buildCommand.set("docker compose -f docker/legacy/compose.yaml run --rm build")
 }
 
-val verifyEmulatorNativeLibraries by tasks.registering(VerifyLegacyNativeLibraries::class) {
+val verifyEmulatorNativeLibraries by tasks.registering(VerifyNativeLibraries::class) {
     group = "verification"
     description = "Checks that the opt-in emulator lane produced both ARM64 engines."
     libraries.from(requiredEmulatorNativeLibraries)
+    artifactLabel.set("ARM64 emulator")
+    buildCommand.set(
+        "docker compose -f docker/legacy/compose.yaml run --rm emulator-native"
+    )
 }
 
 android {
