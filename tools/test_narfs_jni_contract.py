@@ -129,6 +129,10 @@ class NarfsJniContractTest(unittest.TestCase):
         with self.assertRaises(CandidateContractError):
             self.inspect()
         (self.evidence / "link.txt").write_text(original)
+        (self.evidence / "link.txt").write_text(original.replace("-gcc -shared", "-g++ -shared"))
+        with self.assertRaises(CandidateContractError):
+            self.inspect()
+        (self.evidence / "link.txt").write_text(original)
         policy = (self.evidence / "compile_commands.json").read_text()
         (self.evidence / "compile_commands.json").write_text(
             policy.replace(" -c ", " -ansi -fvisibility=default -c "))
@@ -151,6 +155,13 @@ class NarfsJniContractTest(unittest.TestCase):
         java = (project / "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java").read_text()
         for forbidden in ("->", "::", "java.util.Objects", "java.nio.file", "java.time.", "try ("):
             self.assertNotIn(forbidden, java)
+        make = (project / "jni/narfs/Android.mk").read_text()
+        sequence = ("NANIDROID_NARFS_SAVED_TARGET_CXX := $(TARGET_CXX)",
+                    "override TARGET_CXX := $(TARGET_CC)",
+                    "include $(BUILD_SHARED_LIBRARY)",
+                    "override TARGET_CXX := $(NANIDROID_NARFS_SAVED_TARGET_CXX)")
+        self.assertEqual(sorted(map(make.index, sequence)), list(map(make.index, sequence)))
+        self.assertEqual(2, make.count("override TARGET_CXX"))
         script = (project / "docker/narfs-jni/build.sh").read_text()
         self.assertNotIn("artifacts/", script)
         self.assertNotRegex(script, r"(?:cp|mv).+libnarfs\.so.+OUTPUT_ROOT")
