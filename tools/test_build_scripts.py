@@ -316,6 +316,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/jvm/com/cattailsw/nanidroid/install/"
                 "NarGhostTreePolicyTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/install/"
+                "NarFilesystemInspectorTest.java"
+            ),
         }
         unit_test_roots = [
             root
