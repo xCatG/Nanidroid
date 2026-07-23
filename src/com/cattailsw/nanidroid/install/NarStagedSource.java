@@ -267,8 +267,14 @@ final class NarStagedSource {
                 count = source.read(buffer, 0, limit);
                 if (count == 0) {
                     int one = source.read();
-                    if (one < 0) {
+                    if (one == -1) {
                         break;
+                    }
+                    if (one < -1 || one > 255) {
+                        return new CopyFailure(
+                                NarStagedSourceCopyError
+                                        .SOURCE_READ_FAILED,
+                                "invalid single-byte read");
                     }
                     buffer[0] = (byte) one;
                     count = 1;
@@ -449,10 +455,13 @@ final class NarStagedSource {
 
     private static final class RandomNameSource
             implements NameSource {
-        private final SecureRandom random = new SecureRandom();
+        private SecureRandom random;
 
         @Override
         public String nextName() {
+            if (random == null) {
+                random = new SecureRandom();
+            }
             byte[] bytes = new byte[16];
             random.nextBytes(bytes);
             StringBuilder name = new StringBuilder("staged-");
