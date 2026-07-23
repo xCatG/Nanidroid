@@ -36,6 +36,12 @@ N: android=http://schemas.android.com/apk/res/android
       E: uses-library (line=10)
         A: android:name(0x01010003)="android.test.runner" (Raw: "android.test.runner")
 """
+EXPECTED_TEST_DEX = (
+    b"dex\n"
+    b"Lcom/cattailsw/nanidroid/SurfaceRenderingCharacterizationTest;\x00"
+    b"testRequiredMigrationInvariant_baseSurfaceUsesUpperLeftColorKeyAndPaddedFallback\x00"
+    b"testRequiredMigrationInvariant_elementSurfaceComposesDeclaredLayersAtOffsets\x00"
+)
 
 
 class ParseMetadataTest(unittest.TestCase):
@@ -76,7 +82,7 @@ class InspectApkTest(unittest.TestCase):
         apk = self._write_apk(
             {
                 "AndroidManifest.xml": b"manifest",
-                "classes.dex": b"dex",
+                "classes.dex": EXPECTED_TEST_DEX,
             }
         )
 
@@ -93,7 +99,7 @@ class InspectApkTest(unittest.TestCase):
         apk = self._write_apk(
             {
                 "AndroidManifest.xml": b"manifest",
-                "classes.dex": b"dex",
+                "classes.dex": EXPECTED_TEST_DEX,
             }
         )
         wrong_tree = EXPECTED_MANIFEST_TREE.replace(
@@ -108,7 +114,7 @@ class InspectApkTest(unittest.TestCase):
         apk = self._write_apk(
             {
                 "AndroidManifest.xml": b"manifest",
-                "classes.dex": b"dex",
+                "classes.dex": EXPECTED_TEST_DEX,
                 "lib/arm64-v8a/libunexpected.so": b"\x7fELF",
             }
         )
@@ -121,6 +127,26 @@ class InspectApkTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ArtifactError, "classes.dex"):
             inspect_apk(apk, EXPECTED_BADGING, EXPECTED_MANIFEST_TREE)
+
+    def test_rejects_dex_without_the_exact_test_class_and_methods(self) -> None:
+        required_markers = (
+            b"Lcom/cattailsw/nanidroid/SurfaceRenderingCharacterizationTest;",
+            b"testRequiredMigrationInvariant_baseSurfaceUsesUpperLeftColorKeyAndPaddedFallback",
+            b"testRequiredMigrationInvariant_elementSurfaceComposesDeclaredLayersAtOffsets",
+        )
+        for missing in required_markers:
+            with self.subTest(missing=missing.decode("ascii")):
+                apk = self._write_apk(
+                    {
+                        "AndroidManifest.xml": b"manifest",
+                        "classes.dex": EXPECTED_TEST_DEX.replace(missing, b"missing"),
+                    }
+                )
+
+                with self.assertRaisesRegex(
+                    ArtifactError, "required D7a test marker"
+                ):
+                    inspect_apk(apk, EXPECTED_BADGING, EXPECTED_MANIFEST_TREE)
 
 
 if __name__ == "__main__":
