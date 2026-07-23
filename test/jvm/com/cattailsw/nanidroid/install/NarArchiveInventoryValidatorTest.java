@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertArrayEquals;
 
 import java.nio.charset.Charset;
 import java.text.Normalizer;
@@ -129,6 +130,51 @@ public final class NarArchiveInventoryValidatorTest {
         rejectsNames(
                 NarInstallError.NORMALIZED_COLLISION,
                 "install.txt", "Ghost/one", "ghost/two");
+    }
+
+    @Test
+    public void lowerCaseThenNfcCollisionIsRejectedInBothOrders() {
+        String decomposedAfterLowerCase = "J\u030C";
+        String composedLowerCase = "\u01F0";
+        String[][] orders = {
+            {decomposedAfterLowerCase, composedLowerCase},
+            {composedLowerCase, decomposedAfterLowerCase},
+        };
+        for (String[] order : orders) {
+            rejectsNames(
+                    NarInstallError.NORMALIZED_COLLISION,
+                    "install.txt", order[0], order[1]);
+            rejectsNames(
+                    NarInstallError.NORMALIZED_COLLISION,
+                    "install.txt", order[0] + "/one", order[1] + "/two");
+        }
+    }
+
+    @Test
+    public void snapshotsEachCentralGetterExactlyOnce() {
+        OneShotEntry descriptor = new OneShotEntry(-1);
+
+        NarArchiveInventoryResult result =
+                new NarArchiveInventoryValidator().validate(
+                        Arrays.asList(descriptor));
+
+        assertTrue(result.isSuccess());
+        assertArrayEquals(new int[] {1, 1, 1, 1, 1, 1, 1}, descriptor.reads);
+        NarArchiveInventory.Entry entry = result.getInventory().getEntries().get(0);
+        assertEquals("install.txt", entry.getRawName());
+        assertEquals(0x1234L, entry.getCrc());
+        assertEquals(8, entry.getMethod());
+        assertEquals(10, entry.getDeclaredSize());
+        assertEquals(6, entry.getCompressedSize());
+    }
+
+    @Test
+    public void mapsCentralGetterRuntimeFailureToTypedError() {
+        NarArchiveInventoryResult result =
+                new NarArchiveInventoryValidator().validate(
+                        Arrays.asList(new OneShotEntry(1)));
+
+        assertError(NarInstallError.INVALID_ENTRY_METADATA, result);
     }
 
     @Test
@@ -272,26 +318,39 @@ public final class NarArchiveInventoryValidatorTest {
     }
 
     @Test
-    public void deterministicBoundedFuzzRejectsHostilePaths() {
+    public void deterministicFuzzMutatesValidPathsWithExactErrors() {
         Random random = new Random(FUZZ_SEED);
         for (int index = 0; index < 512; index++) {
-            String suffix = repeat(
-                    (char) ('a' + random.nextInt(26)),
-                    random.nextInt(65));
-            String[] attacks = {
-                "../" + suffix,
-                "/" + suffix,
-                suffix + "\\file",
-                "C:" + suffix,
-                suffix + "//file",
-                suffix + "/./file",
-                suffix + "/\u0001file",
-                suffix + "/\uD800file",
+            String baseline = "root" + random.nextInt(100000)
+                    + "/leaf" + index + ".txt";
+            assertTrue(validateWithPath(baseline).isSuccess());
+            String[] mutations = {
+                "../" + baseline,
+                "/" + baseline,
+                baseline.replace("/", "//"),
+                baseline.replace("/", "\\"),
+                baseline + "\u0001",
+                baseline.substring(0, baseline.indexOf('/') + 1) + repeat('a', 256),
+                repeatedPath(31, 1) + "/" + baseline,
+                baseline + "/" + asciiPath(
+                        1025 - baseline.getBytes(UTF_8).length - 1),
+                baseline + "/" + repeat('a', 4097 - baseline.length() - 1),
+                baseline + "\uD800",
             };
-            NarArchiveInventoryResult result = validate(
-                    record("install.txt"),
-                    record(attacks[index % attacks.length]));
-            assertFalse("fuzz case accepted at " + index, result.isSuccess());
+            NarInstallError[] errors = {
+                NarInstallError.INVALID_PATH,
+                NarInstallError.INVALID_PATH,
+                NarInstallError.INVALID_PATH,
+                NarInstallError.INVALID_PATH,
+                NarInstallError.INVALID_PATH,
+                NarInstallError.COMPONENT_LENGTH_LIMIT,
+                NarInstallError.PATH_DEPTH_LIMIT,
+                NarInstallError.PATH_LENGTH_LIMIT,
+                NarInstallError.RAW_NAME_LENGTH_LIMIT,
+                NarInstallError.INVALID_PATH,
+            };
+            int mutation = index % mutations.length;
+            assertError(errors[mutation], validateWithPath(mutations[mutation]));
         }
     }
 
@@ -423,5 +482,45 @@ public final class NarArchiveInventoryValidatorTest {
         @Override public int getMethod() { return method; }
         @Override public long getDeclaredSize() { return size; }
         @Override public long getCompressedSize() { return compressedSize; }
+    }
+
+    private static final class OneShotEntry
+            implements NarArchiveInventoryValidator.CentralEntry {
+        private final int throwOnFirst;
+        private final int[] reads = new int[7];
+
+        private OneShotEntry(int throwOnFirst) {
+            this.throwOnFirst = throwOnFirst;
+        }
+
+        private Object read(int field, Object value) {
+            reads[field]++;
+            if (field == throwOnFirst || reads[field] != 1) {
+                throw new IllegalStateException("getter " + field);
+            }
+            return value;
+        }
+
+        @Override public int getOrdinal() {
+            return ((Integer) read(0, Integer.valueOf(0))).intValue();
+        }
+        @Override public String getRawName() {
+            return (String) read(1, "install.txt");
+        }
+        @Override public boolean isDirectory() {
+            return ((Boolean) read(2, Boolean.FALSE)).booleanValue();
+        }
+        @Override public long getCrc() {
+            return ((Long) read(3, Long.valueOf(0x1234L))).longValue();
+        }
+        @Override public int getMethod() {
+            return ((Integer) read(4, Integer.valueOf(8))).intValue();
+        }
+        @Override public long getDeclaredSize() {
+            return ((Long) read(5, Long.valueOf(10))).longValue();
+        }
+        @Override public long getCompressedSize() {
+            return ((Long) read(6, Long.valueOf(6))).longValue();
+        }
     }
 }
