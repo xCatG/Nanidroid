@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -68,12 +69,13 @@ def inspect_declarations(root: Path) -> dict[str, object]:
         _fail("CMake narfs module count changed")
     for value in (
         r"LOCAL_MODULE := narfs_core ",
-        r"LOCAL_SRC_FILES := narfs_core\.c ",
+        r"LOCAL_SRC_FILES := narfs_core\.c LOCAL_C_INCLUDES",
         r"LOCAL_C_INCLUDES := \$\(LOCAL_PATH\) ",
-        r"LOCAL_CFLAGS := -std=c99 -Wall -Wextra -Werror ",
+        r"LOCAL_CFLAGS := -std=c99 -Wall -Wextra -Werror include",
         r"include \$\(BUILD_STATIC_LIBRARY\)",
         r"LOCAL_MODULE := narfs_core_link_probe ",
         r"LOCAL_SRC_FILES := \.\./\.\./test/native/narfs_link_probe\.c ",
+        r"LOCAL_CFLAGS := -std=c99 -Wall -Wextra -Werror LOCAL_STATIC_LIBRARIES",
         r"LOCAL_STATIC_LIBRARIES := narfs_core ",
         r"LOCAL_LDFLAGS := -Wl,--no-undefined ",
         r"include \$\(BUILD_EXECUTABLE\)",
@@ -94,6 +96,8 @@ def inspect_declarations(root: Path) -> dict[str, object]:
         r"\$\{NANIDROID_NARFS_PROBE_SOURCE\}\)",
         r"target_link_libraries\( \$\{NANIDROID_NARFS_PROBE_MODULE\} "
         r"\$\{NANIDROID_NARFS_MODULE\}\)",
+        r"target_compile_options\( \$\{NANIDROID_NARFS_PROBE_MODULE\} PRIVATE "
+        r"\$\{NANIDROID_NARFS_FLAGS\}\)",
         r'PROPERTIES LINKER_LANGUAGE CXX LINK_FLAGS "-Wl,--no-undefined"',
     ):
         _require(cmake, value, "CMake")
@@ -135,20 +139,92 @@ def _symbols(output: str) -> tuple[list[str], list[str]]:
     return sorted(defined), sorted(undefined)
 
 
+def inspect_build_evidence(
+    evidence: Path, build_system: str, abi: str, api: str
+) -> dict[str, object]:
+    try:
+        if build_system == "cmake":
+            value = json.loads(
+                (evidence / "compile_commands.json" if evidence.is_dir() else evidence)
+                .read_text(encoding="utf-8")
+            )
+            commands = [item["command"] for item in value]
+        else:
+            commands = evidence.read_text(encoding="utf-8").splitlines()
+    except (KeyError, TypeError, json.JSONDecodeError) as error:
+        raise StaticContractError("invalid static build evidence") from error
+    expected = {
+        "armeabi": (
+            "android-9/arch-arm", "arm-linux-androideabi-gcc",
+            ["-march=armv5te", "-mtune=xscale", "-msoft-float", "-mthumb"],
+        ),
+        "arm64-v8a": ("android-21/arch-arm64", "aarch64-linux-android-gcc", []),
+    }.get(abi)
+    if expected is None or not expected[0].startswith(api + "/"):
+        _fail(f"unsupported build evidence ABI/API: {abi}/{api}")
+    records: dict[str, list[list[str]]] = {"core": [], "probe": []}
+    for command in commands:
+        tokens = shlex.split(command)
+        joined = "/".join(tokens).replace("\\", "/")
+        target = (
+            "core" if "/narfs_core.dir/" in joined or "/objs/narfs_core/" in joined
+            else "probe" if "narfs_core_link_probe" in joined else None
+        )
+        if target is not None and "-c" in tokens:
+            records[target].append(tokens)
+    if any(len(value) != 1 for value in records.values()):
+        _fail("expected exactly one core and one probe compile record")
+    sources = []
+    for target, values in records.items():
+        tokens = values[0]
+        source = tokens[tokens.index("-c") + 1].replace("\\", "/")
+        source = source.replace("/jni/narfs/../../", "/")
+        wanted = EXPECTED["source"] if target == "core" else "test/native/narfs_link_probe.c"
+        if not source.endswith("/" + wanted):
+            _fail(f"{target} compile source changed: {source}")
+        policy = [
+            token for token in tokens
+            if token.startswith("-std=") or token in {"-Wall", "-Wextra", "-Werror"}
+            or token.startswith("-Wno-")
+        ]
+        includes = [token[2:].replace("\\", "/") for token in tokens if token.startswith("-I")]
+        sysroots = [
+            token.split("=", 1)[1] if "=" in token else tokens[index + 1]
+            for index, token in enumerate(tokens) if token.startswith("--sysroot")
+        ]
+        if policy != EXPECTED["flags"] or any(flag.startswith("-Wno-") for flag in policy):
+            _fail(f"{target} compile flags changed: {policy}")
+        if len([path for path in includes if path.endswith("/jni/narfs")]) != (
+            2 if build_system == "ndk-build" else 1
+        ):
+            _fail(f"{target} compile include changed")
+        if len(sysroots) != 1 or not sysroots[0].replace("\\", "/").endswith(expected[0]):
+            _fail(f"{target} compile sysroot changed")
+        if Path(tokens[0]).name != expected[1] or any(flag not in tokens for flag in expected[2]):
+            _fail(f"{target} compiler/ABI flags changed")
+        sources.append(wanted)
+    return {
+        "sources": sources, "flags": list(EXPECTED["flags"]),
+        "include": EXPECTED["include"], "sysroot": f"platforms/{expected[0]}",
+        "compiler": expected[1],
+    }
+
+
 def inspect_artifacts(
-    archive: Path, probe: Path, readelf: Path, *, abi: str, api: str
+    archive: Path, probe: Path, readelf: Path, *, abi: str, api: str,
+    build_system: str = "ndk-build",
 ) -> dict[str, object]:
     if archive.name != "libnarfs_core.a" or archive.read_bytes()[:8] != b"!<arch>\n":
         _fail(f"invalid static archive: {archive}")
     if probe.name != "narfs_core_link_probe" or probe.read_bytes()[:4] != b"\x7fELF":
         _fail(f"invalid link probe: {probe}")
     expected = {
-        "armeabi": ("ELF32", "ARM", "ARMv5TE Thumb-1", "android-9"),
-        "arm64-v8a": ("ELF64", "AArch64", "AArch64", "android-21"),
+        "armeabi": ("ELF32", "ARM", "ARMv5TE Thumb-1", "android-9", "EXEC", "/system/bin/linker"),
+        "arm64-v8a": ("ELF64", "AArch64", "AArch64", "android-21", "DYN", "/system/bin/linker64"),
     }.get(abi)
     if expected is None or api != expected[3]:
         _fail(f"unsupported ABI/API: {abi}/{api}")
-    for artifact, elf_type in ((archive, "REL"), (probe, "EXEC")):
+    for artifact, elf_type in ((archive, "REL"), (probe, expected[4])):
         header = _readelf(readelf, "--file-header", artifact=artifact)
         if _headers(header, "Class") != {expected[0]}:
             _fail(f"{artifact} ELF class changed")
@@ -156,17 +232,24 @@ def inspect_artifacts(
             _fail(f"{artifact} ELF machine changed")
         if _headers(header, "Type") != {elf_type}:
             _fail(f"{artifact} ELF type changed")
+        if artifact == probe:
+            entries = _headers(header, "Entry point address")
+            program = _readelf(readelf, "--program-headers", "--wide", artifact=probe)
+            if entries in (set(), {"0x0"}) or expected[5] not in program or "INTERP" not in program:
+                _fail(f"{artifact} interpreter/entry point changed")
     if abi == "armeabi":
         attributes = _readelf(readelf, "--arch-specific", "--wide", artifact=archive)
         for token in ('Tag_CPU_name: "5TE"', "v5TE", "Thumb-1"):
             if token not in attributes:
                 _fail(f"legacy archive ARM attribute changed: {token}")
-    defined, imports = _symbols(
-        _readelf(readelf, "--symbols", "--wide", artifact=archive)
-    )
-    public = sorted(symbol for symbol in defined if symbol.startswith("narfs_"))
-    if public != EXPORTS:
-        _fail(f"public symbols changed: expected {EXPORTS}, got {public}")
+    symbols = _readelf(readelf, "--symbols", "--wide", artifact=archive)
+    members = sorted(set(re.findall(r"^File: .+\(([^)]+)\)$", symbols, re.M)))
+    wanted_member = "narfs_core.o" if build_system == "ndk-build" else "narfs_core.c.o"
+    if members != [wanted_member]:
+        _fail(f"archive members changed: {members}")
+    defined, imports = _symbols(symbols)
+    if defined != EXPORTS:
+        _fail(f"global definitions changed: expected {EXPORTS}, got {defined}")
     forbidden = sorted(symbol for symbol in defined + imports if FORBIDDEN.search(symbol))
     if forbidden:
         _fail(f"forbidden symbol: {forbidden}")
@@ -180,13 +263,61 @@ def inspect_artifacts(
         _fail(f"link probe libraries changed: {needed}")
     return {
         "abi": abi, "api": api, "architecture": expected[2],
-        "exports": public,
+        "exports": defined, "globalDefinitions": defined,
         "imports": sorted(set(imports) - TOOLCHAIN_IMPORTS),
-        "needed": needed,
+        "needed": needed, "archiveSources": [EXPECTED["source"]],
+        "probe": {"elfType": expected[4], "interpreter": expected[5]},
+        "_archiveMembers": members,
+        "_toolchainImports": sorted(set(imports) & TOOLCHAIN_IMPORTS),
     }
 
 
+def _validate_report(report: object) -> None:
+    if not isinstance(report, dict) or set(report) != {"contract", "provenance"}:
+        _fail("invalid static report schema")
+    contract, provenance = report["contract"], report["provenance"]
+    fields = {
+        "declaration": dict, "abi": str, "api": str, "architecture": str,
+        "exports": list, "globalDefinitions": list, "imports": list, "needed": list,
+        "archiveSources": list, "build": dict, "probe": dict,
+    }
+    if not isinstance(contract, dict) or set(contract) != set(fields) or any(
+        not isinstance(contract[key], kind) for key, kind in fields.items()
+    ):
+        _fail("invalid static contract schema")
+    if contract["declaration"] != EXPECTED or contract["exports"] != EXPORTS:
+        _fail("invalid static contract schema")
+    if any(not all(isinstance(item, str) for item in contract[key]) for key in (
+        "exports", "globalDefinitions", "imports", "needed", "archiveSources",
+    )):
+        _fail("invalid static contract schema")
+    build = contract["build"]
+    if set(build) != {"sources", "flags", "include", "sysroot", "compiler"} or not (
+        isinstance(build["sources"], list) and isinstance(build["flags"], list)
+        and all(isinstance(item, str) for key in ("sources", "flags") for item in build[key])
+        and all(isinstance(build[key], str) for key in ("include", "sysroot", "compiler"))
+    ):
+        _fail("invalid static build schema")
+    probe = contract["probe"]
+    if set(probe) != {"elfType", "interpreter"} or not all(
+        isinstance(value, str) for value in probe.values()
+    ):
+        _fail("invalid static probe schema")
+    if not isinstance(provenance, dict) or set(provenance) != {
+        "buildSystem", "archiveSha256", "archiveMembers", "toolchainImports",
+    } or not isinstance(provenance["buildSystem"], str) or provenance["buildSystem"] not in {"ndk-build", "cmake"} or not isinstance(
+        provenance["archiveSha256"], str
+    ) or not re.fullmatch(
+        r"[0-9a-f]{64}", provenance["archiveSha256"]
+    ) or any(not isinstance(provenance[key], list) or not all(isinstance(item, str) for item in provenance[key]) for key in (
+        "archiveMembers", "toolchainImports",
+    )):
+        _fail("invalid static report provenance schema")
+
+
 def compare_contracts(reference: dict[str, object], candidate: dict[str, object]):
+    _validate_report(reference)
+    _validate_report(candidate)
     if reference.get("contract") != candidate.get("contract"):
         _fail("static build contract differs")
     return {"status": "equivalent"}
@@ -201,7 +332,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     inspect = sub.add_parser("inspect")
-    for name in ("project-root", "archive", "probe", "readelf", "output"):
+    for name in ("project-root", "archive", "probe", "readelf", "build-evidence", "output"):
         inspect.add_argument(f"--{name}", type=Path, required=True)
     inspect.add_argument("--abi", required=True)
     inspect.add_argument("--api", required=True)
@@ -217,17 +348,25 @@ def main() -> int:
         if args.command == "inspect":
             declarations = inspect_declarations(args.project_root)
             artifact = inspect_artifacts(
-                args.archive, args.probe, args.readelf, abi=args.abi, api=args.api
+                args.archive, args.probe, args.readelf, abi=args.abi, api=args.api,
+                build_system=args.build_system,
             )
+            members = artifact.pop("_archiveMembers")
+            toolchain_imports = artifact.pop("_toolchainImports")
             result = {
                 "provenance": {
                     "buildSystem": args.build_system,
                     "archiveSha256": hashlib.sha256(args.archive.read_bytes()).hexdigest(),
+                    "archiveMembers": members,
+                    "toolchainImports": toolchain_imports,
                 },
                 "contract": {
                     "declaration": declarations[
                         "ndkBuild" if args.build_system == "ndk-build" else "cmake"
                     ],
+                    "build": inspect_build_evidence(
+                        args.build_evidence, args.build_system, args.abi, args.api
+                    ),
                     **artifact,
                 },
             }

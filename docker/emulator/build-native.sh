@@ -82,6 +82,7 @@ python3 "${SOURCE_ROOT}/tools/inspect_narfs_static.py" inspect \
   --abi arm64-v8a \
   --api android-21 \
   --build-system cmake \
+  --build-evidence "${CMAKE_BUILD_ROOT}" \
   --output "${STAGE_ROOT}/narfs-static-contract.json"
 
 # Publish only a fully inspected pair. This root is separate from every

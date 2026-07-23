@@ -196,12 +196,14 @@ python3 "${STATIC_INSPECTOR}" inspect \
   --archive "${BUILD_ROOT}/obj/local/${NATIVE_ABI}/libnarfs_core.a" \
   --probe "${BUILD_ROOT}/libs/${NATIVE_ABI}/narfs_core_link_probe" \
   --build-system ndk-build \
+  --build-evidence "${NDK_BUILD_LOG}" \
   "${STATIC_INSPECT_ARGS[@]}" \
   --output "${NATIVE_STAGE}/narfs-static-ndk-build.json"
 python3 "${STATIC_INSPECTOR}" inspect \
   --archive "${CMAKE_BUILD_ROOT}/static/${NATIVE_ABI}/libnarfs_core.a" \
   --probe "${CMAKE_BUILD_ROOT}/static/${NATIVE_ABI}/narfs_core_link_probe" \
   --build-system cmake \
+  --build-evidence "${CMAKE_BUILD_ROOT}" \
   "${STATIC_INSPECT_ARGS[@]}" \
   --output "${NATIVE_STAGE}/narfs-static-cmake.json"
 python3 "${STATIC_INSPECTOR}" compare \

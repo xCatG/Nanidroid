@@ -333,7 +333,7 @@ def inspect_cmake(project_root: Path) -> list[dict[str, object]]:
         "add_executable": 1,
         "target_include_directories": 3,
         "target_compile_definitions": 2,
-        "target_compile_options": 3,
+        "target_compile_options": 4,
         "target_link_libraries": 3,
         "set_target_properties": 3,
     }
