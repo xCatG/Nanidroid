@@ -47,23 +47,22 @@ public final class NarArchiveInventoryValidator {
         Map<String, String> directorySpellings = new HashMap<String, String>();
         Set<String> implicitDirectories = new HashSet<String>();
         for (int index = 0; index < centralEntries.size(); index++) {
-            CentralEntry source = centralEntries.get(index);
-            if (source == null
-                    || source.getOrdinal() != index
-                    || source.getDeclaredSize() < -1
-                    || source.getCompressedSize() < -1
-                    || source.getCrc() < -1
-                    || source.getCrc() > 0xffffffffL
-                    || (source.getMethod() != -1
-                            && source.getMethod() != 0
-                            && source.getMethod() != 8)) {
+            Snapshot source = snapshot(centralEntries.get(index));
+            if (source.ordinal != index
+                    || source.declaredSize < -1
+                    || source.compressedSize < -1
+                    || source.crc < -1
+                    || source.crc > 0xffffffffL
+                    || (source.method != -1
+                            && source.method != 0
+                            && source.method != 8)) {
                 reject(NarInstallError.INVALID_ENTRY_METADATA, "central metadata");
             }
             Path path = normalize(source);
             Item item = new Item(source, path);
             Item previous = entriesByKey.get(path.key);
             if (previous != null) {
-                if (previous.source.isDirectory() != source.isDirectory()) {
+                if (previous.source.directory != source.directory) {
                     reject(NarInstallError.FILE_DIRECTORY_COLLISION, path.normalized);
                 }
                 reject(
@@ -78,13 +77,13 @@ public final class NarArchiveInventoryValidator {
             while (slash >= 0) {
                 ancestor = ancestor.substring(0, slash);
                 Item parent = entriesByKey.get(ancestor);
-                if (parent != null && !parent.source.isDirectory()) {
+                if (parent != null && !parent.source.directory) {
                     reject(NarInstallError.FILE_DIRECTORY_COLLISION, path.normalized);
                 }
                 implicitDirectories.add(ancestor);
                 slash = ancestor.lastIndexOf('/');
             }
-            if (!source.isDirectory() && implicitDirectories.contains(path.key)) {
+            if (!source.directory && implicitDirectories.contains(path.key)) {
                 reject(NarInstallError.FILE_DIRECTORY_COLLISION, path.normalized);
             }
             recordDirectorySpellings(item, directorySpellings);
@@ -93,7 +92,7 @@ public final class NarArchiveInventoryValidator {
         }
 
         Layout layout = layout(items);
-        if (layout.descriptor.source.getDeclaredSize() > MAX_DESCRIPTOR_SIZE) {
+        if (layout.descriptor.source.declaredSize > MAX_DESCRIPTOR_SIZE) {
             reject(
                     NarInstallError.INSTALL_DESCRIPTOR_LIMIT,
                     layout.descriptor.path.normalized);
@@ -103,8 +102,8 @@ public final class NarArchiveInventoryValidator {
         boolean totalSizeKnown = true;
         boolean totalRatioKnown = true;
         for (Item item : items) {
-            long size = item.source.getDeclaredSize();
-            long compressed = item.source.getCompressedSize();
+            long size = item.source.declaredSize;
+            long compressed = item.source.compressedSize;
             if (size > MAX_ENTRY_SIZE) {
                 reject(
                         NarInstallError.DECLARED_ENTRY_SIZE_LIMIT,
@@ -144,34 +143,53 @@ public final class NarArchiveInventoryValidator {
                         ? null
                         : relative.substring(layout.wrapper.length() + 1);
             }
-            CentralEntry source = item.source;
+            Snapshot source = item.source;
             output.add(new NarArchiveInventory.Entry(
-                    source.getOrdinal(),
-                    source.getRawName(),
+                    source.ordinal,
+                    source.rawName,
                     item.path.normalized,
                     relative,
-                    source.isDirectory(),
-                    source.getCrc(),
-                    source.getMethod(),
-                    source.getDeclaredSize(),
-                    source.getCompressedSize()));
+                    source.directory,
+                    source.crc,
+                    source.method,
+                    source.declaredSize,
+                    source.compressedSize));
         }
         return new NarArchiveInventory(
                 output,
                 layout.wrapper,
-                layout.descriptor.source.getOrdinal(),
+                layout.descriptor.source.ordinal,
                 totalSizeKnown ? totalSize : -1);
     }
 
-    private static Path normalize(CentralEntry entry) throws Rejected {
-        String raw = entry.getRawName();
+    private static Snapshot snapshot(CentralEntry entry) throws Rejected {
+        if (entry == null) {
+            reject(NarInstallError.INVALID_ENTRY_METADATA, "null entry");
+        }
+        try {
+            return new Snapshot(
+                    entry.getOrdinal(),
+                    entry.getRawName(),
+                    entry.isDirectory(),
+                    entry.getCrc(),
+                    entry.getMethod(),
+                    entry.getDeclaredSize(),
+                    entry.getCompressedSize());
+        } catch (RuntimeException error) {
+            reject(NarInstallError.INVALID_ENTRY_METADATA, "central getter");
+            return null;
+        }
+    }
+
+    private static Path normalize(Snapshot entry) throws Rejected {
+        String raw = entry.rawName;
         if (raw == null) {
             reject(NarInstallError.INVALID_PATH, "null name");
         }
         if (raw.length() > MAX_RAW_NAME_CHARS) {
             reject(NarInstallError.RAW_NAME_LENGTH_LIMIT, "raw name");
         }
-        if (entry.isDirectory() != raw.endsWith("/")) {
+        if (entry.directory != raw.endsWith("/")) {
             reject(NarInstallError.INVALID_ENTRY_METADATA, raw);
         }
         if (raw.startsWith("/")
@@ -179,7 +197,7 @@ public final class NarArchiveInventoryValidator {
                 || !validUnicode(raw)) {
             reject(NarInstallError.INVALID_PATH, raw);
         }
-        String original = entry.isDirectory()
+        String original = entry.directory
                 ? raw.substring(0, raw.length() - 1)
                 : raw;
         if (original.length() == 0) {
@@ -211,7 +229,7 @@ public final class NarArchiveInventoryValidator {
         if (path.getBytes(UTF_8).length > MAX_PATH_BYTES) {
             reject(NarInstallError.PATH_LENGTH_LIMIT, raw);
         }
-        return new Path(original, path, path.toLowerCase(Locale.US));
+        return new Path(original, path, collisionKey(path));
     }
 
     private static void recordDirectorySpellings(
@@ -219,13 +237,13 @@ public final class NarArchiveInventoryValidator {
             Map<String, String> spellings) throws Rejected {
         String[] raw = item.path.original.split("/", -1);
         String[] normalized = item.path.normalized.split("/", -1);
-        int count = item.source.isDirectory() ? raw.length : raw.length - 1;
+        int count = item.source.directory ? raw.length : raw.length - 1;
         String rawPrefix = "";
         String normalizedPrefix = "";
         for (int index = 0; index < count; index++) {
             rawPrefix += (index == 0 ? "" : "/") + raw[index];
             normalizedPrefix += (index == 0 ? "" : "/") + normalized[index];
-            String key = normalizedPrefix.toLowerCase(Locale.US);
+            String key = collisionKey(normalizedPrefix);
             String previous = spellings.get(key);
             if (previous != null && !previous.equals(rawPrefix)) {
                 reject(NarInstallError.NORMALIZED_COLLISION, normalizedPrefix);
@@ -239,7 +257,7 @@ public final class NarArchiveInventoryValidator {
         boolean deep = false;
         for (Item item : items) {
             String[] components = item.path.normalized.split("/", -1);
-            boolean descriptor = !item.source.isDirectory()
+            boolean descriptor = !item.source.directory
                     && "install.txt".equals(components[components.length - 1]);
             if (descriptor && components.length <= 2) {
                 candidates.add(item);
@@ -283,6 +301,13 @@ public final class NarArchiveInventoryValidator {
                         && size > compressed * MAX_RATIO);
     }
 
+    private static String collisionKey(String value) {
+        String nfc = Normalizer.normalize(value, Normalizer.Form.NFC);
+        return Normalizer.normalize(
+                nfc.toLowerCase(Locale.US),
+                Normalizer.Form.NFC);
+    }
+
     private static boolean containsControl(String value) {
         for (int index = 0; index < value.length(); index++) {
             if (Character.isISOControl(value.charAt(index))) {
@@ -319,11 +344,38 @@ public final class NarArchiveInventoryValidator {
     }
 
     private static final class Item {
-        private final CentralEntry source;
+        private final Snapshot source;
         private final Path path;
-        private Item(CentralEntry source, Path path) {
+        private Item(Snapshot source, Path path) {
             this.source = source;
             this.path = path;
+        }
+    }
+
+    private static final class Snapshot {
+        private final int ordinal;
+        private final String rawName;
+        private final boolean directory;
+        private final long crc;
+        private final int method;
+        private final long declaredSize;
+        private final long compressedSize;
+
+        private Snapshot(
+                int ordinal,
+                String rawName,
+                boolean directory,
+                long crc,
+                int method,
+                long declaredSize,
+                long compressedSize) {
+            this.ordinal = ordinal;
+            this.rawName = rawName;
+            this.directory = directory;
+            this.crc = crc;
+            this.method = method;
+            this.declaredSize = declaredSize;
+            this.compressedSize = compressedSize;
         }
     }
 

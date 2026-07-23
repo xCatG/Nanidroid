@@ -9,6 +9,8 @@ single-component wrapper. It rejects ambiguous, mixed, and deeper layouts;
 absolute, drive/UNC, backslash, dot, empty, control, and malformed-Unicode
 paths; exact duplicates; case/NFC collisions including implicit directories;
 and file/directory prefix collisions.
+Collision keys are `NFC(lowercase(NFC(value)))` for both full paths and
+implicit prefixes.
 
 Before Unicode validation or normalization, raw names are capped at 4,096
 UTF-16 code units. Normalized paths retain NFC case for output and use
@@ -20,6 +22,8 @@ nonnegative, and known methods are stored (`0`) or deflated (`8`). A stripped
 wrapper-root directory is retained for identity but marked non-installable with
 no relative output path.
 The aggregate declared size is `-1` when any entry size is unknown.
+Every central-record getter is read exactly once into an immutable snapshot.
+A getter runtime failure becomes `INVALID_ENTRY_METADATA`.
 
 Limits are 10,000 entries, depth 32, 1,024 UTF-8 bytes per relative path,
 255 bytes per component, 64 KiB declared `install.txt`, 128 MiB declared per
