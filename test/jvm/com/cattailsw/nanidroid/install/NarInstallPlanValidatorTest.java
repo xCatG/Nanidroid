@@ -9,10 +9,12 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -45,7 +47,7 @@ public final class NarInstallPlanValidatorTest {
         NarInstallPlan rootPlan = rootResult.getPlan();
         assertNull(rootPlan.getWrapperDirectory());
         assertEquals(rootArchive.length(), rootPlan.getSourceLength());
-        assertEquals(32, rootPlan.getSourceSha256().length);
+        assertArrayEquals(sha256(rootArchive), rootPlan.getSourceSha256());
         assertEquals("descriptor-id", rootPlan.getDescriptor().getTargetId());
         assertEquals(2, rootPlan.getEntries().size());
         NarInstallPlan.Entry payload = rootPlan.getEntries().get(1);
@@ -117,6 +119,36 @@ public final class NarInstallPlanValidatorTest {
         } catch (UnsupportedOperationException expected) {
             // Expected.
         }
+
+        FakeIo io = validFakeIo();
+        NarInstallPlan detached = new NarInstallPlanValidator(io).validate(
+                new File("archive.nar"),
+                new File("install-root"),
+                null).getPlan();
+        NarInstallPlan.Entry frozen = detached.getEntries().get(0);
+        int ordinal = frozen.getOrdinal();
+        String rawName = frozen.getRawName();
+        String normalized = frozen.getNormalizedArchivePath();
+        String relative = frozen.getRelativePath();
+        boolean installEntry = frozen.isInstallEntry();
+        boolean directory = frozen.isDirectory();
+        long crc = frozen.getCrc();
+        int method = frozen.getMethod();
+        long size = frozen.getDeclaredSize();
+        long compressed = frozen.getCompressedSize();
+        for (int field = 0; field < 7; field++) {
+            mutateCentral(io.archive.entries.get(0), field);
+        }
+        assertEquals(ordinal, frozen.getOrdinal());
+        assertEquals(rawName, frozen.getRawName());
+        assertEquals(normalized, frozen.getNormalizedArchivePath());
+        assertEquals(relative, frozen.getRelativePath());
+        assertEquals(installEntry, frozen.isInstallEntry());
+        assertEquals(directory, frozen.isDirectory());
+        assertEquals(crc, frozen.getCrc());
+        assertEquals(method, frozen.getMethod());
+        assertEquals(size, frozen.getDeclaredSize());
+        assertEquals(compressed, frozen.getCompressedSize());
     }
 
     @Test
@@ -144,24 +176,44 @@ public final class NarInstallPlanValidatorTest {
         NarInstallPlanValidator fakeValidator = new NarInstallPlanValidator(io);
         NarInstallPlan fakePlan = fakeValidator.validate(
                 new File("archive.nar"), root, null).getPlan();
+        assertTrue(fakeValidator.verify(
+                new File("archive.nar"), fakePlan).isSuccess());
+        assertEquals(2, io.archive.closeCount);
         Collections.swap(io.archive.entries, 0, 1);
+        reindex(io.archive.entries);
         assertError(
                 NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
                 fakeValidator.verify(new File("archive.nar"), fakePlan));
         Collections.swap(io.archive.entries, 0, 1);
-        io.archive.entries.get(1).crc = 7;
-        assertError(
-                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
-                fakeValidator.verify(new File("archive.nar"), fakePlan));
+        reindex(io.archive.entries);
 
-        io.archive.closeFailure = true;
+        for (int field = 0; field < 7; field++) {
+            FakeIo changed = validFakeIo();
+            NarInstallPlanValidator changedValidator =
+                    new NarInstallPlanValidator(changed);
+            NarInstallPlan changedPlan = changedValidator.validate(
+                    new File("archive.nar"), root, null).getPlan();
+            mutateCentral(changed.archive.entries.get(0), field);
+            assertError(
+                    NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                    changedValidator.verify(
+                            new File("archive.nar"), changedPlan));
+        }
+
+        FakeIo close = validFakeIo();
+        NarInstallPlanValidator closeValidator =
+                new NarInstallPlanValidator(close);
+        NarInstallPlan closePlan = closeValidator.validate(
+                new File("archive.nar"), root, null).getPlan();
+        close.archive.entries.get(0).crc = 7;
+        close.archive.closeFailure = true;
         assertError(
                 NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
-                fakeValidator.verify(new File("archive.nar"), fakePlan));
-        io.archive.entries.get(1).crc = 0;
+                closeValidator.verify(new File("archive.nar"), closePlan));
+        close.archive.entries.get(0).crc = 0;
         assertError(
                 NarInstallError.ARCHIVE_READ_FAILED,
-                fakeValidator.verify(new File("archive.nar"), fakePlan));
+                closeValidator.verify(new File("archive.nar"), closePlan));
     }
 
     @Test
@@ -176,12 +228,20 @@ public final class NarInstallPlanValidatorTest {
 
         FakeIo streamed = validFakeIo();
         streamed.hintedLength = 0;
-        streamed.virtualSourceLength = MAX_ARCHIVE_BYTES + 1;
+        streamed.virtualSourceLength = MAX_ARCHIVE_BYTES + 10 * MIB;
         assertError(
                 NarInstallError.ARCHIVE_SIZE_LIMIT,
                 validate(streamed));
         assertEquals(1, streamed.sourceCloseCount);
+        assertEquals(
+                MAX_ARCHIVE_BYTES + 1, streamed.sourceBytesRead);
         assertEquals(0, streamed.archiveOpenCount);
+
+        FakeIo exact = validFakeIo();
+        exact.hintedLength = 0;
+        exact.virtualSourceLength = MAX_ARCHIVE_BYTES;
+        assertTrue(validate(exact).isSuccess());
+        assertEquals(MAX_ARCHIVE_BYTES, exact.sourceBytesRead);
     }
 
     @Test
@@ -189,9 +249,20 @@ public final class NarInstallPlanValidatorTest {
             throws Exception {
         FakeIo zero = validFakeIo();
         zero.zeroFirstSourceRead = true;
-        assertTrue(validate(zero).isSuccess());
-        assertTrue(zero.sourceSingleReadCount > 0);
+        NarInstallPlanResult zeroResult = validate(zero);
+        assertTrue(zeroResult.isSuccess());
+        assertArrayEquals(
+                sha256(zero.source),
+                zeroResult.getPlan().getSourceSha256());
         assertEquals(1, zero.sourceCloseCount);
+
+        FakeIo openFailure = validFakeIo();
+        openFailure.sourceOpenFailure = true;
+        assertError(
+                NarInstallError.ARCHIVE_READ_FAILED,
+                validate(openFailure));
+        assertEquals(0, openFailure.sourceCloseCount);
+        assertEquals(0, openFailure.archiveOpenCount);
 
         FakeIo readFailure = validFakeIo();
         readFailure.sourceReadFailureAt = 2;
@@ -224,6 +295,7 @@ public final class NarInstallPlanValidatorTest {
         assertError(
                 NarInstallError.ARCHIVE_READ_FAILED,
                 validate(openFailure));
+        assertEquals(0, openFailure.archive.closeCount);
 
         FakeIo listFailure = validFakeIo();
         listFailure.archive.listFailure = true;
@@ -237,14 +309,16 @@ public final class NarInstallPlanValidatorTest {
         assertError(
                 NarInstallError.ARCHIVE_READ_FAILED,
                 validate(closeFailure));
+        assertEquals(1, closeFailure.archive.closeCount);
 
         FakeIo semanticAndClose = validFakeIo();
-        semanticAndClose.archive.entries.remove(0);
+        semanticAndClose.archive.entries.remove(1);
         reindex(semanticAndClose.archive.entries);
         semanticAndClose.archive.closeFailure = true;
         assertError(
                 NarInstallError.MISSING_INSTALL_DESCRIPTOR,
                 validate(semanticAndClose));
+        assertEquals(1, semanticAndClose.archive.closeCount);
     }
 
     @Test
@@ -254,8 +328,26 @@ public final class NarInstallPlanValidatorTest {
         NarInstallPlanResult exactResult = validate(exact);
         assertTrue(exactResult.isSuccess());
         assertSame(
-                exact.archive.entries.get(0), exact.archive.openedEntry);
+                exact.archive.entries.get(1), exact.archive.openedEntry);
         assertEquals(1, exact.archive.descriptorCloseCount);
+        assertEquals(1, exact.archive.closeCount);
+        assertEquals(1, exact.canonicalCount);
+        assertEquals(
+                new File("install-root"), exact.canonicalArgument);
+        assertFalse(
+                exact.canonicalResult.equals(exact.canonicalArgument));
+        assertEquals(
+                exact.canonicalResult, exactResult.getPlan().getInstallRoot());
+        assertEquals(
+                new File(exact.canonicalResult, "ghost-id"),
+                exactResult.getPlan().getTargetDirectory());
+
+        FakeIo zero = validFakeIo();
+        zero.archive.zeroFirstDescriptorRead = true;
+        NarInstallPlanResult zeroResult = validate(zero);
+        assertTrue(zeroResult.isSuccess());
+        assertEquals(
+                "Ghost", zeroResult.getPlan().getDescriptor().getName());
 
         FakeIo openFailure = validFakeIo();
         openFailure.archive.descriptorOpenFailure = true;
@@ -267,10 +359,12 @@ public final class NarInstallPlanValidatorTest {
 
         FakeIo readFailure = validFakeIo();
         readFailure.archive.descriptorReadFailureAt = 1;
+        readFailure.archive.closeFailure = true;
         assertError(
                 NarInstallError.DESCRIPTOR_READ_FAILED,
                 validate(readFailure));
         assertEquals(1, readFailure.archive.descriptorCloseCount);
+        assertEquals(1, readFailure.archive.closeCount);
 
         FakeIo closeFailure = validFakeIo();
         closeFailure.archive.descriptorCloseFailure = true;
@@ -281,17 +375,29 @@ public final class NarInstallPlanValidatorTest {
         FakeIo semanticAndClose = validFakeIo();
         semanticAndClose.archive.descriptorBytes = bytes("name,G\n");
         semanticAndClose.archive.descriptorCloseFailure = true;
+        semanticAndClose.archive.closeFailure = true;
         assertError(
                 NarInstallError.MISSING_TYPE,
                 validate(semanticAndClose));
+        assertEquals(1, semanticAndClose.archive.closeCount);
 
         FakeIo overflowAndClose = validFakeIo();
-        overflowAndClose.archive.virtualDescriptorLength = 64L * 1024L + 1;
-        overflowAndClose.archive.entries.get(0).size = 1;
+        overflowAndClose.archive.virtualDescriptorLength =
+                64L * 1024L + 10 * MIB;
+        overflowAndClose.archive.entries.get(1).size = 1;
         overflowAndClose.archive.descriptorCloseFailure = true;
         assertError(
                 NarInstallError.INSTALL_DESCRIPTOR_LIMIT,
                 validate(overflowAndClose));
+        assertEquals(
+                64L * 1024L + 1,
+                overflowAndClose.archive.descriptorBytesRead);
+
+        FakeIo exactCap = validFakeIo();
+        exactCap.archive.descriptorBytes =
+                paddedDescriptor(64 * 1024);
+        exactCap.archive.entries.get(1).size = 1;
+        assertTrue(validate(exactCap).isSuccess());
     }
 
     @Test
@@ -306,6 +412,7 @@ public final class NarInstallPlanValidatorTest {
 
         FakeIo canonicalFailure = validFakeIo();
         canonicalFailure.canonicalFailure = true;
+        canonicalFailure.archive.closeFailure = true;
         File absentTarget = new File(
                 "missing-root-" + System.nanoTime(),
                 "ghost-id");
@@ -317,6 +424,7 @@ public final class NarInstallPlanValidatorTest {
                         absentTarget.getParentFile(),
                         null));
         assertFalse(absentTarget.exists());
+        assertEquals(1, canonicalFailure.canonicalCount);
         assertEquals(1, canonicalFailure.archive.closeCount);
     }
 
@@ -342,7 +450,7 @@ public final class NarInstallPlanValidatorTest {
         FakeEntry payload = new FakeEntry("payload", false);
         payload.size = 7;
         FakeArchive archive = new FakeArchive(
-                new ArrayList<FakeEntry>(Arrays.asList(install, payload)),
+                new ArrayList<FakeEntry>(Arrays.asList(payload, install)),
                 descriptor);
         reindex(archive.entries);
         return new FakeIo(bytes("source identity"), archive);
@@ -354,6 +462,16 @@ public final class NarInstallPlanValidatorTest {
         }
     }
 
+    private static void mutateCentral(FakeEntry entry, int field) {
+        if (field == 0) entry.ordinal++;
+        if (field == 1) entry.name += "-changed";
+        if (field == 2) entry.directory = !entry.directory;
+        if (field == 3) entry.crc++;
+        if (field == 4) entry.method = entry.method == 8 ? 0 : 8;
+        if (field == 5) entry.size++;
+        if (field == 6) entry.compressedSize++;
+    }
+
     private static byte[] descriptor(String id, String name) {
         return bytes(
                 "type,ghost\nname," + name + "\ndirectory," + id + "\n");
@@ -361,6 +479,36 @@ public final class NarInstallPlanValidatorTest {
 
     private static byte[] bytes(String value) {
         return value.getBytes(SHIFT_JIS);
+    }
+
+    private static byte[] paddedDescriptor(int byteCount) {
+        byte[] prefix = (
+                "type,ghost\nname,G\ndirectory,g\npadding,")
+                .getBytes(SHIFT_JIS);
+        byte[] result = Arrays.copyOf(prefix, byteCount);
+        Arrays.fill(result, prefix.length, result.length, (byte) 'a');
+        return result;
+    }
+
+    private static byte[] sha256(byte[] content) throws Exception {
+        return MessageDigest.getInstance("SHA-256").digest(content);
+    }
+
+    private static byte[] sha256(File file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        InputStream input = new FileInputStream(file);
+        byte[] buffer = new byte[8192];
+        try {
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                if (count > 0) {
+                    digest.update(buffer, 0, count);
+                }
+            }
+        } finally {
+            input.close();
+        }
+        return digest.digest();
     }
 
     private static File temporaryDirectory(String label) throws IOException {
@@ -417,12 +565,17 @@ public final class NarInstallPlanValidatorTest {
         private int sourceReadFailureAt = -1;
         private boolean zeroFirstSourceRead;
         private boolean sourceCloseFailure;
+        private boolean sourceOpenFailure;
         private boolean archiveOpenFailure;
         private boolean canonicalFailure;
         private int sourceOpenCount;
         private int sourceCloseCount;
-        private int sourceSingleReadCount;
+        private long sourceBytesRead;
         private int archiveOpenCount;
+        private int canonicalCount;
+        private File canonicalArgument;
+        private final File canonicalResult =
+                new File("canonical-sentinel").getAbsoluteFile();
 
         private FakeIo(byte[] source, FakeArchive archive) {
             this.source = source;
@@ -434,8 +587,12 @@ public final class NarInstallPlanValidatorTest {
             return hintedLength;
         }
 
-        @Override public InputStream openSource(File file) {
+        @Override public InputStream openSource(File file)
+                throws IOException {
             sourceOpenCount++;
+            if (sourceOpenFailure) {
+                throw new IOException("source open");
+            }
             return new ScriptedInputStream(
                     source,
                     virtualSourceLength,
@@ -456,10 +613,12 @@ public final class NarInstallPlanValidatorTest {
         }
 
         @Override public File canonical(File file) throws IOException {
+            canonicalCount++;
+            canonicalArgument = file;
             if (canonicalFailure) {
                 throw new IOException("canonical");
             }
-            return file.getAbsoluteFile();
+            return canonicalResult;
         }
     }
 
@@ -471,10 +630,12 @@ public final class NarInstallPlanValidatorTest {
         private int descriptorReadFailureAt = -1;
         private boolean descriptorCloseFailure;
         private boolean descriptorOpenFailure;
+        private boolean zeroFirstDescriptorRead;
         private boolean listFailure;
         private boolean closeFailure;
         private int closeCount;
         private int descriptorCloseCount;
+        private long descriptorBytesRead;
         private FakeEntry openedEntry;
 
         private FakeArchive(
@@ -503,7 +664,7 @@ public final class NarInstallPlanValidatorTest {
                     descriptorBytes,
                     virtualDescriptorLength,
                     descriptorReadFailureAt,
-                    false,
+                    zeroFirstDescriptorRead,
                     descriptorCloseFailure,
                     null,
                     this);
@@ -521,7 +682,7 @@ public final class NarInstallPlanValidatorTest {
             implements NarInstallPlanValidator.ArchiveEntry {
         private int ordinal;
         private String name;
-        private final boolean directory;
+        private boolean directory;
         private long crc = 0;
         private int method = 8;
         private long size = 0;
@@ -594,21 +755,29 @@ public final class NarInstallPlanValidatorTest {
             }
             position += count;
             remaining -= count;
+            recordBytes(count);
             return count;
         }
 
         @Override public int read() throws IOException {
             beforeRead();
-            if (owner != null) {
-                owner.sourceSingleReadCount++;
-            }
             if (remaining == 0) {
                 return -1;
             }
             int value = position < content.length ? content[position] & 0xff : 0;
             position++;
             remaining--;
+            recordBytes(1);
             return value;
+        }
+
+        private void recordBytes(int count) {
+            if (owner != null) {
+                owner.sourceBytesRead += count;
+            }
+            if (archive != null) {
+                archive.descriptorBytesRead += count;
+            }
         }
 
         private void beforeRead() throws IOException {
