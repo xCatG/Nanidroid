@@ -148,6 +148,9 @@ class NarfsJniContractTest(unittest.TestCase):
         self.assertNotIn("GetStringUTF", jni)
         self.assertNotIn("NewStringUTF", jni)
         self.assertNotIn("ExceptionClear", jni)
+        java = (project / "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java").read_text()
+        for forbidden in ("->", "::", "java.util.Objects", "java.nio.file", "java.time.", "try ("):
+            self.assertNotIn(forbidden, java)
         script = (project / "docker/narfs-jni/build.sh").read_text()
         self.assertNotIn("artifacts/", script)
         self.assertNotRegex(script, r"(?:cp|mv).+libnarfs\.so.+OUTPUT_ROOT")
