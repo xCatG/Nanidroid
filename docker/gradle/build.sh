@@ -17,15 +17,16 @@ readonly ZIPALIGN="${BUILD_TOOLS_ROOT}/zipalign"
 
 cd "${SOURCE_ROOT}"
 
+rm -f "${TEST_APK}" \
+  "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk" \
+  "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"
+
 if [[ ! -f "${REFERENCE_REPORT}" ]]; then
   echo "missing legacy reference report: ${REFERENCE_REPORT}" >&2
   echo "run the docker/legacy build before the Gradle build" >&2
   exit 2
 fi
 
-rm -f "${TEST_APK}" \
-  "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk" \
-  "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"
 rm -rf "${TEST_RESULTS_ROOT}" "${TEST_ARTIFACT_ROOT}"
 mkdir -p "${TEST_ARTIFACT_ROOT}" "${PROJECT_CACHE_ROOT}"
 

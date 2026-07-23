@@ -108,8 +108,10 @@ if ($LASTEXITCODE -ne 0) {
 $result = & $adb -s emulator-5554 shell am instrument -w -r `
   -e class com.cattailsw.nanidroid.SurfaceRenderingCharacterizationTest `
   com.cattailsw.nanidroid.test/android.test.InstrumentationTestRunner 2>&1
+$instrumentExit = $LASTEXITCODE
 $result
-if (($result -join "`n") -notmatch 'OK \(2 tests\)' -or
+if ($instrumentExit -ne 0 -or
+    ($result -join "`n") -notmatch 'OK \(2 tests\)' -or
     ($result -join "`n") -match 'FAILURES!!!') {
     throw "D7a instrumentation acceptance failed"
 }

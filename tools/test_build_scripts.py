@@ -150,6 +150,10 @@ class BuildScriptContractTest(unittest.TestCase):
             '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"'
         )
         self.assertIn(cleanup, " ".join(build_script.split()))
+        self.assertLess(
+            build_script.index('rm -f "${TEST_APK}"'),
+            build_script.index('if [[ ! -f "${REFERENCE_REPORT}" ]]'),
+        )
         self.assertLess(build_script.index('rm -f "${TEST_APK}"'), build_script.index("./gradlew"))
         self.assertLess(
             build_script.index("./gradlew"),
