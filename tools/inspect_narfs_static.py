@@ -143,31 +143,31 @@ def inspect_build_evidence(
     try:
         if build_system == "cmake":
             value = json.loads(
-                (evidence / "compile_commands.json" if evidence.is_dir() else evidence)
-                .read_text(encoding="utf-8")
-            )
+                (evidence / "compile_commands.json" if evidence.is_dir() else evidence).read_text(encoding="utf-8"))
             commands = [item["command"] for item in value]
         else:
             commands = evidence.read_text(encoding="utf-8").splitlines()
     except (KeyError, TypeError, json.JSONDecodeError) as error:
         raise StaticContractError("invalid static build evidence") from error
+    ndk = "/opt/android-ndk-r14b"
     expected = {
-        "armeabi": (
-            "android-9/arch-arm", "arm-linux-androideabi-gcc",
-            ["-march=armv5te", "-mtune=xscale", "-msoft-float", "-mthumb"],
-        ),
-        "arm64-v8a": ("android-21/arch-arm64", "aarch64-linux-android-gcc", []),
+        "armeabi": ("android-9/arch-arm", "arm-linux-androideabi-gcc", ["-march=armv5te", "-mtune=xscale", "-msoft-float", "-mthumb"], "arm-linux-androideabi"),
+        "arm64-v8a": ("android-21/arch-arm64", "aarch64-linux-android-gcc", [], "aarch64-linux-android"),
     }.get(abi)
     if expected is None or not expected[0].startswith(api + "/"):
         _fail(f"unsupported build evidence ABI/API: {abi}/{api}")
+    compiler_path = f"{ndk}/toolchains/{expected[3]}-4.9/prebuilt/linux-x86_64/bin/{expected[1]}"
+    system_includes = [f"platforms/{expected[0]}/usr/include", f"platforms/{expected[0]}/usr/include/{expected[3]}"]
+    wanted_includes = [("-I", EXPECTED["include"])] * (2 if build_system == "ndk-build" else 1)
+    wanted_includes += [] if build_system == "ndk-build" else [("-isystem", path) for path in system_includes]
+    toolchain_warnings = ["-Wformat", "-Werror=format-security"]
+    wanted_warnings = (EXPECTED["flags"] + toolchain_warnings if build_system == "ndk-build" else toolchain_warnings * 2 + EXPECTED["flags"])
     records: dict[str, list[list[str]]] = {"core": [], "probe": []}
     for command in commands:
         tokens = shlex.split(command)
         joined = "/".join(tokens).replace("\\", "/")
-        target = (
-            "core" if "/narfs_core.dir/" in joined or "/objs/narfs_core/" in joined
-            else "probe" if "narfs_core_link_probe" in joined else None
-        )
+        target = ("core" if "/narfs_core.dir/" in joined or "/objs/narfs_core/" in joined
+                  else "probe" if "narfs_core_link_probe" in joined else None)
         if target is not None and "-c" in tokens:
             records[target].append(tokens)
     if any(len(value) != 1 for value in records.values()):
@@ -175,36 +175,36 @@ def inspect_build_evidence(
     sources = []
     for target, values in records.items():
         tokens = values[0]
-        source = tokens[tokens.index("-c") + 1].replace("\\", "/")
-        source = source.replace("/jni/narfs/../../", "/")
+        source = tokens[tokens.index("-c") + 1].replace("\\", "/").replace("/jni/narfs/../../", "/")
         wanted = EXPECTED["source"] if target == "core" else "test/native/narfs_link_probe.c"
         if not source.endswith("/" + wanted):
             _fail(f"{target} compile source changed: {source}")
-        policy = [
-            token for token in tokens
-            if token.startswith("-std=") or token in {"-Wall", "-Wextra", "-Werror"}
-            or token.startswith("-Wno-")
-        ]
-        includes = [token[2:].replace("\\", "/") for token in tokens if token.startswith("-I")]
-        sysroots = [
-            token.split("=", 1)[1] if "=" in token else tokens[index + 1]
-            for index, token in enumerate(tokens) if token.startswith("--sysroot")
-        ]
-        if policy != EXPECTED["flags"] or any(flag.startswith("-Wno-") for flag in policy):
+        policy = [token for token in tokens if token == "-w" or token in {"-ansi", "--ansi"} or token.lstrip("-").startswith(("std=", "pedantic"))
+                  or token.startswith("-W") and not token.startswith("-Wa,")]
+        includes = [
+            ("-I" if token.startswith("-I") else "-isystem", (tokens[index + 1] if token in {"-I", "-isystem"}
+             else token[2:] if token.startswith("-I") else token[8:]).replace("\\", "/"))
+            for index, token in enumerate(tokens)
+            if token in {"-I", "-isystem"} or token.startswith(("-I", "-isystem"))]
+        includes = [(kind, path[len(ndk) + 1:] if path.startswith(ndk + "/")
+                     else path[-len(EXPECTED["include"]):] if path == source[:-len(wanted)] + EXPECTED["include"] else path) for kind, path in includes]
+        sysroots = [token.split("=", 1)[1] if "=" in token else tokens[index + 1]
+                    for index, token in enumerate(tokens) if token.startswith("--sysroot")]
+        abi_flags = [token for token in tokens if token.startswith("-m")]
+        compiler = Path(tokens[0])
+        if policy != wanted_warnings:
             _fail(f"{target} compile flags changed: {policy}")
-        if len([path for path in includes if path.endswith("/jni/narfs")]) != (
-            2 if build_system == "ndk-build" else 1
-        ):
-            _fail(f"{target} compile include changed")
-        if len(sysroots) != 1 or not sysroots[0].replace("\\", "/").endswith(expected[0]):
+        if includes != wanted_includes:
+            _fail(f"{target} compile include changed: {includes}")
+        if len(sysroots) != 1 or sysroots[0].replace("\\", "/") != f"{ndk}/platforms/{expected[0]}":
             _fail(f"{target} compile sysroot changed")
-        if Path(tokens[0]).name != expected[1] or any(flag not in tokens for flag in expected[2]):
+        if compiler.as_posix() != compiler_path or not compiler.resolve(strict=False).is_relative_to(Path(ndk)) or any(token.startswith("@") for token in tokens) or abi_flags != expected[2] * (2 if build_system == "cmake" else 1):
             _fail(f"{target} compiler/ABI flags changed")
-        sources.append(wanted)
+        sources.append(source[-len(wanted):])
     return {
-        "sources": sources, "flags": list(EXPECTED["flags"]),
-        "include": EXPECTED["include"], "sysroot": f"platforms/{expected[0]}",
-        "compiler": expected[1],
+        "sources": sources, "flags": [flag for flag in policy if flag in EXPECTED["flags"]],
+        "include": includes[0][1], "sysroot": sysroots[0][len(ndk) + 1:],
+        "compiler": compiler.name,
     }
 
 

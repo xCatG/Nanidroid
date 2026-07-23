@@ -200,7 +200,7 @@ class NarfsStaticContractTest(unittest.TestCase):
     def test_measured_build_evidence_rejects_mutations(self):
         inspect = getattr(static, "inspect_build_evidence")
         prefix = (
-            "/opt/android-ndk-r14b/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-gcc --sysroot=/opt/android-ndk-r14b/platforms/android-9/arch-arm -I/tmp/jni/narfs -isystem /opt/android-ndk-r14b/platforms/android-9/arch-arm/usr/include -isystem /opt/android-ndk-r14b/platforms/android-9/arch-arm/usr/include/arm-linux-androideabi -march=armv5te -mtune=xscale -msoft-float -mthumb -Wformat -Werror=format-security -Wformat -Werror=format-security -std=c99 -Wall -Wextra -Werror")
+            "/opt/android-ndk-r14b/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-gcc --sysroot=/opt/android-ndk-r14b/platforms/android-9/arch-arm -I/tmp/jni/narfs -isystem /opt/android-ndk-r14b/platforms/android-9/arch-arm/usr/include -isystem /opt/android-ndk-r14b/platforms/android-9/arch-arm/usr/include/arm-linux-androideabi -march=armv5te -mtune=xscale -msoft-float -mthumb -march=armv5te -mtune=xscale -msoft-float -mthumb -Wformat -Werror=format-security -Wformat -Werror=format-security -std=c99 -Wall -Wextra -Werror")
         base = [
             prefix + " -o CMakeFiles/narfs_core.dir/narfs/narfs_core.c.o "
             "-c /tmp/jni/narfs/narfs_core.c",
@@ -217,8 +217,8 @@ class NarfsStaticContractTest(unittest.TestCase):
                 base + [base[0].replace("narfs_core.c", "extra.c")],
                 [base[0] + " -Wno-error", base[1]],
                 base + [base[0]],
-                [base[0] + " -I/foreign/include", base[1]], [base[0] + " -isystem /foreign/system", base[1]],
-                [base[0] + " -w", base[1]], [base[0].replace("/opt/android-ndk-r14b/", "/foreign/"), base[1]],
+                [base[0] + " -I/foreign/include", base[1]], [base[0].replace("-I/tmp/jni/narfs", "-I/foreign/jni/narfs"), base[1]], [base[0] + " -isystem /foreign/system", base[1]],
+                [base[0] + " -w", base[1]], [base[0] + " --std=c11", base[1]], [base[0] + " -mcpu=cortex-a8", base[1]], [base[0] + " @foreign.rsp", base[1]], [base[0].replace("/opt/android-ndk-r14b/", "/foreign/"), base[1]],
             )
             for commands in mutations:
                 with self.subTest(commands=commands), self.assertRaises(StaticContractError):
