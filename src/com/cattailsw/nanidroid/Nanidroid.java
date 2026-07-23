@@ -38,7 +38,6 @@ import android.widget.FrameLayout;
 import android.widget.Toast;
 import android.widget.TextView;
 
-import com.android.debug.hv.ViewServer;
 import com.cattailsw.nanidroid.dlgs.AboutDialogFragment;
 import com.cattailsw.nanidroid.dlgs.DbgMsgDlg;
 import com.cattailsw.nanidroid.dlgs.EnterUrlDlg;
@@ -152,13 +151,13 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	  NarUtil.createNarDirOnSDCard();
 
 
-	  ViewServer.get(this).addWindow(this);
+	  ViewServerLifecycle.onActivityCreated(this);
 	  t = getSupportFragmentManager().beginTransaction();
 	  t.detach(s);
 	  t.commit();
 	*/
 	//addAdView();
-	ViewServer.get(this).addWindow(this);
+	ViewServerLifecycle.onActivityCreated(this);
 
     }
     private boolean initComplete= false;
@@ -346,7 +345,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void onDestroy() {
 	super.onDestroy();
-	ViewServer.get(this).removeWindow(this);
+	ViewServerLifecycle.onActivityDestroyed(this);
 	sendStopIntent();
     }
 
@@ -357,7 +356,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    runner.run();
 	}
 	AnalyticsUtils.getInstance(getApplicationContext()).trackPageView(TAG);
-	ViewServer.get(this).setFocusedWindow(this);
+	ViewServerLifecycle.onActivityResumed(this);
     }
 
     public void onBackPressed() {
