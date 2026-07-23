@@ -39,6 +39,9 @@ SYMBOLS = {
   14: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_requestFromJNI2
   15: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_unload
 """,
+    "libnarfs.so": """\
+  12: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_install_NarFilesystemInspector_nativeInspect
+""",
 }
 
 
@@ -49,7 +52,7 @@ class InspectEmulatorNativeTest(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         self.native = self.root / "native" / "arm64-v8a"
         self.native.mkdir(parents=True)
-        for name in ("libkawari8.so", "libsatoriya.so"):
+        for name in ("libkawari8.so", "libnarfs.so", "libsatoriya.so"):
             (self.native / name).write_bytes(b"\x7fELF" + name.encode())
         self.ndk = self.root / "android-ndk-r14b"
         self.ndk.mkdir()
@@ -75,6 +78,11 @@ class InspectEmulatorNativeTest(unittest.TestCase):
         if "--file-header" in arguments:
             return HEADER
         if "--dynamic" in arguments:
+            if library.name == "libnarfs.so":
+                return (
+                    " 0x0000000000000001 (NEEDED) Shared library: [libc.so]\n"
+                    " 0x000000000000000e (SONAME) Library soname: [libnarfs.so]\n"
+                )
             return DYNAMIC.format(soname=library.name)
         if "--dyn-syms" in arguments:
             return SYMBOLS[library.name]
@@ -92,7 +100,7 @@ class InspectEmulatorNativeTest(unittest.TestCase):
         self.assertEqual(report["toolchain"]["abi"], "arm64-v8a")
         self.assertEqual(report["toolchain"]["api"], "android-21")
         self.assertEqual(report["toolchain"]["stl"], "gnustl_static")
-        self.assertEqual(len(report["libraries"]), 2)
+        self.assertEqual(len(report["libraries"]), 3)
 
     def test_rejects_an_extra_library(self) -> None:
         (self.native / "libextra.so").write_bytes(b"\x7fELF-extra")

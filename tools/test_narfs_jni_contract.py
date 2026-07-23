@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -167,6 +168,23 @@ class NarfsJniContractTest(unittest.TestCase):
             "build.gradle.kts",
         ):
             self.assertNotIn("libnarfs.so", (project / published).read_text())
+
+    def test_published_lane_keeps_the_reviewed_candidate_sources_exact(self):
+        project = Path(__file__).resolve().parents[1]
+        expected = {
+            "jni/narfs/narfs_jni.c": "256356be0a2c504617ae2ba198f47d90fc7ddbcadba354865211737db920c26d",
+            "jni/narfs/narfs_utf.c": "5e4ebf87e429fd4a0acde22bc47577045498373e9647d865427b0037930e1bc2",
+            "jni/narfs/narfs_utf.h": "ff7431468dbc32f06cd1a350994baa2cc19f7e151d4edaf524801552081ffd16",
+            "jni/narfs/narfs_core.c": "960ab1e880fdc4d2398bb99b2e101c424137400d278c25e6b2e22d3e34d0452c",
+            "jni/narfs/narfs_core.h": "f266b86435c821b9d0cd8d4c676343b46abc587fc73a6eef238b6a1b91da1bbf",
+            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java":
+                "1d521b9e7e5210b0b7140149c9c21613ac569e88a41ac795cb6f687bdcf7e392",
+        }
+        actual = {
+            relative: hashlib.sha256((project / relative).read_bytes()).hexdigest()
+            for relative in expected
+        }
+        self.assertEqual(expected, actual)
 
 
 if __name__ == "__main__":

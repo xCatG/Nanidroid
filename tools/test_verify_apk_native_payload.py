@@ -23,6 +23,7 @@ class VerifyPayloadTest(unittest.TestCase):
         self.candidate = self.root / "candidate" / "armeabi"
         self.candidate.mkdir(parents=True)
         (self.candidate / "libkawari8.so").write_bytes(b"kawari")
+        (self.candidate / "libnarfs.so").write_bytes(b"narfs")
         (self.candidate / "libsatoriya.so").write_bytes(b"satori")
 
     def _apk(self, entries: dict[str, bytes]) -> Path:
@@ -37,6 +38,7 @@ class VerifyPayloadTest(unittest.TestCase):
             self._apk(
                 {
                     "lib/armeabi/libkawari8.so": b"kawari",
+                    "lib/armeabi/libnarfs.so": b"narfs",
                     "lib/armeabi/libsatoriya.so": b"satori",
                 }
             ),
@@ -48,6 +50,7 @@ class VerifyPayloadTest(unittest.TestCase):
             sorted(report["sha256"]),
             [
                 "lib/armeabi/libkawari8.so",
+                "lib/armeabi/libnarfs.so",
                 "lib/armeabi/libsatoriya.so",
             ],
         )
@@ -65,6 +68,7 @@ class VerifyPayloadTest(unittest.TestCase):
                 self._apk(
                     {
                         "lib/armeabi/libkawari8.so": b"changed",
+                        "lib/armeabi/libnarfs.so": b"narfs",
                         "lib/armeabi/libsatoriya.so": b"satori",
                     }
                 ),
@@ -76,6 +80,7 @@ class VerifyPayloadTest(unittest.TestCase):
             self._apk(
                 {
                     "lib/armeabi/libkawari8.so": b"kawari",
+                    "lib/armeabi/libnarfs.so": b"narfs",
                     "lib/armeabi/libsatoriya.so": b"satori",
                 }
             ),
