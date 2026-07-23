@@ -101,53 +101,67 @@ public final class SurfaceAnimationExecutionCharacterizationTest
         manager.addSurface("1", nextSurface);
         configureTalkAnimation(surface, baseFile);
 
+        final ViewExecution state = new ViewExecution();
         getInstrumentation().runOnMainSync(new Runnable() {
             @Override
             public void run() {
-                AnimationDrawable started = null;
                 try {
                     SakuraView view = new SakuraView(
                             getInstrumentation().getTargetContext());
                     view.setMgr(manager);
                     view.changeSurface("0");
 
-                    assertEquals("0", view.currentSurfaceId);
-                    assertSame(surface, view.currentSurface);
-                    assertEquals(View.VISIBLE, view.getVisibility());
-                    assertSame(
-                            surface.getSurfaceDrawable(resources()),
-                            view.getDrawable());
-                    assertNull(view.animation);
-                    assertNull(view.currentAnimationId);
+                    state.initialSurfaceId = view.currentSurfaceId;
+                    state.initialSurface = view.currentSurface;
+                    state.initialVisibility = view.getVisibility();
+                    state.initialDrawable = view.getDrawable();
+                    state.initialAnimation = view.animation;
+                    state.initialAnimationId = view.currentAnimationId;
 
                     view.startTalkingAnimation();
-                    started = view.animation;
-
-                    assertNotNull("Talking animation was not loaded", started);
-                    assertEquals("3", view.currentAnimationId);
-                    assertSame(
-                            surface.getAnimation("3", resources(), manager),
-                            started);
-                    assertSame(started, view.getDrawable());
-                    assertTrue("Talking animation was not started", started.isRunning());
-                    assertSame(started.getFrame(0), started.getCurrent());
+                    state.started = view.animation;
+                    state.startedAnimationId = view.currentAnimationId;
+                    state.startedDrawable = view.getDrawable();
+                    if (state.started != null) {
+                        state.wasRunning = state.started.isRunning();
+                        state.firstFrame = state.started.getFrame(0);
+                        state.currentFrame = state.started.getCurrent();
+                    }
 
                     view.changeSurface("1");
 
-                    assertEquals("1", view.currentSurfaceId);
-                    assertSame(nextSurface, view.currentSurface);
-                    assertSame(
-                            nextSurface.getSurfaceDrawable(resources()),
-                            view.getDrawable());
-                    assertNull(view.animation);
-                    assertNull(view.currentAnimationId);
+                    state.nextSurfaceId = view.currentSurfaceId;
+                    state.nextSurface = view.currentSurface;
+                    state.nextDrawable = view.getDrawable();
+                    state.nextAnimation = view.animation;
+                    state.nextAnimationId = view.currentAnimationId;
                 } finally {
-                    if (started != null) {
-                        started.stop();
+                    if (state.started != null) {
+                        state.started.stop();
                     }
                 }
             }
         });
+
+        assertEquals("0", state.initialSurfaceId);
+        assertSame(surface, state.initialSurface);
+        assertEquals(View.VISIBLE, state.initialVisibility);
+        assertSame(surface.getSurfaceDrawable(resources()), state.initialDrawable);
+        assertNull(state.initialAnimation);
+        assertNull(state.initialAnimationId);
+
+        assertNotNull("Talking animation was not loaded", state.started);
+        assertEquals("3", state.startedAnimationId);
+        assertSame(surface.getAnimation("3", resources(), manager), state.started);
+        assertSame(state.started, state.startedDrawable);
+        assertTrue("Talking animation was not started", state.wasRunning);
+        assertSame(state.firstFrame, state.currentFrame);
+
+        assertEquals("1", state.nextSurfaceId);
+        assertSame(nextSurface, state.nextSurface);
+        assertSame(nextSurface.getSurfaceDrawable(resources()), state.nextDrawable);
+        assertNull(state.nextAnimation);
+        assertNull(state.nextAnimationId);
     }
 
     private void configureTalkAnimation(TestShellSurface surface, File poisonFile) {
@@ -190,6 +204,26 @@ public final class SurfaceAnimationExecutionCharacterizationTest
         AnimationFrame createAnimationFrame() {
             return new AnimationFrame();
         }
+    }
+
+    private static final class ViewExecution {
+        String initialSurfaceId;
+        ShellSurface initialSurface;
+        int initialVisibility;
+        Drawable initialDrawable;
+        AnimationDrawable initialAnimation;
+        String initialAnimationId;
+        AnimationDrawable started;
+        String startedAnimationId;
+        Drawable startedDrawable;
+        boolean wasRunning;
+        Drawable firstFrame;
+        Drawable currentFrame;
+        String nextSurfaceId;
+        ShellSurface nextSurface;
+        Drawable nextDrawable;
+        AnimationDrawable nextAnimation;
+        String nextAnimationId;
     }
 
     private android.content.res.Resources resources() {
