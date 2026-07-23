@@ -20,6 +20,10 @@ EXPECTED_LIBRARIES = {
     "armeabi/libsatoriya.so": "satoriya",
 }
 EXPECTED_MODULES = sorted(EXPECTED_LIBRARIES.values())
+BUILD_ONLY_SOURCES = {
+    "jni/narfs/narfs_core.c",
+    "test/native/narfs_link_probe.c",
+}
 EXPECTED_ELF = {
     "class": "ELF32",
     "data": "2's complement, little endian",
@@ -314,6 +318,7 @@ def inspect_cmake(project_root: Path) -> list[dict[str, object]]:
         "project",
         "set",
         "add_library",
+        "add_executable",
         "target_include_directories",
         "target_compile_definitions",
         "target_compile_options",
@@ -324,12 +329,13 @@ def inspect_cmake(project_root: Path) -> list[dict[str, object]]:
         command for command in commands if command.lower() not in allowed_commands
     ]
     expected_counts = {
-        "add_library": 2,
-        "target_include_directories": 2,
+        "add_library": 3,
+        "add_executable": 1,
+        "target_include_directories": 3,
         "target_compile_definitions": 2,
-        "target_compile_options": 2,
-        "target_link_libraries": 2,
-        "set_target_properties": 2,
+        "target_compile_options": 3,
+        "target_link_libraries": 3,
+        "set_target_properties": 3,
     }
     invalid_counts = {
         command: commands.count(command)
@@ -773,6 +779,14 @@ def inspect_build_evidence(
     }
     compiler_paths: set[str] = set()
     for tokens, directory in commands:
+        source_index = tokens.index("-c") + 1
+        source = _project_relative_path(
+            tokens[source_index],
+            project_root=project_root,
+            directory=directory,
+        )
+        if source in BUILD_ONLY_SOURCES:
+            continue
         module_name, record, compiler_path = _compile_record(
             tokens,
             directory=directory,
