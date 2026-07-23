@@ -156,6 +156,9 @@ public final class SurfaceAnimationExecutionCharacterizationTest
         assertSame(state.started, state.startedDrawable);
         assertTrue("Talking animation was not started", state.wasRunning);
         assertSame(state.firstFrame, state.currentFrame);
+        assertPixelMatrix(
+                OVERLAY_FRAME_PIXELS,
+                renderPixels(state.firstFrame, 4, 3));
 
         assertEquals("1", state.nextSurfaceId);
         assertSame(nextSurface, state.nextSurface);
