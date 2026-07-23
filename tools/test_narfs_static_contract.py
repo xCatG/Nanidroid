@@ -46,6 +46,7 @@ File: archive(narfs_core.o)
    23: 0 0 NOTYPE GLOBAL DEFAULT UND fstatat
    24: 0 0 NOTYPE GLOBAL DEFAULT UND close
 """
+SYMBOLS += "".join(f"  90: 0 0 NOTYPE GLOBAL DEFAULT UND {name}\n" for name in static.EXPECTED_IMPORTS if name not in {"close", "fstatat", "openat"})
 PROGRAM_ARM = " INTERP 0 0\n [Requesting program interpreter: /system/bin/linker]\n"
 PROGRAM_ARM64 = " INTERP 0 0\n [Requesting program interpreter: /system/bin/linker64]\n"
 ATTRIBUTES = """\
@@ -167,7 +168,7 @@ class NarfsStaticContractTest(unittest.TestCase):
                 "declaration": dict(static.EXPECTED), "abi": "armeabi",
                 "api": "android-9", "architecture": "ARMv5TE Thumb-1",
                 "exports": list(static.EXPORTS), "globalDefinitions": list(static.EXPORTS),
-                "imports": sorted(static.ALLOWED_IMPORTS - static.TOOLCHAIN_IMPORTS - {"__errno_location"}),
+                "imports": static.EXPECTED_IMPORTS,
                 "needed": ["libc.so", "libdl.so", "libm.so", "libstdc++.so"],
                 "archiveSources": [static.EXPECTED["source"]],
                 "build": {"sources": [static.EXPECTED["source"], "test/native/narfs_link_probe.c"],
@@ -177,12 +178,12 @@ class NarfsStaticContractTest(unittest.TestCase):
             },
             "provenance": {"buildSystem": "ndk-build", "archiveSha256": "0" * 64,
                            "archiveMembers": ["narfs_core.o"],
-                           "toolchainImports": ["__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1"]},
+                           "toolchainImports": ["__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1", "__stack_chk_fail", "__stack_chk_guard"]},
         }
         self.assertEqual("equivalent", compare_contracts(reference, copy.deepcopy(reference))["status"])
         changed = copy.deepcopy(reference)
         changed["contract"]["needed"].append("libcrypto.so")
-        with self.assertRaisesRegex(StaticContractError, "differs"):
+        with self.assertRaisesRegex(StaticContractError, "schema|differs"):
             compare_contracts(reference, changed)
 
         invalid = ({}, {"contract": None}, [], {"contract": {"abi": 9}})

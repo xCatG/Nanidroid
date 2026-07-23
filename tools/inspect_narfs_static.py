@@ -22,13 +22,8 @@ EXPECTED = {
     "flags": ["-std=c99", "-Wall", "-Wextra", "-Werror"],
 }
 EXPORTS = ["narfs_default_options", "narfs_inspect"]
-ALLOWED_IMPORTS = {
-    "_GLOBAL_OFFSET_TABLE_", "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1", "__errno",
-    "__errno_location", "__stack_chk_fail", "__stack_chk_guard", "close",
-    "closedir", "dup", "fdopendir", "free", "fstat", "fstatat", "memcpy",
-    "memset", "open", "openat", "qsort", "readdir", "realloc", "strcmp",
-    "strdup", "strlen",
-}
+EXPECTED_IMPORTS = sorted({"__errno", "close", "closedir", "dup", "fdopendir", "free", "fstat", "fstatat", "memcpy",
+                           "memset", "open", "openat", "qsort", "readdir", "realloc", "strcmp", "strdup", "strlen"})
 FORBIDDEN = re.compile(
     r"^(?:getdents64?|openat2|statx|EVP_|SHA|MD5|OPENSSL_|CRYPTO_)", re.I
 )
@@ -36,7 +31,7 @@ TOOLCHAIN_IMPORTS = {
     "_GLOBAL_OFFSET_TABLE_", "__aeabi_unwind_cpp_pr0",
     "__aeabi_unwind_cpp_pr1", "__stack_chk_fail", "__stack_chk_guard",
 }
-
+EXPECTED_NEEDED = ["libc.so", "libdl.so", "libm.so", "libstdc++.so"]
 
 class StaticContractError(ValueError):
     pass
@@ -127,16 +122,19 @@ def _headers(output: str, field: str) -> set[str]:
     return set(re.findall(rf"^\s*{field}:\s*(.+?)(?:\s+\(|$)", output, re.M))
 
 
-def _symbols(output: str) -> tuple[list[str], list[str]]:
-    defined: set[str] = set()
-    undefined: set[str] = set()
+def _symbols(output: str) -> tuple[list[tuple[str, ...]], list[str]]:
+    defined: list[tuple[str, ...]] = []
+    undefined: list[str] = []
     for line in output.splitlines():
         fields = line.split()
         if len(fields) < 8 or fields[4] not in {"GLOBAL", "WEAK"}:
             continue
         symbol = fields[7].split("@", 1)[0]
-        (undefined if fields[6] == "UND" else defined).add(symbol)
-    return sorted(defined), sorted(undefined)
+        if fields[6] == "UND":
+            undefined.append(symbol)
+        else:
+            defined.append((fields[3], fields[4], fields[5], symbol))
+    return sorted(defined), sorted(set(undefined))
 
 
 def inspect_build_evidence(
@@ -243,28 +241,31 @@ def inspect_artifacts(
             if token not in attributes:
                 _fail(f"legacy archive ARM attribute changed: {token}")
     symbols = _readelf(readelf, "--symbols", "--wide", artifact=archive)
-    members = sorted(set(re.findall(r"^File: .+\(([^)]+)\)$", symbols, re.M)))
+    members = sorted(re.findall(r"^File: .+\(([^)]+)\)$", symbols, re.M))
     wanted_member = "narfs_core.o" if build_system == "ndk-build" else "narfs_core.c.o"
     if members != [wanted_member]:
         _fail(f"archive members changed: {members}")
     defined, imports = _symbols(symbols)
-    if defined != EXPORTS:
-        _fail(f"global definitions changed: expected {EXPORTS}, got {defined}")
-    forbidden = sorted(symbol for symbol in defined + imports if FORBIDDEN.search(symbol))
+    expected_definitions = sorted(("FUNC", "GLOBAL", "DEFAULT", name) for name in EXPORTS)
+    if defined != expected_definitions:
+        _fail(f"global definitions changed: {defined}")
+    forbidden = sorted(symbol for symbol in [row[3] for row in defined] + imports if FORBIDDEN.search(symbol))
     if forbidden:
         _fail(f"forbidden symbol: {forbidden}")
-    unexpected = sorted(set(imports) - ALLOWED_IMPORTS)
-    if unexpected:
-        _fail(f"unexpected imports: {unexpected}")
+    normalized_imports = sorted(set(imports) - TOOLCHAIN_IMPORTS)
+    if normalized_imports != EXPECTED_IMPORTS:
+        _fail(f"imports changed: {normalized_imports}")
+    probe_defined, _ = _symbols(_readelf(readelf, "--symbols", "--wide", artifact=probe))
+    if [row for row in probe_defined if row[3].startswith("narfs_")] != expected_definitions:
+        _fail("link probe did not consume the narfs archive")
     dynamic = _readelf(readelf, "--dynamic", "--wide", artifact=probe)
     needed = sorted(re.findall(r"\(NEEDED\).*?\[(.+?)\]", dynamic))
-    expected_needed = ["libc.so", "libdl.so", "libm.so", "libstdc++.so"]
-    if needed != expected_needed:
+    if needed != EXPECTED_NEEDED:
         _fail(f"link probe libraries changed: {needed}")
     return {
         "abi": abi, "api": api, "architecture": expected[2],
-        "exports": defined, "globalDefinitions": defined,
-        "imports": sorted(set(imports) - TOOLCHAIN_IMPORTS),
+        "exports": list(EXPORTS), "globalDefinitions": list(EXPORTS),
+        "imports": normalized_imports,
         "needed": needed, "archiveSources": [EXPECTED["source"]],
         "probe": {"elfType": expected[4], "interpreter": expected[5]},
         "_archiveMembers": members,
@@ -276,42 +277,40 @@ def _validate_report(report: object) -> None:
     if not isinstance(report, dict) or set(report) != {"contract", "provenance"}:
         _fail("invalid static report schema")
     contract, provenance = report["contract"], report["provenance"]
-    fields = {
-        "declaration": dict, "abi": str, "api": str, "architecture": str,
-        "exports": list, "globalDefinitions": list, "imports": list, "needed": list,
-        "archiveSources": list, "build": dict, "probe": dict,
+    if not isinstance(contract, dict) or not all(
+        isinstance(contract.get(key), str) for key in ("abi", "api")
+    ):
+        _fail("invalid static contract schema")
+    lane = {
+        ("armeabi", "android-9"): ("ARMv5TE Thumb-1", "EXEC", "/system/bin/linker", "platforms/android-9/arch-arm", "arm-linux-androideabi-gcc"),
+        ("arm64-v8a", "android-21"): ("AArch64", "DYN", "/system/bin/linker64", "platforms/android-21/arch-arm64", "aarch64-linux-android-gcc"),
+    }.get((contract["abi"], contract["api"]))
+    if lane is None:
+        _fail("invalid static contract schema")
+    expected_contract = {
+        "declaration": EXPECTED, "abi": contract["abi"], "api": contract["api"],
+        "architecture": lane[0], "exports": EXPORTS, "globalDefinitions": EXPORTS,
+        "imports": EXPECTED_IMPORTS, "needed": EXPECTED_NEEDED,
+        "archiveSources": [EXPECTED["source"]],
+        "build": {"sources": [EXPECTED["source"], "test/native/narfs_link_probe.c"], "flags": EXPECTED["flags"],
+                  "include": EXPECTED["include"], "sysroot": lane[3], "compiler": lane[4]},
+        "probe": {"elfType": lane[1], "interpreter": lane[2]},
     }
-    if not isinstance(contract, dict) or set(contract) != set(fields) or any(
-        not isinstance(contract[key], kind) for key, kind in fields.items()
+    if contract != expected_contract or not isinstance(provenance, dict) or not isinstance(
+        provenance.get("buildSystem"), str
     ):
-        _fail("invalid static contract schema")
-    if contract["declaration"] != EXPECTED or contract["exports"] != EXPORTS:
-        _fail("invalid static contract schema")
-    if any(not all(isinstance(item, str) for item in contract[key]) for key in (
-        "exports", "globalDefinitions", "imports", "needed", "archiveSources",
-    )):
-        _fail("invalid static contract schema")
-    build = contract["build"]
-    if set(build) != {"sources", "flags", "include", "sysroot", "compiler"} or not (
-        isinstance(build["sources"], list) and isinstance(build["flags"], list)
-        and all(isinstance(item, str) for key in ("sources", "flags") for item in build[key])
-        and all(isinstance(build[key], str) for key in ("include", "sysroot", "compiler"))
-    ):
-        _fail("invalid static build schema")
-    probe = contract["probe"]
-    if set(probe) != {"elfType", "interpreter"} or not all(
-        isinstance(value, str) for value in probe.values()
-    ):
-        _fail("invalid static probe schema")
-    if not isinstance(provenance, dict) or set(provenance) != {
-        "buildSystem", "archiveSha256", "archiveMembers", "toolchainImports",
-    } or not isinstance(provenance["buildSystem"], str) or provenance["buildSystem"] not in {"ndk-build", "cmake"} or not isinstance(
-        provenance["archiveSha256"], str
-    ) or not re.fullmatch(
+        _fail("invalid static report schema")
+    evidence = {
+        ("armeabi", "ndk-build"): (["narfs_core.o"], ["__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1", "__stack_chk_fail", "__stack_chk_guard"]),
+        ("armeabi", "cmake"): (["narfs_core.c.o"], ["_GLOBAL_OFFSET_TABLE_", "__aeabi_unwind_cpp_pr1", "__stack_chk_fail", "__stack_chk_guard"]),
+        ("arm64-v8a", "cmake"): (["narfs_core.c.o"], ["__stack_chk_fail", "__stack_chk_guard"]),
+    }.get((contract["abi"], provenance["buildSystem"]))
+    if evidence is None or set(provenance) != {"buildSystem", "archiveSha256", "archiveMembers",
+                                               "toolchainImports"} or (
+        provenance["archiveMembers"], provenance["toolchainImports"]
+    ) != evidence or not isinstance(provenance["archiveSha256"], str) or not re.fullmatch(
         r"[0-9a-f]{64}", provenance["archiveSha256"]
-    ) or any(not isinstance(provenance[key], list) or not all(isinstance(item, str) for item in provenance[key]) for key in (
-        "archiveMembers", "toolchainImports",
-    )):
+    ):
         _fail("invalid static report provenance schema")
 
 

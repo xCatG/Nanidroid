@@ -194,7 +194,7 @@ readonly STATIC_INSPECT_ARGS=(
 )
 python3 "${STATIC_INSPECTOR}" inspect \
   --archive "${BUILD_ROOT}/obj/local/${NATIVE_ABI}/libnarfs_core.a" \
-  --probe "${BUILD_ROOT}/libs/${NATIVE_ABI}/narfs_core_link_probe" \
+  --probe "${BUILD_ROOT}/obj/local/${NATIVE_ABI}/narfs_core_link_probe" \
   --build-system ndk-build \
   --build-evidence "${NDK_BUILD_LOG}" \
   "${STATIC_INSPECT_ARGS[@]}" \
