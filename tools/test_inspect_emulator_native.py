@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sys
 from pathlib import Path
-from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from inspect_emulator_native import NativeContractError, inspect_native_directory
 
@@ -20,13 +22,24 @@ HEADER = """\
 DYNAMIC = """\
  0x0000000000000001 (NEEDED)             Shared library: [liblog.so]
  0x0000000000000001 (NEEDED)             Shared library: [libdl.so]
+ 0x0000000000000001 (NEEDED)             Shared library: [libstdc++.so]
  0x0000000000000001 (NEEDED)             Shared library: [libm.so]
  0x0000000000000001 (NEEDED)             Shared library: [libc.so]
  0x000000000000000e (SONAME)             Library soname: [{soname}]
 """
-SYMBOLS = """\
-  12: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_JNIShiori_load
-"""
+SYMBOLS = {
+    "libkawari8.so": """\
+  12: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_Kawari_load
+  13: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_Kawari_requestFromJNI
+  14: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_Kawari_unload
+""",
+    "libsatoriya.so": """\
+  12: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_JNIShiori_requestFromJNI
+  13: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_load
+  14: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_requestFromJNI2
+  15: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_unload
+""",
+}
 
 
 class InspectEmulatorNativeTest(unittest.TestCase):
@@ -58,7 +71,7 @@ class InspectEmulatorNativeTest(unittest.TestCase):
         if "--dynamic" in arguments:
             return DYNAMIC.format(soname=library.name)
         if "--dyn-syms" in arguments:
-            return SYMBOLS
+            return SYMBOLS[library.name]
         raise AssertionError(arguments)
 
     def test_accepts_exact_arm64_toolchain_and_elf_contract(self) -> None:

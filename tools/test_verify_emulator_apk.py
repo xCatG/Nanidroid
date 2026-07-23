@@ -6,7 +6,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 import zipfile
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from verify_emulator_apk import PayloadError, verify_emulator_apk
 
@@ -15,7 +18,7 @@ EMULATOR_BADGING = """\
 package: name='com.cattailsw.nanidroid' versionCode='6' versionName='open_0.1'
 sdkVersion:'9'
 targetSdkVersion:'13'
-native-code: 'armeabi' 'arm64-v8a'
+native-code: 'arm64-v8a' 'armeabi'
 """
 
 
@@ -64,7 +67,7 @@ class VerifyEmulatorApkTest(unittest.TestCase):
         )
 
         self.assertEqual(report["status"], "identical")
-        self.assertEqual(report["nativeCode"], ["armeabi", "arm64-v8a"])
+        self.assertEqual(report["nativeCode"], ["arm64-v8a", "armeabi"])
         self.assertEqual(len(report["sha256"]), 4)
 
     def test_rejects_missing_or_extra_native_entries(self) -> None:
@@ -92,7 +95,7 @@ class VerifyEmulatorApkTest(unittest.TestCase):
 
     def test_rejects_badging_without_the_exact_two_abi_profile(self) -> None:
         badging = EMULATOR_BADGING.replace(
-            "native-code: 'armeabi' 'arm64-v8a'", "native-code: 'arm64-v8a'"
+            "native-code: 'arm64-v8a' 'armeabi'", "native-code: 'arm64-v8a'"
         )
         with self.assertRaisesRegex(PayloadError, "package metadata changed"):
             verify_emulator_apk(

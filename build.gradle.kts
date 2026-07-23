@@ -15,9 +15,14 @@ plugins {
 }
 
 val legacyNativeDirectory = layout.projectDirectory.dir("artifacts/legacy/native")
+val emulatorNativeDirectory = layout.projectDirectory.dir("artifacts/emulator/native")
 val requiredLegacyNativeLibraries = listOf(
     legacyNativeDirectory.file("armeabi/libkawari8.so"),
     legacyNativeDirectory.file("armeabi/libsatoriya.so"),
+)
+val requiredEmulatorNativeLibraries = listOf(
+    emulatorNativeDirectory.file("arm64-v8a/libkawari8.so"),
+    emulatorNativeDirectory.file("arm64-v8a/libsatoriya.so"),
 )
 
 abstract class VerifyLegacyNativeLibraries : DefaultTask() {
@@ -93,6 +98,12 @@ val verifyLegacyNativeLibraries by tasks.registering(VerifyLegacyNativeLibraries
     libraries.from(requiredLegacyNativeLibraries)
 }
 
+val verifyEmulatorNativeLibraries by tasks.registering(VerifyLegacyNativeLibraries::class) {
+    group = "verification"
+    description = "Checks that the opt-in emulator lane produced both ARM64 engines."
+    libraries.from(requiredEmulatorNativeLibraries)
+}
+
 android {
     namespace = "com.cattailsw.nanidroid"
     // Keep the Ant build's API surface while the build system changes around it.
@@ -106,6 +117,14 @@ android {
         versionName = "open_0.1"
     }
 
+    buildTypes {
+        create("emulator") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            isDebuggable = true
+        }
+    }
+
     sourceSets {
         getByName("main") {
             manifest.srcFile("AndroidManifest.xml")
@@ -117,6 +136,9 @@ android {
         }
         getByName("test") {
             java.srcDir("test/jvm")
+        }
+        getByName("emulator") {
+            jniLibs.srcDir(emulatorNativeDirectory)
         }
     }
 
@@ -174,4 +196,8 @@ tasks.matching {
 
 tasks.named("preBuild").configure {
     dependsOn(verifyLegacyNativeLibraries)
+}
+
+tasks.matching { it.name == "preEmulatorBuild" }.configureEach {
+    dependsOn(verifyEmulatorNativeLibraries)
 }
