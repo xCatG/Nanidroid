@@ -44,6 +44,9 @@ has duration 83 ms and must reproduce the complete keyed base matrix.
 - `SakuraView.startTalkingAnimation()` loads, binds, and starts that exact
   `AnimationDrawable`; its current drawable is the first frame immediately
   after dispatch.
+- The view-selected first frame has the same complete manager-backed overlay
+  pixel matrix as direct assembly, so animation caching cannot hide use of the
+  file fallback.
 - Changing to another surface binds that surface drawable and clears both the
   animation object and current animation id.
 
@@ -89,6 +92,16 @@ The runner reported `Tests run: 4, Failures: 2, Errors: 0`; both D7a rendering
 tests remained green. Both production mutations were restored before final
 builds. The final production-source diff is empty.
 
+A closure review then identified a caching survivor: temporarily changing
+`SakuraView.loadAnimation()` to the no-manager overload cached the poison
+fallback animation. Object identity, running state, binding, and clearing still
+passed because a later manager-aware lookup returned that same cached object.
+The view-path test now renders and compares the selected first frame's full
+4 x 3 pixel matrix off the Android main thread. Reapplying the exact mutant
+failed only that test at row-major index 6 (expected red, observed base blue):
+`Tests run: 4, Failures: 1, Errors: 0`. Production was restored again before
+the final build.
+
 ## Final validation
 
 Tooling passed 66/66: the 13 build-script and real-git-index contracts ran on
@@ -99,10 +112,10 @@ or skips.
 The standard Gradle pipeline retained equivalent package/native/required-entry
 contracts. The emulator APK retained the exact additive `armeabi` plus
 `arm64-v8a` payload with byte-identical native libraries. The final inspected
-AndroidTest APK was 14,222 bytes with SHA-256:
+AndroidTest APK was 14,244 bytes with SHA-256:
 
 ```text
-e37c2fdba7b786501db050cd0a0bf7fdf616dd33e865984e3822716c8209e277
+a8464779858932a18c7ac0227818e1fe32f8a728c21199c8a4602fbebd112ff8
 ```
 
 The configured API 36.1 emulator reported:
@@ -113,7 +126,7 @@ SurfaceRenderingCharacterizationTest:..
 OK (4 tests)
 ```
 
-Execution took 0.414 seconds. Acceptance checked ADB exit status, required
+Execution took 0.362 seconds. Acceptance checked ADB exit status, required
 `OK (4 tests)`, and rejected `FAILURES!!!`.
 
 The emulator app and test APK must be built in the same one-shot devcontainer
