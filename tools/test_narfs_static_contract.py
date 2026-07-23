@@ -91,6 +91,15 @@ def forbidden_readelf(arguments, **kwargs):
     return result
 
 
+def artifacts(directory, abi):
+    root = Path(directory) / abi
+    root.mkdir()
+    archive, probe = root / "libnarfs_core.a", root / "narfs_core_link_probe"
+    archive.write_bytes(b"!<arch>\n")
+    probe.write_bytes(b"\x7fELF")
+    return archive, probe
+
+
 class NarfsStaticContractTest(unittest.TestCase):
     def test_build_declarations_are_exact_and_equivalent(self):
         declarations = inspect_declarations(ROOT)
@@ -109,12 +118,7 @@ class NarfsStaticContractTest(unittest.TestCase):
     @mock.patch("inspect_narfs_static.subprocess.run", side_effect=fake_readelf)
     def test_archive_and_link_probe_are_audited(self, _run):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            archive = root / "armeabi" / "libnarfs_core.a"
-            probe = root / "armeabi" / "narfs_core_link_probe"
-            archive.parent.mkdir()
-            archive.write_bytes(b"!<arch>\n")
-            probe.write_bytes(b"\x7fELF")
+            archive, probe = artifacts(directory, "armeabi")
             report = inspect_artifacts(
                 archive, probe, Path("readelf"), abi="armeabi", api="android-9"
             )
@@ -128,12 +132,7 @@ class NarfsStaticContractTest(unittest.TestCase):
     @mock.patch("inspect_narfs_static.subprocess.run", side_effect=fake_readelf)
     def test_arm64_contract_is_supported_without_weakening_armv5(self, _run):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "arm64-v8a"
-            root.mkdir()
-            archive = root / "libnarfs_core.a"
-            probe = root / "narfs_core_link_probe"
-            archive.write_bytes(b"!<arch>\n")
-            probe.write_bytes(b"\x7fELF")
+            archive, probe = artifacts(directory, "arm64-v8a")
             report = inspect_artifacts(
                 archive, probe, Path("readelf"), abi="arm64-v8a", api="android-21"
             )
@@ -147,11 +146,7 @@ class NarfsStaticContractTest(unittest.TestCase):
             else fake_readelf(arguments, **kwargs)
         )
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "arm64-v8a"
-            root.mkdir()
-            archive, probe = root / "libnarfs_core.a", root / "narfs_core_link_probe"
-            archive.write_bytes(b"!<arch>\n")
-            probe.write_bytes(b"\x7fELF")
+            archive, probe = artifacts(directory, "arm64-v8a")
             with self.assertRaisesRegex(StaticContractError, "interpreter"):
                 inspect_artifacts(
                     archive, probe, Path("readelf"), abi="arm64-v8a", api="android-21"
@@ -160,12 +155,7 @@ class NarfsStaticContractTest(unittest.TestCase):
     @mock.patch("inspect_narfs_static.subprocess.run", side_effect=forbidden_readelf)
     def test_forbidden_import_is_rejected(self, _run):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "armeabi"
-            root.mkdir()
-            archive = root / "libnarfs_core.a"
-            probe = root / "narfs_core_link_probe"
-            archive.write_bytes(b"!<arch>\n")
-            probe.write_bytes(b"\x7fELF")
+            archive, probe = artifacts(directory, "armeabi")
             with self.assertRaisesRegex(StaticContractError, "forbidden symbol"):
                 inspect_artifacts(
                     archive, probe, Path("readelf"), abi="armeabi", api="android-9"
@@ -177,14 +167,17 @@ class NarfsStaticContractTest(unittest.TestCase):
                 "declaration": dict(static.EXPECTED), "abi": "armeabi",
                 "api": "android-9", "architecture": "ARMv5TE Thumb-1",
                 "exports": list(static.EXPORTS), "globalDefinitions": list(static.EXPORTS),
-                "imports": ["close"], "needed": ["libc.so"], "archiveSources": [static.EXPECTED["source"]],
+                "imports": sorted(static.ALLOWED_IMPORTS - static.TOOLCHAIN_IMPORTS - {"__errno_location"}),
+                "needed": ["libc.so", "libdl.so", "libm.so", "libstdc++.so"],
+                "archiveSources": [static.EXPECTED["source"]],
                 "build": {"sources": [static.EXPECTED["source"], "test/native/narfs_link_probe.c"],
                           "flags": static.EXPECTED["flags"], "include": static.EXPECTED["include"],
                           "sysroot": "platforms/android-9/arch-arm", "compiler": "arm-linux-androideabi-gcc"},
                 "probe": {"elfType": "EXEC", "interpreter": "/system/bin/linker"},
             },
             "provenance": {"buildSystem": "ndk-build", "archiveSha256": "0" * 64,
-                           "archiveMembers": ["narfs_core.o"], "toolchainImports": []},
+                           "archiveMembers": ["narfs_core.o"],
+                           "toolchainImports": ["__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1"]},
         }
         self.assertEqual("equivalent", compare_contracts(reference, copy.deepcopy(reference))["status"])
         changed = copy.deepcopy(reference)
@@ -198,6 +191,10 @@ class NarfsStaticContractTest(unittest.TestCase):
                 StaticContractError, "report|schema"
             ):
                 compare_contracts(malformed, copy.deepcopy(reference))
+        invalid_lane = copy.deepcopy(reference)
+        invalid_lane["contract"]["api"] = "android-99"
+        with self.assertRaisesRegex(StaticContractError, "schema"):
+            compare_contracts(invalid_lane, copy.deepcopy(invalid_lane))
 
     def test_measured_build_evidence_rejects_mutations(self):
         inspect = getattr(static, "inspect_build_evidence")
@@ -229,14 +226,14 @@ class NarfsStaticContractTest(unittest.TestCase):
     @mock.patch("inspect_narfs_static.subprocess.run", side_effect=fake_readelf)
     def test_archive_member_and_all_global_definitions_are_exact(self, run):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "armeabi"
-            root.mkdir()
-            archive, probe = root / "libnarfs_core.a", root / "narfs_core_link_probe"
-            archive.write_bytes(b"!<arch>\n")
-            probe.write_bytes(b"\x7fELF")
+            archive, probe = artifacts(directory, "armeabi")
             for mutation in (
                 "\nFile: archive(extra.o)\n",
+                "\nFile: archive(narfs_core.o)\n",
                 "\n 25: 0 10 FUNC GLOBAL DEFAULT 1 unrelated_global\n",
+                "\n 25: 0 10 FUNC WEAK DEFAULT 1 narfs_inspect\n",
+                "\n 25: 0 10 OBJECT GLOBAL DEFAULT 1 narfs_inspect\n",
+                "\n 25: 0 10 FUNC GLOBAL DEFAULT 1 narfs_inspect\n",
             ):
                 run.side_effect = lambda arguments, mutation=mutation, **kwargs: (
                     subprocess.CompletedProcess(arguments, 0, SYMBOLS + mutation, "")
@@ -247,17 +244,21 @@ class NarfsStaticContractTest(unittest.TestCase):
                         archive, probe, Path("readelf"), abi="armeabi", api="android-9",
                         build_system="ndk-build",
                     )
+            run.side_effect = lambda arguments, **kwargs: (
+                subprocess.CompletedProcess(arguments, 0, "Num: Value Size Type Bind Vis Ndx Name\n", "")
+                if "--symbols" in arguments and arguments[-1].endswith("narfs_core_link_probe")
+                else fake_readelf(arguments, **kwargs)
+            )
+            with self.assertRaisesRegex(StaticContractError, "probe"):
+                inspect_artifacts(
+                    archive, probe, Path("readelf"), abi="armeabi", api="android-9"
+                )
 
     def test_build_scripts_execute_all_static_gates(self):
         legacy = (ROOT / "docker/legacy/build.sh").read_text(encoding="utf-8")
         arm64 = (ROOT / "docker/emulator/build-native.sh").read_text(encoding="utf-8")
-        for required in (
-            "libnarfs_core.a",
-            "narfs_core_link_probe",
-            "narfs-static-ndk-build.json",
-            "narfs-static-cmake.json",
-            "narfs-static-parity.json",
-        ):
+        for required in ("libnarfs_core.a", "narfs_core_link_probe", "narfs-static-ndk-build.json",
+                         "narfs-static-cmake.json", "narfs-static-parity.json"):
             self.assertIn(required, legacy)
         for required in ("libnarfs_core.a", "narfs_core_link_probe", "narfs-static-contract.json"):
             self.assertIn(required, arm64)
