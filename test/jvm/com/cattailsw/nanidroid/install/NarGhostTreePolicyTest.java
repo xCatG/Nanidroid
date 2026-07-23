@@ -12,6 +12,7 @@ import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.text.Normalizer;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -115,6 +116,9 @@ public final class NarGhostTreePolicyTest {
                 directory(nfc), directory(nfd)));
         rejects("FILE_DIRECTORY_COLLISION", entries(
                 file("a", 0, digest("")),
+                file("a/b", 0, digest(""))));
+        rejects("NORMALIZED_COLLISION", entries(
+                directory("A"),
                 file("a/b", 0, digest(""))));
         rejects("MISSING_DIRECTORY", entries(
                 file("a/b", 0, digest(""))));
@@ -238,20 +242,44 @@ public final class NarGhostTreePolicyTest {
                 entries(directory("unexpected"))));
         assertError("CONTENT_DIGEST_INVALID", build(entries(
                 file("bad", 0, bytes(1)))));
+        assertError("ENTRY_INVALID", NarGhostTreePolicy.build(
+                "ghost",
+                bytes(1),
+                state("PRESENT"),
+                new AbstractList<NarGhostTreePolicy.InputEntry>() {
+                    @Override
+                    public NarGhostTreePolicy.InputEntry get(
+                            int index) {
+                        throw new SecurityException("get");
+                    }
 
-        assertFalse(Modifier.isPublic(
-                NarGhostTreePolicy.class.getModifiers()));
-        for (Class<?> type
-                : NarGhostTreePolicy.class.getDeclaredClasses()) {
-            assertFalse(Modifier.isPublic(type.getModifiers()));
+                    @Override
+                    public int size() {
+                        throw new SecurityException("size");
+                    }
+                }));
+
+        assertPureType(NarGhostTreePolicy.class);
+        assertPureType(NarRelativePathPolicy.class);
+    }
+
+    private static void assertPureType(Class<?> outer) {
+        assertFalse(Modifier.isPublic(outer.getModifiers()));
+        List<Class<?>> types = new ArrayList<Class<?>>();
+        types.add(outer);
+        types.addAll(Arrays.asList(outer.getDeclaredClasses()));
+        for (Class<?> type : types) {
             for (Constructor<?> constructor
                     : type.getDeclaredConstructors()) {
                 assertFalse(Modifier.isPublic(
                         constructor.getModifiers()));
             }
             for (Method method : type.getDeclaredMethods()) {
-                assertFalse(Modifier.isPublic(
-                        method.getModifiers()));
+                if (Modifier.isPublic(method.getModifiers())) {
+                    assertTrue(type.isEnum());
+                    assertTrue("values".equals(method.getName())
+                            || "valueOf".equals(method.getName()));
+                }
                 assertFalse(forbidden(method.getReturnType()));
                 for (Class<?> parameter
                         : method.getParameterTypes()) {
