@@ -56,6 +56,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/device/com/cattailsw/nanidroid/"
                 "SurfaceRenderingCharacterizationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/device/com/cattailsw/nanidroid/"
+                "SurfaceAnimationExecutionCharacterizationTest.java"
+            ),
         }
         device_root = project_root / "test" / "device"
         actual = {
@@ -108,6 +112,11 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn(
             '"test/device/com/cattailsw/nanidroid/" + '
             '"SurfaceRenderingCharacterizationTest.java"',
+            normalized,
+        )
+        self.assertIn(
+            '"test/device/com/cattailsw/nanidroid/" + '
+            '"SurfaceAnimationExecutionCharacterizationTest.java"',
             normalized,
         )
         self.assertIn(
