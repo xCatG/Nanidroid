@@ -148,6 +148,9 @@ public final class NarStagedSourceCopyTest {
                 NarStagedSourceCopyError.SOURCE_READ_FAILED,
                 failingIo("read"));
         assertPrimary(
+                NarStagedSourceCopyError.SOURCE_READ_FAILED,
+                failingIo("invalid-negative-read"));
+        assertPrimary(
                 NarStagedSourceCopyError.STAGING_WRITE_FAILED,
                 failingIo("write"));
         assertPrimary(
@@ -210,13 +213,13 @@ public final class NarStagedSourceCopyTest {
 
         FakeIo canonicalFailure = new FakeIo();
         canonicalFailure.rootCanonicalFailure = true;
-        assertPrimary(
+        assertPrimaryWithoutDelete(
                 NarStagedSourceCopyError.STAGING_ROOT_INVALID,
                 canonicalFailure);
 
         FakeIo notDirectory = new FakeIo();
         notDirectory.rootDirectory = false;
-        assertPrimary(
+        assertPrimaryWithoutDelete(
                 NarStagedSourceCopyError.STAGING_ROOT_INVALID,
                 notDirectory);
 
@@ -364,6 +367,8 @@ public final class NarStagedSourceCopyTest {
             io.targetOpenFailure = true;
         } else if ("read".equals(phase)) {
             io.readFailure = true;
+        } else if ("invalid-negative-read".equals(phase)) {
+            io.invalidNegativeRead = true;
         } else if ("write".equals(phase)) {
             io.writeFailure = true;
         } else if ("sync".equals(phase)) {
@@ -419,8 +424,7 @@ public final class NarStagedSourceCopyTest {
 
     private static final class FakeIo
             implements NarStagedSource.StageIo {
-        private final File root =
-                new File("trusted-stage").getCanonicalFile();
+        private final File root;
         private final List<File> created = new ArrayList<File>();
         private final List<String> terminalEvents =
                 new ArrayList<String>();
@@ -433,6 +437,7 @@ public final class NarStagedSourceCopyTest {
         private boolean sourceOpenFailure;
         private boolean targetOpenFailure;
         private boolean readFailure;
+        private boolean invalidNegativeRead;
         private boolean writeFailure;
         private boolean writeRuntime;
         private boolean syncFailure;
@@ -446,6 +451,10 @@ public final class NarStagedSourceCopyTest {
         private long targetBytesWritten;
         private int createCount;
         private int deleteCount;
+
+        private FakeIo() throws IOException {
+            root = new File("trusted-stage").getCanonicalFile();
+        }
 
         @Override
         public File canonical(File file) throws IOException {
@@ -497,6 +506,9 @@ public final class NarStagedSourceCopyTest {
                         throws IOException {
                     if (readFailure) {
                         throw new IOException("read");
+                    }
+                    if (invalidNegativeRead) {
+                        return -2;
                     }
                     if (zeroPending) {
                         zeroPending = false;
