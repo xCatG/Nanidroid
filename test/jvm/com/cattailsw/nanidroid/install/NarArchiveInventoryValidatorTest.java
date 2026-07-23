@@ -64,31 +64,32 @@ public final class NarArchiveInventoryValidatorTest {
         assertEquals("bundle", inventory.getWrapperDirectory());
         assertEquals(1, inventory.getDescriptorOrdinal());
         assertEquals(
-                Arrays.asList("", "install.txt", "ghost/master/file.txt"),
+                Arrays.asList(null, "install.txt", "ghost/master/file.txt"),
                 relativePaths(inventory));
         assertEquals("bundle/", inventory.getEntries().get(0).getRawName());
+        assertFalse(inventory.getEntries().get(0).isInstallEntry());
+        assertTrue(inventory.getEntries().get(1).isInstallEntry());
     }
 
     @Test
     public void rejectsUnsupportedDescriptorLayouts() {
-        assertError(
-                NarInstallError.MISSING_INSTALL_DESCRIPTOR,
-                validate(record("readme.txt")));
-        assertError(
-                NarInstallError.MISSING_INSTALL_DESCRIPTOR,
-                validate(record("INSTALL.TXT")));
-        assertError(
+        rejectsNames(NarInstallError.MISSING_INSTALL_DESCRIPTOR, "readme.txt");
+        rejectsNames(NarInstallError.MISSING_INSTALL_DESCRIPTOR, "INSTALL.TXT");
+        rejectsNames(
                 NarInstallError.AMBIGUOUS_LAYOUT,
-                validate(record("install.txt"), record("bundle/install.txt")));
-        assertError(
+                "install.txt", "bundle/install.txt");
+        rejectsNames(
                 NarInstallError.AMBIGUOUS_LAYOUT,
-                validate(record("one/install.txt"), record("two/install.txt")));
-        assertError(
+                "one/install.txt", "two/install.txt");
+        rejectsNames(
                 NarInstallError.MIXED_LAYOUT,
-                validate(record("bundle/install.txt"), record("sibling.txt")));
-        assertError(
+                "bundle/install.txt", "sibling.txt");
+        rejectsNames(NarInstallError.INVALID_LAYOUT, "one/two/install.txt");
+        rejectsNames(
                 NarInstallError.INVALID_LAYOUT,
-                validate(record("one/two/install.txt")));
+                "install.txt", "one/two/install.txt");
+        rejectsNames(
+                NarInstallError.MISSING_INSTALL_DESCRIPTOR, "install.txt/");
     }
 
     @Test
@@ -107,41 +108,27 @@ public final class NarArchiveInventoryValidatorTest {
             "bad\uD800name",
         };
         for (String path : hostile) {
-            assertError(
-                    NarInstallError.INVALID_PATH,
-                    validate(record("install.txt"), record(path)));
+            rejectsNames(NarInstallError.INVALID_PATH, "install.txt", path);
         }
     }
 
     @Test
     public void distinguishesDuplicatesNormalizationAndImplicitCollisions() {
-        assertError(
+        rejectsNames(
                 NarInstallError.DUPLICATE_ENTRY,
-                validate(
-                        record("install.txt"),
-                        record("ghost/file"),
-                        record("ghost/file")));
-        assertError(
+                "install.txt", "ghost/file", "ghost/file");
+        rejectsNames(
                 NarInstallError.NORMALIZED_COLLISION,
-                validate(
-                        record("install.txt"),
-                        record("Ghost/File"),
-                        record("ghost/file")));
+                "install.txt", "Ghost/File", "ghost/file");
 
         String composed = Normalizer.normalize("caf\u00e9", Normalizer.Form.NFC);
         String decomposed = Normalizer.normalize(composed, Normalizer.Form.NFD);
-        assertError(
+        rejectsNames(
                 NarInstallError.NORMALIZED_COLLISION,
-                validate(
-                        record("install.txt"),
-                        record(composed + "/one"),
-                        record(decomposed + "/two")));
-        assertError(
+                "install.txt", composed + "/one", decomposed + "/two");
+        rejectsNames(
                 NarInstallError.NORMALIZED_COLLISION,
-                validate(
-                        record("install.txt"),
-                        record("Ghost/one"),
-                        record("ghost/two")));
+                "install.txt", "Ghost/one", "ghost/two");
     }
 
     @Test
@@ -162,24 +149,15 @@ public final class NarArchiveInventoryValidatorTest {
 
     @Test
     public void rejectsFileDirectoryCollisionsInEveryOrdering() {
-        assertError(
+        rejectsNames(
                 NarInstallError.FILE_DIRECTORY_COLLISION,
-                validate(
-                        record("install.txt"),
-                        record("ghost"),
-                        record("ghost/master/file")));
-        assertError(
+                "install.txt", "ghost", "ghost/master/file");
+        rejectsNames(
                 NarInstallError.FILE_DIRECTORY_COLLISION,
-                validate(
-                        record("install.txt"),
-                        record("ghost/master/file"),
-                        record("ghost")));
-        assertError(
+                "install.txt", "ghost/master/file", "ghost");
+        rejectsNames(
                 NarInstallError.FILE_DIRECTORY_COLLISION,
-                validate(
-                        record("install.txt"),
-                        record("ghost"),
-                        directory("ghost/")));
+                "install.txt", "ghost", "ghost/");
     }
 
     @Test
@@ -194,25 +172,15 @@ public final class NarArchiveInventoryValidatorTest {
         assertError(NarInstallError.ENTRY_COUNT_LIMIT, validate(entries));
 
         assertTrue(validateWithPath(repeatedPath(32, 1)).isSuccess());
-        assertError(
-                NarInstallError.PATH_DEPTH_LIMIT,
-                validateWithPath(repeatedPath(33, 1)));
+        rejectsPath(NarInstallError.PATH_DEPTH_LIMIT, repeatedPath(33, 1));
         assertTrue(validateWithPath(asciiPath(1024)).isSuccess());
-        assertError(
-                NarInstallError.PATH_LENGTH_LIMIT,
-                validateWithPath(asciiPath(1025)));
+        rejectsPath(NarInstallError.PATH_LENGTH_LIMIT, asciiPath(1025));
         assertTrue(validateWithPath(repeat('a', 255)).isSuccess());
-        assertError(
-                NarInstallError.COMPONENT_LENGTH_LIMIT,
-                validateWithPath(repeat('a', 256)));
+        rejectsPath(NarInstallError.COMPONENT_LENGTH_LIMIT, repeat('a', 256));
 
         String malformedAtLimit = repeat('a', 4095) + "\uD800";
-        assertError(
-                NarInstallError.INVALID_PATH,
-                validateWithPath(malformedAtLimit));
-        assertError(
-                NarInstallError.RAW_NAME_LENGTH_LIMIT,
-                validateWithPath(malformedAtLimit + "a"));
+        rejectsPath(NarInstallError.INVALID_PATH, malformedAtLimit);
+        rejectsPath(NarInstallError.RAW_NAME_LENGTH_LIMIT, malformedAtLimit + "a");
     }
 
     @Test
@@ -222,15 +190,13 @@ public final class NarArchiveInventoryValidatorTest {
         descriptor.compressedSize = -1;
         assertTrue(validate(descriptor).isSuccess());
         descriptor.size++;
-        assertError(NarInstallError.INSTALL_DESCRIPTOR_LIMIT, validate(descriptor));
+        rejects(NarInstallError.INSTALL_DESCRIPTOR_LIMIT, descriptor);
 
         descriptor = record("install.txt");
         Record payload = sized("payload", 128 * MIB, -1);
         assertTrue(validate(descriptor, payload).isSuccess());
         payload.size++;
-        assertError(
-                NarInstallError.DECLARED_ENTRY_SIZE_LIMIT,
-                validate(descriptor, payload));
+        rejects(NarInstallError.DECLARED_ENTRY_SIZE_LIMIT, descriptor, payload);
 
         List<Record> total = new ArrayList<Record>();
         total.add(descriptor);
@@ -242,19 +208,67 @@ public final class NarArchiveInventoryValidatorTest {
         assertError(NarInstallError.DECLARED_TOTAL_SIZE_LIMIT, validate(total));
 
         assertTrue(validate(descriptor, sized("ratio", 1000, 1)).isSuccess());
-        assertError(
+        rejects(
                 NarInstallError.DECLARED_RATIO_LIMIT,
-                validate(descriptor, sized("ratio", 1001, 1)));
+                descriptor, sized("ratio", 1001, 1));
+        rejects(
+                NarInstallError.DECLARED_RATIO_LIMIT,
+                descriptor, sized("ratio", 1, 0));
         assertTrue(validate(descriptor, sized("unknown", -1, -1)).isSuccess());
     }
 
     @Test
-    public void rejectsNonContiguousCentralOrdinals() {
+    public void rejectsInvalidCentralRecordsAndAllowsDocumentedUnknowns() {
+        List<Record> nullRecord = new ArrayList<Record>();
+        nullRecord.add(null);
+        assertError(
+                NarInstallError.INVALID_ENTRY_METADATA,
+                validateWithoutOrdinalAssignment(nullRecord));
+        rejects(NarInstallError.INVALID_PATH, new Record(null, false));
+        rejects(NarInstallError.INVALID_PATH, record(""));
+        rejects(NarInstallError.INVALID_ENTRY_METADATA, new Record("file/", false));
+        rejects(
+                NarInstallError.INVALID_ENTRY_METADATA,
+                new Record("directory", true));
+
         Record descriptor = record("install.txt");
+        assertError(
+                NarInstallError.INVALID_ENTRY_METADATA,
+                validateWithoutOrdinalAssignment(descriptor));
         descriptor.ordinal = 7;
         assertError(
                 NarInstallError.INVALID_ENTRY_METADATA,
                 validateWithoutOrdinalAssignment(descriptor));
+        Record gap = record("payload");
+        descriptor.ordinal = 0;
+        gap.ordinal = 2;
+        assertError(
+                NarInstallError.INVALID_ENTRY_METADATA,
+                validateWithoutOrdinalAssignment(descriptor, gap));
+        gap.ordinal = 0;
+        assertError(
+                NarInstallError.INVALID_ENTRY_METADATA,
+                validateWithoutOrdinalAssignment(descriptor, gap));
+
+        for (int field = 0; field < 6; field++) {
+            Record invalid = record("install.txt");
+            invalid.ordinal = 0;
+            if (field == 0) invalid.size = -2;
+            if (field == 1) invalid.compressedSize = -2;
+            if (field == 2) invalid.crc = -2;
+            if (field == 3) invalid.crc = 0x100000000L;
+            if (field == 4) invalid.method = -2;
+            if (field == 5) invalid.method = 7;
+            assertError(
+                    NarInstallError.INVALID_ENTRY_METADATA,
+                    validateWithoutOrdinalAssignment(invalid));
+        }
+        Record unknown = sized("install.txt", -1, -1);
+        unknown.crc = -1;
+        unknown.method = -1;
+        NarArchiveInventoryResult unknownResult = validate(unknown);
+        assertTrue(unknownResult.isSuccess());
+        assertEquals(-1, unknownResult.getInventory().getDeclaredTotalSize());
     }
 
     @Test
@@ -306,6 +320,22 @@ public final class NarArchiveInventoryValidatorTest {
 
     private static NarArchiveInventoryResult validateWithPath(String path) {
         return validate(record("install.txt"), record(path));
+    }
+
+    private static void rejects(NarInstallError error, Record... records) {
+        assertError(error, validate(records));
+    }
+
+    private static void rejectsNames(NarInstallError error, String... names) {
+        Record[] records = new Record[names.length];
+        for (int index = 0; index < names.length; index++) {
+            records[index] = record(names[index]);
+        }
+        rejects(error, records);
+    }
+
+    private static void rejectsPath(NarInstallError error, String path) {
+        assertError(error, validateWithPath(path));
     }
 
     private static void assertError(
@@ -386,39 +416,12 @@ public final class NarArchiveInventoryValidatorTest {
             this.directory = directory;
         }
 
-        @Override
-        public int getOrdinal() {
-            return ordinal;
-        }
-
-        @Override
-        public String getRawName() {
-            return rawName;
-        }
-
-        @Override
-        public boolean isDirectory() {
-            return directory;
-        }
-
-        @Override
-        public long getCrc() {
-            return crc;
-        }
-
-        @Override
-        public int getMethod() {
-            return method;
-        }
-
-        @Override
-        public long getDeclaredSize() {
-            return size;
-        }
-
-        @Override
-        public long getCompressedSize() {
-            return compressedSize;
-        }
+        @Override public int getOrdinal() { return ordinal; }
+        @Override public String getRawName() { return rawName; }
+        @Override public boolean isDirectory() { return directory; }
+        @Override public long getCrc() { return crc; }
+        @Override public int getMethod() { return method; }
+        @Override public long getDeclaredSize() { return size; }
+        @Override public long getCompressedSize() { return compressedSize; }
     }
 }
