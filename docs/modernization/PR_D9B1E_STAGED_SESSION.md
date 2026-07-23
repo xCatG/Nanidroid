@@ -15,5 +15,12 @@ primary typed failure.
 
 This slice creates no staged copy, writes no archive or target bytes, and
 contains no extraction loop or manager integration. D9b2 alone may add a
-create-new app-private copy and mint the capability only after its writer has
-closed.
+fresh create-new app-private copy and mint the capability only after its writer
+has closed. The app must exclusively own that path and make it immutable and
+unreplaceable from writer close through verified-session close. Portable API-9
+separate path opens cannot defeat a malicious same-UID ABA replacement without
+this precondition.
+
+D9b2 mint acceptance tests must prove that no API exposes the writer or any
+replacement mechanism and that exclusive path ownership is retained until the
+verified session closes.
