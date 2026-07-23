@@ -1,23 +1,16 @@
 package com.cattailsw.nanidroid.install;
 
-import java.nio.charset.Charset;
-import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /** Pure structural policy over caller-supplied central-directory records. */
 public final class NarArchiveInventoryValidator {
-    private static final Charset UTF_8 = Charset.forName("UTF-8");
     private static final int MAX_ENTRIES = 10000;
     private static final int MAX_RAW_NAME_CHARS = 4096;
-    private static final int MAX_DEPTH = 32;
-    private static final int MAX_PATH_BYTES = 1024;
-    private static final int MAX_COMPONENT_BYTES = 255;
     private static final long MAX_DESCRIPTOR_SIZE = 64L * 1024L;
     private static final long MAX_ENTRY_SIZE = 128L * 1024L * 1024L;
     private static final long MAX_TOTAL_SIZE = 512L * 1024L * 1024L;
@@ -192,44 +185,30 @@ public final class NarArchiveInventoryValidator {
         if (entry.directory != raw.endsWith("/")) {
             reject(NarInstallError.INVALID_ENTRY_METADATA, raw);
         }
-        if (raw.startsWith("/")
-                || raw.indexOf('\\') >= 0
-                || !validUnicode(raw)) {
-            reject(NarInstallError.INVALID_PATH, raw);
-        }
         String original = entry.directory
                 ? raw.substring(0, raw.length() - 1)
                 : raw;
-        if (original.length() == 0) {
-            reject(NarInstallError.INVALID_PATH, raw);
-        }
-        String[] components = original.split("/", -1);
-        if (components.length > MAX_DEPTH) {
-            reject(NarInstallError.PATH_DEPTH_LIMIT, raw);
-        }
-        StringBuilder normalized = new StringBuilder();
-        for (String component : components) {
-            if (component.length() == 0
-                    || ".".equals(component)
-                    || "..".equals(component)
-                    || component.indexOf(':') >= 0
-                    || containsControl(component)) {
-                reject(NarInstallError.INVALID_PATH, raw);
+        NarRelativePathPolicy.Result path =
+                NarRelativePathPolicy.normalize(original);
+        if (!path.isSuccess()) {
+            switch (path.getError()) {
+                case PATH_DEPTH_LIMIT:
+                    reject(NarInstallError.PATH_DEPTH_LIMIT, raw);
+                    break;
+                case PATH_LENGTH_LIMIT:
+                    reject(NarInstallError.PATH_LENGTH_LIMIT, raw);
+                    break;
+                case COMPONENT_LENGTH_LIMIT:
+                    reject(NarInstallError.COMPONENT_LENGTH_LIMIT, raw);
+                    break;
+                default:
+                    reject(NarInstallError.INVALID_PATH, raw);
             }
-            String nfc = Normalizer.normalize(component, Normalizer.Form.NFC);
-            if (nfc.getBytes(UTF_8).length > MAX_COMPONENT_BYTES) {
-                reject(NarInstallError.COMPONENT_LENGTH_LIMIT, raw);
-            }
-            if (normalized.length() > 0) {
-                normalized.append('/');
-            }
-            normalized.append(nfc);
         }
-        String path = normalized.toString();
-        if (path.getBytes(UTF_8).length > MAX_PATH_BYTES) {
-            reject(NarInstallError.PATH_LENGTH_LIMIT, raw);
-        }
-        return new Path(original, path, collisionKey(path));
+        return new Path(
+                original,
+                path.getNormalized(),
+                path.getKey());
     }
 
     private static void recordDirectorySpellings(
@@ -302,34 +281,7 @@ public final class NarArchiveInventoryValidator {
     }
 
     private static String collisionKey(String value) {
-        String nfc = Normalizer.normalize(value, Normalizer.Form.NFC);
-        return Normalizer.normalize(
-                nfc.toLowerCase(Locale.US),
-                Normalizer.Form.NFC);
-    }
-
-    private static boolean containsControl(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            if (Character.isISOControl(value.charAt(index))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean validUnicode(String value) {
-        for (int index = 0; index < value.length(); index++) {
-            char current = value.charAt(index);
-            if (Character.isHighSurrogate(current)) {
-                if (++index >= value.length()
-                        || !Character.isLowSurrogate(value.charAt(index))) {
-                    return false;
-                }
-            } else if (Character.isLowSurrogate(current)) {
-                return false;
-            }
-        }
-        return true;
+        return NarRelativePathPolicy.collisionKey(value);
     }
 
     private static void reject(NarInstallError error, String detail)

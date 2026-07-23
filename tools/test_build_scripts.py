@@ -312,6 +312,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/jvm/com/cattailsw/nanidroid/install/"
                 "NarStagedSourceCopyTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/install/"
+                "NarGhostTreePolicyTest.java"
+            ),
         }
         unit_test_roots = [
             root
@@ -441,6 +445,11 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/install/'
             'NarStagedSourceCopyTest.java"',
+            gradle_build,
+        )
+        self.assertIn(
+            '"test/jvm/com/cattailsw/nanidroid/install/'
+            'NarGhostTreePolicyTest.java"',
             gradle_build,
         )
         self.assertIn("val missing = (expected - actual)", gradle_build)
