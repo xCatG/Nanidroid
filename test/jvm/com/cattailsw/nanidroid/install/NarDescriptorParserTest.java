@@ -61,9 +61,10 @@ public final class NarDescriptorParserTest {
         bom[1] = (byte) 0xbb;
         bom[2] = (byte) 0xbf;
         System.arraycopy(utf8, 0, bom, 3, utf8.length);
-        assertEquals(
-                japanese,
-                parseBytes(bom, null).getDescriptor().getName());
+        NarInstallDescriptor bomDescriptor =
+                parseBytes(bom, null).getDescriptor();
+        assertEquals(japanese, bomDescriptor.getName());
+        assertEquals("UTF-8", bomDescriptor.getMetadata().get("charset"));
     }
 
     @Test
@@ -121,9 +122,18 @@ public final class NarDescriptorParserTest {
         assertError(
                 NarInstallError.INVALID_METADATA,
                 parse("type,ghost\nmalformed\nname,G\ndirectory,g\n"));
-        assertError(
-                NarInstallError.INVALID_METADATA,
-                parse("type,ghost\nname,G\nName,Again\ndirectory,g\n"));
+        String complete = "charset,Shift_JIS\n"
+                + descriptor("g", "G")
+                + "accept,A\nrefresh,0\n";
+        String[] duplicateLines = {
+            "Type,ghost", "Name,Again", "Directory,again",
+            "Accept,Again", "Refresh,2", "Charset,UTF-8",
+        };
+        for (String duplicate : duplicateLines) {
+            assertError(
+                    NarInstallError.INVALID_METADATA,
+                    parse(complete + duplicate + "\n"));
+        }
     }
 
     @Test
@@ -220,13 +230,27 @@ public final class NarDescriptorParserTest {
                 parseBytes(
                         descriptor("safe", "G").getBytes(SHIFT_JIS),
                         "bad\uD800id"));
+        for (String forced : new String[] {" safe", "safe ", "\u2003safe"}) {
+            assertError(
+                    NarInstallError.INVALID_TARGET_ID,
+                    parseBytes(
+                            descriptor("safe", "G").getBytes(SHIFT_JIS),
+                            forced));
+        }
+        assertError(
+                NarInstallError.INVALID_TARGET_ID,
+                parseBytes(
+                        descriptor("safe", "G").getBytes(SHIFT_JIS),
+                        repeat('a', 256)));
     }
 
     @Test
     public void normalizesTargetAndEnforcesExactUtf8ByteBoundary() {
         String nfd = Normalizer.normalize("caf\u00e9", Normalizer.Form.NFD);
         String nfc = Normalizer.normalize(nfd, Normalizer.Form.NFC);
-        NarDescriptorResult normalized = parse(descriptor(nfd, "G"));
+        NarDescriptorResult normalized = parseBytes(
+                ("charset,UTF-8\n" + descriptor(nfd, "G")).getBytes(UTF_8),
+                null);
         assertTrue(normalized.isSuccess());
         assertEquals(nfc, normalized.getDescriptor().getDescriptorDirectory());
         assertEquals(nfc, normalized.getDescriptor().getTargetId());
@@ -235,6 +259,10 @@ public final class NarDescriptorParserTest {
         assertError(
                 NarInstallError.INVALID_TARGET_ID,
                 parse(descriptor(repeat('a', 256), "G")));
+        assertTrue(parse(descriptor(repeat('\u3042', 85), "G")).isSuccess());
+        assertError(
+                NarInstallError.INVALID_TARGET_ID,
+                parse(descriptor(repeat('\u3042', 86), "G")));
     }
 
     @Test
@@ -249,7 +277,7 @@ public final class NarDescriptorParserTest {
     }
 
     @Test
-    public void callerMutationCannotChangeParsedDescriptor() {
+    public void postReturnCallerMutationCannotChangeDetachedModel() {
         byte[] bytes = descriptor("stable", "Before").getBytes(SHIFT_JIS);
         NarDescriptorResult result = parseBytes(bytes, null);
         Arrays.fill(bytes, (byte) 'x');
