@@ -1,4 +1,5 @@
 import pathlib
+import subprocess
 import unittest
 
 
@@ -68,13 +69,33 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn("--env OUTPUT_ROOT=/out", normalized)
         self.assertIn("emulator-native -lc", normalized)
         self.assertIn(
-            "exec /workspace/docker/emulator/build-native.sh", normalized
+            "exec bash /workspace/docker/emulator/build-native.sh", normalized
         )
         self.assertIn(
             "./docker/gradle/build.sh && ./docker/emulator/build.sh",
             normalized,
         )
         self.assertIn("path: artifacts/", workflow)
+
+    def test_emulator_build_scripts_are_executable_in_the_git_index(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        paths = [
+            "docker/emulator/build-native.sh",
+            "docker/emulator/build.sh",
+        ]
+        completed = subprocess.run(
+            ["git", "ls-files", "--stage", "--", *paths],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        modes = {
+            line.split(maxsplit=3)[3]: line.split(maxsplit=1)[0]
+            for line in completed.stdout.splitlines()
+        }
+
+        self.assertEqual({path: "100755" for path in paths}, modes)
 
     def test_characterization_sources_are_the_exact_expected_set(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
