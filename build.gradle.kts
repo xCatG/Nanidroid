@@ -242,6 +242,8 @@ val jvmTestSources = files(
 val deviceCharacterizationTests = listOf(
     "test/device/com/cattailsw/nanidroid/" +
         "SurfaceRenderingCharacterizationTest.java",
+    "test/device/com/cattailsw/nanidroid/" +
+        "SurfaceAnimationExecutionCharacterizationTest.java",
 )
 val deviceTestSources = files(
     fileTree("test/device") {

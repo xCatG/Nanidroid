@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract tests for the D7a Android instrumentation-test APK inspector."""
+"""Contract tests for the D7 Android instrumentation-test APK inspector."""
 
 from __future__ import annotations
 
@@ -41,6 +41,9 @@ EXPECTED_TEST_DEX = (
     b"Lcom/cattailsw/nanidroid/SurfaceRenderingCharacterizationTest;\x00"
     b"testRequiredMigrationInvariant_baseSurfaceUsesUpperLeftColorKeyAndPaddedFallback\x00"
     b"testRequiredMigrationInvariant_elementSurfaceComposesDeclaredLayersAtOffsets\x00"
+    b"Lcom/cattailsw/nanidroid/SurfaceAnimationExecutionCharacterizationTest;\x00"
+    b"testRequiredMigrationInvariant_animationAssemblesFramesInOrderWithExactDurationsAndPixels\x00"
+    b"testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation\x00"
 )
 
 
@@ -158,6 +161,9 @@ class InspectApkTest(unittest.TestCase):
             b"Lcom/cattailsw/nanidroid/SurfaceRenderingCharacterizationTest;",
             b"testRequiredMigrationInvariant_baseSurfaceUsesUpperLeftColorKeyAndPaddedFallback",
             b"testRequiredMigrationInvariant_elementSurfaceComposesDeclaredLayersAtOffsets",
+            b"Lcom/cattailsw/nanidroid/SurfaceAnimationExecutionCharacterizationTest;",
+            b"testRequiredMigrationInvariant_animationAssemblesFramesInOrderWithExactDurationsAndPixels",
+            b"testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation",
         )
         for missing in required_markers:
             with self.subTest(missing=missing.decode("ascii")):
@@ -169,7 +175,7 @@ class InspectApkTest(unittest.TestCase):
                 )
 
                 with self.assertRaisesRegex(
-                    ArtifactError, "required D7a test marker"
+                    ArtifactError, "required D7 test marker"
                 ):
                     inspect_apk(apk, EXPECTED_BADGING, EXPECTED_MANIFEST_TREE)
 
