@@ -45,6 +45,37 @@ class BuildScriptContractTest(unittest.TestCase):
         configure = native_script.index("cmake \\")
         self.assertLess(clear_native, configure)
 
+    def test_hosted_ci_builds_and_uploads_the_emulator_artifacts(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        workflow = (
+            project_root / ".github" / "workflows" / "legacy-build.yml"
+        ).read_text(encoding="utf-8")
+        normalized = " ".join(workflow.split())
+
+        self.assertIn(
+            "mkdir -p artifacts/legacy artifacts/gradle "
+            "artifacts/emulator/native artifacts/emulator/apk",
+            normalized,
+        )
+        self.assertIn(
+            "docker compose -f docker/legacy/compose.yaml run --rm",
+            normalized,
+        )
+        self.assertGreaterEqual(
+            normalized.count('--user "$(id -u):$(id -g)"'), 2
+        )
+        self.assertIn("--env HOME=/tmp/nanidroid-emulator-home", normalized)
+        self.assertIn("--env OUTPUT_ROOT=/out", normalized)
+        self.assertIn("emulator-native -lc", normalized)
+        self.assertIn(
+            "exec /workspace/docker/emulator/build-native.sh", normalized
+        )
+        self.assertIn(
+            "./docker/gradle/build.sh && ./docker/emulator/build.sh",
+            normalized,
+        )
+        self.assertIn("path: artifacts/", workflow)
+
     def test_characterization_sources_are_the_exact_expected_set(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         expected = {

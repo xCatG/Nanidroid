@@ -84,13 +84,10 @@ The final verified payload hashes were:
 | `lib/armeabi/libkawari8.so` | `9b8d31d6e06d6b8b6a2d8ec208cf200872a78c3204f299e0c1e038720dadf067` |
 | `lib/armeabi/libsatoriya.so` | `9f72243c7609ca82258e82b0e76bf05dd89488e477e6d67a2bc12b865044b8ec` |
 
-The final local debug APK was 2,045,671 bytes with SHA-256
-`380a734c1b23cd73c388f3fb63210dedf95b1c9a5e6b1634c7f14f86aada4c01`.
-The final local emulator APK was 2,963,955 bytes with SHA-256
-`da68d152ec1a3174d4fb55c0f40743078e6534a3949d9b49360744f4651998c3`.
-Debug signing metadata makes whole-APK bytes nondeterministic, so these hashes
-are provenance only. The structural APK comparator and byte-exact native
-payload reports are the gates.
+Each run records its whole-APK SHA-256 beside the generated artifacts. Debug
+signing metadata makes whole-APK bytes nondeterministic, so those hashes are
+provenance only and are not frozen in this document. The structural APK
+comparator and byte-exact native payload reports are the gates.
 
 ## TDD evidence
 
@@ -178,4 +175,7 @@ launch or UI smoke. D6 must resolve and test that lifecycle/runtime blocker in
 a separate behavior-changing PR.
 
 Hosted CI should build and inspect these artifacts but must not launch a GUI
-emulator. Device installation remains an explicit local smoke step.
+emulator. `.github/workflows/legacy-build.yml` runs the legacy build, isolated
+ARM64 build, standard Gradle gate, and emulator APK gate under the runner UID,
+then uploads the complete `artifacts/` tree. Device installation remains an
+explicit local smoke step.

@@ -28,7 +28,9 @@ jobs:
           python3 tools/check_repository_hygiene.py
 
       - name: Prepare writable artifact directories
-        run: mkdir -p artifacts/legacy artifacts/gradle
+        run: >-
+          mkdir -p artifacts/legacy artifacts/gradle
+          artifacts/emulator/native artifacts/emulator/apk
 
       - name: Build and validate legacy APK
         run: |
@@ -41,6 +43,16 @@ jobs:
             build -lc \
               'mkdir -p "$HOME/.android" && exec /usr/local/bin/build-nanidroid-legacy'
 
+      - name: Build and validate ARM64 emulator engines
+        run: |
+          docker compose -f docker/legacy/compose.yaml run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp/nanidroid-emulator-home \
+            --env OUTPUT_ROOT=/out \
+            --entrypoint /bin/bash \
+            emulator-native -lc \
+              'mkdir -p "$HOME" && exec /workspace/docker/emulator/build-native.sh'
+
       - name: Build and compare Gradle APK
         run: |
           docker compose -f .devcontainer/compose.yaml build
@@ -50,9 +62,9 @@ jobs:
             --env GRADLE_USER_HOME=/tmp/nanidroid-gradle \
             --env JAVA_TOOL_OPTIONS=-Duser.home=/tmp/nanidroid-home \
             dev bash -lc \
-              'mkdir -p "$HOME/.android" "$GRADLE_USER_HOME" && ./docker/gradle/build.sh'
+              'mkdir -p "$HOME/.android" "$GRADLE_USER_HOME" && ./docker/gradle/build.sh && ./docker/emulator/build.sh'
 
-      - name: Upload reference and Gradle artifacts
+      - name: Upload reference, Gradle, and emulator artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
