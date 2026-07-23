@@ -112,6 +112,9 @@ class BuildScriptContractTest(unittest.TestCase):
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/ViewServerLifecycleCharacterizationTest.java"
+            ),
         }
         unit_test_roots = [
             root
