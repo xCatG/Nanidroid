@@ -25,6 +25,11 @@ EXPECTED_INSTRUMENTATION = {
     "usesLibraries": ["android.test.runner"],
 }
 REQUIRED_ENTRIES = {"AndroidManifest.xml", "classes.dex"}
+REQUIRED_DEX_MARKERS = (
+    "Lcom/cattailsw/nanidroid/SurfaceRenderingCharacterizationTest;",
+    "testRequiredMigrationInvariant_baseSurfaceUsesUpperLeftColorKeyAndPaddedFallback",
+    "testRequiredMigrationInvariant_elementSurfaceComposesDeclaredLayersAtOffsets",
+)
 
 
 class ArtifactError(ValueError):
@@ -52,15 +57,17 @@ def parse_badging(output: str) -> dict[str, str]:
 
 
 def _element_section(output: str, element: str) -> str:
-    match = re.search(
+    matches = list(re.finditer(
         rf"^(?P<indent>\s*)E: {re.escape(element)}\b.*?"
         rf"(?=^(?P=indent)E: |\Z)",
         output,
         re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        raise ArtifactError(f"manifest does not declare {element}")
-    return match.group(0)
+    ))
+    if len(matches) != 1:
+        raise ArtifactError(
+            f"manifest must declare exactly one {element}; found {len(matches)}"
+        )
+    return matches[0].group(0)
 
 
 def _android_name(section: str, description: str) -> str:
@@ -120,6 +127,17 @@ def inspect_apk(
             missing = sorted(REQUIRED_ENTRIES - entries)
             if missing:
                 _fail("test APK is missing required entries: " + ", ".join(missing))
+            dex = archive.read("classes.dex")
+            missing_markers = [
+                marker
+                for marker in REQUIRED_DEX_MARKERS
+                if marker.encode("ascii") not in dex
+            ]
+            if missing_markers:
+                _fail(
+                    "test APK is missing required D7a test marker(s): "
+                    + ", ".join(missing_markers)
+                )
             native_libraries = sorted(
                 name
                 for name in entries
@@ -140,6 +158,7 @@ def inspect_apk(
         "package": package,
         "instrumentation": instrumentation,
         "nativeLibraries": native_libraries,
+        "requiredDexMarkers": list(REQUIRED_DEX_MARKERS),
         "requiredEntries": sorted(REQUIRED_ENTRIES),
     }
 

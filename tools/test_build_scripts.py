@@ -145,8 +145,8 @@ class BuildScriptContractTest(unittest.TestCase):
             build_script,
         )
         cleanup = (
-            'rm -f "${TEST_APK}" '
-            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk" '
+            'rm -f "${TEST_APK}" \\ '
+            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk" \\ '
             '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"'
         )
         self.assertIn(cleanup, " ".join(build_script.split()))

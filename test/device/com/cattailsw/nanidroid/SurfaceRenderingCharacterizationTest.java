@@ -19,13 +19,13 @@ import java.util.Arrays;
  */
 public final class SurfaceRenderingCharacterizationTest extends InstrumentationTestCase {
     private static final String PADDED_PNG_BASE64 =
-            "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAYAAACddGYaAAAAGUlEQVR42mP4z/D/"
-                    + "/38Ghv8gmgFCg0X+AwDBWA7yYJOYMAAAAABJRU5ErkJggg==";
+            "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAYAAACddGYaAAAAG0lEQVR42mP4z/D/"
+                    + "/3+G/w0gmuE/wz8QARYBANdBEHDHkUDcAAAAAElFTkSuQmCC";
     private static final String PADDED_PNG_SHA256 =
-            "bc7cc462b23cb8bc91f9f9154a95c72dbf3e52673fa864427daafc71c0ebbe50";
+            "deae9e08f1ecaafd205e7c93085912b17d30a748a322671220762623d1de8073";
     private static final int[] PADDED_RENDERED_PIXELS = {
-        Color.TRANSPARENT, 0xffff0000, Color.TRANSPARENT,
-        0xff0000ff, 0xff00ff00, 0xffffff00,
+        Color.TRANSPARENT, 0x80ff00ff, Color.TRANSPARENT,
+        0xffff00fe, 0xff00ff00, 0xffffff00,
     };
 
     private static final String ELEMENT_BASE_PNG_BASE64 =
