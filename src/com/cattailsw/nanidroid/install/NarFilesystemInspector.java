@@ -87,7 +87,13 @@ final class NarFilesystemInspector {
     private boolean loaded;
 
     NarFilesystemInspector() {
-        this(() -> System.loadLibrary("narfs"), NarFilesystemInspector::nativeInspect);
+        this(new Loader() {
+            public void load() { System.loadLibrary("narfs"); }
+        }, new Backend() {
+            public Result inspect(String trustedRoot, String target) {
+                return nativeInspect(trustedRoot, target);
+            }
+        });
     }
 
     NarFilesystemInspector(Loader loader, Backend backend) {

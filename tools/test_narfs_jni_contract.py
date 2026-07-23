@@ -155,14 +155,9 @@ class NarfsJniContractTest(unittest.TestCase):
         java = (project / "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java").read_text()
         for forbidden in ("->", "::", "java.util.Objects", "java.nio.file", "java.time.", "try ("):
             self.assertNotIn(forbidden, java)
-        make = (project / "jni/narfs/Android.mk").read_text()
-        sequence = ("NANIDROID_NARFS_SAVED_TARGET_CXX := $(TARGET_CXX)",
-                    "override TARGET_CXX := $(TARGET_CC)",
-                    "include $(BUILD_SHARED_LIBRARY)",
-                    "override TARGET_CXX := $(NANIDROID_NARFS_SAVED_TARGET_CXX)")
-        self.assertEqual(sorted(map(make.index, sequence)), list(map(make.index, sequence)))
-        self.assertEqual(2, make.count("override TARGET_CXX"))
         script = (project / "docker/narfs-jni/build.sh").read_text()
+        self.assertIn("'TARGET_CXX=$(TARGET_CC)'", script)
+        self.assertIn("APP_MODULES=narfs", script)
         self.assertNotIn("artifacts/", script)
         self.assertNotRegex(script, r"(?:cp|mv).+libnarfs\.so.+OUTPUT_ROOT")
         for published in (

@@ -121,7 +121,8 @@ def _evidence(path, build_system, abi):
             _fail(f"sysroot changed: {source}")
         compiled.append(source)
     link_tokens = shlex.split(link)
-    if not all(any(wanted in token for token in link_tokens) for wanted in (
+    if Path(link_tokens[0]).name != lane[0] or not all(
+            any(wanted in token for token in link_tokens) for wanted in (
                 "--as-needed", "--no-undefined", "--version-script",
                 "libnarfs_core.a")):
         _fail("static-core link evidence changed")

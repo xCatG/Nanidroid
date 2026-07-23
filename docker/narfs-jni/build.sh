@@ -45,6 +45,7 @@ build_lane() {
   mkdir -p "${ndk_build}"
 
   "${NDK_ROOT}/ndk-build" \
+    'TARGET_CXX=$(TARGET_CC)' \
     NDK_PROJECT_PATH="${ndk_build}" \
     NDK_OUT="${ndk_build}/obj" \
     NDK_LIBS_OUT="${ndk_build}/libs" \
