@@ -7,6 +7,8 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
@@ -19,6 +21,45 @@ import org.junit.Test;
 public final class NarStagedSourceCopyTest {
     private static final long MIB = 1024L * 1024L;
     private static final long MAX_ARCHIVE_BYTES = 544L * MIB;
+
+    @Test
+    public void defaultIoCopiesRealBytesIntoCanonicalRoot()
+            throws Exception {
+        File temporary = new File(
+                System.getProperty("java.io.tmpdir"),
+                "nanidroid-stage-" + System.nanoTime());
+        File root = new File(temporary, "trusted");
+        File external = new File(temporary, "external.nar");
+        byte[] payload = new byte[] {0, 1, 2, 3, -1};
+        assertTrue(root.mkdirs());
+        FileOutputStream output = new FileOutputStream(external);
+        try {
+            output.write(payload);
+        } finally {
+            output.close();
+        }
+
+        File staged = null;
+        try {
+            NarStagedSourceCopyResult result =
+                    NarStagedSource.copy(external, root);
+
+            assertTrue(result.isSuccess());
+            staged = result.getSource().claim();
+            assertEquals(
+                    root.getCanonicalFile(),
+                    staged.getCanonicalFile().getParentFile());
+            assertTrue(Arrays.equals(payload, readFile(staged)));
+            assertNull(result.getSource().claim());
+        } finally {
+            if (staged != null) {
+                assertTrue(staged.delete());
+            }
+            assertTrue(external.delete());
+            assertTrue(root.delete());
+            assertTrue(temporary.delete());
+        }
+    }
 
     @Test
     public void exactCapCopiesSyncsAndClosesBeforeMint() throws Exception {
@@ -79,6 +120,13 @@ public final class NarStagedSourceCopyTest {
                 Arrays.asList(
                         "writer-close", "source-close", "delete"),
                 io.terminalEvents);
+        try {
+            result.getCleanupErrors().add(
+                    NarStagedSourceCopyError.STAGING_WRITE_FAILED);
+            throw new AssertionError("cleanup errors were mutable");
+        } catch (UnsupportedOperationException expected) {
+            assertEquals(3, result.getCleanupErrors().size());
+        }
     }
 
     @Test
@@ -185,15 +233,60 @@ public final class NarStagedSourceCopyTest {
         assertEquals(0, escaping.createCount);
 
         FakeIo lexical = new FakeIo();
-        NarStagedSourceCopyResult invalidName = NarStagedSource.copy(
-                new File("external.nar"),
-                lexical.root,
-                lexical,
-                names("../escape.nar"));
+        String[] hostileNames = new String[] {
+            null,
+            "",
+            ".",
+            "..",
+            "../escape.nar",
+            "sub/escape.nar",
+            "sub\\escape.nar",
+            new File("absolute.nar").getAbsolutePath(),
+            "C:\\escape.nar",
+        };
+        for (String hostileName : hostileNames) {
+            lexical = new FakeIo();
+            NarStagedSourceCopyResult invalidName =
+                    NarStagedSource.copy(
+                            new File("external.nar"),
+                            lexical.root,
+                            lexical,
+                            names(hostileName));
+            assertEquals(
+                    NarStagedSourceCopyError.STAGING_NAME_INVALID,
+                    invalidName.getError());
+            assertEquals(0, lexical.createCount);
+        }
+    }
+
+    @Test
+    public void runtimeFailuresAreNormalizedAndNeverEscape()
+            throws Exception {
+        FakeIo rootRuntime = new FakeIo();
+        rootRuntime.rootCanonicalRuntime = true;
+        assertPrimaryWithoutDelete(
+                NarStagedSourceCopyError.STAGING_ROOT_INVALID,
+                rootRuntime);
+
+        FakeIo writeRuntime = new FakeIo();
+        writeRuntime.virtualSourceLength = 1;
+        writeRuntime.writeRuntime = true;
+        assertPrimary(
+                NarStagedSourceCopyError.STAGING_WRITE_FAILED,
+                writeRuntime);
+
+        FakeIo deleteRuntime = new FakeIo();
+        deleteRuntime.virtualSourceLength = 1;
+        deleteRuntime.readFailure = true;
+        deleteRuntime.deleteRuntime = true;
+        NarStagedSourceCopyResult deleteFailure = copy(deleteRuntime);
         assertEquals(
-                NarStagedSourceCopyError.STAGING_NAME_INVALID,
-                invalidName.getError());
-        assertEquals(0, lexical.createCount);
+                NarStagedSourceCopyError.SOURCE_READ_FAILED,
+                deleteFailure.getError());
+        assertEquals(
+                Arrays.asList(
+                        NarStagedSourceCopyError.STAGING_DELETE_FAILED),
+                deleteFailure.getCleanupErrors());
     }
 
     @Test
@@ -240,6 +333,15 @@ public final class NarStagedSourceCopyTest {
         assertFalse(result.isSuccess());
         assertEquals(expected, result.getError());
         assertEquals(1, io.deleteCount);
+    }
+
+    private static void assertPrimaryWithoutDelete(
+            NarStagedSourceCopyError expected, FakeIo io)
+            throws Exception {
+        NarStagedSourceCopyResult result = copy(io);
+        assertFalse(result.isSuccess());
+        assertEquals(expected, result.getError());
+        assertEquals(0, io.deleteCount);
     }
 
     private static NarStagedSourceCopyResult copy(FakeIo io)
@@ -296,6 +398,25 @@ public final class NarStagedSourceCopyTest {
         };
     }
 
+    private static byte[] readFile(File file) throws IOException {
+        FileInputStream input = new FileInputStream(file);
+        try {
+            byte[] result = new byte[(int) file.length()];
+            int offset = 0;
+            while (offset < result.length) {
+                int count = input.read(
+                        result, offset, result.length - offset);
+                if (count < 0) {
+                    throw new IOException("unexpected end of file");
+                }
+                offset += count;
+            }
+            return result;
+        } finally {
+            input.close();
+        }
+    }
+
     private static final class FakeIo
             implements NarStagedSource.StageIo {
         private final File root =
@@ -304,6 +425,7 @@ public final class NarStagedSourceCopyTest {
         private final List<String> terminalEvents =
                 new ArrayList<String>();
         private boolean rootCanonicalFailure;
+        private boolean rootCanonicalRuntime;
         private boolean rootDirectory = true;
         private boolean escapeCandidate;
         private int collisionsRemaining;
@@ -312,10 +434,12 @@ public final class NarStagedSourceCopyTest {
         private boolean targetOpenFailure;
         private boolean readFailure;
         private boolean writeFailure;
+        private boolean writeRuntime;
         private boolean syncFailure;
         private boolean writerCloseFailure;
         private boolean sourceCloseFailure;
         private boolean deleteFailure;
+        private boolean deleteRuntime;
         private boolean zeroFirstRead;
         private long virtualSourceLength;
         private long sourceBytesRead;
@@ -325,6 +449,9 @@ public final class NarStagedSourceCopyTest {
 
         @Override
         public File canonical(File file) throws IOException {
+            if (file.equals(root) && rootCanonicalRuntime) {
+                throw new SecurityException("root");
+            }
             if (file.equals(root) && rootCanonicalFailure) {
                 throw new IOException("root");
             }
@@ -419,6 +546,9 @@ public final class NarStagedSourceCopyTest {
                 public void write(
                         byte[] buffer, int offset, int length)
                         throws IOException {
+                    if (writeRuntime) {
+                        throw new IllegalStateException("write");
+                    }
                     if (writeFailure) {
                         throw new IOException("write");
                     }
@@ -447,6 +577,9 @@ public final class NarStagedSourceCopyTest {
         public boolean delete(File file) {
             terminalEvents.add("delete");
             deleteCount++;
+            if (deleteRuntime) {
+                throw new SecurityException("delete");
+            }
             return !deleteFailure;
         }
     }
