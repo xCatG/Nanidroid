@@ -292,6 +292,10 @@ class BuildScriptContractTest(unittest.TestCase):
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/install/"
+                "NarArchiveInventoryValidatorTest.java"
+            ),
         }
         unit_test_roots = [
             root
@@ -396,6 +400,11 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/'
             'NarArchiveCharacterizationTest.java"',
+            gradle_build,
+        )
+        self.assertIn(
+            '"test/jvm/com/cattailsw/nanidroid/install/'
+            'NarArchiveInventoryValidatorTest.java"',
             gradle_build,
         )
         self.assertIn("val missing = (expected - actual)", gradle_build)
