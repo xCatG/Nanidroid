@@ -96,6 +96,50 @@ abstract class VerifyCharacterizationTestIsolation : DefaultTask() {
     }
 }
 
+abstract class VerifyDeviceCharacterizationTestIsolation : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val testSources: ConfigurableFileCollection
+
+    @get:Input
+    abstract val expectedSourcePaths: ListProperty<String>
+
+    @get:Internal
+    abstract val projectRoot: DirectoryProperty
+
+    @TaskAction
+    fun verify() {
+        val expected = expectedSourcePaths.get()
+            .map { projectRoot.get().asFile.resolve(it).canonicalFile }
+            .toSet()
+        val actual = testSources.files.map { it.canonicalFile }.toSet()
+        val missing = (expected - actual).map { it.invariantSeparatorsPath }.sorted()
+        val unexpected = (actual - expected).map { it.invariantSeparatorsPath }.sorted()
+
+        if (missing.isNotEmpty() || unexpected.isNotEmpty()) {
+            throw GradleException(
+                buildString {
+                    appendLine(
+                        "Device characterization tests are an exact, headless " +
+                            "instrumentation boundary."
+                    )
+                    appendLine(
+                        "Review and explicitly allowlist every added or removed device test source."
+                    )
+                    if (missing.isNotEmpty()) {
+                        appendLine("Missing expected device test sources:")
+                        missing.forEach { appendLine("  - $it") }
+                    }
+                    if (unexpected.isNotEmpty()) {
+                        appendLine("Unexpected device test sources:")
+                        unexpected.forEach { appendLine("  - $it") }
+                    }
+                }
+            )
+        }
+    }
+}
+
 val verifyLegacyNativeLibraries by tasks.registering(VerifyNativeLibraries::class) {
     group = "verification"
     description = "Checks that PR B1 produced the native libraries packaged by Gradle."
@@ -125,6 +169,8 @@ android {
         targetSdk = 13
         versionCode = 6
         versionName = "open_0.1"
+        testApplicationId = "com.cattailsw.nanidroid.test"
+        testInstrumentationRunner = "android.test.InstrumentationTestRunner"
     }
 
     buildTypes {
@@ -146,6 +192,10 @@ android {
         }
         getByName("test") {
             java.srcDir("test/jvm")
+        }
+        getByName("androidTest") {
+            java.setSrcDirs(listOf("test/device"))
+            manifest.srcFile("test/device/AndroidManifest.xml")
         }
         getByName("emulator") {
             jniLibs.srcDir(emulatorNativeDirectory)
@@ -189,6 +239,15 @@ val jvmTestSources = files(
         include("**/*.java", "**/*.kt")
     },
 )
+val deviceCharacterizationTests = listOf(
+    "test/device/com/cattailsw/nanidroid/" +
+        "SurfaceRenderingCharacterizationTest.java",
+)
+val deviceTestSources = files(
+    fileTree("test/device") {
+        include("**/*.java", "**/*.kt")
+    },
+)
 
 val verifyCharacterizationTestIsolation by
     tasks.registering(VerifyCharacterizationTestIsolation::class) {
@@ -199,10 +258,29 @@ val verifyCharacterizationTestIsolation by
     projectRoot.set(layout.projectDirectory)
 }
 
+val verifyDeviceCharacterizationTestIsolation by
+    tasks.registering(VerifyDeviceCharacterizationTestIsolation::class) {
+    group = "verification"
+    description = "Keeps real-framework device characterizations exactly allowlisted."
+    testSources.from(deviceTestSources)
+    expectedSourcePaths.set(deviceCharacterizationTests)
+    projectRoot.set(layout.projectDirectory)
+}
+
 tasks.matching {
     it.name.startsWith("test") && it.name.endsWith("UnitTest")
 }.configureEach {
     dependsOn(verifyCharacterizationTestIsolation)
+}
+
+tasks.named("check").configure {
+    dependsOn(verifyDeviceCharacterizationTestIsolation)
+}
+
+tasks.matching {
+    it.name.startsWith("compile") && it.name.contains("AndroidTest")
+}.configureEach {
+    dependsOn(verifyDeviceCharacterizationTestIsolation)
 }
 
 tasks.named("preBuild").configure {

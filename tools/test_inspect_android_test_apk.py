@@ -6,7 +6,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 import zipfile
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from inspect_android_test_apk import (
     ArtifactError,
