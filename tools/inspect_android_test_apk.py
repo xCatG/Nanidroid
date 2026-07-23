@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and inventory the headless D7a Android test APK."""
+"""Validate and inventory the headless D7 Android test APK."""
 
 from __future__ import annotations
 
@@ -29,11 +29,14 @@ REQUIRED_DEX_MARKERS = (
     "Lcom/cattailsw/nanidroid/SurfaceRenderingCharacterizationTest;",
     "testRequiredMigrationInvariant_baseSurfaceUsesUpperLeftColorKeyAndPaddedFallback",
     "testRequiredMigrationInvariant_elementSurfaceComposesDeclaredLayersAtOffsets",
+    "Lcom/cattailsw/nanidroid/SurfaceAnimationExecutionCharacterizationTest;",
+    "testRequiredMigrationInvariant_animationAssemblesFramesInOrderWithExactDurationsAndPixels",
+    "testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation",
 )
 
 
 class ArtifactError(ValueError):
-    """The test APK does not satisfy the exact D7a runner contract."""
+    """The test APK does not satisfy the exact D7 runner contract."""
 
 
 def _match(pattern: str, text: str, description: str) -> str:
@@ -135,7 +138,7 @@ def inspect_apk(
             ]
             if missing_markers:
                 _fail(
-                    "test APK is missing required D7a test marker(s): "
+                    "test APK is missing required D7 test marker(s): "
                     + ", ".join(missing_markers)
                 )
             native_libraries = sorted(
