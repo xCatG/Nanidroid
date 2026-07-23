@@ -24,7 +24,7 @@ is written to the target application's cache directory:
 
 | Fixture | Size | SHA-256 | Pixel purpose |
 | --- | --- | --- | --- |
-| `surface0007.png` | 3 x 2 | `bc7cc462b23cb8bc91f9f9154a95c72dbf3e52673fa864427daafc71c0ebbe50` | Repeated magenta key plus retained red, blue, green, and yellow pixels |
+| `surface0007.png` | 3 x 2 | `deae9e08f1ecaafd205e7c93085912b17d30a748a322671220762623d1de8073` | Repeated opaque magenta key plus retained half-alpha magenta, near-match magenta, green, and yellow pixels |
 | `base.png` | 4 x 3 | `57d054fb3911ecf5a663fcf7cb7181e61d05a492cc71d5b0597fa672f5f8aa53` | Magenta key and opaque blue element base |
 | `overlay.png` | 2 x 2 | `b2584b961c275a89922cb32f00e11b6c9f637d9761738e097d37ca9d26c4ac19` | Cyan key plus retained red, green, and yellow overlay pixels |
 
@@ -38,7 +38,8 @@ compare every row-major ARGB pixel.
 - If `surface7.png` is absent and `surface0007.png` exists, the padded path is
   selected and the decoded dimensions are 3 x 2.
 - The decoded upper-left pixel is the color key. Every exact occurrence becomes
-  `Color.TRANSPARENT`; all tested non-key opaque ARGB values remain exact.
+  `Color.TRANSPARENT`; a pixel with the same RGB and different alpha, a one-bit
+  RGB near-match, and the other tested non-key ARGB values remain exact.
 - Element draw order follows the declared order.
 - A 2 x 2 overlay declared at `(1, 1)` occupies exactly that inset within its
   4 x 3 base. A transparent overlay pixel reveals the base pixel below it.
@@ -77,24 +78,41 @@ implementation then made those contracts pass.
 Final local evidence:
 
 ```text
-tooling (Linux): 64 tests, 0 failures
+tooling (Linux): 66 tests, 0 failures
 JVM characterization: 29 tests, 0 failures
 legacy build and CMake parity: equivalent
 standard Gradle APK parity/native payload: equivalent/identical
 emulator APK native payload: exact armeabi + arm64-v8a set, identical bytes
-repository hygiene: 389 tracked files, 7 inventoried opaque artifacts
-debug test APK: 11,070 bytes
+repository hygiene: 390 tracked files, 7 inventoried opaque artifacts
+debug test APK: 11,058 bytes
 debug test APK SHA-256:
-  0025fe59a84b69a8e8412b0f8899987e97bc68e4c44af44a80152890abdce9a6
+  d57d52269358bc97bda1a1b234c0e72a0f25f92f26728938158677feae7ef458
 ```
 
-API 36 execution installs the verified emulator target and debug test APK with
-the explicit low-target-SDK bypass, then runs:
+API 36 execution from PowerShell installs the verified emulator target and
+debug test APK with the explicit low-target-SDK bypass. It captures and checks
+the runner text rather than trusting the process or instrumentation code:
 
-```text
-adb -s emulator-5554 shell am instrument -w -r \
-  -e class com.cattailsw.nanidroid.SurfaceRenderingCharacterizationTest \
-  com.cattailsw.nanidroid.test/android.test.InstrumentationTestRunner
+```powershell
+$adb = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
+& $adb -s emulator-5554 install --bypass-low-target-sdk-block -r `
+  artifacts\emulator\apk\Nanidroid-emulator.apk
+if ($LASTEXITCODE -ne 0) {
+    throw "D7a emulator target install failed"
+}
+& $adb -s emulator-5554 install --bypass-low-target-sdk-block -r `
+  artifacts\gradle\Nanidroid-debug-androidTest.apk
+if ($LASTEXITCODE -ne 0) {
+    throw "D7a AndroidTest install failed"
+}
+$result = & $adb -s emulator-5554 shell am instrument -w -r `
+  -e class com.cattailsw.nanidroid.SurfaceRenderingCharacterizationTest `
+  com.cattailsw.nanidroid.test/android.test.InstrumentationTestRunner 2>&1
+$result
+if (($result -join "`n") -notmatch 'OK \(2 tests\)' -or
+    ($result -join "`n") -match 'FAILURES!!!') {
+    throw "D7a instrumentation acceptance failed"
+}
 ```
 
 The restored API 36 run reported `OK (2 tests)` and the subsequent log scan
@@ -105,16 +123,18 @@ zero even when the textual test result contains failures. Acceptance therefore
 requires the explicit `OK (2 tests)` result and absence of `FAILURES!!!`; shell
 status or the instrumentation code alone is not an oracle.
 
-Calibration produced four independent failures before all temporary changes
+Calibration produced independent failures before all temporary changes
 were restored:
 
 1. An intentionally wrong expected keyed pixel failed the base test at
    row-major index 0 while the element test passed.
 2. A temporary production color-key mutation from pixel `(0, 0)` to `(1, 0)`
    failed both fixtures at their first keyed pixel.
-3. A temporary production element inset-X mutation of `+1` left the base test
+3. A temporary RGB-only color comparison failed the half-alpha magenta
+   retention assertion.
+4. A temporary production element inset-X mutation of `+1` left the base test
    green and failed only the element test at row-major index 6.
-4. An unexpected Java source under `test/device` failed
+5. An unexpected Java source under `test/device` failed
    `verifyDeviceCharacterizationTestIsolation` with the exact unexpected path.
 
 `ShellSurface.java` and the test expectations were then restored
