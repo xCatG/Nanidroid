@@ -8,11 +8,13 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
@@ -450,10 +452,13 @@ public final class NarInstallPlanValidatorTest {
         assertEquals(2, publicMethods);
         for (Method method
                 : NarInstallPlanResult.class.getDeclaredMethods()) {
-            assertFalse(
-                    method.getName().toLowerCase().contains("session"));
-            assertFalse(InputStream.class.isAssignableFrom(
-                    method.getReturnType()));
+            if (Modifier.isPublic(method.getModifiers())) {
+                assertFalse(
+                        method.getName().toLowerCase()
+                                .contains("session"));
+                assertFalse(InputStream.class.isAssignableFrom(
+                        method.getReturnType()));
+            }
         }
     }
 
@@ -539,11 +544,331 @@ public final class NarInstallPlanValidatorTest {
                         new File("archive.nar"), unchangedPlan));
     }
 
+    @Test
+    public void stagedCapabilityIsUnmintableAndDiagnosticsHaveNoAuthority()
+            throws Exception {
+        NarInstallPlanResult diagnostic = validate(validFakeIo());
+        assertTrue(diagnostic.isSuccess());
+        assertNull(diagnostic.getVerifiedSession());
+        assertFalse(Modifier.isPublic(
+                NarStagedSource.class.getModifiers()));
+        Constructor<?> constructor =
+                NarStagedSource.class.getDeclaredConstructor(File.class);
+        assertTrue(Modifier.isPrivate(constructor.getModifiers()));
+        assertTrue(Modifier.isSynchronized(
+                NarStagedSource.class
+                        .getDeclaredMethod("claim")
+                        .getModifiers()));
+        for (Method method : NarStagedSource.class.getDeclaredMethods()) {
+            assertFalse(
+                    Modifier.isStatic(method.getModifiers())
+                            && method.getReturnType()
+                                    == NarStagedSource.class
+                            && Arrays.equals(
+                                    method.getParameterTypes(),
+                                    new Class<?>[] {File.class}));
+        }
+    }
+
+    @Test
+    public void stagedValidationRetainsOwnerAndCleansOneShotSession()
+            throws Exception {
+        FakeIo io = validFakeIo();
+        NarInstallPlanValidator validator = new NarInstallPlanValidator(io);
+        NarStagedSource source =
+                stagedForTest(new File("private-staged.nar"));
+
+        NarInstallPlanResult result = validator.validateStaged(
+                source, new File("install-root"), null);
+
+        assertTrue(result.isSuccess());
+        NarVerifiedInstallSession session = result.getVerifiedSession();
+        assertSame(result.getPlan(), session.getPlan());
+        assertEquals(0, io.archive.closeCount);
+        assertEquals(0, io.deleteCount);
+        InputStream payload =
+                session.open(result.getPlan().getEntries().get(0));
+        assertArrayEquals(bytes("payload"), readAll(payload));
+        payload.close();
+        assertSame(io.archive.entries.get(0), io.archive.openedEntry);
+        assertError(
+                NarInstallError.STAGED_SOURCE_INVALID,
+                validator.validateStaged(
+                        source, new File("install-root"), null));
+        assertEquals(0, io.deleteCount);
+
+        session.close();
+        assertTrue(session.isClosed());
+        assertEquals(
+                Arrays.asList("archive-close", "delete"),
+                io.events);
+        session.close();
+        assertEquals(1, io.archive.closeCount);
+        assertEquals(1, io.deleteCount);
+        try {
+            session.open(result.getPlan().getEntries().get(0));
+            throw new AssertionError("closed session accepted entry");
+        } catch (IllegalStateException expected) {
+            // Expected.
+        }
+    }
+
+    @Test
+    public void stagedVerificationRetainsTheVerifiedPlan()
+            throws Exception {
+        FakeIo io = validFakeIo();
+        NarInstallPlanValidator validator = new NarInstallPlanValidator(io);
+        NarInstallPlan plan = validator.validate(
+                new File("archive.nar"),
+                new File("install-root"),
+                null).getPlan();
+        assertEquals(1, io.archive.closeCount);
+
+        NarInstallPlanResult result = validator.verifyStaged(
+                stagedForTest(new File("verify-staged.nar")), plan);
+
+        assertTrue(result.isSuccess());
+        assertSame(plan, result.getPlan());
+        assertSame(plan, result.getVerifiedSession().getPlan());
+        assertEquals(1, io.archive.closeCount);
+        result.getVerifiedSession().close();
+        assertEquals(2, io.archive.closeCount);
+        assertEquals(1, io.deleteCount);
+    }
+
+    @Test
+    public void sessionRejectsForeignDirectoryAndNonInstallEntries()
+            throws Exception {
+        File stagedFile = zip(
+                "bundle/", null,
+                "bundle/install.txt", descriptor("ghost-id", "Ghost"),
+                "bundle/assets/", null,
+                "bundle/assets/file", bytes("payload"));
+        NarInstallPlanValidator validator = new NarInstallPlanValidator();
+        NarInstallPlanResult result = validator.validateStaged(
+                stagedForTest(stagedFile),
+                temporaryDirectory("session-root"),
+                null);
+        assertTrue(result.isSuccess());
+        NarVerifiedInstallSession session = result.getVerifiedSession();
+        assertSessionOpenRejected(
+                session, result.getPlan().getEntries().get(0));
+        assertSessionOpenRejected(
+                session, result.getPlan().getEntries().get(2));
+
+        NarInstallPlan foreign = validator.validate(
+                zip(
+                        "install.txt", descriptor("other", "Other"),
+                        "payload", bytes("foreign")),
+                temporaryDirectory("foreign-root"),
+                null).getPlan();
+        assertSessionOpenRejected(
+                session, foreign.getEntries().get(1));
+        session.close();
+        assertFalse(stagedFile.exists());
+    }
+
+    @Test
+    public void everyStagedFailurePhaseCleansClaimedSource()
+            throws Exception {
+        FakeIo source = validFakeIo();
+        source.sourceOpenFailure = true;
+        assertStagedFailureCleans(
+                source, NarInstallError.ARCHIVE_READ_FAILED, 0);
+
+        FakeIo preflight = validFakeIo();
+        preflight.preflightFailure = true;
+        assertStagedFailureCleans(
+                preflight, NarInstallError.ARCHIVE_READ_FAILED, 0);
+
+        FakeIo open = validFakeIo();
+        open.archiveOpenFailure = true;
+        assertStagedFailureCleans(
+                open, NarInstallError.ARCHIVE_READ_FAILED, 0);
+
+        FakeIo list = validFakeIo();
+        list.archive.listFailure = true;
+        assertStagedFailureCleans(
+                list, NarInstallError.ARCHIVE_READ_FAILED, 1);
+
+        FakeIo descriptor = validFakeIo();
+        descriptor.archive.descriptorReadFailureAt = 1;
+        assertStagedFailureCleans(
+                descriptor, NarInstallError.DESCRIPTOR_READ_FAILED, 1);
+
+        FakeIo canonical = validFakeIo();
+        canonical.canonicalFailure = true;
+        assertStagedFailureCleans(
+                canonical, NarInstallError.INSTALL_ROOT_INVALID, 1);
+
+        FakeIo race = validFakeIo();
+        race.changedSource = bytes("changed identity");
+        race.switchSourceAt = 2;
+        assertStagedFailureCleans(
+                race, NarInstallError.ARCHIVE_IDENTITY_MISMATCH, 1);
+    }
+
+    @Test
+    public void stagedVerificationFailuresConsumeAndCleanAuthority()
+            throws Exception {
+        FakeIo planIo = validFakeIo();
+        NarInstallPlan plan = new NarInstallPlanValidator(planIo)
+                .validate(
+                        new File("archive.nar"),
+                        new File("install-root"),
+                        null)
+                .getPlan();
+
+        FakeIo missing = validFakeIo();
+        NarInstallPlanValidator missingValidator =
+                new NarInstallPlanValidator(missing);
+        NarStagedSource missingSource =
+                stagedForTest(new File("missing-plan.nar"));
+        assertError(
+                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                missingValidator.verifyStaged(missingSource, null));
+        assertEquals(0, missing.archive.closeCount);
+        assertEquals(1, missing.deleteCount);
+        assertError(
+                NarInstallError.STAGED_SOURCE_INVALID,
+                missingValidator.verifyStaged(missingSource, plan));
+
+        FakeIo changedBytes = validFakeIo();
+        changedBytes.currentSource = bytes("changed identity");
+        changedBytes.sourceCloseFailure = true;
+        changedBytes.deleteFailure = true;
+        NarInstallPlanValidator bytesValidator =
+                new NarInstallPlanValidator(changedBytes);
+        NarStagedSource byteSource =
+                stagedForTest(new File("changed-bytes.nar"));
+        assertError(
+                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                bytesValidator.verifyStaged(byteSource, plan));
+        assertEquals(0, changedBytes.archive.closeCount);
+        assertEquals(1, changedBytes.deleteCount);
+        assertError(
+                NarInstallError.STAGED_SOURCE_INVALID,
+                bytesValidator.verifyStaged(byteSource, plan));
+
+        FakeIo central = validFakeIo();
+        central.archive.entries.get(0).crc++;
+        central.archive.closeFailure = true;
+        central.deleteFailure = true;
+        NarInstallPlanValidator centralValidator =
+                new NarInstallPlanValidator(central);
+        NarStagedSource centralSource =
+                stagedForTest(new File("changed-central.nar"));
+        assertError(
+                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                centralValidator.verifyStaged(centralSource, plan));
+        assertEquals(1, central.archive.closeCount);
+        assertEquals(1, central.deleteCount);
+        assertError(
+                NarInstallError.STAGED_SOURCE_INVALID,
+                centralValidator.verifyStaged(centralSource, plan));
+    }
+
+    @Test
+    public void cleanupPreservesPrimaryAndSessionCloseIsExplicit()
+            throws Exception {
+        FakeIo semantic = validFakeIo();
+        semantic.archive.entries.remove(1);
+        reindex(semantic.archive.entries);
+        semantic.archive.closeFailure = true;
+        semantic.deleteFailure = true;
+        assertStagedFailureCleans(
+                semantic,
+                NarInstallError.MISSING_INSTALL_DESCRIPTOR,
+                1);
+
+        FakeIo cleanup = validFakeIo();
+        cleanup.archive.closeFailure = true;
+        cleanup.deleteFailure = true;
+        NarInstallPlanResult result =
+                new NarInstallPlanValidator(cleanup).validateStaged(
+                        stagedForTest(new File("cleanup.nar")),
+                        new File("install-root"),
+                        null);
+        assertTrue(result.isSuccess());
+        try {
+            result.getVerifiedSession().close();
+            throw new AssertionError("cleanup failure was hidden");
+        } catch (IOException expected) {
+            // Expected.
+        }
+        assertEquals(1, cleanup.archive.closeCount);
+        assertEquals(1, cleanup.deleteCount);
+        result.getVerifiedSession().close();
+        assertEquals(1, cleanup.archive.closeCount);
+        assertEquals(1, cleanup.deleteCount);
+
+        FakeIo runtime = validFakeIo();
+        runtime.archive.runtimeCloseFailure = true;
+        NarInstallPlanResult runtimeResult =
+                new NarInstallPlanValidator(runtime).validateStaged(
+                        stagedForTest(new File("runtime.nar")),
+                        new File("install-root"),
+                        null);
+        try {
+            runtimeResult.getVerifiedSession().close();
+            throw new AssertionError("runtime close was hidden");
+        } catch (IOException expected) {
+            // Expected.
+        }
+        assertEquals(1, runtime.deleteCount);
+    }
+
     private static NarInstallPlanResult validate(FakeIo io) {
         return new NarInstallPlanValidator(io).validate(
                 new File("archive.nar"),
                 new File("install-root"),
                 null);
+    }
+
+    private static NarStagedSource stagedForTest(File file)
+            throws Exception {
+        Constructor<NarStagedSource> constructor =
+                NarStagedSource.class.getDeclaredConstructor(File.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(file);
+    }
+
+    private static byte[] readAll(InputStream input)
+            throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[32];
+        int count;
+        while ((count = input.read(buffer)) >= 0) {
+            if (count > 0) {
+                output.write(buffer, 0, count);
+            }
+        }
+        return output.toByteArray();
+    }
+
+    private static void assertSessionOpenRejected(
+            NarVerifiedInstallSession session,
+            NarInstallPlan.Entry entry) throws IOException {
+        try {
+            session.open(entry);
+            throw new AssertionError("unsafe entry accepted");
+        } catch (IllegalArgumentException expected) {
+            // Expected.
+        }
+    }
+
+    private static void assertStagedFailureCleans(
+            FakeIo io,
+            NarInstallError error,
+            int expectedCloseCount) throws Exception {
+        assertError(
+                error,
+                new NarInstallPlanValidator(io).validateStaged(
+                        stagedForTest(new File("failed-staged.nar")),
+                        new File("install-root"),
+                        null));
+        assertEquals(expectedCloseCount, io.archive.closeCount);
+        assertEquals(1, io.deleteCount);
     }
 
     private static void assertError(
@@ -682,6 +1007,7 @@ public final class NarInstallPlanValidatorTest {
         private boolean archiveOpenFailure;
         private boolean canonicalFailure;
         private boolean preflightFailure;
+        private boolean deleteFailure;
         private int switchSourceAt = -1;
         private int preflightCount = -1;
         private int sourceOpenCount;
@@ -691,6 +1017,9 @@ public final class NarInstallPlanValidatorTest {
         private int canonicalCount;
         private File canonicalArgument;
         private int preflightCalls;
+        private int deleteCount;
+        private final List<String> events =
+                new ArrayList<String>();
         private final File canonicalResult =
                 new File("canonical-sentinel").getAbsoluteFile();
 
@@ -698,6 +1027,7 @@ public final class NarInstallPlanValidatorTest {
             this.source = source;
             currentSource = source;
             this.archive = archive;
+            archive.owner = this;
             hintedLength = source.length;
         }
 
@@ -753,10 +1083,17 @@ public final class NarInstallPlanValidatorTest {
             }
             return canonicalResult;
         }
+
+        @Override public boolean delete(File file) {
+            deleteCount++;
+            events.add("delete");
+            return !deleteFailure;
+        }
     }
 
     private static final class FakeArchive
             implements NarInstallPlanValidator.OpenArchive {
+        private FakeIo owner;
         private final List<FakeEntry> entries;
         private byte[] descriptorBytes;
         private long virtualDescriptorLength = -1;
@@ -766,6 +1103,7 @@ public final class NarInstallPlanValidatorTest {
         private boolean zeroFirstDescriptorRead;
         private boolean listFailure;
         private boolean closeFailure;
+        private boolean runtimeCloseFailure;
         private int closeCount;
         private int descriptorCloseCount;
         private long descriptorBytesRead;
@@ -805,9 +1143,14 @@ public final class NarInstallPlanValidatorTest {
             if (descriptorOpenFailure) {
                 throw new IOException("descriptor open");
             }
+            byte[] content = "install.txt".equals(openedEntry.name)
+                    ? descriptorBytes
+                    : bytes("payload");
             return new ScriptedInputStream(
-                    descriptorBytes,
-                    virtualDescriptorLength,
+                    content,
+                    "install.txt".equals(openedEntry.name)
+                            ? virtualDescriptorLength
+                            : -1,
                     descriptorReadFailureAt,
                     zeroFirstDescriptorRead,
                     descriptorCloseFailure,
@@ -817,6 +1160,12 @@ public final class NarInstallPlanValidatorTest {
 
         @Override public void close() throws IOException {
             closeCount++;
+            if (owner != null) {
+                owner.events.add("archive-close");
+            }
+            if (runtimeCloseFailure) {
+                throw new IllegalStateException("zip close");
+            }
             if (closeFailure) {
                 throw new IOException("zip close");
             }
