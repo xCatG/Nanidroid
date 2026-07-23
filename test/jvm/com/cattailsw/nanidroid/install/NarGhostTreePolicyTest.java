@@ -16,6 +16,7 @@ import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import org.junit.Test;
 
@@ -261,6 +262,111 @@ public final class NarGhostTreePolicyTest {
 
         assertPureType(NarGhostTreePolicy.class);
         assertPureType(NarRelativePathPolicy.class);
+    }
+
+    @Test
+    public void hostileListsUseOneBoundedAuthoritativeSnapshot()
+            throws Exception {
+        final NarGhostTreePolicy.InputEntry unexpected =
+                directory("unexpected");
+        List<NarGhostTreePolicy.InputEntry> falseEmpty =
+                new AbstractList<NarGhostTreePolicy.InputEntry>() {
+                    @Override
+                    public NarGhostTreePolicy.InputEntry get(
+                            int index) {
+                        throw new IndexOutOfBoundsException();
+                    }
+
+                    @Override
+                    public int size() {
+                        return 0;
+                    }
+
+                    @Override
+                    public boolean isEmpty() {
+                        return true;
+                    }
+
+                    @Override
+                    public Iterator<NarGhostTreePolicy.InputEntry>
+                            iterator() {
+                        return Collections.singletonList(
+                                unexpected).iterator();
+                    }
+                };
+        assertError("STATE_INVALID", NarGhostTreePolicy.build(
+                "ghost", bytes(1), state("ABSENT"), falseEmpty));
+
+        final int[] consumed = new int[1];
+        final byte[] emptyDigest = digest("");
+        List<NarGhostTreePolicy.InputEntry> underreported =
+                new AbstractList<NarGhostTreePolicy.InputEntry>() {
+                    @Override
+                    public NarGhostTreePolicy.InputEntry get(
+                            int index) {
+                        throw new IndexOutOfBoundsException();
+                    }
+
+                    @Override
+                    public int size() {
+                        return 1;
+                    }
+
+                    @Override
+                    public Iterator<NarGhostTreePolicy.InputEntry>
+                            iterator() {
+                        return new Iterator<
+                                NarGhostTreePolicy.InputEntry>() {
+                            @Override
+                            public boolean hasNext() {
+                                return consumed[0] < 20000;
+                            }
+
+                            @Override
+                            public NarGhostTreePolicy.InputEntry next() {
+                                int index = consumed[0]++;
+                                return file(
+                                        String.format(
+                                                "f%05d", index),
+                                        0,
+                                        emptyDigest);
+                            }
+
+                            @Override
+                            public void remove() {
+                                throw new UnsupportedOperationException();
+                            }
+                        };
+                    }
+                };
+        assertError("ENTRY_COUNT_LIMIT", NarGhostTreePolicy.build(
+                "ghost",
+                bytes(1),
+                state("PRESENT"),
+                underreported));
+        assertEquals(10001, consumed[0]);
+
+        List<NarGhostTreePolicy.InputEntry> runtime =
+                new AbstractList<NarGhostTreePolicy.InputEntry>() {
+                    @Override
+                    public NarGhostTreePolicy.InputEntry get(
+                            int index) {
+                        throw new IndexOutOfBoundsException();
+                    }
+
+                    @Override
+                    public int size() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Iterator<NarGhostTreePolicy.InputEntry>
+                            iterator() {
+                        throw new SecurityException("iterator");
+                    }
+                };
+        assertError("ENTRY_INVALID", NarGhostTreePolicy.build(
+                "ghost", bytes(1), state("PRESENT"), runtime));
     }
 
     private static void assertPureType(Class<?> outer) {
