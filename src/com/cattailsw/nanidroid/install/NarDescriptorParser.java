@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Pure parser for a defensively snapshotted NAR install descriptor. */
 public final class NarDescriptorParser {
@@ -21,6 +23,11 @@ public final class NarDescriptorParser {
     private static final Charset UTF_8 = Charset.forName("UTF-8");
     private static final int MAX_DESCRIPTOR_BYTES = 64 * 1024;
     private static final int MAX_TARGET_BYTES = 255;
+    private static final Pattern COMPOUND_INSTALL_KEY = Pattern.compile(
+            "^(?:balloon|headline|plugin|calendar\\.skin|"
+                    + "calendar\\.plugin)\\d*\\."
+                    + "(directory|source\\.directory|refresh|"
+                    + "refreshundeletemask)$");
     private static final Set<String> UNSUPPORTED_TYPES = unsupportedTypes();
 
     public NarDescriptorResult parse(
@@ -35,7 +42,7 @@ public final class NarDescriptorParser {
                     NarInstallError.INSTALL_DESCRIPTOR_LIMIT,
                     "descriptor exceeds 64 KiB");
         }
-        byte[] snapshot = descriptor.clone();
+        byte[] snapshot = snapshot(descriptor);
         try {
             return NarDescriptorResult.success(
                     parseSnapshot(snapshot, forcedTargetId));
@@ -52,6 +59,7 @@ public final class NarDescriptorParser {
         String text = decode(bytes, encoding.offset, encoding.charset);
         Map<String, String> metadata = parseLines(text);
         metadata.put("charset", encoding.charset.name());
+        rejectCompoundInstall(metadata);
 
         if (!metadata.containsKey("type")) {
             reject(NarInstallError.MISSING_TYPE, "type is required");
@@ -101,6 +109,33 @@ public final class NarDescriptorParser {
                 targetId,
                 metadata.get("accept"),
                 metadata);
+    }
+
+    static byte[] snapshot(byte[] descriptor) {
+        return descriptor.clone();
+    }
+
+    private static void rejectCompoundInstall(Map<String, String> metadata)
+            throws Rejected {
+        boolean compoundInstall = false;
+        for (Map.Entry<String, String> entry : metadata.entrySet()) {
+            Matcher matcher = COMPOUND_INSTALL_KEY.matcher(entry.getKey());
+            if (!matcher.matches()) {
+                continue;
+            }
+            compoundInstall = true;
+            if ("refresh".equals(matcher.group(1))
+                    && "1".equals(entry.getValue())) {
+                reject(
+                        NarInstallError.UNSUPPORTED_REFRESH,
+                        entry.getKey());
+            }
+        }
+        if (compoundInstall) {
+            reject(
+                    NarInstallError.UNSUPPORTED_COMPOUND_INSTALL,
+                    "compound install directive");
+        }
     }
 
     private static Encoding selectEncoding(byte[] bytes) throws Rejected {
