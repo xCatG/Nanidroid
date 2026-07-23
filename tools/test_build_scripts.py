@@ -224,6 +224,30 @@ class BuildScriptContractTest(unittest.TestCase):
 
         self.assertIn("--exclude /.gradle/", build_script)
 
+    def test_legacy_apk_payload_matches_the_promoted_ndk_artifacts(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        build_script = (project_root / "docker" / "legacy" / "build.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'python3 "${BUILD_ROOT}/tools/verify_apk_native_payload.py"',
+            build_script,
+        )
+        self.assertIn(
+            '--candidate-root "${STAGE_NDK_NATIVE_ROOT}"',
+            build_script,
+        )
+        self.assertIn(
+            '--output "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json"',
+            build_script,
+        )
+        self.assertIn(
+            'mv "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json" '
+            '"${OUTPUT_ROOT}/Nanidroid-debug-native-payload.json"',
+            " ".join(build_script.split()),
+        )
+
     def test_gradle_build_relocates_the_project_cache(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         build_script = (project_root / "docker" / "gradle" / "build.sh").read_text(
