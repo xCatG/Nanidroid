@@ -1,0 +1,307 @@
+package com.cattailsw.nanidroid;
+
+import static org.junit.Assert.assertEquals;
+
+import android.content.Context;
+import android.test.mock.MockContext;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Hashtable;
+import java.util.List;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+/**
+ * Characterizes the deterministic SScriptRunner ghost-handoff protocol without
+ * filesystem discovery, Activity lifecycle, native engines, or view rebinding.
+ */
+public final class GhostSwitchingCharacterizationTest {
+    private static final String TRANSITION_SCRIPT = "\\_qSwitching\\e";
+
+    private final Trace trace = new Trace();
+    private SScriptRunner runner;
+    private RecordingGhost currentGhost;
+
+    @Before
+    public void setUp() throws Exception {
+        Context context = new MockContext();
+        runner = SScriptRunner.getInstance(context);
+        runner.setViews(
+                new InertSakuraView(context),
+                new InertKeroView(context),
+                new RecordingBalloon(context, trace),
+                new InertBalloon(context));
+        resetRunnerWithPublicApi();
+        trace.clear();
+    }
+
+    @After
+    public void tearDown() {
+        resetRunnerWithPublicApi();
+    }
+
+    @Test
+    public void requiredMigrationInvariant_outgoingScriptRendersBeforeSingleHandoffCallback() {
+        RecordingGhost outgoing = new RecordingGhost(
+                "outgoing",
+                "Old Sakura",
+                1,
+                TRANSITION_SCRIPT,
+                trace);
+        setGhost(outgoing);
+        runner.setCallback(new RecordingStatusCallback(trace));
+
+        runner.doGhostChanging("Next Sakura", "manual", "/ghosts/next");
+
+        assertEquals(
+                Arrays.asList(
+                        "request:outgoing:OnGhostChanging:"
+                                + "[Next Sakura, manual, null, /ghosts/next]",
+                        "render:Switching",
+                        "handoff"),
+                trace.events());
+    }
+
+    @Test
+    public void requiredMigrationInvariant_returningReplacementReceivesChangedFromOutgoingName() {
+        RecordingGhost outgoing = new RecordingGhost(
+                "outgoing",
+                "Old Sakura",
+                1,
+                null,
+                trace);
+        RecordingGhost replacement = new RecordingGhost(
+                "replacement",
+                "New Sakura",
+                2,
+                null,
+                trace);
+
+        setGhost(outgoing);
+        assertEquals(new ArrayList<String>(), trace.events());
+
+        setGhost(replacement);
+
+        assertEquals(
+                Arrays.asList(
+                        "request:replacement:OnGhostChanged:[Old Sakura, null]"),
+                trace.events());
+    }
+
+    private void setGhost(RecordingGhost ghost) {
+        currentGhost = ghost;
+        runner.setGhost(ghost);
+    }
+
+    private void resetRunnerWithPublicApi() {
+        runner.setNoWaitMode(true);
+
+        // Drain a failed in-flight transition while its callback and inert fake
+        // are still installed. This clears changingPending through stop().
+        runner.clearMsgQueue();
+
+        runner.setCallback(null);
+        runner.setUICallback(null);
+        runner.setLayoutMgr(null);
+
+        // setGhost(null) dereferences the replacement when the outgoing name is
+        // non-null. Suppressing the test fake's name takes the public silent
+        // assignment path and avoids coupling this characterization to fields.
+        if (currentGhost != null) {
+            currentGhost.suppressOutgoingName();
+        }
+        runner.setGhost(null);
+        currentGhost = null;
+    }
+
+    private static final class Trace {
+        private final List<String> events = new ArrayList<String>();
+
+        void add(String event) {
+            events.add(event);
+        }
+
+        void clear() {
+            events.clear();
+        }
+
+        List<String> events() {
+            return new ArrayList<String>(events);
+        }
+    }
+
+    private static final class RecordingStatusCallback
+            implements SScriptRunner.StatusCallback {
+        private final Trace trace;
+
+        RecordingStatusCallback(Trace trace) {
+            this.trace = trace;
+        }
+
+        @Override
+        public void stop() {
+            // Generic runner-stop notification is outside the handoff oracle.
+        }
+
+        @Override
+        public void canExit() {
+            // Exit handling is outside the handoff oracle.
+        }
+
+        @Override
+        public void ghostSwitchScriptComplete() {
+            trace.add("handoff");
+        }
+    }
+
+    private static final class RecordingGhost extends Ghost {
+        private final String id;
+        private String name;
+        private final long createCount;
+        private final String transitionScript;
+        private final Trace trace;
+
+        RecordingGhost(
+                String id,
+                String name,
+                long createCount,
+                String transitionScript,
+                Trace trace) {
+            super(id);
+            this.id = id;
+            this.name = name;
+            this.createCount = createCount;
+            this.transitionScript = transitionScript;
+            this.trace = trace;
+        }
+
+        @Override
+        protected void loadGhostInfo() {
+            // Test-only fake: no descriptors, surfaces, filesystem, or SHIORI engine.
+        }
+
+        @Override
+        protected void incrementCreateCount() {
+            // Test-only fake: create-count values are supplied explicitly.
+        }
+
+        @Override
+        public String getGhostId() {
+            return id;
+        }
+
+        @Override
+        public String getGhostName() {
+            return name;
+        }
+
+        void suppressOutgoingName() {
+            name = null;
+        }
+
+        @Override
+        public long getCreateCount() {
+            return createCount;
+        }
+
+        @Override
+        public String getSakuraName() {
+            return name;
+        }
+
+        @Override
+        public String getKeroName() {
+            return "Kero";
+        }
+
+        @Override
+        public String getUsername() {
+            return "User";
+        }
+
+        @Override
+        public ShioriResponse doShioriEvent(String event, String[] references) {
+            trace.add(
+                    "request:" + id + ":" + event + ":"
+                            + Arrays.toString(references));
+            if ("OnGhostChanging".equals(event) && transitionScript != null) {
+                Hashtable<String, String> values = new Hashtable<String, String>();
+                values.put("Value", transitionScript);
+                return new ShioriResponse("SHIORI/3.0 200 OK", values);
+            }
+            return new ShioriResponse("SHIORI/3.0 204 No Content");
+        }
+
+        @Override
+        public void unload() {
+            // Ownership and unload ordering are intentionally deferred.
+        }
+    }
+
+    private static class InertSakuraView extends SakuraView {
+        InertSakuraView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public void changeSurface(String id) {}
+
+        @Override
+        public void loadAnimation(String id) {}
+
+        @Override
+        public void startAnimation() {}
+
+        @Override
+        public void startTalkingAnimation() {}
+    }
+
+    private static final class InertKeroView extends KeroView {
+        InertKeroView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public void changeSurface(String id) {}
+
+        @Override
+        public void loadAnimation(String id) {}
+
+        @Override
+        public void startAnimation() {}
+
+        @Override
+        public void startTalkingAnimation() {}
+    }
+
+    private static class InertBalloon extends Balloon {
+        InertBalloon(Context context) {
+            super(context);
+        }
+
+        @Override
+        public void setText(String value) {}
+
+        @Override
+        public void setVisibility(int visibility) {}
+    }
+
+    private static final class RecordingBalloon extends InertBalloon {
+        private final Trace trace;
+
+        RecordingBalloon(Context context, Trace trace) {
+            super(context);
+            this.trace = trace;
+        }
+
+        @Override
+        public void setText(String value) {
+            if (value.length() > 0) {
+                trace.add("render:" + value);
+            }
+        }
+    }
+}
