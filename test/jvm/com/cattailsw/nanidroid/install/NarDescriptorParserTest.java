@@ -242,6 +242,43 @@ public final class NarDescriptorParserTest {
     }
 
     @Test
+    public void coreValidationAndExactRefreshPrecedeGenericCompoundRejection() {
+        String compound = "balloon.directory,balloon\n";
+        assertError(
+                NarInstallError.MISSING_TYPE,
+                parse("name,G\ndirectory,g\n" + compound));
+        assertError(
+                NarInstallError.INVALID_TYPE,
+                parse("type, \nname,G\ndirectory,g\n" + compound));
+        assertError(
+                NarInstallError.UNSUPPORTED_TYPE,
+                parse("type,shell\nname,G\ndirectory,g\n" + compound));
+        assertError(
+                NarInstallError.MISSING_METADATA,
+                parse("type,ghost\ndirectory,g\n" + compound));
+        assertError(
+                NarInstallError.INVALID_TARGET_ID,
+                parse(descriptor("../unsafe", "G") + compound));
+        assertError(
+                NarInstallError.INVALID_METADATA,
+                parse(descriptor("g", "G") + compound + "Name,Again\n"));
+
+        assertError(
+                NarInstallError.UNSUPPORTED_REFRESH,
+                parse(descriptor("g", "G")
+                        + "refresh,1\n"
+                        + compound));
+        assertError(
+                NarInstallError.UNSUPPORTED_REFRESH,
+                parse(descriptor("g", "G")
+                        + compound
+                        + "plugin0.refresh,1\n"));
+        assertError(
+                NarInstallError.UNSUPPORTED_COMPOUND_INSTALL,
+                parse(descriptor("g", "G") + compound));
+    }
+
+    @Test
     public void forcedIdOverridesOnlyAfterDescriptorDirectoryIsValidated() {
         NarDescriptorResult forced = parseBytes(
                 descriptor("descriptor-id", "G").getBytes(SHIFT_JIS),
