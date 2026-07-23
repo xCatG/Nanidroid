@@ -19,6 +19,25 @@ class BuildScriptContractTest(unittest.TestCase):
 
         self.assertIn('--project-cache-dir "${PROJECT_CACHE_ROOT}"', build_script)
 
+    def test_emulator_lane_is_opt_in_and_uses_separate_artifact_roots(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        native_script = (
+            project_root / "docker" / "emulator" / "build-native.sh"
+        ).read_text(encoding="utf-8")
+        apk_script = (
+            project_root / "docker" / "emulator" / "build.sh"
+        ).read_text(encoding="utf-8")
+        gradle_build = (project_root / "build.gradle.kts").read_text(encoding="utf-8")
+
+        self.assertIn('OUTPUT_ROOT="${OUTPUT_ROOT:-/out}"', native_script)
+        self.assertIn('CMAKE_BUILD_ROOT="${BUILD_ROOT}/cmake-arm64-build"', native_script)
+        self.assertIn("-DANDROID_ABI=arm64-v8a", native_script)
+        self.assertIn("-DANDROID_PLATFORM=android-21", native_script)
+        self.assertIn("-DANDROID_STL=gnustl_static", native_script)
+        self.assertIn("assembleEmulator", apk_script)
+        self.assertIn('create("emulator")', gradle_build)
+        self.assertIn('dir("artifacts/emulator/native")', gradle_build)
+
     def test_characterization_sources_are_the_exact_expected_set(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         expected = {
