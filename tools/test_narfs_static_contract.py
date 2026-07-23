@@ -8,7 +8,7 @@ import json
 import subprocess
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 import inspect_narfs_static as static
@@ -212,7 +212,7 @@ class NarfsStaticContractTest(unittest.TestCase):
             def audit(commands):
                 evidence.write_text(json.dumps([{"command": value} for value in commands]))
                 return inspect(evidence, "cmake", "armeabi", "android-9")
-            self.assertEqual(2, len(audit(base)["sources"]))
+            with mock.patch.object(static, "Path", PureWindowsPath): self.assertEqual(2, len(audit(base)["sources"]))
             mutations = (
                 base + [base[0].replace("narfs_core.c", "extra.c")],
                 [base[0] + " -Wno-error", base[1]],
