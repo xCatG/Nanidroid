@@ -43,7 +43,11 @@ public final class NarInstallPlanValidator {
             IdentityRead before = readIdentity(archive);
             requireCleanClose(before);
             NarInstallPlan plan = planArchive(
-                    archive, installRoot, forcedId, before.identity);
+                    archive,
+                    installRoot,
+                    forcedId,
+                    before.identity,
+                    false).plan;
             IdentityRead after = readIdentity(archive);
             requireSameIdentity(before.identity, after.identity);
             requireCleanClose(after);
@@ -67,13 +71,107 @@ public final class NarInstallPlanValidator {
             IdentityRead before = readIdentity(archive);
             requirePlanIdentity(plan, before.identity);
             requireCleanClose(before);
-            verifyCentral(archive, plan);
+            verifyCentral(archive, plan, false);
             IdentityRead after = readIdentity(archive);
             requirePlanIdentity(plan, after.identity);
             requireCleanClose(after);
             return NarInstallPlanResult.success(plan);
         } catch (Failure failure) {
             return result(failure);
+        }
+    }
+
+    NarInstallPlanResult validateStaged(
+            NarStagedSource staged,
+            File installRoot,
+            String forcedId) {
+        File archive = staged == null ? null : staged.claim();
+        if (archive == null) {
+            return NarInstallPlanResult.failure(
+                    NarInstallError.STAGED_SOURCE_INVALID,
+                    "staged source already claimed");
+        }
+        RetainedArchive retained = null;
+        boolean transferred = false;
+        try {
+            validateArguments(archive, installRoot);
+            IdentityRead before = readIdentity(archive);
+            requireCleanClose(before);
+            retained = planArchive(
+                    archive,
+                    installRoot,
+                    forcedId,
+                    before.identity,
+                    true);
+            IdentityRead after = readIdentity(archive);
+            requireSameIdentity(before.identity, after.identity);
+            requireCleanClose(after);
+            NarVerifiedInstallSession session =
+                    new NarVerifiedInstallSession(
+                            io,
+                            archive,
+                            retained.archive,
+                            retained.entries,
+                            retained.plan);
+            NarInstallPlanResult success =
+                    NarInstallPlanResult.stagedSuccess(
+                            retained.plan, session);
+            transferred = true;
+            return success;
+        } catch (Failure failure) {
+            return result(failure);
+        } catch (RuntimeException error) {
+            return result(archiveRead("staged validation"));
+        } finally {
+            if (!transferred) {
+                cleanup(retained, archive);
+            }
+        }
+    }
+
+    NarInstallPlanResult verifyStaged(
+            NarStagedSource staged, NarInstallPlan plan) {
+        File archive = staged == null ? null : staged.claim();
+        if (archive == null) {
+            return NarInstallPlanResult.failure(
+                    NarInstallError.STAGED_SOURCE_INVALID,
+                    "staged source already claimed");
+        }
+        RetainedArchive retained = null;
+        boolean transferred = false;
+        try {
+            if (plan == null) {
+                fail(
+                        NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                        "missing plan");
+            }
+            IdentityRead before = readIdentity(archive);
+            requirePlanIdentity(plan, before.identity);
+            requireCleanClose(before);
+            retained = verifyCentral(archive, plan, true);
+            IdentityRead after = readIdentity(archive);
+            requirePlanIdentity(plan, after.identity);
+            requireCleanClose(after);
+            NarVerifiedInstallSession session =
+                    new NarVerifiedInstallSession(
+                            io,
+                            archive,
+                            retained.archive,
+                            retained.entries,
+                            plan);
+            NarInstallPlanResult success =
+                    NarInstallPlanResult.stagedSuccess(
+                            plan, session);
+            transferred = true;
+            return success;
+        } catch (Failure failure) {
+            return result(failure);
+        } catch (RuntimeException error) {
+            return result(archiveRead("staged verification"));
+        } finally {
+            if (!transferred) {
+                cleanup(retained, archive);
+            }
         }
     }
 
@@ -94,19 +192,20 @@ public final class NarInstallPlanValidator {
         }
     }
 
-    private NarInstallPlan planArchive(
+    private RetainedArchive planArchive(
             File archive,
             File installRoot,
             String forcedId,
-            SourceIdentity identity) throws Failure {
+            SourceIdentity identity,
+            boolean retain) throws Failure {
         int preflightCount = inspectBeforeZip(archive);
         OpenArchive zip = null;
+        List<? extends ArchiveEntry> entries = null;
         NarInstallPlan plan = null;
         Failure failure = null;
         try {
             zip = io.openArchive(archive);
-            List<? extends ArchiveEntry> entries =
-                    zip.entries(ENTRY_LIMIT_PLUS_ONE);
+            entries = zip.entries(ENTRY_LIMIT_PLUS_ONE);
             failure = validateEnumeration(preflightCount, entries);
             if (failure == null) {
                 NarArchiveInventoryResult inventoryResult =
@@ -151,23 +250,30 @@ public final class NarInstallPlanValidator {
         } catch (RuntimeException error) {
             failure = archiveRead("archive runtime");
         } finally {
-            failure = closeArchive(zip, failure);
+            if (!retain || failure != null) {
+                failure = closeArchive(zip, failure);
+            }
         }
         if (failure != null) {
             throw failure;
         }
-        return plan;
+        return new RetainedArchive(
+                plan,
+                retain ? zip : null,
+                retain ? entries : null);
     }
 
-    private void verifyCentral(
-            File archive, NarInstallPlan plan) throws Failure {
+    private RetainedArchive verifyCentral(
+            File archive,
+            NarInstallPlan plan,
+            boolean retain) throws Failure {
         int preflightCount = inspectBeforeZip(archive);
         OpenArchive zip = null;
+        List<? extends ArchiveEntry> actual = null;
         Failure failure = null;
         try {
             zip = io.openArchive(archive);
-            List<? extends ArchiveEntry> actual =
-                    zip.entries(ENTRY_LIMIT_PLUS_ONE);
+            actual = zip.entries(ENTRY_LIMIT_PLUS_ONE);
             failure = validateEnumeration(preflightCount, actual);
             if (failure == null) {
                 List<NarInstallPlan.Entry> expected =
@@ -192,11 +298,17 @@ public final class NarInstallPlanValidator {
         } catch (RuntimeException error) {
             failure = archiveRead("central metadata");
         } finally {
-            failure = closeArchive(zip, failure);
+            if (!retain || failure != null) {
+                failure = closeArchive(zip, failure);
+            }
         }
         if (failure != null) {
             throw failure;
         }
+        return new RetainedArchive(
+                plan,
+                retain ? zip : null,
+                retain ? actual : null);
     }
 
     private NarInstallPlan buildPlan(
@@ -457,6 +569,18 @@ public final class NarInstallPlanValidator {
         return failure;
     }
 
+    private void cleanup(
+            RetainedArchive retained, File stagedFile) {
+        if (retained != null) {
+            closeArchive(retained.archive, null);
+        }
+        try {
+            io.delete(stagedFile);
+        } catch (RuntimeException ignored) {
+            // The primary staged failure remains authoritative.
+        }
+    }
+
     private static Failure archiveRead(String detail) {
         return new Failure(
                 NarInstallError.ARCHIVE_READ_FAILED, detail);
@@ -479,6 +603,7 @@ public final class NarInstallPlanValidator {
         int preflight(File file) throws IOException;
         OpenArchive openArchive(File file) throws IOException;
         File canonical(File file) throws IOException;
+        boolean delete(File file);
     }
 
     interface OpenArchive {
@@ -515,6 +640,10 @@ public final class NarInstallPlanValidator {
         @Override public File canonical(File file)
                 throws IOException {
             return file.getCanonicalFile();
+        }
+
+        @Override public boolean delete(File file) {
+            return file.delete();
         }
     }
 
@@ -584,6 +713,21 @@ public final class NarInstallPlanValidator {
         }
         @Override public long getCompressedSize() {
             return entry.getCompressedSize();
+        }
+    }
+
+    private static final class RetainedArchive {
+        private final NarInstallPlan plan;
+        private final OpenArchive archive;
+        private final List<? extends ArchiveEntry> entries;
+
+        private RetainedArchive(
+                NarInstallPlan plan,
+                OpenArchive archive,
+                List<? extends ArchiveEntry> entries) {
+            this.plan = plan;
+            this.archive = archive;
+            this.entries = entries;
         }
     }
 
