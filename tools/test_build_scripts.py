@@ -4,6 +4,49 @@ import subprocess
 import unittest
 
 
+_JAVA_NON_CODE = re.compile(
+    r"""//[^\r\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""",
+    re.DOTALL,
+)
+
+
+def _sanitize_java_source(source):
+    def blank_non_code(match):
+        return "".join(
+            character if character in "\r\n" else " " for character in match.group(0)
+        )
+
+    return _JAVA_NON_CODE.sub(blank_non_code, source)
+
+
+def _java_method_body(source, declaration_pattern):
+    sanitized = _sanitize_java_source(source)
+    declarations = list(re.finditer(declaration_pattern, sanitized))
+    if len(declarations) != 1:
+        raise AssertionError(
+            f"expected exactly one Java method matching {declaration_pattern!r}; "
+            f"found {len(declarations)}"
+        )
+
+    opening_brace = sanitized.find(
+        "{", declarations[0].start(), declarations[0].end()
+    )
+    depth = 0
+    for index in range(opening_brace, len(sanitized)):
+        if sanitized[index] == "{":
+            depth += 1
+        elif sanitized[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return sanitized[opening_brace + 1 : index]
+
+    raise AssertionError(f"unterminated Java method matching {declaration_pattern!r}")
+
+
+def _compact_java(source):
+    return " ".join(source.split())
+
+
 class BuildScriptContractTest(unittest.TestCase):
     def test_disposable_copy_excludes_gradle_working_state(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
@@ -133,17 +176,79 @@ class BuildScriptContractTest(unittest.TestCase):
 
         self.assertEqual(expected, actual)
 
-    def test_active_nanidroid_view_server_calls_use_the_compatibility_boundary(self):
+    def test_active_nanidroid_lifecycle_methods_use_exact_compatibility_calls(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         nanidroid = (
             project_root / "src" / "com" / "cattailsw" / "nanidroid" / "Nanidroid.java"
         ).read_text(encoding="utf-8")
-        active_source = re.sub(r"/\*.*?\*/", "", nanidroid, flags=re.DOTALL)
+        sanitized = _sanitize_java_source(nanidroid)
 
-        self.assertNotIn("ViewServer.get(", active_source)
-        self.assertEqual(1, active_source.count("ViewServerLifecycle.onActivityCreated(this);"))
-        self.assertEqual(1, active_source.count("ViewServerLifecycle.onActivityResumed(this);"))
-        self.assertEqual(1, active_source.count("ViewServerLifecycle.onActivityDestroyed(this);"))
+        self.assertNotIn("ViewServer.get(", sanitized)
+
+        lifecycle_calls = (
+            (
+                r"\bpublic\s+void\s+onCreate\s*\(\s*Bundle\s+savedInstanceState\s*\)\s*\{",
+                "ViewServerLifecycle.onActivityCreated(this);",
+            ),
+            (
+                r"\bpublic\s+void\s+onResume\s*\(\s*\)\s*\{",
+                "ViewServerLifecycle.onActivityResumed(this);",
+            ),
+            (
+                r"\bpublic\s+void\s+onDestroy\s*\(\s*\)\s*\{",
+                "ViewServerLifecycle.onActivityDestroyed(this);",
+            ),
+        )
+        for declaration, expected_call in lifecycle_calls:
+            body = _java_method_body(nanidroid, declaration)
+            self.assertEqual(1, body.count(expected_call))
+
+    def test_production_view_server_facade_wiring_has_exact_backend_mapping(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        lifecycle = (
+            project_root
+            / "src"
+            / "com"
+            / "cattailsw"
+            / "nanidroid"
+            / "ViewServerLifecycle.java"
+        ).read_text(encoding="utf-8")
+
+        wrapper_mappings = (
+            (
+                "onActivityCreated",
+                "onActivityCreated(Build.VERSION.SDK_INT, activity, LEGACY_BACKEND);",
+            ),
+            (
+                "onActivityResumed",
+                "onActivityResumed(Build.VERSION.SDK_INT, activity, LEGACY_BACKEND);",
+            ),
+            (
+                "onActivityDestroyed",
+                "onActivityDestroyed(Build.VERSION.SDK_INT, activity, LEGACY_BACKEND);",
+            ),
+        )
+        for method, expected_body in wrapper_mappings:
+            body = _java_method_body(
+                lifecycle,
+                rf"\bstatic\s+void\s+{method}\s*\(\s*Activity\s+activity\s*\)\s*\{{",
+            )
+            self.assertEqual(expected_body, _compact_java(body))
+
+        backend_mappings = (
+            ("addWindow", "ViewServer.get(activity).addWindow(activity);"),
+            (
+                "setFocusedWindow",
+                "ViewServer.get(activity).setFocusedWindow(activity);",
+            ),
+            ("removeWindow", "ViewServer.get(activity).removeWindow(activity);"),
+        )
+        for method, expected_body in backend_mappings:
+            body = _java_method_body(
+                lifecycle,
+                rf"\bpublic\s+void\s+{method}\s*\(\s*Activity\s+activity\s*\)\s*\{{",
+            )
+            self.assertEqual(expected_body, _compact_java(body))
 
     def test_default_return_stub_guard_wires_every_app_unit_test_task(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

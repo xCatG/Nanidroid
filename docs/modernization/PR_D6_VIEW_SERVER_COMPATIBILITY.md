@@ -58,15 +58,20 @@ The three tests specify:
 During review hardening, the active-call-site contract was run against a
 temporary direct `ViewServer.get(...).setFocusedWindow(...)` resume mutant. It
 failed on the forbidden active call, then passed after facade routing was
-restored. The mutant was not committed.
+restored. A second review pass added a comment/string-aware Java sanitizer and
+brace-balanced method-body extraction. The hardened contracts separately
+rejected a resume wrapper delegated to destroy, a focus backend mapped to
+remove, and a resume call moved into `onPause` while its expected text remained
+in both a line comment and string literal in `onResume`. The mutants were not
+committed.
 
 ### GREEN
 
 The focused compatibility suite passed 3/3. The complete D1–D6 JVM suite
 passed 29/29 across five suites, without failures, errors, or skips.
 
-The complete Python tooling suite passed 53/53. Repository hygiene passed with
-384 tracked files and seven inventoried opaque artifacts. The standard Gradle
+The complete Python tooling suite passed 54/54. Repository hygiene passed with
+385 tracked files and seven inventoried opaque artifacts. The standard Gradle
 pipeline produced a signed/aligned 2,046,006-byte APK with SHA-256
 `666bd9fa126d5140f8379cedefcbc71aa9126fea41ba5d6eb76dc0a85f8cff01`.
 That whole-APK digest is run provenance, not a reproducibility invariant,
