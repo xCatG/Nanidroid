@@ -11,6 +11,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -293,6 +295,57 @@ public final class NarStagedSourceCopyTest {
     }
 
     @Test
+    public void randomNameInitializationIsLazyAndTyped()
+            throws Exception {
+        Class<?> implementation = Class.forName(
+                NarStagedSource.class.getName()
+                        + "$RandomNameSource");
+        Constructor<?> constructor =
+                implementation.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Object source = constructor.newInstance();
+        Field random = implementation.getDeclaredField("random");
+        random.setAccessible(true);
+        assertNull(random.get(source));
+
+        FakeIo io = new FakeIo();
+        NarStagedSourceCopyResult result = NarStagedSource.copy(
+                new File("external.nar"),
+                io.root,
+                io,
+                new NarStagedSource.NameSource() {
+                    @Override
+                    public String nextName() {
+                        throw new SecurityException(
+                                "provider initialization");
+                    }
+                });
+        assertEquals(
+                NarStagedSourceCopyError.STAGING_NAME_INVALID,
+                result.getError());
+        assertEquals(0, io.createCount);
+        assertEquals(0, io.deleteCount);
+    }
+
+    @Test
+    public void zeroBulkRejectsInvalidSingleByteBounds()
+            throws Exception {
+        for (int invalid : new int[] {-2, 256}) {
+            FakeIo io = new FakeIo();
+            io.zeroFirstRead = true;
+            io.singleReadOverride = invalid;
+            NarStagedSourceCopyResult result = copy(io);
+
+            assertEquals(
+                    NarStagedSourceCopyError.SOURCE_READ_FAILED,
+                    result.getError());
+            assertEquals(0, io.sourceBytesRead);
+            assertEquals(0, io.targetBytesWritten);
+            assertEquals(1, io.deleteCount);
+        }
+    }
+
+    @Test
     public void apiExposesOnlyOpaqueTokenAndExistingClaimHandoff()
             throws Exception {
         Method claim = NarStagedSource.class.getDeclaredMethod("claim");
@@ -446,6 +499,7 @@ public final class NarStagedSourceCopyTest {
         private boolean deleteFailure;
         private boolean deleteRuntime;
         private boolean zeroFirstRead;
+        private Integer singleReadOverride;
         private long virtualSourceLength;
         private long sourceBytesRead;
         private long targetBytesWritten;
@@ -528,6 +582,9 @@ public final class NarStagedSourceCopyTest {
                 public int read() throws IOException {
                     if (readFailure) {
                         throw new IOException("read");
+                    }
+                    if (singleReadOverride != null) {
+                        return singleReadOverride;
                     }
                     if (remaining == 0) {
                         return -1;
