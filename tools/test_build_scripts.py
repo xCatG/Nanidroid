@@ -144,6 +144,23 @@ class BuildScriptContractTest(unittest.TestCase):
             'cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk"',
             build_script,
         )
+        cleanup = (
+            'rm -f "${TEST_APK}" '
+            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk" '
+            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"'
+        )
+        self.assertIn(cleanup, " ".join(build_script.split()))
+        self.assertLess(build_script.index('rm -f "${TEST_APK}"'), build_script.index("./gradlew"))
+        self.assertLess(
+            build_script.index("./gradlew"),
+            build_script.index("python3 tools/inspect_android_test_apk.py"),
+        )
+        self.assertLess(
+            build_script.index("python3 tools/inspect_android_test_apk.py"),
+            build_script.index(
+                'cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk"'
+            ),
+        )
 
     def test_disposable_copy_excludes_gradle_working_state(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

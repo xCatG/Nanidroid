@@ -65,6 +65,31 @@ class ParseMetadataTest(unittest.TestCase):
             parse_manifest_tree(EXPECTED_MANIFEST_TREE),
         )
 
+    def test_rejects_zero_or_multiple_instrumentation_declarations(self) -> None:
+        without_instrumentation = EXPECTED_MANIFEST_TREE.replace(
+            """\
+    E: instrumentation (line=5)
+      A: android:name(0x01010003)="android.test.InstrumentationTestRunner" (Raw: "android.test.InstrumentationTestRunner")
+      A: android:targetPackage(0x01010021)="com.cattailsw.nanidroid" (Raw: "com.cattailsw.nanidroid")
+""",
+            "",
+        )
+        duplicate_instrumentation = EXPECTED_MANIFEST_TREE.replace(
+            "    E: application (line=9)",
+            """\
+    E: instrumentation (line=8)
+      A: android:name(0x01010003)="example.SecondRunner" (Raw: "example.SecondRunner")
+      A: android:targetPackage(0x01010021)="example.second" (Raw: "example.second")
+    E: application (line=9)""",
+        )
+
+        for manifest_tree in (without_instrumentation, duplicate_instrumentation):
+            with self.subTest(manifest_tree=manifest_tree):
+                with self.assertRaisesRegex(
+                    ArtifactError, "exactly one instrumentation"
+                ):
+                    parse_manifest_tree(manifest_tree)
+
 
 class InspectApkTest(unittest.TestCase):
     def setUp(self) -> None:
