@@ -153,6 +153,15 @@ public final class NarInstallPlanValidatorTest {
         assertError(
                 NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
                 fakeValidator.verify(new File("archive.nar"), fakePlan));
+
+        io.archive.closeFailure = true;
+        assertError(
+                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                fakeValidator.verify(new File("archive.nar"), fakePlan));
+        io.archive.entries.get(1).crc = 0;
+        assertError(
+                NarInstallError.ARCHIVE_READ_FAILED,
+                fakeValidator.verify(new File("archive.nar"), fakePlan));
     }
 
     @Test
@@ -248,6 +257,14 @@ public final class NarInstallPlanValidatorTest {
                 exact.archive.entries.get(0), exact.archive.openedEntry);
         assertEquals(1, exact.archive.descriptorCloseCount);
 
+        FakeIo openFailure = validFakeIo();
+        openFailure.archive.descriptorOpenFailure = true;
+        assertError(
+                NarInstallError.DESCRIPTOR_READ_FAILED,
+                validate(openFailure));
+        assertEquals(1, openFailure.archive.closeCount);
+        assertEquals(0, openFailure.archive.descriptorCloseCount);
+
         FakeIo readFailure = validFakeIo();
         readFailure.archive.descriptorReadFailureAt = 1;
         assertError(
@@ -275,6 +292,25 @@ public final class NarInstallPlanValidatorTest {
         assertError(
                 NarInstallError.INSTALL_DESCRIPTOR_LIMIT,
                 validate(overflowAndClose));
+    }
+
+    @Test
+    public void mapsInstallRootCanonicalizationToSpecificPlanningError()
+            throws Exception {
+        FakeIo canonicalFailure = validFakeIo();
+        canonicalFailure.canonicalFailure = true;
+        File absentTarget = new File(
+                "missing-root-" + System.nanoTime(),
+                "ghost-id");
+
+        assertError(
+                NarInstallError.INSTALL_ROOT_INVALID,
+                new NarInstallPlanValidator(canonicalFailure).validate(
+                        new File("archive.nar"),
+                        absentTarget.getParentFile(),
+                        null));
+        assertFalse(absentTarget.exists());
+        assertEquals(1, canonicalFailure.archive.closeCount);
     }
 
     private static NarInstallPlanResult validate(FakeIo io) {
@@ -375,6 +411,7 @@ public final class NarInstallPlanValidatorTest {
         private boolean zeroFirstSourceRead;
         private boolean sourceCloseFailure;
         private boolean archiveOpenFailure;
+        private boolean canonicalFailure;
         private int sourceOpenCount;
         private int sourceCloseCount;
         private int sourceSingleReadCount;
@@ -412,6 +449,9 @@ public final class NarInstallPlanValidatorTest {
         }
 
         @Override public File canonical(File file) throws IOException {
+            if (canonicalFailure) {
+                throw new IOException("canonical");
+            }
             return file.getAbsoluteFile();
         }
     }
@@ -423,6 +463,7 @@ public final class NarInstallPlanValidatorTest {
         private long virtualDescriptorLength = -1;
         private int descriptorReadFailureAt = -1;
         private boolean descriptorCloseFailure;
+        private boolean descriptorOpenFailure;
         private boolean listFailure;
         private boolean closeFailure;
         private int closeCount;
@@ -448,6 +489,9 @@ public final class NarInstallPlanValidatorTest {
                 NarInstallPlanValidator.ArchiveEntry entry)
                 throws IOException {
             openedEntry = (FakeEntry) entry;
+            if (descriptorOpenFailure) {
+                throw new IOException("descriptor open");
+            }
             return new ScriptedInputStream(
                     descriptorBytes,
                     virtualDescriptorLength,
