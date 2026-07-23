@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -69,21 +70,29 @@ final class NarGhostTreePolicy {
             return Result.failure(
                     Error.STATE_INVALID, "baseline state");
         }
+        List<InputEntry> snapshot =
+                new ArrayList<InputEntry>(MAX_ENTRIES);
+        Iterator<InputEntry> iterator =
+                suppliedEntries.iterator();
+        while (iterator.hasNext()) {
+            InputEntry entry = iterator.next();
+            if (snapshot.size() == MAX_ENTRIES) {
+                return Result.failure(
+                        Error.ENTRY_COUNT_LIMIT, "entry count");
+            }
+            snapshot.add(entry);
+        }
         if (state == State.ABSENT
-                && !suppliedEntries.isEmpty()) {
+                && !snapshot.isEmpty()) {
             return Result.failure(
                     Error.STATE_INVALID,
                     "absent baseline has entries");
-        }
-        if (suppliedEntries.size() > MAX_ENTRIES) {
-            return Result.failure(
-                    Error.ENTRY_COUNT_LIMIT, "entry count");
         }
 
         List<Entry> entries = new ArrayList<Entry>();
         Map<String, Entry> byKey = new HashMap<String, Entry>();
         long total = 0;
-        for (InputEntry supplied : suppliedEntries) {
+        for (InputEntry supplied : snapshot) {
             if (supplied == null || supplied.type == null) {
                 return Result.failure(
                         Error.ENTRY_INVALID, "null entry");
