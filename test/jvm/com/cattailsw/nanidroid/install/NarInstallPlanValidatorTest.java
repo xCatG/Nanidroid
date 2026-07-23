@@ -13,6 +13,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -241,7 +243,8 @@ public final class NarInstallPlanValidatorTest {
         exact.hintedLength = 0;
         exact.virtualSourceLength = MAX_ARCHIVE_BYTES;
         assertTrue(validate(exact).isSuccess());
-        assertEquals(MAX_ARCHIVE_BYTES, exact.sourceBytesRead);
+        assertEquals(
+                2 * MAX_ARCHIVE_BYTES, exact.sourceBytesRead);
     }
 
     @Test
@@ -254,7 +257,7 @@ public final class NarInstallPlanValidatorTest {
         assertArrayEquals(
                 sha256(zero.source),
                 zeroResult.getPlan().getSourceSha256());
-        assertEquals(1, zero.sourceCloseCount);
+        assertEquals(2, zero.sourceCloseCount);
 
         FakeIo openFailure = validFakeIo();
         openFailure.sourceOpenFailure = true;
@@ -428,6 +431,114 @@ public final class NarInstallPlanValidatorTest {
         assertEquals(1, canonicalFailure.archive.closeCount);
     }
 
+    @Test
+    public void publicSurfaceReturnsDiagnosticPlansOnly()
+            throws Exception {
+        int publicMethods = 0;
+        for (Method method
+                : NarInstallPlanValidator.class.getDeclaredMethods()) {
+            if (Modifier.isPublic(method.getModifiers())) {
+                publicMethods++;
+                assertTrue(
+                        "validate".equals(method.getName())
+                                || "verify".equals(method.getName()));
+                assertEquals(
+                        NarInstallPlanResult.class,
+                        method.getReturnType());
+            }
+        }
+        assertEquals(2, publicMethods);
+        for (Method method
+                : NarInstallPlanResult.class.getDeclaredMethods()) {
+            assertFalse(
+                    method.getName().toLowerCase().contains("session"));
+            assertFalse(InputStream.class.isAssignableFrom(
+                    method.getReturnType()));
+        }
+    }
+
+    @Test
+    public void preflightsAndCapsEnumerationBeforeZipUse()
+            throws Exception {
+        FakeIo declaredOverflow = validFakeIo();
+        declaredOverflow.preflightCount = 10001;
+        assertError(
+                NarInstallError.ENTRY_COUNT_LIMIT,
+                validate(declaredOverflow));
+        assertEquals(0, declaredOverflow.archiveOpenCount);
+
+        FakeIo enumeratedOverflow = validFakeIo();
+        enumeratedOverflow.archive.virtualEntryCount = 10001;
+        assertError(
+                NarInstallError.ENTRY_COUNT_LIMIT,
+                validate(enumeratedOverflow));
+        assertEquals(10001, enumeratedOverflow.archive.entriesLimit);
+
+        FakeIo countMismatch = validFakeIo();
+        countMismatch.preflightCount = 1;
+        assertError(
+                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                validate(countMismatch));
+        assertEquals(1, countMismatch.archiveOpenCount);
+
+        FakeIo preflightFailure = validFakeIo();
+        preflightFailure.preflightFailure = true;
+        assertError(
+                NarInstallError.ARCHIVE_READ_FAILED,
+                validate(preflightFailure));
+        assertEquals(0, preflightFailure.archiveOpenCount);
+
+        FakeIo verified = validFakeIo();
+        NarInstallPlanValidator validator =
+                new NarInstallPlanValidator(verified);
+        NarInstallPlan plan = validator.validate(
+                new File("archive.nar"),
+                new File("install-root"),
+                null).getPlan();
+        assertTrue(validator.verify(
+                new File("archive.nar"), plan).isSuccess());
+        assertEquals(2, verified.preflightCalls);
+        assertEquals(10001, verified.archive.entriesLimit);
+    }
+
+    @Test
+    public void doubleIdentityRejectsRacesAndMismatchBeatsClose()
+            throws Exception {
+        FakeIo race = validFakeIo();
+        race.changedSource = bytes("changed identity");
+        race.switchSourceAt = 2;
+        assertError(
+                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                validate(race));
+        assertEquals(1, race.archive.closeCount);
+
+        FakeIo changedAndClose = validFakeIo();
+        NarInstallPlanValidator validator =
+                new NarInstallPlanValidator(changedAndClose);
+        NarInstallPlan plan = validator.validate(
+                new File("archive.nar"),
+                new File("install-root"),
+                null).getPlan();
+        changedAndClose.currentSource = bytes("changed identity");
+        changedAndClose.sourceCloseFailure = true;
+        assertError(
+                NarInstallError.ARCHIVE_IDENTITY_MISMATCH,
+                validator.verify(new File("archive.nar"), plan));
+
+        FakeIo unchangedAndClose = validFakeIo();
+        NarInstallPlanValidator unchangedValidator =
+                new NarInstallPlanValidator(unchangedAndClose);
+        NarInstallPlan unchangedPlan = unchangedValidator.validate(
+                new File("archive.nar"),
+                new File("install-root"),
+                null).getPlan();
+        unchangedAndClose.sourceCloseFailure = true;
+        assertError(
+                NarInstallError.ARCHIVE_READ_FAILED,
+                unchangedValidator.verify(
+                        new File("archive.nar"), unchangedPlan));
+    }
+
     private static NarInstallPlanResult validate(FakeIo io) {
         return new NarInstallPlanValidator(io).validate(
                 new File("archive.nar"),
@@ -559,6 +670,8 @@ public final class NarInstallPlanValidatorTest {
     private static final class FakeIo
             implements NarInstallPlanValidator.ArchiveIo {
         private final byte[] source;
+        private byte[] currentSource;
+        private byte[] changedSource;
         private final FakeArchive archive;
         private long hintedLength;
         private long virtualSourceLength = -1;
@@ -568,17 +681,22 @@ public final class NarInstallPlanValidatorTest {
         private boolean sourceOpenFailure;
         private boolean archiveOpenFailure;
         private boolean canonicalFailure;
+        private boolean preflightFailure;
+        private int switchSourceAt = -1;
+        private int preflightCount = -1;
         private int sourceOpenCount;
         private int sourceCloseCount;
         private long sourceBytesRead;
         private int archiveOpenCount;
         private int canonicalCount;
         private File canonicalArgument;
+        private int preflightCalls;
         private final File canonicalResult =
                 new File("canonical-sentinel").getAbsoluteFile();
 
         private FakeIo(byte[] source, FakeArchive archive) {
             this.source = source;
+            currentSource = source;
             this.archive = archive;
             hintedLength = source.length;
         }
@@ -593,14 +711,29 @@ public final class NarInstallPlanValidatorTest {
             if (sourceOpenFailure) {
                 throw new IOException("source open");
             }
+            byte[] selected = switchSourceAt > 0
+                    && sourceOpenCount >= switchSourceAt
+                    ? changedSource
+                    : currentSource;
             return new ScriptedInputStream(
-                    source,
+                    selected,
                     virtualSourceLength,
                     sourceReadFailureAt,
                     zeroFirstSourceRead,
                     sourceCloseFailure,
                     this,
                     null);
+        }
+
+        @Override public int preflight(File file)
+                throws IOException {
+            preflightCalls++;
+            if (preflightFailure) {
+                throw new IOException("preflight");
+            }
+            return preflightCount >= 0
+                    ? preflightCount
+                    : archive.entries.size();
         }
 
         @Override public NarInstallPlanValidator.OpenArchive openArchive(
@@ -637,6 +770,8 @@ public final class NarInstallPlanValidatorTest {
         private int descriptorCloseCount;
         private long descriptorBytesRead;
         private FakeEntry openedEntry;
+        private int virtualEntryCount = -1;
+        private int entriesLimit;
 
         private FakeArchive(
                 List<FakeEntry> entries,
@@ -646,9 +781,19 @@ public final class NarInstallPlanValidatorTest {
         }
 
         @Override public List<? extends NarInstallPlanValidator.ArchiveEntry>
-                entries() throws IOException {
+                entries(int limit) throws IOException {
+            entriesLimit = limit;
             if (listFailure) {
                 throw new IOException("list");
+            }
+            if (virtualEntryCount >= 0) {
+                List<FakeEntry> virtual = new ArrayList<FakeEntry>();
+                for (int index = 0;
+                        index < virtualEntryCount && index < limit;
+                        index++) {
+                    virtual.add(entries.get(index % entries.size()));
+                }
+                return virtual;
             }
             return new ArrayList<FakeEntry>(entries);
         }
