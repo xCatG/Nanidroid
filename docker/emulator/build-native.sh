@@ -11,6 +11,7 @@ readonly STAGE_ROOT="${OUTPUT_ROOT}/.native-stage"
 readonly STAGE_NATIVE_ROOT="${STAGE_ROOT}/native"
 readonly NATIVE_ROOT="${OUTPUT_ROOT}/native"
 readonly CONTRACT_REPORT="${OUTPUT_ROOT}/native-contract.json"
+readonly STATIC_REPORT="${OUTPUT_ROOT}/narfs-static-contract.json"
 readonly READELF="${NDK_ROOT}/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-readelf"
 readonly STRIP="${NDK_ROOT}/toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin/aarch64-linux-android-strip"
 
@@ -32,13 +33,15 @@ fi
 
 rm -rf "${BUILD_ROOT}" "${STAGE_ROOT}"
 rm -rf "${NATIVE_ROOT}"
-rm -f "${CONTRACT_REPORT}"
+rm -f "${CONTRACT_REPORT}" "${STATIC_REPORT}"
 mkdir -p "${BUILD_ROOT}" "${STAGE_NATIVE_ROOT}/arm64-v8a"
 trap 'rm -rf "${STAGE_ROOT}"' EXIT
 
 # Preserve the read-only checkout and its historical case assumptions by
 # compiling a disposable native-only copy with compatibility aliases.
 cp -a "${SOURCE_ROOT}/jni" "${BUILD_ROOT}/jni"
+mkdir -p "${BUILD_ROOT}/test/native"
+cp "${SOURCE_ROOT}/test/native/narfs_link_probe.c" "${BUILD_ROOT}/test/native/"
 ln -s Sender.h "${BUILD_ROOT}/jni/_/sender.h"
 ln -s Utilities.h "${BUILD_ROOT}/jni/_/utilities.h"
 ln -s satori.h "${BUILD_ROOT}/jni/satori/Satori.h"
@@ -50,6 +53,8 @@ cmake \
   -DCMAKE_BUILD_TYPE= \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${STAGE_NATIVE_ROOT}/arm64-v8a" \
+  -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="${CMAKE_BUILD_ROOT}/static/arm64-v8a" \
+  -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="${CMAKE_BUILD_ROOT}/static/arm64-v8a" \
   -DCMAKE_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake" \
   -DANDROID_NDK="${NDK_ROOT}" \
   -DANDROID_TOOLCHAIN=gcc \
@@ -69,13 +74,25 @@ python3 "${SOURCE_ROOT}/tools/inspect_emulator_native.py" \
   --ndk-root "${NDK_ROOT}" \
   --project-root "${SOURCE_ROOT}" \
   --output "${STAGE_ROOT}/native-contract.json"
+python3 "${SOURCE_ROOT}/tools/inspect_narfs_static.py" inspect \
+  --project-root "${SOURCE_ROOT}" \
+  --archive "${CMAKE_BUILD_ROOT}/static/arm64-v8a/libnarfs_core.a" \
+  --probe "${CMAKE_BUILD_ROOT}/static/arm64-v8a/narfs_core_link_probe" \
+  --readelf "${READELF}" \
+  --abi arm64-v8a \
+  --api android-21 \
+  --build-system cmake \
+  --build-evidence "${CMAKE_BUILD_ROOT}" \
+  --output "${STAGE_ROOT}/narfs-static-contract.json"
 
 # Publish only a fully inspected pair. This root is separate from every
 # artifacts/legacy native path consumed by the frozen debug build.
 mv "${STAGE_NATIVE_ROOT}" "${NATIVE_ROOT}"
 mv "${STAGE_ROOT}/native-contract.json" "${CONTRACT_REPORT}"
+mv "${STAGE_ROOT}/narfs-static-contract.json" "${STATIC_REPORT}"
 rmdir "${STAGE_ROOT}"
 trap - EXIT
 
 echo "ARM64 emulator native artifact:"
 cat "${CONTRACT_REPORT}"
+cat "${STATIC_REPORT}"
