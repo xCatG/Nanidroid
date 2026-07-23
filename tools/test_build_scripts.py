@@ -175,7 +175,15 @@ class BuildScriptContractTest(unittest.TestCase):
             'Nanidroid-emulator-androidTest.apk"',
             build_script,
         )
-        self.assertIn("testDebugUnitTest assembleDebug assembleEmulatorAndroidTest", build_script)
+        self.assertIn(
+            "testEmulatorUnitTest assembleDebug assembleEmulatorAndroidTest",
+            build_script,
+        )
+        self.assertIn(
+            'TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/'
+            'testEmulatorUnitTest"',
+            build_script,
+        )
         self.assertIn('"${APKSIGNER}" verify "${TEST_APK}"', build_script)
         self.assertIn('"${ZIPALIGN}" -c 4 "${TEST_APK}"', build_script)
         self.assertIn("python3 tools/inspect_android_test_apk.py", build_script)
