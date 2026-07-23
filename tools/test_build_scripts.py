@@ -286,6 +286,9 @@ class BuildScriptContractTest(unittest.TestCase):
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/ViewServerLifecycleCharacterizationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java"
+            ),
         }
         unit_test_roots = [
             root
@@ -382,6 +385,11 @@ class BuildScriptContractTest(unittest.TestCase):
         gradle_build = (project_root / "build.gradle.kts").read_text(encoding="utf-8")
 
         self.assertIn("VerifyCharacterizationTestIsolation", gradle_build)
+        self.assertIn(
+            '"test/jvm/com/cattailsw/nanidroid/'
+            'GhostSwitchingCharacterizationTest.java"',
+            gradle_build,
+        )
         self.assertIn("val missing = (expected - actual)", gradle_build)
         self.assertIn("val unexpected = (actual - expected)", gradle_build)
 
