@@ -22,6 +22,7 @@ behavior is safe or required.
 | API 9 device support | Product decision required | Do not select dependencies until the supported minimum SDK is approved. |
 | Target SDK 13 behavior | Legacy-observed | Replace through an explicit target-SDK compatibility ladder. |
 | Raw external-storage ghost directory | Intentional change required | Define app-private storage and an upgrade migration. |
+| Bounded trusted forced-ID NAR extraction | Required migration invariant within the D9a JVM boundary | For the built-in-style path with a fixed trusted id, a bounded collision-free unwrapped archive of safe relative entries succeeds beneath exactly that id, preserves the complete relative tree, and preserves every byte. The archive descriptor's different `directory` value does not override the forced id. This positive fixture is not evidence of containment or general NAR safety and does not approve caller-supplied ids, wrapped/metadata-driven archives, failure behavior, or supported formats. D9b must specify rejection, resource limits, and atomic installation before production extraction changes. |
 | `file`, `http`, and `https` NAR intents | Product/security decision required | Validate URI ownership, transport policy, and permission persistence. |
 | Archive extraction without containment/resource limits | Insecure; must not preserve | Specify traversal, collision, size, count, and atomicity tests before fixing. |
 | Default-on legacy analytics/crash reporting | Privacy decision required | Inventory collection and remove, replace, or require explicit consent. |
