@@ -29,6 +29,10 @@ recognized. Their `directory`, `source.directory`, `refresh`, and
 directive returns `UNSUPPORTED_COMPOUND_INSTALL`. Unknown custom dotted keys
 remain ordinary metadata.
 
+Error precedence is deterministic: descriptor syntax and core type, required
+metadata, and target validation run first; exact top-level or compound
+`refresh,1` follows; generic recognized compound rejection runs last.
+
 The descriptor directory is validated even when a forced ID overrides it.
 Targets are NFC-normalized safe single components capped at 255 UTF-8 bytes.
 D9b1b does not resolve an install root or make live installation safe.

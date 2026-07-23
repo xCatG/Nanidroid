@@ -59,7 +59,7 @@ public final class NarDescriptorParser {
         String text = decode(bytes, encoding.offset, encoding.charset);
         Map<String, String> metadata = parseLines(text);
         metadata.put("charset", encoding.charset.name());
-        rejectCompoundInstall(metadata);
+        CompoundInstall compoundInstall = scanCompoundInstall(metadata);
 
         if (!metadata.containsKey("type")) {
             reject(NarInstallError.MISSING_TYPE, "type is required");
@@ -96,8 +96,18 @@ public final class NarDescriptorParser {
         if (targetId == null) {
             reject(NarInstallError.INVALID_TARGET_ID, "unsafe forced id");
         }
-        if ("1".equals(metadata.get("refresh"))) {
-            reject(NarInstallError.UNSUPPORTED_REFRESH, "unsupported");
+        if ("1".equals(metadata.get("refresh"))
+                || compoundInstall.refreshOneKey != null) {
+            reject(
+                    NarInstallError.UNSUPPORTED_REFRESH,
+                    compoundInstall.refreshOneKey == null
+                            ? "refresh"
+                            : compoundInstall.refreshOneKey);
+        }
+        if (compoundInstall.hasDirective) {
+            reject(
+                    NarInstallError.UNSUPPORTED_COMPOUND_INSTALL,
+                    "compound install directive");
         }
 
         metadata.put("type", "ghost");
@@ -115,27 +125,22 @@ public final class NarDescriptorParser {
         return descriptor.clone();
     }
 
-    private static void rejectCompoundInstall(Map<String, String> metadata)
-            throws Rejected {
-        boolean compoundInstall = false;
+    private static CompoundInstall scanCompoundInstall(
+            Map<String, String> metadata) {
+        boolean hasDirective = false;
+        String refreshOneKey = null;
         for (Map.Entry<String, String> entry : metadata.entrySet()) {
             Matcher matcher = COMPOUND_INSTALL_KEY.matcher(entry.getKey());
             if (!matcher.matches()) {
                 continue;
             }
-            compoundInstall = true;
+            hasDirective = true;
             if ("refresh".equals(matcher.group(1))
                     && "1".equals(entry.getValue())) {
-                reject(
-                        NarInstallError.UNSUPPORTED_REFRESH,
-                        entry.getKey());
+                refreshOneKey = entry.getKey();
             }
         }
-        if (compoundInstall) {
-            reject(
-                    NarInstallError.UNSUPPORTED_COMPOUND_INSTALL,
-                    "compound install directive");
-        }
+        return new CompoundInstall(hasDirective, refreshOneKey);
     }
 
     private static Encoding selectEncoding(byte[] bytes) throws Rejected {
@@ -306,6 +311,15 @@ public final class NarDescriptorParser {
         private Encoding(Charset charset, int offset) {
             this.charset = charset;
             this.offset = offset;
+        }
+    }
+
+    private static final class CompoundInstall {
+        private final boolean hasDirective;
+        private final String refreshOneKey;
+        private CompoundInstall(boolean hasDirective, String refreshOneKey) {
+            this.hasDirective = hasDirective;
+            this.refreshOneKey = refreshOneKey;
         }
     }
 
