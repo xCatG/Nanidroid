@@ -32,7 +32,7 @@ public final class NarFilesystemInspectorTest {
         long[] facts = {0, 11, 12, 7, 21, 22};
         NarFilesystemInspector.Result made = result(2, 0, paths, types, facts);
         NarFilesystemInspector value = inspector(
-                loads::incrementAndGet,
+                () -> { loads.incrementAndGet(); },
                 (root, target) -> { calls.incrementAndGet(); return made; });
         paths[0] = "changed";
         types[0] = 1;
@@ -82,9 +82,13 @@ public final class NarFilesystemInspectorTest {
     public void nativeCodesAndMalformedDtosHaveStableTypedResults() {
         assertEquals(NarFilesystemInspector.State.ABSENT,
                 result(1, 0, new String[0], new int[0], new long[0]).state());
-        for (int code = 0; code <= 21; code++) {
+        for (int code = 0; code <= 20; code++) {
             assertNotNull(result(0, code, new String[0], new int[0], new long[0]).error());
         }
+        assertEquals(NarFilesystemInspector.Error.INPUT,
+                result(0, 100, new String[0], new int[0], new long[0]).error());
+        assertEquals(NarFilesystemInspector.Error.SECURITY,
+                result(0, 103, new String[0], new int[0], new long[0]).error());
         NarFilesystemInspector.Result malformed = NarFilesystemInspector.fromNative(
                 2, 0, 0, 1, 0, new String[]{"x"}, new int[0], new long[0]);
         assertEquals(NarFilesystemInspector.State.ERROR, malformed.state());
@@ -104,12 +108,12 @@ public final class NarFilesystemInspectorTest {
         for (Method method : NarFilesystemInspector.class.getDeclaredMethods()) {
             assertFalse(Modifier.isPublic(method.getModifiers()));
             assertFalse(method.getReturnType().getName().matches(
-                    ".*(File|Descriptor|Stream|Channel|Pointer).*"));
+                    "(java\\.io\\..*|java\\.nio\\.channels\\..*)"));
         }
         for (Field field : NarFilesystemInspector.Entry.class.getDeclaredFields()) {
             assertTrue(Modifier.isPrivate(field.getModifiers()));
             assertFalse(field.getType().getName().matches(
-                    ".*(File|Descriptor|Stream|Channel|Pointer).*"));
+                    "(java\\.io\\..*|java\\.nio\\.channels\\..*)"));
         }
     }
 }

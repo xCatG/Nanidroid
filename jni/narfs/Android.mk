@@ -15,3 +15,14 @@ LOCAL_CFLAGS := -std=c99 -Wall -Wextra -Werror
 LOCAL_STATIC_LIBRARIES := narfs_core
 LOCAL_LDFLAGS := -Wl,--no-undefined
 include $(BUILD_EXECUTABLE)
+
+ifeq ($(NANIDROID_NARFS_JNI_CANDIDATE),1)
+include $(CLEAR_VARS)
+LOCAL_MODULE := narfs
+LOCAL_SRC_FILES := narfs_jni.c narfs_utf.c
+LOCAL_C_INCLUDES := $(LOCAL_PATH)
+LOCAL_CFLAGS := -std=c99 -Wall -Wextra -Werror -fvisibility=hidden
+LOCAL_STATIC_LIBRARIES := narfs_core
+LOCAL_LDFLAGS := -Wl,--as-needed -Wl,--no-undefined -Wl,--version-script,$(LOCAL_PATH)/narfs_jni.map
+include $(BUILD_SHARED_LIBRARY)
+endif

@@ -35,8 +35,13 @@ class NarfsJniContractTest(unittest.TestCase):
         prefix = (
             compiler
             + " --sysroot=/opt/android-ndk-r14b/platforms/android-9/arch-arm"
-            + " -I/tmp/project/jni/narfs -march=armv5te -mtune=xscale"
-            + " -msoft-float -mthumb -std=c99 -Wall -Wextra -Werror"
+            + " -I/tmp/project/jni/narfs"
+            + " -isystem /opt/android-ndk-r14b/platforms/android-9/arch-arm/usr/include"
+            + " -isystem /opt/android-ndk-r14b/platforms/android-9/arch-arm/usr/include/arm-linux-androideabi"
+            + " -march=armv5te -mtune=xscale"
+            + " -msoft-float -mthumb -march=armv5te -mtune=xscale"
+            + " -msoft-float -mthumb -Wformat -Werror=format-security"
+            + " -Wformat -Werror=format-security -std=c99 -Wall -Wextra -Werror"
             + " -fvisibility=hidden"
         )
         commands = [
@@ -45,7 +50,8 @@ class NarfsJniContractTest(unittest.TestCase):
         ]
         (self.evidence / "compile_commands.json").write_text(json.dumps(commands))
         (self.evidence / "link.txt").write_text(
-            compiler + " -shared -Wl,-soname,libnarfs.so -Wl,--no-undefined"
+            compiler + " -shared -Wl,-soname,libnarfs.so -Wl,--as-needed"
+            + " -Wl,--no-undefined"
             + " -Wl,--version-script=/tmp/project/jni/narfs/narfs_jni.map"
             + " /tmp/build/libnarfs_core.a -o libnarfs.so"
         )
@@ -60,11 +66,16 @@ class NarfsJniContractTest(unittest.TestCase):
             ),
             "--dyn-syms": (
                 "1: 00001000 20 FUNC GLOBAL DEFAULT 8 " + JNI_EXPORT + "\n"
+                "2: 00005000 0 NOTYPE GLOBAL DEFAULT ABS __bss_start\n"
+                "3: 00005000 0 NOTYPE GLOBAL DEFAULT ABS _edata\n"
+                "4: 00005000 0 NOTYPE GLOBAL DEFAULT ABS _end\n"
             ),
             "--symbols": (
                 "1: 00001000 20 FUNC GLOBAL DEFAULT 8 " + JNI_EXPORT + "\n"
                 "2: 00001100 20 FUNC LOCAL DEFAULT 8 narfs_default_options\n"
                 "3: 00001200 20 FUNC LOCAL DEFAULT 8 narfs_inspect\n"
+                "4: 00001300 20 FUNC LOCAL HIDDEN 8 narfs_utf16_to_utf8\n"
+                "5: 00001400 20 FUNC LOCAL HIDDEN 8 narfs_utf8_to_utf16\n"
             ),
         }
 
@@ -103,6 +114,7 @@ class NarfsJniContractTest(unittest.TestCase):
             ("--dynamic", "0 (SONAME) Library soname: [libnarfs.so]\n"
                            "0 (NEEDED) Shared library: [liblog.so]\n"),
             ("--dyn-syms", self.outputs["--dyn-syms"] + "2: 0 1 FUNC GLOBAL DEFAULT 8 leak\n"),
+            ("--dyn-syms", self.outputs["--dyn-syms"] + "5: 0 1 OBJECT WEAK DEFAULT 8 leak\n"),
             ("--symbols", self.outputs["--symbols"].replace("narfs_inspect", "missing")),
         )
         for key, value in mutations:
@@ -114,6 +126,18 @@ class NarfsJniContractTest(unittest.TestCase):
                 self.outputs[key] = original
         original = (self.evidence / "link.txt").read_text()
         (self.evidence / "link.txt").write_text(original.replace("--no-undefined", ""))
+        with self.assertRaises(CandidateContractError):
+            self.inspect()
+        (self.evidence / "link.txt").write_text(original)
+        policy = (self.evidence / "compile_commands.json").read_text()
+        (self.evidence / "compile_commands.json").write_text(
+            policy.replace(" -c ", " -ansi -fvisibility=default -c "))
+        with self.assertRaises(CandidateContractError):
+            self.inspect()
+        (self.evidence / "compile_commands.json").write_text(policy)
+        commands = (self.evidence / "compile_commands.json").read_text()
+        (self.evidence / "compile_commands.json").write_text(
+            commands.replace("android-9", "android-21"))
         with self.assertRaises(CandidateContractError):
             self.inspect()
 
