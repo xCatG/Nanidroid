@@ -26,7 +26,7 @@ public final class GhostSwitchingCharacterizationTest {
     private RecordingGhost currentGhost;
 
     @Before
-    public void setUp() throws Exception {
+    public void setUp() {
         Context context = new MockContext();
         runner = SScriptRunner.getInstance(context);
         runner.setViews(
@@ -47,7 +47,8 @@ public final class GhostSwitchingCharacterizationTest {
     public void requiredMigrationInvariant_outgoingScriptRendersBeforeSingleHandoffCallback() {
         RecordingGhost outgoing = new RecordingGhost(
                 "outgoing",
-                "Old Sakura",
+                "Old Ghost Metadata",
+                "Old Sakura Display",
                 1,
                 TRANSITION_SCRIPT,
                 trace);
@@ -69,25 +70,47 @@ public final class GhostSwitchingCharacterizationTest {
     public void requiredMigrationInvariant_returningReplacementReceivesChangedFromOutgoingName() {
         RecordingGhost outgoing = new RecordingGhost(
                 "outgoing",
-                "Old Sakura",
+                "Old Ghost Metadata",
+                "Old Sakura Display",
                 1,
-                null,
+                TRANSITION_SCRIPT,
                 trace);
         RecordingGhost replacement = new RecordingGhost(
                 "replacement",
-                "New Sakura",
+                "New Ghost Metadata",
+                "New Sakura Display",
                 2,
                 null,
                 trace);
 
+        // Prove setup cleanup does not depend on another test having cleared
+        // the process singleton's named ghost.
+        runner.setGhost(new RecordingGhost(
+                "foreign",
+                "Foreign Ghost Metadata",
+                "Foreign Sakura Display",
+                2,
+                null,
+                trace));
+        resetRunnerWithPublicApi();
+        trace.clear();
+
         setGhost(outgoing);
         assertEquals(new ArrayList<String>(), trace.events());
+        runner.setCallback(new RecordingStatusCallback(trace));
+
+        runner.doGhostChanging("Next Sakura", "manual", "/ghosts/next");
 
         setGhost(replacement);
 
         assertEquals(
                 Arrays.asList(
-                        "request:replacement:OnGhostChanged:[Old Sakura, null]"),
+                        "request:outgoing:OnGhostChanging:"
+                                + "[Next Sakura, manual, null, /ghosts/next]",
+                        "render:Switching",
+                        "handoff",
+                        "request:replacement:OnGhostChanged:"
+                                + "[Old Ghost Metadata, null]"),
                 trace.events());
     }
 
@@ -110,7 +133,18 @@ public final class GhostSwitchingCharacterizationTest {
         // setGhost(null) dereferences the replacement when the outgoing name is
         // non-null. Suppressing the test fake's name takes the public silent
         // assignment path and avoids coupling this characterization to fields.
-        if (currentGhost != null) {
+        if (currentGhost == null) {
+            // A previous or future suite may leave a named ghost in the process
+            // singleton. Replacing it with a null-name count-2 fake avoids the
+            // production null-replacement dereference without reflection.
+            setGhost(new RecordingGhost(
+                    "cleanup",
+                    null,
+                    null,
+                    2,
+                    null,
+                    trace));
+        } else {
             currentGhost.suppressOutgoingName();
         }
         runner.setGhost(null);
@@ -159,20 +193,23 @@ public final class GhostSwitchingCharacterizationTest {
 
     private static final class RecordingGhost extends Ghost {
         private final String id;
-        private String name;
+        private String ghostName;
+        private String sakuraName;
         private final long createCount;
         private final String transitionScript;
         private final Trace trace;
 
         RecordingGhost(
                 String id,
-                String name,
+                String ghostName,
+                String sakuraName,
                 long createCount,
                 String transitionScript,
                 Trace trace) {
             super(id);
             this.id = id;
-            this.name = name;
+            this.ghostName = ghostName;
+            this.sakuraName = sakuraName;
             this.createCount = createCount;
             this.transitionScript = transitionScript;
             this.trace = trace;
@@ -195,11 +232,12 @@ public final class GhostSwitchingCharacterizationTest {
 
         @Override
         public String getGhostName() {
-            return name;
+            return ghostName;
         }
 
         void suppressOutgoingName() {
-            name = null;
+            ghostName = null;
+            sakuraName = null;
         }
 
         @Override
@@ -209,7 +247,7 @@ public final class GhostSwitchingCharacterizationTest {
 
         @Override
         public String getSakuraName() {
-            return name;
+            return sakuraName;
         }
 
         @Override
