@@ -297,6 +297,13 @@ public final class NarInstallPlanValidatorTest {
     @Test
     public void mapsInstallRootCanonicalizationToSpecificPlanningError()
             throws Exception {
+        FakeIo nullRoot = validFakeIo();
+        assertError(
+                NarInstallError.INSTALL_ROOT_INVALID,
+                new NarInstallPlanValidator(nullRoot).validate(
+                        new File("archive.nar"), null, null));
+        assertEquals(0, nullRoot.sourceOpenCount);
+
         FakeIo canonicalFailure = validFakeIo();
         canonicalFailure.canonicalFailure = true;
         File absentTarget = new File(
