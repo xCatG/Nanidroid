@@ -10,7 +10,7 @@ import re
 import shlex
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NoReturn
 
 
@@ -191,14 +191,14 @@ def inspect_build_evidence(
         sysroots = [token.split("=", 1)[1] if "=" in token else tokens[index + 1]
                     for index, token in enumerate(tokens) if token.startswith("--sysroot")]
         abi_flags = [token for token in tokens if token.startswith("-m")]
-        compiler = Path(tokens[0])
+        compiler = PurePosixPath(tokens[0])
         if policy != wanted_warnings:
             _fail(f"{target} compile flags changed: {policy}")
         if includes != wanted_includes:
             _fail(f"{target} compile include changed: {includes}")
         if len(sysroots) != 1 or sysroots[0].replace("\\", "/") != f"{ndk}/platforms/{expected[0]}":
             _fail(f"{target} compile sysroot changed")
-        if compiler.as_posix() != compiler_path or not compiler.resolve(strict=False).is_relative_to(Path(ndk)) or any(token.startswith("@") for token in tokens) or abi_flags != expected[2] * (2 if build_system == "cmake" else 1):
+        if compiler.as_posix() != compiler_path or not compiler.is_relative_to(PurePosixPath(ndk)) or any(token.startswith("@") for token in tokens) or abi_flags != expected[2] * (2 if build_system == "cmake" else 1):
             _fail(f"{target} compiler/ABI flags changed")
         sources.append(source[-len(wanted):])
     return {
