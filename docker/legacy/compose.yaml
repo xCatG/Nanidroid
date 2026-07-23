@@ -9,3 +9,13 @@ services:
     volumes:
       - ../..:/workspace:ro
       - ../../artifacts/legacy:/out
+
+  emulator-native:
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: docker/legacy/Dockerfile
+    entrypoint: ["bash", "/workspace/docker/emulator/build-native.sh"]
+    volumes:
+      - ../..:/workspace:ro
+      - ../../artifacts/emulator:/out

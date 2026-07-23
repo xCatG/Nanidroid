@@ -92,6 +92,26 @@ class InspectApkTest(unittest.TestCase):
         ):
             inspect_apk(apk, EXPECTED_BADGING)
 
+    def test_rejects_an_additive_arm64_profile(self) -> None:
+        additive_badging = EXPECTED_BADGING.replace(
+            "native-code: 'armeabi'",
+            "native-code: 'armeabi' 'arm64-v8a'",
+        )
+        apk = self._write_apk(
+            {
+                "AndroidManifest.xml": b"manifest",
+                "classes.dex": b"dex",
+                "resources.arsc": b"resources",
+                "lib/armeabi/libkawari8.so": b"\x7fELF-kawari",
+                "lib/armeabi/libsatoriya.so": b"\x7fELF-satori",
+                "lib/arm64-v8a/libkawari8.so": b"\x7fELF-kawari64",
+                "lib/arm64-v8a/libsatoriya.so": b"\x7fELF-satori64",
+            }
+        )
+
+        with self.assertRaisesRegex(ArtifactError, "package metadata changed"):
+            inspect_apk(apk, additive_badging)
+
     def test_rejects_a_non_elf_native_library(self) -> None:
         apk = self._write_apk(
             {
