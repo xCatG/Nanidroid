@@ -2,6 +2,7 @@ import pathlib
 import re
 import subprocess
 import unittest
+import xml.etree.ElementTree as ET
 
 
 _JAVA_NON_CODE = re.compile(
@@ -48,6 +49,102 @@ def _compact_java(source):
 
 
 class BuildScriptContractTest(unittest.TestCase):
+    def test_device_characterization_sources_are_the_exact_expected_set(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        expected = {
+            pathlib.PurePosixPath(
+                "test/device/com/cattailsw/nanidroid/"
+                "SurfaceRenderingCharacterizationTest.java"
+            ),
+        }
+        device_root = project_root / "test" / "device"
+        actual = {
+            pathlib.PurePosixPath(path.relative_to(project_root).as_posix())
+            for path in device_root.rglob("*")
+            if path.suffix in {".java", ".kt"}
+        }
+
+        self.assertEqual(expected, actual)
+
+    def test_device_manifest_declares_only_the_platform_test_runner_library(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        manifest_path = project_root / "test" / "device" / "AndroidManifest.xml"
+        root = ET.parse(manifest_path).getroot()
+        android_name = "{http://schemas.android.com/apk/res/android}name"
+
+        self.assertEqual("manifest", root.tag)
+        self.assertEqual({}, root.attrib)
+        self.assertEqual(["application"], [child.tag for child in root])
+        application = root.find("application")
+        self.assertIsNotNone(application)
+        self.assertEqual({}, application.attrib)
+        self.assertEqual(
+            ["uses-library"], [child.tag for child in application]
+        )
+        self.assertEqual(
+            {"android.test.runner"},
+            {
+                child.attrib[android_name]
+                for child in application.findall("uses-library")
+            },
+        )
+
+    def test_gradle_wires_the_exact_platform_device_test_harness(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        gradle_build = (project_root / "build.gradle.kts").read_text(encoding="utf-8")
+        normalized = " ".join(gradle_build.split())
+
+        self.assertIn('testApplicationId = "com.cattailsw.nanidroid.test"', gradle_build)
+        self.assertIn(
+            'testInstrumentationRunner = "android.test.InstrumentationTestRunner"',
+            gradle_build,
+        )
+        self.assertIn('getByName("androidTest")', gradle_build)
+        self.assertIn('java.setSrcDirs(listOf("test/device"))', gradle_build)
+        self.assertIn(
+            'manifest.srcFile("test/device/AndroidManifest.xml")', gradle_build
+        )
+        self.assertIn("VerifyDeviceCharacterizationTestIsolation", gradle_build)
+        self.assertIn(
+            '"test/device/com/cattailsw/nanidroid/" + '
+            '"SurfaceRenderingCharacterizationTest.java"',
+            normalized,
+        )
+        self.assertIn(
+            'tasks.named("check").configure { '
+            "dependsOn(verifyDeviceCharacterizationTestIsolation) }",
+            normalized,
+        )
+        self.assertIn(
+            'it.name.startsWith("compile") && '
+            'it.name.contains("AndroidTest")',
+            normalized,
+        )
+        self.assertNotIn('testBuildType = "emulator"', gradle_build)
+
+    def test_gradle_build_packages_and_inspects_the_debug_android_test_apk(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        build_script = (project_root / "docker" / "gradle" / "build.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'TEST_APK="${SOURCE_ROOT}/build/outputs/apk/androidTest/debug/'
+            'Nanidroid-debug-androidTest.apk"',
+            build_script,
+        )
+        self.assertIn("testDebugUnitTest assembleDebug assembleDebugAndroidTest", build_script)
+        self.assertIn('"${APKSIGNER}" verify "${TEST_APK}"', build_script)
+        self.assertIn('"${ZIPALIGN}" -c 4 "${TEST_APK}"', build_script)
+        self.assertIn("python3 tools/inspect_android_test_apk.py", build_script)
+        self.assertIn(
+            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"', build_script
+        )
+        self.assertIn(
+            'cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk"',
+            build_script,
+        )
+
     def test_disposable_copy_excludes_gradle_working_state(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         build_script = (project_root / "docker" / "legacy" / "build.sh").read_text(
