@@ -555,6 +555,10 @@ public final class NarInstallPlanValidatorTest {
         Constructor<?> constructor =
                 NarStagedSource.class.getDeclaredConstructor(File.class);
         assertTrue(Modifier.isPrivate(constructor.getModifiers()));
+        assertTrue(Modifier.isSynchronized(
+                NarStagedSource.class
+                        .getDeclaredMethod("claim")
+                        .getModifiers()));
         for (Method method : NarStagedSource.class.getDeclaredMethods()) {
             assertFalse(
                     Modifier.isStatic(method.getModifiers())
