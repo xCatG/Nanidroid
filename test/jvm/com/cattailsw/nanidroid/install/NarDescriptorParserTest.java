@@ -1,7 +1,9 @@
 package com.cattailsw.nanidroid.install;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -190,6 +192,56 @@ public final class NarDescriptorParserTest {
     }
 
     @Test
+    public void rejectsEveryRecognizedCompoundInstallDirective() {
+        String[] prefixes = {
+            "balloon", "balloon0",
+            "headline", "headline12",
+            "plugin", "plugin7",
+            "calendar.skin", "calendar.skin3",
+            "calendar.plugin", "calendar.plugin42",
+        };
+        String[] unsupportedDirectives = {
+            "directory", "source.directory", "refreshundeletemask",
+        };
+        for (String prefix : prefixes) {
+            for (String directive : unsupportedDirectives) {
+                assertError(
+                        NarInstallError.UNSUPPORTED_COMPOUND_INSTALL,
+                        parse(descriptor("g", "G")
+                                + prefix + "." + directive + ",value\n"));
+            }
+            assertError(
+                    NarInstallError.UNSUPPORTED_COMPOUND_INSTALL,
+                    parse(descriptor("g", "G")
+                            + prefix + ".refresh,0\n"));
+            assertError(
+                    NarInstallError.UNSUPPORTED_REFRESH,
+                    parse(descriptor("g", "G")
+                            + prefix + ".refresh,1\n"));
+        }
+        assertError(
+                NarInstallError.UNSUPPORTED_REFRESH,
+                parse(descriptor("g", "G") + "Balloon0.Refresh,1\n"));
+    }
+
+    @Test
+    public void preservesUnknownCustomDottedMetadata() {
+        NarDescriptorResult result = parse(
+                descriptor("g", "G")
+                        + "custom.directory,allowed\n"
+                        + "balloonish.refresh,1\n"
+                        + "calendar.skin.extra.directory,allowed\n");
+
+        assertTrue(result.isSuccess());
+        assertEquals(
+                "allowed",
+                result.getDescriptor().getMetadata().get("custom.directory"));
+        assertEquals(
+                "1",
+                result.getDescriptor().getMetadata().get("balloonish.refresh"));
+    }
+
+    @Test
     public void forcedIdOverridesOnlyAfterDescriptorDirectoryIsValidated() {
         NarDescriptorResult forced = parseBytes(
                 descriptor("descriptor-id", "G").getBytes(SHIFT_JIS),
@@ -277,14 +329,14 @@ public final class NarDescriptorParserTest {
     }
 
     @Test
-    public void postReturnCallerMutationCannotChangeDetachedModel() {
-        byte[] bytes = descriptor("stable", "Before").getBytes(SHIFT_JIS);
-        NarDescriptorResult result = parseBytes(bytes, null);
-        Arrays.fill(bytes, (byte) 'x');
+    public void snapshotDetachesParserInputBeforeParsing() {
+        byte[] source = descriptor("stable", "Before").getBytes(SHIFT_JIS);
+        byte[] expected = source.clone();
+        byte[] snapshot = NarDescriptorParser.snapshot(source);
 
-        assertTrue(result.isSuccess());
-        assertEquals("Before", result.getDescriptor().getName());
-        assertEquals("stable", result.getDescriptor().getTargetId());
+        assertNotSame(source, snapshot);
+        Arrays.fill(source, (byte) 'x');
+        assertArrayEquals(expected, snapshot);
     }
 
     private static NarDescriptorResult parse(String descriptor) {
