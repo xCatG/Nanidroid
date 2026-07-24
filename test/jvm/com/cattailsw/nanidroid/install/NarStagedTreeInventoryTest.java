@@ -65,6 +65,10 @@ public final class NarStagedTreeInventoryTest {
         assertEquals(0, entries.get(0).blobOrdinal());
         assertEquals(-1, entries.get(1).blobOrdinal());
         assertEquals(1, entries.get(2).blobOrdinal());
+        assertEquals(NarGhostTreePolicy.Type.FILE, entries.get(0).type());
+        assertEquals(NarGhostTreePolicy.Type.DIRECTORY, entries.get(1).type());
+        assertEquals(3, entries.get(0).size());
+        assertEquals(0, entries.get(1).size());
         assertArrayEquals(second, entries.get(0).sha256());
         byte[] returned = entries.get(0).sha256();
         returned[0] ^= 1;
@@ -111,6 +115,18 @@ public final class NarStagedTreeInventoryTest {
         rejects("NATIVE", description(7, 11, new String[] {"a"},
                 new int[] {1}, new long[] {-1},
                 new int[] {0}, flat(digest("a"))));
+        rejects("NATIVE", description(7, 11, new String[] {"a"},
+                new int[] {9}, new long[] {0},
+                new int[] {-1}, flat(zeros())));
+        rejects("NATIVE", description(7, 11, new String[] {"empty"},
+                new int[] {2}, new long[] {1},
+                new int[] {-1}, flat(zeros())));
+        rejects("NATIVE", description(7, 11, new String[] {"empty"},
+                new int[] {2}, new long[] {0},
+                new int[] {0}, flat(zeros())));
+        rejects("NATIVE", description(7, 11, new String[] {"empty"},
+                new int[] {2}, new long[] {0},
+                new int[] {-1}, flat(digest("x"))));
         rejects("NATIVE", description(7, 11,
                 new String[] {"a", "b"}, new int[] {1, 1},
                 new long[] {1, 1}, new int[] {0, 0},
