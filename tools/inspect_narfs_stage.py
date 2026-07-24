@@ -57,6 +57,20 @@ def _imports(abi: str, build_system: str) -> list[str]:
                     and value == "memset")]
 
 
+def _toolchain_imports(abi: str, build_system: str) -> list[str]:
+    if abi == "arm64-v8a":
+        return ["__stack_chk_fail", "__stack_chk_guard"]
+    if build_system == "ndk-build":
+        return [
+            "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1",
+            "__stack_chk_fail", "__stack_chk_guard",
+        ]
+    return [
+        "_GLOBAL_OFFSET_TABLE_", "__aeabi_unwind_cpp_pr1",
+        "__stack_chk_fail", "__stack_chk_guard",
+    ]
+
+
 def inspect_declarations(root: Path) -> dict[str, object]:
     parent_make = _compact(root / "jni/narfs/Android.mk")
     parent_cmake = _compact(root / "jni/narfs/CMakeLists.txt")
@@ -151,11 +165,16 @@ def inspect_build_evidence(
               if build_system == "ndk-build" else
               ["-Wformat", "-Werror=format-security"] * 2 + EXPECTED["flags"])
     base_include = _norm(build_root / "jni/narfs")
-    local_includes = {
-        "source": ([base_include, _norm(build_root / "jni/narfs/stage")]
-                   if build_system == "ndk-build" else [base_include]),
-        "probe": ([base_include, _norm(build_root / "jni/narfs/stage")]
-                  if build_system == "ndk-build" else [base_include] * 3),
+    stage_include = _norm(build_root / "jni/narfs/stage")
+    raw_includes = {
+        "source": ([base_include + "/stage/..", stage_include]
+                   if build_system == "ndk-build"
+                   else [base_include + "/stage/.."]),
+        "probe": ([base_include + "/stage/..", stage_include]
+                  if build_system == "ndk-build" else [
+                      base_include + "/stage/..", base_include,
+                      base_include + "/sha256/..",
+                  ]),
     }
     system_includes = [] if build_system == "ndk-build" else [
         sysroot + "/usr/include", sysroot + f"/usr/include/{arch}",
@@ -170,6 +189,9 @@ def inspect_build_evidence(
     for key, tokens in records.items():
         if tokens[0] != compiler or "g++" in tokens[0]:
             _fail(f"{key} compiler changed")
+        if [_norm(value) for value in _option_values(tokens, "-c")] \
+                != [wanted_sources[key]]:
+            _fail(f"{key} source inputs changed")
         actual_policy = [
             value for value in tokens
             if value.startswith(("-std", "--std", "-W", "-w"))
@@ -180,9 +202,12 @@ def inspect_build_evidence(
         if [_norm(value) for value in _option_values(tokens, "--sysroot")] \
                 != [sysroot]:
             _fail(f"{key} sysroot changed")
-        includes = [_norm(value) for value in _option_values(tokens, "-I")]
+        includes = [
+            str(value).replace("\\", "/")
+            for value in _option_values(tokens, "-I")
+        ]
         systems = [_norm(value) for value in _option_values(tokens, "-isystem")]
-        if includes != local_includes[key] or systems != system_includes:
+        if includes != raw_includes[key] or systems != system_includes:
             _fail(f"{key} includes changed: {includes}/{systems}")
         repeats = 2 if build_system == "cmake" else 1
         if [value for value in tokens if value.startswith("-m")] \
@@ -326,6 +351,9 @@ def inspect_artifacts(
         ("FUNC", "GLOBAL", "DEFAULT", value) for value in EXPORTS)
     if defined != expected_defined:
         _fail(f"global definitions changed: {defined}")
+    actual_toolchain = sorted(set(imports) & TOOLCHAIN_IMPORTS)
+    if actual_toolchain != _toolchain_imports(abi, build_system):
+        _fail(f"toolchain imports changed: {actual_toolchain}")
     normalized_imports = sorted(set(imports) - TOOLCHAIN_IMPORTS)
     wanted_imports = _imports(abi, build_system)
     if normalized_imports != wanted_imports:
@@ -342,7 +370,7 @@ def inspect_artifacts(
         "exports": list(EXPORTS), "imports": list(IMPORTS),
         "probeElfType": lane[3], "_members": members,
         "_actualImports": wanted_imports,
-        "_toolchainImports": sorted(set(imports) & TOOLCHAIN_IMPORTS),
+        "_toolchainImports": actual_toolchain,
     }
 
 

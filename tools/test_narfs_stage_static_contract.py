@@ -33,7 +33,11 @@ Num: Value Size Type Bind Vis Ndx Name
  4: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_result_dispose
 """ + "".join(
     f" {index}: 0 0 NOTYPE GLOBAL DEFAULT UND {value}\n"
-    for index, value in enumerate(stage.IMPORTS, 5))
+    for index, value in enumerate(
+        stage.IMPORTS + [
+            "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1",
+            "__stack_chk_fail", "__stack_chk_guard",
+        ], 5))
 
 
 def ndk_commands(build):
@@ -44,7 +48,7 @@ def ndk_commands(build):
     lane = build / "ndk-armeabi/obj/local/armeabi"
     common = (
         f"{compiler} --sysroot={sysroot} "
-        f"-I{build}/jni/narfs -I{build}/jni/narfs/stage "
+        f"-I{build}/jni/narfs/stage/.. -I{build}/jni/narfs/stage "
         "-march=armv5te -mtune=xscale -msoft-float -mthumb "
         "-std=c99 -Wall -Wextra -Werror -Wformat -Werror=format-security")
     probe = lane / "objs/narfs_stage_link_probe/narfs_stage_link_probe.o"
@@ -112,6 +116,7 @@ class NarfsStageStaticContractTest(unittest.TestCase):
                 "\nFile: archive(extra.o)\n",
                 "\n 20: 0 10 FUNC GLOBAL DEFAULT 1 extra_global\n",
                 "\n 20: 0 0 NOTYPE GLOBAL DEFAULT UND unexpected_import\n",
+                "\n 20: 0 0 NOTYPE GLOBAL DEFAULT UND __aeabi_llsr\n",
             ):
                 run.side_effect = lambda arguments, mutation=mutation, **kwargs: (
                     subprocess.CompletedProcess(
