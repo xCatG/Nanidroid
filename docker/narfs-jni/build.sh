@@ -25,6 +25,7 @@ mkdir -p "${BUILD_ROOT}/test/native" "${OUTPUT_ROOT}"
 rm -f "${OUTPUT_ROOT}"/narfs-jni-*.json
 cp -a "${SOURCE_ROOT}/jni" "${BUILD_ROOT}/jni"
 cp "${SOURCE_ROOT}/test/native/narfs_link_probe.c" "${BUILD_ROOT}/test/native/"
+cp "${SOURCE_ROOT}/test/native/narfs_sha256_link_probe.c" "${BUILD_ROOT}/test/native/"
 ln -s Sender.h "${BUILD_ROOT}/jni/_/sender.h"
 ln -s Utilities.h "${BUILD_ROOT}/jni/_/utilities.h"
 ln -s satori.h "${BUILD_ROOT}/jni/satori/Satori.h"
@@ -34,6 +35,11 @@ gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
   "${SOURCE_ROOT}/test/native/narfs_utf_test.c" \
   -o "${BUILD_ROOT}/narfs_utf_test"
 "${BUILD_ROOT}/narfs_utf_test"
+gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  "${SOURCE_ROOT}/jni/narfs/narfs_sha256.c" \
+  "${SOURCE_ROOT}/test/native/narfs_sha256_test.c" \
+  -o "${BUILD_ROOT}/narfs_sha256_test"
+"${BUILD_ROOT}/narfs_sha256_test"
 
 build_lane() {
   local abi="$1" api="$2" triple="$3" arm_mode="$4"
