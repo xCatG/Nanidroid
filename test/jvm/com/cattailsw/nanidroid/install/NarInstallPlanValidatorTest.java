@@ -16,6 +16,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.Charset;
@@ -820,6 +821,11 @@ public final class NarInstallPlanValidatorTest {
             // Expected.
         }
         assertEquals(1, runtime.deleteCount);
+        runtime.archive.runtimeCloseFailure = false;
+        runtimeResult.getVerifiedSession().close();
+        assertEquals(2, runtime.archive.closeCount);
+        assertEquals(1, runtime.deleteCount);
+        assertTrue(runtimeResult.getVerifiedSession().isClosed());
     }
 
     @Test
@@ -865,14 +871,7 @@ public final class NarInstallPlanValidatorTest {
         consumed.cleanup();
         assertEquals(1, io.archive.closeCount);
         assertEquals(1, io.deleteCount);
-        for (Method method :
-                NarVerifiedInstallSession.Lease.class.getDeclaredMethods()) {
-            String type = method.getReturnType().getName();
-            assertFalse(type.equals("java.io.File")
-                    || type.contains("InputStream")
-                    || type.contains("OutputStream")
-                    || type.contains("Writer"));
-        }
+        assertLeaseSurface();
         other.close();
     }
 
@@ -943,6 +942,71 @@ public final class NarInstallPlanValidatorTest {
         assertTrue(session.isClosed());
         assertEquals(1, io.archive.closeCount);
         assertEquals(1, io.deleteCount);
+    }
+
+    @Test
+    public void concurrentVerifiedLeaseAndCleanupAreLinearized()
+            throws Exception {
+        FakeIo io = validFakeIo();
+        final NarVerifiedInstallSession session =
+                new NarInstallPlanValidator(io).validateStaged(
+                        stagedForTest(new File("lease-race.nar")),
+                        new File("install-root"), null)
+                        .getVerifiedSession();
+        final NarVerifiedInstallSession.Lease[] lease =
+                new NarVerifiedInstallSession.Lease[1];
+        final Throwable[] closeFailure = new Throwable[1];
+        race(() -> lease[0] = session.lease(),
+                () -> closeInto(session, closeFailure, 0));
+        assertThrows(IllegalStateException.class, () ->
+                session.open(session.getPlan().getEntries().get(0)));
+        if (lease[0] == null) {
+            assertNull(closeFailure[0]);
+            assertTrue(session.isClosed());
+        } else {
+            assertTrue(closeFailure[0] instanceof IllegalStateException);
+            assertEquals("BUSY", session.state().name());
+            assertEquals(0, io.archive.closeCount);
+            assertEquals(0, io.deleteCount);
+            assertEquals("OK", session.consume(lease[0]).name());
+            lease[0].cleanup();
+        }
+        assertEquals("CONSUMED", session.state().name());
+        assertEquals(1, io.archive.closeCount);
+        assertEquals(1, io.deleteCount);
+    }
+
+    private static void assertLeaseSurface() {
+        Class<?> type = NarVerifiedInstallSession.Lease.class;
+        assertFalse(Modifier.isPublic(type.getModifiers()));
+        for (Field field : type.getDeclaredFields()) {
+            assertFalse(forbiddenLeaseType(field.getType()));
+        }
+        List<String> actual = new ArrayList<String>();
+        for (Method method : type.getDeclaredMethods()) {
+            if (method.isSynthetic()) continue;
+            actual.add(method.getName());
+            assertFalse(Modifier.isPublic(method.getModifiers()));
+            assertFalse(method.getName().matches(
+                    "(finalize|publish|overlay|path|token|handle)"));
+            assertFalse(forbiddenLeaseType(method.getReturnType()));
+            for (Class<?> parameter : method.getParameterTypes()) {
+                assertFalse(forbiddenLeaseType(parameter));
+            }
+        }
+        Collections.sort(actual);
+        assertEquals(Arrays.asList("cleanup", "plan"), actual);
+    }
+
+    private static boolean forbiddenLeaseType(Class<?> type) {
+        String name = type.getName();
+        return name.equals("java.io.File")
+                || name.startsWith("java.nio.file")
+                || name.contains("InputStream")
+                || name.contains("OutputStream")
+                || name.contains("Reader")
+                || name.contains("Writer")
+                || name.contains("Handle");
     }
 
     private static void closeInto(NarVerifiedInstallSession session,
