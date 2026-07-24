@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import org.junit.Test;
 
 public final class NarStagedTreeTest {
@@ -46,6 +47,19 @@ public final class NarStagedTreeTest {
         assertEquals(0, absentBackend.discards);
         assertEquals(NarStagedTree.Error.OK, present.discard());
         assertEquals(1, presentBackend.discards);
+
+        FakeBackend transferredAbsent = new FakeBackend();
+        transferredAbsent.begin =
+                NarStagedTree.BeginResult.absent(7, 11);
+        NarStagedTree.Session absentSession = session(transferredAbsent);
+        NarStagedTree.ConsumeResult absentClaim = absentSession.consume(
+                success(absentSession.stage(ROOT, "other")));
+        assertTrue(absentClaim.isSuccess());
+        assertEquals(NarStagedTree.Error.OK,
+                absentClaim.claim().discard());
+        assertEquals(NarStagedTree.Error.OK,
+                absentClaim.claim().discard());
+        assertEquals(0, transferredAbsent.discards);
     }
 
     @Test
@@ -60,6 +74,37 @@ public final class NarStagedTreeTest {
         assertFailure(NarStagedTree.Error.NATIVE,
                 session(linkBegin).stage(ROOT, "ghost"));
         assertEquals(0, linkBegin.discards);
+        FakeBackend nullHandle = new FakeBackend();
+        nullHandle.begin = NarStagedTree.BeginResult.present(null);
+        assertFailure(NarStagedTree.Error.NATIVE,
+                session(nullHandle).stage(ROOT, "ghost"));
+        assertEquals(0, nullHandle.discards);
+        FakeBackend malformedFailure = new FakeBackend();
+        malformedFailure.begin = NarStagedTree.BeginResult.failure(
+                null, null, malformedFailure.handle);
+        malformedFailure.discardResults =
+                new NarStagedTree.Error[] {null};
+        NarStagedTree.StageResult malformed =
+                session(malformedFailure).stage(ROOT, "ghost");
+        assertFailure(NarStagedTree.Error.NATIVE, malformed);
+        assertEquals(NarStagedTree.Error.NATIVE,
+                malformed.cleanup().nativeError());
+        assertEquals(NarStagedTree.Error.NATIVE,
+                malformed.cleanup().discardError());
+        malformedFailure.discardResults = new NarStagedTree.Error[] {
+                NarStagedTree.Error.OK
+        };
+        assertEquals(NarStagedTree.Error.OK,
+                malformed.cleanup().discard());
+        assertEquals(2, malformedFailure.discards);
+        FakeBackend okFailure = new FakeBackend();
+        okFailure.begin = NarStagedTree.BeginResult.failure(
+                NarStagedTree.Error.OK, NarStagedTree.Error.OK,
+                okFailure.handle);
+        NarStagedTree.StageResult okAsFailure =
+                session(okFailure).stage(ROOT, "ghost");
+        assertFailure(NarStagedTree.Error.NATIVE, okAsFailure);
+        assertEquals(1, okFailure.discards);
 
         FakeBackend nullDescription = new FakeBackend();
         nullDescription.present(null);
@@ -74,17 +119,23 @@ public final class NarStagedTreeTest {
         FakeBackend linkage = failingDescription(
                 new UnsatisfiedLinkError("missing"));
         linkage.discardResults =
-                new NarStagedTree.Error[] {NarStagedTree.Error.PERMISSION};
+                new NarStagedTree.Error[] {
+                    NarStagedTree.Error.PERMISSION, NarStagedTree.Error.OK
+                };
         NarStagedTree.StageResult linked =
                 session(linkage).stage(ROOT, "ghost");
         assertFailure(NarStagedTree.Error.NATIVE, linked);
         assertEquals(NarStagedTree.Error.PERMISSION,
                 linked.cleanup().discardError());
-        assertEquals(1, linkage.discards);
-        FakeBackend oome = failingDescription(
-                new OutOfMemoryError("hostile"));
-        assertThrows(OutOfMemoryError.class,
-                () -> session(oome).stage(ROOT, "ghost"));
+        assertEquals(NarStagedTree.Error.OK,
+                linked.cleanup().discard());
+        assertEquals(2, linkage.discards);
+        OutOfMemoryError original = new OutOfMemoryError("hostile");
+        FakeBackend oome = failingDescription(original);
+        oome.discardFailure =
+                new OutOfMemoryError("cleanup must not mask");
+        assertSame(original, assertThrows(OutOfMemoryError.class,
+                () -> session(oome).stage(ROOT, "ghost")));
         assertEquals(1, oome.discards);
 
         FakeBackend collision = new FakeBackend();
@@ -105,7 +156,7 @@ public final class NarStagedTreeTest {
                 NarStagedTree.Error.IO, NarStagedTree.Error.CLOSE,
                 backend.handle);
         backend.discardResults = new NarStagedTree.Error[] {
-                NarStagedTree.Error.PERMISSION
+                NarStagedTree.Error.PERMISSION, NarStagedTree.Error.OK
         };
 
         NarStagedTree.StageResult result =
@@ -116,11 +167,30 @@ public final class NarStagedTreeTest {
                 result.cleanup().nativeError());
         assertEquals(NarStagedTree.Error.PERMISSION,
                 result.cleanup().discardError());
-        assertEquals(1, backend.discards);
+        assertEquals(NarStagedTree.Error.OK,
+                result.cleanup().discard());
+        assertEquals(NarStagedTree.Error.OK,
+                result.cleanup().discard());
+        assertEquals(2, backend.discards);
+
+        FakeBackend throwingCleanup = failingDescription(
+                new UnsatisfiedLinkError("primary"));
+        throwingCleanup.discardFailure =
+                new UnsatisfiedLinkError("cleanup");
+        NarStagedTree.StageResult throwing =
+                session(throwingCleanup).stage(ROOT, "ghost");
+        assertFailure(NarStagedTree.Error.NATIVE, throwing);
+        assertEquals(NarStagedTree.Error.NATIVE,
+                throwing.cleanup().discardError());
+        throwingCleanup.discardFailure = null;
+        assertEquals(NarStagedTree.Error.OK,
+                throwing.cleanup().discard());
+        assertEquals(2, throwingCleanup.discards);
     }
 
     @Test
-    public void transferTypesMisuseAndTreeClaimDiscardAreRetrySafe() {
+    public void transferTypesMisuseAndTreeClaimDiscardAreRetrySafe()
+            throws Exception {
         FakeBackend backend = new FakeBackend();
         backend.present(empty());
         NarStagedTree.Stager owner = new NarStagedTree.Stager(backend);
@@ -137,6 +207,14 @@ public final class NarStagedTreeTest {
         NarStagedTree.ConsumeResult consumed = session.consume(tree);
         assertTrue(consumed.isSuccess());
         assertNotNull(consumed.claim());
+        Field treeResource =
+                NarStagedTree.Tree.class.getDeclaredField("resource");
+        Field claimResource =
+                NarStagedTree.Claim.class.getDeclaredField("resource");
+        treeResource.setAccessible(true);
+        claimResource.setAccessible(true);
+        assertSame(treeResource.get(tree),
+                claimResource.get(consumed.claim()));
         assertEquals(NarStagedTree.Error.CONSUMED,
                 session.consume(tree).error());
         assertEquals(NarStagedTree.Error.CONSUMED, tree.discard());
@@ -160,6 +238,84 @@ public final class NarStagedTreeTest {
         assertEquals(NarStagedTree.Error.CLOSED,
                 session.consume(closed).error());
         assertEquals(4, backend.discards);
+
+        FakeBackend nullThenSuccess = new FakeBackend();
+        nullThenSuccess.present(empty());
+        NarStagedTree.Session nullSession = session(nullThenSuccess);
+        NarStagedTree.Tree nullTree =
+                success(nullSession.stage(ROOT, "ghost"));
+        nullThenSuccess.discardResults = new NarStagedTree.Error[] {
+                null, NarStagedTree.Error.OK
+        };
+        assertEquals(NarStagedTree.Error.NATIVE, nullTree.discard());
+        assertEquals(NarStagedTree.Error.OK, nullTree.discard());
+        assertEquals(NarStagedTree.Error.OK, nullTree.discard());
+        assertEquals(2, nullThenSuccess.discards);
+
+        FakeBackend failedThenTransferred = new FakeBackend();
+        failedThenTransferred.present(empty());
+        NarStagedTree.Session transferSession =
+                session(failedThenTransferred);
+        NarStagedTree.Tree transferTree =
+                success(transferSession.stage(ROOT, "ghost"));
+        failedThenTransferred.discardResults = new NarStagedTree.Error[] {
+                NarStagedTree.Error.IO, NarStagedTree.Error.OK
+        };
+        assertEquals(NarStagedTree.Error.IO, transferTree.discard());
+        NarStagedTree.ConsumeResult afterFailure =
+                transferSession.consume(transferTree);
+        assertTrue(afterFailure.isSuccess());
+        assertEquals(NarStagedTree.Error.OK,
+                afterFailure.claim().discard());
+        assertEquals(2, failedThenTransferred.discards);
+
+        FakeBackend throwingRetry = new FakeBackend();
+        throwingRetry.present(empty());
+        NarStagedTree.Session throwingSession = session(throwingRetry);
+        NarStagedTree.Claim throwingClaim = throwingSession.consume(
+                success(throwingSession.stage(ROOT, "ghost"))).claim();
+        OutOfMemoryError discardOome = new OutOfMemoryError("retry");
+        throwingRetry.discardFailure = discardOome;
+        assertSame(discardOome, assertThrows(OutOfMemoryError.class,
+                () -> throwingClaim.discard()));
+        throwingRetry.discardFailure = null;
+        assertEquals(NarStagedTree.Error.OK, throwingClaim.discard());
+        assertEquals(NarStagedTree.Error.OK, throwingClaim.discard());
+        assertEquals(2, throwingRetry.discards);
+    }
+
+    @Test
+    public void concurrentDiscardAndTransferAreLinearized()
+            throws Exception {
+        final FakeBackend claimBackend = new FakeBackend();
+        claimBackend.present(empty());
+        NarStagedTree.Session claimSession = session(claimBackend);
+        final NarStagedTree.Claim claim = claimSession.consume(
+                success(claimSession.stage(ROOT, "ghost"))).claim();
+        final NarStagedTree.Error[] claimResults = new NarStagedTree.Error[2];
+        race(() -> claimResults[0] = claim.discard(),
+                () -> claimResults[1] = claim.discard());
+        assertEquals(NarStagedTree.Error.OK, claimResults[0]);
+        assertEquals(NarStagedTree.Error.OK, claimResults[1]);
+        assertEquals(1, claimBackend.discards);
+        final FakeBackend treeBackend = new FakeBackend();
+        treeBackend.present(empty());
+        final NarStagedTree.Session treeSession = session(treeBackend);
+        final NarStagedTree.Tree tree = success(
+                treeSession.stage(ROOT, "ghost"));
+        final NarStagedTree.ConsumeResult[] transfer =
+                new NarStagedTree.ConsumeResult[1];
+        final NarStagedTree.Error[] discard = new NarStagedTree.Error[1];
+        race(() -> transfer[0] = treeSession.consume(tree),
+                () -> discard[0] = tree.discard());
+        if (transfer[0].isSuccess()) {
+            assertEquals(NarStagedTree.Error.CONSUMED, discard[0]);
+            assertEquals(NarStagedTree.Error.OK, transfer[0].claim().discard());
+        } else {
+            assertEquals(NarStagedTree.Error.CLOSED, transfer[0].error());
+            assertEquals(NarStagedTree.Error.OK, discard[0]);
+        }
+        assertEquals(1, treeBackend.discards);
     }
 
     @Test
@@ -185,9 +341,9 @@ public final class NarStagedTreeTest {
         assertMethods(NarStagedTree.Claim.class, "discard");
         assertMethods(NarStagedTree.StageResult.class,
                 "cleanup", "detail", "error", "failure", "isSuccess",
-                "success", "tree", "withDiscard");
+                "success", "tree");
         assertMethods(NarStagedTree.Cleanup.class,
-                "discardError", "nativeError");
+                "discard", "discardError", "nativeError");
         assertMethods(NarStagedTree.ConsumeResult.class,
                 "claim", "error", "failure", "isSuccess", "success");
         NarStagedTree.Backend.class.getDeclaredMethod(
@@ -221,6 +377,20 @@ public final class NarStagedTreeTest {
                 || name.contains("OutputStream")
                 || name.contains("Reader")
                 || name.contains("Writer");
+    }
+
+    private static void race(final Runnable first, final Runnable second)
+            throws Exception {
+        final CountDownLatch start = new CountDownLatch(1);
+        Thread one = new Thread(() -> { await(start); first.run(); });
+        Thread two = new Thread(() -> { await(start); second.run(); });
+        one.start(); two.start(); start.countDown();
+        one.join(5000); two.join(5000);
+        assertFalse(one.isAlive()); assertFalse(two.isAlive());
+    }
+    private static void await(CountDownLatch latch) {
+        try { latch.await(); }
+        catch (InterruptedException error) { throw new AssertionError(error); }
     }
 
     private static NarStagedTree.Session session(FakeBackend backend) {
@@ -284,6 +454,7 @@ public final class NarStagedTreeTest {
         private NarStagedTreeInventory.Description description;
         private Throwable beginFailure;
         private Throwable describeFailure;
+        private Throwable discardFailure;
         private NarStagedTree.Error[] discardResults =
                 new NarStagedTree.Error[] {NarStagedTree.Error.OK};
         private int discardIndex;
@@ -317,9 +488,10 @@ public final class NarStagedTreeTest {
                 Context context, NarStagedTree.Handle supplied) {
             assertSame(CONTEXT, context);
             assertSame(handle, supplied);
+            discards++;
+            throwIfNeeded(discardFailure);
             int index = Math.min(
                     discardIndex++, discardResults.length - 1);
-            discards++;
             return discardResults[index];
         }
 
