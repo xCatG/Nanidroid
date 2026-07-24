@@ -19,7 +19,8 @@ final class NarStagedTree {
         SPECIAL_TYPE, INVALID_NAME, COMPONENT_LIMIT, PATH_LIMIT, DEPTH_LIMIT,
         ENTRY_COUNT_LIMIT, FILE_SIZE_LIMIT, TOTAL_SIZE_LIMIT, CYCLE,
         TREE_CHANGED, PERMISSION, RESOURCE, IO, VISITOR, CLOSE,
-        INPUT, NATIVE, POLICY, CLOSED, CONSUMED, FOREIGN, WRONG_SESSION
+        INPUT, NATIVE, POLICY, CLOSED, CONSUMED, FOREIGN, WRONG_SESSION,
+        BUSY
     }
     interface Handle {}
     interface Backend {
@@ -318,13 +319,113 @@ final class NarStagedTree {
 
     static final class Claim {
         private final Resource resource;
+        private State state = State.READY;
+        private Lease current;
+        private boolean directCleanup;
 
         private Claim(Resource resource) {
             this.resource = resource;
         }
 
+        enum State { READY, BUSY, CONSUMED }
+
+        synchronized State state() { return state; }
+
+        synchronized Lease lease() {
+            if (state != State.READY) return null;
+            Lease leased = new Lease(this, resource);
+            current = leased;
+            state = State.BUSY;
+            return leased;
+        }
+
+        synchronized Error release(Lease lease) {
+            if (lease == null || lease.owner != this) {
+                return Error.FOREIGN;
+            }
+            if (!lease.active || state == State.CONSUMED) {
+                return Error.CONSUMED;
+            }
+            if (state != State.BUSY || current != lease) {
+                return Error.BUSY;
+            }
+            lease.active = false;
+            current = null;
+            state = State.READY;
+            return Error.OK;
+        }
+
+        synchronized Error consume(Lease lease) {
+            if (lease == null || lease.owner != this) {
+                return Error.FOREIGN;
+            }
+            if (!lease.active || state == State.CONSUMED) {
+                return Error.CONSUMED;
+            }
+            if (state != State.BUSY || current != lease) {
+                return Error.BUSY;
+            }
+            lease.active = false;
+            lease.consumed = true;
+            current = null;
+            state = State.CONSUMED;
+            return Error.OK;
+        }
+
         Error discard() {
+            synchronized (this) {
+                if (state == State.BUSY) return Error.BUSY;
+                if (state == State.READY) {
+                    state = State.CONSUMED;
+                    directCleanup = true;
+                } else if (!directCleanup) {
+                    return Error.CONSUMED;
+                }
+            }
             return resource.discard();
+        }
+
+        static final class Lease {
+            private final Claim owner;
+            private final Resource resource;
+            private boolean active = true;
+            private boolean consumed;
+
+            private Lease(Claim owner, Resource resource) {
+                this.owner = owner;
+                this.resource = resource;
+            }
+
+            NarGhostTreePolicy.Manifest manifest() {
+                synchronized (owner) {
+                    if (!active
+                            || owner.state != State.BUSY
+                            || owner.current != this) {
+                        throw new IllegalStateException(
+                                "stale baseline lease");
+                    }
+                    return resource.inventory.manifest();
+                }
+            }
+
+            List<NarStagedTreeInventory.Entry> entries() {
+                synchronized (owner) {
+                    if (!active
+                            || owner.state != State.BUSY
+                            || owner.current != this) {
+                        throw new IllegalStateException(
+                                "stale baseline lease");
+                    }
+                    return resource.inventory.entries();
+                }
+            }
+
+            Error discard() {
+                synchronized (owner) {
+                    if (!consumed) return Error.CONSUMED;
+                }
+                return resource.discard();
+            }
         }
     }
 
