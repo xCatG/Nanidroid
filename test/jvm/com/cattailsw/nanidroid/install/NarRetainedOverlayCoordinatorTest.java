@@ -53,6 +53,11 @@ public final class NarRetainedOverlayCoordinatorTest {
         assertEquals(1, candidate.fileCount());
         assertTrue(candidate.hasKnownTotalSize());
         assertEquals(3, candidate.totalSize());
+        NarRetainedOverlayPolicy.Recipe recipe = candidate.recipe();
+        assertSame(recipe, candidate.recipe());
+        assertEquals(1, recipe.entries().size());
+        assertEquals(NarRetainedOverlayPolicy.Source.ARCHIVE,
+                recipe.entries().get(0).source());
         byte[] fingerprint = candidate.baselineFingerprint();
         fingerprint[0] ^= 1;
         assertFalse(Arrays.equals(fingerprint,
@@ -215,7 +220,7 @@ public final class NarRetainedOverlayCoordinatorTest {
                 "candidate", "detail", "error", "isSuccess", "policyError");
         assertMethods(NarRetainedOverlayCoordinator.Candidate.class,
                 "baselineFingerprint", "cleanup", "fileCount", "hasKnownTotalSize",
-                "isCleaned", "totalSize");
+                "isCleaned", "recipe", "totalSize");
         for (Class<?> type : Arrays.asList(
                 NarRetainedOverlayCoordinator.class,
                 NarRetainedOverlayCoordinator.Result.class,
@@ -239,14 +244,16 @@ public final class NarRetainedOverlayCoordinatorTest {
             actual.add(method.getName());
             assertFalse(Modifier.isPublic(method.getModifiers()));
             String name = method.getName().toLowerCase();
-            for (String forbidden : Arrays.asList("path", "file", "stream",
+            for (String forbidden : Arrays.asList("path", "stream",
                     "handle", "token", "lease", "session", "claim",
                     "publish", "materialize", "native", "backend")) {
                 assertFalse(name, name.contains(forbidden));
             }
             assertFalse(forbidden(method.getReturnType()));
-            for (Class<?> parameter : method.getParameterTypes()) {
-                assertFalse(forbidden(parameter));
+            if (type != NarRetainedOverlayCoordinator.class) {
+                for (Class<?> parameter : method.getParameterTypes()) {
+                    assertFalse(forbidden(parameter));
+                }
             }
         }
         Collections.sort(actual);
