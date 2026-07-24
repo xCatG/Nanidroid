@@ -311,7 +311,7 @@ public final class NarStagedTreeTest {
         assertEquals("READY", claim.state().name());
         assertEquals(NarStagedTree.Error.CONSUMED,
                 claim.release(lease));
-        assertThrows(IllegalStateException.class, lease::manifest);
+        assertThrows(IllegalStateException.class, () -> lease.manifest());
         assertEquals(NarStagedTree.Error.OK, other.release(foreign));
 
         backend.discardResults = new NarStagedTree.Error[] {
@@ -356,7 +356,7 @@ public final class NarStagedTreeTest {
         OutOfMemoryError failure = new OutOfMemoryError("discard");
         oomeBackend.discardFailure = failure;
         assertSame(failure, assertThrows(OutOfMemoryError.class,
-                oomeLease::discard));
+                () -> oomeLease.discard()));
         oomeBackend.discardFailure = null;
         assertEquals(NarStagedTree.Error.OK, oomeLease.discard());
         assertEquals(NarStagedTree.Error.OK, oomeLease.discard());

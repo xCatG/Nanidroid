@@ -800,9 +800,11 @@ public final class NarInstallPlanValidatorTest {
         }
         assertEquals(1, cleanup.archive.closeCount);
         assertEquals(1, cleanup.deleteCount);
+        cleanup.archive.closeFailure = false;
+        cleanup.deleteFailure = false;
         result.getVerifiedSession().close();
-        assertEquals(1, cleanup.archive.closeCount);
-        assertEquals(1, cleanup.deleteCount);
+        assertEquals(2, cleanup.archive.closeCount);
+        assertEquals(2, cleanup.deleteCount);
 
         FakeIo runtime = validFakeIo();
         runtime.archive.runtimeCloseFailure = true;
@@ -848,14 +850,14 @@ public final class NarInstallPlanValidatorTest {
         assertEquals("OK", session.release(lease).name());
         assertEquals("READY", session.state().name());
         assertEquals("STALE", session.release(lease).name());
-        assertThrows(IllegalStateException.class, lease::plan);
+        assertThrows(IllegalStateException.class, () -> lease.plan());
         assertEquals("OK", other.release(foreign).name());
 
         NarVerifiedInstallSession.Lease consumed = session.lease();
         assertEquals("OK", session.consume(consumed).name());
         assertEquals("CONSUMED", session.state().name());
         assertNull(session.lease());
-        assertThrows(IllegalStateException.class, session::close);
+        assertThrows(IllegalStateException.class, () -> session.close());
         consumed.cleanup();
         assertTrue(session.isClosed());
         consumed.cleanup();
@@ -883,13 +885,13 @@ public final class NarInstallPlanValidatorTest {
                         .getVerifiedSession();
         io.archive.closeFailure = true;
         io.deleteFailure = true;
-        assertThrows(IOException.class, session::close);
+        assertThrows(IOException.class, () -> session.close());
         assertEquals(Arrays.asList("archive-close", "delete"), io.events);
         assertEquals("CONSUMED", session.state().name());
         assertFalse(session.isClosed());
         assertNull(session.lease());
         io.archive.closeFailure = false;
-        assertThrows(IOException.class, session::close);
+        assertThrows(IOException.class, () -> session.close());
         assertEquals(2, io.archive.closeCount);
         assertEquals(2, io.deleteCount);
         io.deleteFailure = false;
@@ -909,11 +911,11 @@ public final class NarInstallPlanValidatorTest {
         fatal.archive.closeThrowable = first;
         fatal.deleteThrowable = new LinkageError("delete");
         assertSame(first, assertThrows(OutOfMemoryError.class,
-                fatalSession::close));
+                () -> fatalSession.close()));
         assertEquals(1, fatal.archive.closeCount);
         assertEquals(1, fatal.deleteCount);
         fatal.archive.closeThrowable = null;
-        assertThrows(LinkageError.class, fatalSession::close);
+        assertThrows(LinkageError.class, () -> fatalSession.close());
         assertEquals(2, fatal.archive.closeCount);
         assertEquals(2, fatal.deleteCount);
         fatal.deleteThrowable = null;
