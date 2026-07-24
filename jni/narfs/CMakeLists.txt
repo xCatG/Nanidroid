@@ -11,6 +11,14 @@ if(NANIDROID_BUILD_NARFS_SHA256_CANDIDATE)
   add_subdirectory(sha256)
 endif()
 
+option(NANIDROID_BUILD_NARFS_STAGE_CANDIDATE "Build staging candidate" OFF)
+if(NANIDROID_BUILD_NARFS_STAGE_CANDIDATE)
+  if(NOT TARGET narfs_sha256)
+    message(FATAL_ERROR "staging candidate requires SHA-256 candidate")
+  endif()
+  add_subdirectory(stage)
+endif()
+
 if(NANIDROID_BUILD_NARFS_JNI_CANDIDATE)
   add_library(narfs SHARED narfs_jni.c narfs_utf.c)
   target_compile_options(

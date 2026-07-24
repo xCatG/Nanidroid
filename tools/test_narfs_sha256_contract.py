@@ -60,7 +60,8 @@ class NarfsSha256ContractTest(unittest.TestCase):
         self.assertIn("NANIDROID_NARFS_SHA256_CANDIDATE", parent_make)
         self.assertIn("include $(LOCAL_PATH)/sha256/module.mk", parent_make)
         self.assertIn(
-            'APP_MODULES="narfs narfs_sha256_link_probe"', script)
+            'APP_MODULES="narfs narfs_sha256_link_probe '
+            'narfs_stage_link_probe"', script)
         self.assertIn(
             "--target narfs narfs_sha256_link_probe", script)
         self.assertIn("inspect_narfs_sha256.py", script)

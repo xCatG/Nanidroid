@@ -158,7 +158,9 @@ class NarfsJniContractTest(unittest.TestCase):
             self.assertNotIn(forbidden, java)
         script = (project / "docker/narfs-jni/build.sh").read_text()
         self.assertIn("'TARGET_CXX=$(TARGET_CC)'", script)
-        self.assertIn('APP_MODULES="narfs narfs_sha256_link_probe"', script)
+        self.assertIn(
+            'APP_MODULES="narfs narfs_sha256_link_probe '
+            'narfs_stage_link_probe"', script)
         self.assertNotIn("artifacts/", script)
         self.assertNotRegex(script, r"(?:cp|mv).+libnarfs\.so.+OUTPUT_ROOT")
         for published in (

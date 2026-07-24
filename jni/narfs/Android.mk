@@ -1,4 +1,5 @@
 LOCAL_PATH := $(call my-dir)
+NARFS_LOCAL_PATH := $(LOCAL_PATH)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := narfs_core
@@ -29,4 +30,9 @@ endif
 
 ifeq ($(NANIDROID_NARFS_SHA256_CANDIDATE),1)
 include $(LOCAL_PATH)/sha256/module.mk
+endif
+
+LOCAL_PATH := $(NARFS_LOCAL_PATH)
+ifeq ($(NANIDROID_NARFS_STAGE_CANDIDATE),1)
+include $(LOCAL_PATH)/stage/module.mk
 endif

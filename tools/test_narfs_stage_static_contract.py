@@ -31,13 +31,9 @@ Num: Value Size Type Bind Vis Ndx Name
  2: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_discard
  3: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_existing
  4: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_result_dispose
- 5: 0 0 NOTYPE GLOBAL DEFAULT UND narfs_default_options
- 6: 0 0 NOTYPE GLOBAL DEFAULT UND narfs_inspect
- 7: 0 0 NOTYPE GLOBAL DEFAULT UND narfs_sha256_init
- 8: 0 0 NOTYPE GLOBAL DEFAULT UND narfs_sha256_update
- 9: 0 0 NOTYPE GLOBAL DEFAULT UND narfs_sha256_final
- 10: 0 0 NOTYPE GLOBAL DEFAULT UND close
-"""
+""" + "".join(
+    f" {index}: 0 0 NOTYPE GLOBAL DEFAULT UND {value}\n"
+    for index, value in enumerate(stage.IMPORTS, 5))
 
 
 def ndk_commands(build):
@@ -61,12 +57,14 @@ def ndk_commands(build):
         f"-o {lane}/objs/narfs_stage/narfs_stage.o",
         common + f" -c {build}/test/native/narfs_stage_link_probe.c "
         f"-o {probe}",
-        f"{compiler} --sysroot={sysroot} {probe} "
+        f"{compiler} -Wl,--gc-sections -Wl,-z,nocopyreloc "
+        f"--sysroot={sysroot} -Wl,-rpath-link={sysroot}/usr/lib "
+        f"-Wl,-rpath-link={lane} {probe} "
         + " ".join(str(value) for value in archives)
-        + " -lgcc -lc -lm -Wl,--gc-sections -Wl,-z,nocopyreloc "
-        "-Wl,--no-undefined -Wl,--build-id -Wl,--no-undefined "
+        + " -lgcc -no-canonical-prefixes -Wl,--no-undefined "
+        "-Wl,--build-id -Wl,--no-undefined "
         "-Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now "
-        "-Wl,--warn-shared-textrel -Wl,--fatal-warnings "
+        "-Wl,--warn-shared-textrel -Wl,--fatal-warnings -lc -lm "
         f"-o {lane}/narfs_stage_link_probe",
     ]
 
@@ -124,6 +122,16 @@ class NarfsStageStaticContractTest(unittest.TestCase):
                     stage.inspect_artifacts(
                         archive, probe, Path("readelf"), "armeabi",
                         "android-9", "ndk-build")
+            run.side_effect = lambda arguments, **kwargs: (
+                subprocess.CompletedProcess(
+                    arguments, 0, " Class: ELF64\n Type: DYN\n"
+                    " Machine: AArch64\n", "")
+                if "--file-header" in arguments else fake_readelf(
+                    arguments, **kwargs))
+            with self.assertRaises(stage.StageContractError):
+                stage.inspect_artifacts(
+                    archive, probe, Path("readelf"), "armeabi",
+                    "android-9", "ndk-build")
 
     def test_build_evidence_rejects_every_provenance_class(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -136,6 +144,11 @@ class NarfsStageStaticContractTest(unittest.TestCase):
                 evidence, "ndk-build", "armeabi", "android-9")
             self.assertEqual(["source", "probe"], report["compileOrder"])
             compiler = commands[0].split()[0]
+            lane = build / "ndk-armeabi/obj/local/armeabi"
+            probe = lane / "objs/narfs_stage_link_probe/narfs_stage_link_probe.o"
+            archive = lane / "libnarfs_stage.a"
+            core = lane / "libnarfs_core.a"
+            sha256 = lane / "libnarfs_sha256.a"
             mutations = (
                 [commands[0].replace("narfs_stage.c", "other.c"),
                  *commands[1:]],
@@ -146,21 +159,20 @@ class NarfsStageStaticContractTest(unittest.TestCase):
                 [commands[0].replace(compiler, "/foreign/gcc"),
                  *commands[1:]],
                 [*commands[:2], commands[2].replace(
-                    "narfs_stage_link_probe.o libnarfs_stage.a",
-                    "libnarfs_stage.a narfs_stage_link_probe.o")],
+                    f"{probe} {archive}", f"{archive} {probe}")],
                 [*commands[:2], commands[2].replace(
                     "libnarfs_core.a", "extra.o libnarfs_core.a")],
                 [*commands[:2], commands[2].replace(
-                    "libnarfs_core.a libnarfs_sha256.a",
-                    "libnarfs_sha256.a libnarfs_core.a")],
+                    f"{core} {sha256}", f"{sha256} {core}")],
                 [*commands[:2], commands[2].replace(
                     compiler, "/foreign/g++")],
             )
-            for changed in mutations:
-                evidence.write_text("\n".join(changed), encoding="utf-8")
-                with self.assertRaises(stage.StageContractError):
-                    stage.inspect_build_evidence(
-                        evidence, "ndk-build", "armeabi", "android-9")
+            for index, changed in enumerate(mutations):
+                with self.subTest(mutation=index):
+                    evidence.write_text("\n".join(changed), encoding="utf-8")
+                    with self.assertRaises(stage.StageContractError):
+                        stage.inspect_build_evidence(
+                            evidence, "ndk-build", "armeabi", "android-9")
 
     def test_parity_rejects_contract_drift(self):
         contract = {"contract": {"exports": ["a"]}, "provenance": {"lane": "x"}}
