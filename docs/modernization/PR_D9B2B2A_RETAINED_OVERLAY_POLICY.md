@@ -1,0 +1,5 @@
+# PR D9b2b2a — Retained-entry overlay policy
+This package-private pure-Java recipe combines immutable staged-baseline views with immutable diagnostic NAR-plan data. It is non-authorizing and read-only: no filesystem location, token, handle, stream, public capability, mutation, or `NarInstallPlan` file getter.
+The recipe separately preserves the original baseline manifest/fingerprint. Sorted entries identify retained blobs or archive central ordinals, but claim neither candidate bytes nor a candidate fingerprint.
+Archive entries win exact collisions and unlisted baseline entries survive. Files cannot erase nonempty retained directories; case/NFC directory takeover cannot silently rename surviving descendants. Unknown archive sizes remain unknown until candidate streaming enforces actual per-file/total limits.
+The candidate clone must hash each retained blob on the same inode-bound read used to copy it. D9b3 re-inspects the live destination immediately before publication. Journaling/process-death recovery, `GhostMgr`, and UI/events remain out of scope.
