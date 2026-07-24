@@ -46,21 +46,27 @@ def ndk_commands(build):
         "prebuilt/linux-x86_64/bin/arm-linux-androideabi-gcc")
     sysroot = "/opt/android-ndk-r14b/platforms/android-9/arch-arm"
     lane = build / "ndk-armeabi/obj/local/armeabi"
-    common = (
-        f"{compiler} --sysroot={sysroot} "
-        f"-I{build}/jni/narfs/stage/.. -I{build}/jni/narfs/stage "
-        "-march=armv5te -mtune=xscale -msoft-float -mthumb "
-        "-std=c99 -Wall -Wextra -Werror -Wformat -Werror=format-security")
     probe = lane / "objs/narfs_stage_link_probe/narfs_stage_link_probe.o"
+    source_object = lane / "objs/narfs_stage/__/narfs_stage.o"
+    def compile_command(source, output):
+        return (
+            f"{compiler} -MMD -MP -MF {output}.d -fpic "
+            "-ffunction-sections -funwind-tables -fstack-protector-strong "
+            "-no-canonical-prefixes -g -march=armv5te -mtune=xscale "
+            "-msoft-float -mthumb -Os -DNDEBUG "
+            f"-I{build}/jni/narfs/stage/.. -I{build}/jni/narfs/stage "
+            "-DANDROID -std=c99 -Wall -Wextra -Werror -Wa,--noexecstack "
+            f"-Wformat -Werror=format-security --sysroot {sysroot} "
+            f"-c {source} -o {output}")
     archives = [
         lane / "libnarfs_stage.a", lane / "libnarfs_core.a",
         lane / "libnarfs_sha256.a",
     ]
     return [
-        common + f" -c {build}/jni/narfs/narfs_stage.c "
-        f"-o {lane}/objs/narfs_stage/narfs_stage.o",
-        common + f" -c {build}/test/native/narfs_stage_link_probe.c "
-        f"-o {probe}",
+        compile_command(
+            build / "jni/narfs/narfs_stage.c", source_object),
+        compile_command(
+            build / "test/native/narfs_stage_link_probe.c", probe),
         f"{compiler} -Wl,--gc-sections -Wl,-z,nocopyreloc "
         f"--sysroot={sysroot} -Wl,-rpath-link={sysroot}/usr/lib "
         f"-Wl,-rpath-link={lane} {probe} "
@@ -159,6 +165,7 @@ class NarfsStageStaticContractTest(unittest.TestCase):
                  *commands[1:]],
                 [commands[0] + " -I/foreign", *commands[1:]],
                 [commands[0] + " -Wno-error", *commands[1:]],
+                [commands[0] + " -O2", *commands[1:]],
                 [commands[0].replace("android-9", "android-21"),
                  *commands[1:]],
                 [commands[0].replace(compiler, "/foreign/gcc"),
@@ -171,6 +178,8 @@ class NarfsStageStaticContractTest(unittest.TestCase):
                     f"{core} {sha256}", f"{sha256} {core}")],
                 [*commands[:2], commands[2].replace(
                     compiler, "/foreign/g++")],
+                [*commands[:2],
+                 commands[2] + " -O2 -no-canonical-prefixes"],
             )
             for index, changed in enumerate(mutations):
                 with self.subTest(mutation=index):

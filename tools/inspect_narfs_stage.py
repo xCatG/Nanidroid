@@ -144,6 +144,99 @@ def _compile_records(
     return records
 
 
+def _signature(
+        tokens: list[str], dynamic_options: set[str],
+        mask_inputs: bool = False
+) -> list[str]:
+    result: list[str] = []
+    index = 1
+    while index < len(tokens):
+        value = tokens[index]
+        matched = next((
+            option for option in dynamic_options
+            if value.startswith(option + "=")
+            or option in ("-I", "-isystem")
+            and value.startswith(option) and value != option
+        ), None)
+        if value in dynamic_options:
+            if index + 1 == len(tokens):
+                _fail(f"{value} is missing its value")
+            result.extend((value, "<value>"))
+            index += 2
+        elif matched is not None:
+            result.extend((matched, "<value>"))
+            index += 1
+        elif mask_inputs and value.endswith(".o"):
+            result.append("<object>")
+            index += 1
+        elif mask_inputs and value.endswith(".a"):
+            result.append("<archive>")
+            index += 1
+        else:
+            result.append(value)
+            index += 1
+    return result
+
+
+def _toolchain_flags(lane: tuple, repeats: int = 1) -> list[str]:
+    block = [
+        "-g", "-DANDROID", "-ffunction-sections", "-funwind-tables",
+        "-fstack-protector-strong", "-no-canonical-prefixes", *lane[4],
+        "-Wa,--noexecstack", "-Wformat", "-Werror=format-security",
+    ]
+    return block * repeats
+
+
+def _compile_signature(
+        build_system: str, abi: str, key: str, lane: tuple,
+        include_count: int, system_count: int
+) -> list[str]:
+    includes = ["-I", "<value>"] * include_count
+    systems = ["-isystem", "<value>"] * system_count
+    if build_system == "ndk-build":
+        optimization = "-Os" if abi == "armeabi" else "-O2"
+        pie = ["-fpie"] if abi == "arm64-v8a" and key == "probe" else []
+        return [
+            "-MMD", "-MP", "-MF", "<value>", "-fpic",
+            "-ffunction-sections", "-funwind-tables",
+            "-fstack-protector-strong", "-no-canonical-prefixes",
+            "-g", *lane[4], optimization, "-DNDEBUG", *includes,
+            "-DANDROID", *EXPECTED["flags"], "-Wa,--noexecstack",
+            "-Wformat", "-Werror=format-security", *pie,
+            "--sysroot", "<value>", "-c", "<value>", "-o", "<value>",
+        ]
+    position = ["-fPIC" if key == "source" else "-fPIE"] \
+        if abi == "arm64-v8a" else []
+    return [
+        "--sysroot", "<value>", *includes, *systems,
+        *_toolchain_flags(lane, 2), *position, *EXPECTED["flags"],
+        "-o", "<value>", "-c", "<value>",
+    ]
+
+
+def _link_signature(
+        build_system: str, abi: str, lane: tuple,
+        rpaths: list[str], wl: list[str]
+) -> list[str]:
+    if build_system == "ndk-build":
+        pie = ["-fpie", "-pie"] if abi == "arm64-v8a" else []
+        return [
+            "-Wl,--gc-sections", "-Wl,-z,nocopyreloc",
+            "--sysroot", "<value>", *rpaths, "<object>",
+            "<archive>", "<archive>", "<archive>", "-lgcc",
+            "-no-canonical-prefixes", *wl[2:], *pie, "-lc", "-lm",
+            "-o", "<value>",
+        ]
+    pie = ["-pie", "-fPIE"] if abi == "arm64-v8a" else []
+    block = wl[:-1]
+    return [
+        "--sysroot", "<value>", *_toolchain_flags(lane, 2),
+        *block[:9], *pie, *block[9:], *pie, wl[-1],
+        "<object>", "-o", "<value>",
+        "<archive>", "<archive>", "<archive>", "-lm",
+    ]
+
+
 def inspect_build_evidence(
         evidence: Path, build_system: str, abi: str, api: str
 ) -> dict[str, object]:
@@ -179,13 +272,8 @@ def inspect_build_evidence(
     system_includes = [] if build_system == "ndk-build" else [
         sysroot + "/usr/include", sysroot + f"/usr/include/{arch}",
     ]
-    allowed = {
-        "-MMD", "-MP", "-fpic", "-fPIC", "-fPIE", "-fpie",
-        "-ffunction-sections", "-funwind-tables", "-fstack-protector-strong",
-        "-no-canonical-prefixes", "-g", "-Os", "-O2", "-DNDEBUG", "-DANDROID",
-        "-Wa,--noexecstack", "-MD", *policy, *lane[4],
-    }
     valued = {"-MF", "-MT", "-o", "-c", "-I", "-isystem", "--sysroot"}
+    compile_signatures: dict[str, list[str]] = {}
     for key, tokens in records.items():
         if tokens[0] != compiler or "g++" in tokens[0]:
             _fail(f"{key} compiler changed")
@@ -213,16 +301,13 @@ def inspect_build_evidence(
         if [value for value in tokens if value.startswith("-m")] \
                 != lane[4] * repeats:
             _fail(f"{key} ABI flags changed")
-        skip = False
-        for value in tokens[1:]:
-            if skip:
-                skip = False
-            elif value in valued:
-                skip = True
-            elif value.startswith(("-I", "-isystem", "--sysroot=")):
-                continue
-            elif value not in allowed:
-                _fail(f"{key} unexpected compile input/flag: {value}")
+        signature = _signature(tokens, valued)
+        wanted_signature = _compile_signature(
+            build_system, abi, key, lane, len(raw_includes[key]),
+            len(system_includes))
+        if signature != wanted_signature:
+            _fail(f"{key} compile flags/order changed: {signature}")
+        compile_signatures[key] = signature
 
     links = [
         tokens for tokens in commands if "-c" not in tokens
@@ -296,19 +381,12 @@ def inspect_build_evidence(
     if [value for value in link
             if value.startswith("-Wl,-rpath-link=")] != wanted_rpaths:
         _fail("staging probe rpaths changed")
-    link_allowed = allowed | set(
-        wanted_wl + wanted_rpaths + libraries + ["-pie"])
-    skip = False
-    for value in link[1:]:
-        if skip:
-            skip = False
-        elif value == "-o":
-            skip = True
-        elif value.startswith("--sysroot=") or value in paths \
-                or _norm(value, link_base) in paths or value in link_allowed:
-            continue
-        else:
-            _fail(f"unexpected staging link input/flag: {value}")
+    link_signature = _signature(
+        link, {"--sysroot", "-o"}, mask_inputs=True)
+    wanted_link_signature = _link_signature(
+        build_system, abi, lane, wanted_rpaths, wanted_wl)
+    if link_signature != wanted_link_signature:
+        _fail(f"staging link flags/order changed: {link_signature}")
     return {
         "compileOrder": list(wanted_sources),
         "sources": [
@@ -320,6 +398,8 @@ def inspect_build_evidence(
         "sysroot": posixpath.relpath(sysroot, ndk),
         "compiler": posixpath.basename(compiler),
         "linkOrder": ["probe", "stage", "core", "sha256"],
+        "_compileFlags": compile_signatures,
+        "_linkFlags": link_signature,
     }
 
 
@@ -414,6 +494,8 @@ def main() -> int:
             arguments.abi, arguments.api, arguments.build_system)
         provenance = {
             "buildSystem": arguments.build_system,
+            "compileFlags": build.pop("_compileFlags"),
+            "linkFlags": build.pop("_linkFlags"),
             "archiveSha256": hashlib.sha256(
                 arguments.archive.read_bytes()).hexdigest(),
             "archiveMembers": artifact.pop("_members"),
