@@ -65,6 +65,10 @@ typedef struct narfs_result {
     narfs_error cleanup_error;
     uint32_t entry_count;
     uint64_t total_file_size;
+    uint64_t storage_device;
+    uint64_t storage_inode;
+    uint64_t target_device;
+    uint64_t target_inode;
 } narfs_result;
 
 narfs_options narfs_default_options(void);
