@@ -245,6 +245,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeInventoryTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.java",
+    "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.java",
 )
 val jvmTestSources = files(
     fileTree("src") {

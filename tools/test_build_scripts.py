@@ -410,6 +410,7 @@ class BuildScriptContractTest(unittest.TestCase):
                 "NarStagedTreeTest.java"
             ),
             pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.java"),
+            pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.java"),
         }
         unit_test_roots = [
             root
