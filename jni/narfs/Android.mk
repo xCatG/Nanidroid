@@ -26,3 +26,5 @@ LOCAL_STATIC_LIBRARIES := narfs_core
 LOCAL_LDFLAGS := -Wl,--as-needed -Wl,--no-undefined -Wl,--version-script,$(LOCAL_PATH)/narfs_jni.map
 include $(BUILD_SHARED_LIBRARY)
 endif
+
+include $(LOCAL_PATH)/sha256/Android.mk

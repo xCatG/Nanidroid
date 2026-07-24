@@ -57,7 +57,8 @@ build_lane() {
     NDK_LIBS_OUT="${ndk_build}/libs" \
     APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
     NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
-    APP_MODULES=narfs APP_PLATFORM="${api}" APP_ABI="${abi}" \
+    APP_MODULES="narfs narfs_sha256_link_probe" \
+    APP_PLATFORM="${api}" APP_ABI="${abi}" \
     NDK_TOOLCHAIN_VERSION=4.9 NANIDROID_NARFS_JNI_CANDIDATE=1 \
     V=1 2>&1 | tee "${ndk_log}"
 
@@ -81,7 +82,27 @@ build_lane() {
     cmake_args+=("-DANDROID_ARM_MODE=${arm_mode}")
   fi
   cmake "${cmake_args[@]}"
-  cmake --build "${cmake_build}" --target narfs -- VERBOSE=1
+  cmake --build "${cmake_build}" \
+    --target narfs narfs_sha256_link_probe -- VERBOSE=1
+
+  local expected_sha_api actual_sha_api archive probe
+  expected_sha_api=$'narfs_sha256_final\nnarfs_sha256_init\nnarfs_sha256_update'
+  for archive in \
+      "${ndk_build}/obj/local/${abi}/libnarfs_sha256.a" \
+      "${cmake_build}/static/${abi}/libnarfs_sha256.a"; do
+    actual_sha_api="$("${readelf}" --syms "${archive}" \
+      | awk '$5 == "GLOBAL" && $7 != "UND" {print $8}' \
+      | grep '^narfs_sha256_' | sort -u)"
+    [[ "${actual_sha_api}" == "${expected_sha_api}" ]] \
+      || { echo "unexpected sha256 API in ${archive}" >&2; exit 1; }
+  done
+  for probe in \
+      "${ndk_build}/obj/local/${abi}/narfs_sha256_link_probe" \
+      "${cmake_build}/sha256/narfs_sha256_link_probe"; do
+    "${readelf}" --file-header "${probe}" | grep -q 'ELF Header'
+    ! "${readelf}" --syms "${probe}" \
+      | grep 'UND' | grep -q 'narfs_sha256_'
+  done
 
   python3 "${INSPECTOR}" inspect \
     --dso "${cmake_build}/native/${abi}/libnarfs.so" \

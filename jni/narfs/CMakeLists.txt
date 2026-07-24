@@ -5,6 +5,7 @@ option(NANIDROID_BUILD_NARFS_JNI_CANDIDATE "Build private JNI candidate" OFF)
 add_library(narfs_core STATIC narfs_core.c)
 target_include_directories(narfs_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(narfs_core PRIVATE -std=c99 -Wall -Wextra -Werror)
+add_subdirectory(sha256)
 
 if(NANIDROID_BUILD_NARFS_JNI_CANDIDATE)
   add_library(narfs SHARED narfs_jni.c narfs_utf.c)

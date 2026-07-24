@@ -36,6 +36,33 @@ class NarfsSha256ContractTest(unittest.TestCase):
         }
         self.assertEqual(expected, actual)
 
+    def test_dual_build_declarations_are_exact(self):
+        root = Path(__file__).resolve().parents[1]
+        cmake = (root / "jni/narfs/sha256/CMakeLists.txt").read_text()
+        make = (root / "jni/narfs/sha256/Android.mk").read_text()
+        script = (root / "docker/narfs-jni/build.sh").read_text()
+        for token in (
+            "add_library(narfs_sha256 STATIC ../narfs_sha256.c)",
+            "add_executable(", "narfs_sha256_link_probe",
+            'LINKER_LANGUAGE C LINK_FLAGS "-Wl,--no-undefined"',
+        ):
+            self.assertIn(token, cmake)
+        for token in (
+            "LOCAL_MODULE := narfs_sha256",
+            "LOCAL_SRC_FILES := ../narfs_sha256.c",
+            "LOCAL_MODULE := narfs_sha256_link_probe",
+            "LOCAL_STATIC_LIBRARIES := narfs_sha256",
+            "LOCAL_LDFLAGS := -Wl,--no-undefined",
+        ):
+            self.assertIn(token, make)
+        self.assertIn(
+            'APP_MODULES="narfs narfs_sha256_link_probe"', script)
+        self.assertIn(
+            "--target narfs narfs_sha256_link_probe", script)
+        self.assertIn("expected_sha_api=", script)
+        self.assertIn('"${readelf}" --syms "${archive}"', script)
+        self.assertIn("libnarfs_sha256.a", script)
+
 
 if __name__ == "__main__":
     unittest.main()
