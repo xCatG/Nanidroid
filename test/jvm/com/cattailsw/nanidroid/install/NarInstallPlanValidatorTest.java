@@ -6,6 +6,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -818,6 +820,150 @@ public final class NarInstallPlanValidatorTest {
         assertEquals(1, runtime.deleteCount);
     }
 
+    @Test
+    public void verifiedSessionLeaseIsExclusiveExactAndTransferOwned()
+            throws Exception {
+        FakeIo io = validFakeIo();
+        NarVerifiedInstallSession session =
+                new NarInstallPlanValidator(io).validateStaged(
+                        stagedForTest(new File("lease.nar")),
+                        new File("install-root"), null)
+                        .getVerifiedSession();
+        FakeIo otherIo = validFakeIo();
+        NarVerifiedInstallSession other =
+                new NarInstallPlanValidator(otherIo).validateStaged(
+                        stagedForTest(new File("other.nar")),
+                        new File("install-root"), null)
+                        .getVerifiedSession();
+
+        assertEquals("READY", session.state().name());
+        NarVerifiedInstallSession.Lease lease = session.lease();
+        assertSame(session.getPlan(), lease.plan());
+        assertEquals("BUSY", session.state().name());
+        assertNull(session.lease());
+        assertThrows(IllegalStateException.class,
+                () -> session.open(session.getPlan().getEntries().get(0)));
+        NarVerifiedInstallSession.Lease foreign = other.lease();
+        assertEquals("FOREIGN", session.release(foreign).name());
+        assertEquals("OK", session.release(lease).name());
+        assertEquals("READY", session.state().name());
+        assertEquals("STALE", session.release(lease).name());
+        assertThrows(IllegalStateException.class, lease::plan);
+        assertEquals("OK", other.release(foreign).name());
+
+        NarVerifiedInstallSession.Lease consumed = session.lease();
+        assertEquals("OK", session.consume(consumed).name());
+        assertEquals("CONSUMED", session.state().name());
+        assertNull(session.lease());
+        assertThrows(IllegalStateException.class, session::close);
+        consumed.cleanup();
+        assertTrue(session.isClosed());
+        consumed.cleanup();
+        assertEquals(1, io.archive.closeCount);
+        assertEquals(1, io.deleteCount);
+        for (Method method :
+                NarVerifiedInstallSession.Lease.class.getDeclaredMethods()) {
+            String type = method.getReturnType().getName();
+            assertFalse(type.equals("java.io.File")
+                    || type.contains("InputStream")
+                    || type.contains("OutputStream")
+                    || type.contains("Writer"));
+        }
+        other.close();
+    }
+
+    @Test
+    public void verifiedCleanupRetriesEachUnfinishedComponentAndFirstFailure()
+            throws Exception {
+        FakeIo io = validFakeIo();
+        NarVerifiedInstallSession session =
+                new NarInstallPlanValidator(io).validateStaged(
+                        stagedForTest(new File("retry.nar")),
+                        new File("install-root"), null)
+                        .getVerifiedSession();
+        io.archive.closeFailure = true;
+        io.deleteFailure = true;
+        assertThrows(IOException.class, session::close);
+        assertEquals(Arrays.asList("archive-close", "delete"), io.events);
+        assertEquals("CONSUMED", session.state().name());
+        assertFalse(session.isClosed());
+        assertNull(session.lease());
+        io.archive.closeFailure = false;
+        assertThrows(IOException.class, session::close);
+        assertEquals(2, io.archive.closeCount);
+        assertEquals(2, io.deleteCount);
+        io.deleteFailure = false;
+        session.close();
+        session.close();
+        assertEquals(2, io.archive.closeCount);
+        assertEquals(3, io.deleteCount);
+        assertTrue(session.isClosed());
+
+        FakeIo fatal = validFakeIo();
+        NarVerifiedInstallSession fatalSession =
+                new NarInstallPlanValidator(fatal).validateStaged(
+                        stagedForTest(new File("fatal.nar")),
+                        new File("install-root"), null)
+                        .getVerifiedSession();
+        OutOfMemoryError first = new OutOfMemoryError("close");
+        fatal.archive.closeThrowable = first;
+        fatal.deleteThrowable = new LinkageError("delete");
+        assertSame(first, assertThrows(OutOfMemoryError.class,
+                fatalSession::close));
+        assertEquals(1, fatal.archive.closeCount);
+        assertEquals(1, fatal.deleteCount);
+        fatal.archive.closeThrowable = null;
+        assertThrows(LinkageError.class, fatalSession::close);
+        assertEquals(2, fatal.archive.closeCount);
+        assertEquals(2, fatal.deleteCount);
+        fatal.deleteThrowable = null;
+        fatalSession.close();
+        assertEquals(2, fatal.archive.closeCount);
+        assertEquals(3, fatal.deleteCount);
+    }
+
+    @Test
+    public void concurrentVerifiedCleanupCompletesEachComponentOnce()
+            throws Exception {
+        FakeIo io = validFakeIo();
+        final NarVerifiedInstallSession session =
+                new NarInstallPlanValidator(io).validateStaged(
+                        stagedForTest(new File("race.nar")),
+                        new File("install-root"), null)
+                        .getVerifiedSession();
+        final Throwable[] failures = new Throwable[2];
+        race(() -> closeInto(session, failures, 0),
+                () -> closeInto(session, failures, 1));
+        assertNull(failures[0]);
+        assertNull(failures[1]);
+        assertTrue(session.isClosed());
+        assertEquals(1, io.archive.closeCount);
+        assertEquals(1, io.deleteCount);
+    }
+
+    private static void closeInto(NarVerifiedInstallSession session,
+            Throwable[] failures, int index) {
+        try { session.close(); }
+        catch (Throwable failure) { failures[index] = failure; }
+    }
+
+    private static void race(Runnable first, Runnable second)
+            throws Exception {
+        CountDownLatch start = new CountDownLatch(1);
+        Thread one = new Thread(() -> { await(start); first.run(); });
+        Thread two = new Thread(() -> { await(start); second.run(); });
+        one.start(); two.start(); start.countDown();
+        one.join(5000); two.join(5000);
+        assertFalse(one.isAlive()); assertFalse(two.isAlive());
+    }
+
+    private static void await(CountDownLatch latch) {
+        try { latch.await(); }
+        catch (InterruptedException failure) {
+            throw new AssertionError(failure);
+        }
+    }
+
     private static NarInstallPlanResult validate(FakeIo io) {
         return new NarInstallPlanValidator(io).validate(
                 new File("archive.nar"),
@@ -1008,6 +1154,7 @@ public final class NarInstallPlanValidatorTest {
         private boolean canonicalFailure;
         private boolean preflightFailure;
         private boolean deleteFailure;
+        private Throwable deleteThrowable;
         private int switchSourceAt = -1;
         private int preflightCount = -1;
         private int sourceOpenCount;
@@ -1087,6 +1234,7 @@ public final class NarInstallPlanValidatorTest {
         @Override public boolean delete(File file) {
             deleteCount++;
             events.add("delete");
+            throwUnchecked(deleteThrowable);
             return !deleteFailure;
         }
     }
@@ -1104,6 +1252,7 @@ public final class NarInstallPlanValidatorTest {
         private boolean listFailure;
         private boolean closeFailure;
         private boolean runtimeCloseFailure;
+        private Throwable closeThrowable;
         private int closeCount;
         private int descriptorCloseCount;
         private long descriptorBytesRead;
@@ -1163,6 +1312,10 @@ public final class NarInstallPlanValidatorTest {
             if (owner != null) {
                 owner.events.add("archive-close");
             }
+            if (closeThrowable instanceof IOException) {
+                throw (IOException) closeThrowable;
+            }
+            throwUnchecked(closeThrowable);
             if (runtimeCloseFailure) {
                 throw new IllegalStateException("zip close");
             }
@@ -1170,6 +1323,13 @@ public final class NarInstallPlanValidatorTest {
                 throw new IOException("zip close");
             }
         }
+    }
+
+    private static void throwUnchecked(Throwable failure) {
+        if (failure instanceof RuntimeException) {
+            throw (RuntimeException) failure;
+        }
+        if (failure instanceof Error) throw (Error) failure;
     }
 
     private static final class FakeEntry

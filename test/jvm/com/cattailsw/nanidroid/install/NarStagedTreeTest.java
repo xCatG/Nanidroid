@@ -285,6 +285,109 @@ public final class NarStagedTreeTest {
     }
 
     @Test
+    public void claimLeaseIsExclusiveExactAndTransferredCleanupOnly()
+            throws Exception {
+        FakeBackend backend = new FakeBackend();
+        backend.present(empty());
+        NarStagedTree.Claim claim = claim(backend, "ghost");
+        FakeBackend otherBackend = new FakeBackend();
+        otherBackend.present(empty());
+        NarStagedTree.Claim other = claim(otherBackend, "other");
+
+        assertEquals("READY", claim.state().name());
+        NarStagedTree.Claim.Lease lease = claim.lease();
+        assertEquals(NarGhostTreePolicy.State.PRESENT,
+                lease.manifest().getState());
+        assertTrue(lease.entries().isEmpty());
+        assertEquals("BUSY", claim.state().name());
+        assertNull(claim.lease());
+        assertEquals(NarStagedTree.Error.BUSY, claim.discard());
+        NarStagedTree.Claim.Lease foreign = other.lease();
+        assertEquals(NarStagedTree.Error.FOREIGN,
+                claim.release(foreign));
+        assertEquals(NarStagedTree.Error.FOREIGN,
+                claim.consume(foreign));
+        assertEquals(NarStagedTree.Error.OK, claim.release(lease));
+        assertEquals("READY", claim.state().name());
+        assertEquals(NarStagedTree.Error.CONSUMED,
+                claim.release(lease));
+        assertThrows(IllegalStateException.class, lease::manifest);
+        assertEquals(NarStagedTree.Error.OK, other.release(foreign));
+
+        backend.discardResults = new NarStagedTree.Error[] {
+                NarStagedTree.Error.PERMISSION, NarStagedTree.Error.OK
+        };
+        NarStagedTree.Claim.Lease consumed = claim.lease();
+        assertEquals(NarStagedTree.Error.OK, claim.consume(consumed));
+        assertEquals("CONSUMED", claim.state().name());
+        assertEquals(NarStagedTree.Error.CONSUMED, claim.discard());
+        assertNull(claim.lease());
+        assertEquals(NarStagedTree.Error.PERMISSION, consumed.discard());
+        assertEquals(NarStagedTree.Error.OK, consumed.discard());
+        assertEquals(NarStagedTree.Error.OK, consumed.discard());
+        assertEquals(2, backend.discards);
+        assertMethods(NarStagedTree.Claim.Lease.class,
+                "discard", "entries", "manifest");
+        assertEquals(NarStagedTree.Error.OK, other.discard());
+    }
+
+    @Test
+    public void absentAndOomeClaimLeaseCleanupRemainRetryable()
+            throws Exception {
+        FakeBackend absentBackend = new FakeBackend();
+        absentBackend.begin =
+                NarStagedTree.BeginResult.absent(7, 11);
+        NarStagedTree.Claim absent = claim(absentBackend, "absent");
+        NarStagedTree.Claim.Lease absentLease = absent.lease();
+        assertEquals(NarGhostTreePolicy.State.ABSENT,
+                absentLease.manifest().getState());
+        assertEquals(NarStagedTree.Error.OK,
+                absent.consume(absentLease));
+        assertEquals(NarStagedTree.Error.CONSUMED, absent.discard());
+        assertEquals(NarStagedTree.Error.OK, absentLease.discard());
+        assertEquals(NarStagedTree.Error.OK, absentLease.discard());
+        assertEquals(0, absentBackend.discards);
+
+        FakeBackend oomeBackend = new FakeBackend();
+        oomeBackend.present(empty());
+        NarStagedTree.Claim oome = claim(oomeBackend, "oome");
+        NarStagedTree.Claim.Lease oomeLease = oome.lease();
+        assertEquals(NarStagedTree.Error.OK, oome.consume(oomeLease));
+        OutOfMemoryError failure = new OutOfMemoryError("discard");
+        oomeBackend.discardFailure = failure;
+        assertSame(failure, assertThrows(OutOfMemoryError.class,
+                oomeLease::discard));
+        oomeBackend.discardFailure = null;
+        assertEquals(NarStagedTree.Error.OK, oomeLease.discard());
+        assertEquals(NarStagedTree.Error.OK, oomeLease.discard());
+        assertEquals(2, oomeBackend.discards);
+    }
+
+    @Test
+    public void concurrentClaimLeaseAndDirectDiscardAreLinearized()
+            throws Exception {
+        FakeBackend backend = new FakeBackend();
+        backend.present(empty());
+        final NarStagedTree.Claim claim = claim(backend, "race");
+        final NarStagedTree.Claim.Lease[] lease =
+                new NarStagedTree.Claim.Lease[1];
+        final NarStagedTree.Error[] discard = new NarStagedTree.Error[1];
+        race(() -> lease[0] = claim.lease(),
+                () -> discard[0] = claim.discard());
+        if (lease[0] == null) {
+            assertEquals(NarStagedTree.Error.OK, discard[0]);
+        } else {
+            assertEquals(NarStagedTree.Error.BUSY, discard[0]);
+            assertEquals(NarStagedTree.Error.OK,
+                    claim.consume(lease[0]));
+            assertEquals(NarStagedTree.Error.OK,
+                    lease[0].discard());
+        }
+        assertEquals("CONSUMED", claim.state().name());
+        assertEquals(1, backend.discards);
+    }
+
+    @Test
     public void concurrentDiscardAndTransferAreLinearized()
             throws Exception {
         final FakeBackend claimBackend = new FakeBackend();
@@ -501,7 +604,8 @@ public final class NarStagedTreeTest {
             NarStagedTree.Error.VISITOR,
             NarStagedTree.Error.CLOSE
         };
-        assertEquals(28, NarStagedTree.Error.values().length);
+        assertEquals(29, NarStagedTree.Error.values().length);
+        assertEquals(28, NarStagedTree.Error.BUSY.ordinal());
         Method mapper = NarStagedTree.class.getDeclaredMethod(
                 "fromNativeError", int.class);
         mapper.setAccessible(true);
@@ -539,7 +643,8 @@ public final class NarStagedTreeTest {
                 "consume", "stage");
         assertMethods(NarStagedTree.Tree.class,
                 "discard", "entries", "manifest");
-        assertMethods(NarStagedTree.Claim.class, "discard");
+        assertMethods(NarStagedTree.Claim.class,
+                "consume", "discard", "lease", "release", "state");
         assertMethods(NarStagedTree.StageResult.class,
                 "cleanup", "detail", "error", "failure", "isSuccess",
                 "success", "tree");
@@ -620,6 +725,13 @@ public final class NarStagedTreeTest {
 
     private static NarStagedTree.Session session(FakeBackend backend) {
         return new NarStagedTree.Stager(backend).session(CONTEXT);
+    }
+
+    private static NarStagedTree.Claim claim(
+            FakeBackend backend, String target) {
+        NarStagedTree.Session session = session(backend);
+        return session.consume(
+                success(session.stage(ROOT, target))).claim();
     }
 
     private static NarStagedTree.Tree success(
