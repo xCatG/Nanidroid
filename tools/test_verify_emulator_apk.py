@@ -38,6 +38,7 @@ class VerifyEmulatorApkTest(unittest.TestCase):
             directory = root / abi
             directory.mkdir(parents=True)
             (directory / "libkawari8.so").write_bytes(b"\x7fELF-kawari-" + suffix)
+            (directory / "libnarfs.so").write_bytes(b"\x7fELF-narfs-" + suffix)
             (directory / "libsatoriya.so").write_bytes(b"\x7fELF-satori-" + suffix)
         self.arm64_contract = self.root / "native-contract.json"
         self._write_arm64_contract()
@@ -47,7 +48,7 @@ class VerifyEmulatorApkTest(unittest.TestCase):
             f"arm64-v8a/{name}": hashlib.sha256(
                 (self.arm64_root / "arm64-v8a" / name).read_bytes()
             ).hexdigest()
-            for name in ("libkawari8.so", "libsatoriya.so")
+            for name in ("libkawari8.so", "libnarfs.so", "libsatoriya.so")
         }
         self.arm64_contract.write_text(
             json.dumps({"sha256": hashes}), encoding="utf-8"
@@ -70,7 +71,7 @@ class VerifyEmulatorApkTest(unittest.TestCase):
                 (self.legacy_root, "armeabi"),
                 (self.arm64_root, "arm64-v8a"),
             )
-            for name in ("libkawari8.so", "libsatoriya.so")
+            for name in ("libkawari8.so", "libnarfs.so", "libsatoriya.so")
         }
 
     def test_accepts_exact_additive_abi_profile_and_bytes(self) -> None:
@@ -84,7 +85,7 @@ class VerifyEmulatorApkTest(unittest.TestCase):
 
         self.assertEqual(report["status"], "identical")
         self.assertEqual(report["nativeCode"], ["arm64-v8a", "armeabi"])
-        self.assertEqual(len(report["sha256"]), 4)
+        self.assertEqual(len(report["sha256"]), 6)
 
     def test_rejects_missing_or_extra_native_entries(self) -> None:
         entries = self._exact_entries()

@@ -28,8 +28,12 @@ REQUIRED_ENTRIES = {
     "classes.dex",
     "resources.arsc",
     "lib/armeabi/libkawari8.so",
+    "lib/armeabi/libnarfs.so",
     "lib/armeabi/libsatoriya.so",
 }
+EXPECTED_NATIVE_LIBRARIES = sorted(
+    entry for entry in REQUIRED_ENTRIES if entry.startswith("lib/")
+)
 
 
 class ArtifactError(ValueError):
@@ -89,6 +93,11 @@ def inspect_apk(apk: Path, badging: str) -> dict[str, object]:
                 for name in entries
                 if name.startswith("lib/") and name.endswith(".so")
             )
+            if native_libraries != EXPECTED_NATIVE_LIBRARIES:
+                _fail(
+                    "APK native entries changed: "
+                    f"expected {EXPECTED_NATIVE_LIBRARIES}, got {native_libraries}"
+                )
             for library in native_libraries:
                 with archive.open(library) as stream:
                     if stream.read(4) != b"\x7fELF":

@@ -26,8 +26,10 @@ EXPECTED_PACKAGE = {
 }
 EXPECTED_PAYLOAD = {
     "lib/armeabi/libkawari8.so": ("legacy", "armeabi/libkawari8.so"),
+    "lib/armeabi/libnarfs.so": ("legacy", "armeabi/libnarfs.so"),
     "lib/armeabi/libsatoriya.so": ("legacy", "armeabi/libsatoriya.so"),
     "lib/arm64-v8a/libkawari8.so": ("arm64", "arm64-v8a/libkawari8.so"),
+    "lib/arm64-v8a/libnarfs.so": ("arm64", "arm64-v8a/libnarfs.so"),
     "lib/arm64-v8a/libsatoriya.so": ("arm64", "arm64-v8a/libsatoriya.so"),
 }
 
@@ -47,6 +49,7 @@ def _sha256(value: bytes) -> str:
 def _approved_arm64_hashes(contract: Path) -> dict[str, str]:
     expected_paths = {
         "arm64-v8a/libkawari8.so",
+        "arm64-v8a/libnarfs.so",
         "arm64-v8a/libsatoriya.so",
     }
     try:

@@ -4,8 +4,8 @@ set -euo pipefail
 readonly SOURCE_ROOT="${SOURCE_ROOT:-/workspaces/Nanidroid}"
 readonly OUTPUT_ROOT="${OUTPUT_ROOT:-${SOURCE_ROOT}/artifacts/gradle}"
 readonly APK="${SOURCE_ROOT}/build/outputs/apk/debug/Nanidroid-debug.apk"
-readonly TEST_APK="${SOURCE_ROOT}/build/outputs/apk/androidTest/debug/Nanidroid-debug-androidTest.apk"
-readonly TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/testDebugUnitTest"
+readonly TEST_APK="${SOURCE_ROOT}/build/outputs/apk/androidTest/emulator/Nanidroid-emulator-androidTest.apk"
+readonly TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/testEmulatorUnitTest"
 readonly TEST_ARTIFACT_ROOT="${OUTPUT_ROOT}/test-results"
 readonly PROJECT_CACHE_ROOT="${PROJECT_CACHE_ROOT:-${GRADLE_USER_HOME:-/tmp/nanidroid-gradle}/project-cache}"
 readonly REFERENCE_REPORT="${SOURCE_ROOT}/artifacts/legacy/Nanidroid-debug.json"
@@ -18,8 +18,8 @@ readonly ZIPALIGN="${BUILD_TOOLS_ROOT}/zipalign"
 cd "${SOURCE_ROOT}"
 
 rm -f "${TEST_APK}" \
-  "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk" \
-  "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"
+  "${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.apk" \
+  "${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.json"
 
 if [[ ! -f "${REFERENCE_REPORT}" ]]; then
   echo "missing legacy reference report: ${REFERENCE_REPORT}" >&2
@@ -32,7 +32,7 @@ mkdir -p "${TEST_ARTIFACT_ROOT}" "${PROJECT_CACHE_ROOT}"
 
 set +e
 ./gradlew --no-daemon --project-cache-dir "${PROJECT_CACHE_ROOT}" \
-  testDebugUnitTest assembleDebug assembleDebugAndroidTest
+  testEmulatorUnitTest assembleDebug assembleEmulatorAndroidTest
 gradle_status=$?
 set -e
 
@@ -89,10 +89,10 @@ python3 tools/verify_apk_native_payload.py \
 python3 tools/inspect_android_test_apk.py \
   "${TEST_APK}" \
   --aapt "${AAPT}" \
-  --output "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"
+  --output "${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.json"
 
 cp "${APK}" "${OUTPUT_ROOT}/Nanidroid-debug.apk"
-cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk"
+cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.apk"
 
 echo "Gradle APK matches the frozen legacy artifact contract:"
 cat "${OUTPUT_ROOT}/parity.json"

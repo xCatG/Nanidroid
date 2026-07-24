@@ -60,6 +60,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/device/com/cattailsw/nanidroid/"
                 "SurfaceAnimationExecutionCharacterizationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/device/com/cattailsw/nanidroid/install/"
+                "NarFilesystemInspectorInstrumentationTest.java"
+            ),
         }
         device_root = project_root / "test" / "device"
         actual = {
@@ -120,6 +124,11 @@ class BuildScriptContractTest(unittest.TestCase):
             normalized,
         )
         self.assertIn(
+            '"test/device/com/cattailsw/nanidroid/install/" + '
+            '"NarFilesystemInspectorInstrumentationTest.java"',
+            normalized,
+        )
+        self.assertIn(
             'tasks.named("check").configure { '
             "dependsOn(verifyDeviceCharacterizationTestIsolation) }",
             normalized,
@@ -129,7 +138,31 @@ class BuildScriptContractTest(unittest.TestCase):
             'it.name.contains("AndroidTest")',
             normalized,
         )
-        self.assertNotIn('testBuildType = "emulator"', gradle_build)
+        self.assertIn('testBuildType = "emulator"', gradle_build)
+
+    def test_narfs_device_test_proves_the_selected_dso_is_aarch64(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        test_source = (
+            project_root
+            / "test"
+            / "device"
+            / "com"
+            / "cattailsw"
+            / "nanidroid"
+            / "install"
+            / "NarFilesystemInspectorInstrumentationTest.java"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "getTargetContext().getApplicationInfo().nativeLibraryDir",
+            test_source,
+        )
+        self.assertIn('new File(nativeLibraryDir, "libnarfs.so")', test_source)
+        self.assertIn("assertEquals(2, header[4]);", test_source)
+        self.assertIn("assertEquals(1, header[5]);", test_source)
+        self.assertIn("assertEquals(183, machine);", test_source)
+        self.assertNotIn("Build.SUPPORTED_ABIS", test_source)
+        self.assertNotIn("Build.CPU_ABI", test_source)
 
     def test_gradle_build_packages_and_inspects_the_debug_android_test_apk(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
@@ -138,25 +171,33 @@ class BuildScriptContractTest(unittest.TestCase):
         )
 
         self.assertIn(
-            'TEST_APK="${SOURCE_ROOT}/build/outputs/apk/androidTest/debug/'
-            'Nanidroid-debug-androidTest.apk"',
+            'TEST_APK="${SOURCE_ROOT}/build/outputs/apk/androidTest/emulator/'
+            'Nanidroid-emulator-androidTest.apk"',
             build_script,
         )
-        self.assertIn("testDebugUnitTest assembleDebug assembleDebugAndroidTest", build_script)
+        self.assertIn(
+            "testEmulatorUnitTest assembleDebug assembleEmulatorAndroidTest",
+            build_script,
+        )
+        self.assertIn(
+            'TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/'
+            'testEmulatorUnitTest"',
+            build_script,
+        )
         self.assertIn('"${APKSIGNER}" verify "${TEST_APK}"', build_script)
         self.assertIn('"${ZIPALIGN}" -c 4 "${TEST_APK}"', build_script)
         self.assertIn("python3 tools/inspect_android_test_apk.py", build_script)
         self.assertIn(
-            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"', build_script
+            '"${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.json"', build_script
         )
         self.assertIn(
-            'cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk"',
+            'cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.apk"',
             build_script,
         )
         cleanup = (
             'rm -f "${TEST_APK}" \\ '
-            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk" \\ '
-            '"${OUTPUT_ROOT}/Nanidroid-debug-androidTest.json"'
+            '"${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.apk" \\ '
+            '"${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.json"'
         )
         self.assertIn(cleanup, " ".join(build_script.split()))
         self.assertLess(
@@ -171,7 +212,7 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertLess(
             build_script.index("python3 tools/inspect_android_test_apk.py"),
             build_script.index(
-                'cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-debug-androidTest.apk"'
+                'cp "${TEST_APK}" "${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.apk"'
             ),
         )
 
@@ -182,6 +223,30 @@ class BuildScriptContractTest(unittest.TestCase):
         )
 
         self.assertIn("--exclude /.gradle/", build_script)
+
+    def test_legacy_apk_payload_matches_the_promoted_ndk_artifacts(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        build_script = (project_root / "docker" / "legacy" / "build.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'python3 "${BUILD_ROOT}/tools/verify_apk_native_payload.py"',
+            build_script,
+        )
+        self.assertIn(
+            '--candidate-root "${STAGE_NDK_NATIVE_ROOT}"',
+            build_script,
+        )
+        self.assertIn(
+            '--output "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json"',
+            build_script,
+        )
+        self.assertIn(
+            'mv "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json" '
+            '"${OUTPUT_ROOT}/Nanidroid-debug-native-payload.json"',
+            " ".join(build_script.split()),
+        )
 
     def test_gradle_build_relocates_the_project_cache(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

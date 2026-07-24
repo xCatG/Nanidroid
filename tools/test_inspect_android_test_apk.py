@@ -44,6 +44,8 @@ EXPECTED_TEST_DEX = (
     b"Lcom/cattailsw/nanidroid/SurfaceAnimationExecutionCharacterizationTest;\x00"
     b"testRequiredMigrationInvariant_animationAssemblesFramesInOrderWithExactDurationsAndPixels\x00"
     b"testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation\x00"
+    b"Lcom/cattailsw/nanidroid/install/NarFilesystemInspectorInstrumentationTest;\x00"
+    b"testArm64NativeFilesystemContract\x00"
 )
 
 
@@ -164,6 +166,8 @@ class InspectApkTest(unittest.TestCase):
             b"Lcom/cattailsw/nanidroid/SurfaceAnimationExecutionCharacterizationTest;",
             b"testRequiredMigrationInvariant_animationAssemblesFramesInOrderWithExactDurationsAndPixels",
             b"testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation",
+            b"Lcom/cattailsw/nanidroid/install/NarFilesystemInspectorInstrumentationTest;",
+            b"testArm64NativeFilesystemContract",
         )
         for missing in required_markers:
             with self.subTest(missing=missing.decode("ascii")):

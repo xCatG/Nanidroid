@@ -32,6 +32,8 @@ REQUIRED_DEX_MARKERS = (
     "Lcom/cattailsw/nanidroid/SurfaceAnimationExecutionCharacterizationTest;",
     "testRequiredMigrationInvariant_animationAssemblesFramesInOrderWithExactDurationsAndPixels",
     "testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation",
+    "Lcom/cattailsw/nanidroid/install/NarFilesystemInspectorInstrumentationTest;",
+    "testArm64NativeFilesystemContract",
 )
 
 

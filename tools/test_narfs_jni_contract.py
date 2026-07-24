@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -163,10 +164,32 @@ class NarfsJniContractTest(unittest.TestCase):
         for published in (
             "tools/verify_apk_native_payload.py",
             "tools/verify_emulator_apk.py",
-            "tools/inspect_legacy_apk.py",
             "build.gradle.kts",
         ):
-            self.assertNotIn("libnarfs.so", (project / published).read_text())
+            self.assertIn("libnarfs.so", (project / published).read_text())
+        self.assertNotIn(
+            "libnarfs.so",
+            (project / "tools/inspect_android_test_apk.py").read_text(),
+        )
+
+    def test_published_lane_keeps_the_reviewed_candidate_sources_exact(self):
+        project = Path(__file__).resolve().parents[1]
+        expected = {
+            "jni/narfs/narfs_jni.c": "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
+            "jni/narfs/narfs_utf.c": "6968d471affac1e6e470f5eda37c7d0b814d8060b30908362f964bc7ef6e2800",
+            "jni/narfs/narfs_utf.h": "9b99cc6d865358920a02afae1e550a0c21aa49045cb8cf1bbad5287751ad88c4",
+            "jni/narfs/narfs_core.c": "7f508f1a24de64cb7156334eca96f30eab9c0b20a367085f1244915bda5b424b",
+            "jni/narfs/narfs_core.h": "f9ba4abaa106d7aa85f7fc96a8dfc429c116256ff4dddfbaa718afd9d45ff643",
+            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java":
+                "92d9e4a12b57bfa3adc1ef7a0582416202ce5b8b7090bb782bf08818867beaff",
+        }
+        actual = {
+            relative: hashlib.sha256(
+                (project / relative).read_bytes().replace(b"\r\n", b"\n")
+            ).hexdigest()
+            for relative in expected
+        }
+        self.assertEqual(expected, actual)
 
 
 if __name__ == "__main__":

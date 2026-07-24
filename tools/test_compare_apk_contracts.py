@@ -27,12 +27,14 @@ def report(**overrides: object) -> dict[str, object]:
         },
         "nativeLibraries": [
             "lib/armeabi/libkawari8.so",
+            "lib/armeabi/libnarfs.so",
             "lib/armeabi/libsatoriya.so",
         ],
         "requiredEntries": [
             "AndroidManifest.xml",
             "classes.dex",
             "lib/armeabi/libkawari8.so",
+            "lib/armeabi/libnarfs.so",
             "lib/armeabi/libsatoriya.so",
             "resources.arsc",
         ],
