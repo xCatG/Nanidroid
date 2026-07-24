@@ -78,6 +78,13 @@ static void check_blob( const char *staging, const narfs_stage_result *result, c
     CHECK(memcmp(observed, expected, count) == 0); CHECK(close(fd) == 0);
 }
 
+static void check_token_blob( const char *staging, const narfs_stage_token *token, uint32_t ordinal, const unsigned char *expected, size_t count) {
+    char path[4096]; unsigned char observed[32]; int fd;
+    snprintf(path, sizeof(path), "%s/%s/b%06u", staging, token->session_name, ordinal);
+    fd = open(path, O_RDONLY | O_NOFOLLOW); CHECK(fd >= 0); CHECK(read(fd, observed, sizeof(observed)) == (ssize_t) count);
+    CHECK(memcmp(observed, expected, count) == 0); CHECK(close(fd) == 0);
+}
+
 static narfs_stage_result stage( const char *source, const char *target, const char *staging, narfs_stage_options *options) {
     return narfs_stage_existing( source, target, staging, options);
 }
@@ -187,10 +194,65 @@ static void test_eintr_and_missing_close( const char *source, const char *stagin
     CHECK(narfs_stage_discard(staging, &token, &options) == NARFS_ERR_CLOSE);
 }
 
+static void test_retained_clone( const char *source, const char *staging) {
+    static const unsigned char bytes[] = {0, 1, 254, 255};
+    narfs_stage_options options = narfs_default_stage_options();
+    narfs_stage_result retained;
+    narfs_stage_clone_mapping mapping;
+    narfs_stage_clone_result candidate;
+    fault injected;
+    char source_blob[4096], held[4096];
+
+    retained = stage(source, "ghost", staging, &options);
+    CHECK(retained.inspected.error == NARFS_OK && retained.entry_count == 3);
+    memset(&mapping, 0, sizeof(mapping));
+    mapping.retained_blob_ordinal = retained.entries[2].blob_ordinal;
+    mapping.candidate_blob_ordinal = 17;
+    mapping.expected_size = retained.entries[2].size;
+    memcpy(mapping.expected_sha256, retained.entries[2].sha256, 32);
+
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_OK && candidate.cleanup_error == NARFS_OK);
+    CHECK(strcmp(candidate.token.session_name, retained.token.session_name) != 0);
+    check_token_blob(staging, &candidate.token, 17, bytes, sizeof(bytes));
+    CHECK(narfs_stage_discard(staging, &candidate.token, &options) == NARFS_OK);
+
+    mapping.candidate_blob_ordinal = NARFS_STAGE_MAX_BLOB_ORDINAL + 1U;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_INVALID_OPTIONS && candidate.token.session_name[0] == '\0');
+    mapping.candidate_blob_ordinal = 17;
+    mapping.expected_sha256[0] ^= 1;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_TREE_CHANGED && candidate.token.session_name[0] == '\0');
+    mapping.expected_sha256[0] ^= 1;
+    retained.token.stage_inode++;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_TREE_CHANGED && candidate.token.session_name[0] == '\0');
+    retained.token.stage_inode--;
+
+    snprintf(source_blob, sizeof(source_blob), "%s/%s/b%06u", staging,
+            retained.token.session_name, mapping.retained_blob_ordinal);
+    snprintf(held, sizeof(held), "%s.held", source_blob);
+    CHECK(rename(source_blob, held) == 0); CHECK(symlink(held, source_blob) == 0);
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_TREE_CHANGED && candidate.token.session_name[0] == '\0');
+    CHECK(unlink(source_blob) == 0); CHECK(rename(held, source_blob) == 0);
+
+    memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_WRITE; injected.cleanup = NARFS_STAGE_TEST_UNLINK;
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_IO && candidate.cleanup_error == NARFS_ERR_IO);
+    CHECK(candidate.token.session_name[0] != '\0');
+    options = narfs_default_stage_options();
+    CHECK(narfs_stage_discard(staging, &candidate.token, &options) == NARFS_OK);
+    CHECK(narfs_stage_discard(staging, &retained.token, &options) == NARFS_OK);
+    narfs_stage_result_dispose(&retained);
+}
+
 int main(void) {
     char root[] = "/tmp/narfs-stage-test-XXXXXX"; char source[2048], staging[2048]; CHECK(mkdtemp(root) != NULL);
     snprintf(source, sizeof(source), "%s/source", root); snprintf(staging, sizeof(staging), "%s/staging", root); make_dir(source); make_dir(staging);
-    test_snapshot_and_absent(source, staging); test_faults(source, staging); test_eintr_and_missing_close(source, staging); clear_tree(root);
+    test_snapshot_and_absent(source, staging); test_faults(source, staging); test_eintr_and_missing_close(source, staging); test_retained_clone(source, staging); clear_tree(root);
     puts("narfs stage host tests passed");
     return 0;
 }
