@@ -6,6 +6,7 @@ readonly BUILD_ROOT="${BUILD_ROOT:-/tmp/nanidroid-narfs-jni}"
 readonly OUTPUT_ROOT="${OUTPUT_ROOT:-/out}"
 readonly NDK_ROOT="${ANDROID_NDK_HOME:-/opt/android-ndk-r14b}"
 readonly INSPECTOR="${SOURCE_ROOT}/tools/inspect_narfs_jni.py"
+readonly SHA_INSPECTOR="${SOURCE_ROOT}/tools/inspect_narfs_sha256.py"
 
 case "${BUILD_ROOT}" in
   /tmp/*) ;;
@@ -25,6 +26,7 @@ mkdir -p "${BUILD_ROOT}/test/native" "${OUTPUT_ROOT}"
 rm -f "${OUTPUT_ROOT}"/narfs-jni-*.json
 cp -a "${SOURCE_ROOT}/jni" "${BUILD_ROOT}/jni"
 cp "${SOURCE_ROOT}/test/native/narfs_link_probe.c" "${BUILD_ROOT}/test/native/"
+cp "${SOURCE_ROOT}/test/native/narfs_sha256_link_probe.c" "${BUILD_ROOT}/test/native/"
 ln -s Sender.h "${BUILD_ROOT}/jni/_/sender.h"
 ln -s Utilities.h "${BUILD_ROOT}/jni/_/utilities.h"
 ln -s satori.h "${BUILD_ROOT}/jni/satori/Satori.h"
@@ -34,6 +36,43 @@ gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
   "${SOURCE_ROOT}/test/native/narfs_utf_test.c" \
   -o "${BUILD_ROOT}/narfs_utf_test"
 "${BUILD_ROOT}/narfs_utf_test"
+gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  "${SOURCE_ROOT}/jni/narfs/narfs_sha256.c" \
+  "${SOURCE_ROOT}/test/native/narfs_sha256_test.c" \
+  -o "${BUILD_ROOT}/narfs_sha256_test"
+"${BUILD_ROOT}/narfs_sha256_test"
+
+readonly OFF_ROOT="${BUILD_ROOT}/candidate-off"
+mkdir -p "${OFF_ROOT}/ndk"
+"${NDK_ROOT}/ndk-build" NDK_PROJECT_PATH="${OFF_ROOT}/ndk" \
+  NDK_OUT="${OFF_ROOT}/ndk/obj" NDK_LIBS_OUT="${OFF_ROOT}/ndk/libs" \
+  APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/Android.mk" \
+  NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
+  APP_MODULES=narfs_core_link_probe \
+  APP_PLATFORM=android-9 APP_ABI=armeabi NDK_TOOLCHAIN_VERSION=4.9
+if "${NDK_ROOT}/ndk-build" NDK_PROJECT_PATH="${OFF_ROOT}/ndk-missing" \
+  NDK_OUT="${OFF_ROOT}/ndk-missing/obj" NDK_LIBS_OUT="${OFF_ROOT}/ndk-missing/libs" \
+  APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/Android.mk" \
+  NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
+  APP_MODULES=narfs_sha256_link_probe APP_PLATFORM=android-9 \
+  APP_ABI=armeabi NDK_TOOLCHAIN_VERSION=4.9 >/dev/null 2>&1; then
+  echo "candidate-off NDK graph exposes sha256 target" >&2
+  exit 1
+fi
+cmake -S "${BUILD_ROOT}/jni" -B "${OFF_ROOT}/cmake" \
+  -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake" \
+  -DANDROID_NDK="${NDK_ROOT}" -DANDROID_TOOLCHAIN=gcc \
+  -DANDROID_ABI=armeabi -DANDROID_PLATFORM=android-9 -DANDROID_STL=gnustl_static
+cmake --build "${OFF_ROOT}/cmake" --target narfs_core_link_probe
+if cmake --build "${OFF_ROOT}/cmake" \
+  --target narfs_sha256_link_probe >/dev/null 2>&1; then
+  echo "candidate-off CMake graph exposes sha256 target" >&2
+  exit 1
+fi
+if find "${OFF_ROOT}" -iname '*sha256*' -print -quit | grep -q .; then
+  echo "candidate-off graph unexpectedly contains sha256" >&2
+  exit 1
+fi
 
 build_lane() {
   local abi="$1" api="$2" triple="$3" arm_mode="$4"
@@ -51,8 +90,10 @@ build_lane() {
     NDK_LIBS_OUT="${ndk_build}/libs" \
     APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
     NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
-    APP_MODULES=narfs APP_PLATFORM="${api}" APP_ABI="${abi}" \
+    APP_MODULES="narfs narfs_sha256_link_probe" \
+    APP_PLATFORM="${api}" APP_ABI="${abi}" \
     NDK_TOOLCHAIN_VERSION=4.9 NANIDROID_NARFS_JNI_CANDIDATE=1 \
+    NANIDROID_NARFS_SHA256_CANDIDATE=1 \
     V=1 2>&1 | tee "${ndk_log}"
 
   python3 "${INSPECTOR}" inspect \
@@ -70,12 +111,30 @@ build_lane() {
     -DANDROID_NDK="${NDK_ROOT}" -DANDROID_TOOLCHAIN=gcc
     -DANDROID_ABI="${abi}" -DANDROID_PLATFORM="${api}"
     -DANDROID_STL=gnustl_static -DNANIDROID_BUILD_NARFS_JNI_CANDIDATE=ON
+    -DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON
   )
   if [[ -n "${arm_mode}" ]]; then
     cmake_args+=("-DANDROID_ARM_MODE=${arm_mode}")
   fi
   cmake "${cmake_args[@]}"
-  cmake --build "${cmake_build}" --target narfs -- VERBOSE=1
+  cmake --build "${cmake_build}" \
+    --target narfs narfs_sha256_link_probe -- VERBOSE=1
+
+  python3 "${SHA_INSPECTOR}" inspect --project-root "${SOURCE_ROOT}" \
+    --archive "${ndk_build}/obj/local/${abi}/libnarfs_sha256.a" \
+    --probe "${ndk_build}/obj/local/${abi}/narfs_sha256_link_probe" \
+    --readelf "${readelf}" --build-evidence "${ndk_log}" \
+    --abi "${abi}" --api "${api}" --build-system ndk-build \
+    --output "${report}-sha256-ndk-build.json"
+  python3 "${SHA_INSPECTOR}" inspect --project-root "${SOURCE_ROOT}" \
+    --archive "${cmake_build}/static/${abi}/libnarfs_sha256.a" \
+    --probe "${cmake_build}/sha256/narfs_sha256_link_probe" \
+    --readelf "${readelf}" --build-evidence "${cmake_build}" \
+    --abi "${abi}" --api "${api}" --build-system cmake \
+    --output "${report}-sha256-cmake.json"
+  python3 "${SHA_INSPECTOR}" compare \
+    "${report}-sha256-ndk-build.json" "${report}-sha256-cmake.json" \
+    --output "${report}-sha256-parity.json"
 
   python3 "${INSPECTOR}" inspect \
     --dso "${cmake_build}/native/${abi}/libnarfs.so" \
