@@ -41,6 +41,23 @@ gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -o "${BUILD_ROOT}/narfs_sha256_test"
 "${BUILD_ROOT}/narfs_sha256_test"
 
+readonly OFF_ROOT="${BUILD_ROOT}/candidate-off"
+mkdir -p "${OFF_ROOT}/ndk"
+"${NDK_ROOT}/ndk-build" NDK_PROJECT_PATH="${OFF_ROOT}/ndk" \
+  NDK_OUT="${OFF_ROOT}/ndk/obj" NDK_LIBS_OUT="${OFF_ROOT}/ndk/libs" \
+  APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
+  NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
+  APP_PLATFORM=android-9 APP_ABI=armeabi NDK_TOOLCHAIN_VERSION=4.9
+cmake -S "${BUILD_ROOT}/jni/narfs" -B "${OFF_ROOT}/cmake" \
+  -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake" \
+  -DANDROID_NDK="${NDK_ROOT}" -DANDROID_TOOLCHAIN=gcc \
+  -DANDROID_ABI=armeabi -DANDROID_PLATFORM=android-9 -DANDROID_STL=gnustl_static
+cmake --build "${OFF_ROOT}/cmake"
+if find "${OFF_ROOT}" -iname '*sha256*' -print -quit | grep -q .; then
+  echo "candidate-off graph unexpectedly contains sha256" >&2
+  exit 1
+fi
+
 build_lane() {
   local abi="$1" api="$2" triple="$3" arm_mode="$4"
   local ndk_build="${BUILD_ROOT}/ndk-${abi}"
