@@ -34,6 +34,10 @@ REQUIRED_DEX_MARKERS = (
     "testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation",
     "Lcom/cattailsw/nanidroid/install/NarFilesystemInspectorInstrumentationTest;",
     "testArm64NativeFilesystemContract",
+    "Lcom/cattailsw/nanidroid/install/NarStagedTreeInstrumentationTest;",
+    "testPresentAbsentInventoryAndTreeClaimTransfer",
+    "testInodeMismatchFailureRetriesAndMalformedTokenRejects",
+    "testPolicyFailureAutomaticallyCleansNativeSession",
 )
 
 

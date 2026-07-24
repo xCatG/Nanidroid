@@ -260,6 +260,8 @@ val deviceCharacterizationTests = listOf(
         "SurfaceAnimationExecutionCharacterizationTest.java",
     "test/device/com/cattailsw/nanidroid/install/" +
         "NarFilesystemInspectorInstrumentationTest.java",
+    "test/device/com/cattailsw/nanidroid/install/" +
+        "NarStagedTreeInstrumentationTest.java",
 )
 val deviceTestSources = files(
     fileTree("test/device") {

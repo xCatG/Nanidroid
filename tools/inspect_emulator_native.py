@@ -30,6 +30,8 @@ EXPECTED_LIBRARIES = {
         "needed": ["libc.so"],
         "jniExports": [
             "Java_com_cattailsw_nanidroid_install_NarFilesystemInspector_nativeInspect",
+            "Java_com_cattailsw_nanidroid_install_NarStagedTree_nativeBegin",
+            "Java_com_cattailsw_nanidroid_install_NarStagedTree_nativeDiscard",
         ],
     },
     "arm64-v8a/libsatoriya.so": {

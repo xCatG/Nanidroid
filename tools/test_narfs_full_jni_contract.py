@@ -7,22 +7,62 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NarfsFullJniContractTest(unittest.TestCase):
-    def test_full_profile_is_private_mutually_exclusive_and_unpublished(self):
+    def test_full_profile_is_private_mutually_exclusive_and_published(self):
         make = (ROOT / "jni/narfs/Android.mk").read_text()
         cmake = (ROOT / "jni/narfs/CMakeLists.txt").read_text()
-        script = (ROOT / "docker/narfs-jni/build.sh").read_text()
+        candidate = (ROOT / "docker/narfs-jni/build.sh").read_text()
+        legacy = (ROOT / "docker/legacy/build.sh").read_text()
+        emulator = (ROOT / "docker/emulator/build-native.sh").read_text()
         for value in (
             "NANIDROID_NARFS_FULL_JNI_CANDIDATE",
             "narfs_full", "narfs_full_jni.map",
             "narfs_stage narfs_core narfs_sha256",
         ):
-            self.assertIn(value, make + cmake + script)
+            self.assertIn(value, make + cmake + candidate)
         self.assertIn("full and inspector JNI candidates are exclusive",
                       make + cmake)
-        self.assertIn("narfs_stage_token_test", script)
-        self.assertNotRegex(script, r"(?:cp|mv).+libnarfs\.so.+OUTPUT_ROOT")
+        self.assertIn("narfs_stage_token_test", candidate)
+        for script in (legacy, emulator):
+            self.assertIn("NANIDROID_BUILD_NARFS_FULL_JNI_CANDIDATE", script)
+            self.assertIn("NANIDROID_BUILD_NARFS_STAGE_CANDIDATE", script)
+            self.assertIn("NANIDROID_BUILD_NARFS_SHA256_CANDIDATE", script)
+            self.assertIn("--profile full", script)
+            self.assertNotIn("NANIDROID_NARFS_JNI_CANDIDATE=1", script)
+        self.assertIn("NANIDROID_NARFS_FULL_JNI_CANDIDATE", legacy)
+        self.assertIn("NANIDROID_NARFS_STAGE_CANDIDATE", legacy)
+        self.assertIn("NANIDROID_NARFS_SHA256_CANDIDATE", legacy)
+        self.assertIn("APP_MODULES=narfs_full", legacy)
+        self.assertIn("--target narfs_full", legacy)
+        self.assertIn("--target narfs_full", emulator)
+        self.assertIn("narfs_sha256_link_probe.c", emulator)
+        self.assertIn("narfs_stage_link_probe.c", emulator)
         self.assertNotIn("NANIDROID_NARFS_FULL_JNI_CANDIDATE",
                          (ROOT / "build.gradle.kts").read_text())
+
+    def test_java_backend_derives_fixed_root_and_caches_opaque_handle(self):
+        source = (ROOT / "src/com/cattailsw/nanidroid/install/"
+                  "NarStagedTree.java").read_text()
+        inspector = (ROOT / "src/com/cattailsw/nanidroid/install/"
+                     "NarFilesystemInspector.java").read_text()
+        for value in (
+            'System.loadLibrary("narfs")',
+            "fromNativeBegin", "nativeBegin", "nativeDiscard",
+            "token.clone()", "NativeBackend", "NativeHandle",
+            "NarFilesystemInspector.sourceRootValue",
+        ):
+            self.assertIn(value, source + inspector)
+        self.assertRegex(
+            source,
+            r'getDir\(\s*"narfs-stage-v1",\s*Context\.MODE_PRIVATE\)',
+        )
+        self.assertNotIn("File staging", source)
+        self.assertNotRegex(source, r"(?:get|set)(?:Staging|Destination|Token|Path)")
+        backend = source[source.index("class NativeBackend"):]
+        self.assertLess(backend.index("ensureLoaded();"),
+                        backend.index("return nativeBegin("))
+        stager = source[source.index("static final class Stager"):]
+        self.assertNotIn("System.loadLibrary", stager.split(
+            "static final class Session", 1)[0])
 
     def test_bridge_uses_standard_utf_factory_and_self_discard(self):
         source = (ROOT / "jni/narfs/narfs_stage_jni.c").read_text()

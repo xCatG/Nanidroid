@@ -33,6 +33,11 @@ final class NarFilesystemInspector {
         }
     }
 
+    static String sourceRootValue(TrustedRoot root) {
+        if (root == null) throw new NullPointerException("trusted root");
+        return root.value;
+    }
+
     static final class Entry {
         private final String path;
         private final Type type;

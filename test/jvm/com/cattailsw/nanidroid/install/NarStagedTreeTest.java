@@ -319,6 +319,207 @@ public final class NarStagedTreeTest {
     }
 
     @Test
+    public void nativeFactoryMapsCodesDefensivelyAndCachesDescription()
+            throws Exception {
+        byte[] token = new byte[88];
+        token[0] = 7;
+        String[] paths = new String[] {"file"};
+        int[] types = new int[] {1};
+        long[] sizes = new long[] {3};
+        int[] ordinals = new int[] {0};
+        byte[] digests = digest("abc");
+        NarStagedTree.BeginResult present = NarStagedTree.fromNativeBegin(
+                2, 0, 0, 7, 11, token,
+                paths, types, sizes, ordinals, digests);
+        NarStagedTree.Handle handle = (NarStagedTree.Handle)
+                field(present, "handle");
+        token[0] = 99;
+        paths[0] = "changed";
+        digests[0] = 99;
+        byte[] owned = (byte[]) field(handle, "token");
+        assertEquals(7, owned[0]);
+        NarStagedTreeInventory.Result inventory =
+                NarStagedTreeInventory.present(
+                "ghost", new NarStagedTree.NativeBackend().describe(handle));
+        assertTrue(inventory.isSuccess());
+        assertEquals("file", inventory.entries().get(0).path());
+        assertEquals(digest("abc")[0],
+                inventory.entries().get(0).sha256()[0]);
+
+        NarStagedTree.BeginResult invalid = NarStagedTree.fromNativeBegin(
+                0, Integer.MAX_VALUE, Integer.MIN_VALUE, 0, 0,
+                null, new String[0], new int[0], new long[0],
+                new int[0], new byte[0]);
+        assertEquals(NarStagedTree.Error.NATIVE,
+                field(invalid, "primaryError"));
+        assertEquals(NarStagedTree.Error.NATIVE,
+                field(invalid, "cleanupError"));
+        NarStagedTree.BeginResult absent = NarStagedTree.fromNativeBegin(
+                1, 0, 0, 7, 11, null,
+                new String[0], new int[0], new long[0],
+                new int[0], new byte[0]);
+        assertEquals(null, field(absent, "primaryError"));
+        for (Object malformed : new Object[] {
+                null, new String[] {"unexpected"},
+                new int[] {1}, new long[] {1},
+                new int[] {0}, new byte[] {0}
+        }) {
+            String[] absentPaths = new String[0];
+            int[] absentTypes = new int[0];
+            long[] absentSizes = new long[0];
+            int[] absentOrdinals = new int[0];
+            byte[] absentDigests = new byte[0];
+            if (malformed == null || malformed instanceof String[]) {
+                absentPaths = (String[]) malformed;
+            } else if (malformed instanceof int[]) {
+                if (((int[]) malformed)[0] == 0) {
+                    absentOrdinals = (int[]) malformed;
+                } else {
+                    absentTypes = (int[]) malformed;
+                }
+            } else if (malformed instanceof long[]) {
+                absentSizes = (long[]) malformed;
+            } else {
+                absentDigests = (byte[]) malformed;
+            }
+            NarStagedTree.BeginResult malformedAbsent =
+                    NarStagedTree.fromNativeBegin(
+                    1, 0, 0, 7, 11, null,
+                    absentPaths, absentTypes, absentSizes,
+                    absentOrdinals, absentDigests);
+            assertEquals(NarStagedTree.Error.NATIVE,
+                    field(malformedAbsent, "primaryError"));
+        }
+        assertThrows(IllegalArgumentException.class,
+                () -> NarStagedTree.fromNativeBegin(
+                2, 0, 0, 7, 11, new byte[87],
+                new String[0], new int[0], new long[0],
+                new int[0], new byte[0]));
+    }
+
+    @Test
+    public void nativeFactoryRejectsMalformedStateShapesAndRetainsCleanup()
+            throws Exception {
+        byte[] token = new byte[88];
+        token[0] = 9;
+        int io = NarStagedTree.Error.IO.ordinal();
+        int close = NarStagedTree.Error.CLOSE.ordinal();
+        NarStagedTree.BeginResult absentWithToken =
+                nativeResult(1, 0, 0, token);
+        NarStagedTree.BeginResult absentWithError =
+                nativeResult(1, io, close, null);
+        NarStagedTree.BeginResult absentWithPrimaryOnly =
+                nativeResult(1, io, 0, null);
+        NarStagedTree.BeginResult presentWithoutToken =
+                nativeResult(2, 0, 0, null);
+        NarStagedTree.BeginResult presentWithError =
+                nativeResult(2, io, 0, token);
+        NarStagedTree.BeginResult presentWithCleanupOnly =
+                nativeResult(2, 0, close, token);
+        NarStagedTree.BeginResult errorWithToken =
+                nativeResult(0, io, close, token);
+        NarStagedTree.BeginResult unknownWithToken =
+                nativeResult(Integer.MAX_VALUE, 0, 0, token);
+
+        assertBeginFailure(
+                absentWithToken, NarStagedTree.Error.NATIVE,
+                NarStagedTree.Error.OK, true);
+        assertBeginFailure(
+                absentWithError, NarStagedTree.Error.IO,
+                NarStagedTree.Error.CLOSE, false);
+        assertBeginFailure(
+                absentWithPrimaryOnly, NarStagedTree.Error.IO,
+                NarStagedTree.Error.OK, false);
+        assertBeginFailure(
+                presentWithoutToken, NarStagedTree.Error.NATIVE,
+                NarStagedTree.Error.OK, false);
+        assertBeginFailure(
+                presentWithError, NarStagedTree.Error.IO,
+                NarStagedTree.Error.OK, true);
+        assertBeginFailure(
+                presentWithCleanupOnly, NarStagedTree.Error.NATIVE,
+                NarStagedTree.Error.CLOSE, true);
+        assertBeginFailure(
+                errorWithToken, NarStagedTree.Error.IO,
+                NarStagedTree.Error.CLOSE, true);
+        assertBeginFailure(
+                unknownWithToken, NarStagedTree.Error.NATIVE,
+                NarStagedTree.Error.OK, true);
+
+        for (NarStagedTree.BeginResult begun :
+                new NarStagedTree.BeginResult[] {
+                    absentWithToken, presentWithError,
+                    presentWithCleanupOnly, errorWithToken,
+                    unknownWithToken
+                }) {
+            FakeBackend backend = new FakeBackend();
+            backend.handle = (NarStagedTree.Handle)
+                    field(begun, "handle");
+            backend.begin = begun;
+            backend.discardResults = new NarStagedTree.Error[] {
+                    NarStagedTree.Error.PERMISSION,
+                    NarStagedTree.Error.OK
+            };
+            NarStagedTree.StageResult result =
+                    session(backend).stage(ROOT, "ghost");
+            assertFailure((NarStagedTree.Error)
+                    field(begun, "primaryError"), result);
+            assertEquals(1, backend.discards);
+            assertEquals(NarStagedTree.Error.PERMISSION,
+                    result.cleanup().discardError());
+            assertEquals(NarStagedTree.Error.OK,
+                    result.cleanup().discard());
+            assertEquals(NarStagedTree.Error.OK,
+                    result.cleanup().discard());
+            assertEquals(2, backend.discards);
+        }
+    }
+
+    @Test
+    public void nativeErrorCodeMappingAndEnumPrefixStayExact()
+            throws Exception {
+        NarStagedTree.Error[] nativePrefix = {
+            NarStagedTree.Error.OK,
+            NarStagedTree.Error.INVALID_OPTIONS,
+            NarStagedTree.Error.INVALID_TARGET,
+            NarStagedTree.Error.ROOT_TYPE,
+            NarStagedTree.Error.TARGET_TYPE,
+            NarStagedTree.Error.SYMLINK,
+            NarStagedTree.Error.SPECIAL_TYPE,
+            NarStagedTree.Error.INVALID_NAME,
+            NarStagedTree.Error.COMPONENT_LIMIT,
+            NarStagedTree.Error.PATH_LIMIT,
+            NarStagedTree.Error.DEPTH_LIMIT,
+            NarStagedTree.Error.ENTRY_COUNT_LIMIT,
+            NarStagedTree.Error.FILE_SIZE_LIMIT,
+            NarStagedTree.Error.TOTAL_SIZE_LIMIT,
+            NarStagedTree.Error.CYCLE,
+            NarStagedTree.Error.TREE_CHANGED,
+            NarStagedTree.Error.PERMISSION,
+            NarStagedTree.Error.RESOURCE,
+            NarStagedTree.Error.IO,
+            NarStagedTree.Error.VISITOR,
+            NarStagedTree.Error.CLOSE
+        };
+        assertEquals(28, NarStagedTree.Error.values().length);
+        Method mapper = NarStagedTree.class.getDeclaredMethod(
+                "fromNativeError", int.class);
+        mapper.setAccessible(true);
+        for (int code = 0; code < nativePrefix.length; code++) {
+            assertEquals(code, nativePrefix[code].ordinal());
+            assertEquals(nativePrefix[code], mapper.invoke(null, code));
+        }
+        assertEquals(NarStagedTree.Error.INPUT,
+                mapper.invoke(null, 100));
+        assertEquals(NarStagedTree.Error.NATIVE,
+                mapper.invoke(null, 101));
+        assertEquals(NarStagedTree.Error.NATIVE,
+                mapper.invoke(null, -1));
+        assertEquals(NarStagedTree.Error.NATIVE,
+                mapper.invoke(null, Integer.MAX_VALUE));
+    }
+
+    @Test
     public void surfaceHasNoDestinationHandleGetterOrOverlayEndpoint()
             throws Exception {
         assertFalse(Modifier.isPublic(NarStagedTree.class.getModifiers()));
@@ -367,6 +568,30 @@ public final class NarStagedTreeTest {
         Collections.sort(actual);
         Arrays.sort(expected);
         assertEquals(Arrays.asList(expected), actual);
+    }
+
+    private static Object field(Object owner, String name) throws Exception {
+        Field field = owner.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(owner);
+    }
+
+    private static NarStagedTree.BeginResult nativeResult(
+            int state, int error, int cleanup, byte[] token) {
+        return NarStagedTree.fromNativeBegin(
+                state, error, cleanup, 7, 11, token,
+                new String[0], new int[0], new long[0],
+                new int[0], new byte[0]);
+    }
+
+    private static void assertBeginFailure(
+            NarStagedTree.BeginResult result,
+            NarStagedTree.Error error,
+            NarStagedTree.Error cleanup,
+            boolean hasHandle) throws Exception {
+        assertEquals(error, field(result, "primaryError"));
+        assertEquals(cleanup, field(result, "cleanupError"));
+        assertEquals(hasHandle, field(result, "handle") != null);
     }
 
     private static boolean forbidden(Class<?> type) {
@@ -449,7 +674,7 @@ public final class NarStagedTreeTest {
 
     private static final class FakeBackend
             implements NarStagedTree.Backend {
-        private final FakeHandle handle = new FakeHandle();
+        private NarStagedTree.Handle handle = new FakeHandle();
         private NarStagedTree.BeginResult begin;
         private NarStagedTreeInventory.Description description;
         private Throwable beginFailure;

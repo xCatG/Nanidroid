@@ -12,6 +12,7 @@ import java.util.List;
  * or raw handle. D9b3 must treat process-death orphans as discard-only.
  */
 final class NarStagedTree {
+    private static final int NATIVE_TOKEN_BYTES = 88;
     private NarStagedTree() {}
     enum Error {
         OK, INVALID_OPTIONS, INVALID_TARGET, ROOT_TYPE, TARGET_TYPE, SYMLINK,
@@ -27,6 +28,60 @@ final class NarStagedTree {
                 CharSequence target);
         NarStagedTreeInventory.Description describe(Handle handle);
         Error discard(Context context, Handle handle);
+    }
+    private static final class NativeHandle implements Handle {
+        private final byte[] token;
+        private final NarStagedTreeInventory.Description description;
+
+        private NativeHandle(byte[] token,
+                NarStagedTreeInventory.Description description) {
+            if (token == null || token.length != NATIVE_TOKEN_BYTES
+                    || description == null) {
+                throw new IllegalArgumentException("native handle");
+            }
+            this.token = token.clone();
+            this.description = description;
+        }
+    }
+    static final class NativeBackend implements Backend {
+        private boolean loaded;
+
+        public BeginResult begin(Context context,
+                NarFilesystemInspector.TrustedRoot root,
+                CharSequence target) {
+            ensureLoaded();
+            String stagingRoot = context.getDir(
+                    "narfs-stage-v1", Context.MODE_PRIVATE).getAbsolutePath();
+            return nativeBegin(stagingRoot,
+                    NarFilesystemInspector.sourceRootValue(root),
+                    target.toString());
+        }
+
+        public NarStagedTreeInventory.Description describe(Handle handle) {
+            return owned(handle).description;
+        }
+
+        public Error discard(Context context, Handle handle) {
+            ensureLoaded();
+            String stagingRoot = context.getDir(
+                    "narfs-stage-v1", Context.MODE_PRIVATE).getAbsolutePath();
+            return fromNativeError(
+                    nativeDiscard(stagingRoot, owned(handle).token));
+        }
+
+        private synchronized void ensureLoaded() {
+            if (!loaded) {
+                System.loadLibrary("narfs");
+                loaded = true;
+            }
+        }
+
+        private static NativeHandle owned(Handle handle) {
+            if (!(handle instanceof NativeHandle)) {
+                throw new IllegalArgumentException("native handle");
+            }
+            return (NativeHandle) handle;
+        }
     }
     static final class BeginResult {
         private static final int ABSENT = 1;
@@ -111,6 +166,10 @@ final class NarStagedTree {
 
     static final class Stager {
         private final Backend backend;
+
+        Stager() {
+            this(new NativeBackend());
+        }
 
         Stager(Backend backend) {
             if (backend == null) throw new NullPointerException("backend");
@@ -365,6 +424,44 @@ final class NarStagedTree {
         return error == null || error == Error.OK ? Error.NATIVE : error;
     }
 
+    static BeginResult fromNativeBegin(
+            int stateCode, int errorCode, int cleanupCode,
+            long storageDevice, long storageInode, byte[] token,
+            String[] paths, int[] types, long[] sizes,
+            int[] ordinals, byte[] digests) {
+        Error error = fromNativeError(errorCode);
+        Error cleanup = fromNativeError(cleanupCode);
+        NarStagedTreeInventory.Description description =
+                new NarStagedTreeInventory.Description(
+                storageDevice, storageInode,
+                paths, types, sizes, ordinals, digests);
+        NativeHandle handle = token == null
+                ? null : new NativeHandle(token, description);
+        if (stateCode == 1 && error == Error.OK
+                && cleanup == Error.OK && handle == null
+                && paths != null && paths.length == 0
+                && types != null && types.length == 0
+                && sizes != null && sizes.length == 0
+                && ordinals != null && ordinals.length == 0
+                && digests != null && digests.length == 0) {
+            return BeginResult.absent(storageDevice, storageInode);
+        }
+        if (stateCode == 2 && error == Error.OK
+                && cleanup == Error.OK && handle != null) {
+            return BeginResult.present(handle);
+        }
+        return BeginResult.failure(
+                error == Error.OK ? Error.NATIVE : error,
+                cleanup, handle);
+    }
+
+    private static Error fromNativeError(int code) {
+        if (code >= 0 && code <= 20) return Error.values()[code];
+        if (code == 100) return Error.INPUT;
+        if (code == 101) return Error.NATIVE;
+        return Error.NATIVE;
+    }
+
     private static StageResult fromInventory(
             Stager owner, Session session, Context context,
             NarStagedTreeInventory.Result inventory, Handle handle) {
@@ -379,4 +476,9 @@ final class NarStagedTree {
                 owner.backend, context, handle, inventory);
         return StageResult.success(new Tree(owner, session, owned));
     }
+
+    private static native BeginResult nativeBegin(
+            String stagingRoot, String trustedRoot, String target);
+    private static native int nativeDiscard(
+            String stagingRoot, byte[] token);
 }

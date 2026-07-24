@@ -41,6 +41,8 @@ SYMBOLS = {
 """,
     "libnarfs.so": """\
   12: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_install_NarFilesystemInspector_nativeInspect
+  13: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_install_NarStagedTree_nativeBegin
+  14: 0000000000000100 8 FUNC GLOBAL DEFAULT 11 Java_com_cattailsw_nanidroid_install_NarStagedTree_nativeDiscard
 """,
 }
 
@@ -101,6 +103,9 @@ class InspectEmulatorNativeTest(unittest.TestCase):
         self.assertEqual(report["toolchain"]["api"], "android-21")
         self.assertEqual(report["toolchain"]["stl"], "gnustl_static")
         self.assertEqual(len(report["libraries"]), 3)
+        narfs = next(value for value in report["libraries"]
+                     if value["path"].endswith("/libnarfs.so"))
+        self.assertEqual(len(narfs["jniExports"]), 3)
 
     def test_rejects_an_extra_library(self) -> None:
         (self.native / "libextra.so").write_bytes(b"\x7fELF-extra")
