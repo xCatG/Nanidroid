@@ -77,28 +77,56 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
                         "android-9", "ndk-build")
 
     def test_compile_and_link_evidence_normalizes_and_rejects_drift(self):
-        prefix = (
-            "/opt/android-ndk-r14b/toolchains/arm-linux-androideabi-4.9/"
-            "prebuilt/linux-x86_64/bin/arm-linux-androideabi-gcc "
-            "--sysroot=/opt/android-ndk-r14b/platforms/android-9/arch-arm "
-            "-I/tmp/jni/narfs -std=c99 -Wall -Wextra -Werror")
-        commands = [
-            prefix + " -c /tmp/jni/narfs/narfs_sha256.c -o sha.o",
-            prefix + " -c /tmp/test/native/narfs_sha256_link_probe.c -o probe.o",
-            prefix + " probe.o /tmp/libnarfs_sha256.a -Wl,--no-undefined -o probe",
-        ]
         with tempfile.TemporaryDirectory() as directory:
-            evidence = Path(directory) / "build.log"
+            build = Path(directory) / "build"
+            evidence = build / "ndk-armeabi/build.log"
+            evidence.parent.mkdir(parents=True)
+            compiler = (
+                "/opt/android-ndk-r14b/toolchains/arm-linux-androideabi-4.9/"
+                "prebuilt/linux-x86_64/bin/arm-linux-androideabi-gcc")
+            prefix = (
+                f"{compiler} "
+                "--sysroot=/opt/android-ndk-r14b/platforms/android-9/arch-arm "
+                f"-I{build}/jni/narfs -I{build}/jni/narfs/sha256 "
+                "-march=armv5te -mtune=xscale -msoft-float -mthumb "
+                "-std=c99 -Wall -Wextra -Werror")
+            commands = [
+                prefix + f" -c {build}/jni/narfs/narfs_sha256.c -o sha.o",
+                prefix + f" -c {build}/test/native/narfs_sha256_link_probe.c "
+                f"-o {build}/narfs_sha256_link_probe.o",
+                f"{compiler} {build}/narfs_sha256_link_probe.o "
+                f"{build}/libnarfs_sha256.a -Wl,--no-undefined "
+                f"-o {build}/narfs_sha256_link_probe",
+            ]
             evidence.write_text("\n".join(commands))
             report = sha.inspect_build_evidence(
                 evidence, "ndk-build", "armeabi", "android-9")
             self.assertEqual(["source", "probe"], report["compileOrder"])
             for changed in (
                 [commands[0] + " -Wno-error", *commands[1:]],
+                [commands[0] + " -w", *commands[1:]],
+                [commands[0] + " --std=c11", *commands[1:]],
+                [commands[0] + " -Wall", *commands[1:]],
+                [commands[0] + " -O0", *commands[1:]],
+                [commands[0] + " @foreign.rsp", *commands[1:]],
                 [commands[0].replace("narfs_sha256.c", "other.c"),
                  *commands[1:]],
+                [commands[0].replace(str(build), "/foreign"),
+                 *commands[1:]],
+                [commands[0] + " -I/foreign/jni/narfs", *commands[1:]],
+                [commands[0] + " -isystem /foreign/system", *commands[1:]],
+                [commands[0].replace(compiler, "/foreign/gcc"),
+                 *commands[1:]],
                 [*commands[:2], commands[2].replace(
-                    "probe.o /tmp/lib", "/tmp/lib") + " probe.o"],
+                    f"{build}/narfs_sha256_link_probe.o "
+                    f"{build}/libnarfs_sha256.a",
+                    f"{build}/libnarfs_sha256.a "
+                    f"{build}/narfs_sha256_link_probe.o")],
+                [*commands[:2], commands[2].replace(
+                    "libnarfs_sha256.a", "extra.o libnarfs_sha256.a")],
+                [*commands[:2], commands[2] + " -lcrypto"],
+                [*commands[:2], commands[2].replace(
+                    compiler, "/foreign/gcc")],
             ):
                 evidence.write_text("\n".join(changed))
                 with self.assertRaises(sha.Sha256ContractError):
@@ -118,6 +146,8 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
         script = (ROOT / "docker/narfs-jni/build.sh").read_text()
         self.assertIn("candidate-off graph unexpectedly contains sha256", script)
         self.assertIn("NANIDROID_NARFS_SHA256_CANDIDATE", script)
+        self.assertIn(
+            'APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/Android.mk"', script)
 
 
 if __name__ == "__main__":
