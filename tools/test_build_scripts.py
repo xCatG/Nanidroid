@@ -129,6 +129,11 @@ class BuildScriptContractTest(unittest.TestCase):
             normalized,
         )
         self.assertIn(
+            '"test/device/com/cattailsw/nanidroid/install/" + '
+            '"NarStagedTreeInstrumentationTest.java"',
+            normalized,
+        )
+        self.assertIn(
             'tasks.named("check").configure { '
             "dependsOn(verifyDeviceCharacterizationTestIsolation) }",
             normalized,

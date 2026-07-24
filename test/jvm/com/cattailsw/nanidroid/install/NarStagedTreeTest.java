@@ -319,6 +319,49 @@ public final class NarStagedTreeTest {
     }
 
     @Test
+    public void nativeFactoryMapsCodesDefensivelyAndCachesDescription()
+            throws Exception {
+        byte[] token = new byte[88];
+        token[0] = 7;
+        String[] paths = new String[] {"file"};
+        int[] types = new int[] {1};
+        long[] sizes = new long[] {3};
+        int[] ordinals = new int[] {0};
+        byte[] digests = digest("abc");
+        NarStagedTree.BeginResult present = NarStagedTree.fromNativeBegin(
+                2, 0, 0, 7, 11, token,
+                paths, types, sizes, ordinals, digests);
+        NarStagedTree.Handle handle = (NarStagedTree.Handle)
+                field(present, "handle");
+        token[0] = 99;
+        paths[0] = "changed";
+        digests[0] = 99;
+        byte[] owned = (byte[]) field(handle, "token");
+        assertEquals(7, owned[0]);
+        NarStagedTreeInventory.Result inventory =
+                NarStagedTreeInventory.present(
+                "ghost", new NarStagedTree.NativeBackend().describe(handle));
+        assertTrue(inventory.isSuccess());
+        assertEquals("file", inventory.entries().get(0).path());
+        assertEquals(digest("abc")[0],
+                inventory.entries().get(0).sha256()[0]);
+
+        NarStagedTree.BeginResult invalid = NarStagedTree.fromNativeBegin(
+                0, Integer.MAX_VALUE, Integer.MIN_VALUE, 0, 0,
+                null, new String[0], new int[0], new long[0],
+                new int[0], new byte[0]);
+        assertEquals(NarStagedTree.Error.NATIVE,
+                field(invalid, "primaryError"));
+        assertEquals(NarStagedTree.Error.NATIVE,
+                field(invalid, "cleanupError"));
+        assertThrows(IllegalArgumentException.class,
+                () -> NarStagedTree.fromNativeBegin(
+                2, 0, 0, 7, 11, new byte[87],
+                new String[0], new int[0], new long[0],
+                new int[0], new byte[0]));
+    }
+
+    @Test
     public void surfaceHasNoDestinationHandleGetterOrOverlayEndpoint()
             throws Exception {
         assertFalse(Modifier.isPublic(NarStagedTree.class.getModifiers()));
@@ -367,6 +410,12 @@ public final class NarStagedTreeTest {
         Collections.sort(actual);
         Arrays.sort(expected);
         assertEquals(Arrays.asList(expected), actual);
+    }
+
+    private static Object field(Object owner, String name) throws Exception {
+        Field field = owner.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(owner);
     }
 
     private static boolean forbidden(Class<?> type) {
