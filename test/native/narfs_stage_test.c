@@ -201,8 +201,13 @@ static void test_retained_clone( const char *source, const char *staging) {
     narfs_stage_clone_mapping mapping;
     narfs_stage_clone_result candidate;
     fault injected;
-    char source_blob[4096], held[4096];
+    char source_blob[4096], held[4102], live[4096];
+    int fd;
 
+    snprintf(live, sizeof(live), "%s/ghost/b-\xe9\x9b\xaa/f.bin", source);
+    fd = open(live, O_WRONLY | O_TRUNC); CHECK(fd >= 0);
+    CHECK(write(fd, bytes, sizeof(bytes)) == (ssize_t) sizeof(bytes));
+    CHECK(close(fd) == 0);
     retained = stage(source, "ghost", staging, &options);
     CHECK(retained.inspected.error == NARFS_OK && retained.entry_count == 3);
     memset(&mapping, 0, sizeof(mapping));

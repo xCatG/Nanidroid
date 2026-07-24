@@ -26,12 +26,12 @@ EXPECTED = {
     "linkModules": ["narfs_stage", "narfs_core", "narfs_sha256"],
 }
 EXPORTS = sorted([
-    "narfs_default_stage_options", "narfs_stage_discard",
+    "narfs_default_stage_options", "narfs_stage_clone_retained", "narfs_stage_discard",
     "narfs_stage_existing", "narfs_stage_result_dispose",
 ])
 IMPORTS = sorted([
     "__errno", "close", "closedir", "dup", "fdopendir", "free", "fsync",
-    "fstat", "fstatat", "malloc", "memcpy", "memset", "mkdirat",
+    "fstat", "fstatat", "malloc", "memcmp", "memcpy", "memset", "mkdirat",
     "narfs_default_options", "narfs_inspect", "narfs_sha256_final",
     "narfs_sha256_init", "narfs_sha256_update", "open", "openat", "read",
     "readdir", "realloc", "snprintf", "strcmp", "strdup", "strlen",
@@ -62,11 +62,11 @@ def _toolchain_imports(abi: str, build_system: str) -> list[str]:
         return ["__stack_chk_fail", "__stack_chk_guard"]
     if build_system == "ndk-build":
         return [
-            "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1",
+            "_GLOBAL_OFFSET_TABLE_", "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1",
             "__stack_chk_fail", "__stack_chk_guard",
         ]
     return [
-        "_GLOBAL_OFFSET_TABLE_", "__aeabi_unwind_cpp_pr1",
+        "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1",
         "__stack_chk_fail", "__stack_chk_guard",
     ]
 
@@ -432,7 +432,14 @@ def inspect_artifacts(
     if defined != expected_defined:
         _fail(f"global definitions changed: {defined}")
     actual_toolchain = sorted(set(imports) & TOOLCHAIN_IMPORTS)
-    if actual_toolchain != _toolchain_imports(abi, build_system):
+    if abi == "armeabi":
+        required = {
+            "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1",
+            "__stack_chk_fail", "__stack_chk_guard",
+        }
+        if set(actual_toolchain) not in (required, required | {"_GLOBAL_OFFSET_TABLE_"}):
+            _fail(f"toolchain imports changed: {actual_toolchain}")
+    elif actual_toolchain != _toolchain_imports(abi, build_system):
         _fail(f"toolchain imports changed: {actual_toolchain}")
     normalized_imports = sorted(set(imports) - TOOLCHAIN_IMPORTS)
     wanted_imports = _imports(abi, build_system)

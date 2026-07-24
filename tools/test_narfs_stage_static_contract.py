@@ -12,9 +12,9 @@ import inspect_narfs_stage as stage
 ROOT = Path(__file__).resolve().parents[1]
 BOUNDARY_HASHES = {
     "jni/narfs/narfs_stage.c":
-        "1941c3807bf1d4ef17b3cfa312f2948b275cb31d106336f143a32ff6e90559db",
+        "a16a2aa1cbdd4b1b33f5c0672117be50e7b9ccb31f296d398541369a28b63d98",
     "jni/narfs/narfs_stage.h":
-        "6174464c519db5827638374ceb6b2e14c08f6a2197dfd95cdc81061a7afd3899",
+        "a54e0acb18657e283e6bed7ffec2b4538148e416497066250e9694c05373950e",
     "jni/narfs/narfs_core.c":
         "6160699d0a2a3fdc2ffdddc3e7b225110a3749258e51159a75c2db1ae931692d",
     "jni/narfs/narfs_core.h":
@@ -28,16 +28,17 @@ SYMBOLS = """\
 File: archive(narfs_stage.o)
 Num: Value Size Type Bind Vis Ndx Name
  1: 0 10 FUNC GLOBAL DEFAULT 1 narfs_default_stage_options
- 2: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_discard
- 3: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_existing
- 4: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_result_dispose
+ 2: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_clone_retained
+ 3: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_discard
+ 4: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_existing
+ 5: 0 10 FUNC GLOBAL DEFAULT 1 narfs_stage_result_dispose
 """ + "".join(
     f" {index}: 0 0 NOTYPE GLOBAL DEFAULT UND {value}\n"
     for index, value in enumerate(
         stage.IMPORTS + [
             "__aeabi_unwind_cpp_pr0", "__aeabi_unwind_cpp_pr1",
             "__stack_chk_fail", "__stack_chk_guard",
-        ], 5))
+        ], 6))
 
 
 def ndk_commands(build):

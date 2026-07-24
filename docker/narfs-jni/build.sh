@@ -47,6 +47,13 @@ gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
   "${SOURCE_ROOT}/test/native/narfs_stage_token_test.c" \
   -o "${BUILD_ROOT}/narfs_stage_token_test"
 "${BUILD_ROOT}/narfs_stage_token_test"
+gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  "${SOURCE_ROOT}/jni/narfs/narfs_core.c" \
+  "${SOURCE_ROOT}/jni/narfs/narfs_sha256.c" \
+  "${SOURCE_ROOT}/jni/narfs/narfs_stage.c" \
+  "${SOURCE_ROOT}/test/native/narfs_stage_test.c" \
+  -o "${BUILD_ROOT}/narfs_stage_test"
+"${BUILD_ROOT}/narfs_stage_test"
 
 readonly OFF_ROOT="${BUILD_ROOT}/candidate-off"
 mkdir -p "${OFF_ROOT}/ndk"
