@@ -23,14 +23,19 @@ class NarfsFullJniContractTest(unittest.TestCase):
                       make + cmake)
         self.assertIn("narfs_stage_token_test", candidate)
         for script in (legacy, emulator):
-            self.assertIn("NANIDROID_NARFS_FULL_JNI_CANDIDATE", script)
-            self.assertIn("NANIDROID_NARFS_STAGE_CANDIDATE", script)
-            self.assertIn("NANIDROID_NARFS_SHA256_CANDIDATE", script)
+            self.assertIn("NANIDROID_BUILD_NARFS_FULL_JNI_CANDIDATE", script)
+            self.assertIn("NANIDROID_BUILD_NARFS_STAGE_CANDIDATE", script)
+            self.assertIn("NANIDROID_BUILD_NARFS_SHA256_CANDIDATE", script)
             self.assertIn("--profile full", script)
             self.assertNotIn("NANIDROID_NARFS_JNI_CANDIDATE=1", script)
+        self.assertIn("NANIDROID_NARFS_FULL_JNI_CANDIDATE", legacy)
+        self.assertIn("NANIDROID_NARFS_STAGE_CANDIDATE", legacy)
+        self.assertIn("NANIDROID_NARFS_SHA256_CANDIDATE", legacy)
         self.assertIn("APP_MODULES=narfs_full", legacy)
         self.assertIn("--target narfs_full", legacy)
         self.assertIn("--target narfs_full", emulator)
+        self.assertIn("narfs_sha256_link_probe.c", emulator)
+        self.assertIn("narfs_stage_link_probe.c", emulator)
         self.assertNotIn("NANIDROID_NARFS_FULL_JNI_CANDIDATE",
                          (ROOT / "build.gradle.kts").read_text())
 
@@ -40,18 +45,21 @@ class NarfsFullJniContractTest(unittest.TestCase):
         inspector = (ROOT / "src/com/cattailsw/nanidroid/install/"
                      "NarFilesystemInspector.java").read_text()
         for value in (
-            'getDir("narfs-stage-v1", Context.MODE_PRIVATE)',
             'System.loadLibrary("narfs")',
             "fromNativeBegin", "nativeBegin", "nativeDiscard",
             "token.clone()", "NativeBackend", "NativeHandle",
             "NarFilesystemInspector.sourceRootValue",
         ):
             self.assertIn(value, source + inspector)
+        self.assertRegex(
+            source,
+            r'getDir\(\s*"narfs-stage-v1",\s*Context\.MODE_PRIVATE\)',
+        )
         self.assertNotIn("File staging", source)
         self.assertNotRegex(source, r"(?:get|set)(?:Staging|Destination|Token|Path)")
         backend = source[source.index("class NativeBackend"):]
-        self.assertLess(backend.index("System.loadLibrary"),
-                        backend.index("nativeBegin"))
+        self.assertLess(backend.index("ensureLoaded();"),
+                        backend.index("return nativeBegin("))
         stager = source[source.index("static final class Stager"):]
         self.assertNotIn("System.loadLibrary", stager.split(
             "static final class Session", 1)[0])

@@ -262,7 +262,7 @@ class NarfsJniContractTest(unittest.TestCase):
             "jni/narfs/narfs_core.c": "6160699d0a2a3fdc2ffdddc3e7b225110a3749258e51159a75c2db1ae931692d",
             "jni/narfs/narfs_core.h": "c929545356a666849e9f0a92e5490dc33f1629718383b3b68983f79e0c23d756",
             "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java":
-                "92d9e4a12b57bfa3adc1ef7a0582416202ce5b8b7090bb782bf08818867beaff",
+                "e2da6a2d3a6e4c25bb37b6cf52e5e3a8de440b3eade5fd2df37261a09322bf47",
         }
         actual = {
             relative: hashlib.sha256(

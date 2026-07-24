@@ -46,6 +46,10 @@ EXPECTED_TEST_DEX = (
     b"testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation\x00"
     b"Lcom/cattailsw/nanidroid/install/NarFilesystemInspectorInstrumentationTest;\x00"
     b"testArm64NativeFilesystemContract\x00"
+    b"Lcom/cattailsw/nanidroid/install/NarStagedTreeInstrumentationTest;\x00"
+    b"testPresentAbsentInventoryAndTreeClaimTransfer\x00"
+    b"testInodeMismatchFailureRetriesAndMalformedTokenRejects\x00"
+    b"testPolicyFailureAutomaticallyCleansNativeSession\x00"
 )
 
 
@@ -168,6 +172,10 @@ class InspectApkTest(unittest.TestCase):
             b"testRequiredMigrationInvariant_viewBindsResetsAndDispatchesSingleTalkingAnimation",
             b"Lcom/cattailsw/nanidroid/install/NarFilesystemInspectorInstrumentationTest;",
             b"testArm64NativeFilesystemContract",
+            b"Lcom/cattailsw/nanidroid/install/NarStagedTreeInstrumentationTest;",
+            b"testPresentAbsentInventoryAndTreeClaimTransfer",
+            b"testInodeMismatchFailureRetriesAndMalformedTokenRejects",
+            b"testPolicyFailureAutomaticallyCleansNativeSession",
         )
         for missing in required_markers:
             with self.subTest(missing=missing.decode("ascii")):

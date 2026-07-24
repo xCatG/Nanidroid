@@ -44,7 +44,11 @@ trap 'rm -rf "${STAGE_ROOT}"' EXIT
 # compiling a disposable native-only copy with compatibility aliases.
 cp -a "${SOURCE_ROOT}/jni" "${BUILD_ROOT}/jni"
 mkdir -p "${BUILD_ROOT}/test/native"
-cp "${SOURCE_ROOT}/test/native/narfs_link_probe.c" "${BUILD_ROOT}/test/native/"
+cp \
+  "${SOURCE_ROOT}/test/native/narfs_link_probe.c" \
+  "${SOURCE_ROOT}/test/native/narfs_sha256_link_probe.c" \
+  "${SOURCE_ROOT}/test/native/narfs_stage_link_probe.c" \
+  "${BUILD_ROOT}/test/native/"
 ln -s Sender.h "${BUILD_ROOT}/jni/_/sender.h"
 ln -s Utilities.h "${BUILD_ROOT}/jni/_/utilities.h"
 ln -s satori.h "${BUILD_ROOT}/jni/satori/Satori.h"
@@ -80,8 +84,10 @@ cmake \
   -DANDROID_ABI=arm64-v8a \
   -DANDROID_PLATFORM=android-21 \
   -DANDROID_STL=gnustl_static \
-  -DNANIDROID_BUILD_NARFS_JNI_CANDIDATE=ON
-cmake --build "${NARFS_CMAKE_BUILD_ROOT}" --target narfs -- VERBOSE=1
+  -DNANIDROID_BUILD_NARFS_FULL_JNI_CANDIDATE=ON \
+  -DNANIDROID_BUILD_NARFS_STAGE_CANDIDATE=ON \
+  -DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON
+cmake --build "${NARFS_CMAKE_BUILD_ROOT}" --target narfs_full -- VERBOSE=1
 
 "${STRIP}" --strip-unneeded \
   "${STAGE_NATIVE_ROOT}/arm64-v8a/libkawari8.so" \
@@ -91,6 +97,7 @@ python3 "${SOURCE_ROOT}/tools/inspect_narfs_jni.py" inspect \
   --dso "${NARFS_STAGE_ROOT}/arm64-v8a/libnarfs.so" \
   --readelf "${READELF}" --evidence "${NARFS_CMAKE_BUILD_ROOT}" \
   --abi arm64-v8a --api android-21 --build-system cmake \
+  --profile full \
   --output "${STAGE_ROOT}/narfs-jni-contract.json"
 cp "${NARFS_STAGE_ROOT}/arm64-v8a/libnarfs.so" \
   "${STAGE_NATIVE_ROOT}/arm64-v8a/"

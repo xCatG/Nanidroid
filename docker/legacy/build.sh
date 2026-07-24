@@ -113,7 +113,7 @@ cd "${BUILD_ROOT}"
   NDK_TOOLCHAIN_VERSION=4.9 \
   V=1 2>&1 | tee "${NDK_BUILD_LOG}"
 
-# Build the reviewed C-only JNI module in an isolated ndk-build invocation.
+# Build the reviewed full-profile C-only JNI module in isolation.
 # TARGET_CXX is process-scoped so the existing C++ engine build is unchanged.
 "${ANDROID_NDK_HOME}/ndk-build" \
   'TARGET_CXX=$(TARGET_CC)' \
@@ -122,20 +122,27 @@ cd "${BUILD_ROOT}"
   NDK_LIBS_OUT="${NARFS_NDK_LIBS_ROOT}" \
   APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
   NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
-  APP_MODULES=narfs APP_PLATFORM=android-9 APP_ABI=armeabi \
-  NDK_TOOLCHAIN_VERSION=4.9 NANIDROID_NARFS_JNI_CANDIDATE=1 \
+  APP_MODULES=narfs_full APP_PLATFORM=android-9 APP_ABI=armeabi \
+  NDK_TOOLCHAIN_VERSION=4.9 \
+  NANIDROID_NARFS_FULL_JNI_CANDIDATE=1 \
+  NANIDROID_NARFS_STAGE_CANDIDATE=1 \
+  NANIDROID_NARFS_SHA256_CANDIDATE=1 \
   V=1 2>&1 | tee "${NARFS_NDK_BUILD_LOG}"
 
 python3 "${NARFS_INSPECTOR}" inspect \
   --dso "${BUILD_ROOT}/obj-narfs/local/${NATIVE_ABI}/libnarfs.so" \
   --readelf "${READELF}" --evidence "${NARFS_NDK_BUILD_LOG}" \
   --abi "${NATIVE_ABI}" --api "${NATIVE_API}" --build-system ndk-build \
+  --profile full \
   --output "${NATIVE_STAGE}/narfs-jni-ndk-build.json"
+
+# Ant clean removes libs/, so clean before publishing the inspected bytes.
+ant clean
 cp "${BUILD_ROOT}/obj-narfs/local/${NATIVE_ABI}/libnarfs.so" \
   "${BUILD_ROOT}/libs/${NATIVE_ABI}/"
 
 # Keep the Ant reference APK on the inspected ndk-build output.
-ant clean debug
+ant debug
 
 apk="$(find "${BUILD_ROOT}/bin" -maxdepth 1 -type f -name '*-debug.apk' -print -quit)"
 if [[ -z "${apk}" ]]; then
@@ -184,8 +191,10 @@ cmake \
   -DANDROID_PLATFORM="${NATIVE_API}" \
   -DANDROID_STL="${NATIVE_STL}" \
   -DANDROID_ARM_MODE="${NATIVE_ARM_MODE}" \
-  -DNANIDROID_BUILD_NARFS_JNI_CANDIDATE=ON
-cmake --build "${NARFS_CMAKE_BUILD_ROOT}" --target narfs -- VERBOSE=1
+  -DNANIDROID_BUILD_NARFS_FULL_JNI_CANDIDATE=ON \
+  -DNANIDROID_BUILD_NARFS_STAGE_CANDIDATE=ON \
+  -DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON
+cmake --build "${NARFS_CMAKE_BUILD_ROOT}" --target narfs_full -- VERBOSE=1
 
 # Match the frozen ndk-build engine artifacts without stripping the standalone
 # narfs candidate: its local symbols are part of the inspection evidence.
@@ -263,6 +272,7 @@ python3 "${NARFS_INSPECTOR}" inspect \
   --dso "${NARFS_CMAKE_BUILD_ROOT}/native/${NATIVE_ABI}/libnarfs.so" \
   --readelf "${READELF}" --evidence "${NARFS_CMAKE_BUILD_ROOT}" \
   --abi "${NATIVE_ABI}" --api "${NATIVE_API}" --build-system cmake \
+  --profile full \
   --output "${NATIVE_STAGE}/narfs-jni-cmake.json"
 python3 "${NARFS_INSPECTOR}" compare \
   "${NATIVE_STAGE}/narfs-jni-ndk-build.json" \

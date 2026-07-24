@@ -64,6 +64,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/device/com/cattailsw/nanidroid/install/"
                 "NarFilesystemInspectorInstrumentationTest.java"
             ),
+            pathlib.PurePosixPath(
+                "test/device/com/cattailsw/nanidroid/install/"
+                "NarStagedTreeInstrumentationTest.java"
+            ),
         }
         device_root = project_root / "test" / "device"
         actual = {
@@ -252,6 +256,13 @@ class BuildScriptContractTest(unittest.TestCase):
             '"${OUTPUT_ROOT}/Nanidroid-debug-native-payload.json"',
             " ".join(build_script.split()),
         )
+        clean = build_script.index("ant clean")
+        publish = build_script.index(
+            'cp "${BUILD_ROOT}/obj-narfs/local/${NATIVE_ABI}/libnarfs.so"'
+        )
+        package = build_script.index("ant debug")
+        self.assertLess(clean, publish)
+        self.assertLess(publish, package)
 
     def test_gradle_build_relocates_the_project_cache(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

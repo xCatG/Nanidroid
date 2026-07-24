@@ -49,45 +49,60 @@ public final class NarStagedTreeInstrumentationTest
         NarFilesystemInspector.TrustedRoot trusted =
                 new NarFilesystemInspector.TrustedRoot(
                 fixtureRoot.getAbsolutePath());
-        NarStagedTree.Tree absent =
-                success(session.stage(trusted, "missing"));
-        assertEquals(NarGhostTreePolicy.State.ABSENT,
-                absent.manifest().getState());
-        assertTrue(absent.entries().isEmpty());
-        assertEquals(NarStagedTree.Error.OK, absent.discard());
+        NarStagedTree.Tree absent = null;
+        NarStagedTree.Tree tree = null;
+        NarStagedTree.Claim claim = null;
+        try {
+            absent = success(session.stage(trusted, "missing"));
+            assertEquals(NarGhostTreePolicy.State.ABSENT,
+                    absent.manifest().getState());
+            assertTrue(absent.entries().isEmpty());
+            assertEquals(NarStagedTree.Error.OK, absent.discard());
 
-        File ghost = directory(fixtureRoot, "ghost");
-        File unicode = directory(ghost, "dir-\u96ea");
-        byte[] content = new byte[] {0, 1, (byte) 0xfe, (byte) 0xff};
-        write(new File(unicode, "nested-\ud83d\ude00.bin"), content);
-        write(new File(ghost, "manifest.txt"), new byte[] {7, 8, 9});
-        NarStagedTree.Tree tree = success(session.stage(trusted, "ghost"));
-        NarGhostTreePolicy.Manifest manifest = tree.manifest();
-        assertEquals("ghost", manifest.getTargetId());
-        assertEquals(NarGhostTreePolicy.State.PRESENT,
-                manifest.getState());
-        assertEquals(3, manifest.getEntries().size());
-        assertEquals(16, manifest.getStorageRootIdentity().length);
-        assertEquals(1, manifest.getFingerprintVersion());
-        assertEquals(32, manifest.getFingerprint().length);
-        NarStagedTreeInventory.Entry nested =
-                entry(tree, "dir-\u96ea/nested-\ud83d\ude00.bin");
-        assertEquals(NarGhostTreePolicy.Type.FILE, nested.type());
-        assertEquals(content.length, nested.size());
-        assertTrue(nested.blobOrdinal() >= 0);
-        assertTrue(Arrays.equals(
-                MessageDigest.getInstance("SHA-256").digest(content),
-                nested.sha256()));
+            File ghost = directory(fixtureRoot, "ghost");
+            File unicode = directory(ghost, "dir-\u96ea");
+            byte[] content =
+                    new byte[] {0, 1, (byte) 0xfe, (byte) 0xff};
+            write(new File(unicode, "nested-\ud83d\ude00.bin"), content);
+            write(new File(ghost, "manifest.txt"), new byte[] {7, 8, 9});
+            tree = success(session.stage(trusted, "ghost"));
+            NarGhostTreePolicy.Manifest manifest = tree.manifest();
+            assertEquals("ghost", manifest.getTargetId());
+            assertEquals(NarGhostTreePolicy.State.PRESENT,
+                    manifest.getState());
+            assertEquals(3, manifest.getEntries().size());
+            assertEquals(16,
+                    manifest.getStorageRootIdentity().length);
+            assertEquals(1, manifest.getFingerprintVersion());
+            assertEquals(32, manifest.getFingerprint().length);
+            NarStagedTreeInventory.Entry nested =
+                    entry(tree, "dir-\u96ea/nested-\ud83d\ude00.bin");
+            assertEquals(NarGhostTreePolicy.Type.FILE, nested.type());
+            assertEquals(content.length, nested.size());
+            assertTrue(nested.blobOrdinal() >= 0);
+            assertTrue(Arrays.equals(
+                    MessageDigest.getInstance("SHA-256").digest(content),
+                    nested.sha256()));
 
-        NarStagedTree.ConsumeResult consumed = session.consume(tree);
-        assertTrue(consumed.isSuccess());
-        assertEquals(NarStagedTree.Error.CONSUMED,
-                session.consume(tree).error());
-        assertEquals(NarStagedTree.Error.CONSUMED, tree.discard());
-        assertEquals(NarStagedTree.Error.OK,
-                consumed.claim().discard());
-        assertEquals(NarStagedTree.Error.OK,
-                consumed.claim().discard());
+            NarStagedTree.ConsumeResult consumed = session.consume(tree);
+            if (consumed.isSuccess()) claim = consumed.claim();
+            assertTrue(consumed.isSuccess());
+            assertEquals(NarStagedTree.Error.CONSUMED,
+                    session.consume(tree).error());
+            assertEquals(NarStagedTree.Error.CONSUMED, tree.discard());
+            assertEquals(NarStagedTree.Error.OK, claim.discard());
+            assertEquals(NarStagedTree.Error.OK, claim.discard());
+        } finally {
+            try {
+                if (claim != null) claim.discard();
+            } finally {
+                try {
+                    if (tree != null) tree.discard();
+                } finally {
+                    if (absent != null) absent.discard();
+                }
+            }
+        }
         assertEquals(stagingBaseline, children(stagingRoot));
     }
 
@@ -100,12 +115,20 @@ public final class NarStagedTreeInstrumentationTest
         NarFilesystemInspector.TrustedRoot trusted =
                 new NarFilesystemInspector.TrustedRoot(
                 fixtureRoot.getAbsolutePath());
-        NarStagedTree.Claim claim = session.consume(
-                success(session.stage(trusted, "retry"))).claim();
-        File real = onlyNewChild(stagingBaseline);
-        File held = new File(stagingRoot, real.getName() + ".held");
-        File replacement = new File(stagingRoot, real.getName());
+        NarStagedTree.Tree retryTree = null;
+        NarStagedTree.Claim claim = null;
+        File real = null;
+        File held = null;
+        File replacement = null;
         try {
+            retryTree = success(session.stage(trusted, "retry"));
+            NarStagedTree.ConsumeResult consumed =
+                    session.consume(retryTree);
+            if (consumed.isSuccess()) claim = consumed.claim();
+            assertTrue(consumed.isSuccess());
+            real = onlyNewChild(stagingBaseline);
+            held = new File(stagingRoot, real.getName() + ".held");
+            replacement = new File(stagingRoot, real.getName());
             assertTrue(real.renameTo(held));
             assertTrue(replacement.mkdir());
             assertEquals(NarStagedTree.Error.TREE_CHANGED,
@@ -115,13 +138,26 @@ public final class NarStagedTreeInstrumentationTest
             assertEquals(NarStagedTree.Error.OK, claim.discard());
             assertEquals(NarStagedTree.Error.OK, claim.discard());
         } finally {
-            deleteRecursively(replacement);
-            if (held.exists() && !real.exists()) {
-                assertTrue(held.renameTo(real));
+            try {
+                deleteBestEffort(replacement);
+            } finally {
+                try {
+                    if (held != null && real != null
+                            && held.exists() && !real.exists()) {
+                        if (!held.renameTo(real)) {
+                            deleteBestEffort(held);
+                        }
+                    }
+                } finally {
+                    try {
+                        if (claim != null) claim.discard();
+                    } finally {
+                        if (retryTree != null) retryTree.discard();
+                    }
+                }
             }
-            claim.discard();
-            assertEquals(stagingBaseline, children(stagingRoot));
         }
+        assertEquals(stagingBaseline, children(stagingRoot));
 
         Method discard = NarStagedTree.class.getDeclaredMethod(
                 "nativeDiscard", String.class, byte[].class);
@@ -140,11 +176,21 @@ public final class NarStagedTreeInstrumentationTest
         NarStagedTree.StageResult result = session.stage(
                 new NarFilesystemInspector.TrustedRoot(
                 fixtureRoot.getAbsolutePath()), "collision");
-        assertFalse(result.isSuccess());
-        assertEquals(NarStagedTree.Error.POLICY, result.error());
-        assertEquals(NarStagedTree.Error.OK,
-                result.cleanup().discardError());
-        assertEquals(NarStagedTree.Error.OK, result.cleanup().discard());
+        NarStagedTree.Tree unexpected = result.tree();
+        try {
+            assertFalse(result.isSuccess());
+            assertEquals(NarStagedTree.Error.POLICY, result.error());
+            assertEquals(NarStagedTree.Error.OK,
+                    result.cleanup().discardError());
+            assertEquals(NarStagedTree.Error.OK,
+                    result.cleanup().discard());
+        } finally {
+            try {
+                if (unexpected != null) unexpected.discard();
+            } finally {
+                result.cleanup().discard();
+            }
+        }
         assertEquals(stagingBaseline, children(stagingRoot));
     }
 
@@ -200,5 +246,16 @@ public final class NarStagedTreeInstrumentationTest
             }
         }
         assertTrue(file.delete());
+    }
+
+    private static void deleteBestEffort(File file) {
+        if (file == null || !file.exists()) return;
+        if (file.isDirectory()) {
+            File[] values = file.listFiles();
+            if (values != null) {
+                for (File value : values) deleteBestEffort(value);
+            }
+        }
+        file.delete();
     }
 }
