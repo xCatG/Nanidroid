@@ -233,6 +233,26 @@ static void test_faults( const char *source, const char *staging) {
     narfs_stage_result_dispose(&result);
 
     memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_OPEN_SESSION;
+    injected.cleanup = NARFS_STAGE_TEST_UNLINK;
+    options.test_context = &injected;
+    result = stage(source, "ghost", staging, &options);
+    CHECK(result.inspected.error == NARFS_ERR_IO);
+    CHECK(result.inspected.cleanup_error == NARFS_ERR_IO);
+    options = narfs_default_stage_options();
+    CHECK(narfs_stage_discard(staging, &result.token, &options) == NARFS_OK);
+    narfs_stage_result_dispose(&result);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_CLOSE;
+    options.test_hook = hook;
+    options.test_context = &injected;
+    result = stage(source, "ghost", staging, &options);
+    CHECK(result.inspected.error == NARFS_ERR_CLOSE);
+    CHECK(child_count(staging) == 0);
+    narfs_stage_result_dispose(&result);
+
+    memset(&injected, 0, sizeof(injected));
     injected.cleanup = NARFS_STAGE_TEST_UNLINK;
     options.test_context = &injected;
     result = stage(source, "missing", staging, &options);
