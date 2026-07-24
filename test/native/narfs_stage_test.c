@@ -46,15 +46,21 @@ static void write_file( const char *path, const unsigned char *bytes, size_t cou
 
 static int hook( narfs_stage_test_operation operation, const char *relative_path, void *context) {
     fault *value = (fault *) context;
-    (void) relative_path;
     if (value == NULL) return 0;
     if (operation == value->primary && !value->fired) {
         static const unsigned char replacement[] = {9, 8, 7, 6};
+        if (value->mutate == 3 && relative_path[0] != 's') return 0;
         value->fired = 1;
         if (value->mutate == 2) {
             snprintf(value->held, sizeof(value->held), "%s.held", value->source);
             CHECK(rename(value->source, value->held) == 0);
             write_file(value->source, replacement, sizeof(replacement));
+            return 0;
+        }
+        if (value->mutate == 3) {
+            snprintf(value->held, sizeof(value->held), "%s.held", value->source);
+            CHECK(rename(value->source, value->held) == 0);
+            make_dir(value->source);
             return 0;
         }
         if (value->mutate == 1) {
@@ -106,6 +112,7 @@ static void test_snapshot_and_absent( const char *source, const char *staging) {
     char path[2048];
     narfs_stage_options options = narfs_default_stage_options();
     narfs_stage_result result;
+    fault injected;
     options.io_chunk = 2;
 
     result = stage(source, "missing", staging, &options);
@@ -145,6 +152,19 @@ static void test_snapshot_and_absent( const char *source, const char *staging) {
     result.token.stage_inode++;
     CHECK(narfs_stage_discard(staging, &result.token, &options) == NARFS_ERR_TREE_CHANGED);
     result.token.stage_inode--;
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_UNLINK;
+    injected.mutate = 3;
+    snprintf(injected.source, sizeof(injected.source), "%s/%s",
+            staging, result.token.session_name);
+    options.test_hook = hook;
+    options.test_context = &injected;
+    CHECK(narfs_stage_discard(staging, &result.token, &options)
+            == NARFS_ERR_TREE_CHANGED);
+    CHECK(access(injected.source, F_OK) == 0);
+    CHECK(rmdir(injected.source) == 0);
+    CHECK(rename(injected.held, injected.source) == 0);
+    options = narfs_default_stage_options();
     CHECK(narfs_stage_discard(staging, &result.token, &options) == NARFS_OK);
     CHECK(narfs_stage_discard(staging, &result.token, &options) == NARFS_OK);
     narfs_stage_result_dispose(&result);
