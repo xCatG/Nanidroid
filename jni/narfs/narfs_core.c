@@ -27,6 +27,7 @@ typedef struct frame {
     uint32_t depth;
     uint64_t device;
     uint64_t inode;
+    struct stat snapshot;
     char path[NARFS_MAX_PATH_BYTES + 1];
     name_list names;
     int loaded;
@@ -345,6 +346,21 @@ static int same_node(
                     == (right->st_mode & S_IFMT);
 }
 
+static int same_snapshot(
+        const struct stat *left, const struct stat *right) {
+    int equal = same_node(left, right)
+            && left->st_size == right->st_size
+            && left->st_mtime == right->st_mtime
+            && left->st_ctime == right->st_ctime;
+#ifdef __ANDROID__
+    return equal && left->st_mtime_nsec == right->st_mtime_nsec
+            && left->st_ctime_nsec == right->st_ctime_nsec;
+#else
+    return equal && left->st_mtim.tv_nsec == right->st_mtim.tv_nsec
+            && left->st_ctim.tv_nsec == right->st_ctim.tv_nsec;
+#endif
+}
+
 static int valid_options(const narfs_options *options) {
     return options != NULL
             && options->max_entries > 0
@@ -433,6 +449,8 @@ narfs_result narfs_inspect(
         record_error(&state, NARFS_ERR_ROOT_TYPE);
         goto cleanup;
     }
+    state.result.storage_device = (uint64_t) opened.st_dev;
+    state.result.storage_inode = (uint64_t) opened.st_ino;
     if (stat_child(
             &state, root, target, &before, "") != 0) {
         if (errno == ENOENT) {
@@ -476,6 +494,8 @@ narfs_result narfs_inspect(
         record_error(&state, NARFS_ERR_TREE_CHANGED);
         goto cleanup;
     }
+    state.result.target_device = (uint64_t) opened.st_dev;
+    state.result.target_inode = (uint64_t) opened.st_ino;
     if (close_fd(&state, root, "") != 0) {
         root = -1;
         record_error(&state, NARFS_ERR_CLOSE);
@@ -485,6 +505,7 @@ narfs_result narfs_inspect(
     stack[0].fd = target_fd;
     stack[0].device = (uint64_t) opened.st_dev;
     stack[0].inode = (uint64_t) opened.st_ino;
+    stack[0].snapshot = opened;
     target_fd = -1;
     stack_size = 1;
     state.result.state = NARFS_STATE_PRESENT;
@@ -504,6 +525,11 @@ narfs_result narfs_inspect(
             break;
         }
         if (current->names.next == current->names.count) {
+            if (stat_fd(&state, current->fd, &after, current->path) != 0) {
+                record_error(&state, system_error(errno));
+            } else if (!same_snapshot(&current->snapshot, &after)) {
+                record_error(&state, NARFS_ERR_TREE_CHANGED);
+            }
             free_names(&current->names);
             if (close_fd(
                     &state, current->fd, current->path) != 0) {
@@ -637,12 +663,25 @@ narfs_result narfs_inspect(
                 &entry, child, state.visitor_context) != 0) {
             record_error(&state, NARFS_ERR_VISITOR);
         }
+        if (state.result.error == NARFS_OK) {
+            if (stat_fd(&state, child, &after, relative) != 0) {
+                record_error(&state, system_error(errno));
+            } else if (!same_snapshot(&opened, &after)) {
+                record_error(&state, NARFS_ERR_TREE_CHANGED);
+            } else if (stat_child(
+                    &state, current->fd, name, &after, relative) != 0) {
+                record_error(&state, changed_or_system_error(errno));
+            } else if (!same_snapshot(&opened, &after)) {
+                record_error(&state, NARFS_ERR_TREE_CHANGED);
+            }
+        }
         if (directory && state.result.error == NARFS_OK) {
             frame *next = &stack[stack_size++];
             next->fd = child;
             next->depth = depth;
             next->device = entry.device;
             next->inode = entry.inode;
+            next->snapshot = opened;
             memcpy(next->path, relative, strlen(relative) + 1);
         } else if (close_fd(&state, child, relative) != 0) {
             record_error(&state, NARFS_ERR_CLOSE);

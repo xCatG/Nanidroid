@@ -22,7 +22,7 @@ class NarfsSha256ContractTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         expected = {
             "jni/narfs/narfs_core.c":
-                "7f508f1a24de64cb7156334eca96f30eab9c0b20a367085f1244915bda5b424b",
+                "6160699d0a2a3fdc2ffdddc3e7b225110a3749258e51159a75c2db1ae931692d",
             "jni/narfs/narfs_jni.c":
                 "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
             "src/com/cattailsw/nanidroid/GhostMgr.java":
