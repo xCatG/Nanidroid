@@ -856,6 +856,8 @@ public final class NarInstallPlanValidatorTest {
         NarVerifiedInstallSession.Lease consumed = session.lease();
         assertEquals("OK", session.consume(consumed).name());
         assertEquals("CONSUMED", session.state().name());
+        assertEquals("CONSUMED", session.consume(consumed).name());
+        assertEquals("CONSUMED", session.release(consumed).name());
         assertNull(session.lease());
         assertThrows(IllegalStateException.class, () -> session.close());
         consumed.cleanup();
