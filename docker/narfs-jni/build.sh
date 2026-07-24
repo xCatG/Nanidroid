@@ -7,6 +7,7 @@ readonly OUTPUT_ROOT="${OUTPUT_ROOT:-/out}"
 readonly NDK_ROOT="${ANDROID_NDK_HOME:-/opt/android-ndk-r14b}"
 readonly INSPECTOR="${SOURCE_ROOT}/tools/inspect_narfs_jni.py"
 readonly SHA_INSPECTOR="${SOURCE_ROOT}/tools/inspect_narfs_sha256.py"
+readonly STAGE_INSPECTOR="${SOURCE_ROOT}/tools/inspect_narfs_stage.py"
 
 case "${BUILD_ROOT}" in
   /tmp/*) ;;
@@ -27,6 +28,7 @@ rm -f "${OUTPUT_ROOT}"/narfs-jni-*.json
 cp -a "${SOURCE_ROOT}/jni" "${BUILD_ROOT}/jni"
 cp "${SOURCE_ROOT}/test/native/narfs_link_probe.c" "${BUILD_ROOT}/test/native/"
 cp "${SOURCE_ROOT}/test/native/narfs_sha256_link_probe.c" "${BUILD_ROOT}/test/native/"
+cp "${SOURCE_ROOT}/test/native/narfs_stage_link_probe.c" "${BUILD_ROOT}/test/native/"
 ln -s Sender.h "${BUILD_ROOT}/jni/_/sender.h"
 ln -s Utilities.h "${BUILD_ROOT}/jni/_/utilities.h"
 ln -s satori.h "${BUILD_ROOT}/jni/satori/Satori.h"
@@ -59,6 +61,16 @@ if "${NDK_ROOT}/ndk-build" NDK_PROJECT_PATH="${OFF_ROOT}/ndk-missing" \
   echo "candidate-off NDK graph exposes sha256 target" >&2
   exit 1
 fi
+if "${NDK_ROOT}/ndk-build" NDK_PROJECT_PATH="${OFF_ROOT}/ndk-missing-2" \
+  NDK_OUT="${OFF_ROOT}/ndk-missing-2/obj" \
+  NDK_LIBS_OUT="${OFF_ROOT}/ndk-missing-2/libs" \
+  APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/Android.mk" \
+  NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
+  APP_MODULES=narfs_stage_link_probe APP_PLATFORM=android-9 \
+  APP_ABI=armeabi NDK_TOOLCHAIN_VERSION=4.9 >/dev/null 2>&1; then
+  echo "candidate-off NDK graph exposes stage target" >&2
+  exit 1
+fi
 cmake -S "${BUILD_ROOT}/jni" -B "${OFF_ROOT}/cmake" \
   -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake" \
   -DANDROID_NDK="${NDK_ROOT}" -DANDROID_TOOLCHAIN=gcc \
@@ -69,8 +81,17 @@ if cmake --build "${OFF_ROOT}/cmake" \
   echo "candidate-off CMake graph exposes sha256 target" >&2
   exit 1
 fi
+if cmake --build "${OFF_ROOT}/cmake" \
+  --target narfs_stage_link_probe >/dev/null 2>&1; then
+  echo "candidate-off CMake graph exposes stage target" >&2
+  exit 1
+fi
 if find "${OFF_ROOT}" -iname '*sha256*' -print -quit | grep -q .; then
   echo "candidate-off graph unexpectedly contains sha256" >&2
+  exit 1
+fi
+if find "${OFF_ROOT}" -iname '*stage*' -print -quit | grep -q .; then
+  echo "candidate-off graph unexpectedly contains stage" >&2
   exit 1
 fi
 
@@ -90,10 +111,11 @@ build_lane() {
     NDK_LIBS_OUT="${ndk_build}/libs" \
     APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
     NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
-    APP_MODULES="narfs narfs_sha256_link_probe" \
+    APP_MODULES="narfs narfs_sha256_link_probe narfs_stage_link_probe" \
     APP_PLATFORM="${api}" APP_ABI="${abi}" \
     NDK_TOOLCHAIN_VERSION=4.9 NANIDROID_NARFS_JNI_CANDIDATE=1 \
     NANIDROID_NARFS_SHA256_CANDIDATE=1 \
+    NANIDROID_NARFS_STAGE_CANDIDATE=1 \
     V=1 2>&1 | tee "${ndk_log}"
 
   python3 "${INSPECTOR}" inspect \
@@ -112,13 +134,14 @@ build_lane() {
     -DANDROID_ABI="${abi}" -DANDROID_PLATFORM="${api}"
     -DANDROID_STL=gnustl_static -DNANIDROID_BUILD_NARFS_JNI_CANDIDATE=ON
     -DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON
+    -DNANIDROID_BUILD_NARFS_STAGE_CANDIDATE=ON
   )
   if [[ -n "${arm_mode}" ]]; then
     cmake_args+=("-DANDROID_ARM_MODE=${arm_mode}")
   fi
   cmake "${cmake_args[@]}"
   cmake --build "${cmake_build}" \
-    --target narfs narfs_sha256_link_probe -- VERBOSE=1
+    --target narfs narfs_sha256_link_probe narfs_stage_link_probe -- VERBOSE=1
 
   python3 "${SHA_INSPECTOR}" inspect --project-root "${SOURCE_ROOT}" \
     --archive "${ndk_build}/obj/local/${abi}/libnarfs_sha256.a" \
@@ -135,6 +158,22 @@ build_lane() {
   python3 "${SHA_INSPECTOR}" compare \
     "${report}-sha256-ndk-build.json" "${report}-sha256-cmake.json" \
     --output "${report}-sha256-parity.json"
+
+  python3 "${STAGE_INSPECTOR}" inspect --project-root "${SOURCE_ROOT}" \
+    --archive "${ndk_build}/obj/local/${abi}/libnarfs_stage.a" \
+    --probe "${ndk_build}/obj/local/${abi}/narfs_stage_link_probe" \
+    --readelf "${readelf}" --build-evidence "${ndk_log}" \
+    --abi "${abi}" --api "${api}" --build-system ndk-build \
+    --output "${report}-stage-ndk-build.json"
+  python3 "${STAGE_INSPECTOR}" inspect --project-root "${SOURCE_ROOT}" \
+    --archive "${cmake_build}/static/${abi}/libnarfs_stage.a" \
+    --probe "${cmake_build}/stage/narfs_stage_link_probe" \
+    --readelf "${readelf}" --build-evidence "${cmake_build}" \
+    --abi "${abi}" --api "${api}" --build-system cmake \
+    --output "${report}-stage-cmake.json"
+  python3 "${STAGE_INSPECTOR}" compare \
+    "${report}-stage-ndk-build.json" "${report}-stage-cmake.json" \
+    --output "${report}-stage-parity.json"
 
   python3 "${INSPECTOR}" inspect \
     --dso "${cmake_build}/native/${abi}/libnarfs.so" \
