@@ -10,34 +10,17 @@ class NarfsStageContractTest(unittest.TestCase):
         source = (project / "jni/narfs/narfs_stage.c").read_text()
 
         for token in (
-            "narfs_stage_existing",
-            "narfs_stage_discard",
-            "narfs_stage_result_dispose",
-            "stage_device",
-            "stage_inode",
-            "blob_ordinal",
-            "sha256[32]",
-        ):
+            "narfs_stage_existing", "narfs_stage_discard",
+            "narfs_stage_result_dispose", "stage_device", "stage_inode",
+            "blob_ordinal", "sha256[32]"):
             self.assertIn(token, header)
         for token in (
-            "narfs_inspect(",
-            '#include "narfs_sha256.h"',
-            "O_NOFOLLOW",
-            "O_EXCL",
-            "openat(",
-            "fsync(",
-            '"b%06u"',
-        ):
+            "narfs_inspect(", '#include "narfs_sha256.h"', "O_NOFOLLOW",
+            "O_EXCL", "openat(", "fsync(", '"b%06u"'):
             self.assertIn(token, source)
         for forbidden in (
-            "GhostMgr",
-            "overlay",
-            "journal",
-            "publish",
-            "sha_transform",
-            "sha_k[",
-            "open(entry->relative_path",
-        ):
+            "GhostMgr", "overlay", "journal", "publish", "sha_transform",
+            "sha_k[", "open(entry->relative_path"):
             self.assertNotIn(forbidden, source)
 
         core = (project / "jni/narfs/narfs_core.c").read_text()
@@ -47,14 +30,10 @@ class NarfsStageContractTest(unittest.TestCase):
     def test_java_jni_manager_and_ui_boundaries_remain_exact(self):
         project = Path(__file__).resolve().parents[1]
         expected = {
-            "jni/narfs/narfs_jni.c":
-                "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
-            "jni/narfs/narfs_jni.map":
-                "02f45b0ae1431df655013d5b707e11602c251d9c0ae5cf74c6237eff78bd5819",
-            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java":
-                "92d9e4a12b57bfa3adc1ef7a0582416202ce5b8b7090bb782bf08818867beaff",
-            "src/com/cattailsw/nanidroid/GhostMgr.java":
-                "65dc3709240aa0bf871f5955b2358da5deb505c6f7f91f13bb4e830abda809f6",
+            "jni/narfs/narfs_jni.c": "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
+            "jni/narfs/narfs_jni.map": "02f45b0ae1431df655013d5b707e11602c251d9c0ae5cf74c6237eff78bd5819",
+            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java": "92d9e4a12b57bfa3adc1ef7a0582416202ce5b8b7090bb782bf08818867beaff",
+            "src/com/cattailsw/nanidroid/GhostMgr.java": "65dc3709240aa0bf871f5955b2358da5deb505c6f7f91f13bb4e830abda809f6",
         }
         actual = {
             relative: hashlib.sha256(
