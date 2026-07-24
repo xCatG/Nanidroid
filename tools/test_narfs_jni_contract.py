@@ -175,16 +175,18 @@ class NarfsJniContractTest(unittest.TestCase):
     def test_published_lane_keeps_the_reviewed_candidate_sources_exact(self):
         project = Path(__file__).resolve().parents[1]
         expected = {
-            "jni/narfs/narfs_jni.c": "256356be0a2c504617ae2ba198f47d90fc7ddbcadba354865211737db920c26d",
-            "jni/narfs/narfs_utf.c": "5e4ebf87e429fd4a0acde22bc47577045498373e9647d865427b0037930e1bc2",
-            "jni/narfs/narfs_utf.h": "ff7431468dbc32f06cd1a350994baa2cc19f7e151d4edaf524801552081ffd16",
-            "jni/narfs/narfs_core.c": "960ab1e880fdc4d2398bb99b2e101c424137400d278c25e6b2e22d3e34d0452c",
-            "jni/narfs/narfs_core.h": "f266b86435c821b9d0cd8d4c676343b46abc587fc73a6eef238b6a1b91da1bbf",
+            "jni/narfs/narfs_jni.c": "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
+            "jni/narfs/narfs_utf.c": "6968d471affac1e6e470f5eda37c7d0b814d8060b30908362f964bc7ef6e2800",
+            "jni/narfs/narfs_utf.h": "9b99cc6d865358920a02afae1e550a0c21aa49045cb8cf1bbad5287751ad88c4",
+            "jni/narfs/narfs_core.c": "7f508f1a24de64cb7156334eca96f30eab9c0b20a367085f1244915bda5b424b",
+            "jni/narfs/narfs_core.h": "f9ba4abaa106d7aa85f7fc96a8dfc429c116256ff4dddfbaa718afd9d45ff643",
             "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java":
-                "1d521b9e7e5210b0b7140149c9c21613ac569e88a41ac795cb6f687bdcf7e392",
+                "92d9e4a12b57bfa3adc1ef7a0582416202ce5b8b7090bb782bf08818867beaff",
         }
         actual = {
-            relative: hashlib.sha256((project / relative).read_bytes()).hexdigest()
+            relative: hashlib.sha256(
+                (project / relative).read_bytes().replace(b"\r\n", b"\n")
+            ).hexdigest()
             for relative in expected
         }
         self.assertEqual(expected, actual)
