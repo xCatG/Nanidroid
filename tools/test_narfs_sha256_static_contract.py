@@ -89,14 +89,27 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
                 "--sysroot=/opt/android-ndk-r14b/platforms/android-9/arch-arm "
                 f"-I{build}/jni/narfs -I{build}/jni/narfs/sha256 "
                 "-march=armv5te -mtune=xscale -msoft-float -mthumb "
-                "-std=c99 -Wall -Wextra -Werror")
+                "-std=c99 -Wall -Wextra -Werror "
+                "-Wformat -Werror=format-security")
+            lane = build / "ndk-armeabi/obj/local/armeabi"
+            probe_object = (
+                lane / "objs/narfs_sha256_link_probe/narfs_sha256_link_probe.o")
+            sysroot = "/opt/android-ndk-r14b/platforms/android-9/arch-arm"
+            linker_flags = (
+                "-Wl,--gc-sections -Wl,-z,nocopyreloc "
+                f"-Wl,-rpath-link={sysroot}/usr/lib "
+                f"-Wl,-rpath-link={lane} ")
             commands = [
-                prefix + f" -c {build}/jni/narfs/narfs_sha256.c -o sha.o",
+                prefix + f" -c {build}/jni/narfs/narfs_sha256.c "
+                f"-o {lane}/objs/narfs_sha256/narfs_sha256.o",
                 prefix + f" -c {build}/test/native/narfs_sha256_link_probe.c "
-                f"-o {build}/narfs_sha256_link_probe.o",
-                f"{compiler} {build}/narfs_sha256_link_probe.o "
-                f"{build}/libnarfs_sha256.a -Wl,--no-undefined "
-                f"-o {build}/narfs_sha256_link_probe",
+                f"-o {probe_object}",
+                f"{compiler} --sysroot={sysroot} {linker_flags}"
+                f"{probe_object} {lane}/libnarfs_sha256.a -lgcc "
+                "-no-canonical-prefixes -Wl,--no-undefined -Wl,--build-id "
+                "-Wl,--no-undefined -Wl,-z,noexecstack -Wl,-z,relro "
+                "-Wl,-z,now -Wl,--warn-shared-textrel -Wl,--fatal-warnings "
+                f"-lc -lm -o {lane}/narfs_sha256_link_probe",
             ]
             evidence.write_text("\n".join(commands))
             report = sha.inspect_build_evidence(
@@ -109,6 +122,8 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
                 [commands[0] + " -Wall", *commands[1:]],
                 [commands[0] + " -O0", *commands[1:]],
                 [commands[0] + " @foreign.rsp", *commands[1:]],
+                [commands[0].replace(sysroot, "/foreign/sysroot"),
+                 *commands[1:]],
                 [commands[0].replace("narfs_sha256.c", "other.c"),
                  *commands[1:]],
                 [commands[0].replace(str(build), "/foreign"),
@@ -118,13 +133,14 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
                 [commands[0].replace(compiler, "/foreign/gcc"),
                  *commands[1:]],
                 [*commands[:2], commands[2].replace(
-                    f"{build}/narfs_sha256_link_probe.o "
-                    f"{build}/libnarfs_sha256.a",
-                    f"{build}/libnarfs_sha256.a "
-                    f"{build}/narfs_sha256_link_probe.o")],
+                    f"{probe_object} {lane}/libnarfs_sha256.a",
+                    f"{lane}/libnarfs_sha256.a {probe_object}")],
                 [*commands[:2], commands[2].replace(
                     "libnarfs_sha256.a", "extra.o libnarfs_sha256.a")],
                 [*commands[:2], commands[2] + " -lcrypto"],
+                [*commands[:2], commands[2] + " @foreign.rsp"],
+                [*commands[:2], commands[2].replace(
+                    f"--sysroot={sysroot}", "--sysroot=/foreign/sysroot")],
                 [*commands[:2], commands[2].replace(
                     compiler, "/foreign/gcc")],
             ):
@@ -148,6 +164,7 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
         self.assertIn("NANIDROID_NARFS_SHA256_CANDIDATE", script)
         self.assertIn(
             'APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/Android.mk"', script)
+        self.assertIn("APP_MODULES=narfs_sha256_link_probe", script)
 
 
 if __name__ == "__main__":

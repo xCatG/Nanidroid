@@ -39,7 +39,8 @@ class NarfsSha256ContractTest(unittest.TestCase):
     def test_dual_build_declarations_are_exact(self):
         root = Path(__file__).resolve().parents[1]
         cmake = (root / "jni/narfs/sha256/CMakeLists.txt").read_text()
-        make = (root / "jni/narfs/sha256/Android.mk").read_text()
+        make = (root / "jni/narfs/sha256/module.mk").read_text()
+        parent_make = (root / "jni/narfs/Android.mk").read_text()
         script = (root / "docker/narfs-jni/build.sh").read_text()
         for token in (
             "add_library(narfs_sha256 STATIC ../narfs_sha256.c)",
@@ -55,12 +56,16 @@ class NarfsSha256ContractTest(unittest.TestCase):
             "LOCAL_LDFLAGS := -Wl,--no-undefined",
         ):
             self.assertIn(token, make)
+        self.assertFalse((root / "jni/narfs/sha256/Android.mk").exists())
+        self.assertIn("NANIDROID_NARFS_SHA256_CANDIDATE", parent_make)
+        self.assertIn("include $(LOCAL_PATH)/sha256/module.mk", parent_make)
         self.assertIn(
             'APP_MODULES="narfs narfs_sha256_link_probe"', script)
         self.assertIn(
             "--target narfs narfs_sha256_link_probe", script)
-        self.assertIn("expected_sha_api=", script)
-        self.assertIn('"${readelf}" --syms "${archive}"', script)
+        self.assertIn("inspect_narfs_sha256.py", script)
+        self.assertIn("--build-system ndk-build", script)
+        self.assertIn("--build-system cmake", script)
         self.assertIn("libnarfs_sha256.a", script)
 
 

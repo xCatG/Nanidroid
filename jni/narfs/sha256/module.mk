@@ -1,5 +1,3 @@
-ifndef NANIDROID_NARFS_SHA256_INCLUDED
-NANIDROID_NARFS_SHA256_INCLUDED := 1
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -17,4 +15,3 @@ LOCAL_CFLAGS := -std=c99 -Wall -Wextra -Werror
 LOCAL_STATIC_LIBRARIES := narfs_sha256
 LOCAL_LDFLAGS := -Wl,--no-undefined
 include $(BUILD_EXECUTABLE)
-endif

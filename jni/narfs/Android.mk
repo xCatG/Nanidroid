@@ -27,4 +27,6 @@ LOCAL_LDFLAGS := -Wl,--as-needed -Wl,--no-undefined -Wl,--version-script,$(LOCAL
 include $(BUILD_SHARED_LIBRARY)
 endif
 
-include $(LOCAL_PATH)/sha256/Android.mk
+ifeq ($(NANIDROID_NARFS_SHA256_CANDIDATE),1)
+include $(LOCAL_PATH)/sha256/module.mk
+endif
