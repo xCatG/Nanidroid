@@ -12,17 +12,17 @@ import inspect_narfs_stage as stage
 ROOT = Path(__file__).resolve().parents[1]
 BOUNDARY_HASHES = {
     "jni/narfs/narfs_stage.c":
-        "b4ba56ba5276779be1a89ce29b9baaa99767a44805d34a02607a6df655f38283",
+        "1941c3807bf1d4ef17b3cfa312f2948b275cb31d106336f143a32ff6e90559db",
     "jni/narfs/narfs_stage.h":
-        "599ed8a84f5e68253ba0ee5cc11beeb475a135ff35ecfc28f8497f2f20f1e92d",
+        "6174464c519db5827638374ceb6b2e14c08f6a2197dfd95cdc81061a7afd3899",
     "jni/narfs/narfs_core.c":
-        "f9122de5871870ced57274553b1e949363cb13dce77ec05bf3aae47ad5d8f779",
+        "6160699d0a2a3fdc2ffdddc3e7b225110a3749258e51159a75c2db1ae931692d",
     "jni/narfs/narfs_core.h":
-        "c0f3cf89c19f00f8ec41128b1d211449da088f671faf6014af8fddefa2cb51af",
+        "c929545356a666849e9f0a92e5490dc33f1629718383b3b68983f79e0c23d756",
     "jni/narfs/narfs_sha256.c":
-        "9b9112c36230bb48481ee5e3edcd4764dd08567b0370f82208e53b6a2fa16f07",
+        "e23b994bba8ae1c1c45a8e1af051d6f144d237465b7e91418cc1bcb13e34857d",
     "jni/narfs/narfs_sha256.h":
-        "2b3fadbc9bb588084d0d4bdcb484ac04faccb813799af4122db6e1d15d6adac9",
+        "34e0968b8315dffbafa0537fc81e6ae6228db70fd8c0d2038ea66394c1fcf17b",
 }
 SYMBOLS = """\
 File: archive(narfs_stage.o)
@@ -98,7 +98,9 @@ def fake_readelf(arguments, **_kwargs):
 class NarfsStageStaticContractTest(unittest.TestCase):
     def test_runtime_boundary_is_pinned(self):
         for relative, wanted in BOUNDARY_HASHES.items():
-            actual = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+            actual = hashlib.sha256(
+                (ROOT / relative).read_bytes().replace(b"\r\n", b"\n")
+            ).hexdigest()
             self.assertEqual(wanted, actual, relative)
 
     def test_declarations_are_guarded_non_discoverable_and_equivalent(self):
