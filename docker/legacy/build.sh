@@ -13,8 +13,12 @@ readonly STAGE_NDK_NATIVE_ROOT="${NATIVE_STAGE}/native-ndk-build"
 readonly STAGE_CMAKE_NATIVE_ROOT="${NATIVE_STAGE}/native-cmake"
 readonly STAGE_GRADLE_NATIVE_ROOT="${NATIVE_STAGE}/native"
 readonly CMAKE_BUILD_ROOT="${BUILD_ROOT}/cmake-build"
+readonly NARFS_CMAKE_BUILD_ROOT="${BUILD_ROOT}/narfs-cmake-build"
+readonly NARFS_NDK_LIBS_ROOT="${BUILD_ROOT}/libs-narfs"
 readonly NDK_BUILD_LOG="${BUILD_ROOT}/ndk-build.log"
+readonly NARFS_NDK_BUILD_LOG="${BUILD_ROOT}/narfs-ndk-build.log"
 readonly STATIC_INSPECTOR="${BUILD_ROOT}/tools/inspect_narfs_static.py"
+readonly NARFS_INSPECTOR="${BUILD_ROOT}/tools/inspect_narfs_jni.py"
 readonly READELF="${ANDROID_NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-readelf"
 readonly STRIP="${ANDROID_NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin/arm-linux-androideabi-strip"
 readonly NATIVE_ABI=armeabi
@@ -41,6 +45,10 @@ rm -f \
   "${OUTPUT_ROOT}/narfs-static-ndk-build.json" \
   "${OUTPUT_ROOT}/narfs-static-cmake.json" \
   "${OUTPUT_ROOT}/narfs-static-parity.json" \
+  "${OUTPUT_ROOT}/narfs-jni-ndk-build.json" \
+  "${OUTPUT_ROOT}/narfs-jni-cmake.json" \
+  "${OUTPUT_ROOT}/narfs-jni-parity.json" \
+  "${OUTPUT_ROOT}/Nanidroid-debug-native-payload.json" \
   "${OUTPUT_ROOT}/Nanidroid-debug.apk" \
   "${APK_REPORT}"
 mkdir -p "${NATIVE_STAGE}"
@@ -105,9 +113,28 @@ cd "${BUILD_ROOT}"
   NDK_TOOLCHAIN_VERSION=4.9 \
   V=1 2>&1 | tee "${NDK_BUILD_LOG}"
 
-# Keep the Ant reference APK on the ndk-build output. The CMake candidate is
-# built and parity-checked independently below, then copied to the existing
-# Gradle native input only after both engines link successfully.
+# Build the reviewed C-only JNI module in an isolated ndk-build invocation.
+# TARGET_CXX is process-scoped so the existing C++ engine build is unchanged.
+"${ANDROID_NDK_HOME}/ndk-build" \
+  'TARGET_CXX=$(TARGET_CC)' \
+  NDK_PROJECT_PATH="${BUILD_ROOT}" \
+  NDK_OUT="${BUILD_ROOT}/obj-narfs" \
+  NDK_LIBS_OUT="${NARFS_NDK_LIBS_ROOT}" \
+  APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
+  NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
+  APP_MODULES=narfs APP_PLATFORM=android-9 APP_ABI=armeabi \
+  NDK_TOOLCHAIN_VERSION=4.9 NANIDROID_NARFS_JNI_CANDIDATE=1 \
+  V=1 2>&1 | tee "${NARFS_NDK_BUILD_LOG}"
+
+python3 "${NARFS_INSPECTOR}" inspect \
+  --dso "${BUILD_ROOT}/obj-narfs/local/${NATIVE_ABI}/libnarfs.so" \
+  --readelf "${READELF}" --evidence "${NARFS_NDK_BUILD_LOG}" \
+  --abi "${NATIVE_ABI}" --api "${NATIVE_API}" --build-system ndk-build \
+  --output "${NATIVE_STAGE}/narfs-jni-ndk-build.json"
+cp "${BUILD_ROOT}/obj-narfs/local/${NATIVE_ABI}/libnarfs.so" \
+  "${BUILD_ROOT}/libs/${NATIVE_ABI}/"
+
+# Keep the Ant reference APK on the inspected ndk-build output.
 ant clean debug
 
 apk="$(find "${BUILD_ROOT}/bin" -maxdepth 1 -type f -name '*-debug.apk' -print -quit)"
@@ -142,9 +169,26 @@ cmake \
   -DANDROID_ARM_MODE="${NATIVE_ARM_MODE}"
 cmake --build "${CMAKE_BUILD_ROOT}" -- -j2
 
-# ndk-build installs stripped release libraries. Apply the same frozen r14b
-# strip tool to the CMake products before inspection, publication, and Gradle
-# packaging so ignored debug-section differences do not inflate the APK.
+cmake \
+  -S "${BUILD_ROOT}/jni/narfs" \
+  -B "${NARFS_CMAKE_BUILD_ROOT}" \
+  -G "Unix Makefiles" \
+  -DCMAKE_BUILD_TYPE= \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${NARFS_CMAKE_BUILD_ROOT}/native/${NATIVE_ABI}" \
+  -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="${NARFS_CMAKE_BUILD_ROOT}/static/${NATIVE_ABI}" \
+  -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+  -DANDROID_NDK="${ANDROID_NDK_HOME}" \
+  -DANDROID_TOOLCHAIN=gcc \
+  -DANDROID_ABI="${NATIVE_ABI}" \
+  -DANDROID_PLATFORM="${NATIVE_API}" \
+  -DANDROID_STL="${NATIVE_STL}" \
+  -DANDROID_ARM_MODE="${NATIVE_ARM_MODE}" \
+  -DNANIDROID_BUILD_NARFS_JNI_CANDIDATE=ON
+cmake --build "${NARFS_CMAKE_BUILD_ROOT}" --target narfs -- VERBOSE=1
+
+# Match the frozen ndk-build engine artifacts without stripping the standalone
+# narfs candidate: its local symbols are part of the inspection evidence.
 "${STRIP}" --strip-unneeded \
   "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/libkawari8.so \
   "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/libsatoriya.so
@@ -152,7 +196,10 @@ cmake --build "${CMAKE_BUILD_ROOT}" -- -j2
 mkdir -p \
   "${STAGE_NDK_NATIVE_ROOT}/${NATIVE_ABI}" \
   "${STAGE_CMAKE_NATIVE_ROOT}/${NATIVE_ABI}"
-cp "${BUILD_ROOT}"/libs/"${NATIVE_ABI}"/*.so "${STAGE_NDK_NATIVE_ROOT}/${NATIVE_ABI}/"
+cp \
+  "${BUILD_ROOT}/libs/${NATIVE_ABI}/libkawari8.so" \
+  "${BUILD_ROOT}/libs/${NATIVE_ABI}/libsatoriya.so" \
+  "${STAGE_NDK_NATIVE_ROOT}/${NATIVE_ABI}/"
 cp "${CMAKE_BUILD_ROOT}"/native/"${NATIVE_ABI}"/*.so "${STAGE_CMAKE_NATIVE_ROOT}/${NATIVE_ABI}/"
 
 readonly NATIVE_INSPECTOR="${BUILD_ROOT}/tools/inspect_native_contract.py"
@@ -211,7 +258,26 @@ python3 "${STATIC_INSPECTOR}" compare \
   "${NATIVE_STAGE}/narfs-static-cmake.json" \
   --output "${NATIVE_STAGE}/narfs-static-parity.json"
 
-# Stage and atomically promote all native outputs only after exact parity.
+# Inspect the exact DSOs that are promoted and packaged.
+python3 "${NARFS_INSPECTOR}" inspect \
+  --dso "${NARFS_CMAKE_BUILD_ROOT}/native/${NATIVE_ABI}/libnarfs.so" \
+  --readelf "${READELF}" --evidence "${NARFS_CMAKE_BUILD_ROOT}" \
+  --abi "${NATIVE_ABI}" --api "${NATIVE_API}" --build-system cmake \
+  --output "${NATIVE_STAGE}/narfs-jni-cmake.json"
+python3 "${NARFS_INSPECTOR}" compare \
+  "${NATIVE_STAGE}/narfs-jni-ndk-build.json" \
+  "${NATIVE_STAGE}/narfs-jni-cmake.json" \
+  --output "${NATIVE_STAGE}/narfs-jni-parity.json"
+
+# Add only the inspected DSO bytes, then atomically promote all native outputs.
+cp "${BUILD_ROOT}/obj-narfs/local/${NATIVE_ABI}/libnarfs.so" \
+  "${STAGE_NDK_NATIVE_ROOT}/${NATIVE_ABI}/"
+cp "${NARFS_CMAKE_BUILD_ROOT}/native/${NATIVE_ABI}/libnarfs.so" \
+  "${STAGE_CMAKE_NATIVE_ROOT}/${NATIVE_ABI}/"
+python3 "${BUILD_ROOT}/tools/verify_apk_native_payload.py" \
+  "${apk}" \
+  --candidate-root "${STAGE_NDK_NATIVE_ROOT}" \
+  --output "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json"
 cp -a "${STAGE_CMAKE_NATIVE_ROOT}" "${STAGE_GRADLE_NATIVE_ROOT}"
 cp "${apk}" "${NATIVE_STAGE}/Nanidroid-debug.apk"
 mv "${STAGE_NDK_NATIVE_ROOT}" "${NDK_NATIVE_ROOT}"
@@ -223,6 +289,10 @@ mv "${NATIVE_STAGE}/native-parity.json" "${OUTPUT_ROOT}/native-parity.json"
 mv "${NATIVE_STAGE}/narfs-static-ndk-build.json" "${OUTPUT_ROOT}/narfs-static-ndk-build.json"
 mv "${NATIVE_STAGE}/narfs-static-cmake.json" "${OUTPUT_ROOT}/narfs-static-cmake.json"
 mv "${NATIVE_STAGE}/narfs-static-parity.json" "${OUTPUT_ROOT}/narfs-static-parity.json"
+mv "${NATIVE_STAGE}/narfs-jni-ndk-build.json" "${OUTPUT_ROOT}/narfs-jni-ndk-build.json"
+mv "${NATIVE_STAGE}/narfs-jni-cmake.json" "${OUTPUT_ROOT}/narfs-jni-cmake.json"
+mv "${NATIVE_STAGE}/narfs-jni-parity.json" "${OUTPUT_ROOT}/narfs-jni-parity.json"
+mv "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json" "${OUTPUT_ROOT}/Nanidroid-debug-native-payload.json"
 mv "${NATIVE_STAGE}/Nanidroid-debug.json" "${APK_REPORT}"
 mv "${NATIVE_STAGE}/Nanidroid-debug.apk" "${OUTPUT_ROOT}/Nanidroid-debug.apk"
 

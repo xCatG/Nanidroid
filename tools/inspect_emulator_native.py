@@ -18,14 +18,23 @@ from inspect_native_contract import inspect_cmake
 EXPECTED_LIBRARIES = {
     "arm64-v8a/libkawari8.so": {
         "soname": "libkawari8.so",
+        "needed": ["libc.so", "libdl.so", "liblog.so", "libm.so", "libstdc++.so"],
         "jniExports": [
             "Java_com_cattailsw_nanidroid_shiori_Kawari_load",
             "Java_com_cattailsw_nanidroid_shiori_Kawari_requestFromJNI",
             "Java_com_cattailsw_nanidroid_shiori_Kawari_unload",
         ],
     },
+    "arm64-v8a/libnarfs.so": {
+        "soname": "libnarfs.so",
+        "needed": ["libc.so"],
+        "jniExports": [
+            "Java_com_cattailsw_nanidroid_install_NarFilesystemInspector_nativeInspect",
+        ],
+    },
     "arm64-v8a/libsatoriya.so": {
         "soname": "libsatoriya.so",
+        "needed": ["libc.so", "libdl.so", "liblog.so", "libm.so", "libstdc++.so"],
         "jniExports": [
             "Java_com_cattailsw_nanidroid_shiori_JNIShiori_requestFromJNI",
             "Java_com_cattailsw_nanidroid_shiori_SatoriPosixShiori_load",
@@ -34,7 +43,6 @@ EXPECTED_LIBRARIES = {
         ],
     },
 }
-EXPECTED_NEEDED = ["libc.so", "libdl.so", "liblog.so", "libm.so", "libstdc++.so"]
 EXPECTED_CACHE = {
     "ANDROID_ABI": "arm64-v8a",
     "ANDROID_PLATFORM": "android-21",
@@ -203,8 +211,9 @@ def inspect_native_directory(
         if sonames != [EXPECTED_LIBRARIES[relative]["soname"]]:
             _fail(f"{relative} SONAME changed: {sonames}")
         needed = _dynamic_values(dynamic, "NEEDED")
-        if needed != EXPECTED_NEEDED:
-            _fail(f"{relative} DT_NEEDED changed: expected {EXPECTED_NEEDED}, got {needed}")
+        expected_needed = EXPECTED_LIBRARIES[relative]["needed"]
+        if needed != expected_needed:
+            _fail(f"{relative} DT_NEEDED changed: expected {expected_needed}, got {needed}")
         exports = _jni_exports(
             readelf_runner(readelf, ("--dyn-syms", "--wide"), library)
         )

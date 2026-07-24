@@ -19,10 +19,12 @@ val legacyNativeDirectory = layout.projectDirectory.dir("artifacts/legacy/native
 val emulatorNativeDirectory = layout.projectDirectory.dir("artifacts/emulator/native")
 val requiredLegacyNativeLibraries = listOf(
     legacyNativeDirectory.file("armeabi/libkawari8.so"),
+    legacyNativeDirectory.file("armeabi/libnarfs.so"),
     legacyNativeDirectory.file("armeabi/libsatoriya.so"),
 )
 val requiredEmulatorNativeLibraries = listOf(
     emulatorNativeDirectory.file("arm64-v8a/libkawari8.so"),
+    emulatorNativeDirectory.file("arm64-v8a/libnarfs.so"),
     emulatorNativeDirectory.file("arm64-v8a/libsatoriya.so"),
 )
 
@@ -213,6 +215,7 @@ android {
     }
 
     testOptions {
+        testBuildType = "emulator"
         unitTests.isReturnDefaultValues = true
     }
 }
@@ -253,6 +256,8 @@ val deviceCharacterizationTests = listOf(
         "SurfaceRenderingCharacterizationTest.java",
     "test/device/com/cattailsw/nanidroid/" +
         "SurfaceAnimationExecutionCharacterizationTest.java",
+    "test/device/com/cattailsw/nanidroid/install/" +
+        "NarFilesystemInspectorInstrumentationTest.java",
 )
 val deviceTestSources = files(
     fileTree("test/device") {

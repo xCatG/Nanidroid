@@ -121,6 +121,7 @@ class InspectApkTest(unittest.TestCase):
                 "classes.dex": b"dex",
                 "resources.arsc": b"resources",
                 "lib/armeabi/libkawari8.so": b"\x7fELF-kawari",
+                "lib/armeabi/libnarfs.so": b"\x7fELF-narfs",
                 "lib/armeabi/libsatoriya.so": b"MZ-windows",
             }
         )

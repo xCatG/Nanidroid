@@ -164,10 +164,13 @@ class NarfsJniContractTest(unittest.TestCase):
         for published in (
             "tools/verify_apk_native_payload.py",
             "tools/verify_emulator_apk.py",
-            "tools/inspect_legacy_apk.py",
             "build.gradle.kts",
         ):
-            self.assertNotIn("libnarfs.so", (project / published).read_text())
+            self.assertIn("libnarfs.so", (project / published).read_text())
+        self.assertNotIn(
+            "libnarfs.so",
+            (project / "tools/inspect_android_test_apk.py").read_text(),
+        )
 
     def test_published_lane_keeps_the_reviewed_candidate_sources_exact(self):
         project = Path(__file__).resolve().parents[1]

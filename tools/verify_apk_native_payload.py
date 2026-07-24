@@ -14,6 +14,7 @@ from typing import NoReturn
 
 EXPECTED_PAYLOAD = {
     "lib/armeabi/libkawari8.so": "armeabi/libkawari8.so",
+    "lib/armeabi/libnarfs.so": "armeabi/libnarfs.so",
     "lib/armeabi/libsatoriya.so": "armeabi/libsatoriya.so",
 }
 
