@@ -21,6 +21,7 @@ class NarfsStageContractTest(unittest.TestCase):
             self.assertIn(token, header)
         for token in (
             "narfs_inspect(",
+            '#include "narfs_sha256.h"',
             "O_NOFOLLOW",
             "O_EXCL",
             "openat(",
@@ -33,9 +34,15 @@ class NarfsStageContractTest(unittest.TestCase):
             "overlay",
             "journal",
             "publish",
+            "sha_transform",
+            "sha_k[",
             "open(entry->relative_path",
         ):
             self.assertNotIn(forbidden, source)
+
+        core = (project / "jni/narfs/narfs_core.c").read_text()
+        self.assertIn("state.visitor(", core)
+        self.assertIn("same_snapshot(&opened, &after)", core)
 
     def test_java_jni_manager_and_ui_boundaries_remain_exact(self):
         project = Path(__file__).resolve().parents[1]

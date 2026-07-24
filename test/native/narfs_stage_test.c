@@ -22,9 +22,11 @@
 typedef struct fault {
     narfs_stage_test_operation primary;
     narfs_stage_test_operation cleanup;
+    int primary_error;
     int mutate;
     int fired;
     char source[2048];
+    char held[2048];
 } fault;
 
 static int remove_item(
@@ -62,15 +64,22 @@ static int hook(
     (void) relative_path;
     if (value == NULL) return 0;
     if (operation == value->primary && !value->fired) {
+        static const unsigned char replacement[] = {9, 8, 7, 6};
         value->fired = 1;
-        if (value->mutate) {
+        if (value->mutate == 2) {
+            snprintf(value->held, sizeof(value->held), "%s.held", value->source);
+            CHECK(rename(value->source, value->held) == 0);
+            write_file(value->source, replacement, sizeof(replacement));
+            return 0;
+        }
+        if (value->mutate == 1) {
             int fd = open(value->source, O_WRONLY | O_APPEND);
             CHECK(fd >= 0);
             CHECK(write(fd, "x", 1) == 1);
             CHECK(close(fd) == 0);
             return 0;
         }
-        return EIO;
+        return value->primary_error == 0 ? EIO : value->primary_error;
     }
     if (operation == value->cleanup) return EIO;
     return 0;
@@ -162,6 +171,14 @@ static void test_snapshot_and_absent(
     CHECK(result.entries[2].blob_ordinal == 0);
     CHECK(memcmp(result.entries[2].sha256, digest, 32) == 0);
     check_blob(staging, &result, bytes, sizeof(bytes));
+    result.token.root_inode++;
+    CHECK(narfs_stage_discard(staging, &result.token, &options)
+            == NARFS_ERR_TREE_CHANGED);
+    result.token.root_inode--;
+    result.token.stage_inode++;
+    CHECK(narfs_stage_discard(staging, &result.token, &options)
+            == NARFS_ERR_TREE_CHANGED);
+    result.token.stage_inode--;
     CHECK(narfs_stage_discard(staging, &result.token, &options) == NARFS_OK);
     CHECK(narfs_stage_discard(staging, &result.token, &options) == NARFS_OK);
     narfs_stage_result_dispose(&result);
@@ -169,6 +186,12 @@ static void test_snapshot_and_absent(
 
 static void test_faults(
         const char *source, const char *staging) {
+    static const unsigned char original_digest[32] = {
+        0xc5,0xdb,0xae,0x22,0x66,0x1a,0xf6,0xdb,
+        0x18,0xa1,0xf6,0x76,0xdb,0x82,0xa7,0xef,
+        0x7d,0xe4,0x6d,0x27,0xc3,0xa2,0x63,0xa8,
+        0x72,0xf0,0x04,0x78,0xb0,0xd9,0x9f,0xc4
+    };
     narfs_stage_options options = narfs_default_stage_options();
     narfs_stage_result result;
     fault injected;
@@ -188,6 +211,19 @@ static void test_faults(
     }
     memset(&injected, 0, sizeof(injected));
     injected.primary = NARFS_STAGE_TEST_READ;
+    injected.mutate = 2;
+    snprintf(injected.source, sizeof(injected.source), "%s", path);
+    options.test_context = &injected;
+    result = stage(source, "ghost", staging, &options);
+    CHECK(result.inspected.error == NARFS_ERR_TREE_CHANGED);
+    CHECK(result.entry_count == 3);
+    CHECK(memcmp(result.entries[2].sha256, original_digest, 32) == 0);
+    narfs_stage_result_dispose(&result);
+    CHECK(remove(injected.source) == 0);
+    CHECK(rename(injected.held, injected.source) == 0);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_READ;
     injected.mutate = 1;
     snprintf(injected.source, sizeof(injected.source), "%s", path);
     options.test_context = &injected;
@@ -198,12 +234,68 @@ static void test_faults(
 
     memset(&injected, 0, sizeof(injected));
     injected.primary = NARFS_STAGE_TEST_WRITE;
+    injected.cleanup = NARFS_STAGE_TEST_CLOSE;
+    options.test_context = &injected;
+    result = stage(source, "ghost", staging, &options);
+    CHECK(result.inspected.error == NARFS_ERR_IO);
+    CHECK(result.inspected.cleanup_error == NARFS_ERR_CLOSE);
+    narfs_stage_result_dispose(&result);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_WRITE;
     injected.cleanup = NARFS_STAGE_TEST_UNLINK;
     options.test_context = &injected;
     result = stage(source, "ghost", staging, &options);
     CHECK(result.inspected.error == NARFS_ERR_IO);
     CHECK(result.inspected.cleanup_error == NARFS_ERR_IO);
     narfs_stage_result_dispose(&result);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.cleanup = NARFS_STAGE_TEST_UNLINK;
+    options.test_context = &injected;
+    result = stage(source, "missing", staging, &options);
+    CHECK(result.inspected.state == NARFS_STATE_ERROR);
+    CHECK(result.inspected.error == NARFS_ERR_IO);
+    narfs_stage_result_dispose(&result);
+
+    options = narfs_default_stage_options();
+    snprintf(path, sizeof(path), "%s/ghost", source);
+    result = stage(source, "ghost", path, &options);
+    CHECK(result.inspected.error == NARFS_ERR_INVALID_OPTIONS);
+    narfs_stage_result_dispose(&result);
+}
+
+static void test_eintr_and_missing_close(
+        const char *source, const char *staging) {
+    narfs_stage_options options = narfs_default_stage_options();
+    narfs_stage_result result;
+    narfs_stage_token token;
+    fault injected;
+    int operation;
+    for (operation = NARFS_STAGE_TEST_READ;
+            operation <= NARFS_STAGE_TEST_CLOSE; operation++) {
+        memset(&injected, 0, sizeof(injected));
+        injected.primary = (narfs_stage_test_operation) operation;
+        injected.primary_error = EINTR;
+        options.test_hook = hook;
+        options.test_context = &injected;
+        result = stage(source, "ghost", staging, &options);
+        CHECK(injected.fired);
+        CHECK(result.inspected.error == NARFS_OK);
+        CHECK(narfs_stage_discard(staging, &result.token, NULL) == NARFS_OK);
+        narfs_stage_result_dispose(&result);
+    }
+    options = narfs_default_stage_options();
+    result = stage(source, "ghost", staging, &options);
+    token = result.token;
+    CHECK(narfs_stage_discard(staging, &token, NULL) == NARFS_OK);
+    narfs_stage_result_dispose(&result);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_CLOSE;
+    options.test_hook = hook;
+    options.test_context = &injected;
+    CHECK(narfs_stage_discard(staging, &token, &options) == NARFS_ERR_CLOSE);
 }
 
 int main(void) {
@@ -216,6 +308,7 @@ int main(void) {
     make_dir(staging);
     test_snapshot_and_absent(source, staging);
     test_faults(source, staging);
+    test_eintr_and_missing_close(source, staging);
     clear_tree(root);
     puts("narfs stage host tests passed");
     return 0;
