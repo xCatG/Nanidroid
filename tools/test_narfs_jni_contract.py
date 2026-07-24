@@ -11,6 +11,7 @@ from unittest import mock
 from inspect_narfs_jni import (
     CandidateContractError,
     FULL_EXPORTS,
+    FULL_LOCALS,
     FULL_SOURCES,
     compare_contracts,
     inspect_candidate,
@@ -56,6 +57,8 @@ class NarfsJniContractTest(unittest.TestCase):
             compiler + " -shared -Wl,-soname,libnarfs.so -Wl,--as-needed"
             + " -Wl,--no-undefined"
             + " -Wl,--version-script=/tmp/project/jni/narfs/narfs_jni.map"
+            + " /tmp/build/CMakeFiles/narfs.dir/narfs_jni.c.o"
+            + " /tmp/build/CMakeFiles/narfs.dir/narfs_utf.c.o"
             + " /tmp/build/libnarfs_core.a -o libnarfs.so"
         )
         self.outputs = {
@@ -117,11 +120,24 @@ class NarfsJniContractTest(unittest.TestCase):
             "command": commands[0]["command"].replace(
                 "narfs_jni.c", "narfs_stage_jni.c")
         })
+        for command in commands:
+            command["command"] = command["command"].replace(
+                "-I/tmp/project/jni/narfs",
+                "-I/tmp/project/jni/narfs/stage/.. "
+                "-I/tmp/project/jni/narfs "
+                "-I/tmp/project/jni/narfs/sha256/..")
         (self.evidence / "compile_commands.json").write_text(
             json.dumps(commands))
         link = (self.evidence / "link.txt").read_text()
         (self.evidence / "link.txt").write_text(
             link.replace("narfs_jni.map", "narfs_full_jni.map").replace(
+                "CMakeFiles/narfs.dir/narfs_jni.c.o",
+                "CMakeFiles/narfs_full.dir/narfs_jni.c.o "
+                "/tmp/build/CMakeFiles/narfs_full.dir/narfs_stage_jni.c.o"
+            ).replace(
+                "CMakeFiles/narfs.dir/narfs_utf.c.o",
+                "CMakeFiles/narfs_full.dir/narfs_utf.c.o"
+            ).replace(
                 "/tmp/build/libnarfs_core.a",
                 "/tmp/build/libnarfs_stage.a "
                 "/tmp/build/libnarfs_core.a "
@@ -134,11 +150,9 @@ class NarfsJniContractTest(unittest.TestCase):
             "5: 00005000 0 NOTYPE GLOBAL DEFAULT ABS _edata\n"
             "6: 00005000 0 NOTYPE GLOBAL DEFAULT ABS _end\n"
         )
-        self.outputs["--symbols"] += "".join(
+        self.outputs["--symbols"] = self.outputs["--dyn-syms"] + "".join(
             f"{index}: 00002{index}00 20 FUNC LOCAL DEFAULT 8 {name}\n"
-            for index, name in enumerate((
-                "narfs_default_stage_options", "narfs_stage_discard",
-                "narfs_stage_existing", "narfs_sha256_init"), 5)
+            for index, name in enumerate(FULL_LOCALS, 5)
         )
         with mock.patch(
                 "inspect_narfs_jni.subprocess.run",
@@ -155,6 +169,23 @@ class NarfsJniContractTest(unittest.TestCase):
         self.assertEqual(
             ["narfs_stage", "narfs_core", "narfs_sha256"],
             report["contract"]["staticModules"])
+        link_path = self.evidence / "link.txt"
+        link = link_path.read_text()
+        for extra in (
+            "/tmp/build/CMakeFiles/narfs_full.dir/extra.c.o",
+            "/tmp/build/libextra.a",
+        ):
+            with self.subTest(extra=extra):
+                link_path.write_text(link.replace(" -o ", f" {extra} -o "))
+                with mock.patch(
+                        "inspect_narfs_jni.subprocess.run",
+                        side_effect=self.readelf):
+                    with self.assertRaises(CandidateContractError):
+                        inspect_candidate(
+                            self.dso, Path("readelf"), self.evidence,
+                            abi="armeabi", api="android-9",
+                            build_system="cmake", profile="full")
+        link_path.write_text(link)
 
     def test_elf_exports_needed_core_extraction_and_evidence_are_exact(self):
         mutations = (

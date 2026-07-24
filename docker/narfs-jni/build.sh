@@ -43,6 +43,10 @@ gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
   "${SOURCE_ROOT}/test/native/narfs_sha256_test.c" \
   -o "${BUILD_ROOT}/narfs_sha256_test"
 "${BUILD_ROOT}/narfs_sha256_test"
+gcc -std=c99 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  "${SOURCE_ROOT}/test/native/narfs_stage_token_test.c" \
+  -o "${BUILD_ROOT}/narfs_stage_token_test"
+"${BUILD_ROOT}/narfs_stage_token_test"
 
 readonly OFF_ROOT="${BUILD_ROOT}/candidate-off"
 mkdir -p "${OFF_ROOT}/ndk"
@@ -71,6 +75,16 @@ if "${NDK_ROOT}/ndk-build" NDK_PROJECT_PATH="${OFF_ROOT}/ndk-missing-2" \
   echo "candidate-off NDK graph exposes stage target" >&2
   exit 1
 fi
+if "${NDK_ROOT}/ndk-build" NDK_PROJECT_PATH="${OFF_ROOT}/ndk-missing-3" \
+  NDK_OUT="${OFF_ROOT}/ndk-missing-3/obj" \
+  NDK_LIBS_OUT="${OFF_ROOT}/ndk-missing-3/libs" \
+  APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
+  NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
+  APP_MODULES=narfs_full APP_PLATFORM=android-9 \
+  APP_ABI=armeabi NDK_TOOLCHAIN_VERSION=4.9 >/dev/null 2>&1; then
+  echo "candidate-off NDK graph exposes full JNI target" >&2
+  exit 1
+fi
 cmake -S "${BUILD_ROOT}/jni" -B "${OFF_ROOT}/cmake" \
   -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake" \
   -DANDROID_NDK="${NDK_ROOT}" -DANDROID_TOOLCHAIN=gcc \
@@ -84,6 +98,11 @@ fi
 if cmake --build "${OFF_ROOT}/cmake" \
   --target narfs_stage_link_probe >/dev/null 2>&1; then
   echo "candidate-off CMake graph exposes stage target" >&2
+  exit 1
+fi
+if cmake --build "${OFF_ROOT}/cmake" \
+  --target narfs_full >/dev/null 2>&1; then
+  echo "candidate-off CMake graph exposes full JNI target" >&2
   exit 1
 fi
 if find "${OFF_ROOT}" -iname '*sha256*' -print -quit | grep -q .; then
@@ -102,6 +121,9 @@ build_lane() {
   local ndk_log="${ndk_build}/build.log"
   local readelf="${NDK_ROOT}/toolchains/${triple}-4.9/prebuilt/linux-x86_64/bin/${triple}-readelf"
   local report="${OUTPUT_ROOT}/narfs-jni-${abi}"
+  local full_ndk="${BUILD_ROOT}/ndk-full-${abi}"
+  local full_cmake="${BUILD_ROOT}/cmake-full-${abi}"
+  local full_log="${full_ndk}/build.log"
   mkdir -p "${ndk_build}"
 
   "${NDK_ROOT}/ndk-build" \
@@ -183,6 +205,49 @@ build_lane() {
   python3 "${INSPECTOR}" compare \
     "${report}-ndk-build.json" "${report}-cmake.json" \
     --output "${report}-parity.json"
+
+  mkdir -p "${full_ndk}"
+  "${NDK_ROOT}/ndk-build" 'TARGET_CXX=$(TARGET_CC)' \
+    NDK_PROJECT_PATH="${full_ndk}" NDK_OUT="${full_ndk}/obj" \
+    NDK_LIBS_OUT="${full_ndk}/libs" \
+    APP_BUILD_SCRIPT="${BUILD_ROOT}/jni/narfs/Android.mk" \
+    NDK_APPLICATION_MK="${BUILD_ROOT}/jni/Application.mk" \
+    APP_MODULES=narfs_full APP_PLATFORM="${api}" APP_ABI="${abi}" \
+    NDK_TOOLCHAIN_VERSION=4.9 NANIDROID_NARFS_FULL_JNI_CANDIDATE=1 \
+    NANIDROID_NARFS_SHA256_CANDIDATE=1 \
+    NANIDROID_NARFS_STAGE_CANDIDATE=1 V=1 2>&1 | tee "${full_log}"
+  python3 "${INSPECTOR}" inspect --profile full \
+    --dso "${full_ndk}/obj/local/${abi}/libnarfs.so" \
+    --readelf "${readelf}" --evidence "${full_log}" \
+    --abi "${abi}" --api "${api}" --build-system ndk-build \
+    --output "${report}-full-ndk-build.json"
+
+  full_args=(
+    -S "${BUILD_ROOT}/jni/narfs" -B "${full_cmake}" -G "Unix Makefiles"
+    -DCMAKE_BUILD_TYPE= -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${full_cmake}/native/${abi}"
+    -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="${full_cmake}/static/${abi}"
+    -DCMAKE_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake"
+    -DANDROID_NDK="${NDK_ROOT}" -DANDROID_TOOLCHAIN=gcc
+    -DANDROID_ABI="${abi}" -DANDROID_PLATFORM="${api}"
+    -DANDROID_STL=gnustl_static
+    -DNANIDROID_BUILD_NARFS_FULL_JNI_CANDIDATE=ON
+    -DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON
+    -DNANIDROID_BUILD_NARFS_STAGE_CANDIDATE=ON
+  )
+  if [[ -n "${arm_mode}" ]]; then
+    full_args+=("-DANDROID_ARM_MODE=${arm_mode}")
+  fi
+  cmake "${full_args[@]}"
+  cmake --build "${full_cmake}" --target narfs_full -- VERBOSE=1
+  python3 "${INSPECTOR}" inspect --profile full \
+    --dso "${full_cmake}/native/${abi}/libnarfs.so" \
+    --readelf "${readelf}" --evidence "${full_cmake}" \
+    --abi "${abi}" --api "${api}" --build-system cmake \
+    --output "${report}-full-cmake.json"
+  python3 "${INSPECTOR}" compare \
+    "${report}-full-ndk-build.json" "${report}-full-cmake.json" \
+    --output "${report}-full-parity.json"
 }
 
 build_lane armeabi android-9 arm-linux-androideabi thumb

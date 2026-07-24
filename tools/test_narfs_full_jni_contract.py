@@ -61,6 +61,12 @@ class NarfsFullJniContractTest(unittest.TestCase):
                 source,
                 operation + r"[\s\S]{0,500}"
                 r"(?:goto done|return NULL)")
+        for variable in ("paths", "types", "sizes", "ordinals", "digests"):
+            self.assertRegex(
+                source,
+                rf"{variable} = \(\*env\)->New[\s\S]{{0,200}}"
+                rf"if \({variable} == NULL \|\| "
+                r"\(\*env\)->ExceptionCheck\(env\)\) goto done;")
 
     def test_token_is_fixed_versioned_reserved_and_inode_bound(self):
         header = (ROOT / "jni/narfs/narfs_stage_token.h").read_text()

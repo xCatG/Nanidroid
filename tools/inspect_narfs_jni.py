@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import posixpath
 import re
 import shlex
 import subprocess
@@ -12,7 +13,24 @@ from pathlib import Path
 
 EXPORT = ("Java_com_cattailsw_nanidroid_install_"
           "NarFilesystemInspector_nativeInspect")
-SOURCES = ["jni/narfs/narfs_jni.c", "jni/narfs/narfs_utf.c"]
+FULL_EXPORTS = tuple(sorted((
+    EXPORT,
+    "Java_com_cattailsw_nanidroid_install_NarStagedTree_nativeBegin",
+    "Java_com_cattailsw_nanidroid_install_NarStagedTree_nativeDiscard",
+)))
+SOURCES = ("jni/narfs/narfs_jni.c", "jni/narfs/narfs_utf.c")
+FULL_SOURCES = (
+    "jni/narfs/narfs_jni.c",
+    "jni/narfs/narfs_stage_jni.c",
+    "jni/narfs/narfs_utf.c",
+)
+FULL_LOCALS = tuple(sorted((
+    "narfs_default_options", "narfs_default_stage_options", "narfs_inspect",
+    "narfs_sha256_final", "narfs_sha256_init", "narfs_sha256_update",
+    "narfs_stage_discard", "narfs_stage_existing",
+    "narfs_stage_result_dispose", "narfs_utf16_to_utf8",
+    "narfs_utf8_to_utf16",
+)))
 FLAGS = ["-std=c99", "-Wall", "-Wextra", "-Werror", "-fvisibility=hidden"]
 
 
@@ -58,13 +76,15 @@ def _definitions(text):
     return sorted(found)
 
 
-def _evidence(path, build_system, abi):
+def _evidence(path, build_system, abi, profile):
+    sources = FULL_SOURCES if profile == "full" else SOURCES
+    target = "narfs_full" if profile == "full" else "narfs"
     if build_system == "cmake":
         rows = json.loads((path / "compile_commands.json").read_text())
         commands = [row["command"] for row in rows]
         link_path = path / "link.txt"
         if not link_path.is_file():
-            link_path = path / "CMakeFiles/narfs.dir/link.txt"
+            link_path = path / f"CMakeFiles/{target}.dir/link.txt"
         link = link_path.read_text()
     else:
         commands = path.read_text().splitlines()
@@ -78,7 +98,7 @@ def _evidence(path, build_system, abi):
         "arm64-v8a": ("aarch64-linux-android-gcc", [],
                       "/platforms/android-21/arch-arm64", "aarch64-linux-android"),
     }[abi]
-    for source in SOURCES:
+    for source in sources:
         matches = [shlex.split(line) for line in commands
                    if line.replace("\\", "/").endswith(source)
                    or f"/{source} " in line.replace("\\", "/")]
@@ -105,11 +125,16 @@ def _evidence(path, build_system, abi):
                 includes.append((token, tokens[index + 1]))
             elif token.startswith("-I"):
                 includes.append(("-I", token[2:]))
-        normalized = [(kind, "jni/narfs" if value.endswith("/jni/narfs")
-                       else value.removeprefix("/opt/android-ndk-r14b/"))
-                      for kind, value in includes]
+        normalized = [
+            (kind, "jni/narfs"
+             if posixpath.normpath(value.replace("\\", "/")).endswith(
+                 "/jni/narfs")
+             else value.removeprefix("/opt/android-ndk-r14b/"))
+            for kind, value in includes
+        ]
         expected_includes = [("-I", "jni/narfs")] * (
-            1 if build_system == "cmake" else 2)
+            (3 if profile == "full" else 1)
+            if build_system == "cmake" else 2)
         if build_system == "cmake":
             base = lane[2][1:] + "/usr/include"
             expected_includes += [("-isystem", base), ("-isystem", base + "/" + lane[3])]
@@ -121,16 +146,40 @@ def _evidence(path, build_system, abi):
             _fail(f"sysroot changed: {source}")
         compiled.append(source)
     link_tokens = shlex.split(link)
-    if Path(link_tokens[0]).name != lane[0] or not all(
-            any(wanted in token for token in link_tokens) for wanted in (
-                "--as-needed", "--no-undefined", "--version-script",
-                "libnarfs_core.a")):
+    modules = ["narfs_stage", "narfs_core", "narfs_sha256"] \
+        if profile == "full" else ["narfs_core"]
+    normalized_link = [token.replace("\\", "/") for token in link_tokens]
+    object_marker = f"CMakeFiles/{target}.dir/" \
+        if build_system == "cmake" else f"objs/{target}/"
+    direct_objects = [
+        Path(token).name for token in normalized_link
+        if token.endswith(".o") and object_marker in token
+    ]
+    expected_objects = [
+        Path(source).name + ".o" if build_system == "cmake"
+        else Path(source).stem + ".o"
+        for source in sources
+    ]
+    archives = [
+        Path(token).name.removeprefix("lib").removesuffix(".a")
+        for token in link_tokens if token.endswith(".a")
+    ]
+    if (Path(link_tokens[0]).name != lane[0]
+            or direct_objects != expected_objects
+            or archives != modules
+            or not all(any(wanted in token for token in link_tokens)
+                       for wanted in (
+                           "--as-needed", "--no-undefined",
+                           "--version-script"))):
         _fail("static-core link evidence changed")
     return {"sources": compiled, "flags": FLAGS, "compiler": lane[0],
-            "sysroot": lane[2][1:], "include": "jni/narfs"}
+            "sysroot": lane[2][1:], "include": "jni/narfs",
+            "staticModules": modules}
 
 
-def inspect_candidate(dso, readelf, evidence, *, abi, api, build_system):
+def inspect_candidate(
+        dso, readelf, evidence, *, abi, api, build_system,
+        profile="inspector"):
     lane = {
         ("armeabi", "android-9"): ("ELF32", "ARM", "ARMv5TE Thumb-1"),
         ("arm64-v8a", "android-21"): ("ELF64", "AArch64", "AArch64"),
@@ -153,7 +202,12 @@ def inspect_candidate(dso, readelf, evidence, *, abi, api, build_system):
     exports = _symbols(dynamic_symbols, "GLOBAL")
     defined = _definitions(dynamic_symbols)
     locals_ = _symbols(_readelf(readelf, "--symbols", dso), "LOCAL")
-    expected_defined = [("FUNC", "GLOBAL", "DEFAULT", EXPORT)]
+    expected_exports = list(
+        FULL_EXPORTS if profile == "full" else (EXPORT,))
+    expected_defined = [
+        ("FUNC", "GLOBAL", "DEFAULT", value)
+        for value in expected_exports
+    ]
     if abi == "armeabi":
         expected_defined += [
             ("NOTYPE", "GLOBAL", "DEFAULT", "__bss_start"),
@@ -162,17 +216,26 @@ def inspect_candidate(dso, readelf, evidence, *, abi, api, build_system):
         ]
     expected_defined.sort()
     if (soname != ["libnarfs.so"] or needed != ["libc.so"]
-            or exports != [EXPORT] or defined != expected_defined):
+            or exports != expected_exports or defined != expected_defined):
         _fail("candidate dynamic contract changed")
-    if [name for name in locals_ if name.startswith("narfs_")] != [
-            "narfs_default_options", "narfs_inspect",
-            "narfs_utf16_to_utf8", "narfs_utf8_to_utf16"]:
+    narfs_locals = [
+        name for name in locals_ if name.startswith("narfs_")]
+    required = {
+        "narfs_default_options", "narfs_inspect",
+        "narfs_utf16_to_utf8", "narfs_utf8_to_utf16",
+    }
+    if profile == "full":
+        if narfs_locals != list(FULL_LOCALS):
+            _fail("full candidate internals changed")
+    elif narfs_locals != sorted(required):
         _fail("candidate internals were not extracted and hidden exactly")
-    build = _evidence(evidence, build_system, abi)
+    build = _evidence(evidence, build_system, abi, profile)
     return {
         "contract": {
-            "abi": abi, "api": api, "architecture": lane[2],
+            "profile": profile, "abi": abi, "api": api,
+            "architecture": lane[2],
             "soname": soname[0], "jniExports": exports, "needed": needed,
+            "localNarfsSymbols": narfs_locals,
             "coreDefinitions": ["narfs_default_options", "narfs_inspect"], **build,
         },
         "provenance": {
@@ -198,6 +261,8 @@ def main():
     inspect.add_argument("--api", required=True)
     inspect.add_argument(
         "--build-system", choices=("ndk-build", "cmake"), required=True)
+    inspect.add_argument(
+        "--profile", choices=("inspector", "full"), default="inspector")
     compare = commands.add_parser("compare")
     compare.add_argument("reference", type=Path)
     compare.add_argument("candidate", type=Path)
@@ -207,7 +272,8 @@ def main():
         if args.command == "inspect":
             report = inspect_candidate(
                 args.dso, args.readelf, args.evidence, abi=args.abi,
-                api=args.api, build_system=args.build_system)
+                api=args.api, build_system=args.build_system,
+                profile=args.profile)
         else:
             report = compare_contracts(
                 json.loads(args.reference.read_text()),

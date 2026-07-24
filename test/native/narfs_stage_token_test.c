@@ -56,6 +56,12 @@ int main(void) {
     CHECK(!narfs_stage_token_decode(
             encoded, sizeof(encoded) - 1, &decoded));
 
+    memcpy(mutated, encoded, sizeof(mutated));
+    mutated[0] = 'X';
+    CHECK(!narfs_stage_token_decode(mutated, sizeof(mutated), &decoded));
+    memcpy(mutated, encoded, sizeof(mutated));
+    mutated[8] = 32;
+    CHECK(!narfs_stage_token_decode(mutated, sizeof(mutated), &decoded));
     for (index = 0; index < sizeof(encoded); index++) {
         memcpy(mutated, encoded, sizeof(mutated));
         if ((index >= 5 && index <= 7)
@@ -68,13 +74,21 @@ int main(void) {
     }
     memcpy(mutated, encoded, sizeof(mutated));
     mutated[4] = 2;
+    memset(&decoded, 0xa5, sizeof(decoded));
     CHECK(!narfs_stage_token_decode(mutated, sizeof(mutated), &decoded));
+    CHECK(decoded.session_name[0] == '\0'
+            && decoded.root_device == 0 && decoded.root_inode == 0
+            && decoded.stage_device == 0 && decoded.stage_inode == 0);
     memcpy(mutated, encoded, sizeof(mutated));
     mutated[16] = 'x';
     CHECK(!narfs_stage_token_decode(mutated, sizeof(mutated), &decoded));
     memcpy(mutated, encoded, sizeof(mutated));
     mutated[17] = 'G';
+    memset(&decoded, 0xa5, sizeof(decoded));
     CHECK(!narfs_stage_token_decode(mutated, sizeof(mutated), &decoded));
+    CHECK(decoded.session_name[0] == '\0'
+            && decoded.root_device == 0 && decoded.root_inode == 0
+            && decoded.stage_device == 0 && decoded.stage_inode == 0);
     original = token();
     original.session_name[33] = 'x';
     CHECK(!narfs_stage_token_encode(
@@ -86,12 +100,19 @@ int main(void) {
     for (index = 56; index <= 80; index += 8) {
         memcpy(mutated, encoded, sizeof(mutated));
         memset(mutated + index, 0, 8);
+        memset(&decoded, 0xa5, sizeof(decoded));
+        CHECK(!narfs_stage_token_decode(
+                mutated, sizeof(mutated), &decoded));
+        CHECK(decoded.session_name[0] == '\0'
+                && decoded.root_device == 0 && decoded.root_inode == 0
+                && decoded.stage_device == 0 && decoded.stage_inode == 0);
+    }
+    for (index = 56; index <= 80; index += 8) {
+        memcpy(mutated, encoded, sizeof(mutated));
+        mutated[index] = 0x80;
         CHECK(!narfs_stage_token_decode(
                 mutated, sizeof(mutated), &decoded));
     }
-    memcpy(mutated, encoded, sizeof(mutated));
-    mutated[56] = 0x80;
-    CHECK(!narfs_stage_token_decode(mutated, sizeof(mutated), &decoded));
 
     puts("narfs stage token host tests passed");
     return 0;
