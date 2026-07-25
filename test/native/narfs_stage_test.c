@@ -243,6 +243,23 @@ static void test_retained_clone( const char *source, const char *staging) {
         candidate = narfs_stage_clone_retained(staging, &retained.token, pair, 2, &options);
         CHECK(candidate.error == NARFS_ERR_INVALID_OPTIONS && candidate.token.session_name[0] == '\0');
     }
+    {
+        narfs_stage_clone_mapping pair[2];
+        char second[4096];
+        snprintf(second, sizeof(second), "%s/%s/b000001", staging, retained.token.session_name);
+        write_file(second, bytes, sizeof(bytes));
+        pair[0] = mapping; pair[1] = mapping;
+        pair[1].retained_blob_ordinal = 1; pair[1].candidate_blob_ordinal = 999;
+        candidate = narfs_stage_clone_retained(staging, &retained.token, pair, 2, &options);
+        CHECK(candidate.error == NARFS_OK);
+        check_token_blob(staging, &candidate.token, 17, bytes, sizeof(bytes));
+        check_token_blob(staging, &candidate.token, 999, bytes, sizeof(bytes));
+        CHECK(narfs_stage_discard(staging, &candidate.token, &options) == NARFS_OK);
+    }
+    options.inspect.max_total_bytes = 3;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_TOTAL_SIZE_LIMIT && candidate.token.session_name[0] == '\0');
+    options = narfs_default_stage_options();
 
     mapping.candidate_blob_ordinal = NARFS_STAGE_MAX_BLOB_ORDINAL + 1U;
     candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
@@ -264,6 +281,19 @@ static void test_retained_clone( const char *source, const char *staging) {
     candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
     CHECK(candidate.error == NARFS_ERR_TREE_CHANGED && candidate.token.session_name[0] == '\0');
     CHECK(unlink(source_blob) == 0); CHECK(rename(held, source_blob) == 0);
+
+    memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_READ;
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_IO && candidate.token.session_name[0] == '\0');
+    memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_SYNC;
+    options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_IO && candidate.token.session_name[0] == '\0');
+    memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_CLOSE;
+    options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_CLOSE && candidate.token.session_name[0] == '\0');
 
     memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_BEGIN_COPY; injected.mutate = 4;
     snprintf(injected.source, sizeof(injected.source), "%s", source_blob);
