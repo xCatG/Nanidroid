@@ -314,6 +314,29 @@ static narfs_error open_stage_session(
     return NARFS_OK;
 }
 
+static narfs_error root_matches_token(
+        const char *staging_root, const narfs_stage_token *token,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    struct stat status;
+    int root, result;
+    do root = open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    while (root < 0 && errno == EINTR);
+    if (root < 0) return changed_or_system_error(errno);
+    do result = fstat(root, &status);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) {
+        narfs_error error = system_error(errno);
+        if (close_stage_fd(root, options, "") != 0) *cleanup_error = NARFS_ERR_CLOSE;
+        return error;
+    }
+    if (close_stage_fd(root, options, "") != 0)
+        *cleanup_error = NARFS_ERR_CLOSE;
+    if (!S_ISDIR(status.st_mode) || (uint64_t) status.st_dev != token->root_device
+            || (uint64_t) status.st_ino != token->root_inode)
+        return NARFS_ERR_TREE_CHANGED;
+    return NARFS_OK;
+}
+
 static narfs_error validate_stage_blobs(
         int session_fd, const narfs_stage_options *options,
         narfs_error *cleanup_error) {
@@ -382,7 +405,8 @@ static narfs_error verify_retained_blob(
     int have_before = 0;
     if (!blob_name(mapping->retained_blob_ordinal, name))
         return NARFS_ERR_INVALID_OPTIONS;
-    do input = openat(retained_fd, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    do input = openat(retained_fd, name,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
     while (input < 0 && errno == EINTR);
     if (input < 0) return changed_or_system_error(errno);
     do status = fstat(input, &before);
@@ -443,7 +467,8 @@ static narfs_error clone_one_blob(
     if (!blob_name(mapping->retained_blob_ordinal, source_name)
             || !blob_name(mapping->candidate_blob_ordinal, candidate_name))
         return NARFS_ERR_INVALID_OPTIONS;
-    do input = openat(retained_fd, source_name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    do input = openat(retained_fd, source_name,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
     while (input < 0 && errno == EINTR);
     if (input < 0) return changed_or_system_error(errno);
     {
@@ -532,12 +557,15 @@ static narfs_error clone_one_blob(
     return error;
 }
 
-static int make_session( const char *staging_root, narfs_stage_token *token, int *root_fd, narfs_error *primary_error, narfs_error *cleanup_error, const narfs_stage_options *options) {
+static int make_session( const char *staging_root, int verified_root,
+        narfs_stage_token *token, int *root_fd, narfs_error *primary_error,
+        narfs_error *cleanup_error, const narfs_stage_options *options) {
     unsigned char random[16];
     struct stat status;
     int entropy, session, attempt, result;
     *primary_error = NARFS_OK;
-    do *root_fd = open( staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    do *root_fd = verified_root >= 0 ? dup(verified_root)
+            : open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     while (*root_fd < 0 && errno == EINTR);
     if (*root_fd < 0) return -1;
     do result = fstat(*root_fd, &status);
@@ -799,7 +827,13 @@ narfs_stage_clone_result narfs_stage_clone_retained(
 
     {
         narfs_error creation_error = NARFS_OK, creation_cleanup = NARFS_OK;
-        candidate_session = make_session(staging_root, &result.token,
+        if (injected(options, NARFS_STAGE_TEST_CREATE_SESSION, staging_root) != 0)
+            result.error = system_error(errno);
+        if (result.error == NARFS_OK)
+            result.error = root_matches_token(staging_root, retained, options,
+                    &source_cleanup);
+        if (result.error != NARFS_OK) goto finish;
+        candidate_session = make_session(NULL, retained_root, &result.token,
                 &candidate_root, &creation_error, &creation_cleanup, options);
         if (candidate_session < 0) {
             int saved = errno;
@@ -810,6 +844,8 @@ narfs_stage_clone_result narfs_stage_clone_retained(
         }
         candidate_exists = 1;
     }
+    if (injected(options, NARFS_STAGE_TEST_BEGIN_COPY, retained->session_name) != 0)
+        result.error = system_error(errno);
     for (index = 0; index < mapping_count && result.error == NARFS_OK; index++)
         result.error = clone_one_blob(retained_session, candidate_session,
                 &mappings[index], options, &result.cleanup_error);
@@ -870,7 +906,7 @@ narfs_stage_result narfs_stage_existing( const char *trusted_root, const char *t
         result.inspected.error = NARFS_ERR_INVALID_OPTIONS;
         return result;
     }
-    session = make_session( staging_root, &result.token, &root, &creation_error, &creation_cleanup, options);
+    session = make_session( staging_root, -1, &result.token, &root, &creation_error, &creation_cleanup, options);
     if (session < 0) {
         int primary = errno;
         result.inspected.error = creation_error != NARFS_OK ? creation_error : primary == EAGAIN ? NARFS_ERR_TREE_CHANGED : system_error(primary);
