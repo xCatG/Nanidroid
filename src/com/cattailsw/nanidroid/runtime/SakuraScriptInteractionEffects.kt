@@ -1,23 +1,28 @@
 package com.cattailsw.nanidroid.runtime
 
+import java.util.Collections
+
 /** Non-presentation effects emitted by a Sakura Script interaction command. */
 sealed interface SakuraScriptInteractionEffect {
     data class OpenInputBox(val id: String) : SakuraScriptInteractionEffect
 
-    data class ShowSelection(
-        val labels: List<String>,
-        val ids: List<String>,
-    ) : SakuraScriptInteractionEffect
+    class ShowSelection(labels: List<String>, ids: List<String>) : SakuraScriptInteractionEffect {
+        val labels: List<String> = Collections.unmodifiableList(ArrayList(labels))
+        val ids: List<String> = Collections.unmodifiableList(ArrayList(ids))
+    }
 }
 
 /**
  * Script text with interaction commands removed or normalized for presentation,
  * plus the effects that the runtime must dispatch to the host UI.
  */
-data class SakuraScriptInteractionResult(
+class SakuraScriptInteractionResult(
     val presentationScript: String,
-    val effects: List<SakuraScriptInteractionEffect>,
-)
+    effects: List<SakuraScriptInteractionEffect>,
+) {
+    val effects: List<SakuraScriptInteractionEffect> =
+        Collections.unmodifiableList(ArrayList(effects))
+}
 
 /** Pure extraction of legacy input-box and choice effects. */
 object SakuraScriptInteractionInterpreter {
@@ -26,23 +31,42 @@ object SakuraScriptInteractionInterpreter {
     // unusual but observable behavior until a deliberate compatibility change.
     private val input = Regex("\\\\!\\[open,inputbox,(.*)]")
 
+    private data class PositionedEffect(
+        val position: Int,
+        val effect: SakuraScriptInteractionEffect,
+    )
+
     @JvmStatic
     fun extract(script: String): SakuraScriptInteractionResult {
-        val effects = mutableListOf<SakuraScriptInteractionEffect>()
+        val effects = mutableListOf<PositionedEffect>()
         val labels = mutableListOf<String>()
         val ids = mutableListOf<String>()
+        val inputMatches = input.findAll(script).toList()
         val withoutChoices = choice.replace(script) { match ->
+            if (inputMatches.any { inputMatch -> match.range.first in inputMatch.range }) {
+                return@replace match.value
+            }
             labels += match.groupValues[1]
             ids += match.groupValues[2]
             match.groupValues[1]
         }
         if (labels.isNotEmpty()) {
-            effects += SakuraScriptInteractionEffect.ShowSelection(labels, ids)
+            val firstChoice = choice.find(script)!!.range.first
+            effects += PositionedEffect(
+                firstChoice,
+                SakuraScriptInteractionEffect.ShowSelection(labels, ids),
+            )
         }
-        val presentationScript = input.replace(withoutChoices) { match ->
-            effects += SakuraScriptInteractionEffect.OpenInputBox(match.groupValues[1])
-            ""
+        inputMatches.forEach { match ->
+            effects += PositionedEffect(
+                match.range.first,
+                SakuraScriptInteractionEffect.OpenInputBox(match.groupValues[1]),
+            )
         }
-        return SakuraScriptInteractionResult(presentationScript, effects)
+        val presentationScript = input.replace(withoutChoices, "")
+        return SakuraScriptInteractionResult(
+            presentationScript,
+            effects.sortedBy { it.position }.map { it.effect },
+        )
     }
 }

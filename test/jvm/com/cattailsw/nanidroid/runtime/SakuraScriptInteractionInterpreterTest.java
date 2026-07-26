@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.runtime;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -53,5 +54,38 @@ public final class SakuraScriptInteractionInterpreterTest {
         SakuraScriptInteractionEffect.OpenInputBox effect =
                 (SakuraScriptInteractionEffect.OpenInputBox) result.getEffects().get(0);
         assertEquals("first]X\\![open,inputbox,second", effect.getId());
+    }
+
+    @Test
+    public void requiredMigrationInvariant_effectsKeepInputAndChoiceSourceOrder() {
+        SakuraScriptInteractionResult result = SakuraScriptInteractionInterpreter.extract(
+                "\\q[One,id]A\\![open,inputbox,name]");
+
+        assertEquals(2, result.getEffects().size());
+        assertEquals(SakuraScriptInteractionEffect.ShowSelection.class,
+                result.getEffects().get(0).getClass());
+        assertEquals(SakuraScriptInteractionEffect.OpenInputBox.class,
+                result.getEffects().get(1).getClass());
+    }
+
+    @Test
+    public void requiredMigrationInvariant_effectCollectionsCannotBeMutatedFromJava() {
+        SakuraScriptInteractionResult result = SakuraScriptInteractionInterpreter.extract(
+                "\\q[One,id]");
+        SakuraScriptInteractionEffect.ShowSelection selection =
+                (SakuraScriptInteractionEffect.ShowSelection) result.getEffects().get(0);
+
+        assertUnmodifiable(result.getEffects());
+        assertUnmodifiable(selection.getLabels());
+        assertUnmodifiable(selection.getIds());
+    }
+
+    private static void assertUnmodifiable(java.util.List<?> values) {
+        try {
+            values.add(null);
+            fail("Expected unmodifiable collection");
+        } catch (UnsupportedOperationException expected) {
+            // Expected.
+        }
     }
 }
