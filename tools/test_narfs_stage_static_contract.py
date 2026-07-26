@@ -14,7 +14,7 @@ BOUNDARY_HASHES = {
     "jni/narfs/narfs_stage.c":
         "86dfb56b4defa50c5373e5b5ea995060c233ec5e8d6bb5653af224acff34920e",
     "jni/narfs/narfs_stage.h":
-        "99183a31e76fd0640ab12779f1d497fa5ad2ba7caf084996ae38b9ccce40c170",
+        "d459de6c65140197efed584f00e4d4f28c09167acad9079b1acd4ea61d2aa738",
     "jni/narfs/narfs_core.c":
         "6160699d0a2a3fdc2ffdddc3e7b225110a3749258e51159a75c2db1ae931692d",
     "jni/narfs/narfs_core.h":

@@ -66,10 +66,16 @@ narfs_stage_options narfs_default_stage_options(void);
  * paths are never reopened. A successful PRESENT result owns an opaque,
  * inode-bound staging session which must be passed to narfs_stage_discard.
  *
- * Recovery of sessions orphaned by process-death is deferred to D9b3.
+ * D9b3 owns discard-only recovery of process-death orphans and candidates
+ * disconnected by adversarial staging-root/session pathname replacement after
+ * bound cleanup fails. This slice never promises portable immediate deletion
+ * of a directory renamed out of its verified name.
  * Same-size writes which restore timestamps remain outside this slice.
  */
 narfs_stage_result narfs_stage_existing( const char *trusted_root, const char *target, const char *staging_root, const narfs_stage_options *options);
+/* A failed clone returns retry authority only while its root and session
+ * pathname still resolve to the captured inode pair; otherwise its token is
+ * empty and D9b3 handles the discard-only orphan boundary. */
 narfs_stage_clone_result narfs_stage_clone_retained(
         const char *staging_root, const narfs_stage_token *retained,
         const narfs_stage_clone_mapping *mappings, uint32_t mapping_count,
