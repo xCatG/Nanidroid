@@ -273,8 +273,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/ViewServerLifecycleCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/runtime/" +
-        "GhostPresentationReducerTest.java",
+    "test/jvm/com/cattailsw/nanidroid/runtime/GhostPresentationReducerTest.java",
     "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarArchiveInventoryValidatorTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarDescriptorParserTest.java",
