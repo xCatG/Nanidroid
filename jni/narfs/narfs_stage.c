@@ -619,6 +619,129 @@ static narfs_error clone_one_blob(
     return error;
 }
 
+static narfs_error verify_candidate_blob(
+        int candidate_fd, const narfs_stage_clone_mapping *mapping,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    char name[8];
+    int input = -1, status;
+    struct stat before, after;
+    unsigned char *buffer = NULL, digest[NARFS_SHA256_BYTES];
+    uint64_t copied = 0;
+    narfs_error error = NARFS_OK;
+    narfs_sha256 hash;
+    if (!blob_name(mapping->candidate_blob_ordinal, name))
+        return NARFS_ERR_INVALID_OPTIONS;
+    do input = openat(candidate_fd, name,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+    while (input < 0 && errno == EINTR);
+    if (input < 0) return changed_or_system_error(errno);
+    do status = fstat(input, &before);
+    while (status != 0 && errno == EINTR);
+    if (status != 0) error = system_error(errno);
+    else if (!S_ISREG(before.st_mode) || (before.st_mode & 0777) != 0600
+            || (uint64_t) before.st_size != mapping->expected_size)
+        error = NARFS_ERR_TREE_CHANGED;
+    if (error == NARFS_OK) {
+        buffer = (unsigned char *) malloc(options->io_chunk);
+        if (buffer == NULL) error = NARFS_ERR_RESOURCE;
+    }
+    narfs_sha256_init(&hash);
+    while (error == NARFS_OK && copied < mapping->expected_size) {
+        size_t wanted = options->io_chunk;
+        ssize_t count;
+        if ((uint64_t) wanted > mapping->expected_size - copied)
+            wanted = (size_t) (mapping->expected_size - copied);
+        do {
+            count = injected(options, NARFS_STAGE_TEST_READ, name);
+            if (count == 0) count = read(input, buffer, wanted);
+        } while (count < 0 && errno == EINTR);
+        if (count <= 0) {
+            error = count == 0 ? NARFS_ERR_TREE_CHANGED : system_error(errno);
+            break;
+        }
+        narfs_sha256_update(&hash, buffer, (size_t) count);
+        copied += (uint64_t) count;
+    }
+    free(buffer);
+    if (error == NARFS_OK) {
+        narfs_sha256_final(&hash, digest);
+        if (memcmp(digest, mapping->expected_sha256, NARFS_SHA256_BYTES) != 0)
+            error = NARFS_ERR_TREE_CHANGED;
+    }
+    do status = fstat(input, &after);
+    while (status != 0 && errno == EINTR);
+    if (status != 0) record_clone_error(&error, cleanup_error, system_error(errno));
+    else if (!same_snapshot(&before, &after))
+        record_clone_error(&error, cleanup_error, NARFS_ERR_TREE_CHANGED);
+    if (close_stage_fd(input, options, name) != 0)
+        record_clone_error(&error, cleanup_error, NARFS_ERR_CLOSE);
+    return error;
+}
+
+static narfs_error validate_candidate_blobs(
+        int candidate_fd, const narfs_stage_clone_mapping *mappings,
+        uint32_t mapping_count, const narfs_stage_options *options,
+        narfs_error *cleanup_error) {
+    DIR *directory;
+    struct dirent *item;
+    struct stat status;
+    uint32_t seen = 0, index;
+    int copy, result;
+    narfs_error error = NARFS_OK;
+    do copy = dup(candidate_fd);
+    while (copy < 0 && errno == EINTR);
+    if (copy < 0) return system_error(errno);
+    directory = fdopendir(copy);
+    if (directory == NULL) {
+        close(copy);
+        return system_error(errno);
+    }
+    while (error == NARFS_OK) {
+        int matched = 0;
+        errno = 0;
+        item = readdir(directory);
+        if (item == NULL && errno == EINTR) continue;
+        if (item == NULL) {
+            if (errno != 0) error = system_error(errno);
+            break;
+        }
+        if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0)
+            continue;
+        if (!valid_blob_name(item->d_name)) {
+            error = NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        for (index = 0; index < mapping_count; index++) {
+            char expected[8];
+            if (!blob_name(mappings[index].candidate_blob_ordinal, expected)) {
+                error = NARFS_ERR_INVALID_OPTIONS;
+                break;
+            }
+            if (strcmp(item->d_name, expected) == 0) matched = 1;
+        }
+        if (error != NARFS_OK) break;
+        if (!matched) {
+            error = NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        do result = fstatat(candidate_fd, item->d_name, &status, AT_SYMLINK_NOFOLLOW);
+        while (result != 0 && errno == EINTR);
+        if (result != 0 || !S_ISREG(status.st_mode)
+                || (status.st_mode & 0777) != 0600) {
+            error = result != 0 ? changed_or_system_error(errno)
+                    : NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        seen++;
+    }
+    if (closedir(directory) != 0 && error == NARFS_OK) error = NARFS_ERR_CLOSE;
+    if (error == NARFS_OK && seen != mapping_count) error = NARFS_ERR_TREE_CHANGED;
+    for (index = 0; index < mapping_count && error == NARFS_OK; index++)
+        error = verify_candidate_blob(candidate_fd, &mappings[index], options,
+                cleanup_error);
+    return error;
+}
+
 static int make_session( const char *staging_root, int verified_root,
         narfs_stage_token *token, int *root_fd, narfs_error *primary_error,
         narfs_error *cleanup_error, int *created,
@@ -1008,6 +1131,9 @@ narfs_stage_clone_result narfs_stage_clone_retained(
             && injected(options, NARFS_STAGE_TEST_COMPLETE_COPY,
                     result.token.session_name) != 0)
         result.error = system_error(errno);
+    if (result.error == NARFS_OK)
+        result.error = validate_candidate_blobs(candidate_session, mappings,
+                mapping_count, options, &result.cleanup_error);
     if (retained_snapshot) {
         int status;
         do status = fstat(retained_session, &retained_after);
@@ -1028,6 +1154,14 @@ narfs_stage_clone_result narfs_stage_clone_retained(
     }
 
 finish:
+    if (result.error != NARFS_OK && candidate_exists && candidate_path_valid) {
+        narfs_error path_error = candidate_path_matches_token(staging_root,
+                &result.token, options, &result.cleanup_error);
+        if (path_error != NARFS_OK) {
+            candidate_path_valid = 0;
+            record_clone_error(&result.error, &result.cleanup_error, path_error);
+        }
+    }
     if (result.error != NARFS_OK && candidate_exists
             && candidate_root >= 0 && candidate_session >= 0) {
         narfs_error discarded = discard_bound_session(candidate_root,
