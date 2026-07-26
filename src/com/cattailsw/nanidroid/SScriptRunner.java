@@ -96,6 +96,11 @@ public class SScriptRunner implements Runnable {
 	presentationRenderer = renderer;
     }
 
+    /** Installs a UI adapter after the legacy Views have been bound. */
+    public void setPresentationRenderer(GhostPresentationRenderer renderer) {
+	presentationRenderer = renderer;
+    }
+
     public void setViews(SakuraView s, KeroView k, Balloon bS, Balloon bK){
 	sakura = s;
 	kero = k;

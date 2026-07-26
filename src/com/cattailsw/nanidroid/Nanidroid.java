@@ -75,6 +75,9 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     private Balloon bSakura = null;
     private Balloon bKero = null;
     private FrameLayout fl = null;
+    // The Compose host lives in Gradle-only sources so the frozen Ant build
+    // stays a valid historical reference artifact.
+    private Object composePresentationHost = null;
 
     private View btnBar = null;
     private View dbgBar = null;
@@ -225,6 +228,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	kv.setMgr(g.mgr);
 	lm.setViews(fl, sv, kv, bSakura, bKero);
 	runner.setLayoutMgr(lm);
+	installComposePresentationRenderer();
 	runner.setUICallback(this);
     }
 
@@ -234,6 +238,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	bSakura = (Balloon) findViewById(R.id.bSakura);
 	bKero = (Balloon) findViewById(R.id.bKero);
 	fl = (FrameLayout) findViewById(R.id.fl);
+	installComposePresentationHost();
 	btnBar = findViewById(R.id.btn_bar);
 	dbgBar = findViewById(R.id.dbg_btn_bar);
 	prog = findViewById(R.id.progress);
@@ -245,6 +250,41 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	registerForContextMenu(findViewById(R.id.btn_help));
 	
 	showProgress();	
+    }
+
+    private void installComposePresentationHost() {
+	try {
+	    Class<?> hostClass = Class.forName(
+		    "com.cattailsw.nanidroid.compose.GhostPresentationComposeHost");
+	    composePresentationHost = hostClass.getConstructor(
+		    android.content.Context.class, SakuraView.class, KeroView.class)
+		    .newInstance(this, sv, kv);
+	    View hostView = (View) hostClass.getMethod("getView")
+		    .invoke(composePresentationHost);
+	    fl.addView(hostView, new FrameLayout.LayoutParams(
+		    FrameLayout.LayoutParams.MATCH_PARENT,
+		    FrameLayout.LayoutParams.MATCH_PARENT));
+	} catch (Exception unavailable) {
+	    // Ant intentionally builds without Compose; Gradle variants must provide it.
+	    Log.w(TAG, "Compose presentation host unavailable", unavailable);
+	}
+    }
+
+    private void installComposePresentationRenderer() {
+	if (composePresentationHost == null) return;
+	try {
+	    Class<?> hostClass = composePresentationHost.getClass();
+	    Class<?> rendererClass = Class.forName(
+		    "com.cattailsw.nanidroid.ComposeBackedGhostPresentationRenderer");
+	    GhostPresentationRenderer renderer = (GhostPresentationRenderer)
+		rendererClass.getConstructor(
+		    SakuraView.class, KeroView.class, Balloon.class, Balloon.class,
+		    LayoutManager.class, hostClass)
+		    .newInstance(sv, kv, bSakura, bKero, lm, composePresentationHost);
+	    runner.setPresentationRenderer(renderer);
+	} catch (Exception unavailable) {
+	    Log.w(TAG, "Compose presentation renderer unavailable", unavailable);
+	}
     }
 
     private void showProgress() {

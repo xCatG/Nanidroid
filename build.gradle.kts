@@ -215,9 +215,11 @@ android {
         getByName("main") {
             manifest.srcFile("AndroidManifest.xml")
             java.setSrcDirs(listOf("src"))
+            java.srcDir("modern/src")
             // AGP 9 built-in Kotlin needs an explicit Kotlin source directory
             // because this legacy layout places Java and Kotlin together.
             kotlin.setSrcDirs(listOf("src"))
+            kotlin.srcDir("modern/src")
             aidl.setSrcDirs(listOf("src"))
             res.setSrcDirs(listOf("res"))
             assets.setSrcDirs(listOf("assets"))
