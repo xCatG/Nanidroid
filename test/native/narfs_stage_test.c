@@ -71,6 +71,16 @@ static int hook( narfs_stage_test_operation operation, const char *relative_path
             CHECK(rename(value->replacement, value->held) == 0);
             CHECK(mkfifo(value->replacement, 0600) == 0);
         }
+        if (value->mutate == 8) {
+            CHECK(snprintf(value->replacement, sizeof(value->replacement),
+                    "%s/%s", value->source, relative_path)
+                    < (int) sizeof(value->replacement));
+            CHECK(snprintf(value->held, sizeof(value->held), "%s.held",
+                    value->replacement) < (int) sizeof(value->held));
+            CHECK(rename(value->replacement, value->held) == 0);
+            make_dir(value->replacement);
+            return 0;
+        }
         if (value->mutate == 1) {
             int fd = open(value->source, O_WRONLY | O_APPEND); CHECK(fd >= 0); CHECK(write(fd, "x", 1) == 1); CHECK(close(fd) == 0);
             return 0;
@@ -369,6 +379,32 @@ static void test_retained_clone( const char *source, const char *staging) {
     CHECK(access(injected.replacement, F_OK) == 0);
     CHECK(access(injected.held, F_OK) == 0);
     CHECK(unlink(injected.replacement) == 0);
+    CHECK(rmdir(injected.held) == 0);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_BEGIN_COPY;
+    injected.mutate = 5;
+    snprintf(injected.source, sizeof(injected.source), "%s", staging);
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_TREE_CHANGED);
+    CHECK(candidate.token.session_name[0] == '\0');
+    CHECK(child_count(staging) == 0);
+    CHECK(rmdir(staging) == 0);
+    CHECK(rename(injected.held, staging) == 0);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_COMPLETE_COPY;
+    injected.mutate = 8;
+    snprintf(injected.source, sizeof(injected.source), "%s", staging);
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_TREE_CHANGED);
+    CHECK(candidate.cleanup_error == NARFS_ERR_TREE_CHANGED);
+    CHECK(candidate.token.session_name[0] == '\0');
+    CHECK(access(injected.replacement, F_OK) == 0);
+    CHECK(access(injected.held, F_OK) == 0);
+    CHECK(rmdir(injected.replacement) == 0);
     CHECK(rmdir(injected.held) == 0);
 
     memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_WRITE; injected.cleanup = NARFS_STAGE_TEST_UNLINK;

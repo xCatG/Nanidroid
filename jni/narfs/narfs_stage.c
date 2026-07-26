@@ -368,6 +368,37 @@ static narfs_error root_matches_token(
     return NARFS_OK;
 }
 
+static narfs_error candidate_path_matches_token(
+        const char *staging_root, const narfs_stage_token *token,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    struct stat status;
+    int root, result;
+    do root = open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    while (root < 0 && errno == EINTR);
+    if (root < 0) return changed_or_system_error(errno);
+    do result = fstat(root, &status);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) {
+        narfs_error error = system_error(errno);
+        if (close_stage_fd(root, options, "") != 0) *cleanup_error = NARFS_ERR_CLOSE;
+        return error;
+    }
+    if (!S_ISDIR(status.st_mode) || (uint64_t) status.st_dev != token->root_device
+            || (uint64_t) status.st_ino != token->root_inode) {
+        close_stage_fd(root, options, "");
+        return NARFS_ERR_TREE_CHANGED;
+    }
+    do result = fstatat(root, token->session_name, &status, AT_SYMLINK_NOFOLLOW);
+    while (result != 0 && errno == EINTR);
+    if (close_stage_fd(root, options, "") != 0 && *cleanup_error == NARFS_OK)
+        *cleanup_error = NARFS_ERR_CLOSE;
+    if (result != 0 || !S_ISDIR(status.st_mode)
+            || (uint64_t) status.st_dev != token->stage_device
+            || (uint64_t) status.st_ino != token->stage_inode)
+        return NARFS_ERR_TREE_CHANGED;
+    return NARFS_OK;
+}
+
 static narfs_error validate_stage_blobs(
         int session_fd, const narfs_stage_options *options,
         narfs_error *cleanup_error) {
@@ -728,6 +759,59 @@ narfs_stage_options narfs_default_stage_options(void) {
     return options;
 }
 
+static narfs_error discard_bound_session(
+        int root, int session, const narfs_stage_token *token,
+        const narfs_stage_options *options) {
+    DIR *directory;
+    struct dirent *item;
+    struct stat status;
+    int copy, result;
+    narfs_error error = NARFS_OK;
+    do copy = dup(session);
+    while (copy < 0 && errno == EINTR);
+    directory = copy < 0 ? NULL : fdopendir(copy);
+    if (directory == NULL) {
+        if (copy >= 0) close(copy);
+        return system_error(errno);
+    }
+    while (error == NARFS_OK) {
+        unsigned index;
+        errno = 0;
+        item = readdir(directory);
+        if (item == NULL && errno == EINTR) continue;
+        if (item == NULL) {
+            if (errno != 0) error = system_error(errno);
+            break;
+        }
+        if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0)
+            continue;
+        if (!valid_blob_name(item->d_name)) {
+            error = NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        for (index = 1; index < 7; index++)
+            if (item->d_name[index] < '0' || item->d_name[index] > '9')
+                error = NARFS_ERR_TREE_CHANGED;
+        if (error != NARFS_OK) break;
+        do result = fstatat(session, item->d_name, &status, AT_SYMLINK_NOFOLLOW);
+        while (result != 0 && errno == EINTR);
+        if (result != 0 || !S_ISREG(status.st_mode)) {
+            error = result != 0 ? changed_or_system_error(errno)
+                    : NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        if (unlink_stage(session, item->d_name, 0, options, item->d_name) != 0) {
+            error = system_error(errno);
+            break;
+        }
+    }
+    if (closedir(directory) != 0 && error == NARFS_OK) error = NARFS_ERR_CLOSE;
+    if (error == NARFS_OK && unlink_bound_session(root, token, options) != 0)
+        error = errno == EAGAIN ? NARFS_ERR_TREE_CHANGED
+                : changed_or_system_error(errno);
+    return error;
+}
+
 narfs_error narfs_stage_discard( const char *staging_root, const narfs_stage_token *token, const narfs_stage_options *supplied) {
     narfs_stage_options defaults;
     const narfs_stage_options *options = supplied;
@@ -856,6 +940,7 @@ narfs_stage_clone_result narfs_stage_clone_retained(
     int retained_snapshot = 0;
     uint32_t index;
     int candidate_exists = 0;
+    int candidate_path_valid = 1;
     memset(&result, 0, sizeof(result));
     if (options == NULL) {
         defaults = narfs_default_stage_options();
@@ -919,6 +1004,10 @@ narfs_stage_clone_result narfs_stage_clone_retained(
         } while (synced != 0 && errno == EINTR);
         if (synced != 0) result.error = system_error(errno);
     }
+    if (result.error == NARFS_OK
+            && injected(options, NARFS_STAGE_TEST_COMPLETE_COPY,
+                    result.token.session_name) != 0)
+        result.error = system_error(errno);
     if (retained_snapshot) {
         int status;
         do status = fstat(retained_session, &retained_after);
@@ -929,8 +1018,31 @@ narfs_stage_clone_result narfs_stage_clone_retained(
             record_clone_error(&result.error, &result.cleanup_error,
                     NARFS_ERR_TREE_CHANGED);
     }
+    if (result.error == NARFS_OK) {
+        narfs_error path_error = candidate_path_matches_token(staging_root,
+                &result.token, options, &result.cleanup_error);
+        if (path_error != NARFS_OK) {
+            result.error = path_error;
+            candidate_path_valid = 0;
+        }
+    }
 
 finish:
+    if (result.error != NARFS_OK && candidate_exists
+            && candidate_root >= 0 && candidate_session >= 0) {
+        narfs_error discarded = discard_bound_session(candidate_root,
+                candidate_session, &result.token, options);
+        if (discarded == NARFS_OK) {
+            memset(&result.token, 0, sizeof(result.token));
+            candidate_exists = 0;
+        } else {
+            record_clone_error(&result.error, &result.cleanup_error, discarded);
+            if (!candidate_path_valid) {
+                memset(&result.token, 0, sizeof(result.token));
+                candidate_exists = 0;
+            }
+        }
+    }
     if (candidate_session >= 0
             && close_stage_fd(candidate_session, options, result.token.session_name) != 0)
         record_clone_error(&result.error, &result.cleanup_error, NARFS_ERR_CLOSE);

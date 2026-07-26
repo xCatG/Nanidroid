@@ -13,7 +13,8 @@ typedef enum narfs_stage_test_operation {
     NARFS_STAGE_TEST_READ = 1, NARFS_STAGE_TEST_WRITE, NARFS_STAGE_TEST_SYNC,
     NARFS_STAGE_TEST_CLOSE, NARFS_STAGE_TEST_UNLINK,
     NARFS_STAGE_TEST_OPEN_SESSION, NARFS_STAGE_TEST_CREATE_SESSION,
-    NARFS_STAGE_TEST_BEGIN_COPY, NARFS_STAGE_TEST_STAT_SESSION
+    NARFS_STAGE_TEST_BEGIN_COPY, NARFS_STAGE_TEST_STAT_SESSION,
+    NARFS_STAGE_TEST_COMPLETE_COPY
 } narfs_stage_test_operation;
 typedef int (*narfs_stage_operation_hook)( narfs_stage_test_operation operation, const char *relative_path, void *context);
 
