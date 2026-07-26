@@ -277,6 +277,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/SScriptRunnerPresentationTest.java",
     "test/jvm/com/cattailsw/nanidroid/runtime/GhostPresentationReducerTest.java",
     "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationReducerTest.java",
+    "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationInterpreterTest.java",
     "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarArchiveInventoryValidatorTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarDescriptorParserTest.java",
