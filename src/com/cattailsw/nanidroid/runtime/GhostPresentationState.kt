@@ -3,8 +3,8 @@ package com.cattailsw.nanidroid.runtime
 /**
  * UI-technology-neutral result of one Sakura Script render pass.
  *
- * The legacy `ImageView`/`TextView` adapter consumes this today. Compose will
- * consume the same immutable state when it replaces that adapter.
+ * The legacy adapter has an equivalent compatibility frame today. Compose will
+ * consume this state directly when it replaces that adapter.
  */
 data class GhostSpeakerPresentation(
     val text: String,
