@@ -12,7 +12,7 @@ import inspect_narfs_stage as stage
 ROOT = Path(__file__).resolve().parents[1]
 BOUNDARY_HASHES = {
     "jni/narfs/narfs_stage.c":
-        "b08008d505ce7eddd8d75ee35674a8ca53a0725c17c13fe4c07b3011029484e2",
+        "825504b5426fcfc305d85be501edab1ffd919487dfc74fa1984d3adc7676aef7",
     "jni/narfs/narfs_stage.h":
         "6ac7873e476b936bf1e6ec6ad7337316dcd5a37c2076ae40a04a81f075da910d",
     "jni/narfs/narfs_core.c":

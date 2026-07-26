@@ -12,8 +12,9 @@
     fprintf(stderr, "check failed at %s:%d: %s\n", \
             __FILE__, __LINE__, #value); exit(1); } } while (0)
 typedef struct fault {
-    narfs_stage_test_operation primary; narfs_stage_test_operation cleanup; int primary_error; int mutate; int fired; char source[4096];
-    char held[4102];
+    narfs_stage_test_operation primary, secondary, cleanup;
+    int primary_error, mutate, fired, secondary_fired;
+    char source[4096], held[4102], replacement[4096];
 } fault;
 static int remove_item( const char *path, const struct stat *status, int type, struct FTW *walk) {
     (void) status; (void) type; (void) walk;
@@ -61,11 +62,34 @@ static int hook( narfs_stage_test_operation operation, const char *relative_path
             make_dir(value->source);
             return 0;
         }
+        if (value->mutate == 7) {
+            CHECK(snprintf(value->replacement, sizeof(value->replacement),
+                    "%s/%s", value->source, relative_path)
+                    < (int) sizeof(value->replacement));
+            CHECK(snprintf(value->held, sizeof(value->held), "%s.held",
+                    value->replacement) < (int) sizeof(value->held));
+            CHECK(rename(value->replacement, value->held) == 0);
+            CHECK(mkfifo(value->replacement, 0600) == 0);
+        }
         if (value->mutate == 1) {
             int fd = open(value->source, O_WRONLY | O_APPEND); CHECK(fd >= 0); CHECK(write(fd, "x", 1) == 1); CHECK(close(fd) == 0);
             return 0;
         }
         return value->primary_error == 0 ? EIO : value->primary_error;
+    }
+    if (operation == value->secondary && value->fired
+            && !value->secondary_fired) {
+        value->secondary_fired = 1;
+        if (value->mutate == 6) {
+            CHECK(snprintf(value->replacement, sizeof(value->replacement),
+                    "%s/%s", value->source, relative_path)
+                    < (int) sizeof(value->replacement));
+            CHECK(snprintf(value->held, sizeof(value->held), "%s.held",
+                    value->replacement) < (int) sizeof(value->held));
+            CHECK(rename(value->replacement, value->held) == 0);
+            make_dir(value->replacement);
+        }
+        return 0;
     }
     if (operation == value->cleanup
             && (value->primary == 0 || value->fired)) return EIO;
@@ -319,6 +343,33 @@ static void test_retained_clone( const char *source, const char *staging) {
     CHECK(candidate.token.stage_device != 0 && candidate.token.stage_inode != 0);
     options = narfs_default_stage_options();
     CHECK(narfs_stage_discard(staging, &candidate.token, &options) == NARFS_OK);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_STAT_SESSION;
+    injected.secondary = NARFS_STAGE_TEST_STAT_SESSION;
+    injected.mutate = 6;
+    snprintf(injected.source, sizeof(injected.source), "%s", staging);
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_IO && candidate.cleanup_error == NARFS_OK);
+    CHECK(candidate.token.session_name[0] == '\0');
+    CHECK(access(injected.replacement, F_OK) == 0);
+    CHECK(access(injected.held, F_OK) == 0);
+    CHECK(rmdir(injected.replacement) == 0);
+    CHECK(rmdir(injected.held) == 0);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_STAT_SESSION;
+    injected.mutate = 7;
+    snprintf(injected.source, sizeof(injected.source), "%s", staging);
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_IO && candidate.cleanup_error == NARFS_OK);
+    CHECK(candidate.token.session_name[0] == '\0');
+    CHECK(access(injected.replacement, F_OK) == 0);
+    CHECK(access(injected.held, F_OK) == 0);
+    CHECK(unlink(injected.replacement) == 0);
+    CHECK(rmdir(injected.held) == 0);
 
     memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_WRITE; injected.cleanup = NARFS_STAGE_TEST_UNLINK;
     options.test_hook = hook; options.test_context = &injected;
