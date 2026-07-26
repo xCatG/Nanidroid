@@ -358,6 +358,15 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn("name: Build and validate API 37 Gradle APK and app bundle", workflow)
         self.assertIn("path: artifacts/", workflow)
 
+    def test_devcontainer_pins_the_api_37_compile_platform(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        dockerfile = (project_root / ".devcontainer" / "Dockerfile").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("ARG ANDROID_PLATFORM_VERSION=37", dockerfile)
+        self.assertIn('"platforms;android-${ANDROID_PLATFORM_VERSION}"', dockerfile)
+
     def test_emulator_build_scripts_are_executable_in_the_git_index(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         paths = [
