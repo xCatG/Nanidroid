@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.LinkedList;
+import java.util.HashSet;
+import java.util.Set;
 
 import android.app.Notification;
 import android.app.NotificationManager;
@@ -16,6 +18,7 @@ import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
+import android.os.Build;
 import android.util.Log;
 
 import com.cattailsw.nanidroid.util.NarUtil;
@@ -29,7 +32,7 @@ import java.util.ArrayList;
 import java.io.IOException;
 import java.io.FileNotFoundException;
 import java.io.FileInputStream;
-import org.apache.http.conn.ConnectTimeoutException;
+import java.net.SocketTimeoutException;
 
 /**
  * Describe class <code>HeadLineSensorService</code> here.
@@ -48,6 +51,12 @@ public class NanidroidService extends Service {
 
     public static final String EXT_GID = "ghost_id_to_update";
     public static final String EXT_GROOT = "ghost_root_to_update";
+    private static final String CHANNEL_ID = "nanidroid_downloads";
+    private static final int FOREGROUND_NOTIFICATION_ID = 41;
+    // PendingIntent.FLAG_IMMUTABLE, expressed numerically so API-15 Ant can
+    // compile this compatibility source while API-23+ receives the flag.
+    private static final int FLAG_IMMUTABLE = 0x04000000;
+    private final Set<Integer> activeForegroundStartIds = new HashSet<Integer>();
 
     public static Intent createUpdateIntent(Context ctx, String homeurl, String ghostId, String ghostRoot) {
 	Intent u = new Intent(ctx, NanidroidService.class);
@@ -73,6 +82,7 @@ public class NanidroidService extends Service {
     }
 
     public final int onStartCommand(Intent intent, int flags, int startId){
+	ensureForeground();
 	handleCommand(intent, startId);
 	return START_NOT_STICKY;
     }
@@ -84,6 +94,10 @@ public class NanidroidService extends Service {
     }
 
     private void handleCommand(Intent i, int startId){
+	if (i == null) {
+	    finishForegroundWork(startId);
+	    return;
+	}
 	String action = i.getAction();
 
 	if ( action == null ) {
@@ -91,10 +105,14 @@ public class NanidroidService extends Service {
 	}
 	else if (action.equalsIgnoreCase( Intent.ACTION_RUN ) ) {
 	    Uri data = i.getData();
-	    if ( data != null ) {
+	    if ( IncomingNarIntent.isApprovedDownload(data) ) {
+		startForegroundWork(startId);
 		NarDownloadTask n = new NarDownloadTask(data, startId);
 		n.execute(this);		
 
+	    } else {
+		Log.w(TAG, "Rejected non-HTTPS archive download request");
+		finishForegroundWork(startId);
 	    }
 	}
 	else if ( Intent.ACTION_SYNC.equalsIgnoreCase(action) ) {
@@ -104,18 +122,91 @@ public class NanidroidService extends Service {
 	    Uri homeurl = i.getData();
 	    String gid = i.getStringExtra(EXT_GID);
 	    String gr = i.getStringExtra(EXT_GROOT);
-	    if(homeurl != null && gid != null ) {
+	    if(isHttpsUri(homeurl) && gid != null ) {
+		startForegroundWork(startId);
 		GhostUpdateTask g = new GhostUpdateTask(homeurl, gid, gr, startId);
 		g.execute(this);
 	    }
 	    else {
-		// need to flag error?
+		Log.w(TAG, "Rejected update request without an HTTPS URL and ghost id");
+		finishForegroundWork(startId);
 	    }
 	}
 	else if ( action.equalsIgnoreCase( ACTION_CAN_STOP ) ) {
-	    stopSelf(startId);	    
+	    finishForegroundWork(startId);
 	}
 
+    }
+
+    private static boolean isHttpsUri(Uri uri) {
+	return uri != null && "https".equalsIgnoreCase(uri.getScheme())
+	    && uri.getHost() != null && uri.getHost().length() > 0;
+    }
+
+    /** Registers a command that owns one foreground-work completion. */
+    private void startForegroundWork(int startId) {
+	synchronized (activeForegroundStartIds) {
+	    activeForegroundStartIds.add(startId);
+	}
+    }
+
+    /**
+     * Ends a one-shot command.  A completion may stop its own start id, but
+     * cannot demote the service while another registered command is running.
+     */
+    private void finishForegroundWork(int startId) {
+	boolean noForegroundWorkRemains;
+	synchronized (activeForegroundStartIds) {
+	    activeForegroundStartIds.remove(startId);
+	    noForegroundWorkRemains = activeForegroundStartIds.isEmpty();
+	}
+	if (noForegroundWorkRemains) {
+	    stopForeground(true);
+	}
+	stopSelf(startId);
+    }
+
+    private void ensureForeground() {
+	if (Build.VERSION.SDK_INT >= 26) {
+	    createNotificationChannelCompat();
+	}
+	startForeground(FOREGROUND_NOTIFICATION_ID, createForegroundNotification());
+    }
+
+    private Notification createForegroundNotification() {
+	Intent launchIntent = new Intent(this, Nanidroid.class);
+	launchIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+	int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+	if (Build.VERSION.SDK_INT >= 23) {
+	    flags |= FLAG_IMMUTABLE;
+	}
+	PendingIntent contentIntent = PendingIntent.getActivity(this, 0, launchIntent, flags);
+	Notification.Builder builder = new Notification.Builder(this)
+	    .setSmallIcon(R.drawable.notification)
+	    .setContentTitle(getString(R.string.download_in_progress))
+	    .setContentText(getString(R.string.download_in_progress))
+	    .setContentIntent(contentIntent)
+	    .setOngoing(true);
+	if (Build.VERSION.SDK_INT >= 26) {
+	    try {
+		builder.getClass().getMethod("setChannelId", String.class).invoke(builder, CHANNEL_ID);
+	    } catch (Exception e) {
+		Log.w(TAG, "notification channel API unavailable", e);
+	    }
+	}
+	return builder.getNotification();
+    }
+
+    private void createNotificationChannelCompat() {
+	try {
+	    Class<?> channelClass = Class.forName("android.app.NotificationChannel");
+	    Object channel = channelClass.getConstructor(String.class, CharSequence.class, int.class)
+		.newInstance(CHANNEL_ID, getString(R.string.download_channel_name), 2);
+	    NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+	    manager.getClass().getMethod("createNotificationChannel", channelClass).invoke(manager, channel);
+	} catch (Exception e) {
+	    Log.w(TAG, "notification channel API unavailable", e);
+	}
     }
 
     @Override
@@ -214,6 +305,7 @@ public class NanidroidService extends Service {
 	public void onPostExecute(String result) {
 	    if ( result == null ) {
 		Log.d(TAG, "download failed.");
+		finishForegroundWork(svcid);
 		return;
 	    }
 
@@ -222,8 +314,12 @@ public class NanidroidService extends Service {
 	    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
 	    Intent ni = new Intent(NanidroidService.this, Nanidroid.class);
-	    ni.setData(Uri.fromFile(new File(result))).putExtra("DL_PKG",0);
-	    PendingIntent pi = PendingIntent.getActivity(NanidroidService.this, 0, ni, 0);
+	    ni.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+	    int pendingIntentFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+	    if (Build.VERSION.SDK_INT >= 23) {
+		pendingIntentFlags |= FLAG_IMMUTABLE;
+	    }
+	    PendingIntent pi = PendingIntent.getActivity(NanidroidService.this, 0, ni, pendingIntentFlags);
 	    String notetext = String.format(getString(R.string.dl_note), targeturi.getLastPathSegment());
 	    Notification n = LegacyNotificationBridge.create(
 		    getApplicationContext(), R.drawable.notification,
@@ -231,9 +327,7 @@ public class NanidroidService extends Service {
 		    getString(R.string.dl_complete), notetext, pi);
 	    n.flags = Notification.FLAG_AUTO_CANCEL;
 	    nm.notify(42, n);
-
-	    if ( svcid != -1 )
-		stopSelf(svcid);
+	    finishForegroundWork(svcid);
 	}
 
 
@@ -302,7 +396,7 @@ public class NanidroidService extends Service {
 		// we can just insert msg to queue and don't worry about thread issues...
 		return null;
 	    }
-	    catch(ConnectTimeoutException e) {
+	    catch(SocketTimeoutException e) {
 		failedReason = "timeout";
 	    }
 	    catch(Exception e) {
@@ -448,8 +542,7 @@ public class NanidroidService extends Service {
 								    csvFilelist});
 	    }
 
-	    if ( sid != -1 )
-		stopSelf(sid);
+	    finishForegroundWork(sid);
 
 	    AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PERF, "update_time", "", 
 							(int)(System.currentTimeMillis() - startTime));

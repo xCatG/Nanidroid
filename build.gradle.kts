@@ -162,19 +162,16 @@ val verifyEmulatorNativeLibraries by tasks.registering(VerifyNativeLibraries::cl
 
 android {
     namespace = "com.cattailsw.nanidroid"
-    // PR43 modernizes the compile surface only. Runtime behavior remains frozen
-    // until the explicit target-SDK compatibility PR.
+    // PR43 modernized the compile surface. PR44 adopts Android 36 behavior
+    // after making component, storage, networking, and service boundaries
+    // explicit.
     compileSdk = 36
 
-    // Apache HTTP was removed from the public API surface after API 22. This
-    // temporary bridge preserves the historical source contract while PR44
-    // replaces callers with supported networking APIs.
-    useLibrary("org.apache.http.legacy", false)
 
     defaultConfig {
         applicationId = "com.cattailsw.nanidroid"
         minSdk = 9
-        targetSdk = 13
+        targetSdk = 36
         versionCode = 6
         versionName = "open_0.1"
         testApplicationId = "com.cattailsw.nanidroid.test"

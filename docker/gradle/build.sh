@@ -70,6 +70,7 @@ java -jar "${BUNDLETOOL_JAR}" validate --bundle="${AAB}"
 python3 tools/inspect_legacy_apk.py \
   "${APK}" \
   --aapt "${AAPT}" \
+  --expected-target-sdk 36 \
   --output "${OUTPUT_ROOT}/Nanidroid-debug.json"
 
 python3 tools/compare_apk_contracts.py \
@@ -85,6 +86,7 @@ python3 tools/verify_apk_native_payload.py \
 python3 tools/inspect_android_test_apk.py \
   "${TEST_APK}" \
   --aapt "${AAPT}" \
+  --expected-target-sdk 36 \
   --output "${OUTPUT_ROOT}/Nanidroid-emulator-androidTest.json"
 
 cp "${APK}" "${OUTPUT_ROOT}/Nanidroid-debug.apk"

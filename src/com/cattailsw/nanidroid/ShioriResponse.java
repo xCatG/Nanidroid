@@ -2,17 +2,16 @@ package com.cattailsw.nanidroid;
 
 import java.util.Hashtable;
 import java.io.BufferedReader;
-import org.apache.http.ProtocolVersion;
 import java.util.regex.Matcher;
 
 public class ShioriResponse {
     String header;
     Hashtable<String, String> resp;
 
-    ProtocolVersion _ver;
+    ShioriProtocolVersion _ver;
     int stat_code = 500;
 
-    public ProtocolVersion getProtocolVersion() {
+    public ShioriProtocolVersion getProtocolVersion() {
 	return _ver;
     }
 
@@ -69,7 +68,7 @@ public class ShioriResponse {
 		int mi = Integer.parseInt(m.group(3));
 		stat_code = Integer.parseInt(m.group(4));
 
-		_ver = new ProtocolVersion(m.group(1), mj, mi);
+		_ver = new ShioriProtocolVersion(m.group(1), mj, mi);
 
 	    }
 	    catch(Exception e) {

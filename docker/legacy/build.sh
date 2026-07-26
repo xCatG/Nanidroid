@@ -101,6 +101,12 @@ sed -i \
   '/<application /i\  <uses-sdk android:minSdkVersion="9" android:targetSdkVersion="13" />' \
   "${LEGACY_MANIFEST}"
 
+# API-15 aapt cannot parse foregroundServiceType. This transform is confined
+# to the disposable Ant copy; the production Gradle manifest keeps dataSync.
+sed -i \
+  's/ android:foregroundServiceType="dataSync"//g' \
+  "${LEGACY_MANIFEST}"
+
 cd "${BUILD_ROOT}"
 
 "${ANDROID_NDK_HOME}/ndk-build" \

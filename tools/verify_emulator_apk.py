@@ -21,7 +21,7 @@ EXPECTED_PACKAGE = {
     "versionCode": "6",
     "versionName": "open_0.1",
     "minSdk": "9",
-    "targetSdk": "13",
+    "targetSdk": "36",
     "nativeCode": ["arm64-v8a", "armeabi"],
 }
 EXPECTED_PAYLOAD = {
