@@ -13,6 +13,7 @@ import org.gradle.api.tasks.TaskAction
 
 plugins {
     id("com.android.application") version "9.3.0"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.21"
 }
 
 val legacyNativeDirectory = layout.projectDirectory.dir("artifacts/legacy/native")
@@ -240,6 +241,7 @@ android {
     buildFeatures {
         aidl = true
         buildConfig = false
+        compose = true
     }
 
     compileOptions {
@@ -254,6 +256,16 @@ android {
 }
 
 dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.00")
+    implementation(composeBom)
+    androidTestImplementation(composeBom)
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+
     // API 36 no longer exposes android.test.*. Keep the frozen legacy
     // characterization sources compiling against their historical API-only
     // facade; the application itself still compiles against API 36 above.
