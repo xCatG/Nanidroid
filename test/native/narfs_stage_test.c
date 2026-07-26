@@ -13,7 +13,7 @@
             __FILE__, __LINE__, #value); exit(1); } } while (0)
 typedef struct fault {
     narfs_stage_test_operation primary, secondary, cleanup;
-    int primary_error, mutate, fired, secondary_fired;
+    int primary_error, mutate, cleanup_mutate, fired, secondary_fired;
     char source[4096], held[4102], replacement[4096];
 } fault;
 static int remove_item( const char *path, const struct stat *status, int type, struct FTW *walk) {
@@ -116,7 +116,21 @@ static int hook( narfs_stage_test_operation operation, const char *relative_path
         return 0;
     }
     if (operation == value->cleanup
-            && (value->primary == 0 || value->fired)) return EIO;
+            && (value->primary == 0 || value->fired)) {
+        if (value->cleanup_mutate == 12) {
+            if (relative_path[0] == 's') {
+                CHECK(snprintf(value->replacement, sizeof(value->replacement),
+                        "%s/%s", value->source, relative_path)
+                        < (int) sizeof(value->replacement));
+                CHECK(snprintf(value->held, sizeof(value->held), "%s.held",
+                        value->replacement) < (int) sizeof(value->held));
+                CHECK(rename(value->replacement, value->held) == 0);
+                make_dir(value->replacement);
+            }
+            return 0;
+        }
+        return EIO;
+    }
     return 0;
 }
 
@@ -446,6 +460,31 @@ static void test_retained_clone( const char *source, const char *staging) {
     CHECK(candidate.token.session_name[0] != '\0');
     options = narfs_default_stage_options();
     CHECK(narfs_stage_discard(staging, &candidate.token, &options) == NARFS_OK);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_WRITE;
+    injected.cleanup = NARFS_STAGE_TEST_UNLINK;
+    injected.cleanup_mutate = 12;
+    snprintf(injected.source, sizeof(injected.source), "%s", staging);
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_IO);
+    CHECK(candidate.token.session_name[0] == '\0');
+    CHECK(access(injected.replacement, F_OK) == 0);
+    CHECK(access(injected.held, F_OK) == 0);
+    CHECK(rmdir(injected.replacement) == 0);
+    clear_tree(injected.held);
+
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_CLOSE;
+    injected.mutate = 11;
+    snprintf(injected.source, sizeof(injected.source), "%s", staging);
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_CLOSE);
+    CHECK(candidate.token.session_name[0] == '\0');
+    CHECK(rmdir(staging) == 0);
+    CHECK(rename(injected.held, staging) == 0);
 
     memset(&injected, 0, sizeof(injected));
     injected.primary = NARFS_STAGE_TEST_WRITE;

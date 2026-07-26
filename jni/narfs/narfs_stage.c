@@ -82,6 +82,9 @@ static int unlink_bound_session(
         const narfs_stage_options *options) {
     struct stat status;
     int result;
+    do result = injected(options, NARFS_STAGE_TEST_UNLINK, token->session_name);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) return -1;
     do result = fstatat(parent, token->session_name, &status,
             AT_SYMLINK_NOFOLLOW);
     while (result != 0 && errno == EINTR);
@@ -92,8 +95,9 @@ static int unlink_bound_session(
         errno = EAGAIN;
         return -1;
     }
-    return unlink_stage(parent, token->session_name, AT_REMOVEDIR, options,
-            token->session_name);
+    do result = unlinkat(parent, token->session_name, AT_REMOVEDIR);
+    while (result != 0 && errno == EINTR);
+    return result;
 }
 
 static int same_snapshot( const struct stat *before, const struct stat *after) {
@@ -629,6 +633,7 @@ static narfs_error verify_candidate_blob(
     uint64_t copied = 0;
     narfs_error error = NARFS_OK;
     narfs_sha256 hash;
+    int have_before = 0;
     if (!blob_name(mapping->candidate_blob_ordinal, name))
         return NARFS_ERR_INVALID_OPTIONS;
     do input = openat(candidate_fd, name,
@@ -638,9 +643,12 @@ static narfs_error verify_candidate_blob(
     do status = fstat(input, &before);
     while (status != 0 && errno == EINTR);
     if (status != 0) error = system_error(errno);
-    else if (!S_ISREG(before.st_mode) || (before.st_mode & 0777) != 0600
-            || (uint64_t) before.st_size != mapping->expected_size)
-        error = NARFS_ERR_TREE_CHANGED;
+    else {
+        have_before = 1;
+        if (!S_ISREG(before.st_mode) || (before.st_mode & 0777) != 0600
+                || (uint64_t) before.st_size != mapping->expected_size)
+            error = NARFS_ERR_TREE_CHANGED;
+    }
     if (error == NARFS_OK) {
         buffer = (unsigned char *) malloc(options->io_chunk);
         if (buffer == NULL) error = NARFS_ERR_RESOURCE;
@@ -671,7 +679,7 @@ static narfs_error verify_candidate_blob(
     do status = fstat(input, &after);
     while (status != 0 && errno == EINTR);
     if (status != 0) record_clone_error(&error, cleanup_error, system_error(errno));
-    else if (!same_snapshot(&before, &after))
+    else if (have_before && !same_snapshot(&before, &after))
         record_clone_error(&error, cleanup_error, NARFS_ERR_TREE_CHANGED);
     if (close_stage_fd(input, options, name) != 0)
         record_clone_error(&error, cleanup_error, NARFS_ERR_CLOSE);
@@ -1171,6 +1179,15 @@ finish:
             candidate_exists = 0;
         } else {
             record_clone_error(&result.error, &result.cleanup_error, discarded);
+            if (candidate_path_valid) {
+                narfs_error path_error = candidate_path_matches_token(staging_root,
+                        &result.token, options, &result.cleanup_error);
+                if (path_error != NARFS_OK) {
+                    candidate_path_valid = 0;
+                    record_clone_error(&result.error,
+                            &result.cleanup_error, path_error);
+                }
+            }
             if (!candidate_path_valid) {
                 memset(&result.token, 0, sizeof(result.token));
                 candidate_exists = 0;
@@ -1189,6 +1206,18 @@ finish:
         record_clone_error(&result.error, &source_cleanup, NARFS_ERR_CLOSE);
     if (source_cleanup != NARFS_OK)
         record_clone_error(&result.error, &result.cleanup_error, source_cleanup);
+    if (result.error != NARFS_OK && candidate_exists && candidate_path_valid) {
+        narfs_error path_error = candidate_path_matches_token(staging_root,
+                &result.token, options, &result.cleanup_error);
+        if (path_error != NARFS_OK) {
+            candidate_path_valid = 0;
+            record_clone_error(&result.error, &result.cleanup_error, path_error);
+        }
+    }
+    if (!candidate_path_valid) {
+        memset(&result.token, 0, sizeof(result.token));
+        candidate_exists = 0;
+    }
     if (result.error != NARFS_OK && candidate_exists) {
         narfs_error discarded = narfs_stage_discard(staging_root, &result.token, options);
         if (discarded == NARFS_OK) memset(&result.token, 0, sizeof(result.token));
