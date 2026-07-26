@@ -4,7 +4,6 @@ import android.content.Context;
 
 import java.util.Collection;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import android.view.View;
 import java.util.regex.Matcher;
 import android.util.Log;
 import android.os.Handler;
@@ -53,6 +52,7 @@ public class SScriptRunner implements Runnable {
     private KeroView kero = null;
     private Balloon sakuraBalloon = null;
     private Balloon keroBalloon = null;
+    private GhostPresentationRenderer presentationRenderer = null;
     private Ghost g = null;
     private Context mCtx = null;
     private UICallback ucb = null;
@@ -88,8 +88,12 @@ public class SScriptRunner implements Runnable {
     private boolean changingPending = false;
     private boolean paused = false;
 
-    private SScriptRunner(Context ctx) {
-	mCtx = ctx.getApplicationContext();
+    SScriptRunner(Context ctx) {
+	mCtx = ctx == null ? null : ctx.getApplicationContext();
+    }
+
+    void setPresentationRendererForTesting(GhostPresentationRenderer renderer) {
+	presentationRenderer = renderer;
     }
 
     public void setViews(SakuraView s, KeroView k, Balloon bS, Balloon bK){
@@ -97,6 +101,7 @@ public class SScriptRunner implements Runnable {
 	kero = k;
 	sakuraBalloon = bS;
 	keroBalloon = bK;
+	updatePresentationRenderer();
 
 	sakura.setUiEventCallback(cbSakura);
 	kero.setUiEventCallback(cbKero);
@@ -126,6 +131,14 @@ public class SScriptRunner implements Runnable {
 
     public void setLayoutMgr(LayoutManager lm) {
 	layoutMgr = lm;
+	updatePresentationRenderer();
+    }
+
+    private void updatePresentationRenderer() {
+	if (sakura != null && kero != null && sakuraBalloon != null && keroBalloon != null) {
+	    presentationRenderer = new LegacyGhostPresentationRenderer(
+		    sakura, kero, sakuraBalloon, keroBalloon, layoutMgr);
+	}
     }
 
     public synchronized void addMsgToQueue(Collection<String> inCol) {
@@ -645,46 +658,18 @@ public class SScriptRunner implements Runnable {
     }
 
     private void updateUI() {
-	sakura.changeSurface(sakuraSurfaceId);
-	kero.changeSurface(keroSurfaceId);
-
 	boolean sakuraAnimate = (sakuraAnimationId != null);
 	boolean keroAnimate = ( keroAnimationId != null );
 
-	if ( bSakuraId.equalsIgnoreCase("-1") && sakuraMsg.length() == 0 ){
-	    //need to set sakura balloon to none
-	    sakuraBalloon.setVisibility(View.INVISIBLE);
-	}
-	else {
-	    sakuraBalloon.setVisibility(View.VISIBLE);
-	    sakuraBalloon.setText(sakuraMsg.toString());
-	    if ( !sakuraAnimate && talkAnimeControl == 0 ) sakura.startTalkingAnimation();
-	}
+	presentationRenderer.render(new GhostPresentationFrame(
+		new GhostPresentationFrame.Speaker(
+			sakuraMsg.toString(), sakuraSurfaceId, sakuraAnimationId, bSakuraId),
+		new GhostPresentationFrame.Speaker(
+			keroMsg.toString(), keroSurfaceId, keroAnimationId, bKeroId),
+		talkAnimeControl == 0));
 
-	if ( bKeroId.equalsIgnoreCase("-1") && keroMsg.length() == 0 ) {
-	    keroBalloon.setVisibility(View.INVISIBLE);
-	}
-	else {
-	    keroBalloon.setVisibility(View.VISIBLE);
-	    keroBalloon.setText(keroMsg.toString());
-	    if ( !keroAnimate && talkAnimeControl == 0 ) kero.startTalkingAnimation();
-	}
-
-	if ( layoutMgr != null )
-	    layoutMgr.checkAndUpdateLayoutParam();
-
-
-	if ( sakuraAnimate ) {
-	    sakura.loadAnimation(sakuraAnimationId);
-	    sakura.startAnimation();
-	    sakuraAnimationId = null; // need to clear the animation after starting
-	}
-
-	if ( keroAnimate ) {
-	    kero.loadAnimation(keroAnimationId);
-	    kero.startAnimation();
-	    keroAnimationId = null;
-	}
+	if ( sakuraAnimate ) sakuraAnimationId = null; // clear after dispatching the one-shot command
+	if ( keroAnimate ) keroAnimationId = null;
 	talkAnimeControl++;
 	if ( talkAnimeControl == 10 )
 	    talkAnimeControl = 0;
