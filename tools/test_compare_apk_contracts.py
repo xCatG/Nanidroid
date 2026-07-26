@@ -59,14 +59,14 @@ class CompareContractsTest(unittest.TestCase):
 
     def test_rejects_package_metadata_drift(self) -> None:
         modern_package = dict(report()["package"])
-        modern_package["targetSdk"] = "37"
+        modern_package["targetSdk"] = "36"
 
         with self.assertRaisesRegex(ContractMismatch, "package"):
             compare_contracts(report(), report(package=modern_package))
 
     def test_accepts_only_the_reviewed_target_sdk_upgrade(self) -> None:
         modern_package = dict(report()["package"])
-        modern_package["targetSdk"] = "36"
+        modern_package["targetSdk"] = "37"
         self.assertEqual(
             "equivalent-with-approved-target-sdk-upgrade",
             compare_contracts(report(), report(package=modern_package))["status"],

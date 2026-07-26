@@ -53,7 +53,7 @@ jobs:
             emulator-native -lc \
               'mkdir -p "$HOME" && exec bash /workspace/docker/emulator/build-native.sh'
 
-      - name: Build and validate API 36 Gradle APK and app bundle
+      - name: Build and validate API 37 Gradle APK and app bundle
         run: |
           docker compose -f .devcontainer/compose.yaml build
           docker compose -f .devcontainer/compose.yaml run --rm \

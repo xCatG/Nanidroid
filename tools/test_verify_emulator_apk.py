@@ -19,7 +19,7 @@ from verify_emulator_apk import PayloadError, verify_emulator_apk
 EMULATOR_BADGING = """\
 package: name='com.cattailsw.nanidroid' versionCode='6' versionName='open_0.1'
 sdkVersion:'9'
-targetSdkVersion:'36'
+targetSdkVersion:'37'
 native-code: 'arm64-v8a' 'armeabi'
 """
 

@@ -180,16 +180,15 @@ val verifyDeviceNativeLibraries by tasks.registering(VerifyNativeLibraries::clas
 
 android {
     namespace = "com.cattailsw.nanidroid"
-    // PR43 modernized the compile surface. PR44 adopts Android 36 behavior
-    // after making component, storage, networking, and service boundaries
-    // explicit.
-    compileSdk = 36
+    // PR46 validates the Android 37 preview surface after the API-36 security
+    // boundary and real-emulator runtime proof.
+    compileSdk = 37
 
 
     defaultConfig {
         applicationId = "com.cattailsw.nanidroid"
         minSdk = 9
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 6
         versionName = "open_0.1"
         testApplicationId = "com.cattailsw.nanidroid.test"

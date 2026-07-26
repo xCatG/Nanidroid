@@ -34,8 +34,8 @@ def compare_contracts(
         if field == "package" and isinstance(expected, dict) and isinstance(actual, dict):
             expected = dict(expected)
             actual = dict(actual)
-            if expected.get("targetSdk") == "13" and actual.get("targetSdk") == "36":
-                expected["targetSdk"] = "36"
+            if expected.get("targetSdk") == "13" and actual.get("targetSdk") == "37":
+                expected["targetSdk"] = "37"
         if actual != expected:
             _fail(field, expected, actual)
 

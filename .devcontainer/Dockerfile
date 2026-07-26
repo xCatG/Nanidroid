@@ -5,7 +5,7 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 ARG ANDROID_COMMAND_LINE_TOOLS_VERSION=14742923
 ARG ANDROID_COMMAND_LINE_TOOLS_SHA1=48833c34b761c10cb20bcd16582129395d121b27
-ARG ANDROID_PLATFORM_VERSION=36
+ARG ANDROID_PLATFORM_VERSION=37.0
 ARG ANDROID_BUILD_TOOLS_VERSION=36.0.0
 ARG BUNDLETOOL_VERSION=1.18.2
 ARG BUNDLETOOL_SHA256=378b5434cd1378bef6b2bc527b8c7f0ff2584b273830335bce54d6d0813c8584
@@ -51,7 +51,7 @@ RUN set -eux; \
     rm -rf "${archive}" /tmp/android-command-line-tools
 
 # Building the image accepts the Android SDK licenses non-interactively, then
-# installs the API 36 compile surface and modern Build Tools required by AGP 9.3.
+# installs the API 37 compile surface and modern Build Tools required by AGP 9.3.
 RUN yes | sdkmanager --licenses >/dev/null \
     && sdkmanager \
         "platforms;android-${ANDROID_PLATFORM_VERSION}" \
