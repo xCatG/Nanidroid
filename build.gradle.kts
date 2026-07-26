@@ -212,6 +212,9 @@ android {
         getByName("main") {
             manifest.srcFile("AndroidManifest.xml")
             java.setSrcDirs(listOf("src"))
+            // AGP 9 built-in Kotlin needs an explicit Kotlin source directory
+            // because this legacy layout places Java and Kotlin together.
+            kotlin.setSrcDirs(listOf("src"))
             aidl.setSrcDirs(listOf("src"))
             res.setSrcDirs(listOf("res"))
             assets.setSrcDirs(listOf("assets"))
@@ -270,6 +273,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/ViewServerLifecycleCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java",
+    "test/jvm/com/cattailsw/nanidroid/runtime/GhostPresentationReducerTest.java",
     "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarArchiveInventoryValidatorTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarDescriptorParserTest.java",
