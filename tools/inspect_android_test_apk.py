@@ -140,7 +140,7 @@ def inspect_apk(
             dex_entries = sorted(
                 name
                 for name in entries
-                if re.fullmatch(r"classes(?:[2-9][0-9]*)?\.dex", name)
+                if re.fullmatch(r"classes(?:[2-9]|[1-9][0-9]+)?\.dex", name)
             )
             dex = b"".join(archive.read(name) for name in dex_entries)
             missing_markers = [
