@@ -59,9 +59,14 @@ object SakuraScriptPresentationReducer {
     fun selectSpeaker(
         state: SakuraScriptPresentationState,
         speaker: GhostSpeaker,
-    ): SakuraScriptPresentationState = when (speaker) {
-        GhostSpeaker.SAKURA -> state.copy(activeSpeaker = speaker, sakuraText = "")
-        GhostSpeaker.KERO -> state.copy(activeSpeaker = speaker, keroText = "")
+    ): SakuraScriptPresentationState {
+        if (state.activeSpeaker == speaker) {
+            return state
+        }
+        return when (speaker) {
+            GhostSpeaker.SAKURA -> state.copy(activeSpeaker = speaker, sakuraText = "")
+            GhostSpeaker.KERO -> state.copy(activeSpeaker = speaker, keroText = "")
+        }
     }
 
     @JvmStatic

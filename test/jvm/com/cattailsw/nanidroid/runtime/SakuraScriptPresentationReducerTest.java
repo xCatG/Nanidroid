@@ -51,6 +51,23 @@ public final class SakuraScriptPresentationReducerTest {
     }
 
     @Test
+    public void requiredMigrationInvariant_reselectingCurrentSpeakerRetainsItsText() {
+        SakuraScriptPresentationState state = SakuraScriptPresentationReducer.resetForNextScript(
+                SakuraScriptPresentationReducer.initial());
+        state = SakuraScriptPresentationReducer.append(state, 'A');
+        state = SakuraScriptPresentationReducer.selectSpeaker(state, GhostSpeaker.SAKURA);
+        state = SakuraScriptPresentationReducer.append(state, 'B');
+
+        assertEquals("AB", state.getSakuraText());
+
+        state = SakuraScriptPresentationReducer.selectSpeaker(state, GhostSpeaker.KERO);
+        state = SakuraScriptPresentationReducer.append(state, 'C');
+        state = SakuraScriptPresentationReducer.selectSpeaker(state, GhostSpeaker.SAKURA);
+        assertEquals("", state.getSakuraText());
+        assertEquals("C", state.getKeroText());
+    }
+
+    @Test
     public void requiredMigrationInvariant_animationIsVisibleOnceThenExplicitlyConsumed() {
         SakuraScriptPresentationState queued = SakuraScriptPresentationReducer.queueAnimation(
                 SakuraScriptPresentationReducer.initial(), "3");
