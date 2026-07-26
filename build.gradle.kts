@@ -17,6 +17,7 @@ plugins {
 
 val legacyNativeDirectory = layout.projectDirectory.dir("artifacts/legacy/native")
 val emulatorNativeDirectory = layout.projectDirectory.dir("artifacts/emulator/native")
+val deviceNativeDirectory = layout.projectDirectory.dir("artifacts/emulator/x86_64/native")
 val requiredLegacyNativeLibraries = listOf(
     legacyNativeDirectory.file("armeabi/libkawari8.so"),
     legacyNativeDirectory.file("armeabi/libnarfs.so"),
@@ -26,6 +27,11 @@ val requiredEmulatorNativeLibraries = listOf(
     emulatorNativeDirectory.file("arm64-v8a/libkawari8.so"),
     emulatorNativeDirectory.file("arm64-v8a/libnarfs.so"),
     emulatorNativeDirectory.file("arm64-v8a/libsatoriya.so"),
+)
+val requiredDeviceNativeLibraries = listOf(
+    deviceNativeDirectory.file("x86_64/libkawari8.so"),
+    deviceNativeDirectory.file("x86_64/libnarfs.so"),
+    deviceNativeDirectory.file("x86_64/libsatoriya.so"),
 )
 
 abstract class VerifyNativeLibraries : DefaultTask() {
@@ -160,6 +166,18 @@ val verifyEmulatorNativeLibraries by tasks.registering(VerifyNativeLibraries::cl
     )
 }
 
+val verifyDeviceNativeLibraries by tasks.registering(VerifyNativeLibraries::class) {
+    group = "verification"
+    description = "Checks the isolated x86_64 API-36 device profile native libraries."
+    libraries.from(requiredDeviceNativeLibraries)
+    artifactLabel.set("x86_64 API-36 device")
+    buildCommand.set(
+        "docker compose -f docker/legacy/compose.yaml run --rm " +
+            "--env EMULATOR_ABI=x86_64 --env OUTPUT_ROOT=/out/x86_64 " +
+            "emulator-native"
+    )
+}
+
 android {
     namespace = "com.cattailsw.nanidroid"
     // PR43 modernized the compile surface. PR44 adopts Android 36 behavior
@@ -184,6 +202,11 @@ android {
             matchingFallbacks += listOf("debug")
             isDebuggable = true
         }
+        create("device") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            isDebuggable = true
+        }
     }
 
     sourceSets {
@@ -204,6 +227,9 @@ android {
         }
         getByName("emulator") {
             jniLibs.srcDir(emulatorNativeDirectory)
+        }
+        getByName("device") {
+            jniLibs.srcDir(deviceNativeDirectory)
         }
     }
 
@@ -322,4 +348,8 @@ tasks.named("preBuild").configure {
 
 tasks.matching { it.name == "preEmulatorBuild" }.configureEach {
     dependsOn(verifyEmulatorNativeLibraries)
+}
+
+tasks.matching { it.name == "preDeviceBuild" }.configureEach {
+    dependsOn(verifyDeviceNativeLibraries)
 }

@@ -53,6 +53,22 @@ EXPECTED_CACHE = {
 }
 EXPECTED_NDK_REVISION = "14.1.3816874"
 
+# The original ARM64 smoke lane is intentionally frozen.  PR45 adds an
+# independent x86_64 profile only because the available API 36 AVD is x86_64;
+# it must not quietly change the ARM64 CI contract.
+ABI_PROFILES = {
+    "arm64-v8a": {
+        "machine": "AArch64",
+        "compiler_dir": "aarch64-linux-android",
+        "compiler": "aarch64-linux-android-g++",
+    },
+    "x86_64": {
+        "machine": "Advanced Micro Devices X86-64",
+        "compiler_dir": "x86_64",
+        "compiler": "x86_64-linux-android-g++",
+    },
+}
+
 
 class NativeContractError(ValueError):
     """The ARM64 candidate does not satisfy the frozen emulator contract."""
@@ -99,18 +115,22 @@ def _verify_ndk(ndk_root: Path) -> None:
         )
 
 
-def _verify_cache(path: Path, ndk_root: Path) -> dict[str, str]:
+def _verify_cache(path: Path, ndk_root: Path, abi: str) -> dict[str, str]:
     _verify_ndk(ndk_root)
+    profile = ABI_PROFILES.get(abi)
+    if profile is None:
+        _fail(f"unsupported emulator ABI: {abi}")
     values = _cache_values(path)
-    for name, expected in EXPECTED_CACHE.items():
+    expected_cache = {**EXPECTED_CACHE, "ANDROID_ABI": abi}
+    for name, expected in expected_cache.items():
         actual = values.get(name)
         if actual != expected:
             _fail(f"CMake cache {name} changed: expected {expected}, got {actual}")
     compiler = values.get("NANIDROID_CXX_COMPILER", "")
     expected_compiler = (
         ndk_root
-        / "toolchains/aarch64-linux-android-4.9/prebuilt/linux-x86_64/bin"
-        / "aarch64-linux-android-g++"
+        / f"toolchains/{profile['compiler_dir']}-4.9/prebuilt/linux-x86_64/bin"
+        / profile["compiler"]
     )
     if (
         Path(compiler).resolve(strict=False)
@@ -128,7 +148,7 @@ def _verify_cache(path: Path, ndk_root: Path) -> dict[str, str]:
     return {
         "ndk": "r14b",
         "ndkRevision": EXPECTED_NDK_REVISION,
-        "abi": EXPECTED_CACHE["ANDROID_ABI"],
+        "abi": abi,
         "api": EXPECTED_CACHE["ANDROID_PLATFORM"],
         "compiler": "gcc-4.9",
         "stl": EXPECTED_CACHE["ANDROID_STL"],
@@ -177,14 +197,22 @@ def inspect_native_directory(
     *,
     ndk_root: Path,
     project_root: Path | None = None,
+    abi: str = "arm64-v8a",
     readelf_runner: Callable[[Path, tuple[str, ...], Path], str] = _subprocess_readelf,
 ) -> dict[str, object]:
     """Measure toolchain, exact paths, ELF identity, dependencies and JNI exports."""
+    profile = ABI_PROFILES.get(abi)
+    if profile is None:
+        _fail(f"unsupported emulator ABI: {abi}")
+    expected_libraries = {
+        path.replace("arm64-v8a", abi): contract
+        for path, contract in EXPECTED_LIBRARIES.items()
+    }
     observed = sorted(path.relative_to(root).as_posix() for path in root.rglob("*.so"))
-    expected = sorted(EXPECTED_LIBRARIES)
+    expected = sorted(expected_libraries)
     if observed != expected:
         _fail(f"native library paths changed: expected {expected}, got {observed}")
-    toolchain = _verify_cache(cmake_cache, ndk_root)
+    toolchain = _verify_cache(cmake_cache, ndk_root, abi)
     modules = inspect_cmake(project_root) if project_root is not None else []
 
     libraries: list[dict[str, object]] = []
@@ -204,22 +232,22 @@ def inspect_native_directory(
             "class": "ELF64",
             "data": "2's complement, little endian",
             "type": "DYN",
-            "machine": "AArch64",
+            "machine": profile["machine"],
         }
         if elf != expected_elf:
             _fail(f"{relative} ELF identity changed: expected {expected_elf}, got {elf}")
         dynamic = readelf_runner(readelf, ("--dynamic", "--wide"), library)
         sonames = _dynamic_values(dynamic, "SONAME")
-        if sonames != [EXPECTED_LIBRARIES[relative]["soname"]]:
+        if sonames != [expected_libraries[relative]["soname"]]:
             _fail(f"{relative} SONAME changed: {sonames}")
         needed = _dynamic_values(dynamic, "NEEDED")
-        expected_needed = EXPECTED_LIBRARIES[relative]["needed"]
+        expected_needed = expected_libraries[relative]["needed"]
         if needed != expected_needed:
             _fail(f"{relative} DT_NEEDED changed: expected {expected_needed}, got {needed}")
         exports = _jni_exports(
             readelf_runner(readelf, ("--dyn-syms", "--wide"), library)
         )
-        expected_exports = EXPECTED_LIBRARIES[relative]["jniExports"]
+        expected_exports = expected_libraries[relative]["jniExports"]
         if exports != expected_exports:
             _fail(f"{relative} JNI exports changed: expected {expected_exports}, got {exports}")
         libraries.append(
@@ -248,6 +276,7 @@ def main() -> int:
     parser.add_argument("--project-root", type=Path, required=True)
     parser.add_argument("--ndk-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--abi", choices=sorted(ABI_PROFILES), default="arm64-v8a")
     args = parser.parse_args()
     try:
         report = inspect_native_directory(
@@ -256,6 +285,7 @@ def main() -> int:
             args.cmake_cache,
             ndk_root=args.ndk_root,
             project_root=args.project_root,
+            abi=args.abi,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
