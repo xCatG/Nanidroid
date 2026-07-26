@@ -34,6 +34,19 @@ REQUIRED_ENTRIES = {
 EXPECTED_NATIVE_LIBRARIES = sorted(
     entry for entry in REQUIRED_ENTRIES if entry.startswith("lib/")
 )
+COMPOSE_GRAPHICS_NATIVE_LIBRARIES = [
+    "lib/arm64-v8a/libandroidx.graphics.path.so",
+    "lib/armeabi-v7a/libandroidx.graphics.path.so",
+    "lib/x86/libandroidx.graphics.path.so",
+    "lib/x86_64/libandroidx.graphics.path.so",
+]
+COMPOSE_GRAPHICS_NATIVE_CODES = [
+    "arm64-v8a",
+    "armeabi",
+    "armeabi-v7a",
+    "x86",
+    "x86_64",
+]
 
 
 class ArtifactError(ValueError):
@@ -75,6 +88,7 @@ def inspect_apk(
     badging: str,
     expected_target_sdk: str = "13",
     expected_min_sdk: str = "9",
+    allow_compose_graphics_runtime: bool = False,
 ) -> dict[str, object]:
     """Return an artifact report, or raise when the contract is violated."""
     package = parse_badging(badging)
@@ -83,6 +97,12 @@ def inspect_apk(
         minSdk=expected_min_sdk,
         targetSdk=expected_target_sdk,
     )
+    expected_native_libraries = EXPECTED_NATIVE_LIBRARIES
+    if allow_compose_graphics_runtime:
+        expected_package["nativeCode"] = COMPOSE_GRAPHICS_NATIVE_CODES
+        expected_native_libraries = sorted(
+            EXPECTED_NATIVE_LIBRARIES + COMPOSE_GRAPHICS_NATIVE_LIBRARIES
+        )
     if package != expected_package:
         _fail(f"package metadata changed: expected {expected_package}, got {package}")
 
@@ -103,10 +123,10 @@ def inspect_apk(
                 for name in entries
                 if name.startswith("lib/") and name.endswith(".so")
             )
-            if native_libraries != EXPECTED_NATIVE_LIBRARIES:
+            if native_libraries != expected_native_libraries:
                 _fail(
                     "APK native entries changed: "
-                    f"expected {EXPECTED_NATIVE_LIBRARIES}, got {native_libraries}"
+                    f"expected {expected_native_libraries}, got {native_libraries}"
                 )
             for library in native_libraries:
                 with archive.open(library) as stream:
@@ -136,6 +156,11 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-min-sdk", default="9")
     parser.add_argument("--expected-target-sdk", default="13")
+    parser.add_argument(
+        "--allow-compose-graphics-runtime",
+        action="store_true",
+        help="allow only the audited AndroidX Compose graphics-path libraries",
+    )
     return parser.parse_args()
 
 
@@ -153,6 +178,7 @@ def main() -> int:
             completed.stdout,
             args.expected_target_sdk,
             args.expected_min_sdk,
+            args.allow_compose_graphics_runtime,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

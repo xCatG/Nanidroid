@@ -122,6 +122,61 @@ class VerifyEmulatorApkTest(unittest.TestCase):
                 self.arm64_contract,
             )
 
+    def test_accepts_the_audited_compose_graphics_runtime_libraries(self) -> None:
+        entries = self._exact_entries()
+        entries.update(
+            {
+                "lib/arm64-v8a/libandroidx.graphics.path.so": b"compose",
+                "lib/armeabi-v7a/libandroidx.graphics.path.so": b"compose",
+                "lib/x86/libandroidx.graphics.path.so": b"compose",
+                "lib/x86_64/libandroidx.graphics.path.so": b"compose",
+            }
+        )
+        compose_badging = EMULATOR_BADGING.replace(
+            "native-code: 'arm64-v8a' 'armeabi'",
+            "native-code: 'arm64-v8a' 'armeabi' 'armeabi-v7a' 'x86' 'x86_64'",
+        )
+
+        report = verify_emulator_apk(
+            self._apk(entries),
+            compose_badging,
+            self.legacy_root,
+            self.arm64_root,
+            self.arm64_contract,
+            allow_compose_graphics_runtime=True,
+        )
+
+        self.assertEqual(
+            ["arm64-v8a", "armeabi", "armeabi-v7a", "x86", "x86_64"],
+            report["nativeCode"],
+        )
+
+    def test_rejects_an_unapproved_compose_native_library(self) -> None:
+        entries = self._exact_entries()
+        entries.update(
+            {
+                "lib/arm64-v8a/libandroidx.graphics.path.so": b"compose",
+                "lib/armeabi-v7a/libandroidx.graphics.path.so": b"compose",
+                "lib/x86/libandroidx.graphics.path.so": b"compose",
+                "lib/x86_64/libandroidx.graphics.path.so": b"compose",
+                "lib/x86_64/libunexpected.so": b"unexpected",
+            }
+        )
+        compose_badging = EMULATOR_BADGING.replace(
+            "native-code: 'arm64-v8a' 'armeabi'",
+            "native-code: 'arm64-v8a' 'armeabi' 'armeabi-v7a' 'x86' 'x86_64'",
+        )
+
+        with self.assertRaisesRegex(PayloadError, "native entries changed"):
+            verify_emulator_apk(
+                self._apk(entries),
+                compose_badging,
+                self.legacy_root,
+                self.arm64_root,
+                self.arm64_contract,
+                allow_compose_graphics_runtime=True,
+            )
+
     def test_rejects_badging_without_the_exact_two_abi_profile(self) -> None:
         badging = EMULATOR_BADGING.replace(
             "native-code: 'arm64-v8a' 'armeabi'", "native-code: 'arm64-v8a'"

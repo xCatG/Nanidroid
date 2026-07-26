@@ -12,6 +12,19 @@ from typing import NoReturn
 
 CONTRACT_FIELDS = ("package", "nativeLibraries", "requiredEntries")
 IGNORED_FIELDS = ("artifact", "bytes", "sha256")
+COMPOSE_GRAPHICS_NATIVE_LIBRARIES = [
+    "lib/arm64-v8a/libandroidx.graphics.path.so",
+    "lib/armeabi-v7a/libandroidx.graphics.path.so",
+    "lib/x86/libandroidx.graphics.path.so",
+    "lib/x86_64/libandroidx.graphics.path.so",
+]
+COMPOSE_GRAPHICS_NATIVE_CODES = [
+    "arm64-v8a",
+    "armeabi",
+    "armeabi-v7a",
+    "x86",
+    "x86_64",
+]
 
 
 class ContractMismatch(ValueError):
@@ -38,6 +51,14 @@ def compare_contracts(
                 expected["targetSdk"] = "37"
             if expected.get("minSdk") == "9" and actual.get("minSdk") == "31":
                 expected["minSdk"] = "31"
+            if (
+                expected.get("targetSdk") == "37"
+                and actual.get("nativeCode") == COMPOSE_GRAPHICS_NATIVE_CODES
+            ):
+                expected["nativeCode"] = COMPOSE_GRAPHICS_NATIVE_CODES
+        if field == "nativeLibraries" and isinstance(expected, list) and isinstance(actual, list):
+            if actual == sorted(expected + COMPOSE_GRAPHICS_NATIVE_LIBRARIES):
+                expected = actual
         if actual != expected:
             _fail(field, expected, actual)
 

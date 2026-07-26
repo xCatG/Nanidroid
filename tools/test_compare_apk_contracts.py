@@ -94,6 +94,46 @@ class CompareContractsTest(unittest.TestCase):
                 report(nativeLibraries=["lib/armeabi/libkawari8.so"]),
             )
 
+    def test_accepts_the_audited_compose_graphics_runtime_libraries(self) -> None:
+        modern_package = dict(report()["package"])
+        modern_package.update(
+            minSdk="31",
+            targetSdk="37",
+            nativeCode=["arm64-v8a", "armeabi", "armeabi-v7a", "x86", "x86_64"],
+        )
+        modern_libraries = list(report()["nativeLibraries"])
+        modern_libraries = sorted(modern_libraries +
+            [
+                "lib/arm64-v8a/libandroidx.graphics.path.so",
+                "lib/armeabi-v7a/libandroidx.graphics.path.so",
+                "lib/x86/libandroidx.graphics.path.so",
+                "lib/x86_64/libandroidx.graphics.path.so",
+            ]
+        )
+
+        comparison = compare_contracts(
+            report(), report(package=modern_package, nativeLibraries=modern_libraries)
+        )
+
+        self.assertEqual("equivalent-with-approved-sdk-upgrade", comparison["status"])
+
+    def test_rejects_an_unapproved_compose_native_library(self) -> None:
+        modern_package = dict(report()["package"])
+        modern_package.update(
+            minSdk="31",
+            targetSdk="37",
+            nativeCode=["arm64-v8a", "armeabi", "armeabi-v7a", "x86", "x86_64"],
+        )
+        with self.assertRaisesRegex(ContractMismatch, "nativeLibraries"):
+            compare_contracts(
+                report(),
+                report(
+                    package=modern_package,
+                    nativeLibraries=list(report()["nativeLibraries"])
+                    + ["lib/x86_64/libunexpected.so"],
+                ),
+            )
+
     def test_rejects_required_entry_drift(self) -> None:
         with self.assertRaisesRegex(ContractMismatch, "requiredEntries"):
             compare_contracts(
