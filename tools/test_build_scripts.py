@@ -364,7 +364,7 @@ class BuildScriptContractTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("ARG ANDROID_PLATFORM_VERSION=37", dockerfile)
+        self.assertIn("ARG ANDROID_PLATFORM_VERSION=37.0", dockerfile)
         self.assertIn('"platforms;android-${ANDROID_PLATFORM_VERSION}"', dockerfile)
 
     def test_emulator_build_scripts_are_executable_in_the_git_index(self):
