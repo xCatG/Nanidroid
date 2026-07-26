@@ -355,6 +355,7 @@ class BuildScriptContractTest(unittest.TestCase):
             "./docker/gradle/build.sh && ./docker/emulator/build.sh",
             normalized,
         )
+        self.assertIn("name: Build and validate API 37 Gradle APK and app bundle", workflow)
         self.assertIn("path: artifacts/", workflow)
 
     def test_emulator_build_scripts_are_executable_in_the_git_index(self):
