@@ -309,6 +309,17 @@ static void test_retained_clone( const char *source, const char *staging) {
     CHECK(candidate.error == NARFS_ERR_TREE_CHANGED && candidate.token.session_name[0] == '\0');
     CHECK(child_count(staging) == 0); CHECK(rmdir(staging) == 0); CHECK(rename(injected.held, staging) == 0);
 
+    memset(&injected, 0, sizeof(injected));
+    injected.primary = NARFS_STAGE_TEST_STAT_SESSION;
+    injected.cleanup = NARFS_STAGE_TEST_UNLINK;
+    options.test_hook = hook; options.test_context = &injected;
+    candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);
+    CHECK(candidate.error == NARFS_ERR_IO && candidate.cleanup_error == NARFS_ERR_IO);
+    CHECK(candidate.token.session_name[0] != '\0');
+    CHECK(candidate.token.stage_device != 0 && candidate.token.stage_inode != 0);
+    options = narfs_default_stage_options();
+    CHECK(narfs_stage_discard(staging, &candidate.token, &options) == NARFS_OK);
+
     memset(&injected, 0, sizeof(injected)); injected.primary = NARFS_STAGE_TEST_WRITE; injected.cleanup = NARFS_STAGE_TEST_UNLINK;
     options.test_hook = hook; options.test_context = &injected;
     candidate = narfs_stage_clone_retained(staging, &retained.token, &mapping, 1, &options);

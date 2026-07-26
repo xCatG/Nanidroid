@@ -65,6 +65,18 @@ static int unlink_stage( int parent, const char *name, int flags, const narfs_st
     return result;
 }
 
+static int stat_session(
+        int parent, const char *name, struct stat *status,
+        const narfs_stage_options *options) {
+    int result;
+    do {
+        result = injected(options, NARFS_STAGE_TEST_STAT_SESSION, name);
+        if (result == 0)
+            result = fstatat(parent, name, status, AT_SYMLINK_NOFOLLOW);
+    } while (result != 0 && errno == EINTR);
+    return result;
+}
+
 static int same_snapshot( const struct stat *before, const struct stat *after) {
     int equal = before->st_dev == after->st_dev && before->st_ino == after->st_ino && (before->st_mode & S_IFMT) == (after->st_mode & S_IFMT) && before->st_size == after->st_size && before->st_mtime == after->st_mtime && before->st_ctime == after->st_ctime;
 #ifdef __ANDROID__
@@ -559,11 +571,13 @@ static narfs_error clone_one_blob(
 
 static int make_session( const char *staging_root, int verified_root,
         narfs_stage_token *token, int *root_fd, narfs_error *primary_error,
-        narfs_error *cleanup_error, const narfs_stage_options *options) {
+        narfs_error *cleanup_error, int *created,
+        const narfs_stage_options *options) {
     unsigned char random[16];
     struct stat status;
     int entropy, session, attempt, result;
     *primary_error = NARFS_OK;
+    *created = 0;
     do *root_fd = verified_root >= 0 ? dup(verified_root)
             : open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     while (*root_fd < 0 && errno == EINTR);
@@ -600,7 +614,10 @@ static int make_session( const char *staging_root, int verified_root,
         }
         do result = mkdirat(*root_fd, token->session_name, 0700);
         while (result != 0 && errno == EINTR);
-        if (result == 0) break;
+        if (result == 0) {
+            *created = 1;
+            break;
+        }
         if (errno != EEXIST) {
             close_stage_fd(entropy, options, "");
             return -1;
@@ -611,15 +628,29 @@ static int make_session( const char *staging_root, int verified_root,
             *cleanup_error = NARFS_ERR_CLOSE;
         return -1;
     }
-    do result = fstatat(
-            *root_fd, token->session_name, &status, AT_SYMLINK_NOFOLLOW);
-    while (result != 0 && errno == EINTR);
+    result = stat_session(*root_fd, token->session_name, &status, options);
     if (result != 0 || !S_ISDIR(status.st_mode)) {
-        int primary = errno;
-        if (close_stage_fd(entropy, options, "") != 0)
+        int primary = result != 0 ? errno : EAGAIN;
+        do {
+            session = openat(*root_fd, token->session_name,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        } while (session < 0 && errno == EINTR);
+        if (session >= 0) {
+            do result = fstat(session, &status);
+            while (result != 0 && errno == EINTR);
+            if (result == 0 && S_ISDIR(status.st_mode)) {
+                token->stage_device = (uint64_t) status.st_dev;
+                token->stage_inode = (uint64_t) status.st_ino;
+            }
+            if (close_stage_fd(session, options, token->session_name) != 0)
+                *cleanup_error = NARFS_ERR_CLOSE;
+        }
+        if (close_stage_fd(entropy, options, "") != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = NARFS_ERR_CLOSE;
-        if (unlink_stage(
-                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0 && *cleanup_error == NARFS_OK)
+        if (unlink_stage(*root_fd, token->session_name, AT_REMOVEDIR,
+                options, token->session_name) != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = system_error(errno);
         errno = primary;
         return -1;
@@ -628,27 +659,30 @@ static int make_session( const char *staging_root, int verified_root,
     token->stage_inode = (uint64_t) status.st_ino;
     if (close_stage_fd(entropy, options, "") != 0) {
         *primary_error = NARFS_ERR_CLOSE;
-        if (unlink_stage(
-                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0)
+        if (unlink_stage(*root_fd, token->session_name, AT_REMOVEDIR,
+                options, token->session_name) != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = system_error(errno);
         return -1;
     }
     do {
-        session = injected( options, NARFS_STAGE_TEST_OPEN_SESSION, token->session_name);
-        if (session == 0) session = openat(
-                *root_fd, token->session_name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        session = injected(options, NARFS_STAGE_TEST_OPEN_SESSION,
+                token->session_name);
+        if (session == 0) session = openat(*root_fd, token->session_name,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     } while (session < 0 && errno == EINTR);
     if (session < 0) {
         int primary = errno;
         if (unlink_stage(
-                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0)
+                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0 && *cleanup_error == NARFS_OK)
             *cleanup_error = system_error(errno);
         errno = primary;
         return -1;
     }
     do result = fstat(session, &status);
     while (result != 0 && errno == EINTR);
-    if (result != 0 || (uint64_t) status.st_dev != token->stage_device || (uint64_t) status.st_ino != token->stage_inode) {
+    if (result != 0 || (uint64_t) status.st_dev != token->stage_device
+            || (uint64_t) status.st_ino != token->stage_inode) {
         int primary = result != 0 ? errno : EAGAIN;
         if (close_stage_fd(session, options, token->session_name) != 0)
             *cleanup_error = NARFS_ERR_CLOSE;
@@ -827,6 +861,7 @@ narfs_stage_clone_result narfs_stage_clone_retained(
 
     {
         narfs_error creation_error = NARFS_OK, creation_cleanup = NARFS_OK;
+        int created = 0;
         if (injected(options, NARFS_STAGE_TEST_CREATE_SESSION, staging_root) != 0)
             result.error = system_error(errno);
         if (result.error == NARFS_OK)
@@ -834,7 +869,9 @@ narfs_stage_clone_result narfs_stage_clone_retained(
                     &source_cleanup);
         if (result.error != NARFS_OK) goto finish;
         candidate_session = make_session(NULL, retained_root, &result.token,
-                &candidate_root, &creation_error, &creation_cleanup, options);
+                &candidate_root, &creation_error, &creation_cleanup, &created,
+                options);
+        candidate_exists = created;
         if (candidate_session < 0) {
             int saved = errno;
             result.error = creation_error != NARFS_OK ? creation_error
@@ -842,7 +879,6 @@ narfs_stage_clone_result narfs_stage_clone_retained(
             result.cleanup_error = creation_cleanup;
             goto finish;
         }
-        candidate_exists = 1;
     }
     if (injected(options, NARFS_STAGE_TEST_BEGIN_COPY, retained->session_name) != 0)
         result.error = system_error(errno);
@@ -906,7 +942,11 @@ narfs_stage_result narfs_stage_existing( const char *trusted_root, const char *t
         result.inspected.error = NARFS_ERR_INVALID_OPTIONS;
         return result;
     }
-    session = make_session( staging_root, -1, &result.token, &root, &creation_error, &creation_cleanup, options);
+    {
+        int created = 0;
+        session = make_session(staging_root, -1, &result.token, &root,
+                &creation_error, &creation_cleanup, &created, options);
+    }
     if (session < 0) {
         int primary = errno;
         result.inspected.error = creation_error != NARFS_OK ? creation_error : primary == EAGAIN ? NARFS_ERR_TREE_CHANGED : system_error(primary);
