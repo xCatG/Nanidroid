@@ -20,7 +20,7 @@ EXPECTED_PACKAGE = {
     "packageName": "com.cattailsw.nanidroid",
     "versionCode": "6",
     "versionName": "open_0.1",
-    "minSdk": "9",
+    "minSdk": "31",
     "targetSdk": "37",
     "nativeCode": ["arm64-v8a", "armeabi"],
 }

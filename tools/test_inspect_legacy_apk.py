@@ -79,6 +79,23 @@ class InspectApkTest(unittest.TestCase):
         )
         self.assertEqual(len(report["sha256"]), 64)
 
+    def test_accepts_the_approved_android_12_minimum_for_a_modern_artifact(self) -> None:
+        apk = self._write_apk(
+            {
+                "AndroidManifest.xml": b"manifest",
+                "classes.dex": b"dex",
+                "resources.arsc": b"resources",
+                "lib/armeabi/libkawari8.so": b"\x7fELF-kawari",
+                "lib/armeabi/libnarfs.so": b"\x7fELF-narfs",
+                "lib/armeabi/libsatoriya.so": b"\x7fELF-satori",
+            }
+        )
+        android_12_badging = EXPECTED_BADGING.replace("sdkVersion:'9'", "sdkVersion:'31'")
+
+        report = inspect_apk(apk, android_12_badging, expected_min_sdk="31")
+
+        self.assertEqual("31", report["package"]["minSdk"])
+
     def test_rejects_a_missing_native_engine(self) -> None:
         apk = self._write_apk(
             {

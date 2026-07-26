@@ -70,6 +70,7 @@ java -jar "${BUNDLETOOL_JAR}" validate --bundle="${AAB}"
 python3 tools/inspect_legacy_apk.py \
   "${APK}" \
   --aapt "${AAPT}" \
+  --expected-min-sdk 31 \
   --expected-target-sdk 37 \
   --output "${OUTPUT_ROOT}/Nanidroid-debug.json"
 

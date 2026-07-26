@@ -13,7 +13,8 @@ class Api37CompileContractTest(unittest.TestCase):
         gradle = (root / "build.gradle.kts").read_text(encoding="utf-8")
 
         self.assertIn("compileSdk = 37", gradle)
-        self.assertIn("minSdk = 9", gradle)
+        self.assertIn("minSdk = 31", gradle)
+        self.assertNotIn("minSdk = 9", gradle)
         self.assertIn("targetSdk = 37", gradle)
         self.assertNotIn('useLibrary("org.apache.http.legacy", false)', gradle)
         self.assertIn('platforms/android-15/android.jar', gradle)

@@ -21,7 +21,7 @@ from inspect_android_test_apk import (
 
 EXPECTED_BADGING = """\
 package: name='com.cattailsw.nanidroid.test' versionCode='1' versionName='1.0'
-sdkVersion:'9'
+sdkVersion:'31'
 targetSdkVersion:'13'
 """
 
@@ -58,7 +58,7 @@ class ParseMetadataTest(unittest.TestCase):
         self.assertEqual(
             {
                 "packageName": "com.cattailsw.nanidroid.test",
-                "minSdk": "9",
+                "minSdk": "31",
                 "targetSdk": "13",
             },
             parse_badging(EXPECTED_BADGING),
@@ -128,6 +128,19 @@ class InspectApkTest(unittest.TestCase):
         )
         self.assertEqual([], report["nativeLibraries"])
         self.assertEqual(64, len(report["sha256"]))
+
+    def test_accepts_required_test_markers_in_a_double_digit_secondary_dex(self) -> None:
+        apk = self._write_apk(
+            {
+                "AndroidManifest.xml": b"manifest",
+                "classes.dex": b"primary dex without tests",
+                "classes10.dex": EXPECTED_TEST_DEX,
+            }
+        )
+
+        report = inspect_apk(apk, EXPECTED_BADGING, EXPECTED_MANIFEST_TREE)
+
+        self.assertEqual([], report["nativeLibraries"])
 
     def test_rejects_the_wrong_target_package(self) -> None:
         apk = self._write_apk(

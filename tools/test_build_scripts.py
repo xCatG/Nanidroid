@@ -49,6 +49,13 @@ def _compact_java(source):
 
 
 class BuildScriptContractTest(unittest.TestCase):
+    def test_modern_product_minimum_sdk_is_android_12(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        gradle_build = (project_root / "build.gradle.kts").read_text(encoding="utf-8")
+
+        self.assertIn("minSdk = 31", gradle_build)
+        self.assertNotIn("minSdk = 9", gradle_build)
+
     def test_legacy_manifest_copy_strips_only_api15_incompatible_fgs_type(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         legacy_build = (project_root / "docker" / "legacy" / "build.sh").read_text(

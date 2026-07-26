@@ -54,7 +54,7 @@ class CompareContractsTest(unittest.TestCase):
 
         comparison = compare_contracts(legacy, modern)
 
-        self.assertEqual(comparison["status"], "equivalent-with-approved-target-sdk-upgrade")
+        self.assertEqual(comparison["status"], "equivalent-with-approved-sdk-upgrade")
         self.assertEqual(comparison["ignoredFields"], ["artifact", "bytes", "sha256"])
 
     def test_rejects_package_metadata_drift(self) -> None:
@@ -68,9 +68,24 @@ class CompareContractsTest(unittest.TestCase):
         modern_package = dict(report()["package"])
         modern_package["targetSdk"] = "37"
         self.assertEqual(
-            "equivalent-with-approved-target-sdk-upgrade",
+            "equivalent-with-approved-sdk-upgrade",
             compare_contracts(report(), report(package=modern_package))["status"],
         )
+
+    def test_accepts_only_the_reviewed_minimum_sdk_upgrade(self) -> None:
+        modern_package = dict(report()["package"])
+        modern_package["minSdk"] = "31"
+        self.assertEqual(
+            "equivalent-with-approved-sdk-upgrade",
+            compare_contracts(report(), report(package=modern_package))["status"],
+        )
+
+    def test_rejects_an_unapproved_minimum_sdk_change(self) -> None:
+        modern_package = dict(report()["package"])
+        modern_package["minSdk"] = "30"
+
+        with self.assertRaisesRegex(ContractMismatch, "package"):
+            compare_contracts(report(), report(package=modern_package))
 
     def test_rejects_native_library_drift(self) -> None:
         with self.assertRaisesRegex(ContractMismatch, "nativeLibraries"):

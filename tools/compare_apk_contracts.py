@@ -36,11 +36,13 @@ def compare_contracts(
             actual = dict(actual)
             if expected.get("targetSdk") == "13" and actual.get("targetSdk") == "37":
                 expected["targetSdk"] = "37"
+            if expected.get("minSdk") == "9" and actual.get("minSdk") == "31":
+                expected["minSdk"] = "31"
         if actual != expected:
             _fail(field, expected, actual)
 
     return {
-        "status": "equivalent-with-approved-target-sdk-upgrade",
+        "status": "equivalent-with-approved-sdk-upgrade",
         "comparedFields": list(CONTRACT_FIELDS),
         "ignoredFields": list(IGNORED_FIELDS),
     }

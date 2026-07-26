@@ -187,7 +187,9 @@ android {
 
     defaultConfig {
         applicationId = "com.cattailsw.nanidroid"
-        minSdk = 9
+        // Android 12 / API 31 is the approved product minimum and enables
+        // the Compose migration that replaces the legacy View renderer.
+        minSdk = 31
         targetSdk = 37
         versionCode = 6
         versionName = "open_0.1"
