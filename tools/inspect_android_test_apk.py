@@ -16,7 +16,7 @@ from typing import NoReturn
 
 EXPECTED_PACKAGE = {
     "packageName": "com.cattailsw.nanidroid.test",
-    "minSdk": "9",
+    "minSdk": "31",
     "targetSdk": "13",
 }
 EXPECTED_INSTRUMENTATION = {

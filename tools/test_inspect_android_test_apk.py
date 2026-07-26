@@ -21,7 +21,7 @@ from inspect_android_test_apk import (
 
 EXPECTED_BADGING = """\
 package: name='com.cattailsw.nanidroid.test' versionCode='1' versionName='1.0'
-sdkVersion:'9'
+sdkVersion:'31'
 targetSdkVersion:'13'
 """
 
@@ -58,7 +58,7 @@ class ParseMetadataTest(unittest.TestCase):
         self.assertEqual(
             {
                 "packageName": "com.cattailsw.nanidroid.test",
-                "minSdk": "9",
+                "minSdk": "31",
                 "targetSdk": "13",
             },
             parse_badging(EXPECTED_BADGING),
