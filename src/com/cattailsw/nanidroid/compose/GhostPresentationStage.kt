@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.compose
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,23 +37,21 @@ fun GhostPresentationStage(
     keroSurface: @Composable BoxScope.() -> Unit = {},
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        if (presentation.kero.balloonVisible) {
-            GhostBalloon(
-                text = presentation.kero.text,
-                modifier = Modifier.align(Alignment.BottomStart),
-            )
+        Column(modifier = Modifier.align(Alignment.BottomStart)) {
+            if (presentation.kero.balloonVisible) {
+                GhostBalloon(text = presentation.kero.text)
+            }
+            Box {
+                keroSurface()
+            }
         }
-        if (presentation.sakura.balloonVisible) {
-            GhostBalloon(
-                text = presentation.sakura.text,
-                modifier = Modifier.align(Alignment.TopEnd),
-            )
-        }
-        Box(contentAlignment = Alignment.BottomStart) {
-            keroSurface()
-        }
-        Box(contentAlignment = Alignment.BottomEnd) {
-            sakuraSurface()
+        Column(modifier = Modifier.align(Alignment.BottomEnd)) {
+            if (presentation.sakura.balloonVisible) {
+                GhostBalloon(text = presentation.sakura.text)
+            }
+            Box {
+                sakuraSurface()
+            }
         }
     }
 }
