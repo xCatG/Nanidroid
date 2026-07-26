@@ -316,6 +316,10 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn('dir("artifacts/emulator/native")', gradle_build)
         self.assertIn('create("device")', gradle_build)
         self.assertIn('dir("artifacts/emulator/x86_64/native")', gradle_build)
+        self.assertIn(
+            "--env EMULATOR_ABI=x86_64 --env OUTPUT_ROOT=/out/x86_64",
+            gradle_build,
+        )
         self.assertIn("docker/legacy/compose.yaml run --rm emulator-native", gradle_build)
 
         clear_native = native_script.index('rm -rf "${NATIVE_ROOT}"')

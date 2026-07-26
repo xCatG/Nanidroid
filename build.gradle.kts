@@ -171,7 +171,11 @@ val verifyDeviceNativeLibraries by tasks.registering(VerifyNativeLibraries::clas
     description = "Checks the isolated x86_64 API-36 device profile native libraries."
     libraries.from(requiredDeviceNativeLibraries)
     artifactLabel.set("x86_64 API-36 device")
-    buildCommand.set("EMULATOR_ABI=x86_64 OUTPUT_ROOT=/out/x86_64 docker compose -f docker/legacy/compose.yaml run --rm emulator-native")
+    buildCommand.set(
+        "docker compose -f docker/legacy/compose.yaml run --rm " +
+            "--env EMULATOR_ABI=x86_64 --env OUTPUT_ROOT=/out/x86_64 " +
+            "emulator-native"
+    )
 }
 
 android {
