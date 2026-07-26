@@ -427,6 +427,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "SakuraScriptPresentationInterpreterTest.java"
             ),
             pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/runtime/"
+                "SakuraScriptInteractionInterpreterTest.java"
+            ),
+            pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java"
             ),
             pathlib.PurePosixPath(
@@ -591,6 +595,11 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/runtime/'
             'SakuraScriptPresentationInterpreterTest.java"',
+            gradle_build,
+        )
+        self.assertIn(
+            '"test/jvm/com/cattailsw/nanidroid/runtime/'
+            'SakuraScriptInteractionInterpreterTest.java"',
             gradle_build,
         )
         self.assertIn(
