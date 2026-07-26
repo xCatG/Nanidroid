@@ -20,6 +20,7 @@ import android.graphics.drawable.AnimationDrawable;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Message;
@@ -143,9 +144,6 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	  currentRunCount++;
 	  setStartCount(currentRunCount);
 
-	  Intent launchingIntent = getIntent();
-	  handleIntent(launchingIntent);
-
 	  dbgRelatedSetup(currentGhost);
 		
 	  NarUtil.createNarDirOnSDCard();
@@ -191,7 +189,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    protected void onPostExecute(Void result) {
 		// TODO Auto-generated method stub
 		Intent launchingIntent = getIntent();
-		handleIntent(launchingIntent);
+		handleIncomingIntent(launchingIntent);
 
 		dbgRelatedSetup(currentGhost);
 		hideProgress();
@@ -508,18 +506,36 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     private void sendStopIntent(){
-	Intent i = new Intent(this, NanidroidService.class);
-	i.setAction(NanidroidService.ACTION_CAN_STOP);
-	startService(i);	
+	// Do not try to start a foreground service from a background lifecycle
+	// callback merely to ask it to stop.  The service is private, so a direct
+	// stop is both safer and compatible with Android 36 background limits.
+	stopService(new Intent(this, NanidroidService.class));
     }
 
 
     private void addNarToDownload(Uri target){
+	if (!IncomingNarIntent.isApprovedDownload(target)) {
+	    Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show();
+	    return;
+	}
 	Intent i = new Intent(this, NanidroidService.class);
 	i.setAction(Intent.ACTION_RUN);
 	i.setData(target);
+	startModernService(i);
+    }
 
-	startService(i);	
+    private void startModernService(Intent intent) {
+	if (Build.VERSION.SDK_INT >= 26) {
+	    try {
+		getClass().getMethod("startForegroundService", Intent.class).invoke(this, intent);
+		return;
+	    } catch (Exception e) {
+		Log.w(TAG, "foreground-service API unavailable", e);
+	    }
+	}
+	{
+	    startService(intent);
+	}
     }
     
     public void narTest(View v){
@@ -715,25 +731,23 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	}.execute();
     }
 
-    private void handleIntent(Intent intent){
-	String action = intent.getAction();
-	if (intent.hasExtra("DL_PKG")) {
-	    Uri data = intent.getData();
-	    bKero.setText("launching to extract nar at:" + data);
-
-	    extractNar(data.getPath());// "/mnt/sdcard/2elf-2.41.nar");
+    private void handleIncomingIntent(Intent intent){
+	if (!IncomingNarIntent.isApprovedDownload(intent)) {
+	    if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
+		Log.w(TAG, "Rejected unapproved external install URI");
+		Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show();
+	    }
+	    return;
 	}
-	if (action != null && action.equalsIgnoreCase(Intent.ACTION_VIEW)) {
-	    // need to check the data?
-	    Log.d(TAG, " action_view with data:" + intent.getData());
-	    Uri target = intent.getData();
-	    if (target != null)
-		addNarToDownload(target);
-	}
+	Log.d(TAG, "Accepted HTTPS NAR download URI");
+	addNarToDownload(intent.getData());
     }
     
+    @Override
     public void onNewIntent(Intent intent) {
-	handleIntent(intent);
+	super.onNewIntent(intent);
+	setIntent(intent);
+	handleIncomingIntent(intent);
     }
 
     public void onUpdate(View v) {
@@ -754,7 +768,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    // create update intent...?
 	    Intent i = NanidroidService.createUpdateIntent(this, homeurl, currentGhost.getGhostId(), 
 							   currentGhost.getGhostPath());
-	    startService(i);
+	    startModernService(i);
 	    // need to do updatebegin here...
 	}
     }
@@ -784,17 +798,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void startInstallFromSDCard() {
 	AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0);
-	String[] narz = NarUtil.listNarDir();
-	if ( narz == null || narz.length == 0 ) {
-	    // show error dlg
-	    showNarErrDlg(narz==null);
-	}
-	else if ( narz.length > 1 ) {
-	    showNarPickDlg(narz);
-	}
-	else {
-	    extractNar(Environment.getExternalStorageDirectory() + "/nar/" + narz[0]);
-	}
+	Toast.makeText(this, R.string.err_legacy_local_install_disabled, Toast.LENGTH_LONG).show();
     }
 
     public void showNarErrDlg(boolean dir) {
@@ -814,7 +818,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void onNarPick(String narName) {
-	extractNar(Environment.getExternalStorageDirectory() + "/nar/" + narName);	
+	Toast.makeText(this, R.string.err_legacy_local_install_disabled, Toast.LENGTH_LONG).show();
     }
 
     public void showUrlDlg() {

@@ -49,6 +49,19 @@ def _compact_java(source):
 
 
 class BuildScriptContractTest(unittest.TestCase):
+    def test_legacy_manifest_copy_strips_only_api15_incompatible_fgs_type(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        legacy_build = (project_root / "docker" / "legacy" / "build.sh").read_text(
+            encoding="utf-8"
+        )
+        production_manifest = (project_root / "AndroidManifest.xml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('android:foregroundServiceType="dataSync"', production_manifest)
+        self.assertIn('s/ android:foregroundServiceType="dataSync"//g', legacy_build)
+        self.assertIn('"${LEGACY_MANIFEST}"', legacy_build)
+
     def test_device_characterization_sources_are_the_exact_expected_set(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         expected = {

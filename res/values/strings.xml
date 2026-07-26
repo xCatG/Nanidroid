@@ -4,7 +4,9 @@
 
 
   <string name="dl_complete">Download Completed</string>
-  <string name="dl_note">%1$s is ready to be installed</string>
+  <string name="dl_note">%1$s finished downloading. Local archive installation is being modernized.</string>
+  <string name="download_channel_name">Nanidroid downloads</string>
+  <string name="download_in_progress">Downloading archive</string>
   <string name="list_ghost_btn_text">List Ghosts</string>
   <string name="update_btn_text">Update</string>
   <string name="help_btn_text">Help</string>
@@ -31,6 +33,8 @@
   <string name="more_g_from_SD_text">Install from SD card</string>
   <string name="more_g_ghost_town_text">Ghost Town portal</string>
   <string name="err_invalid_url">Invalid URL.  URL must end with .nar or .zip</string>
+  <string name="err_https_nar_only">For your safety, Nanidroid can only download HTTPS .nar or .zip links.</string>
+  <string name="err_legacy_local_install_disabled">Installing from the shared /sdcard/nar folder is unavailable on Android 36. Use an HTTPS archive link while the document picker is being modernized.</string>
   <string name="err_nar_title">Error installing from SD card</string>
   <string name="err_no_nar_folder">No Nar folder found on SD card</string>
   <string name="err_no_nar_file">No .nar file found</string>

@@ -70,11 +70,14 @@ def _fail(message: str) -> NoReturn:
     raise ArtifactError(message)
 
 
-def inspect_apk(apk: Path, badging: str) -> dict[str, object]:
+def inspect_apk(
+    apk: Path, badging: str, expected_target_sdk: str = "13"
+) -> dict[str, object]:
     """Return an artifact report, or raise when the contract is violated."""
     package = parse_badging(badging)
-    if package != EXPECTED_PACKAGE:
-        _fail(f"package metadata changed: expected {EXPECTED_PACKAGE}, got {package}")
+    expected_package = dict(EXPECTED_PACKAGE, targetSdk=expected_target_sdk)
+    if package != expected_package:
+        _fail(f"package metadata changed: expected {expected_package}, got {package}")
 
     digest = hashlib.sha256()
     with apk.open("rb") as stream:
@@ -124,6 +127,7 @@ def _arguments() -> argparse.Namespace:
         default=Path("/opt/android-sdk/build-tools/25.0.3/aapt"),
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--expected-target-sdk", default="13")
     return parser.parse_args()
 
 
@@ -136,7 +140,7 @@ def main() -> int:
             capture_output=True,
             text=True,
         )
-        report = inspect_apk(args.apk, completed.stdout)
+        report = inspect_apk(args.apk, completed.stdout, args.expected_target_sdk)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
