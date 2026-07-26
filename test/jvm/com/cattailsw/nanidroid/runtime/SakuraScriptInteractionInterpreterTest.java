@@ -42,4 +42,16 @@ public final class SakuraScriptInteractionInterpreterTest {
         assertEquals("\\hplain text\\e", result.getPresentationScript());
         assertEquals(Collections.emptyList(), result.getEffects());
     }
+
+    @Test
+    public void legacyObserved_inputBoxPatternUsesTheSameGreedyCaptureAsJavaRunner() {
+        SakuraScriptInteractionResult result = SakuraScriptInteractionInterpreter.extract(
+                "\\![open,inputbox,first]X\\![open,inputbox,second]");
+
+        assertEquals("", result.getPresentationScript());
+        assertEquals(1, result.getEffects().size());
+        SakuraScriptInteractionEffect.OpenInputBox effect =
+                (SakuraScriptInteractionEffect.OpenInputBox) result.getEffects().get(0);
+        assertEquals("first]X\\![open,inputbox,second", effect.getId());
+    }
 }

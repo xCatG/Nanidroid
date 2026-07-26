@@ -22,7 +22,9 @@ data class SakuraScriptInteractionResult(
 /** Pure extraction of legacy input-box and choice effects. */
 object SakuraScriptInteractionInterpreter {
     private val choice = Regex("\\\\q\\[([^,]*),([^,\\]]*),?([^\\]]*?)\\]")
-    private val input = Regex("\\\\!\\[open,inputbox,(.*?)]")
+    // The legacy PatternHolders.open_input uses greedy (.*), so retain that
+    // unusual but observable behavior until a deliberate compatibility change.
+    private val input = Regex("\\\\!\\[open,inputbox,(.*)]")
 
     @JvmStatic
     fun extract(script: String): SakuraScriptInteractionResult {
