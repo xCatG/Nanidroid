@@ -185,14 +185,18 @@ class BuildScriptContractTest(unittest.TestCase):
             build_script,
         )
         self.assertIn(
-            "testEmulatorUnitTest assembleDebug assembleEmulatorAndroidTest",
+            "compileEmulatorUnitTestJavaWithJavac assembleDebug bundleDebug "
+            "assembleEmulatorAndroidTest",
             build_script,
         )
         self.assertIn(
-            'TEST_RESULTS_ROOT="${SOURCE_ROOT}/build/test-results/'
-            'testEmulatorUnitTest"',
+            'AAB="${SOURCE_ROOT}/build/outputs/bundle/debug/Nanidroid-debug.aab"',
             build_script,
         )
+        self.assertIn('java -jar "${BUNDLETOOL_JAR}" validate --bundle="${AAB}"', build_script)
+        self.assertIn("python3 tools/write_artifact_metadata.py", build_script)
+        self.assertIn('"${OUTPUT_ROOT}/artifact-integrity.json"', build_script)
+        self.assertNotIn("testEmulatorUnitTest", build_script)
         self.assertIn('"${APKSIGNER}" verify "${TEST_APK}"', build_script)
         self.assertIn('"${ZIPALIGN}" -c 4 "${TEST_APK}"', build_script)
         self.assertIn("python3 tools/inspect_android_test_apk.py", build_script)

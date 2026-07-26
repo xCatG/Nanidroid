@@ -221,13 +221,14 @@ public class NanidroidService extends Service {
 
 	    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-	    Notification n = new Notification(R.drawable.notification, getString(R.string.dl_complete), 
-					      System.currentTimeMillis());
 	    Intent ni = new Intent(NanidroidService.this, Nanidroid.class);
 	    ni.setData(Uri.fromFile(new File(result))).putExtra("DL_PKG",0);
 	    PendingIntent pi = PendingIntent.getActivity(NanidroidService.this, 0, ni, 0);
 	    String notetext = String.format(getString(R.string.dl_note), targeturi.getLastPathSegment());
-	    n.setLatestEventInfo(getApplicationContext(), getString(R.string.dl_complete), notetext, pi);
+	    Notification n = LegacyNotificationBridge.create(
+		    getApplicationContext(), R.drawable.notification,
+		    getString(R.string.dl_complete), System.currentTimeMillis(),
+		    getString(R.string.dl_complete), notetext, pi);
 	    n.flags = Notification.FLAG_AUTO_CANCEL;
 	    nm.notify(42, n);
 
