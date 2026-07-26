@@ -14,6 +14,10 @@
     android:icon="@drawable/ic_launcher"
     android:name="CatTailApplication"
     >
+    <!-- The bundled, pre-modern Google Analytics and ACRA jars still link
+         Apache HTTP.  API 36 exposes it only as this optional compatibility
+         shared library; the later Kotlin dependency migration removes it. -->
+    <uses-library android:name="org.apache.http.legacy" android:required="false" />
     <activity android:name="Nanidroid"
       android:label="@string/app_name"
       android:launchMode="singleTop"

@@ -269,7 +269,13 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     private void setBackground() {
 	View bg = findViewById(android.R.id.content);
-	bg.setBackgroundDrawable( WallpaperManager.getInstance(getApplicationContext()).getFastDrawable() );
+	try {
+	    bg.setBackgroundDrawable( WallpaperManager.getInstance(getApplicationContext()).getFastDrawable() );
+	} catch (SecurityException denied) {
+	    // API 36 may deny the historical wallpaper bitmap read without broad
+	    // storage permission.  Keep the theme background instead of crashing.
+	    Log.w(TAG, "wallpaper background unavailable", denied);
+	}
     }
 
 

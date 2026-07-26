@@ -43,6 +43,7 @@ public class AnalyticsUtils {
     private static final int VISITOR_SCOPE = 1;
     private static final String FIRST_RUN_KEY = "firstRun";
     private static boolean ANALYTICS_ENABLED = true;
+    private static boolean DEVICE_VALIDATION_NO_TELEMETRY = false;
 
     private static AnalyticsUtils sInstance;
 
@@ -50,9 +51,17 @@ public class AnalyticsUtils {
 	if ( uaCode != null )
 	    UACODE = uaCode;
 
-	ANALYTICS_ENABLED = enableAnalytics;
+	ANALYTICS_ENABLED = !DEVICE_VALIDATION_NO_TELEMETRY && enableAnalytics;
 
 	return getInstance(ctx);
+    }
+
+    /** Device-only validation manifest profile: never initialize legacy senders. */
+    public static void setDeviceValidationNoTelemetry(boolean disabled) {
+        DEVICE_VALIDATION_NO_TELEMETRY = disabled;
+        if (disabled) {
+            ANALYTICS_ENABLED = false;
+        }
     }
 
     /**
