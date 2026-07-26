@@ -71,11 +71,18 @@ def _fail(message: str) -> NoReturn:
 
 
 def inspect_apk(
-    apk: Path, badging: str, expected_target_sdk: str = "13"
+    apk: Path,
+    badging: str,
+    expected_target_sdk: str = "13",
+    expected_min_sdk: str = "9",
 ) -> dict[str, object]:
     """Return an artifact report, or raise when the contract is violated."""
     package = parse_badging(badging)
-    expected_package = dict(EXPECTED_PACKAGE, targetSdk=expected_target_sdk)
+    expected_package = dict(
+        EXPECTED_PACKAGE,
+        minSdk=expected_min_sdk,
+        targetSdk=expected_target_sdk,
+    )
     if package != expected_package:
         _fail(f"package metadata changed: expected {expected_package}, got {package}")
 
@@ -127,6 +134,7 @@ def _arguments() -> argparse.Namespace:
         default=Path("/opt/android-sdk/build-tools/25.0.3/aapt"),
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--expected-min-sdk", default="9")
     parser.add_argument("--expected-target-sdk", default="13")
     return parser.parse_args()
 
@@ -140,7 +148,12 @@ def main() -> int:
             capture_output=True,
             text=True,
         )
-        report = inspect_apk(args.apk, completed.stdout, args.expected_target_sdk)
+        report = inspect_apk(
+            args.apk,
+            completed.stdout,
+            args.expected_target_sdk,
+            args.expected_min_sdk,
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
