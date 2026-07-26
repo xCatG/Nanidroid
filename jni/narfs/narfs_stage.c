@@ -65,6 +65,41 @@ static int unlink_stage( int parent, const char *name, int flags, const narfs_st
     return result;
 }
 
+static int stat_session(
+        int parent, const char *name, struct stat *status,
+        const narfs_stage_options *options) {
+    int result;
+    do {
+        result = injected(options, NARFS_STAGE_TEST_STAT_SESSION, name);
+        if (result == 0)
+            result = fstatat(parent, name, status, AT_SYMLINK_NOFOLLOW);
+    } while (result != 0 && errno == EINTR);
+    return result;
+}
+
+static int unlink_bound_session(
+        int parent, const narfs_stage_token *token,
+        const narfs_stage_options *options) {
+    struct stat status;
+    int result;
+    do result = injected(options, NARFS_STAGE_TEST_UNLINK, token->session_name);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) return -1;
+    do result = fstatat(parent, token->session_name, &status,
+            AT_SYMLINK_NOFOLLOW);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) return -1;
+    if (!S_ISDIR(status.st_mode)
+            || (uint64_t) status.st_dev != token->stage_device
+            || (uint64_t) status.st_ino != token->stage_inode) {
+        errno = EAGAIN;
+        return -1;
+    }
+    do result = unlinkat(parent, token->session_name, AT_REMOVEDIR);
+    while (result != 0 && errno == EINTR);
+    return result;
+}
+
 static int same_snapshot( const struct stat *before, const struct stat *after) {
     int equal = before->st_dev == after->st_dev && before->st_ino == after->st_ino && (before->st_mode & S_IFMT) == (after->st_mode & S_IFMT) && before->st_size == after->st_size && before->st_mtime == after->st_mtime && before->st_ctime == after->st_ctime;
 #ifdef __ANDROID__
@@ -198,12 +233,534 @@ static int valid_session_name(const char *name) {
     return 1;
 }
 
-static int make_session( const char *staging_root, narfs_stage_token *token, int *root_fd, narfs_error *primary_error, narfs_error *cleanup_error, const narfs_stage_options *options) {
+static int valid_clone_options(const narfs_stage_options *options) {
+    return options != NULL && options->io_chunk > 0
+        && options->inspect.max_entries > 0
+        && options->inspect.max_entries <= NARFS_MAX_ENTRIES
+        && options->inspect.max_depth > 0
+        && options->inspect.max_depth <= NARFS_MAX_DEPTH
+        && options->inspect.max_component_bytes > 0
+        && options->inspect.max_component_bytes <= NARFS_MAX_COMPONENT_BYTES
+        && options->inspect.max_path_bytes > 0
+        && options->inspect.max_path_bytes <= NARFS_MAX_PATH_BYTES
+        && options->inspect.max_file_bytes > 0
+        && options->inspect.max_file_bytes <= NARFS_MAX_FILE_BYTES
+        && options->inspect.max_total_bytes > 0
+        && options->inspect.max_total_bytes <= NARFS_MAX_TOTAL_BYTES;
+}
+
+static void record_clone_error(
+        narfs_error *primary, narfs_error *cleanup, narfs_error value) {
+    if (value == NARFS_OK) return;
+    if (*primary == NARFS_OK) *primary = value;
+    else if (*cleanup == NARFS_OK) *cleanup = value;
+}
+
+static int blob_name(uint32_t ordinal, char name[8]) {
+    if (ordinal > NARFS_STAGE_MAX_BLOB_ORDINAL) return 0;
+    snprintf(name, 8, "b%06u", ordinal);
+    return 1;
+}
+
+static int valid_blob_name(const char *name) {
+    unsigned index;
+    if (name == NULL || strlen(name) != 7 || name[0] != 'b') return 0;
+    for (index = 1; index < 7; index++)
+        if (name[index] < '0' || name[index] > '9') return 0;
+    return 1;
+}
+
+static narfs_error validate_clone_mappings(
+        const narfs_stage_clone_mapping *mappings, uint32_t count,
+        const narfs_stage_options *options) {
+    uint32_t index, other;
+    uint64_t total = 0;
+    if ((count != 0 && mappings == NULL) || count > options->inspect.max_entries)
+        return NARFS_ERR_INVALID_OPTIONS;
+    for (index = 0; index < count; index++) {
+        const narfs_stage_clone_mapping *mapping = &mappings[index];
+        if (mapping->retained_blob_ordinal > NARFS_STAGE_MAX_BLOB_ORDINAL
+                || mapping->candidate_blob_ordinal > NARFS_STAGE_MAX_BLOB_ORDINAL
+                || mapping->expected_size > options->inspect.max_file_bytes)
+            return NARFS_ERR_INVALID_OPTIONS;
+        if (mapping->expected_size > options->inspect.max_total_bytes - total)
+            return NARFS_ERR_TOTAL_SIZE_LIMIT;
+        total += mapping->expected_size;
+        for (other = 0; other < index; other++) {
+            if (mappings[other].retained_blob_ordinal == mapping->retained_blob_ordinal
+                    || mappings[other].candidate_blob_ordinal == mapping->candidate_blob_ordinal)
+                return NARFS_ERR_INVALID_OPTIONS;
+        }
+    }
+    return NARFS_OK;
+}
+
+static narfs_error open_stage_session(
+        const char *staging_root, const narfs_stage_token *token,
+        const narfs_stage_options *options, int *root_fd, int *session_fd,
+        narfs_error *cleanup_error) {
+    struct stat status;
+    int result;
+    *root_fd = -1;
+    *session_fd = -1;
+    if (staging_root == NULL || token == NULL
+            || !valid_session_name(token->session_name))
+        return NARFS_ERR_INVALID_OPTIONS;
+    do *root_fd = open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    while (*root_fd < 0 && errno == EINTR);
+    if (*root_fd < 0) return changed_or_system_error(errno);
+    do result = fstat(*root_fd, &status);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) {
+        narfs_error error = system_error(errno);
+        if (close_stage_fd(*root_fd, options, "") != 0) *cleanup_error = NARFS_ERR_CLOSE;
+        *root_fd = -1;
+        return error;
+    }
+    if (!S_ISDIR(status.st_mode) || (uint64_t) status.st_dev != token->root_device
+            || (uint64_t) status.st_ino != token->root_inode) {
+        if (close_stage_fd(*root_fd, options, "") != 0) *cleanup_error = NARFS_ERR_CLOSE;
+        *root_fd = -1;
+        return NARFS_ERR_TREE_CHANGED;
+    }
+    do *session_fd = openat(*root_fd, token->session_name,
+            O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    while (*session_fd < 0 && errno == EINTR);
+    if (*session_fd < 0) {
+        narfs_error error = changed_or_system_error(errno);
+        if (close_stage_fd(*root_fd, options, "") != 0) *cleanup_error = NARFS_ERR_CLOSE;
+        *root_fd = -1;
+        return error;
+    }
+    do result = fstat(*session_fd, &status);
+    while (result != 0 && errno == EINTR);
+    if (result != 0 || !S_ISDIR(status.st_mode)
+            || (uint64_t) status.st_dev != token->stage_device
+            || (uint64_t) status.st_ino != token->stage_inode) {
+        narfs_error error = result == 0 ? NARFS_ERR_TREE_CHANGED : system_error(errno);
+        if (close_stage_fd(*session_fd, options, token->session_name) != 0)
+            *cleanup_error = NARFS_ERR_CLOSE;
+        if (close_stage_fd(*root_fd, options, "") != 0 && *cleanup_error == NARFS_OK)
+            *cleanup_error = NARFS_ERR_CLOSE;
+        *session_fd = -1;
+        *root_fd = -1;
+        return error;
+    }
+    return NARFS_OK;
+}
+
+static narfs_error root_matches_token(
+        const char *staging_root, const narfs_stage_token *token,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    struct stat status;
+    int root, result;
+    do root = open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    while (root < 0 && errno == EINTR);
+    if (root < 0) return changed_or_system_error(errno);
+    do result = fstat(root, &status);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) {
+        narfs_error error = system_error(errno);
+        if (close_stage_fd(root, options, "") != 0) *cleanup_error = NARFS_ERR_CLOSE;
+        return error;
+    }
+    if (close_stage_fd(root, options, "") != 0)
+        *cleanup_error = NARFS_ERR_CLOSE;
+    if (!S_ISDIR(status.st_mode) || (uint64_t) status.st_dev != token->root_device
+            || (uint64_t) status.st_ino != token->root_inode)
+        return NARFS_ERR_TREE_CHANGED;
+    return NARFS_OK;
+}
+
+static narfs_error candidate_path_matches_token(
+        const char *staging_root, const narfs_stage_token *token,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    struct stat status;
+    int root, result;
+    do root = open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    while (root < 0 && errno == EINTR);
+    if (root < 0) return changed_or_system_error(errno);
+    do result = fstat(root, &status);
+    while (result != 0 && errno == EINTR);
+    if (result != 0) {
+        narfs_error error = system_error(errno);
+        if (close_stage_fd(root, options, "") != 0) *cleanup_error = NARFS_ERR_CLOSE;
+        return error;
+    }
+    if (!S_ISDIR(status.st_mode) || (uint64_t) status.st_dev != token->root_device
+            || (uint64_t) status.st_ino != token->root_inode) {
+        close_stage_fd(root, options, "");
+        return NARFS_ERR_TREE_CHANGED;
+    }
+    do result = fstatat(root, token->session_name, &status, AT_SYMLINK_NOFOLLOW);
+    while (result != 0 && errno == EINTR);
+    if (close_stage_fd(root, options, "") != 0 && *cleanup_error == NARFS_OK)
+        *cleanup_error = NARFS_ERR_CLOSE;
+    if (result != 0 || !S_ISDIR(status.st_mode)
+            || (uint64_t) status.st_dev != token->stage_device
+            || (uint64_t) status.st_ino != token->stage_inode)
+        return NARFS_ERR_TREE_CHANGED;
+    return NARFS_OK;
+}
+
+static narfs_error validate_stage_blobs(
+        int session_fd, const narfs_stage_options *options,
+        narfs_error *cleanup_error) {
+    DIR *directory;
+    struct dirent *item;
+    int copy, result;
+    struct stat status;
+    do copy = dup(session_fd);
+    while (copy < 0 && errno == EINTR);
+    if (copy < 0) return system_error(errno);
+    directory = fdopendir(copy);
+    if (directory == NULL) {
+        if (close_stage_fd(copy, options, "") != 0)
+            *cleanup_error = NARFS_ERR_CLOSE;
+        return system_error(errno);
+    }
+    while (1) {
+        errno = 0;
+        item = readdir(directory);
+        if (item == NULL && errno == EINTR) continue;
+        if (item == NULL) break;
+        if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0)
+            continue;
+        if (!valid_blob_name(item->d_name)) {
+            if (closedir(directory) != 0 && *cleanup_error == NARFS_OK)
+                *cleanup_error = NARFS_ERR_CLOSE;
+            return NARFS_ERR_TREE_CHANGED;
+        }
+        do result = fstatat(session_fd, item->d_name, &status, AT_SYMLINK_NOFOLLOW);
+        while (result != 0 && errno == EINTR);
+        if (result != 0 || !S_ISREG(status.st_mode)) {
+            narfs_error error = result == 0 ? NARFS_ERR_TREE_CHANGED : changed_or_system_error(errno);
+            if (closedir(directory) != 0 && *cleanup_error == NARFS_OK)
+                *cleanup_error = NARFS_ERR_CLOSE;
+            return error;
+        }
+    }
+    if (errno != 0) {
+        narfs_error error = system_error(errno);
+        if (closedir(directory) != 0 && *cleanup_error == NARFS_OK)
+            *cleanup_error = NARFS_ERR_CLOSE;
+        return error;
+    }
+    if (closedir(directory) != 0) {
+        *cleanup_error = NARFS_ERR_CLOSE;
+        return NARFS_ERR_CLOSE;
+    }
+    return NARFS_OK;
+}
+
+/* This preflight is intentionally before make_session: an invalid retained
+ * mapping must not create even a temporary candidate directory. Copy repeats
+ * these checks after candidate creation to reject the intervening mutation. */
+static narfs_error verify_retained_blob(
+        int retained_fd, const narfs_stage_clone_mapping *mapping,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    char name[8];
+    int input = -1;
+    int status;
+    struct stat before, after;
+    unsigned char *buffer = NULL;
+    unsigned char digest[NARFS_SHA256_BYTES];
+    uint64_t copied = 0;
+    narfs_error error = NARFS_OK;
+    narfs_sha256 hash;
+    int have_before = 0;
+    if (!blob_name(mapping->retained_blob_ordinal, name))
+        return NARFS_ERR_INVALID_OPTIONS;
+    do input = openat(retained_fd, name,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+    while (input < 0 && errno == EINTR);
+    if (input < 0) return changed_or_system_error(errno);
+    do status = fstat(input, &before);
+    while (status != 0 && errno == EINTR);
+    if (status != 0) error = system_error(errno);
+    else {
+        have_before = 1;
+        if (!S_ISREG(before.st_mode) || (uint64_t) before.st_size != mapping->expected_size)
+            error = NARFS_ERR_TREE_CHANGED;
+    }
+    if (error == NARFS_OK) {
+        buffer = (unsigned char *) malloc(options->io_chunk);
+        if (buffer == NULL) error = NARFS_ERR_RESOURCE;
+    }
+    narfs_sha256_init(&hash);
+    while (error == NARFS_OK && copied < mapping->expected_size) {
+        size_t wanted = options->io_chunk;
+        ssize_t count;
+        if ((uint64_t) wanted > mapping->expected_size - copied)
+            wanted = (size_t) (mapping->expected_size - copied);
+        do {
+            count = injected(options, NARFS_STAGE_TEST_READ, name);
+            if (count == 0) count = read(input, buffer, wanted);
+        } while (count < 0 && errno == EINTR);
+        if (count <= 0) { error = count == 0 ? NARFS_ERR_TREE_CHANGED : system_error(errno); break; }
+        narfs_sha256_update(&hash, buffer, (size_t) count);
+        copied += (uint64_t) count;
+    }
+    free(buffer);
+    if (error == NARFS_OK) {
+        narfs_sha256_final(&hash, digest);
+        if (memcmp(digest, mapping->expected_sha256, NARFS_SHA256_BYTES) != 0)
+            error = NARFS_ERR_TREE_CHANGED;
+    }
+    do status = fstat(input, &after);
+    while (status != 0 && errno == EINTR);
+    if (status != 0) record_clone_error(&error, cleanup_error, system_error(errno));
+    else if (have_before && !same_snapshot(&before, &after))
+        record_clone_error(&error, cleanup_error, NARFS_ERR_TREE_CHANGED);
+    if (close_stage_fd(input, options, name) != 0)
+        record_clone_error(&error, cleanup_error, NARFS_ERR_CLOSE);
+    return error;
+}
+
+static narfs_error clone_one_blob(
+        int retained_fd, int candidate_fd,
+        const narfs_stage_clone_mapping *mapping,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    char source_name[8], candidate_name[8];
+    int input = -1, output = -1;
+    struct stat before, after, candidate_status;
+    unsigned char *buffer = NULL;
+    unsigned char digest[NARFS_SHA256_BYTES];
+    uint64_t copied = 0;
+    narfs_error error = NARFS_OK;
+    narfs_sha256 hash;
+    int have_before = 0;
+    if (!blob_name(mapping->retained_blob_ordinal, source_name)
+            || !blob_name(mapping->candidate_blob_ordinal, candidate_name))
+        return NARFS_ERR_INVALID_OPTIONS;
+    do input = openat(retained_fd, source_name,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+    while (input < 0 && errno == EINTR);
+    if (input < 0) return changed_or_system_error(errno);
+    {
+        int status;
+        do status = fstat(input, &before);
+        while (status != 0 && errno == EINTR);
+        if (status != 0) error = system_error(errno);
+        else have_before = 1;
+    }
+    if (error == NARFS_OK && (!S_ISREG(before.st_mode)
+            || (uint64_t) before.st_size != mapping->expected_size))
+        error = NARFS_ERR_TREE_CHANGED;
+    if (error == NARFS_OK) {
+        do output = openat(candidate_fd, candidate_name,
+                O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+        while (output < 0 && errno == EINTR);
+        if (output < 0) error = errno == EEXIST ? NARFS_ERR_TREE_CHANGED : changed_or_system_error(errno);
+    }
+    if (error == NARFS_OK) {
+        {
+            int status;
+            do status = fstat(output, &candidate_status);
+            while (status != 0 && errno == EINTR);
+            if (status != 0) error = system_error(errno);
+        }
+        if (error == NARFS_OK && (!S_ISREG(candidate_status.st_mode)
+                || (candidate_status.st_mode & 0777) != 0600))
+            error = NARFS_ERR_TREE_CHANGED;
+    }
+    if (error == NARFS_OK) {
+        buffer = (unsigned char *) malloc(options->io_chunk);
+        if (buffer == NULL) error = NARFS_ERR_RESOURCE;
+    }
+    narfs_sha256_init(&hash);
+    while (error == NARFS_OK && copied < mapping->expected_size) {
+        size_t wanted = options->io_chunk;
+        ssize_t count;
+        if ((uint64_t) wanted > mapping->expected_size - copied)
+            wanted = (size_t) (mapping->expected_size - copied);
+        do {
+            count = injected(options, NARFS_STAGE_TEST_READ, source_name);
+            if (count == 0) count = read(input, buffer, wanted);
+        } while (count < 0 && errno == EINTR);
+        if (count <= 0) { error = count == 0 ? NARFS_ERR_TREE_CHANGED : system_error(errno); break; }
+        narfs_sha256_update(&hash, buffer, (size_t) count);
+        {
+            size_t written = 0;
+            while (written < (size_t) count) {
+                ssize_t part;
+                do {
+                    part = injected(options, NARFS_STAGE_TEST_WRITE, candidate_name);
+                    if (part == 0) part = write(output, buffer + written, (size_t) count - written);
+                } while (part < 0 && errno == EINTR);
+                if (part <= 0) { error = system_error(errno); break; }
+                written += (size_t) part;
+            }
+        }
+        copied += (uint64_t) count;
+    }
+    free(buffer);
+    if (error == NARFS_OK) {
+        narfs_sha256_final(&hash, digest);
+        if (memcmp(digest, mapping->expected_sha256, NARFS_SHA256_BYTES) != 0)
+            error = NARFS_ERR_TREE_CHANGED;
+    }
+    if (error == NARFS_OK) {
+        int synced;
+        do {
+            synced = injected(options, NARFS_STAGE_TEST_SYNC, candidate_name);
+            if (synced == 0) synced = fsync(output);
+        } while (synced != 0 && errno == EINTR);
+        if (synced != 0) error = system_error(errno);
+    }
+    if (output >= 0 && close_stage_fd(output, options, candidate_name) != 0)
+        record_clone_error(&error, cleanup_error, NARFS_ERR_CLOSE);
+    if (input >= 0) {
+        int result;
+        do result = fstat(input, &after);
+        while (result != 0 && errno == EINTR);
+        if (result != 0) record_clone_error(&error, cleanup_error, system_error(errno));
+        else if (have_before && !same_snapshot(&before, &after))
+            record_clone_error(&error, cleanup_error, NARFS_ERR_TREE_CHANGED);
+        if (close_stage_fd(input, options, source_name) != 0)
+            record_clone_error(&error, cleanup_error, NARFS_ERR_CLOSE);
+    }
+    return error;
+}
+
+static narfs_error verify_candidate_blob(
+        int candidate_fd, const narfs_stage_clone_mapping *mapping,
+        const narfs_stage_options *options, narfs_error *cleanup_error) {
+    char name[8];
+    int input = -1, status;
+    struct stat before, after;
+    unsigned char *buffer = NULL, digest[NARFS_SHA256_BYTES];
+    uint64_t copied = 0;
+    narfs_error error = NARFS_OK;
+    narfs_sha256 hash;
+    int have_before = 0;
+    if (!blob_name(mapping->candidate_blob_ordinal, name))
+        return NARFS_ERR_INVALID_OPTIONS;
+    do input = openat(candidate_fd, name,
+            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+    while (input < 0 && errno == EINTR);
+    if (input < 0) return changed_or_system_error(errno);
+    do status = fstat(input, &before);
+    while (status != 0 && errno == EINTR);
+    if (status != 0) error = system_error(errno);
+    else {
+        have_before = 1;
+        if (!S_ISREG(before.st_mode) || (before.st_mode & 0777) != 0600
+                || (uint64_t) before.st_size != mapping->expected_size)
+            error = NARFS_ERR_TREE_CHANGED;
+    }
+    if (error == NARFS_OK) {
+        buffer = (unsigned char *) malloc(options->io_chunk);
+        if (buffer == NULL) error = NARFS_ERR_RESOURCE;
+    }
+    narfs_sha256_init(&hash);
+    while (error == NARFS_OK && copied < mapping->expected_size) {
+        size_t wanted = options->io_chunk;
+        ssize_t count;
+        if ((uint64_t) wanted > mapping->expected_size - copied)
+            wanted = (size_t) (mapping->expected_size - copied);
+        do {
+            count = injected(options, NARFS_STAGE_TEST_READ, name);
+            if (count == 0) count = read(input, buffer, wanted);
+        } while (count < 0 && errno == EINTR);
+        if (count <= 0) {
+            error = count == 0 ? NARFS_ERR_TREE_CHANGED : system_error(errno);
+            break;
+        }
+        narfs_sha256_update(&hash, buffer, (size_t) count);
+        copied += (uint64_t) count;
+    }
+    free(buffer);
+    if (error == NARFS_OK) {
+        narfs_sha256_final(&hash, digest);
+        if (memcmp(digest, mapping->expected_sha256, NARFS_SHA256_BYTES) != 0)
+            error = NARFS_ERR_TREE_CHANGED;
+    }
+    do status = fstat(input, &after);
+    while (status != 0 && errno == EINTR);
+    if (status != 0) record_clone_error(&error, cleanup_error, system_error(errno));
+    else if (have_before && !same_snapshot(&before, &after))
+        record_clone_error(&error, cleanup_error, NARFS_ERR_TREE_CHANGED);
+    if (close_stage_fd(input, options, name) != 0)
+        record_clone_error(&error, cleanup_error, NARFS_ERR_CLOSE);
+    return error;
+}
+
+static narfs_error validate_candidate_blobs(
+        int candidate_fd, const narfs_stage_clone_mapping *mappings,
+        uint32_t mapping_count, const narfs_stage_options *options,
+        narfs_error *cleanup_error) {
+    DIR *directory;
+    struct dirent *item;
+    struct stat status;
+    uint32_t seen = 0, index;
+    int copy, result;
+    narfs_error error = NARFS_OK;
+    do copy = dup(candidate_fd);
+    while (copy < 0 && errno == EINTR);
+    if (copy < 0) return system_error(errno);
+    directory = fdopendir(copy);
+    if (directory == NULL) {
+        close(copy);
+        return system_error(errno);
+    }
+    while (error == NARFS_OK) {
+        int matched = 0;
+        errno = 0;
+        item = readdir(directory);
+        if (item == NULL && errno == EINTR) continue;
+        if (item == NULL) {
+            if (errno != 0) error = system_error(errno);
+            break;
+        }
+        if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0)
+            continue;
+        if (!valid_blob_name(item->d_name)) {
+            error = NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        for (index = 0; index < mapping_count; index++) {
+            char expected[8];
+            if (!blob_name(mappings[index].candidate_blob_ordinal, expected)) {
+                error = NARFS_ERR_INVALID_OPTIONS;
+                break;
+            }
+            if (strcmp(item->d_name, expected) == 0) matched = 1;
+        }
+        if (error != NARFS_OK) break;
+        if (!matched) {
+            error = NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        do result = fstatat(candidate_fd, item->d_name, &status, AT_SYMLINK_NOFOLLOW);
+        while (result != 0 && errno == EINTR);
+        if (result != 0 || !S_ISREG(status.st_mode)
+                || (status.st_mode & 0777) != 0600) {
+            error = result != 0 ? changed_or_system_error(errno)
+                    : NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        seen++;
+    }
+    if (closedir(directory) != 0 && error == NARFS_OK) error = NARFS_ERR_CLOSE;
+    if (error == NARFS_OK && seen != mapping_count) error = NARFS_ERR_TREE_CHANGED;
+    for (index = 0; index < mapping_count && error == NARFS_OK; index++)
+        error = verify_candidate_blob(candidate_fd, &mappings[index], options,
+                cleanup_error);
+    return error;
+}
+
+static int make_session( const char *staging_root, int verified_root,
+        narfs_stage_token *token, int *root_fd, narfs_error *primary_error,
+        narfs_error *cleanup_error, int *created,
+        const narfs_stage_options *options) {
     unsigned char random[16];
     struct stat status;
     int entropy, session, attempt, result;
     *primary_error = NARFS_OK;
-    do *root_fd = open( staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    *created = 0;
+    do *root_fd = verified_root >= 0 ? dup(verified_root)
+            : open(staging_root, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     while (*root_fd < 0 && errno == EINTR);
     if (*root_fd < 0) return -1;
     do result = fstat(*root_fd, &status);
@@ -238,7 +795,10 @@ static int make_session( const char *staging_root, narfs_stage_token *token, int
         }
         do result = mkdirat(*root_fd, token->session_name, 0700);
         while (result != 0 && errno == EINTR);
-        if (result == 0) break;
+        if (result == 0) {
+            *created = 1;
+            break;
+        }
         if (errno != EEXIST) {
             close_stage_fd(entropy, options, "");
             return -1;
@@ -249,16 +809,37 @@ static int make_session( const char *staging_root, narfs_stage_token *token, int
             *cleanup_error = NARFS_ERR_CLOSE;
         return -1;
     }
-    do result = fstatat(
-            *root_fd, token->session_name, &status, AT_SYMLINK_NOFOLLOW);
-    while (result != 0 && errno == EINTR);
+    result = stat_session(*root_fd, token->session_name, &status, options);
     if (result != 0 || !S_ISDIR(status.st_mode)) {
-        int primary = errno;
-        if (close_stage_fd(entropy, options, "") != 0)
+        int primary = result != 0 ? errno : EAGAIN;
+        int identity_ready = 0;
+        do {
+            session = openat(*root_fd, token->session_name,
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        } while (session < 0 && errno == EINTR);
+        if (session >= 0) {
+            do result = fstat(session, &status);
+            while (result != 0 && errno == EINTR);
+            if (result == 0 && S_ISDIR(status.st_mode)) {
+                token->stage_device = (uint64_t) status.st_dev;
+                token->stage_inode = (uint64_t) status.st_ino;
+                result = stat_session(*root_fd, token->session_name,
+                        &status, options);
+                if (result == 0 && S_ISDIR(status.st_mode)
+                        && (uint64_t) status.st_dev == token->stage_device
+                        && (uint64_t) status.st_ino == token->stage_inode)
+                    identity_ready = 1;
+            }
+            if (close_stage_fd(session, options, token->session_name) != 0)
+                *cleanup_error = NARFS_ERR_CLOSE;
+        }
+        if (close_stage_fd(entropy, options, "") != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = NARFS_ERR_CLOSE;
-        if (unlink_stage(
-                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0 && *cleanup_error == NARFS_OK)
+        if (identity_ready && unlink_bound_session(*root_fd, token, options) != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = system_error(errno);
+        if (!identity_ready) memset(token, 0, sizeof(*token));
         errno = primary;
         return -1;
     }
@@ -266,32 +847,34 @@ static int make_session( const char *staging_root, narfs_stage_token *token, int
     token->stage_inode = (uint64_t) status.st_ino;
     if (close_stage_fd(entropy, options, "") != 0) {
         *primary_error = NARFS_ERR_CLOSE;
-        if (unlink_stage(
-                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0)
+        if (unlink_bound_session(*root_fd, token, options) != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = system_error(errno);
         return -1;
     }
     do {
-        session = injected( options, NARFS_STAGE_TEST_OPEN_SESSION, token->session_name);
-        if (session == 0) session = openat(
-                *root_fd, token->session_name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        session = injected(options, NARFS_STAGE_TEST_OPEN_SESSION,
+                token->session_name);
+        if (session == 0) session = openat(*root_fd, token->session_name,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     } while (session < 0 && errno == EINTR);
     if (session < 0) {
         int primary = errno;
-        if (unlink_stage(
-                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0)
+        if (unlink_bound_session(*root_fd, token, options) != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = system_error(errno);
         errno = primary;
         return -1;
     }
     do result = fstat(session, &status);
     while (result != 0 && errno == EINTR);
-    if (result != 0 || (uint64_t) status.st_dev != token->stage_device || (uint64_t) status.st_ino != token->stage_inode) {
+    if (result != 0 || (uint64_t) status.st_dev != token->stage_device
+            || (uint64_t) status.st_ino != token->stage_inode) {
         int primary = result != 0 ? errno : EAGAIN;
         if (close_stage_fd(session, options, token->session_name) != 0)
             *cleanup_error = NARFS_ERR_CLOSE;
-        if (unlink_stage(
-                *root_fd, token->session_name, AT_REMOVEDIR, options, token->session_name) != 0 && *cleanup_error == NARFS_OK)
+        if (unlink_bound_session(*root_fd, token, options) != 0
+                && *cleanup_error == NARFS_OK)
             *cleanup_error = system_error(errno);
         errno = primary;
         return -1;
@@ -305,6 +888,59 @@ narfs_stage_options narfs_default_stage_options(void) {
     options.inspect = narfs_default_options();
     options.io_chunk = NARFS_STAGE_DEFAULT_IO_CHUNK;
     return options;
+}
+
+static narfs_error discard_bound_session(
+        int root, int session, const narfs_stage_token *token,
+        const narfs_stage_options *options) {
+    DIR *directory;
+    struct dirent *item;
+    struct stat status;
+    int copy, result;
+    narfs_error error = NARFS_OK;
+    do copy = dup(session);
+    while (copy < 0 && errno == EINTR);
+    directory = copy < 0 ? NULL : fdopendir(copy);
+    if (directory == NULL) {
+        if (copy >= 0) close(copy);
+        return system_error(errno);
+    }
+    while (error == NARFS_OK) {
+        unsigned index;
+        errno = 0;
+        item = readdir(directory);
+        if (item == NULL && errno == EINTR) continue;
+        if (item == NULL) {
+            if (errno != 0) error = system_error(errno);
+            break;
+        }
+        if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0)
+            continue;
+        if (!valid_blob_name(item->d_name)) {
+            error = NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        for (index = 1; index < 7; index++)
+            if (item->d_name[index] < '0' || item->d_name[index] > '9')
+                error = NARFS_ERR_TREE_CHANGED;
+        if (error != NARFS_OK) break;
+        do result = fstatat(session, item->d_name, &status, AT_SYMLINK_NOFOLLOW);
+        while (result != 0 && errno == EINTR);
+        if (result != 0 || !S_ISREG(status.st_mode)) {
+            error = result != 0 ? changed_or_system_error(errno)
+                    : NARFS_ERR_TREE_CHANGED;
+            break;
+        }
+        if (unlink_stage(session, item->d_name, 0, options, item->d_name) != 0) {
+            error = system_error(errno);
+            break;
+        }
+    }
+    if (closedir(directory) != 0 && error == NARFS_OK) error = NARFS_ERR_CLOSE;
+    if (error == NARFS_OK && unlink_bound_session(root, token, options) != 0)
+        error = errno == EAGAIN ? NARFS_ERR_TREE_CHANGED
+                : changed_or_system_error(errno);
+    return error;
 }
 
 narfs_error narfs_stage_discard( const char *staging_root, const narfs_stage_token *token, const narfs_stage_options *supplied) {
@@ -421,6 +1057,175 @@ narfs_error narfs_stage_discard( const char *staging_root, const narfs_stage_tok
     return error;
 }
 
+narfs_stage_clone_result narfs_stage_clone_retained(
+        const char *staging_root, const narfs_stage_token *retained,
+        const narfs_stage_clone_mapping *mappings, uint32_t mapping_count,
+        const narfs_stage_options *supplied) {
+    narfs_stage_options defaults;
+    const narfs_stage_options *options = supplied;
+    narfs_stage_clone_result result;
+    narfs_error source_cleanup = NARFS_OK;
+    int retained_root = -1, retained_session = -1;
+    int candidate_root = -1, candidate_session = -1;
+    struct stat retained_before, retained_after;
+    int retained_snapshot = 0;
+    uint32_t index;
+    int candidate_exists = 0;
+    int candidate_path_valid = 1;
+    memset(&result, 0, sizeof(result));
+    if (options == NULL) {
+        defaults = narfs_default_stage_options();
+        options = &defaults;
+    }
+    if (!valid_clone_options(options) || staging_root == NULL || retained == NULL) {
+        result.error = NARFS_ERR_INVALID_OPTIONS;
+        return result;
+    }
+    result.error = validate_clone_mappings(mappings, mapping_count, options);
+    if (result.error != NARFS_OK) return result;
+
+    result.error = open_stage_session(staging_root, retained, options,
+            &retained_root, &retained_session, &source_cleanup);
+    if (result.error == NARFS_OK) {
+        int status;
+        do status = fstat(retained_session, &retained_before);
+        while (status != 0 && errno == EINTR);
+        if (status != 0) result.error = system_error(errno);
+        else retained_snapshot = 1;
+    }
+    if (result.error == NARFS_OK)
+        result.error = validate_stage_blobs(retained_session, options, &source_cleanup);
+    for (index = 0; index < mapping_count && result.error == NARFS_OK; index++)
+        result.error = verify_retained_blob(retained_session, &mappings[index],
+                options, &source_cleanup);
+    if (result.error != NARFS_OK) goto finish;
+
+    {
+        narfs_error creation_error = NARFS_OK, creation_cleanup = NARFS_OK;
+        int created = 0;
+        if (injected(options, NARFS_STAGE_TEST_CREATE_SESSION, staging_root) != 0)
+            result.error = system_error(errno);
+        if (result.error == NARFS_OK)
+            result.error = root_matches_token(staging_root, retained, options,
+                    &source_cleanup);
+        if (result.error != NARFS_OK) goto finish;
+        candidate_session = make_session(NULL, retained_root, &result.token,
+                &candidate_root, &creation_error, &creation_cleanup, &created,
+                options);
+        candidate_exists = created && result.token.stage_device != 0
+                && result.token.stage_inode != 0;
+        if (candidate_session < 0) {
+            int saved = errno;
+            result.error = creation_error != NARFS_OK ? creation_error
+                : saved == EAGAIN ? NARFS_ERR_TREE_CHANGED : system_error(saved);
+            result.cleanup_error = creation_cleanup;
+            goto finish;
+        }
+    }
+    if (injected(options, NARFS_STAGE_TEST_BEGIN_COPY, retained->session_name) != 0)
+        result.error = system_error(errno);
+    for (index = 0; index < mapping_count && result.error == NARFS_OK; index++)
+        result.error = clone_one_blob(retained_session, candidate_session,
+                &mappings[index], options, &result.cleanup_error);
+    if (result.error == NARFS_OK) {
+        int synced;
+        do {
+            synced = injected(options, NARFS_STAGE_TEST_SYNC, result.token.session_name);
+            if (synced == 0) synced = fsync(candidate_session);
+        } while (synced != 0 && errno == EINTR);
+        if (synced != 0) result.error = system_error(errno);
+    }
+    if (result.error == NARFS_OK
+            && injected(options, NARFS_STAGE_TEST_COMPLETE_COPY,
+                    result.token.session_name) != 0)
+        result.error = system_error(errno);
+    if (result.error == NARFS_OK)
+        result.error = validate_candidate_blobs(candidate_session, mappings,
+                mapping_count, options, &result.cleanup_error);
+    if (retained_snapshot) {
+        int status;
+        do status = fstat(retained_session, &retained_after);
+        while (status != 0 && errno == EINTR);
+        if (status != 0) record_clone_error(
+                &result.error, &result.cleanup_error, system_error(errno));
+        else if (!same_snapshot(&retained_before, &retained_after))
+            record_clone_error(&result.error, &result.cleanup_error,
+                    NARFS_ERR_TREE_CHANGED);
+    }
+    if (result.error == NARFS_OK) {
+        narfs_error path_error = candidate_path_matches_token(staging_root,
+                &result.token, options, &result.cleanup_error);
+        if (path_error != NARFS_OK) {
+            result.error = path_error;
+            candidate_path_valid = 0;
+        }
+    }
+
+finish:
+    if (result.error != NARFS_OK && candidate_exists && candidate_path_valid) {
+        narfs_error path_error = candidate_path_matches_token(staging_root,
+                &result.token, options, &result.cleanup_error);
+        if (path_error != NARFS_OK) {
+            candidate_path_valid = 0;
+            record_clone_error(&result.error, &result.cleanup_error, path_error);
+        }
+    }
+    if (result.error != NARFS_OK && candidate_exists
+            && candidate_root >= 0 && candidate_session >= 0) {
+        narfs_error discarded = discard_bound_session(candidate_root,
+                candidate_session, &result.token, options);
+        if (discarded == NARFS_OK) {
+            memset(&result.token, 0, sizeof(result.token));
+            candidate_exists = 0;
+        } else {
+            record_clone_error(&result.error, &result.cleanup_error, discarded);
+            if (candidate_path_valid) {
+                narfs_error path_error = candidate_path_matches_token(staging_root,
+                        &result.token, options, &result.cleanup_error);
+                if (path_error != NARFS_OK) {
+                    candidate_path_valid = 0;
+                    record_clone_error(&result.error,
+                            &result.cleanup_error, path_error);
+                }
+            }
+            if (!candidate_path_valid) {
+                memset(&result.token, 0, sizeof(result.token));
+                candidate_exists = 0;
+            }
+        }
+    }
+    if (candidate_session >= 0
+            && close_stage_fd(candidate_session, options, result.token.session_name) != 0)
+        record_clone_error(&result.error, &result.cleanup_error, NARFS_ERR_CLOSE);
+    if (candidate_root >= 0 && close_stage_fd(candidate_root, options, "") != 0)
+        record_clone_error(&result.error, &result.cleanup_error, NARFS_ERR_CLOSE);
+    if (retained_session >= 0
+            && close_stage_fd(retained_session, options, retained->session_name) != 0)
+        record_clone_error(&result.error, &source_cleanup, NARFS_ERR_CLOSE);
+    if (retained_root >= 0 && close_stage_fd(retained_root, options, "") != 0)
+        record_clone_error(&result.error, &source_cleanup, NARFS_ERR_CLOSE);
+    if (source_cleanup != NARFS_OK)
+        record_clone_error(&result.error, &result.cleanup_error, source_cleanup);
+    if (result.error != NARFS_OK && candidate_exists && candidate_path_valid) {
+        narfs_error path_error = candidate_path_matches_token(staging_root,
+                &result.token, options, &result.cleanup_error);
+        if (path_error != NARFS_OK) {
+            candidate_path_valid = 0;
+            record_clone_error(&result.error, &result.cleanup_error, path_error);
+        }
+    }
+    if (!candidate_path_valid) {
+        memset(&result.token, 0, sizeof(result.token));
+        candidate_exists = 0;
+    }
+    if (result.error != NARFS_OK && candidate_exists) {
+        narfs_error discarded = narfs_stage_discard(staging_root, &result.token, options);
+        if (discarded == NARFS_OK) memset(&result.token, 0, sizeof(result.token));
+        else record_clone_error(&result.error, &result.cleanup_error, discarded);
+    }
+    return result;
+}
+
 narfs_stage_result narfs_stage_existing( const char *trusted_root, const char *target, const char *staging_root, const narfs_stage_options *supplied) {
     narfs_stage_options defaults;
     const narfs_stage_options *options = supplied;
@@ -438,7 +1243,11 @@ narfs_stage_result narfs_stage_existing( const char *trusted_root, const char *t
         result.inspected.error = NARFS_ERR_INVALID_OPTIONS;
         return result;
     }
-    session = make_session( staging_root, &result.token, &root, &creation_error, &creation_cleanup, options);
+    {
+        int created = 0;
+        session = make_session(staging_root, -1, &result.token, &root,
+                &creation_error, &creation_cleanup, &created, options);
+    }
     if (session < 0) {
         int primary = errno;
         result.inspected.error = creation_error != NARFS_OK ? creation_error : primary == EAGAIN ? NARFS_ERR_TREE_CHANGED : system_error(primary);

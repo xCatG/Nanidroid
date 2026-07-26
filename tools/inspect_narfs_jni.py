@@ -27,7 +27,7 @@ FULL_SOURCES = (
 FULL_LOCALS = tuple(sorted((
     "narfs_default_options", "narfs_default_stage_options", "narfs_inspect",
     "narfs_sha256_final", "narfs_sha256_init", "narfs_sha256_update",
-    "narfs_stage_discard", "narfs_stage_existing",
+    "narfs_stage_clone_retained", "narfs_stage_discard", "narfs_stage_existing",
     "narfs_stage_result_dispose", "narfs_utf16_to_utf8",
     "narfs_utf8_to_utf16",
 )))
