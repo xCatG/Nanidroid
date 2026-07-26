@@ -17,6 +17,12 @@ EXPECTED_PAYLOAD = {
     "lib/armeabi/libnarfs.so": "armeabi/libnarfs.so",
     "lib/armeabi/libsatoriya.so": "armeabi/libsatoriya.so",
 }
+COMPOSE_GRAPHICS_NATIVE_LIBRARIES = [
+    "lib/arm64-v8a/libandroidx.graphics.path.so",
+    "lib/armeabi-v7a/libandroidx.graphics.path.so",
+    "lib/x86/libandroidx.graphics.path.so",
+    "lib/x86_64/libandroidx.graphics.path.so",
+]
 
 
 class PayloadError(ValueError):
@@ -31,11 +37,17 @@ def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def verify_payload(apk: Path, candidate_root: Path) -> dict[str, object]:
+def verify_payload(
+    apk: Path,
+    candidate_root: Path,
+    allow_compose_graphics_runtime: bool = False,
+) -> dict[str, object]:
     """Compare exact APK entry bytes with the approved candidate files."""
     if not candidate_root.is_dir():
         _fail(f"candidate native directory does not exist: {candidate_root}")
     expected_entries = sorted(EXPECTED_PAYLOAD)
+    if allow_compose_graphics_runtime:
+        expected_entries = sorted(expected_entries + COMPOSE_GRAPHICS_NATIVE_LIBRARIES)
     try:
         with zipfile.ZipFile(apk) as archive:
             observed_entries = sorted(
@@ -78,9 +90,18 @@ def main() -> int:
     parser.add_argument("apk", type=Path)
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--allow-compose-graphics-runtime",
+        action="store_true",
+        help="allow only the audited AndroidX Compose graphics-path libraries",
+    )
     args = parser.parse_args()
     try:
-        report = verify_payload(args.apk, args.candidate_root)
+        report = verify_payload(
+            args.apk,
+            args.candidate_root,
+            args.allow_compose_graphics_runtime,
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n",

@@ -32,6 +32,19 @@ EXPECTED_PAYLOAD = {
     "lib/arm64-v8a/libnarfs.so": ("arm64", "arm64-v8a/libnarfs.so"),
     "lib/arm64-v8a/libsatoriya.so": ("arm64", "arm64-v8a/libsatoriya.so"),
 }
+COMPOSE_GRAPHICS_NATIVE_LIBRARIES = [
+    "lib/arm64-v8a/libandroidx.graphics.path.so",
+    "lib/armeabi-v7a/libandroidx.graphics.path.so",
+    "lib/x86/libandroidx.graphics.path.so",
+    "lib/x86_64/libandroidx.graphics.path.so",
+]
+COMPOSE_GRAPHICS_NATIVE_CODES = [
+    "arm64-v8a",
+    "armeabi",
+    "armeabi-v7a",
+    "x86",
+    "x86_64",
+]
 
 
 class PayloadError(ValueError):
@@ -76,11 +89,17 @@ def verify_emulator_apk(
     legacy_root: Path,
     arm64_root: Path,
     arm64_contract: Path,
+    allow_compose_graphics_runtime: bool = False,
 ) -> dict[str, object]:
     """Require exactly two engines in each approved ABI and identical bytes."""
     package = parse_badging(badging)
-    if package != EXPECTED_PACKAGE:
-        _fail(f"package metadata changed: expected {EXPECTED_PACKAGE}, got {package}")
+    expected_package = EXPECTED_PACKAGE
+    if allow_compose_graphics_runtime:
+        expected_package = dict(
+            EXPECTED_PACKAGE, nativeCode=COMPOSE_GRAPHICS_NATIVE_CODES
+        )
+    if package != expected_package:
+        _fail(f"package metadata changed: expected {expected_package}, got {package}")
 
     roots = {"legacy": legacy_root, "arm64": arm64_root}
     approved_arm64 = _approved_arm64_hashes(arm64_contract)
@@ -95,6 +114,8 @@ def verify_emulator_apk(
                 f"expected {expected_hash}, got {actual_hash}"
             )
     expected_entries = sorted(EXPECTED_PAYLOAD)
+    if allow_compose_graphics_runtime:
+        expected_entries = sorted(expected_entries + COMPOSE_GRAPHICS_NATIVE_LIBRARIES)
     try:
         with zipfile.ZipFile(apk) as archive:
             observed_entries = sorted(
@@ -141,6 +162,11 @@ def main() -> int:
     parser.add_argument("--arm64-root", type=Path, required=True)
     parser.add_argument("--arm64-contract", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--allow-compose-graphics-runtime",
+        action="store_true",
+        help="allow only the audited AndroidX Compose graphics-path libraries",
+    )
     args = parser.parse_args()
     try:
         completed = subprocess.run(
@@ -155,6 +181,7 @@ def main() -> int:
             args.legacy_root,
             args.arm64_root,
             args.arm64_contract,
+            args.allow_compose_graphics_runtime,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

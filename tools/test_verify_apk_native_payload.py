@@ -75,6 +75,44 @@ class VerifyPayloadTest(unittest.TestCase):
                 self.root / "candidate",
             )
 
+    def test_accepts_only_the_audited_compose_graphics_runtime_libraries(self) -> None:
+        report = verify_payload(
+            self._apk(
+                {
+                    "lib/armeabi/libkawari8.so": b"kawari",
+                    "lib/armeabi/libnarfs.so": b"narfs",
+                    "lib/armeabi/libsatoriya.so": b"satori",
+                    "lib/arm64-v8a/libandroidx.graphics.path.so": b"compose",
+                    "lib/armeabi-v7a/libandroidx.graphics.path.so": b"compose",
+                    "lib/x86/libandroidx.graphics.path.so": b"compose",
+                    "lib/x86_64/libandroidx.graphics.path.so": b"compose",
+                }
+            ),
+            self.root / "candidate",
+            allow_compose_graphics_runtime=True,
+        )
+
+        self.assertEqual("identical", report["status"])
+
+    def test_rejects_an_unapproved_compose_native_library(self) -> None:
+        with self.assertRaisesRegex(PayloadError, "native entries changed"):
+            verify_payload(
+                self._apk(
+                    {
+                        "lib/armeabi/libkawari8.so": b"kawari",
+                        "lib/armeabi/libnarfs.so": b"narfs",
+                        "lib/armeabi/libsatoriya.so": b"satori",
+                        "lib/arm64-v8a/libandroidx.graphics.path.so": b"compose",
+                        "lib/armeabi-v7a/libandroidx.graphics.path.so": b"compose",
+                        "lib/x86/libandroidx.graphics.path.so": b"compose",
+                        "lib/x86_64/libandroidx.graphics.path.so": b"compose",
+                        "lib/x86_64/libunexpected.so": b"unexpected",
+                    }
+                ),
+                self.root / "candidate",
+                allow_compose_graphics_runtime=True,
+            )
+
     def test_report_is_json_serializable(self) -> None:
         report = verify_payload(
             self._apk(

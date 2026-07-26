@@ -96,6 +96,72 @@ class InspectApkTest(unittest.TestCase):
 
         self.assertEqual("31", report["package"]["minSdk"])
 
+    def test_accepts_the_audited_compose_graphics_runtime_libraries(self) -> None:
+        compose_badging = EXPECTED_BADGING.replace(
+            "native-code: 'armeabi'",
+            "native-code: 'arm64-v8a' 'armeabi' 'armeabi-v7a' 'x86' 'x86_64'",
+        ).replace("sdkVersion:'9'", "sdkVersion:'31'").replace(
+            "targetSdkVersion:'13'", "targetSdkVersion:'37'"
+        )
+        apk = self._write_apk(
+            {
+                "AndroidManifest.xml": b"manifest",
+                "classes.dex": b"dex",
+                "resources.arsc": b"resources",
+                "lib/armeabi/libkawari8.so": b"\x7fELF-kawari",
+                "lib/armeabi/libnarfs.so": b"\x7fELF-narfs",
+                "lib/armeabi/libsatoriya.so": b"\x7fELF-satori",
+                "lib/arm64-v8a/libandroidx.graphics.path.so": b"\x7fELF-compose",
+                "lib/armeabi-v7a/libandroidx.graphics.path.so": b"\x7fELF-compose",
+                "lib/x86/libandroidx.graphics.path.so": b"\x7fELF-compose",
+                "lib/x86_64/libandroidx.graphics.path.so": b"\x7fELF-compose",
+            }
+        )
+
+        report = inspect_apk(
+            apk,
+            compose_badging,
+            expected_min_sdk="31",
+            expected_target_sdk="37",
+            allow_compose_graphics_runtime=True,
+        )
+
+        self.assertIn(
+            "lib/x86_64/libandroidx.graphics.path.so", report["nativeLibraries"]
+        )
+
+    def test_rejects_unapproved_compose_native_library(self) -> None:
+        compose_badging = EXPECTED_BADGING.replace(
+            "native-code: 'armeabi'",
+            "native-code: 'arm64-v8a' 'armeabi' 'armeabi-v7a' 'x86' 'x86_64'",
+        ).replace("sdkVersion:'9'", "sdkVersion:'31'").replace(
+            "targetSdkVersion:'13'", "targetSdkVersion:'37'"
+        )
+        apk = self._write_apk(
+            {
+                "AndroidManifest.xml": b"manifest",
+                "classes.dex": b"dex",
+                "resources.arsc": b"resources",
+                "lib/armeabi/libkawari8.so": b"\x7fELF-kawari",
+                "lib/armeabi/libnarfs.so": b"\x7fELF-narfs",
+                "lib/armeabi/libsatoriya.so": b"\x7fELF-satori",
+                "lib/arm64-v8a/libandroidx.graphics.path.so": b"\x7fELF-compose",
+                "lib/armeabi-v7a/libandroidx.graphics.path.so": b"\x7fELF-compose",
+                "lib/x86/libandroidx.graphics.path.so": b"\x7fELF-compose",
+                "lib/x86_64/libandroidx.graphics.path.so": b"\x7fELF-compose",
+                "lib/x86_64/libunexpected.so": b"\x7fELF-unexpected",
+            }
+        )
+
+        with self.assertRaisesRegex(ArtifactError, "native entries changed"):
+            inspect_apk(
+                apk,
+                compose_badging,
+                expected_min_sdk="31",
+                expected_target_sdk="37",
+                allow_compose_graphics_runtime=True,
+            )
+
     def test_rejects_a_missing_native_engine(self) -> None:
         apk = self._write_apk(
             {
