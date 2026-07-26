@@ -162,8 +162,14 @@ val verifyEmulatorNativeLibraries by tasks.registering(VerifyNativeLibraries::cl
 
 android {
     namespace = "com.cattailsw.nanidroid"
-    // Keep the Ant build's API surface while the build system changes around it.
-    compileSdk = 15
+    // PR43 modernizes the compile surface only. Runtime behavior remains frozen
+    // until the explicit target-SDK compatibility PR.
+    compileSdk = 36
+
+    // Apache HTTP was removed from the public API surface after API 22. This
+    // temporary bridge preserves the historical source contract while PR44
+    // replaces callers with supported networking APIs.
+    useLibrary("org.apache.http.legacy", false)
 
     defaultConfig {
         applicationId = "com.cattailsw.nanidroid"
@@ -221,6 +227,14 @@ android {
 }
 
 dependencies {
+    // API 36 no longer exposes android.test.*. Keep the frozen legacy
+    // characterization sources compiling against their historical API-only
+    // facade; the application itself still compiles against API 36 above.
+    val legacyTestApi = files(
+        "${System.getenv("ANDROID_SDK_ROOT")}/platforms/android-15/android.jar"
+    )
+    testCompileOnly(legacyTestApi)
+    androidTestCompileOnly(legacyTestApi)
     implementation(files("libs/android-support-v4.jar"))
     implementation(files("libs/acra-4.2.3.jar"))
     implementation(files("libs/libGoogleAnalytics.jar"))
