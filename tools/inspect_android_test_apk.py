@@ -137,7 +137,12 @@ def inspect_apk(
             missing = sorted(REQUIRED_ENTRIES - entries)
             if missing:
                 _fail("test APK is missing required entries: " + ", ".join(missing))
-            dex = archive.read("classes.dex")
+            dex_entries = sorted(
+                name
+                for name in entries
+                if re.fullmatch(r"classes(?:[2-9][0-9]*)?\.dex", name)
+            )
+            dex = b"".join(archive.read(name) for name in dex_entries)
             missing_markers = [
                 marker
                 for marker in REQUIRED_DEX_MARKERS

@@ -129,6 +129,19 @@ class InspectApkTest(unittest.TestCase):
         self.assertEqual([], report["nativeLibraries"])
         self.assertEqual(64, len(report["sha256"]))
 
+    def test_accepts_required_test_markers_in_a_secondary_dex(self) -> None:
+        apk = self._write_apk(
+            {
+                "AndroidManifest.xml": b"manifest",
+                "classes.dex": b"primary dex without tests",
+                "classes2.dex": EXPECTED_TEST_DEX,
+            }
+        )
+
+        report = inspect_apk(apk, EXPECTED_BADGING, EXPECTED_MANIFEST_TREE)
+
+        self.assertEqual([], report["nativeLibraries"])
+
     def test_rejects_the_wrong_target_package(self) -> None:
         apk = self._write_apk(
             {
