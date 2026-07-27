@@ -23,6 +23,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import com.cattailsw.nanidroid.compose.ComposeSurfaceImagePolicy;
+
 /** Characterizes structural surface-definition loading without rendering resources. */
 public class SurfaceDefinitionCharacterizationTest {
     private static final String GROUPED_SURFACES_FIXTURE =
@@ -156,6 +158,17 @@ public class SurfaceDefinitionCharacterizationTest {
 
         assertEquals(Arrays.asList("1", "2"), animation.getAlternativeAnimationIds());
         assertTrue(animation.getFrames().isEmpty());
+    }
+
+    @Test
+    public void composeImageLayer_onlyAcceptsStaticBaseSurfaceStates() throws Exception {
+        SurfaceDefinition base = SurfaceDefinitionMapper.toSurfaceDefinition(
+                loadGroupedSurfacesFixture().manager.getSurface("0"));
+
+        assertTrue(ComposeSurfaceImagePolicy.shouldRenderComposeSurface(base, null, false, false));
+        assertFalse(ComposeSurfaceImagePolicy.shouldRenderComposeSurface(base, "0", false, false));
+        assertFalse(ComposeSurfaceImagePolicy.shouldRenderComposeSurface(base, null, true, true));
+        assertFalse(ComposeSurfaceImagePolicy.shouldRenderComposeSurface(null, null, false, false));
     }
 
     private LoadedFixture loadGroupedSurfacesFixture() throws Exception {
