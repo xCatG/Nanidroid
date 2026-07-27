@@ -463,11 +463,11 @@ class BuildScriptContractTest(unittest.TestCase):
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/install/"
-                "NarArchiveInventoryValidatorTest.java"
+                "NarArchiveInventoryValidatorTest.kt"
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/install/"
-                "NarDescriptorParserTest.java"
+                "NarDescriptorParserTest.kt"
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/install/"
@@ -598,12 +598,12 @@ class BuildScriptContractTest(unittest.TestCase):
         )
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/install/'
-            'NarArchiveInventoryValidatorTest.java"',
+            'NarArchiveInventoryValidatorTest.kt"',
             gradle_build,
         )
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/install/'
-            'NarDescriptorParserTest.java"',
+            'NarDescriptorParserTest.kt"',
             gradle_build,
         )
         self.assertIn(

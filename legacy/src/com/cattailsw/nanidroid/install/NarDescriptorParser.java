@@ -331,3 +331,4 @@ public final class NarDescriptorParser {
         }
     }
 }
+
