@@ -95,25 +95,34 @@ class SurfaceCompositor(
     private val assets: SurfacePixelAssets,
     private val plans: SurfacePlanRegistry = SurfacePlanRegistry(emptyList()),
 ) {
-    fun normal(plan: SurfaceRenderPlan): SurfacePixelImage = when (val base = plan.base) {
+    fun normal(plan: SurfaceRenderPlan): SurfacePixelImage {
+        if (!plan.hasPositiveCanvas()) return SurfacePixelImage.Empty
+        return when (val base = plan.base) {
         SurfaceRenderBase.Missing -> SurfacePixelImage.Empty
         is SurfaceRenderBase.Layers -> canvas(plan.width, plan.height).apply {
             base.layers.forEach { layer ->
                 layer.imagePath?.let(assets::load)?.colorKeyed()?.let { image -> draw(image, layer.x, layer.y) }
             }
         }.toImage()
+        }
     }
 
-    fun frame(plan: SurfaceRenderPlan, frame: SurfaceRenderFrame): SurfacePixelImage = when (frame) {
-        is SurfaceRenderFrame.Base -> frame.imagePath?.let(assets::load)?.colorKeyed()?.let { image ->
-            val width = frame.width.takeIf { it > 0 } ?: image.width
-            val height = frame.height.takeIf { it > 0 } ?: image.height
-            canvas(width, height).apply { draw(image, 0, 0) }.toImage()
-        } ?: SurfacePixelImage.Empty
+    fun frame(plan: SurfaceRenderPlan, frame: SurfaceRenderFrame): SurfacePixelImage {
+        if (frame is SurfaceRenderFrame.Base) {
+            return frame.imagePath?.let(assets::load)?.colorKeyed()?.let { image ->
+                val width = frame.width.takeIf { it > 0 } ?: image.width
+                val height = frame.height.takeIf { it > 0 } ?: image.height
+                canvas(width, height).apply { draw(image, 0, 0) }.toImage()
+            } ?: SurfacePixelImage.Empty
+        }
+        if (!plan.hasPositiveCanvas()) return SurfacePixelImage.Empty
+        return when (frame) {
+        is SurfaceRenderFrame.Base -> error("base frames are handled before normal-plan rendering")
         is SurfaceRenderFrame.Overlay -> overlay(plan, frame)
         is SurfaceRenderFrame.Reset -> normal(plan)
         is SurfaceRenderFrame.Move -> normal(plan) // SurfaceRenderPlan preserves legacy fallback semantics.
         is SurfaceRenderFrame.Unknown -> normal(plan) // Keep the stage visible until a future behavior policy supports it.
+        }
     }
 
     private fun overlay(plan: SurfaceRenderPlan, frame: SurfaceRenderFrame.Overlay): SurfacePixelImage {
@@ -174,8 +183,14 @@ private class SurfacePixelCanvas(private val width: Int, private val height: Int
         }
     }
 
-    fun toImage(): SurfacePixelImage = SurfacePixelImage.of(width, height, pixels)
+    /**
+     * The canvas has exclusive ownership of [pixels] and is never drawn again
+     * after this hand-off, so avoid a second full-size pixel-array copy.
+     */
+    fun toImage(): SurfacePixelImage = SurfacePixelImage.fromOwnedPixels(width, height, pixels)
 }
+
+private fun SurfaceRenderPlan.hasPositiveCanvas(): Boolean = width > 0 && height > 0
 
 private fun sourceOver(source: Int, destination: Int): Int {
     val sourceAlpha = source ushr 24
