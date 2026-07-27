@@ -35,6 +35,11 @@ class Api37CompileContractTest(unittest.TestCase):
         self.assertIn("LegacyNotificationBridge.create", service)
         self.assertIn('"setLatestEventInfo"', bridge)
         self.assertIn("Build.VERSION.SDK_INT >= 11", bridge)
+        legacy_bridge = (
+            root / "legacy/src/com/cattailsw/nanidroid/LegacyNotificationBridge.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Frozen Ant-build compatibility shim", legacy_bridge)
+        self.assertIn('"setLatestEventInfo"', legacy_bridge)
 
 
 if __name__ == "__main__":
