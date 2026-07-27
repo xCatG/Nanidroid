@@ -114,6 +114,26 @@ public class SurfaceDefinitionCharacterizationTest {
         assertEquals(0, animation.frames.get(1).startY);
     }
 
+    @Test
+    public void composeBoundary_snapshotPreservesSurfaceDefinitionSemantics() throws Exception {
+        LoadedFixture loaded = loadGroupedSurfacesFixture();
+
+        SurfaceDefinition definition = SurfaceDefinitionMapper.toSurfaceDefinition(
+                loaded.manager.getSurface("0"));
+
+        assertEquals(0, definition.getId());
+        assertEquals(ShellSurface.S_TYPE_BASE, definition.getType());
+        assertEquals(1, definition.getCollisions().size());
+        assertEquals(0, definition.getCollisions().get(0).getId());
+        assertEquals("Head", definition.getCollisions().get(0).getName());
+        assertEquals(1, definition.getAnimations().size());
+        assertEquals("0", definition.getAnimations().get(0).getId());
+        assertEquals(ShellSurface.A_TYPE_TALK, definition.getAnimations().get(0).getInterval());
+        assertEquals(2, definition.getAnimations().get(0).getFrames().size());
+        assertEquals(ShellSurface.TYPE_RESET,
+                definition.getAnimations().get(0).getFrames().get(0).getType());
+    }
+
     private LoadedFixture loadGroupedSurfacesFixture() throws Exception {
         byte[] fixture = GROUPED_SURFACES_FIXTURE.getBytes(Charset.forName("Shift_JIS"));
         assertFixtureSha256(
