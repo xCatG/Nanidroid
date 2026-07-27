@@ -298,6 +298,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/SSTPBottleSensorCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/runtime/GhostPresentationReducerTest.java",
     "test/jvm/com/cattailsw/nanidroid/runtime/GhostStageLayoutPolicyTest.java",
+    "test/jvm/com/cattailsw/nanidroid/runtime/NanidroidCoordinatorTest.java",
     "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationReducerTest.java",
     "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationInterpreterTest.java",
     "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptInteractionInterpreterTest.java",
