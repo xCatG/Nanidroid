@@ -15,7 +15,9 @@ public class SScriptRunnerPresentationTest {
         final List<String> frames = new ArrayList<String>();
         SScriptRunner runner = new SScriptRunner(null);
         runner.setNoWaitMode(true);
-        runner.setPresentationRendererForTesting(new GhostPresentationRenderer() {
+        // Production installs the Compose-backed adapter through this seam;
+        // the runtime trace must remain independent of the chosen UI toolkit.
+        runner.setPresentationRenderer(new GhostPresentationRenderer() {
             @Override
             public void render(GhostPresentationFrame frame) {
                 frames.add(
