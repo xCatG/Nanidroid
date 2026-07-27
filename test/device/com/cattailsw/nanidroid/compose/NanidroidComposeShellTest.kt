@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -27,6 +28,8 @@ class NanidroidComposeShellTest {
                 onUpdate = { selected = "update" },
                 onPreferences = { selected = "preferences" },
                 onHelp = { selected = "help" },
+                simpleDialog = null,
+                onDismissSimpleDialog = {},
             )
         }
 
@@ -40,5 +43,37 @@ class NanidroidComposeShellTest {
         assertEquals("preferences", selected)
         composeRule.onNodeWithTag("help").performClick()
         assertEquals("help", selected)
+    }
+
+    @Test
+    fun simple_dialogs_keep_menu_actions_at_the_activity_callback_boundary() {
+        var selected = ""
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = NanidroidSimpleDialog.MoreGhost(
+                    onEnterUrl = { selected = "url" },
+                    onInstallFromSdCard = { selected = "sd" },
+                    onGhostTown = { selected = "town" },
+                ),
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithText("To Get More Ghosts").assertIsDisplayed()
+        composeRule.onNodeWithTag("simple-action-0").performClick()
+        assertEquals("url", selected)
+    }
+
+    @Test
+    fun about_dialog_is_compose_owned() {
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = NanidroidSimpleDialog.About,
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithText("About Nanidroid").assertIsDisplayed()
+        composeRule.onNodeWithText("Credits").assertIsDisplayed()
     }
 }

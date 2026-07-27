@@ -56,6 +56,8 @@ internal fun NanidroidComposeShell(
     onNextGhost: () -> Unit = {},
     onRun: () -> Unit = {},
     onNarTest: () -> Unit = {},
+    simpleDialog: NanidroidSimpleDialog?,
+    onDismissSimpleDialog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     MaterialTheme {
@@ -83,6 +85,10 @@ internal fun NanidroidComposeShell(
                     if (loading) {
                         LoadingOverlay(progressMessage)
                     }
+                    NanidroidSimpleDialogHost(
+                        dialog = simpleDialog,
+                        onDismiss = onDismissSimpleDialog,
+                    )
                 }
             }
         }

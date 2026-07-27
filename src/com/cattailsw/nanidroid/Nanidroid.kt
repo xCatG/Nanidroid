@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.ComposeView
 import com.cattailsw.nanidroid.dlgs.*
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.ComposeShellLifecycleOwner
+import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
@@ -60,6 +61,7 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private var loading by mutableStateOf(true)
     private var progressMessage by mutableStateOf("")
     private var toolbarVisible by mutableStateOf(false)
+    private var simpleDialog: NanidroidSimpleDialog? by mutableStateOf(null)
     private val composeLifecycleOwner = ComposeShellLifecycleOwner()
     private var anime: AnimationDrawable? = null
     private var lm: LayoutManager? = null
@@ -84,8 +86,11 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         setBackground()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             bSakura!!.text = "sd card error"
-            ErrMsgDlg.newInstance(R.string.err_title, R.string.err_no_sdcard, ecb, FLAG_SD_ERR)
-                .show(supportFragmentManager, Setup.DLG_ERR)
+            simpleDialog = NanidroidSimpleDialog.Notice(
+                R.string.err_title,
+                R.string.err_no_sdcard,
+                onConfirm = { finish() },
+            )
             return
         }
         checkIsRestore(savedInstanceState)
@@ -187,6 +192,8 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
                 onNextGhost = { onNextGhost(stage) },
                 onRun = { runClick(stage) },
                 onNarTest = { narTest(stage) },
+                simpleDialog = simpleDialog,
+                onDismissSimpleDialog = { simpleDialog = null },
             )
         }
         setContentView(composeRoot)
@@ -246,28 +253,68 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private fun installFirstGhost() { try { assets.open("nanidroid.zip").use { input -> val target = File(externalCacheDir, "nanidroid.nar"); NarUtil.copyFile(input, FileOutputStream(target)); gm!!.installFirstGhost("nanidroid", target.path) } } catch (e: IOException) { e.printStackTrace() } }
     private fun showReadme(readme: File, ghostId: String) { AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_README}:$ghostId"); ReadmeDialogFragment.newInstance(readme, ghostId).show(supportFragmentManager, Setup.DLG_README) }
     private fun showGhostInstalledDlg(ghostId: String) { AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_NO_REAMDE}:$ghostId"); NoReadmeSwitchDlg.newInstance(ghostId, gm!!.getGhostDispName(ghostId)).show(supportFragmentManager, Setup.DLG_NO_REAMDE) }
-    fun onNextGhost(v: View) { DbgMsgDlg.newInstance(currentGhost!!.mgr!!.dumpSurfaces()).show(supportFragmentManager, Setup.DLG_DBG_MSG) }
+    fun onNextGhost(v: View) {
+        simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
+    }
     fun switchGhost(nextId: String) { val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
     @Suppress("DEPRECATION") fun ghostSwitchStep2() { object : AsyncTask<Void, Void, Void>() { override fun onPreExecute() { mGH.sendEmptyMessage(MSG_LOAD_N); showProgress() }; override fun doInBackground(vararg params: Void?): Void? { try { val ghost = gm!!.createGhost(nextGhostId!!)!!; nextGhostId = null; CrashReporting.setCustomKey("current_ghost", ghost.getGhostId()); currentGhost = ghost; sv!!.mgr = ghost.mgr; kv!!.mgr = ghost.mgr; updateSurfaceKeys(ghost); keyindex = 0; currentSurfaceKey = surfaceKeys!![keyindex] } catch (e: Exception) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", nextGhostId, -1); Log.d(TAG, "failed to switch to ghost:$nextGhostId"); nextGhostId = null; e.printStackTrace() }; return null }; override fun onPostExecute(result: Void?) { hideProgress(); lm!!.checkAndUpdateLayoutParam(); gm!!.setLastRunGhost(currentGhost!!); runner!!.setGhost(currentGhost!!) } }.execute() }
     private fun handleIncomingIntent(incoming: Intent?) { if (!IncomingNarIntent.isApprovedDownload(incoming)) { if (incoming != null && Intent.ACTION_VIEW == incoming.action) { Log.w(TAG, "Rejected unapproved external install URI"); Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show() }; return }; Log.d(TAG, "Accepted HTTPS NAR download URI"); addNarToDownload(incoming!!.data!!) }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }
     fun onUpdate(v: View) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
     fun onListGhost(v: View) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
-    fun onHelp(v: View) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "help", "", 0); AnalyticsUtils.getInstance(this).trackPageView("/Help_menu"); openContextMenu(v) }
-    fun getMoreGhost(source: Int) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "MoreGhost", if (source == 0) "MainUI" else Setup.DLG_G_LIST, source); AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}"); MoreGhostFuncDlg().show(supportFragmentManager, Setup.DLG_MORE_G) }
+    fun onHelp(v: View) {
+        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "help", "", 0)
+        AnalyticsUtils.getInstance(this).trackPageView("/Help_menu")
+        simpleDialog = NanidroidSimpleDialog.HelpMenu(
+            onGeneralHelp = { showHelp() },
+            onAbout = { showAbout() },
+            onFeedback = { showFeedback() },
+        )
+    }
+    fun getMoreGhost(source: Int) {
+        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "MoreGhost", if (source == 0) "MainUI" else Setup.DLG_G_LIST, source)
+        AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
+        simpleDialog = NanidroidSimpleDialog.MoreGhost(
+            onEnterUrl = { showUrlDlg() },
+            onInstallFromSdCard = { startInstallFromSDCard() },
+            onGhostTown = { showGhostTown() },
+        )
+    }
     override fun startInstallFromSDCard() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0); Toast.makeText(this, R.string.err_legacy_local_install_disabled, Toast.LENGTH_LONG).show() }
-    fun showNarErrDlg(dir: Boolean) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "more_ghost_install_sd", if (dir) "no_nar_folder" else "no_nar_file", if (dir) -1 else -2); ErrMsgDlg.newInstance(R.string.err_nar_title, if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file).show(supportFragmentManager, Setup.DLG_ERR) }
+    fun showNarErrDlg(dir: Boolean) {
+        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "more_ghost_install_sd", if (dir) "no_nar_folder" else "no_nar_file", if (dir) -1 else -2)
+        simpleDialog = NanidroidSimpleDialog.Notice(
+            R.string.err_nar_title,
+            if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file,
+        )
+    }
     fun showNarPickDlg(narz: Array<String>) { Toast.makeText(this, "multiple nar exist", Toast.LENGTH_SHORT).show(); AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_NAR_PICK}"); NarPickDlg(narz).show(supportFragmentManager, Setup.DLG_NAR_PICK) }
     override fun onNarPick(narName: String) { Toast.makeText(this, R.string.err_legacy_local_install_disabled, Toast.LENGTH_LONG).show() }
     override fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); EnterUrlDlg().show(supportFragmentManager, Setup.DLG_E_URL) }
     override fun onFinishURL(url: String) = addNarToDownload(Uri.parse(url))
-    override fun showGhostTown() { AnalyticsUtils.getInstance(this).trackPageView("/ghost_town_portal"); NotImplementedDlg().show(supportFragmentManager, Setup.DLG_NOT_IMPL) }
+    override fun showGhostTown() {
+        AnalyticsUtils.getInstance(this).trackPageView("/ghost_town_portal")
+        simpleDialog = NanidroidSimpleDialog.Notice(R.string.not_implemeted_title, R.string.not_implemented)
+    }
     fun onMoreGhost(v: View) = getMoreGhost(0)
     private fun showGhostListDlg() { val names = gm!!.getGnames()!!; gAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, names); AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_G_LIST}"); GhostListDialogFragment.newInstance(names, gm).show(supportFragmentManager, Setup.DLG_G_LIST) }
     override fun onContextItemSelected(item: MenuItem): Boolean = when (item.itemId) { R.id.item_about -> { showAbout(); true }; R.id.item_feedback -> { showFeedback(); true }; R.id.item_general_help -> { showHelp(); true }; else -> super.onContextItemSelected(item) }
-    private fun showHelp() { AnalyticsUtils.getInstance(applicationContext).trackPageView("/help"); HelpFuncDlg().show(supportFragmentManager, Setup.DLG_GEN_HELP) }
+    private fun showHelp() {
+        AnalyticsUtils.getInstance(applicationContext).trackPageView("/help")
+        simpleDialog = NanidroidSimpleDialog.GeneralHelp(
+            onInstallHelp = { openHelpPage(R.string.url_help_install, "/help/install") },
+            onSupportedOperations = { openHelpPage(R.string.url_support_ops, "/help/supported_ops") },
+        )
+    }
+    private fun openHelpPage(urlRes: Int, page: String) {
+        AnalyticsUtils.getInstance(this).trackPageView(page)
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(urlRes))))
+    }
     private fun showFeedback() { AnalyticsUtils.getInstance(applicationContext).trackPageView("/feedback"); startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.feedback_url)))) }
-    private fun showAbout() { AnalyticsUtils.getInstance(applicationContext).trackPageView("/about"); AboutDialogFragment().show(supportFragmentManager, Setup.DLG_ABOUT) }
+    private fun showAbout() {
+        AnalyticsUtils.getInstance(applicationContext).trackPageView("/about")
+        simpleDialog = NanidroidSimpleDialog.About
+    }
     override fun onCreateContextMenu(menu: ContextMenu, v: View, menuInfo: ContextMenu.ContextMenuInfo?) { super.onCreateContextMenu(menu, v, menuInfo); menuInflater.inflate(R.menu.main_help_menu, menu) }
     fun onSetupClick(v: View) = showPreference()
     private fun showPreference() { val target = Intent(Intent.ACTION_VIEW); target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET); target.setClassName(this, Preferences::class.java.name); AnalyticsUtils.getInstance(this).trackPageView("/Preference"); startActivity(target) }
@@ -275,7 +322,6 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         if (!toolbarVisible) AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar")
         toolbarVisible = !toolbarVisible
     }
-    private val ecb = ErrMsgDlg.ErrDlgCallback { flag -> if (FLAG_SD_ERR == flag) finish() }
     override fun onFinishUserInput(id: String, userinput: String) { Log.d(TAG, "got user input:$userinput"); runner!!.resumeEvt(); runner!!.doUserInput(id, userinput) }
     override fun onCancelInput() { Log.d(TAG, "user cancel"); runner!!.resumeEvt() }
     override fun showUserInputBox(id: String) { UserInputDlg(id).show(supportFragmentManager, Setup.DLG_USR_INPUT) }
