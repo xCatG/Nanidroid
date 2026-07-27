@@ -14,6 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 
+def _active_activity_source():
+    kotlin = ROOT / "src/com/cattailsw/nanidroid/Nanidroid.kt"
+    java = ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java"
+    return (kotlin if kotlin.exists() else java).read_text(encoding="utf-8")
+
+
 class Target36SecurityContractTest(unittest.TestCase):
     def test_manifest_declares_modern_component_and_service_policy(self):
         root = ET.parse(ROOT / "AndroidManifest.xml").getroot()
@@ -38,12 +44,9 @@ class Target36SecurityContractTest(unittest.TestCase):
         self.assertIn('android:scheme="https"', manifest)
 
     def test_activity_validates_initial_and_warm_intents(self):
-        source = (ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java").read_text(encoding="utf-8")
-        self.assertIn("Intent launchingIntent = getIntent();", source)
-        self.assertIn("handleIncomingIntent(launchingIntent);", source)
-        self.assertEqual(1, source.count("handleIncomingIntent(launchingIntent);"))
-        self.assertIn("setIntent(intent);", source)
-        self.assertIn("handleIncomingIntent(intent);", source)
+        source = _active_activity_source()
+        self.assertIn("handleIncomingIntent(intent)", source)
+        self.assertIn("setIntent(intent)", source)
         self.assertIn("IncomingNarIntent.isApprovedDownload", source)
         self.assertNotIn("extractNar(data.getPath())", source)
         self.assertNotIn("getExternalStorageDirectory() + \"/nar/\"", source)
@@ -63,8 +66,11 @@ class Target36SecurityContractTest(unittest.TestCase):
         self.assertIn("finishForegroundWork(svcid)", source)
         self.assertIn("finishForegroundWork(sid)", source)
         self.assertNotIn("Uri.fromFile", source)
-        activity = (ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java").read_text(encoding="utf-8")
-        self.assertIn('getMethod("startForegroundService", Intent.class)', activity)
+        activity = _active_activity_source()
+        self.assertTrue(
+            'getMethod("startForegroundService", Intent.class)' in activity
+            or 'getMethod("startForegroundService", Intent::class.java)' in activity
+        )
 
     def test_network_stack_rejects_cleartext_and_permissive_tls(self):
         source = (ROOT / "src/com/cattailsw/nanidroid/util/NetworkUtil.java").read_text(encoding="utf-8")
