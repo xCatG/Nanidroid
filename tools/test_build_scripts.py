@@ -416,6 +416,9 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java"
             ),
             pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/GhostShellNameCompatibilityTest.java"
+            ),
+            pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/GhostPresentationFrameTest.java"
             ),
             pathlib.PurePosixPath(

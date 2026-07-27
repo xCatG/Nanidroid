@@ -70,7 +70,7 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
     fun getGhostDirName(): String = ghostDirName
     fun getGhostPath(): String = rootPath
     open fun getGhostName(): String? = ghostDesc!!["name"]
-    fun getShellName(): String = shellDesc?.get("name") ?: "master"
+    fun getShellName(): String? = shellDesc?.get("name") ?: if (shellDesc == null) "master" else null
     fun getCrafterName(): String? = ghostDesc!!["craftmanw"] ?: ghostDesc!!["craftman"]
     open fun getSakuraName(): String? = ghostDesc!!["sakura.name"]
     open fun getKeroName(): String? = ghostDesc!!["kero.name"]
