@@ -49,6 +49,12 @@ internal fun NanidroidComposeShell(
     onUpdate: () -> Unit,
     onPreferences: () -> Unit,
     onHelp: () -> Unit,
+    showDebugControls: Boolean = false,
+    onNextSurface: () -> Unit = {},
+    onAnimate: () -> Unit = {},
+    onNextGhost: () -> Unit = {},
+    onRun: () -> Unit = {},
+    onNarTest: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     MaterialTheme {
@@ -64,6 +70,9 @@ internal fun NanidroidComposeShell(
                         onPreferences = onPreferences,
                         onHelp = onHelp,
                     )
+                    if (showDebugControls) {
+                        DebugToolbar(onNextSurface, onAnimate, onNextGhost, onRun, onNarTest)
+                    }
                 }
                 Box(modifier = Modifier.fillMaxSize()) {
                     AndroidView(
@@ -105,6 +114,27 @@ internal fun NanidroidToolbar(
         Button(onClick = onHelp, modifier = Modifier.testTag("help")) {
             Text(stringResource(R.string.help_btn_text))
         }
+    }
+}
+
+@Composable
+private fun DebugToolbar(
+    onNextSurface: () -> Unit,
+    onAnimate: () -> Unit,
+    onNextGhost: () -> Unit,
+    onRun: () -> Unit,
+    onNarTest: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+    ) {
+        Button(onClick = onNextSurface, modifier = Modifier.testTag("debug-next-surface")) { Text("next s.") }
+        Button(onClick = onAnimate, modifier = Modifier.testTag("debug-draw-cbox")) { Text("draw CBox") }
+        Button(onClick = onNextGhost, modifier = Modifier.testTag("debug-dump-surfaces")) { Text("dump S") }
+        Button(onClick = onRun, modifier = Modifier.testTag("debug-run")) { Text("run") }
+        Button(onClick = onNarTest, modifier = Modifier.testTag("debug-nar")) { Text("nar") }
     }
 }
 

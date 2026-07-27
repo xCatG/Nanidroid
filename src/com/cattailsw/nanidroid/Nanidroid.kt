@@ -181,10 +181,15 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
                 onUpdate = { onUpdate(stage) },
                 onPreferences = { onSetupClick(stage) },
                 onHelp = { onHelp(stage) },
+                showDebugControls = dbgBuild,
+                onNextSurface = { onNextSurface(stage) },
+                onAnimate = { onAnimate(stage) },
+                onNextGhost = { onNextGhost(stage) },
+                onRun = { runClick(stage) },
+                onNarTest = { narTest(stage) },
             )
         }
         setContentView(composeRoot)
-        if (dbgBuild) Log.d(TAG, "Debug controls remain in the frozen XML compatibility layout")
         registerForContextMenu(stage)
         showProgress()
     }
