@@ -93,6 +93,17 @@ public class SurfaceDefinitionCharacterizationTest {
     }
 
     @Test
+    public void kotlinCatalog_startsEmptyAndPublishesAnExactSurface() {
+        SurfaceManager manager = new SurfaceManager("synthetic-ghost");
+        ShellSurface surface = new ShellSurface();
+
+        assertEquals(0, manager.getTotalSurfaceCount());
+        assertEquals(1, manager.addSurface("99", surface));
+        assertSame(surface, manager.getSurface("99"));
+        assertEquals(Collections.singleton("99"), manager.getSurfaceKeys());
+    }
+
+    @Test
     public void legacyObserved_resetFramesDiscardParsedOffsets() throws Exception {
         LoadedFixture loaded = loadGroupedSurfacesFixture();
         ShellSurface.Animation animation = loaded.manager.getSurface("0").animationTable.get("0");
