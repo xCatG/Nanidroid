@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 import java.io.BufferedReader;
 import java.io.StringReader;
@@ -24,5 +25,20 @@ public final class SSTPBottleSensorCharacterizationTest {
         assertEquals(2, result.size());
         assertEquals("first", result.get(0));
         assertEquals("second", result.get(1));
+    }
+
+    @Test
+    public void requiredMigrationInvariant_rejectsTrailingEmptyEighthColumn() throws Exception {
+        BufferedReader response = new BufferedReader(new StringReader(
+                "status\n"
+                        + "\n"
+                        + "0\t1\t2\t3\t4\t5\t6\t\n"));
+
+        try {
+            SSTPBottleSensor.parseBuffer(response);
+            fail("A trailing empty Bottle field was rejected by the Java implementation");
+        } catch (IndexOutOfBoundsException expected) {
+            // Java String.split("\\t") discards trailing empty fields before [7].
+        }
     }
 }

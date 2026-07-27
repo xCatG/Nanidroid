@@ -51,7 +51,9 @@ open class SSTPBottleSensor {
             val results = LinkedList<String>()
             var line = br.readLine()
             while (line != null) {
-                results.add(line.split("\t")[7])
+                // Java String.split("\\t") discarded all trailing empty fields. Preserve
+                // that malformed-response rejection instead of queuing an empty script event.
+                results.add(line.split('\t').dropLastWhile { it.isEmpty() }[7])
                 line = br.readLine()
             }
             return results
