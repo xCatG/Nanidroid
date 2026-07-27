@@ -171,6 +171,17 @@ public class SurfaceDefinitionCharacterizationTest {
         assertFalse(ComposeSurfaceImagePolicy.shouldRenderComposeSurface(null, null, false, false));
     }
 
+    @Test
+    public void platformHitTest_preservesAndroidRectBoundarySemantics() throws Exception {
+        SurfaceDefinition definition = SurfaceDefinitionMapper.toSurfaceDefinition(
+                loadGroupedSurfacesFixture().manager.getSurface("0"));
+
+        assertEquals(0, SurfaceHitTest.findCollisionId(definition, 1, 2));
+        assertEquals(0, SurfaceHitTest.findCollisionId(definition, 10, 21));
+        assertEquals(-1, SurfaceHitTest.findCollisionId(definition, 11, 22));
+        assertEquals(-1, SurfaceHitTest.findCollisionId(null, 1, 2));
+    }
+
     private LoadedFixture loadGroupedSurfacesFixture() throws Exception {
         byte[] fixture = GROUPED_SURFACES_FIXTURE.getBytes(Charset.forName("Shift_JIS"));
         assertFixtureSha256(
