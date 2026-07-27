@@ -73,7 +73,7 @@ class Target36SecurityContractTest(unittest.TestCase):
         )
 
     def test_network_stack_rejects_cleartext_and_permissive_tls(self):
-        source = (ROOT / "src/com/cattailsw/nanidroid/util/NetworkUtil.java").read_text(encoding="utf-8")
+        source = (ROOT / "src/com/cattailsw/nanidroid/util/NetworkUtil.kt").read_text(encoding="utf-8")
         self.assertIn("HttpsURLConnection", source)
         self.assertIn("requireHttps", source)
         self.assertNotIn("DefaultHttpClient", source)
