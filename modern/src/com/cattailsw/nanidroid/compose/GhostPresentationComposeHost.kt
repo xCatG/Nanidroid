@@ -63,14 +63,14 @@ class GhostPresentationComposeHost(
         setContent {
             GhostPresentationStage(
                 presentation = presentation,
+                sakuraSurfaceSize = sakuraSize,
+                keroSurfaceSize = keroSize,
                 showSakuraBalloon = showSakuraBalloon,
                 showKeroBalloon = showKeroBalloon,
                 sakuraSurface = {
-                    SurfaceSpace(sakuraSize)
                     if (renderSakuraSurface) ComposeSurfaceImage(sakuraSurface, sakuraSize)
                 },
                 keroSurface = {
-                    SurfaceSpace(keroSize)
                     if (renderKeroSurface) ComposeSurfaceImage(keroSurface, keroSize)
                 },
             )
@@ -145,17 +145,6 @@ class GhostPresentationComposeHost(
 
     private fun emptyPresentation(): GhostPresentationState =
         GhostPresentationReducer.snapshot("", "0", null, "-1", "", "10", null, "-1")
-}
-
-@Composable
-private fun SurfaceSpace(size: IntSize) {
-    val density = LocalDensity.current
-    Spacer(
-        modifier = Modifier.size(
-            with(density) { size.width.toDp() },
-            with(density) { size.height.toDp() },
-        ),
-    )
 }
 
 @Composable
