@@ -318,10 +318,9 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
                 outState.putInt(SIMPLE_DIALOG_TITLE, dialog.title)
                 outState.putInt(SIMPLE_DIALOG_MESSAGE, dialog.message)
             }
-            is NanidroidSimpleDialog.DebugMessage -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_DEBUG)
-                outState.putString(SIMPLE_DIALOG_MESSAGE_TEXT, dialog.message)
-            }
+            // Surface dumps may be arbitrarily large for installed ghosts. Do
+            // not put them in the Activity Bundle (Binder-size bounded).
+            is NanidroidSimpleDialog.DebugMessage -> Unit
             is NanidroidSimpleDialog.HelpMenu -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_HELP_MENU)
             is NanidroidSimpleDialog.GeneralHelp -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_GENERAL_HELP)
             is NanidroidSimpleDialog.MoreGhost -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_MORE_GHOST)
@@ -334,7 +333,6 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
                 val message = state.getInt(SIMPLE_DIALOG_MESSAGE)
                 NanidroidSimpleDialog.Notice(title, message, if (message == R.string.err_no_sdcard) ({ finish() }) else null)
             }
-            DIALOG_DEBUG -> NanidroidSimpleDialog.DebugMessage(state.getString(SIMPLE_DIALOG_MESSAGE_TEXT).orEmpty())
             DIALOG_HELP_MENU -> createHelpMenuDialog()
             DIALOG_GENERAL_HELP -> createGeneralHelpDialog()
             DIALOG_MORE_GHOST -> createMoreGhostDialog()
@@ -365,5 +363,5 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     override fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { UserSelectDlg.newInstance(textlabel, ids).show(supportFragmentManager, Setup.DLG_USR_SEL) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_MESSAGE_TEXT = "simple_dialog_message_text"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_DEBUG = "debug"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; @JvmField var gAdapter: ArrayAdapter<String>? = null }
+    companion object { private const val TAG = "Nanidroid"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; @JvmField var gAdapter: ArrayAdapter<String>? = null }
 }

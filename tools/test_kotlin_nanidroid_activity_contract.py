@@ -59,6 +59,8 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("DIALOG_HELP_MENU -> createHelpMenuDialog()", self.source)
         self.assertIn("DIALOG_GENERAL_HELP -> createGeneralHelpDialog()", self.source)
         self.assertIn("DIALOG_MORE_GHOST -> createMoreGhostDialog()", self.source)
+        self.assertIn("is NanidroidSimpleDialog.DebugMessage -> Unit", self.source)
+        self.assertNotIn("DIALOG_DEBUG", self.source)
 
 
 if __name__ == "__main__":
