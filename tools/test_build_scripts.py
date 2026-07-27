@@ -440,6 +440,10 @@ class BuildScriptContractTest(unittest.TestCase):
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/runtime/"
+                "NanidroidCoordinatorTest.java"
+            ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/runtime/"
                 "SakuraScriptPresentationReducerTest.java"
             ),
             pathlib.PurePosixPath(
