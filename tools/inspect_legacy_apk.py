@@ -47,6 +47,12 @@ COMPOSE_GRAPHICS_NATIVE_CODES = [
     "x86",
     "x86_64",
 ]
+FIREBASE_CRASHLYTICS_NATIVE_LIBRARIES = [
+    "lib/arm64-v8a/libdatastore_shared_counter.so",
+    "lib/armeabi-v7a/libdatastore_shared_counter.so",
+    "lib/x86/libdatastore_shared_counter.so",
+    "lib/x86_64/libdatastore_shared_counter.so",
+]
 
 
 class ArtifactError(ValueError):
@@ -89,6 +95,7 @@ def inspect_apk(
     expected_target_sdk: str = "13",
     expected_min_sdk: str = "9",
     allow_compose_graphics_runtime: bool = False,
+    allow_firebase_crashlytics_runtime: bool = False,
 ) -> dict[str, object]:
     """Return an artifact report, or raise when the contract is violated."""
     package = parse_badging(badging)
@@ -102,6 +109,10 @@ def inspect_apk(
         expected_package["nativeCode"] = COMPOSE_GRAPHICS_NATIVE_CODES
         expected_native_libraries = sorted(
             EXPECTED_NATIVE_LIBRARIES + COMPOSE_GRAPHICS_NATIVE_LIBRARIES
+        )
+    if allow_firebase_crashlytics_runtime:
+        expected_native_libraries = sorted(
+            expected_native_libraries + FIREBASE_CRASHLYTICS_NATIVE_LIBRARIES
         )
     if package != expected_package:
         _fail(f"package metadata changed: expected {expected_package}, got {package}")
@@ -153,6 +164,11 @@ def _arguments() -> argparse.Namespace:
         type=Path,
         default=Path("/opt/android-sdk/build-tools/25.0.3/aapt"),
     )
+    parser.add_argument(
+        "--allow-firebase-crashlytics-runtime",
+        action="store_true",
+        help="allow only the audited Firebase DataStore native runtime libraries",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-min-sdk", default="9")
     parser.add_argument("--expected-target-sdk", default="13")
@@ -179,6 +195,7 @@ def main() -> int:
             args.expected_target_sdk,
             args.expected_min_sdk,
             args.allow_compose_graphics_runtime,
+            args.allow_firebase_crashlytics_runtime,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

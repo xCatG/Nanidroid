@@ -45,6 +45,10 @@ COMPOSE_GRAPHICS_NATIVE_CODES = [
     "x86",
     "x86_64",
 ]
+FIREBASE_CRASHLYTICS_NATIVE_LIBRARIES = [
+    "lib/arm64-v8a/libdatastore_shared_counter.so", "lib/armeabi-v7a/libdatastore_shared_counter.so",
+    "lib/x86/libdatastore_shared_counter.so", "lib/x86_64/libdatastore_shared_counter.so",
+]
 
 
 class PayloadError(ValueError):
@@ -90,6 +94,7 @@ def verify_emulator_apk(
     arm64_root: Path,
     arm64_contract: Path,
     allow_compose_graphics_runtime: bool = False,
+    allow_firebase_crashlytics_runtime: bool = False,
 ) -> dict[str, object]:
     """Require exactly two engines in each approved ABI and identical bytes."""
     package = parse_badging(badging)
@@ -116,6 +121,8 @@ def verify_emulator_apk(
     expected_entries = sorted(EXPECTED_PAYLOAD)
     if allow_compose_graphics_runtime:
         expected_entries = sorted(expected_entries + COMPOSE_GRAPHICS_NATIVE_LIBRARIES)
+    if allow_firebase_crashlytics_runtime:
+        expected_entries = sorted(expected_entries + FIREBASE_CRASHLYTICS_NATIVE_LIBRARIES)
     try:
         with zipfile.ZipFile(apk) as archive:
             observed_entries = sorted(
@@ -167,6 +174,7 @@ def main() -> int:
         action="store_true",
         help="allow only the audited AndroidX Compose graphics-path libraries",
     )
+    parser.add_argument("--allow-firebase-crashlytics-runtime", action="store_true")
     args = parser.parse_args()
     try:
         completed = subprocess.run(
@@ -182,6 +190,7 @@ def main() -> int:
             args.arm64_root,
             args.arm64_contract,
             args.allow_compose_graphics_runtime,
+            args.allow_firebase_crashlytics_runtime,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
