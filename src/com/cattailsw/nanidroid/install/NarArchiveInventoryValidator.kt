@@ -109,7 +109,8 @@ class NarArchiveInventoryValidator {
             output.add(
                 NarArchiveInventory.Entry(
                     source.ordinal,
-                    source.rawName,
+                    // normalize() rejects null names before an Item exists.
+                    source.rawName!!,
                     item.path.normalized,
                     relative,
                     source.directory,

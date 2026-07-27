@@ -72,3 +72,4 @@ public final class NarArchiveInventory {
         public long getCompressedSize() { return compressedSize; }
     }
 }
+
