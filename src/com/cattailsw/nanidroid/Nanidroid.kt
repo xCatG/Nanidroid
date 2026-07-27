@@ -313,7 +313,9 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private fun showFeedback() { AnalyticsUtils.getInstance(applicationContext).trackPageView("/feedback"); startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.feedback_url)))) }
     private fun showAbout() {
         AnalyticsUtils.getInstance(applicationContext).trackPageView("/about")
-        simpleDialog = NanidroidSimpleDialog.About
+        // The legacy dialog loads local HTML in a WebView, including its links.
+        // Keep that behavior until the HTML surface has a dedicated migration.
+        AboutDialogFragment().show(supportFragmentManager, Setup.DLG_ABOUT)
     }
     override fun onCreateContextMenu(menu: ContextMenu, v: View, menuInfo: ContextMenu.ContextMenuInfo?) { super.onCreateContextMenu(menu, v, menuInfo); menuInflater.inflate(R.menu.main_help_menu, menu) }
     fun onSetupClick(v: View) = showPreference()

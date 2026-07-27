@@ -64,16 +64,4 @@ class NanidroidComposeShellTest {
         assertEquals("url", selected)
     }
 
-    @Test
-    fun about_dialog_is_compose_owned() {
-        composeRule.setContent {
-            NanidroidSimpleDialogHost(
-                dialog = NanidroidSimpleDialog.About,
-                onDismiss = {},
-            )
-        }
-
-        composeRule.onNodeWithText("About Nanidroid").assertIsDisplayed()
-        composeRule.onNodeWithText("Credits").assertIsDisplayed()
-    }
 }

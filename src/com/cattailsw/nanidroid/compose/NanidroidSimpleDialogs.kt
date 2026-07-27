@@ -31,7 +31,6 @@ internal sealed interface NanidroidSimpleDialog {
     ) : NanidroidSimpleDialog
 
     data class DebugMessage(val message: String) : NanidroidSimpleDialog
-    data object About : NanidroidSimpleDialog
     data class HelpMenu(
         val onGeneralHelp: () -> Unit,
         val onAbout: () -> Unit,
@@ -57,7 +56,6 @@ internal fun NanidroidSimpleDialogHost(
         null -> Unit
         is NanidroidSimpleDialog.Notice -> NoticeDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.DebugMessage -> DebugDialog(dialog, onDismiss)
-        NanidroidSimpleDialog.About -> AboutDialog(onDismiss)
         is NanidroidSimpleDialog.HelpMenu -> HelpMenuDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.GeneralHelp -> GeneralHelpDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.MoreGhost -> MoreGhostDialog(dialog, onDismiss)
@@ -91,37 +89,6 @@ private fun DebugDialog(dialog: NanidroidSimpleDialog.DebugMessage, onDismiss: (
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) } },
-    )
-}
-
-@Composable
-private fun AboutDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.about_title)) },
-        text = {
-            SelectionContainer {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                    """This software contains shared libraries under different licenses. See each library's license.txt for detailed information.
-
-Satoriya and Satoriya-Posix: libsatoriya.so
-Kawari: libkawari.so
-YAYA: libyaya.so
-
-Sincere thanks to the authors of NiseRingo and NiseSakura for Android, which inspired Nanidroid.
-
-Credits
-Program: CatTail Software LLC
-Built-in Ghost & Shell: CatG Studio
-Japanese Translation: Maggie Chuang
-
-Referenced projects: ccm.sherry.jp/ninni/, android.com/developers/branding.html, and creativecommons.org/licenses/by/3.0/.""",
-                    )
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close_btn_text)) } },
     )
 }
 
