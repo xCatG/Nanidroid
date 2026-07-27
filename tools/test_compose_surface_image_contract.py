@@ -16,6 +16,12 @@ class ComposeSurfaceImageContractTest(unittest.TestCase):
         self.assertIn("Modifier.size(", host)
         self.assertNotIn("modifier = Modifier.fillMaxSize()", host)
 
+    def test_legacy_ant_overlay_keeps_a_java_only_sakura_view(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        source = (root / "legacy/src/com/cattailsw/nanidroid/SakuraView.java").read_text(encoding="utf-8")
+        self.assertIn("public class SakuraView extends ImageView", source)
+        self.assertNotIn("getCurrentSurfaceDefinition", source)
+
 
 if __name__ == "__main__":
     unittest.main()
