@@ -2,20 +2,23 @@ package com.cattailsw.nanidroid.compose
 
 import android.view.View
 import android.widget.FrameLayout
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -26,6 +29,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.cattailsw.nanidroid.R
 
 /**
  * The activity's Compose-owned chrome.
@@ -35,7 +39,6 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
  * shell does not draw surfaces or interpret script input; those remain in the
  * compatibility renderer until their behavior has a dedicated migration.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NanidroidComposeShell(
     ghostStage: FrameLayout,
@@ -49,7 +52,10 @@ internal fun NanidroidComposeShell(
     modifier: Modifier = Modifier,
 ) {
     MaterialTheme {
-        Surface(modifier = modifier.fillMaxSize()) {
+        Surface(
+            modifier = modifier.fillMaxSize(),
+            color = Color.Transparent,
+        ) {
             Column {
                 if (toolbarVisible) {
                     NanidroidToolbar(
@@ -73,7 +79,6 @@ internal fun NanidroidComposeShell(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NanidroidToolbar(
     onListGhost: () -> Unit,
@@ -81,17 +86,26 @@ internal fun NanidroidToolbar(
     onPreferences: () -> Unit,
     onHelp: () -> Unit,
 ) {
-    TopAppBar(
-        // The legacy button strip had no title. Keeping this slot empty leaves
-        // enough horizontal space for every desktop-style control on a phone.
-        title = {},
-        actions = {
-            Button(onClick = onListGhost, modifier = Modifier.testTag("list-ghost")) { Text("Ghosts") }
-            Button(onClick = onUpdate, modifier = Modifier.testTag("update")) { Text("Update") }
-            Button(onClick = onPreferences, modifier = Modifier.testTag("preferences")) { Text("Settings") }
-            Button(onClick = onHelp, modifier = Modifier.testTag("help")) { Text("Help") }
-        },
-    )
+    // The old desktop-style strip had no title. Scrolling preserves access to
+    // every localized control on compact widths and at large font scales.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+    ) {
+        Button(onClick = onListGhost, modifier = Modifier.testTag("list-ghost")) {
+            Text(stringResource(R.string.list_ghost_btn_text))
+        }
+        Button(onClick = onUpdate, modifier = Modifier.testTag("update")) {
+            Text(stringResource(R.string.update_btn_text))
+        }
+        Button(onClick = onPreferences, modifier = Modifier.testTag("preferences")) {
+            Text(stringResource(R.string.setup_btn_text))
+        }
+        Button(onClick = onHelp, modifier = Modifier.testTag("help")) {
+            Text(stringResource(R.string.help_btn_text))
+        }
+    }
 }
 
 @Composable
