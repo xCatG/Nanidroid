@@ -41,7 +41,7 @@ class NarfsFullJniContractTest(unittest.TestCase):
 
     def test_java_backend_derives_fixed_root_and_caches_opaque_handle(self):
         source = (ROOT / "src/com/cattailsw/nanidroid/install/"
-                  "NarStagedTree.java").read_text()
+                  "NarStagedTree.kt").read_text()
         inspector = (ROOT / "src/com/cattailsw/nanidroid/install/"
                      "NarFilesystemInspector.java").read_text()
         for value in (
@@ -60,9 +60,9 @@ class NarfsFullJniContractTest(unittest.TestCase):
         backend = source[source.index("class NativeBackend"):]
         self.assertLess(backend.index("ensureLoaded();"),
                         backend.index("return nativeBegin("))
-        stager = source[source.index("static final class Stager"):]
+        stager = source[source.index("class Stager"):]
         self.assertNotIn("System.loadLibrary", stager.split(
-            "static final class Session", 1)[0])
+            "class Session", 1)[0])
 
     def test_bridge_uses_standard_utf_factory_and_self_discard(self):
         source = (ROOT / "jni/narfs/narfs_stage_jni.c").read_text()
