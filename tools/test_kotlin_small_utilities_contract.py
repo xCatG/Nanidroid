@@ -22,6 +22,7 @@ class KotlinSmallUtilitiesContractTest(unittest.TestCase):
             self.assertIn("fun " + name, pref)
         self.assertIn('private const val SHARED_PREFS = "CATTAILSW_NANIDROID_PREFS"', pref)
         self.assertIn(".commit()", pref)
+        self.assertIn("fun setKey(ctx: Context?, key: String, value: String?)", pref)
         self.assertEqual(pref.count("fun setKey"), 4)
         self.assertEqual(ui.count("@JvmStatic"), 2)
         self.assertIn("fun isAfterEclair(): Boolean", ui)

@@ -16,7 +16,7 @@ object PrefUtil {
         getSharedPreferences(ctx).getString(key, null) != null
 
     @JvmStatic
-    fun setKey(ctx: Context?, key: String, value: String) {
+    fun setKey(ctx: Context?, key: String, value: String?) {
         getSharedPreferences(ctx).edit().putString(key, value).commit()
     }
 
