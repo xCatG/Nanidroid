@@ -27,13 +27,12 @@ class NarfsStageContractTest(unittest.TestCase):
         self.assertIn("state.visitor(", core)
         self.assertIn("same_snapshot(&opened, &after)", core)
 
-    def test_java_jni_manager_and_ui_boundaries_remain_exact(self):
+    def test_java_jni_boundary_remains_exact_and_manager_uses_transaction(self):
         project = Path(__file__).resolve().parents[1]
         expected = {
             "jni/narfs/narfs_jni.c": "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
             "jni/narfs/narfs_jni.map": "02f45b0ae1431df655013d5b707e11602c251d9c0ae5cf74c6237eff78bd5819",
             "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java": "e2da6a2d3a6e4c25bb37b6cf52e5e3a8de440b3eade5fd2df37261a09322bf47",
-            "src/com/cattailsw/nanidroid/GhostMgr.java": "65dc3709240aa0bf871f5955b2358da5deb505c6f7f91f13bb4e830abda809f6",
         }
         actual = {
             relative: hashlib.sha256(
@@ -42,6 +41,9 @@ class NarfsStageContractTest(unittest.TestCase):
             for relative in expected
         }
         self.assertEqual(expected, actual)
+        manager = (project / "src/com/cattailsw/nanidroid/GhostMgr.java").read_text()
+        self.assertIn("NarTransactionalInstaller.install", manager)
+        self.assertNotIn("NarUtil.readNarArchive", manager)
 
     def test_process_death_orphan_recovery_is_explicitly_deferred(self):
         project = Path(__file__).resolve().parents[1]

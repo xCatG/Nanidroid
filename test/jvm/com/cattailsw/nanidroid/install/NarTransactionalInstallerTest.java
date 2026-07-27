@@ -1,0 +1,148 @@
+package com.cattailsw.nanidroid.install;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+
+import org.junit.Test;
+
+/** End-to-end contract for the fresh-install-only NAR transaction. */
+public final class NarTransactionalInstallerTest {
+    private static final Charset SHIFT_JIS = Charset.forName("Shift_JIS");
+
+    @Test
+    public void installsValidatedArchiveAsOneNewGhostDirectory()
+            throws Exception {
+        File root = temporaryDirectory("transaction-root");
+        File archive = zip(
+                "bundle/install.txt", descriptor("ignored"),
+                "bundle/ghost/master.txt", bytes("hello"),
+                "bundle/shell/master.txt", bytes("world"));
+
+        NarTransactionalInstaller.Result result =
+                NarTransactionalInstaller.install(archive, root, "forced-id");
+
+        assertTrue(result.isSuccess());
+        assertEquals("forced-id", result.getTargetId());
+        assertEquals(new File(root, "forced-id").getCanonicalFile(),
+                result.getInstalledDirectory());
+        assertArrayEquals(bytes("hello"), read(
+                new File(root, "forced-id/ghost/master.txt")));
+        assertArrayEquals(bytes("world"), read(
+                new File(root, "forced-id/shell/master.txt")));
+        assertFalse(new File(root, ".nanidroid-install-staging").exists());
+    }
+
+    @Test
+    public void rejectsExistingTargetWithoutChangingItOrCreatingStaging()
+            throws Exception {
+        File root = temporaryDirectory("transaction-existing");
+        File existing = new File(root, "ghost-id");
+        assertTrue(existing.mkdir());
+        write(new File(existing, "keep.txt"), bytes("keep"));
+        File archive = zip(
+                "install.txt", descriptor("ghost-id"),
+                "ghost/master.txt", bytes("replacement"));
+
+        NarTransactionalInstaller.Result result =
+                NarTransactionalInstaller.install(archive, root, null);
+
+        assertFalse(result.isSuccess());
+        assertEquals(NarTransactionalInstaller.Error.TARGET_EXISTS,
+                result.getError());
+        assertArrayEquals(bytes("keep"), read(new File(existing, "keep.txt")));
+        assertFalse(new File(root, ".nanidroid-install-staging").exists());
+    }
+
+    @Test
+    public void invalidArchiveLeavesNoTargetOrStagingResidue()
+            throws Exception {
+        File root = temporaryDirectory("transaction-invalid");
+        File archive = zip(
+                "install.txt", descriptor("ghost-id"),
+                "../outside.txt", bytes("bad"));
+
+        NarTransactionalInstaller.Result result =
+                NarTransactionalInstaller.install(archive, root, null);
+
+        assertFalse(result.isSuccess());
+        assertEquals(NarTransactionalInstaller.Error.ARCHIVE_REJECTED,
+                result.getError());
+        assertFalse(new File(root, "ghost-id").exists());
+        assertFalse(new File(root, ".nanidroid-install-staging").exists());
+    }
+
+    @Test
+    public void failureIsCategorizedForUserFacingErrorMapping() throws Exception {
+        File root = temporaryDirectory("transaction-missing");
+        NarTransactionalInstaller.Result result =
+                NarTransactionalInstaller.install(
+                        new File(root, "missing.nar"), root, null);
+
+        assertFalse(result.isSuccess());
+        assertEquals(NarTransactionalInstaller.Error.SOURCE_UNAVAILABLE,
+                result.getError());
+        assertNull(result.getInstalledDirectory());
+        assertTrue(result.getMessage().length() > 0);
+    }
+
+    private static File temporaryDirectory(String label) throws IOException {
+        File file = File.createTempFile(label, "");
+        if (!file.delete() || !file.mkdir()) throw new IOException("temporary root");
+        return file;
+    }
+
+    private static File zip(Object... values) throws IOException {
+        File archive = File.createTempFile("nar-transaction", ".nar");
+        ZipOutputStream output = new ZipOutputStream(new FileOutputStream(archive));
+        try {
+            for (int index = 0; index < values.length; index += 2) {
+                ZipEntry entry = new ZipEntry((String) values[index]);
+                output.putNextEntry(entry);
+                byte[] content = (byte[]) values[index + 1];
+                if (content != null) output.write(content);
+                output.closeEntry();
+            }
+        } finally {
+            output.close();
+        }
+        return archive;
+    }
+
+    private static byte[] descriptor(String id) {
+        return ("type,ghost\nname,Test Ghost\ndirectory," + id + "\n")
+                .getBytes(SHIFT_JIS);
+    }
+
+    private static byte[] bytes(String value) { return value.getBytes(SHIFT_JIS); }
+
+    private static void write(File target, byte[] content) throws IOException {
+        File parent = target.getParentFile();
+        if (!parent.exists() && !parent.mkdirs()) throw new IOException("parent");
+        FileOutputStream output = new FileOutputStream(target);
+        try { output.write(content); } finally { output.close(); }
+    }
+
+    private static byte[] read(File source) throws IOException {
+        java.io.FileInputStream input = new java.io.FileInputStream(source);
+        try {
+            byte[] content = new byte[(int) source.length()];
+            int offset = 0;
+            while (offset < content.length) {
+                int count = input.read(content, offset, content.length - offset);
+                if (count < 0) throw new IOException("unexpected EOF");
+                offset += count;
+            }
+            return content;
+        } finally { input.close(); }
+    }
+}

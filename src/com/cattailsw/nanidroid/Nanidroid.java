@@ -678,6 +678,11 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	    }
 	    else {
 		if ( runner != null )runner.doShioriEvent("OnInstallFailure", null);
+		String installError = gm.getLastInstallError();
+		if (installError != null && installError.length() > 0) {
+		    Toast.makeText(Nanidroid.this, installError,
+			    Toast.LENGTH_LONG).show();
+		}
 		AnalyticsUtils.getInstance(getApplicationContext()).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -1);
 	    }
 	}
