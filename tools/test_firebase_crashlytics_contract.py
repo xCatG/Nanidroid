@@ -13,7 +13,7 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
             encoding="utf-8"
         )
         boundary = (
-            root / "src/com/cattailsw/nanidroid/util/CrashReporting.java"
+            root / "src/com/cattailsw/nanidroid/util/CrashReporting.kt"
         ).read_text(encoding="utf-8")
         legacy_boundary = (
             root / "legacy/src/com/cattailsw/nanidroid/util/CrashReporting.java"
