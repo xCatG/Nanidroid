@@ -35,7 +35,7 @@ import java.io.FileInputStream;
 import java.net.SocketTimeoutException;
 
 /**
- * Describe class <code>HeadLineSensorService</code> here.
+ * Frozen Ant compatibility copy of <code>HeadLineSensorService</code>.
  *
  * @author <a href="mailto:"></a>
  * @version 1.0
