@@ -42,6 +42,8 @@ class GhostPresentationComposeHost(
     keroView: KeroView,
 ) {
     private var presentation by mutableStateOf(emptyPresentation())
+    private var showSakuraBalloon by mutableStateOf(false)
+    private var showKeroBalloon by mutableStateOf(false)
     private var sakuraSize by mutableStateOf(IntSize.Zero)
     private var keroSize by mutableStateOf(IntSize.Zero)
     private val lifecycleOwner = StaticLifecycleOwner()
@@ -51,6 +53,8 @@ class GhostPresentationComposeHost(
         setContent {
             GhostPresentationStage(
                 presentation = presentation,
+                showSakuraBalloon = showSakuraBalloon,
+                showKeroBalloon = showKeroBalloon,
                 sakuraSurface = { SurfaceSpace(sakuraSize) },
                 keroSurface = { SurfaceSpace(keroSize) },
             )
@@ -74,8 +78,10 @@ class GhostPresentationComposeHost(
         observeSize(keroView) { keroSize = it }
     }
 
-    fun render(frame: GhostPresentationFrame) {
+    fun render(frame: GhostPresentationFrame, showSakura: Boolean, showKero: Boolean) {
         composeView.post {
+            showSakuraBalloon = showSakura
+            showKeroBalloon = showKero
             presentation = GhostPresentationReducer.snapshot(
                 sakuraText = frame.sakura.text,
                 sakuraSurfaceId = frame.sakura.surfaceId,

@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -32,25 +34,35 @@ import com.cattailsw.nanidroid.runtime.GhostPresentationState
 @Composable
 fun GhostPresentationStage(
     presentation: GhostPresentationState,
+    showSakuraBalloon: Boolean = true,
+    showKeroBalloon: Boolean = true,
     modifier: Modifier = Modifier,
     sakuraSurface: @Composable BoxScope.() -> Unit = {},
     keroSurface: @Composable BoxScope.() -> Unit = {},
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.align(Alignment.BottomStart)) {
-            if (presentation.kero.balloonVisible) {
-                GhostBalloon(text = presentation.kero.text)
+        Row(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.Start,
+            ) {
+                if (showKeroBalloon && presentation.kero.balloonVisible) {
+                    GhostBalloon(text = presentation.kero.text)
+                }
+                Box {
+                    keroSurface()
+                }
             }
-            Box {
-                keroSurface()
-            }
-        }
-        Column(modifier = Modifier.align(Alignment.BottomEnd)) {
-            if (presentation.sakura.balloonVisible) {
-                GhostBalloon(text = presentation.sakura.text)
-            }
-            Box {
-                sakuraSurface()
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.End,
+            ) {
+                if (showSakuraBalloon && presentation.sakura.balloonVisible) {
+                    GhostBalloon(text = presentation.sakura.text)
+                }
+                Box {
+                    sakuraSurface()
+                }
             }
         }
     }

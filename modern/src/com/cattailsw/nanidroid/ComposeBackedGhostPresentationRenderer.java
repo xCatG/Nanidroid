@@ -30,8 +30,24 @@ public final class ComposeBackedGhostPresentationRenderer implements GhostPresen
     @Override
     public void render(GhostPresentationFrame frame) {
         surfaceRenderer.render(frame);
-        sakuraBalloon.setVisibility(View.INVISIBLE);
-        keroBalloon.setVisibility(View.INVISIBLE);
-        composeHost.render(frame);
+        boolean sakuraUsesLegacyInteraction = requiresLegacyInteraction(sakuraBalloon);
+        boolean keroUsesLegacyInteraction = requiresLegacyInteraction(keroBalloon);
+        if (!sakuraUsesLegacyInteraction) {
+            sakuraBalloon.setVisibility(View.INVISIBLE);
+        }
+        if (!keroUsesLegacyInteraction) {
+            keroBalloon.setVisibility(View.INVISIBLE);
+        }
+        composeHost.render(frame, !sakuraUsesLegacyInteraction, !keroUsesLegacyInteraction);
+    }
+
+    /**
+     * Compose owns static presentation only.  The retained TextView remains
+     * authoritative when it has a link or overflow scrolling behavior that
+     * Compose has not migrated yet.
+     */
+    private static boolean requiresLegacyInteraction(Balloon balloon) {
+        return balloon.getVisibility() == View.VISIBLE
+                && (balloon.getUrls().length != 0 || balloon.getMovementMethod() != null);
     }
 }
