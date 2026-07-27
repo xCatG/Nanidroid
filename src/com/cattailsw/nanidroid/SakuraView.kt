@@ -40,7 +40,7 @@ open class SakuraView @JvmOverloads constructor(
     val currentSurfaceDefinition: SurfaceDefinition? get() = currentSurface?.toSurfaceDefinition()
     protected open fun loadSurface(surfaceId: String) { currentSurface = mgr!!.getSakuraSurface(surfaceId) }
 
-    fun changeSurface(surfaceId: String) {
+    open fun changeSurface(surfaceId: String) {
         if (surfaceId.equals("-1", true)) { visibility = View.INVISIBLE; return }
         if (!surfaceId.equals(currentSurfaceId, true)) try {
             currentSurfaceId = surfaceId; loadSurface(surfaceId)
@@ -55,7 +55,7 @@ open class SakuraView @JvmOverloads constructor(
     }
     fun hasAnimation() = currentSurface!!.animationCount > 0
     fun loadFirstAvailableAnimation(): Int { val id = currentSurface!!.firstAnimationIndex; loadAnimation(id.toString()); return id }
-    fun loadAnimation(id: String) {
+    open fun loadAnimation(id: String) {
         if (animation == null || !id.equals(currentAnimationId, true)) {
             Log.d(TAG, "loading animation:$id")
             animation = currentSurface!!.getAnimation(id, mCtx.resources, mgr!!) as AnimationDrawable
@@ -63,10 +63,10 @@ open class SakuraView @JvmOverloads constructor(
         }
         animation?.let { it.setVisible(true, true); setImageDrawable(it) }
     }
-    fun startAnimation() { animation?.let { it.stop(); it.start() } }
+    open fun startAnimation() { animation?.let { it.stop(); it.start() } }
     fun startRarelyAnimation() { startAnimation(ShellSurface.A_TYPE_RARELY); invalidate() }
     fun startSometimesAnimation() { startAnimation(ShellSurface.A_TYPE_SOMETIMES); invalidate() }
-    fun startTalkingAnimation() { startAnimation(ShellSurface.A_TYPE_TALK); invalidate() }
+    open fun startTalkingAnimation() { startAnimation(ShellSurface.A_TYPE_TALK); invalidate() }
     fun startAnimation(type: Int) {
         val id = currentSurface!!.getAnimationIdByType(type) ?: return
         if (!id.equals(currentAnimationId, true)) loadAnimation(id) else animation?.setVisible(true, true)
