@@ -41,6 +41,20 @@ class Api37CompileContractTest(unittest.TestCase):
         self.assertIn("Frozen Ant-build compatibility shim", legacy_bridge)
         self.assertIn('"setLatestEventInfo"', legacy_bridge)
 
+    def test_relative_path_policy_uses_kotlin_in_modern_build_and_java_in_frozen_build(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        modern_java = root / "src/com/cattailsw/nanidroid/install/NarRelativePathPolicy.java"
+        modern_kotlin = root / "src/com/cattailsw/nanidroid/install/NarRelativePathPolicy.kt"
+        legacy_java = root / "legacy/src/com/cattailsw/nanidroid/install/NarRelativePathPolicy.java"
+
+        self.assertFalse(modern_java.exists())
+        source = modern_kotlin.read_text(encoding="utf-8")
+        self.assertIn("internal object NarRelativePathPolicy", source)
+        self.assertIn("fun normalize", source)
+        self.assertIn("fun collisionKey", source)
+        self.assertTrue(legacy_java.exists())
+        self.assertIn("final class NarRelativePathPolicy", legacy_java.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

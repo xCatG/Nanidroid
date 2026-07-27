@@ -261,7 +261,7 @@ public final class NarGhostTreePolicyTest {
                 }));
 
         assertPureType(NarGhostTreePolicy.class);
-        assertPureType(NarRelativePathPolicy.class);
+        assertKotlinInternalPureType(NarRelativePathPolicy.class);
     }
 
     @Test
@@ -389,6 +389,36 @@ public final class NarGhostTreePolicyTest {
                 assertFalse(forbidden(method.getReturnType()));
                 for (Class<?> parameter
                         : method.getParameterTypes()) {
+                    assertFalse(forbidden(parameter));
+                }
+            }
+        }
+    }
+
+    private static void assertKotlinInternalPureType(Class<?> outer) {
+        assertNotNull(outer.getAnnotation(kotlin.Metadata.class));
+        assertPureSurface(outer, true);
+    }
+
+    private static void assertPureSurface(
+            Class<?> outer, boolean allowKotlinModuleSurface) {
+        List<Class<?>> types = new ArrayList<Class<?>>();
+        types.add(outer);
+        types.addAll(Arrays.asList(outer.getDeclaredClasses()));
+        for (Class<?> type : types) {
+            for (Constructor<?> constructor : type.getDeclaredConstructors()) {
+                assertFalse(Modifier.isPublic(constructor.getModifiers()));
+            }
+            for (Method method : type.getDeclaredMethods()) {
+                if (Modifier.isPublic(method.getModifiers())) {
+                    assertTrue(type.isEnum() || allowKotlinModuleSurface);
+                    if (type.isEnum()) {
+                        assertTrue("values".equals(method.getName())
+                                || "valueOf".equals(method.getName()));
+                    }
+                }
+                assertFalse(forbidden(method.getReturnType()));
+                for (Class<?> parameter : method.getParameterTypes()) {
                     assertFalse(forbidden(parameter));
                 }
             }
