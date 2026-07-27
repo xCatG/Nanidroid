@@ -1,5 +1,7 @@
 package com.cattailsw.nanidroid;
 
+// Frozen Java reference source for the legacy Ant build.
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
