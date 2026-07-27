@@ -15,9 +15,10 @@ object IncomingNarIntent {
 
     @JvmStatic
     fun isApprovedDownload(uri: Uri?): Boolean {
-        if (!uri?.scheme.equals("https", ignoreCase = true)) return false
-        if (uri.host.isNullOrEmpty()) return false
-        val path = uri.path ?: return false
+        val download = uri ?: return false
+        if (!download.scheme.equals("https", ignoreCase = true)) return false
+        if (download.host.isNullOrEmpty()) return false
+        val path = download.path ?: return false
         val lowerPath = path.lowercase(Locale.US)
         return lowerPath.endsWith(".nar") || lowerPath.endsWith(".zip")
     }

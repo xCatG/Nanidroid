@@ -17,7 +17,7 @@ class KotlinIncomingNarIntentContractTest(unittest.TestCase):
         self.assertIn("object IncomingNarIntent", source)
         self.assertEqual(2, source.count("@JvmStatic"))
         self.assertIn("Intent.ACTION_VIEW == intent?.action", source)
-        self.assertIn('uri?.scheme.equals("https", ignoreCase = true)', source)
+        self.assertIn('download.scheme.equals("https", ignoreCase = true)', source)
         self.assertIn("Locale.US", source)
         self.assertNotIn('"file"', source)
 
