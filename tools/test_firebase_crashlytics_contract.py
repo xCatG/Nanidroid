@@ -9,9 +9,10 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
         app = (root / "src/com/cattailsw/nanidroid/CatTailApplication.java").read_text(
             encoding="utf-8"
         )
-        activity = (root / "src/com/cattailsw/nanidroid/Nanidroid.java").read_text(
-            encoding="utf-8"
-        )
+        activity_path = root / "src/com/cattailsw/nanidroid/Nanidroid.kt"
+        if not activity_path.exists():
+            activity_path = root / "src/com/cattailsw/nanidroid/Nanidroid.java"
+        activity = activity_path.read_text(encoding="utf-8")
         boundary = (
             root / "src/com/cattailsw/nanidroid/util/CrashReporting.kt"
         ).read_text(encoding="utf-8")

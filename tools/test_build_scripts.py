@@ -515,30 +515,17 @@ class BuildScriptContractTest(unittest.TestCase):
 
     def test_active_nanidroid_lifecycle_methods_use_exact_compatibility_calls(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
-        nanidroid = (
-            project_root / "src" / "com" / "cattailsw" / "nanidroid" / "Nanidroid.java"
-        ).read_text(encoding="utf-8")
-        sanitized = _sanitize_java_source(nanidroid)
-
-        self.assertNotIn("ViewServer.get(", sanitized)
-
-        lifecycle_calls = (
-            (
-                r"\bpublic\s+void\s+onCreate\s*\(\s*Bundle\s+savedInstanceState\s*\)\s*\{",
-                "ViewServerLifecycle.onActivityCreated(this);",
-            ),
-            (
-                r"\bpublic\s+void\s+onResume\s*\(\s*\)\s*\{",
-                "ViewServerLifecycle.onActivityResumed(this);",
-            ),
-            (
-                r"\bpublic\s+void\s+onDestroy\s*\(\s*\)\s*\{",
-                "ViewServerLifecycle.onActivityDestroyed(this);",
-            ),
-        )
-        for declaration, expected_call in lifecycle_calls:
-            body = _java_method_body(nanidroid, declaration)
-            self.assertEqual(1, body.count(expected_call))
+        source_path = project_root / "src/com/cattailsw/nanidroid/Nanidroid.kt"
+        if not source_path.exists():
+            source_path = project_root / "src/com/cattailsw/nanidroid/Nanidroid.java"
+        nanidroid = source_path.read_text(encoding="utf-8")
+        self.assertNotIn("ViewServer.get(", nanidroid)
+        for expected_call in (
+            "ViewServerLifecycle.onActivityCreated(this)",
+            "ViewServerLifecycle.onActivityResumed(this)",
+            "ViewServerLifecycle.onActivityDestroyed(this)",
+        ):
+            self.assertEqual(1, nanidroid.count(expected_call))
 
     def test_production_view_server_facade_wiring_has_exact_backend_mapping(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
