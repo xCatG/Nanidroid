@@ -10,6 +10,6 @@ open class KeroView @JvmOverloads constructor(
     defStyle: Int = 0,
 ) : SakuraView(context, attrs, defStyle) {
     protected override fun loadSurface(surfaceId: String) {
-        currentSurface = mgr.getKeroSurface(surfaceId)
+        currentSurface = mgr!!.getKeroSurface(surfaceId)
     }
 }

@@ -9,7 +9,7 @@ class KotlinKeroViewContractTest(unittest.TestCase):
 
         self.assertIn("open class KeroView @JvmOverloads constructor", source)
         self.assertIn("protected override fun loadSurface", source)
-        self.assertIn("mgr.getKeroSurface(surfaceId)", source)
+        self.assertIn("mgr!!.getKeroSurface(surfaceId)", source)
         self.assertFalse((root / "src/com/cattailsw/nanidroid/KeroView.java").exists())
 
     def test_frozen_ant_overlay_keeps_java_kero_view(self):
