@@ -17,11 +17,9 @@ import android.support.v4.app.DialogFragment
 import android.support.v4.app.FragmentActivity
 import android.util.Log
 import android.view.ContextMenu
-import android.view.Gravity
 import android.view.MenuItem
 import android.view.View
 import android.widget.ArrayAdapter
-import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +29,9 @@ import com.cattailsw.nanidroid.dlgs.*
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.ComposeShellLifecycleOwner
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
+import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
+import com.cattailsw.nanidroid.compose.SurfaceInteractionEffect
+import com.cattailsw.nanidroid.compose.SurfaceInteractionPort
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
@@ -43,29 +44,30 @@ import java.io.InputStreamReader
 import java.util.Arrays
 
 /**
- * The legacy activity, expressed in Kotlin without changing its view-stage
- * ownership or callback boundary. Compose owns the app chrome while the ghost
- * renderer remains one retained AndroidView boundary. XML callbacks and the
- * SScriptRunner UICallback contract stay here until their own migrations.
+ * The production activity. Compose owns both chrome and ghost presentation;
+ * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
  */
 class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     NarPickDlg.NarPickDlgListener, MoreGhostFuncDlg.MoreGhostFuncListener,
     UserInputDlg.UserInputListener, UserSelectDlg.UserSelDlgListener,
     SScriptRunner.UICallback {
 
-    private var sv: SakuraView? = null
-    private var kv: KeroView? = null
-    private var bSakura: Balloon? = null
-    private var bKero: Balloon? = null
-    private var fl: FrameLayout? = null
     private var loading by mutableStateOf(true)
     private var progressMessage by mutableStateOf("")
     private var toolbarVisible by mutableStateOf(false)
     private var simpleDialog: NanidroidSimpleDialog? by mutableStateOf(null)
     private val composeLifecycleOwner = ComposeShellLifecycleOwner()
     private var anime: AnimationDrawable? = null
-    private var lm: LayoutManager? = null
     private var runner: SScriptRunner? = null
+    private val composeStage = ComposeGhostStageHost(
+        SurfaceInteractionPort { effect ->
+            if (effect is SurfaceInteractionEffect.MouseDoubleClick) {
+                runner?.dispatchComposeDoubleClick(
+                    effect.x, effect.y, effect.speaker.legacyReference == "0", effect.collisionId, effect.buttonId,
+                )
+            }
+        },
+    )
     private var gm: GhostMgr? = null
     private var currentGhost: Ghost? = null
     private var restoreFromMinimize = false
@@ -86,7 +88,6 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         restoreSimpleDialog(savedInstanceState)
         setBackground()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
-            bSakura!!.text = "sd card error"
             simpleDialog = NanidroidSimpleDialog.Notice(
                 R.string.err_title,
                 R.string.err_no_sdcard,
@@ -125,7 +126,7 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         }.execute()
     }
 
-    private fun createSvcs2ndThread() { lm = LayoutManager.getInstance(this); gm = GhostMgr(this) }
+    private fun createSvcs2ndThread() { gm = GhostMgr(this) }
     private fun createGhost() {
         val lastId = gm!!.getLastRunGhostId() ?: "nanidroid"
         mGH.sendEmptyMessage(MSG_LOAD_F)
@@ -136,69 +137,38 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         currentGhost = ghost
     }
     private fun setGhostToRunner(ghost: Ghost) {
-        runner!!.setViews(sv, kv, bSakura, bKero)
-        sv!!.mgr = ghost.mgr
-        kv!!.mgr = ghost.mgr
-        lm!!.setViews(fl!!, sv!!, kv!!, bSakura!!, bKero!!)
-        runner!!.setLayoutMgr(lm)
+        composeStage.setSurfaceManager(ghost.mgr)
+        runner!!.setPresentationRenderer(composeStage.renderer)
         // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
     }
     private fun setupViews(dbgBuild: Boolean) {
-        val stage = FrameLayout(this).apply {
-            id = R.id.fl
-            setOnClickListener { frameClick(it) }
-        }
-        val density = resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
-        bKero = Balloon(this).apply {
-            id = R.id.bKero
-            setBackgroundResource(R.drawable.balloon)
-            setTextColor(android.graphics.Color.BLACK)
-        }
-        bSakura = Balloon(this).apply {
-            id = R.id.bSakura
-            setBackgroundResource(R.drawable.balloon)
-            setTextColor(android.graphics.Color.BLACK)
-        }
-        sv = SakuraView(this).apply { id = R.id.sakura_display }
-        kv = KeroView(this).apply { id = R.id.kero_display }
-        stage.addView(bKero, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START,
-        ))
-        stage.addView(bSakura, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END,
-        ))
-        stage.addView(sv, FrameLayout.LayoutParams(dp(180), dp(240), Gravity.BOTTOM or Gravity.END))
-        stage.addView(kv, FrameLayout.LayoutParams(dp(126), dp(168), Gravity.BOTTOM or Gravity.START))
-        fl = stage
         progressMessage = getString(R.string.prog_startup)
-        // The old XML layout is deliberately retained for the frozen Ant source.
-        // Gradle's modern activity now owns its chrome declaratively.
         val composeRoot = ComposeView(this)
         composeLifecycleOwner.install(composeRoot)
         composeRoot.setContent {
             NanidroidComposeShell(
-                ghostStage = stage,
+                ghostStage = { composeStage.Stage() },
                 loading = loading,
                 progressMessage = progressMessage,
                 toolbarVisible = toolbarVisible,
-                onListGhost = { onListGhost(stage) },
-                onUpdate = { onUpdate(stage) },
-                onPreferences = { onSetupClick(stage) },
-                onHelp = { onHelp(stage) },
+                onListGhost = { onListGhost(composeRoot) },
+                onUpdate = { onUpdate(composeRoot) },
+                onPreferences = { onSetupClick(composeRoot) },
+                onHelp = { onHelp(composeRoot) },
                 showDebugControls = dbgBuild,
-                onNextSurface = { onNextSurface(stage) },
-                onAnimate = { onAnimate(stage) },
-                onNextGhost = { onNextGhost(stage) },
-                onRun = { runClick(stage) },
-                onNarTest = { narTest(stage) },
+                onNextSurface = { onNextSurface(composeRoot) },
+                onAnimate = { onAnimate(composeRoot) },
+                onNextGhost = { onNextGhost(composeRoot) },
+                onRun = { runClick(composeRoot) },
+                onNarTest = { narTest(composeRoot) },
+                onStageClick = { frameClick(composeRoot) },
                 simpleDialog = simpleDialog,
                 onDismissSimpleDialog = { simpleDialog = null },
             )
         }
         setContentView(composeRoot)
-        registerForContextMenu(stage)
+        registerForContextMenu(composeRoot)
         showProgress()
     }
     private fun showProgress() { loading = true }
@@ -239,13 +209,19 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     }
     private val mGH = object : Handler() { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(nextGhostId!!)) } } }
     private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
-    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (initComplete) lm!!.checkAndUpdateLayoutParam() }
-    private fun checkAndLoadAnimation() { sv!!.changeSurface(currentSurfaceKey!!); kv!!.changeSurface("10"); lm!!.checkAndUpdateLayoutParam(); if (!sv!!.hasAnimation()) findViewById<View>(R.id.btn2)?.isEnabled = false else { animeIndex = currentSurface!!.getFirstAnimationIndex(); sv!!.loadAnimation("$animeIndex"); findViewById<View>(R.id.btn2)?.isEnabled = true } }
-    fun onNextSurface(v: View) { val keys = surfaceKeys!!; keyindex = if (keyindex < keys.size - 1) keyindex + 1 else 0; currentSurfaceKey = keys[keyindex]; Log.d(TAG, "loading surface:$currentSurfaceKey"); currentSurface = sv!!.mgr!!.getSakuraSurface(currentSurfaceKey!!); bSakura!!.text = "current drawable key: $currentSurfaceKey, animation count: ${currentSurface!!.getAnimationCount()}, collision count: ${currentSurface!!.getCollisionCount()}"; checkAndLoadAnimation() }
-    fun onAnimate(v: View) = showCollisionAreaOnImageView()
-    private fun pickNextAnimation() { if (currentSurface!!.getAnimationCount() > 1) { animeIndex = (animeIndex + 1) % currentSurface!!.getAnimationCount(); sv!!.loadAnimation("$animeIndex") } }
-    fun onShowCollision(v: View) = showCollisionAreaOnImageView()
-    private fun showCollisionAreaOnImageView() { sv!!.showCollisionArea(); kv!!.showCollisionArea() }
+    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
+    fun onNextSurface(v: View) {
+        val keys = surfaceKeys ?: return
+        keyindex = if (keyindex < keys.size - 1) keyindex + 1 else 0
+        currentSurfaceKey = keys[keyindex]
+        currentSurface = currentGhost?.mgr?.getSakuraSurface(currentSurfaceKey!!)
+        // Debug selection remains a diagnostic only; production frames come
+        // from the script runner and are rendered by the Compose host.
+        simpleDialog = NanidroidSimpleDialog.DebugMessage("current surface: $currentSurfaceKey")
+    }
+    fun onAnimate(v: View) = Unit
+    private fun pickNextAnimation() = Unit
+    fun onShowCollision(v: View) = Unit
     fun runClick(v: View) { runner!!.addMsgToQueue(arrayOf("\\![open,inputbox,lalala]")); runner!!.run() }
     private fun sendStopIntent() { stopService(Intent(this, NanidroidService::class.java)) }
     private fun addNarToDownload(target: Uri) { if (!IncomingNarIntent.isApprovedDownload(target)) { Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show(); return }; startModernService(Intent(this, NanidroidService::class.java).setAction(Intent.ACTION_RUN).setData(target)) }
@@ -262,7 +238,7 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
     }
     fun switchGhost(nextId: String) { val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
-    @Suppress("DEPRECATION") fun ghostSwitchStep2() { object : AsyncTask<Void, Void, Void>() { override fun onPreExecute() { mGH.sendEmptyMessage(MSG_LOAD_N); showProgress() }; override fun doInBackground(vararg params: Void?): Void? { try { val ghost = gm!!.createGhost(nextGhostId!!)!!; nextGhostId = null; CrashReporting.setCustomKey("current_ghost", ghost.getGhostId()); currentGhost = ghost; sv!!.mgr = ghost.mgr; kv!!.mgr = ghost.mgr; updateSurfaceKeys(ghost); keyindex = 0; currentSurfaceKey = surfaceKeys!![keyindex] } catch (e: Exception) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", nextGhostId, -1); Log.d(TAG, "failed to switch to ghost:$nextGhostId"); nextGhostId = null; e.printStackTrace() }; return null }; override fun onPostExecute(result: Void?) { hideProgress(); lm!!.checkAndUpdateLayoutParam(); gm!!.setLastRunGhost(currentGhost!!); runner!!.setGhost(currentGhost!!) } }.execute() }
+    @Suppress("DEPRECATION") fun ghostSwitchStep2() { object : AsyncTask<Void, Void, Void>() { override fun onPreExecute() { mGH.sendEmptyMessage(MSG_LOAD_N); showProgress() }; override fun doInBackground(vararg params: Void?): Void? { try { val ghost = gm!!.createGhost(nextGhostId!!)!!; nextGhostId = null; CrashReporting.setCustomKey("current_ghost", ghost.getGhostId()); currentGhost = ghost; composeStage.setSurfaceManager(ghost.mgr); updateSurfaceKeys(ghost); keyindex = 0; currentSurfaceKey = surfaceKeys!![keyindex] } catch (e: Exception) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", nextGhostId, -1); Log.d(TAG, "failed to switch to ghost:$nextGhostId"); nextGhostId = null; e.printStackTrace() }; return null }; override fun onPostExecute(result: Void?) { hideProgress(); gm!!.setLastRunGhost(currentGhost!!); runner!!.setGhost(currentGhost!!) } }.execute() }
     private fun handleIncomingIntent(incoming: Intent?) { if (!IncomingNarIntent.isApprovedDownload(incoming)) { if (incoming != null && Intent.ACTION_VIEW == incoming.action) { Log.w(TAG, "Rejected unapproved external install URI"); Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show() }; return }; Log.d(TAG, "Accepted HTTPS NAR download URI"); addNarToDownload(incoming!!.data!!) }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }
     fun onUpdate(v: View) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }

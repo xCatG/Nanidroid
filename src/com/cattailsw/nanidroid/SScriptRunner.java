@@ -101,6 +101,15 @@ public class SScriptRunner implements Runnable {
 	presentationRenderer = renderer;
     }
 
+    /**
+     * Explicit Compose-stage interaction boundary.  Kept separate from the
+     * retained SakuraView callback so a production Compose stage never has to
+     * manufacture a hidden View merely to deliver a SHIORI mouse event.
+     */
+    public void dispatchComposeDoubleClick(int x, int y, boolean sakura, int collisionId, int buttonId) {
+	doMouseDblClick(x, y, sakura, collisionId, buttonId);
+    }
+
     public void setViews(SakuraView s, KeroView k, Balloon bS, Balloon bK){
 	sakura = s;
 	kero = k;
@@ -691,8 +700,11 @@ public class SScriptRunner implements Runnable {
     }
 
     private void doPerSecondEvent(int hr) {
-	startPerSecondAnimation(sakura);
-	startPerSecondAnimation(kero);
+	// A Compose presentation renderer owns its own surface scheduler.  Legacy
+	// views are absent in that mode, so do not dereference them just to run a
+	// duplicate random animation loop.
+	if (sakura != null) startPerSecondAnimation(sakura);
+	if (kero != null) startPerSecondAnimation(kero);
 	
 	ShioriResponse r = g.sendOnSecondChange(hr);
 	parseShioriResponseAndInsert( r );
