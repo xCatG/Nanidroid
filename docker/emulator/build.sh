@@ -33,6 +33,7 @@ python3 tools/verify_emulator_apk.py \
   --arm64-root "${ARM64_NATIVE_ROOT}" \
   --arm64-contract "${ARM64_NATIVE_CONTRACT}" \
   --allow-compose-graphics-runtime \
+  --allow-firebase-crashlytics-runtime \
   --output "${OUTPUT_ROOT}/native-payload.json"
 
 cp "${APK}" "${OUTPUT_ROOT}/Nanidroid-emulator.apk"

@@ -108,6 +108,10 @@ class CompareContractsTest(unittest.TestCase):
                 "lib/armeabi-v7a/libandroidx.graphics.path.so",
                 "lib/x86/libandroidx.graphics.path.so",
                 "lib/x86_64/libandroidx.graphics.path.so",
+                "lib/arm64-v8a/libdatastore_shared_counter.so",
+                "lib/armeabi-v7a/libdatastore_shared_counter.so",
+                "lib/x86/libdatastore_shared_counter.so",
+                "lib/x86_64/libdatastore_shared_counter.so",
             ]
         )
 

@@ -5,10 +5,8 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import com.cattailsw.nanidroid.util.AnalyticsUtils;
-import org.acra.*;
-import org.acra.annotation.*;
+import com.cattailsw.nanidroid.util.CrashReporting;
 
-@ReportsCrashes(formKey="dFE5LWxwSUs3TGhTaTd6TE1aLTdlcXc6MQ")
 public class CatTailApplication extends Application {
 
     public final void onCreate() {
@@ -17,7 +15,7 @@ public class CatTailApplication extends Application {
 	    AnalyticsUtils.setDeviceValidationNoTelemetry(true);
 	    return;
 	}
-	ACRA.init(this);
+	CrashReporting.initialize(this);
     }
 
     private boolean isDeviceValidationNoTelemetry() {

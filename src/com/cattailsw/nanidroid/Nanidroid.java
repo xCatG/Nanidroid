@@ -10,7 +10,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
-import org.acra.ErrorReporter;
+import com.cattailsw.nanidroid.util.CrashReporting;
 
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -216,7 +216,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	mGH.sendEmptyMessage(MSG_LOAD_F);
 
 	Ghost g = gm.createGhost(lastId);
-	ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
+	CrashReporting.setCustomKey("current_ghost", g.getGhostId());
 	runner.setGhost(g);
 	gm.setLastRunGhost(g);
 	currentGhost = g;
@@ -764,7 +764,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 		try {
 		    g = gm.createGhost(nextGhostId);
 		    nextGhostId = null;
-		    ErrorReporter.getInstance().putCustomData("current_ghost", g.getGhostId());
+		    CrashReporting.setCustomKey("current_ghost", g.getGhostId());
 		}
 		catch(Exception e) {
 		    // TODO fill failed switch event!

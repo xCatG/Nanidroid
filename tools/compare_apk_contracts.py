@@ -25,6 +25,10 @@ COMPOSE_GRAPHICS_NATIVE_CODES = [
     "x86",
     "x86_64",
 ]
+FIREBASE_CRASHLYTICS_NATIVE_LIBRARIES = [
+    "lib/arm64-v8a/libdatastore_shared_counter.so", "lib/armeabi-v7a/libdatastore_shared_counter.so",
+    "lib/x86/libdatastore_shared_counter.so", "lib/x86_64/libdatastore_shared_counter.so",
+]
 
 
 class ContractMismatch(ValueError):
@@ -57,7 +61,8 @@ def compare_contracts(
             ):
                 expected["nativeCode"] = COMPOSE_GRAPHICS_NATIVE_CODES
         if field == "nativeLibraries" and isinstance(expected, list) and isinstance(actual, list):
-            if actual == sorted(expected + COMPOSE_GRAPHICS_NATIVE_LIBRARIES):
+            approved_additions = COMPOSE_GRAPHICS_NATIVE_LIBRARIES + FIREBASE_CRASHLYTICS_NATIVE_LIBRARIES
+            if actual == sorted(expected + approved_additions):
                 expected = actual
         if actual != expected:
             _fail(field, expected, actual)

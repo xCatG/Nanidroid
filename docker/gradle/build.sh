@@ -73,6 +73,7 @@ python3 tools/inspect_legacy_apk.py \
   --expected-min-sdk 31 \
   --expected-target-sdk 37 \
   --allow-compose-graphics-runtime \
+  --allow-firebase-crashlytics-runtime \
   --output "${OUTPUT_ROOT}/Nanidroid-debug.json"
 
 python3 tools/compare_apk_contracts.py \
@@ -84,6 +85,7 @@ python3 tools/verify_apk_native_payload.py \
   "${APK}" \
   --candidate-root "${CMAKE_NATIVE_ROOT}" \
   --allow-compose-graphics-runtime \
+  --allow-firebase-crashlytics-runtime \
   --output "${OUTPUT_ROOT}/native-payload.json"
 
 python3 tools/inspect_android_test_apk.py \
