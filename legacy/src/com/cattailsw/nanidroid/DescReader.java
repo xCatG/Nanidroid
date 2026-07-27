@@ -24,83 +24,45 @@ public class DescReader {
 
     String infilePath = null;
 
-    public DescReader() {
+    public DescReader() {}
 
-    }
-
-    public DescReader(String infile) {
-	//this(new File(infile));
-	infilePath = infile;
-    }
+    public DescReader(String infile) { infilePath = infile; }
 
     public DescReader(File f) {
-	try {
-	    InputStream is = new FileInputStream(f);
-	    parse(is);
-	}
+	try { InputStream is = new FileInputStream(f); parse(is); }
 	catch(FileNotFoundException e) {}
 	catch(IOException e) {e.printStackTrace();}
     }
 
     public DescReader(InputStream is) {
-	try {
-	    dbgOutput = true;
-	    parse(is);
-	} catch (Exception e) {
-	    Log.d(TAG, "parsing inputstream error");
-	    e.printStackTrace();
-	}
+	try { dbgOutput = true; parse(is); }
+	catch(Exception e) { Log.d(TAG, "parsing inputstream error"); e.printStackTrace(); }
     }
 	
     boolean dbgOutput = false;
 	
-    public void setDbgOutput(boolean dbg) {
-	dbgOutput = dbg;
-    }
+    public void setDbgOutput(boolean dbg) { dbgOutput = dbg; }
 
     private Charset readFirstLineForCharset(BufferedReader br) throws IOException {
 	Charset c =DEF_CHARSET; 
-	if ( br.markSupported() == false )
-	    return c;
-
-	//br.mark(20);
+	if ( br.markSupported() == false ) return c;
 	String line = br.readLine();
-
-	if ( line.startsWith( NarUtil.UTF8_BOM ) )
-	    line = line.substring(1);
-
-	//br.reset();
+	if ( line.startsWith( NarUtil.UTF8_BOM ) ) line = line.substring(1);
 	String [] cs = line.split(",");
-	if ( cs == null || cs.length != 2 )
-	    return c;
-	if ( cs[0].contains("charset") == false )
-	    return c;
-	try {
-	    c = Charset.forName(cs[1]);
-	}
-	catch(Exception e) {
-	    Log.d(TAG, "trouble charset is:" + cs[1]);
-	}
-
+	if ( cs == null || cs.length != 2 ) return c;
+	if ( cs[0].contains("charset") == false ) return c;
+	try { c = Charset.forName(cs[1]); }
+	catch(Exception e) { Log.d(TAG, "trouble charset is:" + cs[1]); }
 	return c;
     }
 
     private void parse(InputStream is) throws IOException{
-	if ( getTable() == null )
-	    setTable(new Hashtable<String, String>());
-       
-
-
-	BufferedReader reader = null;
-	reader = new BufferedReader(new InputStreamReader(is, DEF_CHARSET));
+	if ( getTable() == null ) setTable(new Hashtable<String, String>());
+	BufferedReader reader = new BufferedReader(new InputStreamReader(is, DEF_CHARSET));
 	Charset c = readFirstLineForCharset(reader);
-	//if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
 	reader.close();
 	reader = new BufferedReader(new InputStreamReader(is, c ) );
-	//}
-
 	readLoop(reader, getTable());
-
 	reader.close();
     }
 
@@ -108,15 +70,10 @@ public class DescReader {
 	String line = null;
 	while ( true ) {
 	    line = reader.readLine();
-	    if ( line == null ) 
-		break;
-	    if ( line.indexOf(',') == -1 ) 
-		continue; // ignore lines without ,
-
-	    // should split line into pairs
+	    if ( line == null ) break;
+	    if ( line.indexOf(',') == -1 ) continue;
 	    String[] pair = line.split(",");
-	    if ( pair == null || pair.length != 2 ) 
-		continue; // error line
+	    if ( pair == null || pair.length != 2 ) continue;
 	    String label = pair[0];
 	    String value = pair[1];
 	    if ( dbgOutput ) Log.d(TAG, "putting [" + label + "," + value + "]");
@@ -129,22 +86,11 @@ public class DescReader {
     public Map<String,String> parse() throws IOException {
 	parseTime = SystemClock.uptimeMillis();
 	Hashtable<String, String> ret = new Hashtable<String,String>();
-	
-	BufferedReader reader = null;
-
-	File infile = new File(infilePath);
-	reader = new BufferedReader(new InputStreamReader(new FileInputStream(infile), 
-							  DEF_CHARSET));
-
+	BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(infilePath)), DEF_CHARSET));
 	Charset c = readFirstLineForCharset(reader);
-//	if ( c.compareTo( DEF_CHARSET ) != 0 ) {// not SJIS
-	    reader.close();
-	    reader = new BufferedReader(new InputStreamReader(new FileInputStream(infile),
-							      c ) );
-//	}
-
+	reader.close();
+	reader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(infilePath)), c));
 	readLoop(reader, ret);
-
 	reader.close();
 	parseTime = SystemClock.uptimeMillis() - parseTime;
 	Log.d(TAG, "parsing took:" + parseTime + "ms");
@@ -152,13 +98,6 @@ public class DescReader {
 	return ret;
     }
 
-    public Map<String, String> getTable() {
-	return table;
-    }
-
-    public void setTable(Map<String, String> table) {
-	this.table = table;
-    }
-    
-
+    public Map<String, String> getTable() { return table; }
+    public void setTable(Map<String, String> table) { this.table = table; }
 }
