@@ -41,7 +41,7 @@ class NarfsStageContractTest(unittest.TestCase):
             for relative in expected
         }
         self.assertEqual(expected, actual)
-        manager = (project / "src/com/cattailsw/nanidroid/GhostMgr.java").read_text()
+        manager = (project / "src/com/cattailsw/nanidroid/GhostMgr.kt").read_text()
         self.assertIn("NarTransactionalInstaller.install", manager)
         self.assertNotIn("NarUtil.readNarArchive", manager)
 
