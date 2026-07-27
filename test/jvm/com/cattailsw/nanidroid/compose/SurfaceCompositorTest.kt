@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.compose
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -46,6 +47,36 @@ class SurfaceCompositorTest {
         assertEquals(BLUE, output.pixelAt(2, 1))
         assertEquals(TRANSPARENT, output.pixelAt(1, 2))
         assertEquals(GREEN, output.pixelAt(2, 2))
+    }
+
+    @Test
+    fun `canvas output owns its completed pixels without exposing a public alias`() {
+        val output = SurfaceCompositor(assets("base.png" to solid(BLUE))).normal(
+            plan(layers = listOf(layer("base.png", 0, 0, 2, 1))),
+        )
+
+        val exportedPixels = output.copyPixels()
+        exportedPixels[1] = GREEN
+
+        assertEquals(BLUE, output.pixelAt(1, 0))
+    }
+
+    @Test
+    fun `nonpositive base dimensions leave a blank stage without loading assets`() {
+        val loader = RecordingAssets(mapOf("base.png" to solid(BLUE), "replacement.png" to solid(GREEN)))
+        val compositor = SurfaceCompositor(loader)
+        val missingDimensions = plan(layers = listOf(layer("base.png", 0, 0, 2, 1))).copy(width = 0)
+
+        assertSame(SurfacePixelImage.Empty, compositor.normal(missingDimensions))
+        assertSame(SurfacePixelImage.Empty, compositor.frame(missingDimensions, SurfaceRenderFrame.Reset(1)))
+        assertTrue(loader.requests.isEmpty())
+
+        val replacement = compositor.frame(
+            missingDimensions,
+            SurfaceRenderFrame.Base("replacement.png", 2, 1, 1),
+        )
+        assertEquals(GREEN, replacement.pixelAt(1, 0))
+        assertEquals(listOf("replacement.png"), loader.requests)
     }
 
     @Test
