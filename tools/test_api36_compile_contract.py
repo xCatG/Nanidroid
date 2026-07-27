@@ -27,7 +27,7 @@ class Api37CompileContractTest(unittest.TestCase):
         service = (root / "src/com/cattailsw/nanidroid/NanidroidService.kt").read_text(
             encoding="utf-8"
         )
-        bridge = (root / "src/com/cattailsw/nanidroid/LegacyNotificationBridge.java").read_text(
+        bridge = (root / "src/com/cattailsw/nanidroid/LegacyNotificationBridge.kt").read_text(
             encoding="utf-8"
         )
 

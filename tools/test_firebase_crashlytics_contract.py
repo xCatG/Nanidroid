@@ -6,7 +6,7 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
     def test_acra_is_replaced_by_firebase_crashlytics_boundary(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "build.gradle.kts").read_text(encoding="utf-8")
-        app = (root / "src/com/cattailsw/nanidroid/CatTailApplication.java").read_text(
+        app = (root / "src/com/cattailsw/nanidroid/CatTailApplication.kt").read_text(
             encoding="utf-8"
         )
         activity_path = root / "src/com/cattailsw/nanidroid/Nanidroid.kt"
