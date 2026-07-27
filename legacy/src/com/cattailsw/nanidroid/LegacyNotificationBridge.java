@@ -7,14 +7,9 @@ import android.os.Build;
 
 import java.lang.reflect.Method;
 
-/**
- * Compiles the historical notification flow against API 36 without raising the
- * app's API-9 runtime floor. PR44 replaces this compatibility boundary with
- * the target-SDK-appropriate notification policy.
- */
+/** Frozen Ant-build compatibility shim; Gradle uses the Kotlin bridge. */
 final class LegacyNotificationBridge {
-    private LegacyNotificationBridge() {
-    }
+    private LegacyNotificationBridge() {}
 
     static Notification create(
             Context context,
@@ -43,10 +38,8 @@ final class LegacyNotificationBridge {
         return notification;
     }
 
-    /** Isolated so pre-Honeycomb devices do not resolve Notification.Builder. */
     private static final class Api11 {
-        private Api11() {
-        }
+        private Api11() {}
 
         static Notification create(
                 Context context,
