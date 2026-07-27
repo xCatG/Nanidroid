@@ -541,44 +541,15 @@ class BuildScriptContractTest(unittest.TestCase):
             / "com"
             / "cattailsw"
             / "nanidroid"
-            / "ViewServerLifecycle.java"
+            / "ViewServerLifecycle.kt"
         ).read_text(encoding="utf-8")
 
-        wrapper_mappings = (
-            (
-                "onActivityCreated",
-                "onActivityCreated(Build.VERSION.SDK_INT, activity, LEGACY_BACKEND);",
-            ),
-            (
-                "onActivityResumed",
-                "onActivityResumed(Build.VERSION.SDK_INT, activity, LEGACY_BACKEND);",
-            ),
-            (
-                "onActivityDestroyed",
-                "onActivityDestroyed(Build.VERSION.SDK_INT, activity, LEGACY_BACKEND);",
-            ),
-        )
-        for method, expected_body in wrapper_mappings:
-            body = _java_method_body(
-                lifecycle,
-                rf"\bstatic\s+void\s+{method}\s*\(\s*Activity\s+activity\s*\)\s*\{{",
-            )
-            self.assertEqual(expected_body, _compact_java(body))
-
-        backend_mappings = (
-            ("addWindow", "ViewServer.get(activity).addWindow(activity);"),
-            (
-                "setFocusedWindow",
-                "ViewServer.get(activity).setFocusedWindow(activity);",
-            ),
-            ("removeWindow", "ViewServer.get(activity).removeWindow(activity);"),
-        )
-        for method, expected_body in backend_mappings:
-            body = _java_method_body(
-                lifecycle,
-                rf"\bpublic\s+void\s+{method}\s*\(\s*Activity\s+activity\s*\)\s*\{{",
-            )
-            self.assertEqual(expected_body, _compact_java(body))
+        self.assertIn("onActivityCreated(Build.VERSION.SDK_INT, activity, legacyBackend)", lifecycle)
+        self.assertIn("onActivityResumed(Build.VERSION.SDK_INT, activity, legacyBackend)", lifecycle)
+        self.assertIn("onActivityDestroyed(Build.VERSION.SDK_INT, activity, legacyBackend)", lifecycle)
+        self.assertIn("ViewServer.get(activity!!).addWindow(activity)", lifecycle)
+        self.assertIn("ViewServer.get(activity!!).setFocusedWindow(activity)", lifecycle)
+        self.assertIn("ViewServer.get(activity!!).removeWindow(activity)", lifecycle)
 
     def test_default_return_stub_guard_wires_every_app_unit_test_task(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
