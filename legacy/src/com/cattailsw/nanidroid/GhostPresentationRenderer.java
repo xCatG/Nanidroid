@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid;
 
-/** Applies a complete Ghost presentation frame to a concrete UI technology. */
+/** Java-only copy used by the frozen Ant build, which cannot compile Kotlin. */
 public interface GhostPresentationRenderer {
     void render(GhostPresentationFrame frame);
 }
