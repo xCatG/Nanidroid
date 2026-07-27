@@ -428,6 +428,9 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/jvm/com/cattailsw/nanidroid/SScriptRunnerPresentationTest.java"
             ),
             pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/SSTPBottleSensorCharacterizationTest.java"
+            ),
+            pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/runtime/"
                 "GhostPresentationReducerTest.java"
             ),
