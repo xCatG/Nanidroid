@@ -26,12 +26,12 @@ class KotlinGhostManagerContractTest(unittest.TestCase):
         self.assertIn("NarTransactionalInstaller.install", source)
         self.assertNotIn("NarUtil.readNarArchive", source)
 
-    def test_legacy_ant_copy_explicitly_restores_the_java_manager(self):
+    def test_legacy_ant_copy_restores_the_java_source_overlay(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "docker/legacy/build.sh").read_text(encoding="utf-8")
-        self.assertIn("LEGACY_GHOST_MANAGER", build)
+        self.assertIn("LEGACY_JAVA_ROOT", build)
         self.assertIn(
-            'cp "${LEGACY_GHOST_MANAGER}" "${BUILD_ROOT}/src/com/cattailsw/nanidroid/GhostMgr.java"',
+            'rsync -a "${LEGACY_JAVA_ROOT}/" "${BUILD_ROOT}/src/"',
             build,
         )
 
