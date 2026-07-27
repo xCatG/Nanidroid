@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.util;
 import android.content.SharedPreferences;
 import android.content.Context;
 
+/** Frozen Ant-build compatibility copy; the Gradle lane is implemented in Kotlin. */
 public class PrefUtil {
     private static final String TAG = "PrefUtil";
 
@@ -45,6 +46,4 @@ public class PrefUtil {
 	SharedPreferences sp = getSharedPreferences(ctx);
 	return sp.getLong(key, 0);
     }
-
-
 }
