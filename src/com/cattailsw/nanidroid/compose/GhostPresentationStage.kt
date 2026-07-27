@@ -41,7 +41,10 @@ fun GhostPresentationStage(
     keroSurface: @Composable BoxScope.() -> Unit = {},
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+            verticalAlignment = Alignment.Bottom,
+        ) {
             Column(
                 modifier = Modifier.weight(1f),
                 horizontalAlignment = Alignment.Start,
