@@ -1,0 +1,134 @@
+package com.cattailsw.nanidroid;
+
+import android.content.Context;
+import java.util.List;
+
+import com.cattailsw.nanidroid.util.PrefUtil;
+import com.cattailsw.nanidroid.install.NarTransactionalInstaller;
+import java.io.File;
+
+/** Frozen Java implementation restored only in the disposable Ant build. */
+public class GhostMgr {
+    private static final String TAG = "GhostMgr";
+    private static final String PREF_LAST_RUN_GHOST = "lastrunghost";
+    Context mCtx;
+
+    List<InfoOnlyGhost> iglist = null;
+    private String lastInstallError;
+
+    public GhostMgr(Context ctx) {
+	mCtx = ctx.getApplicationContext();
+	iglist = DirList.parseDataDir(mCtx);
+    }
+
+    public int getGhostId(String name){
+	int id = 0;
+	for ( InfoOnlyGhost g: iglist ){
+	    if ( g.getGhostDirName().equalsIgnoreCase(name) )
+		return id;
+	    id++;
+	}
+	return -1;
+    }
+
+    public boolean hasSameGhostId(String id){
+	if ( iglist == null || iglist.size() == 0 )
+	    return false;
+
+	return (getGhostId(id) != -1);
+    }
+
+    public String getGhostPath(int id){
+	return iglist.get(id).getGhostPath();
+    }
+
+    public Ghost createGhost(String name){
+	int id = getGhostId(name);
+	if ( id == -1 ) return null;
+	return new Ghost(getGhostPath(id), mCtx);
+    }
+
+    public String getLastRunGhostId(){
+	if ( PrefUtil.hasKey(mCtx, PREF_LAST_RUN_GHOST))
+	    return PrefUtil.getKeyValue(mCtx, PREF_LAST_RUN_GHOST);
+	return null;
+    }
+
+    public void setLastRunGhost(Ghost g){
+	PrefUtil.setKey(mCtx, PREF_LAST_RUN_GHOST, g.getGhostDirName());
+    }
+
+    public String installFirstGhost(String gid, String narPath){
+	return installGhost(gid, narPath, true);
+    }
+
+    public String installGhost(String gid, String narPath){
+	return installGhost(gid, narPath, false);
+    }
+
+    public String installGhost(String ghostId, String narPath, boolean usegid){
+	if (narPath == null || mCtx.getExternalFilesDir(null) == null) {
+	    lastInstallError = "Nanidroid cannot access the selected ghost archive or storage.";
+	    return null;
+	}
+	File dataDir = new File(mCtx.getExternalFilesDir(null), "ghost");
+	if ((!dataDir.exists() && !dataDir.mkdirs()) || !dataDir.isDirectory()) {
+	    lastInstallError = "Nanidroid cannot prepare its ghost storage.";
+	    return null;
+	}
+	NarTransactionalInstaller.Result installed = NarTransactionalInstaller.install(
+		new File(narPath), dataDir, usegid ? ghostId : null);
+	if (!installed.isSuccess()) {
+	    lastInstallError = installed.getMessage();
+	    return null;
+	}
+	refreshGhost();
+	int gid = getGhostId(installed.getTargetId());
+	if (gid == -1) {
+	    lastInstallError = "The installed archive does not contain a usable ghost.";
+	    return null;
+	}
+	lastInstallError = null;
+	return getGhostPath(gid);
+    }
+
+    public String getLastInstallError() { return lastInstallError; }
+
+    public void refreshGhost(){ iglist = DirList.parseDataDir(mCtx); }
+
+    public String[] getGnames(){
+	if ( iglist == null || iglist.size() == 0 ) return null;
+	String []ret = new String[iglist.size()];
+	int i =0;
+	for ( InfoOnlyGhost g: iglist ) ret[i++] = g.getGhostDirName();
+	return ret;
+    }
+
+    public int getGhostCount(){ return (iglist == null)?0:iglist.size(); }
+
+    public File getGhostReadMe(String ghostId){
+	return new File(getGhostPath(getGhostId(ghostId)), "readme.txt");
+    }
+
+    public String getGhostSakuraName(String id){
+	int gid = getGhostId(id);
+	if ( gid == -1 ) return null;
+	return iglist.get(gid).getSakuraName();
+    }
+
+    public String getGhostDispName(String id) {
+	int gid = getGhostId(id);
+	if ( gid == -1 ) return null;
+	return iglist.get(gid).getGhostName();
+    }
+
+    public String[] getGDispNames() {
+	if ( iglist == null || iglist.size() == 0 ) return null;
+	String[] ret = new String[iglist.size()];
+	for ( int i = 0; i < iglist.size() ; i++ ) ret[i] = iglist.get(i).getGhostName();
+	return ret;
+    }
+
+    public String getGhostPath(String id) { return getGhostPath(getGhostId(id)); }
+    public int getGhostLaunchCount(int order) { return 0; }
+}

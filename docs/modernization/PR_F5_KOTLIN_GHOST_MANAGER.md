@@ -5,6 +5,11 @@ overloads used by `Nanidroid.java` and the legacy dialog classes. It owns ghost
 discovery, selection, preferences, and the D9b3 transactional install result;
 no JNI or rendering behavior changes in this slice.
 
+The frozen Ant reference lane remains Java-only. Its disposable Docker build
+explicitly overlays `legacy/src/.../GhostMgr.java` after copying the checkout;
+Gradle never compiles that overlay. This preserves the historical reference APK
+without compromising the modern production source set.
+
 The migration intentionally keeps the Activity and dialogs on their existing
 Java API surface while moving a cohesive non-NDK service to Kotlin. It replaces
 nullable list handling with Kotlin nullability but preserves legacy outcomes:

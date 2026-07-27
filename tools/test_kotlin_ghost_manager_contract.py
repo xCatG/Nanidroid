@@ -7,8 +7,10 @@ class KotlinGhostManagerContractTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         java = root / "src/com/cattailsw/nanidroid/GhostMgr.java"
         kotlin = root / "src/com/cattailsw/nanidroid/GhostMgr.kt"
+        legacy = root / "legacy/src/com/cattailsw/nanidroid/GhostMgr.java"
 
         self.assertFalse(java.exists())
+        self.assertTrue(legacy.exists())
         source = kotlin.read_text(encoding="utf-8")
         self.assertIn("class GhostMgr(ctx: Context)", source)
         for signature in (
@@ -23,6 +25,15 @@ class KotlinGhostManagerContractTest(unittest.TestCase):
             self.assertIn(signature, source)
         self.assertIn("NarTransactionalInstaller.install", source)
         self.assertNotIn("NarUtil.readNarArchive", source)
+
+    def test_legacy_ant_copy_explicitly_restores_the_java_manager(self):
+        root = Path(__file__).resolve().parents[1]
+        build = (root / "docker/legacy/build.sh").read_text(encoding="utf-8")
+        self.assertIn("LEGACY_GHOST_MANAGER", build)
+        self.assertIn(
+            'cp "${LEGACY_GHOST_MANAGER}" "${BUILD_ROOT}/src/com/cattailsw/nanidroid/GhostMgr.java"',
+            build,
+        )
 
 
 if __name__ == "__main__":
