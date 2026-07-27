@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid;
 
-/** Immutable SHIORI wire-protocol version; replaces Apache's HTTP-only type. */
+/** Java-only copy used by the frozen Ant build, which cannot compile Kotlin. */
 public final class ShioriProtocolVersion {
     private final String protocol;
     private final int major;
