@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid.install;
 
-/** Immutable result of structural NAR inventory validation. */
+/** Frozen Ant-build compatibility copy; the Gradle lane is implemented in Kotlin. */
 public final class NarArchiveInventoryResult {
     private final NarArchiveInventory inventory;
     private final NarInstallError error;

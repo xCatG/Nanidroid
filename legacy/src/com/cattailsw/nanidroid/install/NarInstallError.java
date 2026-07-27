@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid.install;
 
-/** Stable structural rejection categories for an untrusted NAR inventory. */
+/** Frozen Ant-build compatibility copy; the Gradle lane is implemented in Kotlin. */
 public enum NarInstallError {
     INVALID_ENTRY_METADATA,
     RAW_NAME_LENGTH_LIMIT,

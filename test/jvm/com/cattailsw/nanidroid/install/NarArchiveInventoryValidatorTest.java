@@ -18,6 +18,17 @@ import org.junit.Test;
 public final class NarArchiveInventoryValidatorTest {
     private static final Charset UTF_8 = Charset.forName("UTF-8");
     private static final long MIB = 1024L * 1024L;
+
+    @Test
+    public void kotlinInventoryResultKeepsJavaDiagnosticFactorySemantics() {
+        NarArchiveInventoryResult failure = NarArchiveInventoryResult.failure(
+                NarInstallError.INVALID_ENTRY_METADATA, "central getter");
+
+        assertFalse(failure.isSuccess());
+        assertNull(failure.getInventory());
+        assertEquals(NarInstallError.INVALID_ENTRY_METADATA, failure.getError());
+        assertEquals("central getter", failure.getDetail());
+    }
     private static final long FUZZ_SEED = 0x4e415244396231L;
 
     @Test

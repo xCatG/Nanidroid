@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid.install;
 
-/** Immutable result of parsing one snapshotted install descriptor. */
+/** Frozen Ant-build compatibility copy; the Gradle lane is implemented in Kotlin. */
 public final class NarDescriptorResult {
     private final NarInstallDescriptor descriptor;
     private final NarInstallError error;
