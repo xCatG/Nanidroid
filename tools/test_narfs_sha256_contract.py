@@ -18,15 +18,13 @@ class NarfsSha256ContractTest(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
-    def test_staging_jni_and_java_boundaries_remain_exact(self):
+    def test_staging_jni_remains_exact_and_manager_uses_transaction(self):
         root = Path(__file__).resolve().parents[1]
         expected = {
             "jni/narfs/narfs_core.c":
                 "6160699d0a2a3fdc2ffdddc3e7b225110a3749258e51159a75c2db1ae931692d",
             "jni/narfs/narfs_jni.c":
                 "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
-            "src/com/cattailsw/nanidroid/GhostMgr.java":
-                "65dc3709240aa0bf871f5955b2358da5deb505c6f7f91f13bb4e830abda809f6",
         }
         actual = {
             name: hashlib.sha256(
@@ -35,6 +33,9 @@ class NarfsSha256ContractTest(unittest.TestCase):
             for name in expected
         }
         self.assertEqual(expected, actual)
+        manager = (root / "src/com/cattailsw/nanidroid/GhostMgr.java").read_text()
+        self.assertIn("NarTransactionalInstaller.install", manager)
+        self.assertNotIn("NarUtil.readNarArchive", manager)
 
     def test_dual_build_declarations_are_exact(self):
         root = Path(__file__).resolve().parents[1]

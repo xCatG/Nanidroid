@@ -4,7 +4,7 @@ import android.content.Context;
 import java.util.List;
 
 import com.cattailsw.nanidroid.util.PrefUtil;
-import com.cattailsw.nanidroid.util.NarUtil;
+import com.cattailsw.nanidroid.install.NarTransactionalInstaller;
 import java.io.File;
 
 public class GhostMgr {
@@ -13,6 +13,7 @@ public class GhostMgr {
     Context mCtx;
 
     List<InfoOnlyGhost> iglist = null;
+    private String lastInstallError;
 
     public GhostMgr(Context ctx) {
 	mCtx = ctx.getApplicationContext();
@@ -70,17 +71,36 @@ public class GhostMgr {
     }
     
     public String installGhost(String ghostId, String narPath, boolean usegid){
+	if (narPath == null || mCtx.getExternalFilesDir(null) == null) {
+	    lastInstallError = "Nanidroid cannot access the selected ghost archive or storage.";
+	    return null;
+	}
 	File dataDir = new File(mCtx.getExternalFilesDir(null), "ghost");
-	boolean success = NarUtil.readNarArchive(narPath, dataDir.getAbsolutePath(), 
-				usegid?ghostId:null);
-	if ( success == false)
+	if ((!dataDir.exists() && !dataDir.mkdirs()) || !dataDir.isDirectory()) {
+	    lastInstallError = "Nanidroid cannot prepare its ghost storage.";
+	    return null;
+	}
+	NarTransactionalInstaller.Result installed =
+		NarTransactionalInstaller.install(new File(narPath), dataDir,
+				usegid ? ghostId : null);
+	if (!installed.isSuccess()) {
+	    lastInstallError = installed.getMessage();
 		return null;
+	}
 	
 	refreshGhost();
-	int gid =  getGhostId( ghostId);
-	if ( gid == -1 ) return null;
+	int gid = getGhostId(installed.getTargetId());
+	if (gid == -1) {
+	    lastInstallError = "The installed archive does not contain a usable ghost.";
+	    return null;
+	}
 	String path = getGhostPath(gid);
+	lastInstallError = null;
 	return path;
+    }
+
+    public String getLastInstallError() {
+	return lastInstallError;
     }
 
     public void refreshGhost(){
