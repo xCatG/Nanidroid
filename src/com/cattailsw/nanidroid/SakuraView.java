@@ -98,7 +98,6 @@ public class SakuraView extends ImageView {
 	    setImageDrawable(currentSurface.getSurfaceDrawable(mCtx.getResources()));
 	    animation = null;
 	    currentAnimationId = null;
-	    populateColRz();
 		}
 		catch(Exception e) {
 			String msg = mgr.ghostId + ":" + currentSurfaceId ;
@@ -177,30 +176,6 @@ public class SakuraView extends ImageView {
 	startAnimation();
     }
 
-    private Rect[] colRz = null;
-    private int[] colKeyz = null;
-
-    private void populateColRz() {
-	int colSize = currentSurface.getCollisionCount();
-	if ( colSize == 0 ) {
-	    colRz = null; // set it to null and return
-	    return;
-	}
-
-	colRz = new Rect[colSize];
-	colKeyz = new int[colSize];
-
-	Set<Integer> colKey = currentSurface.collisionAreas.keySet();
-	int i = 0;
-	for ( Integer k : colKey ) {
-	    colRz[i] = currentSurface.collisionAreas.get(k).rect;
-	    colKeyz[i] = k;
-	    //Log.d(TAG, "col " + i + colRz[i]);
-	    i++;
-	}
-	//Log.d(TAG, "col data populated with " + colSize + " areas");
-    }
-
     public void showCollisionArea() {
 	int colsize = currentSurface.getCollisionCount();
 	if ( colsize == 0 ) return;
@@ -256,16 +231,7 @@ public class SakuraView extends ImageView {
  }
  
     int testColDect(int x, int y) {
-	if ( colRz == null )
-	    return -1;
-
-	for ( int i = 0; i < colRz.length; i++ ) {
-	    if ( colRz[i].contains(x, y) ) {
-		return colKeyz[i];
-	    }
-	}
-
-	return -1;
+	return SurfaceHitTest.findCollisionId(getCurrentSurfaceDefinition(), x, y);
     }
 
     public boolean onTouchEvent(final MotionEvent motionEvent) {
