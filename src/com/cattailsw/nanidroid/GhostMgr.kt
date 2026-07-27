@@ -13,7 +13,7 @@ class GhostMgr(ctx: Context) {
 
     fun getGhostId(name: String): Int {
         ghosts?.forEachIndexed { index, ghost ->
-            if (ghost.ghostDirName.equals(name, ignoreCase = true)) return index
+            if (ghost.getGhostDirName().equals(name, ignoreCase = true)) return index
         }
         return -1
     }
@@ -21,7 +21,7 @@ class GhostMgr(ctx: Context) {
     fun hasSameGhostId(id: String): Boolean =
         !ghosts.isNullOrEmpty() && getGhostId(id) != -1
 
-    fun getGhostPath(id: Int): String = ghosts!![id].ghostPath
+    fun getGhostPath(id: Int): String = ghosts!![id].getGhostPath()
 
     fun createGhost(name: String): Ghost? {
         val id = getGhostId(name)
@@ -36,7 +36,7 @@ class GhostMgr(ctx: Context) {
         }
 
     fun setLastRunGhost(ghost: Ghost) {
-        PrefUtil.setKey(context, PREF_LAST_RUN_GHOST, ghost.ghostDirName)
+        PrefUtil.setKey(context, PREF_LAST_RUN_GHOST, ghost.getGhostDirName())
     }
 
     fun installFirstGhost(gid: String, narPath: String): String? =
@@ -82,7 +82,7 @@ class GhostMgr(ctx: Context) {
     }
 
     fun getGnames(): Array<String>? =
-        ghosts?.takeIf { it.isNotEmpty() }?.map { it.ghostDirName }?.toTypedArray()
+        ghosts?.takeIf { it.isNotEmpty() }?.map { it.getGhostDirName() }?.toTypedArray()
 
     fun getGhostCount(): Int = ghosts?.size ?: 0
 
@@ -90,13 +90,13 @@ class GhostMgr(ctx: Context) {
         File(getGhostPath(getGhostId(ghostId)), "readme.txt")
 
     fun getGhostSakuraName(id: String): String? =
-        getGhostId(id).takeIf { it != -1 }?.let { ghosts!![it].sakuraName }
+        getGhostId(id).takeIf { it != -1 }?.let { ghosts!![it].getSakuraName() }
 
     fun getGhostDispName(id: String): String? =
-        getGhostId(id).takeIf { it != -1 }?.let { ghosts!![it].ghostName }
+        getGhostId(id).takeIf { it != -1 }?.let { ghosts!![it].getGhostName() }
 
-    fun getGDispNames(): Array<String>? =
-        ghosts?.takeIf { it.isNotEmpty() }?.map { it.ghostName }?.toTypedArray()
+    fun getGDispNames(): Array<String?>? =
+        ghosts?.takeIf { it.isNotEmpty() }?.map { it.getGhostName() }?.toTypedArray()
 
     fun getGhostPath(id: String): String = getGhostPath(getGhostId(id))
 
