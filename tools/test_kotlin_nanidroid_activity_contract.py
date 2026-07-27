@@ -52,6 +52,14 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("Rejected unapproved external install URI", self.source)
         self.assertIn("startModernService(Intent(this, NanidroidService::class.java)", self.source)
 
+    def test_compose_dialog_state_is_saved_and_restored_across_recreation(self):
+        self.assertIn("override fun onSaveInstanceState(outState: Bundle)", self.source)
+        self.assertIn("saveSimpleDialog(outState)", self.source)
+        self.assertIn("restoreSimpleDialog(savedInstanceState)", self.source)
+        self.assertIn("DIALOG_HELP_MENU -> createHelpMenuDialog()", self.source)
+        self.assertIn("DIALOG_GENERAL_HELP -> createGeneralHelpDialog()", self.source)
+        self.assertIn("DIALOG_MORE_GHOST -> createMoreGhostDialog()", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

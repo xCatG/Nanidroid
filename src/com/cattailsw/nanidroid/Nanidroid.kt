@@ -83,6 +83,7 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
+        restoreSimpleDialog(savedInstanceState)
         setBackground()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             bSakura!!.text = "sd card error"
@@ -224,6 +225,10 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private fun updateSurfaceKeys(ghost: Ghost) { surfaceKeys = ghost.mgr!!.getSurfaceKeys().toTypedArray(); Arrays.sort(surfaceKeys) }
 
     override fun onPause() { composeLifecycleOwner.pause(); super.onPause(); runner?.stopClock(); sendStopIntent() }
+    override fun onSaveInstanceState(outState: Bundle) {
+        saveSimpleDialog(outState)
+        super.onSaveInstanceState(outState)
+    }
     override fun onDestroy() { composeLifecycleOwner.destroy(); super.onDestroy(); ViewServerLifecycle.onActivityDestroyed(this); sendStopIntent() }
     override fun onResume() { super.onResume(); composeLifecycleOwner.resume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG); ViewServerLifecycle.onActivityResumed(this) }
     @Suppress("DEPRECATION") override fun onBackPressed() { val r = runner; if (r != null) { r.stopClock(); r.setCallback(mscb); r.stop(); r.doExit() } else super.onBackPressed() }
@@ -265,20 +270,12 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     fun onHelp(v: View) {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "help", "", 0)
         AnalyticsUtils.getInstance(this).trackPageView("/Help_menu")
-        simpleDialog = NanidroidSimpleDialog.HelpMenu(
-            onGeneralHelp = { showHelp() },
-            onAbout = { showAbout() },
-            onFeedback = { showFeedback() },
-        )
+        simpleDialog = createHelpMenuDialog()
     }
     fun getMoreGhost(source: Int) {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "MoreGhost", if (source == 0) "MainUI" else Setup.DLG_G_LIST, source)
         AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
-        simpleDialog = NanidroidSimpleDialog.MoreGhost(
-            onEnterUrl = { showUrlDlg() },
-            onInstallFromSdCard = { startInstallFromSDCard() },
-            onGhostTown = { showGhostTown() },
-        )
+        simpleDialog = createMoreGhostDialog()
     }
     override fun startInstallFromSDCard() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0); Toast.makeText(this, R.string.err_legacy_local_install_disabled, Toast.LENGTH_LONG).show() }
     fun showNarErrDlg(dir: Boolean) {
@@ -301,10 +298,48 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     override fun onContextItemSelected(item: MenuItem): Boolean = when (item.itemId) { R.id.item_about -> { showAbout(); true }; R.id.item_feedback -> { showFeedback(); true }; R.id.item_general_help -> { showHelp(); true }; else -> super.onContextItemSelected(item) }
     private fun showHelp() {
         AnalyticsUtils.getInstance(applicationContext).trackPageView("/help")
-        simpleDialog = NanidroidSimpleDialog.GeneralHelp(
-            onInstallHelp = { openHelpPage(R.string.url_help_install, "/help/install") },
-            onSupportedOperations = { openHelpPage(R.string.url_support_ops, "/help/supported_ops") },
-        )
+        simpleDialog = createGeneralHelpDialog()
+    }
+    private fun createHelpMenuDialog() = NanidroidSimpleDialog.HelpMenu(
+        onGeneralHelp = { showHelp() }, onAbout = { showAbout() }, onFeedback = { showFeedback() },
+    )
+    private fun createGeneralHelpDialog() = NanidroidSimpleDialog.GeneralHelp(
+        onInstallHelp = { openHelpPage(R.string.url_help_install, "/help/install") },
+        onSupportedOperations = { openHelpPage(R.string.url_support_ops, "/help/supported_ops") },
+    )
+    private fun createMoreGhostDialog() = NanidroidSimpleDialog.MoreGhost(
+        onEnterUrl = { showUrlDlg() }, onInstallFromSdCard = { startInstallFromSDCard() }, onGhostTown = { showGhostTown() },
+    )
+    private fun saveSimpleDialog(outState: Bundle) {
+        when (val dialog = simpleDialog) {
+            null -> Unit
+            is NanidroidSimpleDialog.Notice -> {
+                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_NOTICE)
+                outState.putInt(SIMPLE_DIALOG_TITLE, dialog.title)
+                outState.putInt(SIMPLE_DIALOG_MESSAGE, dialog.message)
+            }
+            is NanidroidSimpleDialog.DebugMessage -> {
+                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_DEBUG)
+                outState.putString(SIMPLE_DIALOG_MESSAGE_TEXT, dialog.message)
+            }
+            is NanidroidSimpleDialog.HelpMenu -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_HELP_MENU)
+            is NanidroidSimpleDialog.GeneralHelp -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_GENERAL_HELP)
+            is NanidroidSimpleDialog.MoreGhost -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_MORE_GHOST)
+        }
+    }
+    private fun restoreSimpleDialog(state: Bundle?) {
+        simpleDialog = when (state?.getString(SIMPLE_DIALOG_TYPE)) {
+            DIALOG_NOTICE -> {
+                val title = state.getInt(SIMPLE_DIALOG_TITLE)
+                val message = state.getInt(SIMPLE_DIALOG_MESSAGE)
+                NanidroidSimpleDialog.Notice(title, message, if (message == R.string.err_no_sdcard) ({ finish() }) else null)
+            }
+            DIALOG_DEBUG -> NanidroidSimpleDialog.DebugMessage(state.getString(SIMPLE_DIALOG_MESSAGE_TEXT).orEmpty())
+            DIALOG_HELP_MENU -> createHelpMenuDialog()
+            DIALOG_GENERAL_HELP -> createGeneralHelpDialog()
+            DIALOG_MORE_GHOST -> createMoreGhostDialog()
+            else -> null
+        }
     }
     private fun openHelpPage(urlRes: Int, page: String) {
         AnalyticsUtils.getInstance(this).trackPageView(page)
@@ -330,5 +365,5 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     override fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { UserSelectDlg.newInstance(textlabel, ids).show(supportFragmentManager, Setup.DLG_USR_SEL) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; @JvmField var gAdapter: ArrayAdapter<String>? = null }
+    companion object { private const val TAG = "Nanidroid"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_MESSAGE_TEXT = "simple_dialog_message_text"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_DEBUG = "debug"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; @JvmField var gAdapter: ArrayAdapter<String>? = null }
 }
