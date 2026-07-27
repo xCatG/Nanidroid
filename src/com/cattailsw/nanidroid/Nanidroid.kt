@@ -17,13 +17,19 @@ import android.support.v4.app.DialogFragment
 import android.support.v4.app.FragmentActivity
 import android.util.Log
 import android.view.ContextMenu
+import android.view.Gravity
 import android.view.MenuItem
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.FrameLayout
-import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
 import com.cattailsw.nanidroid.dlgs.*
+import com.cattailsw.nanidroid.compose.NanidroidComposeShell
+import com.cattailsw.nanidroid.compose.ComposeShellLifecycleOwner
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
@@ -37,9 +43,9 @@ import java.util.Arrays
 
 /**
  * The legacy activity, expressed in Kotlin without changing its view-stage
- * ownership or callback boundary.  Compose remains an optional presentation
- * overlay; XML callbacks and the SScriptRunner UICallback contract stay here
- * until the runtime has a fully characterized Compose surface.
+ * ownership or callback boundary. Compose owns the app chrome while the ghost
+ * renderer remains one retained AndroidView boundary. XML callbacks and the
+ * SScriptRunner UICallback contract stay here until their own migrations.
  */
 class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     NarPickDlg.NarPickDlgListener, MoreGhostFuncDlg.MoreGhostFuncListener,
@@ -51,11 +57,10 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private var bSakura: Balloon? = null
     private var bKero: Balloon? = null
     private var fl: FrameLayout? = null
-    private var composePresentationHost: Any? = null
-    private var btnBar: View? = null
-    private var dbgBar: View? = null
-    private var prog: View? = null
-    private var progText: TextView? = null
+    private var loading by mutableStateOf(true)
+    private var progressMessage by mutableStateOf("")
+    private var toolbarVisible by mutableStateOf(false)
+    private val composeLifecycleOwner = ComposeShellLifecycleOwner()
     private var anime: AnimationDrawable? = null
     private var lm: LayoutManager? = null
     private var runner: SScriptRunner? = null
@@ -73,11 +78,10 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.main)
         val dbgBuild = isDbgBuild()
         initGA()
-        setBackground()
         setupViews(dbgBuild)
+        setBackground()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             bSakura!!.text = "sd card error"
             ErrMsgDlg.newInstance(R.string.err_title, R.string.err_no_sdcard, ecb, FLAG_SD_ERR)
@@ -131,48 +135,66 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         kv!!.mgr = ghost.mgr
         lm!!.setViews(fl!!, sv!!, kv!!, bSakura!!, bKero!!)
         runner!!.setLayoutMgr(lm)
-        installComposePresentationRenderer()
         // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
     }
     private fun setupViews(dbgBuild: Boolean) {
-        sv = findViewById(R.id.sakura_display)
-        kv = findViewById(R.id.kero_display)
-        bSakura = findViewById(R.id.bSakura)
-        bKero = findViewById(R.id.bKero)
-        fl = findViewById(R.id.fl)
-        installComposePresentationHost()
-        btnBar = findViewById(R.id.btn_bar); dbgBar = findViewById(R.id.dbg_btn_bar)
-        prog = findViewById(R.id.progress); progText = findViewById(R.id.progress_text)
-        progText!!.setText(R.string.prog_startup)
-        if (dbgBuild) dbgBar!!.visibility = View.VISIBLE
-        registerForContextMenu(findViewById(R.id.btn_help))
+        val stage = FrameLayout(this).apply {
+            id = R.id.fl
+            setOnClickListener { frameClick(it) }
+        }
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+        bKero = Balloon(this).apply {
+            id = R.id.bKero
+            setBackgroundResource(R.drawable.balloon)
+            setTextColor(android.graphics.Color.BLACK)
+        }
+        bSakura = Balloon(this).apply {
+            id = R.id.bSakura
+            setBackgroundResource(R.drawable.balloon)
+            setTextColor(android.graphics.Color.BLACK)
+        }
+        sv = SakuraView(this).apply { id = R.id.sakura_display }
+        kv = KeroView(this).apply { id = R.id.kero_display }
+        stage.addView(bKero, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START,
+        ))
+        stage.addView(bSakura, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END,
+        ))
+        stage.addView(sv, FrameLayout.LayoutParams(dp(180), dp(240), Gravity.BOTTOM or Gravity.END))
+        stage.addView(kv, FrameLayout.LayoutParams(dp(126), dp(168), Gravity.BOTTOM or Gravity.START))
+        fl = stage
+        progressMessage = getString(R.string.prog_startup)
+        // The old XML layout is deliberately retained for the frozen Ant source.
+        // Gradle's modern activity now owns its chrome declaratively.
+        val composeRoot = ComposeView(this)
+        composeLifecycleOwner.install(composeRoot)
+        composeRoot.setContent {
+            NanidroidComposeShell(
+                ghostStage = stage,
+                loading = loading,
+                progressMessage = progressMessage,
+                toolbarVisible = toolbarVisible,
+                onListGhost = { onListGhost(stage) },
+                onUpdate = { onUpdate(stage) },
+                onPreferences = { onSetupClick(stage) },
+                onHelp = { onHelp(stage) },
+                showDebugControls = dbgBuild,
+                onNextSurface = { onNextSurface(stage) },
+                onAnimate = { onAnimate(stage) },
+                onNextGhost = { onNextGhost(stage) },
+                onRun = { runClick(stage) },
+                onNarTest = { narTest(stage) },
+            )
+        }
+        setContentView(composeRoot)
+        registerForContextMenu(stage)
         showProgress()
     }
-    private fun installComposePresentationHost() = try {
-        val hostClass = Class.forName("com.cattailsw.nanidroid.compose.GhostPresentationComposeHost")
-        composePresentationHost = hostClass.getConstructor(android.content.Context::class.java, SakuraView::class.java, KeroView::class.java).newInstance(this, sv, kv)
-        val hostView = hostClass.getMethod("getView").invoke(composePresentationHost) as View
-        hostClass.getMethod("installLifecycleOwner", View::class.java).invoke(composePresentationHost, fl!!.rootView)
-        fl!!.addView(hostView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-    } catch (unavailable: Exception) { Log.w(TAG, "Compose presentation host unavailable", unavailable) }
-    private fun installComposePresentationRenderer() {
-        val host = composePresentationHost ?: return
-        try {
-            val hostClass = host.javaClass
-            val rendererClass = Class.forName("com.cattailsw.nanidroid.ComposeBackedGhostPresentationRenderer")
-            val renderer = rendererClass.getConstructor(SakuraView::class.java, KeroView::class.java, Balloon::class.java, Balloon::class.java, LayoutManager::class.java, hostClass)
-                .newInstance(sv, kv, bSakura, bKero, lm, host) as GhostPresentationRenderer
-            runner!!.setPresentationRenderer(renderer)
-        } catch (unavailable: Exception) { Log.w(TAG, "Compose presentation renderer unavailable", unavailable) }
-    }
-    private fun updateComposePresentationLifecycle(callback: String) {
-        val host = composePresentationHost ?: return
-        try { host.javaClass.getMethod(callback).invoke(host) }
-        catch (unavailable: Exception) { Log.w(TAG, "Compose presentation lifecycle callback unavailable", unavailable) }
-    }
-    private fun showProgress() { fl!!.visibility = View.INVISIBLE; prog!!.visibility = View.VISIBLE }
-    private fun hideProgress() { prog!!.visibility = View.INVISIBLE; fl!!.visibility = View.VISIBLE }
+    private fun showProgress() { loading = true }
+    private fun hideProgress() { loading = false; toolbarVisible = true }
     private fun checkIsRestore(state: Bundle?): Boolean {
         if (state != null) { Log.d(TAG, "was minimized"); restoreFromMinimize = state.getBoolean(MIN_TAG, false); return restoreFromMinimize }; return false
     }
@@ -194,19 +216,19 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private fun dbgRelatedSetup(ghost: Ghost) { updateSurfaceKeys(ghost); currentSurfaceKey = surfaceKeys!![0]; currentSurface = ghost.mgr!!.getSakuraSurface(currentSurfaceKey!!) }
     private fun updateSurfaceKeys(ghost: Ghost) { surfaceKeys = ghost.mgr!!.getSurfaceKeys().toTypedArray(); Arrays.sort(surfaceKeys) }
 
-    override fun onPause() { updateComposePresentationLifecycle("onHostPaused"); super.onPause(); runner?.stopClock(); sendStopIntent() }
-    override fun onDestroy() { updateComposePresentationLifecycle("onHostDestroyed"); super.onDestroy(); ViewServerLifecycle.onActivityDestroyed(this); sendStopIntent() }
-    override fun onResume() { super.onResume(); updateComposePresentationLifecycle("onHostResumed"); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG); ViewServerLifecycle.onActivityResumed(this) }
+    override fun onPause() { composeLifecycleOwner.pause(); super.onPause(); runner?.stopClock(); sendStopIntent() }
+    override fun onDestroy() { composeLifecycleOwner.destroy(); super.onDestroy(); ViewServerLifecycle.onActivityDestroyed(this); sendStopIntent() }
+    override fun onResume() { super.onResume(); composeLifecycleOwner.resume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG); ViewServerLifecycle.onActivityResumed(this) }
     @Suppress("DEPRECATION") override fun onBackPressed() { val r = runner; if (r != null) { r.stopClock(); r.setCallback(mscb); r.stop(); r.doExit() } else super.onBackPressed() }
     private val mscb = object : SScriptRunner.StatusCallback {
         override fun stop() = Unit
         override fun canExit() { runner!!.setCallback(null); finish() }
         override fun ghostSwitchScriptComplete() { runner!!.setCallback(null); runOnUiThread(ghostSwitchStep2Caller) }
     }
-    private val mGH = object : Handler() { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progText!!.setText(R.string.prog_startup); MSG_LOAD_F -> progText!!.text = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> progText!!.text = String.format(getString(R.string.load_g), gm!!.getGhostDispName(nextGhostId!!)) } } }
+    private val mGH = object : Handler() { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(nextGhostId!!)) } } }
     private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (initComplete) lm!!.checkAndUpdateLayoutParam() }
-    private fun checkAndLoadAnimation() { sv!!.changeSurface(currentSurfaceKey!!); kv!!.changeSurface("10"); lm!!.checkAndUpdateLayoutParam(); if (!sv!!.hasAnimation()) findViewById<View>(R.id.btn2).isEnabled = false else { animeIndex = currentSurface!!.getFirstAnimationIndex(); sv!!.loadAnimation("$animeIndex"); findViewById<View>(R.id.btn2).isEnabled = true } }
+    private fun checkAndLoadAnimation() { sv!!.changeSurface(currentSurfaceKey!!); kv!!.changeSurface("10"); lm!!.checkAndUpdateLayoutParam(); if (!sv!!.hasAnimation()) findViewById<View>(R.id.btn2)?.isEnabled = false else { animeIndex = currentSurface!!.getFirstAnimationIndex(); sv!!.loadAnimation("$animeIndex"); findViewById<View>(R.id.btn2)?.isEnabled = true } }
     fun onNextSurface(v: View) { val keys = surfaceKeys!!; keyindex = if (keyindex < keys.size - 1) keyindex + 1 else 0; currentSurfaceKey = keys[keyindex]; Log.d(TAG, "loading surface:$currentSurfaceKey"); currentSurface = sv!!.mgr!!.getSakuraSurface(currentSurfaceKey!!); bSakura!!.text = "current drawable key: $currentSurfaceKey, animation count: ${currentSurface!!.getAnimationCount()}, collision count: ${currentSurface!!.getCollisionCount()}"; checkAndLoadAnimation() }
     fun onAnimate(v: View) = showCollisionAreaOnImageView()
     private fun pickNextAnimation() { if (currentSurface!!.getAnimationCount() > 1) { animeIndex = (animeIndex + 1) % currentSurface!!.getAnimationCount(); sv!!.loadAnimation("$animeIndex") } }
@@ -249,7 +271,10 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     override fun onCreateContextMenu(menu: ContextMenu, v: View, menuInfo: ContextMenu.ContextMenuInfo?) { super.onCreateContextMenu(menu, v, menuInfo); menuInflater.inflate(R.menu.main_help_menu, menu) }
     fun onSetupClick(v: View) = showPreference()
     private fun showPreference() { val target = Intent(Intent.ACTION_VIEW); target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET); target.setClassName(this, Preferences::class.java.name); AnalyticsUtils.getInstance(this).trackPageView("/Preference"); startActivity(target) }
-    fun frameClick(v: View) { if (btnBar!!.visibility != View.VISIBLE) { AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar"); btnBar!!.visibility = View.VISIBLE } else btnBar!!.visibility = View.GONE }
+    fun frameClick(v: View) {
+        if (!toolbarVisible) AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar")
+        toolbarVisible = !toolbarVisible
+    }
     private val ecb = ErrMsgDlg.ErrDlgCallback { flag -> if (FLAG_SD_ERR == flag) finish() }
     override fun onFinishUserInput(id: String, userinput: String) { Log.d(TAG, "got user input:$userinput"); runner!!.resumeEvt(); runner!!.doUserInput(id, userinput) }
     override fun onCancelInput() { Log.d(TAG, "user cancel"); runner!!.resumeEvt() }

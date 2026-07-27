@@ -330,6 +330,7 @@ val deviceCharacterizationTests = listOf(
     "test/device/com/cattailsw/nanidroid/" +
         "SurfaceAnimationExecutionCharacterizationTest.java",
     "test/device/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
+    "test/device/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",
     "test/device/com/cattailsw/nanidroid/install/" +
         "NarFilesystemInspectorInstrumentationTest.java",
     "test/device/com/cattailsw/nanidroid/install/" +

@@ -84,6 +84,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/device/com/cattailsw/nanidroid/PreferencesScreenTest.kt"
             ),
             pathlib.PurePosixPath(
+                "test/device/com/cattailsw/nanidroid/compose/"
+                "NanidroidComposeShellTest.kt"
+            ),
+            pathlib.PurePosixPath(
                 "test/device/com/cattailsw/nanidroid/install/"
                 "NarFilesystemInspectorInstrumentationTest.java"
             ),

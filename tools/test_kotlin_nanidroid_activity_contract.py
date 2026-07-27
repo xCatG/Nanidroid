@@ -22,9 +22,10 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java").exists())
         self.assertTrue((ROOT / "legacy/src/com/cattailsw/nanidroid/Nanidroid.java").exists())
         self.assertIn("class Nanidroid : FragmentActivity()", self.source)
-        self.assertIn("setContentView(R.layout.main)", self.source)
+        self.assertIn("composeRoot.setContent {", self.source)
+        self.assertIn("NanidroidComposeShell(", self.source)
 
-    def test_xml_stage_and_dialog_callback_names_remain_public(self):
+    def test_retained_stage_and_dialog_callback_names_remain_public(self):
         for callback in (
             "fun onNextSurface(v: View)",
             "fun onAnimate(v: View)",
@@ -40,8 +41,9 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
             "override fun showUserSelection(textlabel: Array<String>, ids: Array<String>)",
         ):
             self.assertIn(callback, self.source)
-        self.assertIn("sv = findViewById(R.id.sakura_display)", self.source)
-        self.assertIn("kv = findViewById(R.id.kero_display)", self.source)
+        self.assertIn("sv = SakuraView(this).apply { id = R.id.sakura_display }", self.source)
+        self.assertIn("kv = KeroView(this).apply { id = R.id.kero_display }", self.source)
+        self.assertIn("ghostStage = stage", self.source)
         self.assertIn("runner!!.setUICallback(this@Nanidroid)", self.source)
 
     def test_incoming_nar_boundary_remains_https_approval_before_service_start(self):
