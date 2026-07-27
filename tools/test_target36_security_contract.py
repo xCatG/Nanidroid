@@ -73,11 +73,16 @@ class Target36SecurityContractTest(unittest.TestCase):
         )
 
     def test_network_stack_rejects_cleartext_and_permissive_tls(self):
-        source = (ROOT / "src/com/cattailsw/nanidroid/util/NetworkUtil.java").read_text(encoding="utf-8")
+        source = (ROOT / "src/com/cattailsw/nanidroid/util/NetworkUtil.kt").read_text(encoding="utf-8")
         self.assertIn("HttpsURLConnection", source)
         self.assertIn("requireHttps", source)
         self.assertNotIn("DefaultHttpClient", source)
         self.assertNotIn("MyVerifier", source)
+        legacy_source = (
+            ROOT / "legacy/src/com/cattailsw/nanidroid/util/NetworkUtil.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Frozen Ant-build compatibility shim", legacy_source)
+        self.assertIn("requireHttps", legacy_source)
 
     def test_production_sources_do_not_depend_on_removed_apache_http(self):
         source_root = ROOT / "src"

@@ -11,12 +11,11 @@ import java.util.zip.GZIPInputStream;
 
 import javax.net.ssl.HttpsURLConnection;
 
-/** HTTPS-only network boundary for archive and update downloads. */
+/** Frozen Ant-build compatibility shim; Gradle uses NetworkUtil.kt. */
 public final class NetworkUtil {
     private static final int TIMEOUT_MILLIS = 20 * 1000;
 
-    private NetworkUtil() {
-    }
+    private NetworkUtil() {}
 
     public static boolean exists(Context context, String url) {
         HttpsURLConnection connection = null;
@@ -26,16 +25,10 @@ public final class NetworkUtil {
         } catch (IOException ignored) {
             return false;
         } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
+            if (connection != null) connection.disconnect();
         }
     }
 
-    /**
-     * The caller owns and must close the returned stream.  Closing it releases
-     * the associated connection on Android's HTTPS implementation.
-     */
     public static InputStream getURLStream(Context context, String url) throws IOException {
         HttpsURLConnection connection = open(context, url);
         int responseCode = connection.getResponseCode();
@@ -44,8 +37,8 @@ public final class NetworkUtil {
             throw new IOException("HTTPS request failed: " + responseCode);
         }
         InputStream stream = connection.getInputStream();
-        String encoding = connection.getContentEncoding();
-        return "gzip".equalsIgnoreCase(encoding) ? new GZIPInputStream(stream) : stream;
+        return "gzip".equalsIgnoreCase(connection.getContentEncoding())
+                ? new GZIPInputStream(stream) : stream;
     }
 
     private static HttpsURLConnection open(Context context, String value) throws IOException {
@@ -68,12 +61,9 @@ public final class NetworkUtil {
     }
 
     private static String buildUserAgent(Context context) {
-        if (context == null) {
-            return "Nanidroid (gzip)";
-        }
+        if (context == null) return "Nanidroid (gzip)";
         try {
-            PackageManager manager = context.getPackageManager();
-            PackageInfo info = manager.getPackageInfo(context.getPackageName(), 0);
+            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
             return info.packageName + "/" + info.versionName + " (" + info.versionCode + ") (gzip)";
         } catch (PackageManager.NameNotFoundException ignored) {
             return "Nanidroid (gzip)";
