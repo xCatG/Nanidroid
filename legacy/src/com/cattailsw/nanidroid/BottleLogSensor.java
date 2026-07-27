@@ -11,21 +11,15 @@ import com.cattailsw.nanidroid.SSTPBottleSensor.ParseException;
 
 import android.content.Context;
 
-
 public class BottleLogSensor extends SSTPBottleSensor {
-	
     public static LinkedList<String> getPageContent(Context ctx)
 	throws ApiException, ParseException {
-
 	LinkedList<String> results = getUrlContent(null, ctx);
-
 	return results;
-
     }
     
     protected static synchronized LinkedList<String> getUrlContent(String url, Context ctx) throws ApiException {
 	try {
-
             AssetManager assetManager = ctx.getAssets();
             InputStream is = assetManager.open("sstpbottlelog.log");
             BufferedReader reader = new BufferedReader(new InputStreamReader(is));
@@ -36,5 +30,4 @@ public class BottleLogSensor extends SSTPBottleSensor {
 	    throw new ApiException("Problem communicating with API", e);
 	}
     }
-    
 }
