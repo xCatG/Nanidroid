@@ -32,6 +32,11 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
         self.assertIn('CrashReporting.setCustomKey("current_ghost"', activity)
         self.assertIn("Frozen Ant-build compatibility shim", legacy_boundary)
         self.assertNotIn("org.acra", legacy_boundary)
+        legacy_app = (
+            root / "legacy/src/com/cattailsw/nanidroid/CatTailApplication.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Frozen Ant-build compatibility shim", legacy_app)
+        self.assertIn("CrashReporting.initialize(this)", legacy_app)
 
     def test_setup_documentation_preserves_no_credentials_policy(self):
         root = Path(__file__).resolve().parents[1]
