@@ -10,7 +10,9 @@ import java.io.StringReader
 
 /** Kotlin domain owner for one installed ghost and its SHIORI session. */
 open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = null) {
-    @JvmField protected var mgr: SurfaceManager? = null
+    // This was package-visible to the Activity in the Java runtime.  Kotlin's
+    // protected visibility is narrower, so retain that established package API.
+    @JvmField var mgr: SurfaceManager? = null
     @JvmField protected var shiori: Shiori? = null
     @JvmField protected var rootPath: String = ghostPath
     @JvmField protected var ghostDirName: String = File(ghostPath).name
