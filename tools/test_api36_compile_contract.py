@@ -24,7 +24,7 @@ class Api37CompileContractTest(unittest.TestCase):
 
     def test_removed_notification_setter_is_behind_the_min_sdk_bridge(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        service = (root / "src/com/cattailsw/nanidroid/NanidroidService.java").read_text(
+        service = (root / "src/com/cattailsw/nanidroid/NanidroidService.kt").read_text(
             encoding="utf-8"
         )
         bridge = (root / "src/com/cattailsw/nanidroid/LegacyNotificationBridge.java").read_text(
