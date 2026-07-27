@@ -261,6 +261,8 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 		    .newInstance(this, sv, kv);
 	    View hostView = (View) hostClass.getMethod("getView")
 		    .invoke(composePresentationHost);
+	    hostClass.getMethod("installLifecycleOwner", View.class)
+		    .invoke(composePresentationHost, fl.getRootView());
 	    fl.addView(hostView, new FrameLayout.LayoutParams(
 		    FrameLayout.LayoutParams.MATCH_PARENT,
 		    FrameLayout.LayoutParams.MATCH_PARENT));

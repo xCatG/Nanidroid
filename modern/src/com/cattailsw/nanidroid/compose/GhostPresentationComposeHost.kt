@@ -15,6 +15,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.IntSize
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.cattailsw.nanidroid.GhostPresentationFrame
 import com.cattailsw.nanidroid.KeroView
 import com.cattailsw.nanidroid.SakuraView
@@ -36,6 +44,7 @@ class GhostPresentationComposeHost(
     private var presentation by mutableStateOf(emptyPresentation())
     private var sakuraSize by mutableStateOf(IntSize.Zero)
     private var keroSize by mutableStateOf(IntSize.Zero)
+    private val lifecycleOwner = StaticLifecycleOwner()
 
     private val composeView = ComposeView(context).apply {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -50,6 +59,7 @@ class GhostPresentationComposeHost(
 
     val view: View = PassthroughComposeContainer(context).apply {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        setViewTreeLifecycleOwner(lifecycleOwner)
         addView(
             composeView,
             FrameLayout.LayoutParams(
@@ -79,6 +89,12 @@ class GhostPresentationComposeHost(
         }
     }
 
+    /** Installs the owner at the window root used by Compose's recomposer lookup. */
+    fun installLifecycleOwner(root: View) {
+        root.setViewTreeLifecycleOwner(lifecycleOwner)
+        root.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+    }
+
     private fun observeSize(view: View, update: (IntSize) -> Unit) {
         fun report() = update(IntSize(view.width, view.height))
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> report() }
@@ -103,4 +119,24 @@ private fun SurfaceSpace(size: IntSize) {
 /** The overlay is display-only until Compose owns hit testing in a later migration. */
 private class PassthroughComposeContainer(context: Context) : FrameLayout(context) {
     override fun dispatchTouchEvent(event: MotionEvent): Boolean = false
+}
+
+private class StaticLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
+    private val registry = LifecycleRegistry(this)
+    private val savedStateController = SavedStateRegistryController.create(this).apply {
+        performAttach()
+        performRestore(null)
+    }
+
+    init {
+        // SavedStateRegistryController must attach while its lifecycle is still
+        // INITIALIZED; Compose can be attached only after the owner is restored.
+        registry.currentState = Lifecycle.State.RESUMED
+    }
+
+    override val lifecycle: Lifecycle
+        get() = registry
+
+    override val savedStateRegistry: SavedStateRegistry
+        get() = savedStateController.savedStateRegistry
 }
