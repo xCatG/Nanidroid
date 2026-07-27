@@ -72,6 +72,13 @@ public class SakuraView extends ImageView {
 	currentSurfaceId = null;
     }
 
+    /** Snapshot for the Compose image layer; the legacy View retains hit testing. */
+    public SurfaceDefinition getCurrentSurfaceDefinition() {
+	if (currentSurface == null)
+	    return null;
+	return SurfaceDefinitionMapper.toSurfaceDefinition(currentSurface);
+    }
+
     protected void loadSurface(String sid) {
 	currentSurface = mgr.getSakuraSurface(sid);
     }

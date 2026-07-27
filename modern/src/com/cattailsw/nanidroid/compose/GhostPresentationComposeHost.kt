@@ -1,17 +1,22 @@
 package com.cattailsw.nanidroid.compose
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.IntSize
@@ -26,6 +31,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.cattailsw.nanidroid.GhostPresentationFrame
 import com.cattailsw.nanidroid.KeroView
 import com.cattailsw.nanidroid.SakuraView
+import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.runtime.GhostPresentationState
 
@@ -38,14 +44,18 @@ import com.cattailsw.nanidroid.runtime.GhostPresentationState
  */
 class GhostPresentationComposeHost(
     context: Context,
-    sakuraView: SakuraView,
-    keroView: KeroView,
+    private val sakuraView: SakuraView,
+    private val keroView: KeroView,
 ) {
     private var presentation by mutableStateOf(emptyPresentation())
     private var showSakuraBalloon by mutableStateOf(false)
     private var showKeroBalloon by mutableStateOf(false)
     private var sakuraSize by mutableStateOf(IntSize.Zero)
     private var keroSize by mutableStateOf(IntSize.Zero)
+    private var sakuraSurface by mutableStateOf<SurfaceDefinition?>(null)
+    private var keroSurface by mutableStateOf<SurfaceDefinition?>(null)
+    private var renderSakuraSurface by mutableStateOf(false)
+    private var renderKeroSurface by mutableStateOf(false)
     private val lifecycleOwner = StaticLifecycleOwner()
 
     private val composeView = ComposeView(context).apply {
@@ -55,8 +65,14 @@ class GhostPresentationComposeHost(
                 presentation = presentation,
                 showSakuraBalloon = showSakuraBalloon,
                 showKeroBalloon = showKeroBalloon,
-                sakuraSurface = { SurfaceSpace(sakuraSize) },
-                keroSurface = { SurfaceSpace(keroSize) },
+                sakuraSurface = {
+                    SurfaceSpace(sakuraSize)
+                    if (renderSakuraSurface) ComposeSurfaceImage(sakuraSurface, sakuraSize)
+                },
+                keroSurface = {
+                    SurfaceSpace(keroSize)
+                    if (renderKeroSurface) ComposeSurfaceImage(keroSurface, keroSize)
+                },
             )
         }
     }
@@ -82,6 +98,20 @@ class GhostPresentationComposeHost(
         composeView.post {
             showSakuraBalloon = showSakura
             showKeroBalloon = showKero
+            sakuraSurface = sakuraView.currentSurfaceDefinition
+            keroSurface = keroView.currentSurfaceDefinition
+            renderSakuraSurface = shouldRenderComposeSurface(
+                sakuraSurface,
+                frame.sakura.animationId,
+                frame.talkingAnimationEnabled,
+                frame.sakura.balloonVisible,
+            )
+            renderKeroSurface = shouldRenderComposeSurface(
+                keroSurface,
+                frame.kero.animationId,
+                frame.talkingAnimationEnabled,
+                frame.kero.balloonVisible,
+            )
             presentation = GhostPresentationReducer.snapshot(
                 sakuraText = frame.sakura.text,
                 sakuraSurfaceId = frame.sakura.surfaceId ?: "",
@@ -126,6 +156,40 @@ private fun SurfaceSpace(size: IntSize) {
             with(density) { size.height.toDp() },
         ),
     )
+}
+
+@Composable
+private fun ComposeSurfaceImage(definition: SurfaceDefinition?, size: IntSize) {
+    val image = rememberSurfaceImage(definition?.imagePath)
+    if (image != null) {
+        val density = LocalDensity.current
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            modifier = Modifier.size(
+                with(density) { size.width.toDp() },
+                with(density) { size.height.toDp() },
+            ),
+            contentScale = ContentScale.FillBounds,
+        )
+    }
+}
+
+@Composable
+private fun rememberSurfaceImage(path: String?) = androidx.compose.runtime.remember(path) {
+    path?.let(::decodeLegacyTransparentImage)
+}
+
+private fun decodeLegacyTransparentImage(path: String) = BitmapFactory.decodeFile(path)?.let { bitmap ->
+    val rendered = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+    val transparentColor = rendered.getPixel(0, 0)
+    val pixels = IntArray(rendered.width * rendered.height)
+    rendered.getPixels(pixels, 0, rendered.width, 0, 0, rendered.width, rendered.height)
+    pixels.indices.forEach { index ->
+        if (pixels[index] == transparentColor) pixels[index] = android.graphics.Color.TRANSPARENT
+    }
+    rendered.setPixels(pixels, 0, rendered.width, 0, 0, rendered.width, rendered.height)
+    rendered.asImageBitmap()
 }
 
 /** The overlay is display-only until Compose owns hit testing in a later migration. */
