@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -141,7 +142,12 @@ private fun DebugToolbar(
 @Composable
 internal fun LoadingOverlay(progressMessage: String) {
     Surface(
-        modifier = Modifier.fillMaxSize().testTag("loading-overlay"),
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("loading-overlay")
+            // The legacy progress view hid the stage. Keep it inert while a
+            // ghost is being created or switched, rather than only obscuring it.
+            .pointerInteropFilter { true },
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
     ) {
         Box(contentAlignment = Alignment.Center) {
