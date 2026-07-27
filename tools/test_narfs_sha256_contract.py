@@ -33,7 +33,7 @@ class NarfsSha256ContractTest(unittest.TestCase):
             for name in expected
         }
         self.assertEqual(expected, actual)
-        manager = (root / "src/com/cattailsw/nanidroid/GhostMgr.java").read_text()
+        manager = (root / "src/com/cattailsw/nanidroid/GhostMgr.kt").read_text()
         self.assertIn("NarTransactionalInstaller.install", manager)
         self.assertNotIn("NarUtil.readNarArchive", manager)
 

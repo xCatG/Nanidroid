@@ -7,6 +7,7 @@ import com.cattailsw.nanidroid.util.PrefUtil;
 import com.cattailsw.nanidroid.install.NarTransactionalInstaller;
 import java.io.File;
 
+/** Frozen Java implementation restored only in the disposable Ant build. */
 public class GhostMgr {
     private static final String TAG = "GhostMgr";
     private static final String PREF_LAST_RUN_GHOST = "lastrunghost";
@@ -43,33 +44,28 @@ public class GhostMgr {
 
     public Ghost createGhost(String name){
 	int id = getGhostId(name);
-	if ( id == -1 )
-	    return null;
-
+	if ( id == -1 ) return null;
 	return new Ghost(getGhostPath(id), mCtx);
     }
 
     public String getLastRunGhostId(){
 	if ( PrefUtil.hasKey(mCtx, PREF_LAST_RUN_GHOST))
 	    return PrefUtil.getKeyValue(mCtx, PREF_LAST_RUN_GHOST);
-
 	return null;
     }
 
     public void setLastRunGhost(Ghost g){
-	String gid = g.getGhostDirName();
-
-	PrefUtil.setKey(mCtx, PREF_LAST_RUN_GHOST, gid);
+	PrefUtil.setKey(mCtx, PREF_LAST_RUN_GHOST, g.getGhostDirName());
     }
 
     public String installFirstGhost(String gid, String narPath){
-    	return installGhost(gid, narPath, true);
+	return installGhost(gid, narPath, true);
     }
-    
+
     public String installGhost(String gid, String narPath){
-    	return installGhost(gid, narPath, false);
+	return installGhost(gid, narPath, false);
     }
-    
+
     public String installGhost(String ghostId, String narPath, boolean usegid){
 	if (narPath == null || mCtx.getExternalFilesDir(null) == null) {
 	    lastInstallError = "Nanidroid cannot access the selected ghost archive or storage.";
@@ -80,60 +76,44 @@ public class GhostMgr {
 	    lastInstallError = "Nanidroid cannot prepare its ghost storage.";
 	    return null;
 	}
-	NarTransactionalInstaller.Result installed =
-		NarTransactionalInstaller.install(new File(narPath), dataDir,
-				usegid ? ghostId : null);
+	NarTransactionalInstaller.Result installed = NarTransactionalInstaller.install(
+		new File(narPath), dataDir, usegid ? ghostId : null);
 	if (!installed.isSuccess()) {
 	    lastInstallError = installed.getMessage();
-		return null;
+	    return null;
 	}
-	
 	refreshGhost();
 	int gid = getGhostId(installed.getTargetId());
 	if (gid == -1) {
 	    lastInstallError = "The installed archive does not contain a usable ghost.";
 	    return null;
 	}
-	String path = getGhostPath(gid);
 	lastInstallError = null;
-	return path;
+	return getGhostPath(gid);
     }
 
-    public String getLastInstallError() {
-	return lastInstallError;
-    }
+    public String getLastInstallError() { return lastInstallError; }
 
-    public void refreshGhost(){
-	iglist = DirList.parseDataDir(mCtx);
-    }
+    public void refreshGhost(){ iglist = DirList.parseDataDir(mCtx); }
 
     public String[] getGnames(){
-	if ( iglist == null || iglist.size() == 0 )
-	    return null;
-
+	if ( iglist == null || iglist.size() == 0 ) return null;
 	String []ret = new String[iglist.size()];
 	int i =0;
-	for ( InfoOnlyGhost g: iglist ) {
-	    ret[i] = g.getGhostDirName();
-	    i++;
-	}
+	for ( InfoOnlyGhost g: iglist ) ret[i++] = g.getGhostDirName();
 	return ret;
     }
-    
-    public int getGhostCount(){
-    	return (iglist == null)?0:iglist.size();
-    }
-    
+
+    public int getGhostCount(){ return (iglist == null)?0:iglist.size(); }
+
     public File getGhostReadMe(String ghostId){
-    	String gPath = getGhostPath(getGhostId(ghostId));
-    	File readme = new File(gPath, "readme.txt");
-    	return readme;
+	return new File(getGhostPath(getGhostId(ghostId)), "readme.txt");
     }
-    
+
     public String getGhostSakuraName(String id){
-    	int gid = getGhostId(id);
-    	if ( gid == -1 ) return null;
-    	return iglist.get(gid).getSakuraName();    	
+	int gid = getGhostId(id);
+	if ( gid == -1 ) return null;
+	return iglist.get(gid).getSakuraName();
     }
 
     public String getGhostDispName(String id) {
@@ -143,23 +123,12 @@ public class GhostMgr {
     }
 
     public String[] getGDispNames() {
-	if ( iglist == null || iglist.size() == 0 )
-	    return null;
+	if ( iglist == null || iglist.size() == 0 ) return null;
 	String[] ret = new String[iglist.size()];
-	for ( int i = 0; i < iglist.size() ; i++ ) {
-	    ret[i] = iglist.get(i).getGhostName();
-	}
+	for ( int i = 0; i < iglist.size() ; i++ ) ret[i] = iglist.get(i).getGhostName();
 	return ret;
     }
 
-    public String getGhostPath(String id) {
-    	int gid = getGhostId(id);
-    	return getGhostPath(gid);
-    }
-
-    public int getGhostLaunchCount(int order) {
-	// TODO return actual launch count
-	return 0;
-    }
-
+    public String getGhostPath(String id) { return getGhostPath(getGhostId(id)); }
+    public int getGhostLaunchCount(int order) { return 0; }
 }

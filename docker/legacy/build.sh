@@ -73,6 +73,17 @@ rsync -a \
   --exclude '/**/build/' \
   "${SOURCE_ROOT}/" "${BUILD_ROOT}/"
 
+# Ant is the frozen Java-only reference lane. Gradle compiles the Kotlin
+# GhostMgr from modern sources, while this isolated build copy restores the
+# byte-compatible Java implementation without putting it back in the Gradle
+# production source set.
+readonly LEGACY_GHOST_MANAGER="${BUILD_ROOT}/legacy/src/com/cattailsw/nanidroid/GhostMgr.java"
+if [[ ! -f "${LEGACY_GHOST_MANAGER}" ]]; then
+  echo "missing frozen Java GhostMgr overlay: ${LEGACY_GHOST_MANAGER}" >&2
+  exit 2
+fi
+cp "${LEGACY_GHOST_MANAGER}" "${BUILD_ROOT}/src/com/cattailsw/nanidroid/GhostMgr.java"
+
 cat >"${BUILD_ROOT}/local.properties" <<EOF
 sdk.dir=${ANDROID_SDK_ROOT}
 ndk.dir=${ANDROID_NDK_HOME}
