@@ -3,11 +3,7 @@ package com.cattailsw.nanidroid;
 import android.content.Intent;
 import android.net.Uri;
 
-/**
- * The only externally accepted install/update entry point until the SAF picker
- * is introduced.  In particular, do not turn a caller-controlled file:// URI
- * into a private filesystem path.
- */
+/** Frozen Java security gate restored only inside the disposable Ant build. */
 final class IncomingNarIntent {
     private IncomingNarIntent() {
     }
