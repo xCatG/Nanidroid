@@ -10,6 +10,8 @@ import static org.junit.Assert.assertTrue;
 import java.nio.charset.Charset;
 import java.text.Normalizer;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import org.junit.Test;
 
@@ -39,6 +41,37 @@ public final class NarDescriptorParserTest {
         } catch (UnsupportedOperationException expected) {
             // Expected.
         }
+    }
+
+    @Test
+    public void kotlinDescriptorAndResultKeepJavaModelSemantics() {
+        Map<String, String> source = new LinkedHashMap<String, String>();
+        source.put("type", "ghost");
+        NarInstallDescriptor descriptor = new NarInstallDescriptor(
+                "ghost", "Example", "example", "example", null, source);
+        source.put("mutated", "after construction");
+
+        assertEquals("ghost", descriptor.getType());
+        assertEquals("Example", descriptor.getName());
+        assertEquals("example", descriptor.getDescriptorDirectory());
+        assertEquals("example", descriptor.getTargetId());
+        assertNull(descriptor.getAccept());
+        assertFalse(descriptor.isRefreshEnabled());
+        assertEquals("ghost", descriptor.getMetadata().get("type"));
+        assertFalse(descriptor.getMetadata().containsKey("mutated"));
+
+        NarDescriptorResult success = NarDescriptorResult.success(descriptor);
+        assertTrue(success.isSuccess());
+        assertEquals(descriptor, success.getDescriptor());
+        assertNull(success.getError());
+        assertEquals("", success.getDetail());
+
+        NarDescriptorResult failure = NarDescriptorResult.failure(
+                NarInstallError.INVALID_METADATA, "bad metadata");
+        assertFalse(failure.isSuccess());
+        assertNull(failure.getDescriptor());
+        assertEquals(NarInstallError.INVALID_METADATA, failure.getError());
+        assertEquals("bad metadata", failure.getDetail());
     }
 
     @Test

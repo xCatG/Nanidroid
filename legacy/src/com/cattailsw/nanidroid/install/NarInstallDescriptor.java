@@ -4,7 +4,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Immutable normalized metadata from a validated ghost install descriptor. */
+/** Frozen Ant-build compatibility copy; the Gradle lane is implemented in Kotlin. */
 public final class NarInstallDescriptor {
     private final String type;
     private final String name;
