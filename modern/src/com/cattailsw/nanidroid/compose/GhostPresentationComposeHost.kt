@@ -84,12 +84,12 @@ class GhostPresentationComposeHost(
             showKeroBalloon = showKero
             presentation = GhostPresentationReducer.snapshot(
                 sakuraText = frame.sakura.text,
-                sakuraSurfaceId = frame.sakura.surfaceId,
-                sakuraAnimationId = frame.sakura.animationId,
+                sakuraSurfaceId = frame.sakura.surfaceId ?: "",
+                sakuraAnimationId = frame.sakura.animationId ?: "",
                 sakuraBalloonId = if (frame.sakura.balloonVisible) "0" else "-1",
                 keroText = frame.kero.text,
-                keroSurfaceId = frame.kero.surfaceId,
-                keroAnimationId = frame.kero.animationId,
+                keroSurfaceId = frame.kero.surfaceId ?: "",
+                keroAnimationId = frame.kero.animationId ?: "",
                 keroBalloonId = if (frame.kero.balloonVisible) "0" else "-1",
             )
         }

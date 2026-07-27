@@ -1,12 +1,6 @@
 package com.cattailsw.nanidroid;
 
-/**
- * Immutable render input emitted by the Sakura Script runtime.
- *
- * <p>This deliberately contains no Android view types. The legacy renderer is
- * one consumer; a Compose renderer will consume the same presentation facts
- * after the runtime migration.</p>
- */
+/** Frozen Java frame restored only inside the disposable Ant build. */
 public final class GhostPresentationFrame {
     public static final class Speaker {
         public final String text;
