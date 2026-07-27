@@ -93,7 +93,7 @@ class BuildScriptContractTest(unittest.TestCase):
             ),
             pathlib.PurePosixPath(
                 "test/device/com/cattailsw/nanidroid/install/"
-                "NarStagedTreeInstrumentationTest.java"
+                "NarStagedTreeInstrumentationTest.kt"
             ),
         }
         device_root = project_root / "test" / "device"
@@ -161,7 +161,7 @@ class BuildScriptContractTest(unittest.TestCase):
         )
         self.assertIn(
             '"test/device/com/cattailsw/nanidroid/install/" + '
-            '"NarStagedTreeInstrumentationTest.java"',
+            '"NarStagedTreeInstrumentationTest.kt"',
             normalized,
         )
         self.assertIn(
@@ -483,7 +483,7 @@ class BuildScriptContractTest(unittest.TestCase):
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/install/"
-                "NarGhostTreePolicyTest.java"
+                "NarGhostTreePolicyTest.kt"
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/install/"
@@ -491,14 +491,14 @@ class BuildScriptContractTest(unittest.TestCase):
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/install/"
-                "NarStagedTreeInventoryTest.java"
+                "NarStagedTreeInventoryTest.kt"
             ),
             pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/install/"
-                "NarStagedTreeTest.java"
+                  "NarStagedTreeTest.kt"
             ),
-            pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.java"),
-            pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.java"),
+            pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.kt"),
+            pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.kt"),
             pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/install/NarTransactionalInstallerTest.java"),
         }
         unit_test_roots = [
@@ -621,17 +621,17 @@ class BuildScriptContractTest(unittest.TestCase):
         )
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/install/'
-            'NarGhostTreePolicyTest.java"',
+            'NarGhostTreePolicyTest.kt"',
             gradle_build,
         )
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/install/'
-            'NarStagedTreeInventoryTest.java"',
+            'NarStagedTreeInventoryTest.kt"',
             gradle_build,
         )
         self.assertIn(
             '"test/jvm/com/cattailsw/nanidroid/install/'
-            'NarStagedTreeTest.java"',
+             'NarStagedTreeTest.kt"',
             gradle_build,
         )
         self.assertIn("val missing = (expected - actual)", gradle_build)

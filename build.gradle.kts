@@ -227,6 +227,7 @@ android {
         }
         getByName("test") {
             java.srcDir("test/jvm")
+            kotlin.srcDir("test/jvm")
         }
         getByName("androidTest") {
             java.setSrcDirs(listOf("test/device"))
@@ -278,6 +279,11 @@ dependencies {
     )
     testCompileOnly(legacyTestApi)
     androidTestCompileOnly(legacyTestApi)
+    // Local JVM characterization tests use MockContext only as an identity
+    // token. API 36 removed android.test.* from its runtime stubs, so provide
+    // the frozen API façade at test runtime; affected tests bypass its stub
+    // constructor and never invoke Android APIs.
+    testRuntimeOnly(legacyTestApi)
     implementation(files("libs/android-support-v4.jar"))
     implementation(platform("com.google.firebase:firebase-bom:34.16.0"))
     implementation("com.google.firebase:firebase-crashlytics")
@@ -308,12 +314,12 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/install/NarZipCentralPreflightTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarInstallPlanValidatorTest.java",
     "test/jvm/com/cattailsw/nanidroid/install/NarStagedSourceCopyTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarGhostTreePolicyTest.java",
+    "test/jvm/com/cattailsw/nanidroid/install/NarGhostTreePolicyTest.kt",
     "test/jvm/com/cattailsw/nanidroid/install/NarFilesystemInspectorTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeInventoryTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.java",
+    "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeInventoryTest.kt",
+      "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeTest.kt",
+    "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.kt",
+    "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.kt",
     "test/jvm/com/cattailsw/nanidroid/install/NarTransactionalInstallerTest.java",
 )
 val jvmTestSources = files(
@@ -334,7 +340,7 @@ val deviceCharacterizationTests = listOf(
     "test/device/com/cattailsw/nanidroid/install/" +
         "NarFilesystemInspectorInstrumentationTest.java",
     "test/device/com/cattailsw/nanidroid/install/" +
-        "NarStagedTreeInstrumentationTest.java",
+        "NarStagedTreeInstrumentationTest.kt",
 )
 val deviceTestSources = files(
     fileTree("test/device") {
