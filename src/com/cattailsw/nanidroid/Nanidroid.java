@@ -289,6 +289,16 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 	}
     }
 
+    private void updateComposePresentationLifecycle(String callback) {
+	if (composePresentationHost == null) return;
+	try {
+	    composePresentationHost.getClass().getMethod(callback)
+		    .invoke(composePresentationHost);
+	} catch (Exception unavailable) {
+	    Log.w(TAG, "Compose presentation lifecycle callback unavailable", unavailable);
+	}
+    }
+
     private void showProgress() {
 	fl.setVisibility(View.INVISIBLE);
 	prog.setVisibility(View.VISIBLE);
@@ -381,6 +391,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
  
 
     public void onPause() {
+	updateComposePresentationLifecycle("onHostPaused");
 	super.onPause();
 	if ( runner!= null ) { 
 	    runner.stopClock();
@@ -390,6 +401,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
     }
 
     public void onDestroy() {
+	updateComposePresentationLifecycle("onHostDestroyed");
 	super.onDestroy();
 	ViewServerLifecycle.onActivityDestroyed(this);
 	sendStopIntent();
@@ -397,6 +409,7 @@ public class Nanidroid extends FragmentActivity implements EnterUrlDlg.EUrlDlgLi
 
     public void onResume() {
 	super.onResume();
+	updateComposePresentationLifecycle("onHostResumed");
 	if ( initComplete && runner != null ) { 
 	    runner.startClock();
 	    runner.run();

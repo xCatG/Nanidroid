@@ -101,6 +101,12 @@ class GhostPresentationComposeHost(
         root.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
     }
 
+    fun onHostResumed() = lifecycleOwner.resume()
+
+    fun onHostPaused() = lifecycleOwner.pause()
+
+    fun onHostDestroyed() = lifecycleOwner.destroy()
+
     private fun observeSize(view: View, update: (IntSize) -> Unit) {
         fun report() = update(IntSize(view.width, view.height))
         view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> report() }
@@ -134,10 +140,16 @@ private class StaticLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
         performRestore(null)
     }
 
-    init {
-        // SavedStateRegistryController must attach while its lifecycle is still
-        // INITIALIZED; Compose can be attached only after the owner is restored.
+    fun resume() {
         registry.currentState = Lifecycle.State.RESUMED
+    }
+
+    fun pause() {
+        registry.currentState = Lifecycle.State.CREATED
+    }
+
+    fun destroy() {
+        registry.currentState = Lifecycle.State.DESTROYED
     }
 
     override val lifecycle: Lifecycle
