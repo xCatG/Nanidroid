@@ -85,7 +85,7 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
     fun getStringFromShiori(id: String): String? {
         if (shiori == null) return null
         val response = doShioriEvent(id, null)
-        return if (response.statusCode == 200) response.getKey("Value") else null
+        return if (response.getStatusCode() == 200) response.getKey("Value") else null
     }
 
     open fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse {
