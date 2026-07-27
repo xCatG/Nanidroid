@@ -6,6 +6,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -132,6 +133,29 @@ public class SurfaceDefinitionCharacterizationTest {
         assertEquals(2, definition.getAnimations().get(0).getFrames().size());
         assertEquals(ShellSurface.TYPE_RESET,
                 definition.getAnimations().get(0).getFrames().get(0).getType());
+    }
+
+    @Test
+    public void composeBoundary_preservesAlternativeAnimationTargets() throws Exception {
+        File shellRoot = temporaryFolder.newFolder("alternative-animation");
+        File descriptor = new File(shellRoot, "surfaces.txt");
+        FileOutputStream output = new FileOutputStream(descriptor);
+        try {
+            output.write(("surface0\n{\n"
+                    + "0pattern0,0,0,alternativestart,[1.2]\n"
+                    + "}\n").getBytes(Charset.forName("Shift_JIS")));
+        } finally {
+            output.close();
+        }
+
+        SurfaceManager manager = new SurfaceManager("synthetic-ghost");
+        new SurfaceReader(manager, shellRoot.getAbsolutePath() + File.separator,
+                descriptor.getAbsolutePath());
+        SurfaceAnimation animation = SurfaceDefinitionMapper.toSurfaceDefinition(
+                manager.getSurface("0")).getAnimations().get(0);
+
+        assertEquals(Arrays.asList("1", "2"), animation.getAlternativeAnimationIds());
+        assertTrue(animation.getFrames().isEmpty());
     }
 
     private LoadedFixture loadGroupedSurfacesFixture() throws Exception {

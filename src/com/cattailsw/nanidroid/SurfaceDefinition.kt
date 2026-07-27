@@ -29,6 +29,7 @@ data class SurfaceAnimation(
     val interval: Int,
     val exclusive: Boolean,
     val frames: List<SurfaceAnimationFrame>,
+    val alternativeAnimationIds: List<String> = emptyList(),
 )
 
 data class SurfaceAnimationFrame(
@@ -96,6 +97,10 @@ fun ShellSurface.toSurfaceDefinition(): SurfaceDefinition = SurfaceDefinition(
                         height = frame.H,
                     )
                 },
+                alternativeAnimationIds = (animation as? ShellSurface.AltAnimation)
+                    ?.refidz
+                    ?.toList()
+                    ?: emptyList(),
             )
         },
     elements = (elementList ?: emptyList()).mapIndexed { index, element ->
