@@ -11,8 +11,8 @@ class LegacyGhostPresentationRenderer(
     private val layoutManager: LayoutManager?,
 ) : GhostPresentationRenderer {
     override fun render(frame: GhostPresentationFrame) {
-        sakura.changeSurface(frame.sakura.surfaceId)
-        kero.changeSurface(frame.kero.surfaceId)
+        sakura.changeSurface(frame.sakura.surfaceId!!)
+        kero.changeSurface(frame.kero.surfaceId!!)
         renderBalloon(sakura, sakuraBalloon, frame.sakura, frame.talkingAnimationEnabled)
         renderBalloon(kero, keroBalloon, frame.kero, frame.talkingAnimationEnabled)
         layoutManager?.checkAndUpdateLayoutParam()
