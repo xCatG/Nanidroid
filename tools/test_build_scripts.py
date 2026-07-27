@@ -503,6 +503,7 @@ class BuildScriptContractTest(unittest.TestCase):
             pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/NanidroidShioriCharacterizationTest.java"),
             pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/compose/SurfaceRenderPlanTest.kt"),
             pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/compose/SurfaceCompositorTest.kt"),
+            pathlib.PurePosixPath("test/jvm/com/cattailsw/nanidroid/compose/SurfaceAnimationSchedulerTest.kt"),
         }
         unit_test_roots = [
             root
