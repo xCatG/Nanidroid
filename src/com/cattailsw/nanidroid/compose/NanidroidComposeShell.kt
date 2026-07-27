@@ -82,7 +82,9 @@ internal fun NanidroidToolbar(
     onHelp: () -> Unit,
 ) {
     TopAppBar(
-        title = { Text("Nanidroid") },
+        // The legacy button strip had no title. Keeping this slot empty leaves
+        // enough horizontal space for every desktop-style control on a phone.
+        title = {},
         actions = {
             Button(onClick = onListGhost, modifier = Modifier.testTag("list-ghost")) { Text("Ghosts") }
             Button(onClick = onUpdate, modifier = Modifier.testTag("update")) { Text("Update") }
