@@ -2,5 +2,5 @@
 <resources>
     <dimen name="user_input_dlg_min_width">240dp</dimen>
     <dimen name="url_dlg_min_width">240dp</dimen>
-    
+    <dimen name="preferences_content_padding">16dp</dimen>
 </resources>

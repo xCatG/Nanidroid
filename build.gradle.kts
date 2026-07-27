@@ -230,6 +230,7 @@ android {
         }
         getByName("androidTest") {
             java.setSrcDirs(listOf("test/device"))
+            kotlin.setSrcDirs(listOf("test/device"))
             manifest.srcFile("test/device/AndroidManifest.xml")
         }
         getByName("emulator") {
@@ -264,7 +265,9 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.compose.material3:material3")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // API 36 no longer exposes android.test.*. Keep the frozen legacy
@@ -324,6 +327,7 @@ val deviceCharacterizationTests = listOf(
         "SurfaceRenderingCharacterizationTest.java",
     "test/device/com/cattailsw/nanidroid/" +
         "SurfaceAnimationExecutionCharacterizationTest.java",
+    "test/device/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
     "test/device/com/cattailsw/nanidroid/install/" +
         "NarFilesystemInspectorInstrumentationTest.java",
     "test/device/com/cattailsw/nanidroid/install/" +
