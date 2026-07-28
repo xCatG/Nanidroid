@@ -84,7 +84,9 @@ class ComposeGhostStageHost(
         val manager = activeSurfaceManager
         val state = runtimeState
         val plans = remember(manager) { manager?.getSurfaceKeys()
-            ?.mapNotNull { id -> manager.getSurface(id)?.toSurfaceDefinition()?.toSurfaceRenderPlan() }.orEmpty() }
+            ?.mapNotNull { id -> manager.getSurface(id)?.toSurfaceDefinition()?.toSurfaceRenderPlan() }
+            ?.filter { it.isRenderableSurface() }
+            .orEmpty() }
         val compositor = remember(manager) { SurfaceCompositor(AndroidSurfacePixelAssets, SurfacePlanRegistry(plans)) }
         val sakura = manager.speakerSurface(state.presentation.sakura.surfaceId, true)
         val kero = manager.speakerSurface(state.presentation.kero.surfaceId, false)
@@ -269,13 +271,16 @@ class ComposeGhostStageHost(
             val shell = if (sakura) this?.getSakuraSurface(id) else this?.getKeroSurface(id)
             val definition = shell?.toSurfaceDefinition()
             val plan = definition.toSurfaceRenderPlan()
-            if (plan.width.toLong() * plan.height.toLong() > MAX_RENDERABLE_SURFACE_PIXELS) {
+            if (!plan.isRenderableSurface()) {
                 SpeakerSurface(definition, SurfaceRenderPlan.Missing, false)
             } else {
                 SpeakerSurface(definition, plan, true)
             }
         }
     }
+
+    private fun SurfaceRenderPlan.isRenderableSurface(): Boolean =
+        width >= 0 && height >= 0 && width.toLong() * height.toLong() <= MAX_RENDERABLE_SURFACE_PIXELS
 
     private companion object {
         /** 32 MiB of ARGB pixels; oversized frames remain usable but uncached. */
