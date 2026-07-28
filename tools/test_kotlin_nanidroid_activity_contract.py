@@ -80,7 +80,8 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         # The runtime—not a short-lived Activity host—owns its shared talk gate.
         self.assertIn("transition.state.talkingAnimationEnabled", stage)
         # Asset decoding and scheduler work must stop when the stage is paused.
-        self.assertIn("renderedFrames[key]?.let { return it }", stage)
+        self.assertIn("activeRenderedImages", stage)
+        self.assertIn("renderedFrames[key]?.let", stage)
         self.assertIn("MAX_CACHED_FRAME_PIXELS", stage)
         self.assertIn("LifecycleEventObserver", stage)
         self.assertIn("if (!stageStarted) return@LaunchedEffect", stage)

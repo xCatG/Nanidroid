@@ -47,6 +47,10 @@ class ComposeGhostStageHost(
        never reopen/decode assets merely because an animation clock ticked. */
     private val speakerSurfaces = mutableMapOf<SpeakerSurfaceKey, SpeakerSurface>()
     private val renderedFrames = LinkedHashMap<RenderedFrameKey, SurfacePixelImage>(16, 0.75f, true)
+    // The two visible speakers are not historical cache entries. Keeping them
+    // independently avoids re-decoding a valid large surface on every script
+    // character while the bounded LRU protects the rest of the app heap.
+    private val activeRenderedImages = mutableMapOf<SurfaceSpeaker, ActiveRenderedImage>()
     private var renderedFramePixels = 0L
 
     val renderer = KotlinGhostPresentationRuntime { transition ->
@@ -157,6 +161,7 @@ class ComposeGhostStageHost(
     private data class SpeakerSurface(val definition: SurfaceDefinition?, val plan: SurfaceRenderPlan, val visible: Boolean)
     private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
     private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
+    private data class ActiveRenderedImage(val key: RenderedFrameKey, val image: SurfacePixelImage)
 
     private fun renderedImage(
         compositor: SurfaceCompositor,
@@ -166,8 +171,13 @@ class ComposeGhostStageHost(
         frame: SurfaceRenderFrame?,
     ): SurfacePixelImage {
         val key = RenderedFrameKey(speaker, surfaceId, frame)
-        renderedFrames[key]?.let { return it }
+        activeRenderedImages[speaker]?.takeIf { it.key == key }?.let { return it.image }
+        renderedFrames[key]?.let {
+            activeRenderedImages[speaker] = ActiveRenderedImage(key, it)
+            return it
+        }
         val image = frame?.let { compositor.frame(plan, it) } ?: compositor.normal(plan)
+        activeRenderedImages[speaker] = ActiveRenderedImage(key, image)
         val pixels = image.width.toLong() * image.height.toLong()
         if (pixels > MAX_CACHED_FRAME_PIXELS) return image
         while (renderedFramePixels + pixels > MAX_CACHED_FRAME_PIXELS && renderedFrames.isNotEmpty()) {
@@ -196,6 +206,7 @@ class ComposeGhostStageHost(
 
     private fun clearRenderedFrames() {
         renderedFrames.clear()
+        activeRenderedImages.clear()
         renderedFramePixels = 0L
     }
 
