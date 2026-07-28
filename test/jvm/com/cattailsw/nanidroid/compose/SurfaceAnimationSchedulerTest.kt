@@ -49,6 +49,22 @@ class SurfaceAnimationSchedulerTest {
     }
 
     @Test
+    fun `frame-only ticks do not consume the first deferred periodic roll`() {
+        val clock = FakeClock()
+        val scheduler = SurfaceAnimationScheduler(
+            plan = plan(animation("rare", ShellSurface.A_TYPE_RARELY)),
+            clock = clock,
+            entropy = FixedEntropy(0.0),
+        )
+
+        // The Compose host advances frames immediately but deliberately waits
+        // one full second before allowing rarely/sometimes selection.
+        assertTrue(scheduler.tick(allowPeriodicSelection = false).isEmpty())
+        clock.nowMillis = 1_000
+        assertEquals(listOf(frame("rare", 0, 1)), scheduler.tick(allowPeriodicSelection = true))
+    }
+
+    @Test
     fun `talking fires every tenth presentation update and explicit script animation wins that update`() {
         val clock = FakeClock()
         val scheduler = SurfaceAnimationScheduler(
