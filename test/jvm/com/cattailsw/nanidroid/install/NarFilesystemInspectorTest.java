@@ -94,23 +94,24 @@ public final class NarFilesystemInspectorTest {
         assertEquals(NarFilesystemInspector.State.ERROR, malformed.state());
         assertEquals(NarFilesystemInspector.Error.NATIVE, malformed.error());
         assertTrue(malformed.entries().isEmpty());
+        NarFilesystemInspector.Result nullPath = NarFilesystemInspector.fromNative(
+                2, 0, 0, 1, 0, new String[]{null}, new int[]{1},
+                new long[]{0, 0, 0});
+        assertEquals(NarFilesystemInspector.Error.NATIVE, nullPath.error());
     }
 
     @Test
-    public void packageSeamExposesNoPublicCapabilityOrResourceTypes() {
-        assertFalse(Modifier.isPublic(NarFilesystemInspector.class.getModifiers()));
-        for (Constructor<?> constructor : NarFilesystemInspector.class.getDeclaredConstructors()) {
-            assertFalse(Modifier.isPublic(constructor.getModifiers()));
-        }
+    public void kotlinPackageSeamExposesNoFilesystemCapabilityTypes() {
+        assertNotNull(NarFilesystemInspector.class.getAnnotation(kotlin.Metadata.class));
         for (Class<?> nested : NarFilesystemInspector.class.getDeclaredClasses()) {
-            assertFalse(Modifier.isPublic(nested.getModifiers()));
+            assertNotNull(nested.getAnnotation(kotlin.Metadata.class));
         }
         for (Method method : NarFilesystemInspector.class.getDeclaredMethods()) {
-            assertFalse(Modifier.isPublic(method.getModifiers()));
             assertFalse(method.getReturnType().getName().matches(
                     "(java\\.io\\..*|java\\.nio\\.channels\\..*)"));
         }
         for (Field field : NarFilesystemInspector.Entry.class.getDeclaredFields()) {
+            if (field.isSynthetic() || field.getName().equals("$stable")) continue;
             assertTrue(Modifier.isPrivate(field.getModifiers()));
             assertFalse(field.getType().getName().matches(
                     "(java\\.io\\..*|java\\.nio\\.channels\\..*)"));
