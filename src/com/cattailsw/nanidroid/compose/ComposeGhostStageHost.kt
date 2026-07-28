@@ -103,6 +103,7 @@ class ComposeGhostStageHost(
         }
         LaunchedEffect(sakuraScheduler, keroScheduler, stageStarted) {
             if (!stageStarted) return@LaunchedEffect
+            rearmPeriodicTicks()
             while (true) { delay(16); tickSchedulers() }
         }
         GhostPresentationStage(
@@ -257,6 +258,10 @@ class ComposeGhostStageHost(
         val periodicSelectionDue = nowMillis >= (nextPeriodicTicks[this] ?: Long.MAX_VALUE)
         tick(allowPeriodicSelection = periodicSelectionDue).applyFrames(speaker)
         if (periodicSelectionDue) nextPeriodicTicks[this] = nowMillis + PERIODIC_ANIMATION_INTERVAL_MILLIS
+    }
+    private fun rearmPeriodicTicks() {
+        val nextTick = SystemClock.uptimeMillis() + PERIODIC_ANIMATION_INTERVAL_MILLIS
+        nextPeriodicTicks.keys.forEach { scheduler -> nextPeriodicTicks[scheduler] = nextTick }
     }
     private fun List<SurfaceAnimationScheduleEffect>?.applyFrames(speaker: GhostSpeaker) {
         this?.filterIsInstance<SurfaceAnimationScheduleEffect.Frame>()?.lastOrNull()?.frame?.let {
