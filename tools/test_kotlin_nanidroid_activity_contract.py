@@ -42,7 +42,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         ):
             self.assertIn(callback, self.source)
         self.assertIn("private val composeStage = ComposeGhostStageHost(", self.source)
-        self.assertIn("ghostStage = { composeStage.Stage() },", self.source)
+        self.assertIn("ghostStage = { composeStage.Stage(onSurfaceTap = { frameClick(composeRoot) }) },", self.source)
         self.assertIn("runner!!.setPresentationRenderer(composeStage.renderer)", self.source)
         self.assertIn("runner!!.setUICallback(this@Nanidroid)", self.source)
         self.assertNotIn("SakuraView(this)", self.source)

@@ -151,7 +151,7 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         composeLifecycleOwner.install(composeRoot)
         composeRoot.setContent {
             NanidroidComposeShell(
-                ghostStage = { composeStage.Stage() },
+                ghostStage = { composeStage.Stage(onSurfaceTap = { frameClick(composeRoot) }) },
                 loading = loading,
                 progressMessage = progressMessage,
                 toolbarVisible = toolbarVisible,

@@ -80,7 +80,7 @@ class ComposeGhostStageHost(
     }
 
     @Composable
-    fun Stage(modifier: Modifier = Modifier) {
+    fun Stage(modifier: Modifier = Modifier, onSurfaceTap: () -> Unit = {}) {
         val manager = activeSurfaceManager
         val state = runtimeState
         val plans = remember(manager) { manager?.getSurfaceKeys()
@@ -110,8 +110,8 @@ class ComposeGhostStageHost(
             sakuraSurfaceSize = IntSize(sakura.plan.width, sakura.plan.height),
             keroSurfaceSize = IntSize(kero.plan.width, kero.plan.height),
             modifier = modifier,
-            sakuraSurface = { if (sakura.visible) SurfaceNode(SurfaceSpeaker.SAKURA, sakura.definition, sakuraImage, sakura.plan) },
-            keroSurface = { if (kero.visible) SurfaceNode(SurfaceSpeaker.KERO, kero.definition, keroImage, kero.plan) },
+            sakuraSurface = { if (sakura.visible) SurfaceNode(SurfaceSpeaker.SAKURA, sakura.definition, sakuraImage, sakura.plan, onSurfaceTap) },
+            keroSurface = { if (kero.visible) SurfaceNode(SurfaceSpeaker.KERO, kero.definition, keroImage, kero.plan, onSurfaceTap) },
         )
     }
 
@@ -121,6 +121,7 @@ class ComposeGhostStageHost(
         definition: SurfaceDefinition?,
         image: SurfacePixelImage,
         plan: SurfaceRenderPlan,
+        onSurfaceTap: () -> Unit,
     ) {
         var renderedSize by remember { mutableStateOf(IntSize.Zero) }
         val latestImage by rememberUpdatedState(image)
@@ -152,6 +153,10 @@ class ComposeGhostStageHost(
                                 position = SurfacePointerPosition(position.x, position.y),
                             )
                             SurfacePointerInteractionDispatcher(interactionPort).dispatch(resolution)
+                            // SakuraView/KeroView returned the touch to their
+                            // clickable FrameLayout; preserve that simultaneous
+                            // toolbar-toggle behavior for Compose surfaces.
+                            onSurfaceTap()
                         },
                     )
                 },
@@ -275,7 +280,9 @@ class ComposeGhostStageHost(
     private companion object {
         /** 32 MiB of ARGB pixels; oversized frames remain usable but uncached. */
         const val MAX_CACHED_FRAME_PIXELS = 8L * 1024L * 1024L
-        const val MAX_RENDERABLE_SURFACE_PIXELS = 16L * 1024L * 1024L
+        // Rendering creates several temporary ARGB copies; keep malicious or
+        // unusually huge installed surfaces well below a typical app heap.
+        const val MAX_RENDERABLE_SURFACE_PIXELS = 1L * 1024L * 1024L
         const val PERIODIC_ANIMATION_INTERVAL_MILLIS = 1_000L
     }
 }
