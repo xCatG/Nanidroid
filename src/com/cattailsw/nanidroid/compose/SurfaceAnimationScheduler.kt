@@ -345,10 +345,15 @@ class SurfaceAnimationScheduler(
     var state: SurfaceAnimationScheduleState = SurfaceAnimationScheduleState.Idle
         private set
 
-    fun tick(): List<SurfaceAnimationScheduleEffect> {
+    /**
+     * Advances an active frame on every render tick. Hosts can defer periodic
+     * rarely/sometimes selection until their first full clock interval while
+     * retaining normal frame advancement.
+     */
+    fun tick(allowPeriodicSelection: Boolean = true): List<SurfaceAnimationScheduleEffect> {
         val nowMillis = clock.nowMillis()
         val observedSecond = nowMillis.coerceAtLeast(0) / 1_000L
-        val shouldRoll = state.lastObservedSecond?.let { observedSecond > it } ?: true
+        val shouldRoll = allowPeriodicSelection && (state.lastObservedSecond?.let { observedSecond > it } ?: true)
         // SScriptRunner only calls Math.random when a new second is observed;
         // consuming entropy for every UI tick would make its next visible
         // choice depend on render-loop frequency.

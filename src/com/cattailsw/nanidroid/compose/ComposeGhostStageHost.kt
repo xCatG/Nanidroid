@@ -9,6 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -67,6 +68,7 @@ class ComposeGhostStageHost(
             sakuraFrame = null
             keroFrame = null
             schedulerSurfaceIds.clear()
+            nextPeriodicTicks.clear()
             speakerSurfaces.clear()
             clearRenderedFrames()
         }
@@ -82,8 +84,8 @@ class ComposeGhostStageHost(
         val compositor = remember(manager) { SurfaceCompositor(AndroidSurfacePixelAssets, SurfacePlanRegistry(plans)) }
         val sakura = manager.speakerSurface(state.presentation.sakura.surfaceId, true)
         val kero = manager.speakerSurface(state.presentation.kero.surfaceId, false)
-        val sakuraImage = renderedImage(compositor, SurfaceSpeaker.SAKURA, state.presentation.sakura.surfaceId, sakura.plan, sakuraFrame)
-        val keroImage = renderedImage(compositor, SurfaceSpeaker.KERO, state.presentation.kero.surfaceId, kero.plan, keroFrame)
+        val sakuraImage = safeRenderedImage(compositor, SurfaceSpeaker.SAKURA, state.presentation.sakura.surfaceId, sakura.plan, sakuraFrame)
+        val keroImage = safeRenderedImage(compositor, SurfaceSpeaker.KERO, state.presentation.kero.surfaceId, kero.plan, keroFrame)
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         var stageStarted by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
         DisposableEffect(lifecycle) {
@@ -117,25 +119,31 @@ class ComposeGhostStageHost(
         plan: SurfaceRenderPlan,
     ) {
         var renderedSize by remember { mutableStateOf(IntSize.Zero) }
+        val latestImage by rememberUpdatedState(image)
+        val latestDefinition by rememberUpdatedState(definition)
+        val latestPlan by rememberUpdatedState(plan)
         SurfaceCompositorImage(
             image = image,
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { renderedSize = it }
-                .pointerInput(speaker, definition, image, renderedSize) {
+                // Frame changes must not cancel an in-progress tap. The
+                // handler is keyed to the selected surface and reads the
+                // latest frame/state through rememberUpdatedState instead.
+                .pointerInput(speaker, plan.surfaceId) {
                     detectTapGestures(
                         onTap = { position ->
                             val resolution = SurfacePointerInteractionMapper.map(
                                 speaker = speaker,
-                                definition = definition,
-                                image = image,
+                                definition = latestDefinition,
+                                image = latestImage,
                                 transform = SurfacePointerTransform(
                                     left = 0f,
                                     top = 0f,
                                     renderedWidth = renderedSize.width.toFloat(),
                                     renderedHeight = renderedSize.height.toFloat(),
-                                    sourceWidth = plan.width,
-                                    sourceHeight = plan.height,
+                                    sourceWidth = latestPlan.width,
+                                    sourceHeight = latestPlan.height,
                                 ),
                                 position = SurfacePointerPosition(position.x, position.y),
                             )
@@ -172,6 +180,20 @@ class ComposeGhostStageHost(
         return image
     }
 
+    private fun safeRenderedImage(
+        compositor: SurfaceCompositor,
+        speaker: SurfaceSpeaker,
+        surfaceId: String,
+        plan: SurfaceRenderPlan,
+        frame: SurfaceRenderFrame?,
+    ): SurfacePixelImage = try {
+        renderedImage(compositor, speaker, surfaceId, plan, frame)
+    } catch (_: IllegalArgumentException) {
+        // Installed ghosts are data, not trusted program input. A pathological
+        // bitmap/canvas must hide that surface instead of crashing the stage.
+        SurfacePixelImage.Empty
+    }
+
     private fun clearRenderedFrames() {
         renderedFrames.clear()
         renderedFramePixels = 0L
@@ -199,14 +221,24 @@ class ComposeGhostStageHost(
     /* Scheduler has no plan getter by design; retaining the selected surface id
        at this host boundary keeps scheduler state scoped to one surface. */
     private val schedulerSurfaceIds = java.util.IdentityHashMap<SurfaceAnimationScheduler, Int?>()
+    private val nextPeriodicTicks = java.util.IdentityHashMap<SurfaceAnimationScheduler, Long>()
     private fun newScheduler(plan: SurfaceRenderPlan): SurfaceAnimationScheduler =
         SurfaceAnimationScheduler(plan, SurfaceRenderClock { SystemClock.uptimeMillis() }, SurfaceRenderEntropy { Math.random() })
-            .also { schedulerSurfaceIds[it] = plan.surfaceId }
+            .also {
+                schedulerSurfaceIds[it] = plan.surfaceId
+                nextPeriodicTicks[it] = SystemClock.uptimeMillis() + PERIODIC_ANIMATION_INTERVAL_MILLIS
+            }
     private fun itPlan(scheduler: SurfaceAnimationScheduler): Int? = schedulerSurfaceIds[scheduler]
 
     private fun tickSchedulers() {
-        sakuraScheduler?.tick().applyFrames(GhostSpeaker.SAKURA)
-        keroScheduler?.tick().applyFrames(GhostSpeaker.KERO)
+        val now = SystemClock.uptimeMillis()
+        sakuraScheduler?.tickForHost(GhostSpeaker.SAKURA, now)
+        keroScheduler?.tickForHost(GhostSpeaker.KERO, now)
+    }
+    private fun SurfaceAnimationScheduler.tickForHost(speaker: GhostSpeaker, nowMillis: Long) {
+        val periodicSelectionDue = nowMillis >= (nextPeriodicTicks[this] ?: Long.MAX_VALUE)
+        tick(allowPeriodicSelection = periodicSelectionDue).applyFrames(speaker)
+        if (periodicSelectionDue) nextPeriodicTicks[this] = nowMillis + PERIODIC_ANIMATION_INTERVAL_MILLIS
     }
     private fun List<SurfaceAnimationScheduleEffect>?.applyFrames(speaker: GhostSpeaker) {
         this?.filterIsInstance<SurfaceAnimationScheduleEffect.Frame>()?.lastOrNull()?.frame?.let {
@@ -220,12 +252,19 @@ class ComposeGhostStageHost(
         return speakerSurfaces.getOrPut(key) {
             val shell = if (sakura) this?.getSakuraSurface(id) else this?.getKeroSurface(id)
             val definition = shell?.toSurfaceDefinition()
-            SpeakerSurface(definition, definition.toSurfaceRenderPlan(), true)
+            val plan = definition.toSurfaceRenderPlan()
+            if (plan.width.toLong() * plan.height.toLong() > MAX_RENDERABLE_SURFACE_PIXELS) {
+                SpeakerSurface(definition, SurfaceRenderPlan.Missing, false)
+            } else {
+                SpeakerSurface(definition, plan, true)
+            }
         }
     }
 
     private companion object {
         /** 32 MiB of ARGB pixels; oversized frames remain usable but uncached. */
         const val MAX_CACHED_FRAME_PIXELS = 8L * 1024L * 1024L
+        const val MAX_RENDERABLE_SURFACE_PIXELS = 16L * 1024L * 1024L
+        const val PERIODIC_ANIMATION_INTERVAL_MILLIS = 1_000L
     }
 }
