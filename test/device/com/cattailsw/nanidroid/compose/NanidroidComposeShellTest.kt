@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid.compose
 
-import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -16,11 +15,12 @@ class NanidroidComposeShellTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun shell_exposes_compose_controls_and_keeps_the_stage_as_one_android_view() {
+    fun shell_exposes_compose_controls_and_keeps_the_stage_in_compose() {
         var selected = ""
+        var stageTapped = false
         composeRule.setContent {
             NanidroidComposeShell(
-                ghostStage = FrameLayout(composeRule.activity),
+                ghostStage = {},
                 loading = true,
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
@@ -28,12 +28,15 @@ class NanidroidComposeShellTest {
                 onUpdate = { selected = "update" },
                 onPreferences = { selected = "preferences" },
                 onHelp = { selected = "help" },
+                onStageClick = { stageTapped = true },
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
         }
 
         composeRule.onNodeWithTag("ghost-stage").assertIsDisplayed()
+        composeRule.onNodeWithTag("ghost-stage").performClick()
+        assertEquals(true, stageTapped)
         composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
         composeRule.onNodeWithTag("list-ghost").performClick()
         assertEquals("list", selected)

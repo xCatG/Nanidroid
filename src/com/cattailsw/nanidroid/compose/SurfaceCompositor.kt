@@ -150,7 +150,10 @@ fun SurfaceCompositorImage(image: SurfacePixelImage, modifier: Modifier = Modifi
 
 private const val TRANSPARENT = 0x00000000
 
-private const val MAX_SURFACE_PIXEL_COUNT = 16 * 1024 * 1024
+// Compositing makes several simultaneous ARGB copies (decoded bitmap, keyed
+// pixels, canvas, and Compose bitmap), so source assets need the same
+// heap-safe ceiling as the production stage rather than a final-image-only cap.
+private const val MAX_SURFACE_PIXEL_COUNT = 1 * 1024 * 1024
 
 /** Validates dimensions before Canvas, Bitmap, or IntArray allocation. */
 private fun requireSurfacePixelCount(width: Int, height: Int): Int {

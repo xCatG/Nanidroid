@@ -136,14 +136,14 @@ class SurfaceCompositorTest {
     fun `canvas rejects overflowing and unsupported pixel dimensions deterministically`() {
         val compositor = SurfaceCompositor(assets())
         val overflow = plan(layers = emptyList()).copy(width = Int.MAX_VALUE, height = 2)
-        val oversized = plan(layers = emptyList()).copy(width = 4097, height = 4096)
+        val oversized = plan(layers = emptyList()).copy(width = 1025, height = 1024)
 
         assertEquals(
-            "surface pixel count 4294967294 exceeds supported limit 16777216",
+            "surface pixel count 4294967294 exceeds supported limit 1048576",
             assertThrows(IllegalArgumentException::class.java) { compositor.normal(overflow) }.message,
         )
         assertEquals(
-            "surface pixel count 16781312 exceeds supported limit 16777216",
+            "surface pixel count 1049600 exceeds supported limit 1048576",
             assertThrows(IllegalArgumentException::class.java) { compositor.normal(oversized) }.message,
         )
     }

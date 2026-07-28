@@ -1,8 +1,8 @@
 package com.cattailsw.nanidroid.compose
 
 import android.view.View
-import android.widget.FrameLayout
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,7 +21,6 @@ import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -35,14 +34,13 @@ import com.cattailsw.nanidroid.R
 /**
  * The activity's Compose-owned chrome.
  *
- * [ghostStage] is deliberately the only View interoperability boundary: its
- * FrameLayout retains SakuraView, KeroView and both Balloon instances.  The
- * shell does not draw surfaces or interpret script input; those remain in the
- * compatibility renderer until their behavior has a dedicated migration.
+ * [ghostStage] is production Compose content.  The shell intentionally has no
+ * AndroidView boundary: image composition, pointer routing, and balloons are
+ * supplied by the declarative ghost-stage host.
  */
 @Composable
 internal fun NanidroidComposeShell(
-    ghostStage: FrameLayout,
+    ghostStage: @Composable () -> Unit,
     loading: Boolean,
     progressMessage: String,
     toolbarVisible: Boolean,
@@ -56,6 +54,7 @@ internal fun NanidroidComposeShell(
     onNextGhost: () -> Unit = {},
     onRun: () -> Unit = {},
     onNarTest: () -> Unit = {},
+    onStageClick: () -> Unit = {},
     simpleDialog: NanidroidSimpleDialog?,
     onDismissSimpleDialog: () -> Unit,
     modifier: Modifier = Modifier,
@@ -78,10 +77,7 @@ internal fun NanidroidComposeShell(
                     }
                 }
                 Box(modifier = Modifier.fillMaxSize()) {
-                    AndroidView(
-                        factory = { ghostStage },
-                        modifier = Modifier.fillMaxSize().testTag("ghost-stage"),
-                    )
+                    Box(modifier = Modifier.fillMaxSize().testTag("ghost-stage").clickable(onClick = onStageClick)) { ghostStage() }
                     if (loading) {
                         LoadingOverlay(progressMessage)
                     }

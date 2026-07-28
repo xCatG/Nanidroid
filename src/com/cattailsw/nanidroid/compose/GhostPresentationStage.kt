@@ -1,6 +1,12 @@
 package com.cattailsw.nanidroid.compose
 
+import android.text.SpannableString
+import android.text.style.URLSpan
+import android.text.util.Linkify
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -9,17 +15,19 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
@@ -102,15 +110,51 @@ private fun IntSize.toStageSize(): GhostStageSize = GhostStageSize(width, height
 
 @Composable
 private fun GhostBalloon(text: String, modifier: Modifier = Modifier) {
-    BasicText(
-        text = text,
+    val annotatedText = remember(text) { linkifyForCompose(text) }
+    val scrollState = rememberScrollState()
+    val uriHandler = LocalUriHandler.current
+    // Balloon.setText reset its scroll and then revealed the last line when
+    // content overflowed. Compose owns that behavior without returning to a
+    // TextView/AndroidView bridge.
+    LaunchedEffect(text, scrollState.maxValue) {
+        scrollState.scrollTo(scrollState.maxValue)
+    }
+    ClickableText(
+        text = annotatedText,
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(colorResource(R.color.ghost_list_bg))
-            .padding(8.dp),
+            .padding(8.dp)
+            .verticalScroll(scrollState),
         style = TextStyle(color = colorResource(R.color.ghost_list_text)),
+        onClick = { offset ->
+            annotatedText.getStringAnnotations(URL_ANNOTATION, offset, offset)
+                .firstOrNull()
+                ?.item
+                ?.let { url -> runCatching { uriHandler.openUri(url) } }
+        },
     )
 }
+
+private fun linkifyForCompose(text: String) = buildAnnotatedString {
+    val spanned = SpannableString(text).also { Linkify.addLinks(it, Linkify.ALL) }
+    val links = spanned.getSpans(0, spanned.length, URLSpan::class.java)
+        .sortedBy { spanned.getSpanStart(it) }
+    var cursor = 0
+    links.forEach { link ->
+        val start = spanned.getSpanStart(link).coerceAtLeast(cursor)
+        val end = spanned.getSpanEnd(link).coerceAtMost(spanned.length)
+        if (start >= end) return@forEach
+        append(spanned.subSequence(cursor, start).toString())
+        pushStringAnnotation(URL_ANNOTATION, link.url)
+        append(spanned.subSequence(start, end).toString())
+        pop()
+        cursor = end
+    }
+    append(spanned.subSequence(cursor, spanned.length).toString())
+}
+
+private const val URL_ANNOTATION = "nanidroid-balloon-url"
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 640)
 @Composable

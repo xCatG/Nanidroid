@@ -72,6 +72,8 @@ sealed interface SurfaceAnimationScheduleEvent {
         val nowMillis: Long,
         val probabilityRoll: Double,
         val selectionRolls: List<Double>,
+        /** Frame-only observations must not consume the next periodic roll. */
+        val allowPeriodicSelection: Boolean = true,
     ) : SurfaceAnimationScheduleEvent
 
     /**
@@ -149,8 +151,12 @@ object SurfaceAnimationScheduleReducer {
         val previousSecond = state.lastObservedSecond
         // The first scheduled tick is one full clock interval after scheduler
         // creation, so it is eligible just like every later elapsed second.
-        val shouldRoll = previousSecond == null || observedSecond > previousSecond
-        val withClock = advanced.copy(lastObservedSecond = maxOf(previousSecond ?: observedSecond, observedSecond))
+        val shouldRoll = event.allowPeriodicSelection && (previousSecond == null || observedSecond > previousSecond)
+        val withClock = if (event.allowPeriodicSelection) {
+            advanced.copy(lastObservedSecond = maxOf(previousSecond ?: observedSecond, observedSecond))
+        } else {
+            advanced
+        }
         if (!shouldRoll) return SurfaceAnimationScheduleTransition(withClock, advancedEffects(plan, state, withClock))
 
         val interval = when {
@@ -345,10 +351,15 @@ class SurfaceAnimationScheduler(
     var state: SurfaceAnimationScheduleState = SurfaceAnimationScheduleState.Idle
         private set
 
-    fun tick(): List<SurfaceAnimationScheduleEffect> {
+    /**
+     * Advances an active frame on every render tick. Hosts can defer periodic
+     * rarely/sometimes selection until their first full clock interval while
+     * retaining normal frame advancement.
+     */
+    fun tick(allowPeriodicSelection: Boolean = true): List<SurfaceAnimationScheduleEffect> {
         val nowMillis = clock.nowMillis()
         val observedSecond = nowMillis.coerceAtLeast(0) / 1_000L
-        val shouldRoll = state.lastObservedSecond?.let { observedSecond > it } ?: true
+        val shouldRoll = allowPeriodicSelection && (state.lastObservedSecond?.let { observedSecond > it } ?: true)
         // SScriptRunner only calls Math.random when a new second is observed;
         // consuming entropy for every UI tick would make its next visible
         // choice depend on render-loop frequency.
@@ -367,6 +378,7 @@ class SurfaceAnimationScheduler(
                 nowMillis = nowMillis,
                 probabilityRoll = probabilityRoll,
                 selectionRolls = selectionRolls,
+                allowPeriodicSelection = allowPeriodicSelection,
             ),
         )
     }
