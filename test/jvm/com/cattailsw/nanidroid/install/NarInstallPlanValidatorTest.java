@@ -4,6 +4,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -439,6 +440,9 @@ public final class NarInstallPlanValidatorTest {
     @Test
     public void publicSurfaceReturnsDiagnosticPlansOnly()
             throws Exception {
+        assertNotNull(NarInstallPlan.class.getAnnotation(kotlin.Metadata.class));
+        assertNotNull(
+                NarInstallPlan.Entry.class.getAnnotation(kotlin.Metadata.class));
         int publicMethods = 0;
         for (Method method
                 : NarInstallPlanValidator.class.getDeclaredMethods()) {
