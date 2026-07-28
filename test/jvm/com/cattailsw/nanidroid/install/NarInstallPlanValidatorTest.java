@@ -443,6 +443,8 @@ public final class NarInstallPlanValidatorTest {
         assertNotNull(NarInstallPlan.class.getAnnotation(kotlin.Metadata.class));
         assertNotNull(
                 NarInstallPlan.Entry.class.getAnnotation(kotlin.Metadata.class));
+        assertNotNull(
+                NarInstallPlanResult.class.getAnnotation(kotlin.Metadata.class));
         int publicMethods = 0;
         for (Method method
                 : NarInstallPlanValidator.class.getDeclaredMethods()) {
@@ -460,9 +462,13 @@ public final class NarInstallPlanValidatorTest {
         for (Method method
                 : NarInstallPlanResult.class.getDeclaredMethods()) {
             if (Modifier.isPublic(method.getModifiers())) {
-                assertFalse(
-                        method.getName().toLowerCase()
-                                .contains("session"));
+                if (method.getName().toLowerCase().contains("session")) {
+                    assertEquals(
+                            "getVerifiedSession", method.getName());
+                    assertEquals(
+                            NarVerifiedInstallSession.class,
+                            method.getReturnType());
+                }
                 assertFalse(InputStream.class.isAssignableFrom(
                         method.getReturnType()));
             }
