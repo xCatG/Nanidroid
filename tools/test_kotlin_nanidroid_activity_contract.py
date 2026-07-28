@@ -66,6 +66,26 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("is NanidroidSimpleDialog.DebugMessage -> Unit", self.source)
         self.assertNotIn("DIALOG_DEBUG", self.source)
 
+    def test_compose_stage_preserves_legacy_interaction_and_animation_lifecycle(self):
+        stage = (
+            ROOT / "src/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt"
+        ).read_text(encoding="utf-8")
+        runner = (ROOT / "src/com/cattailsw/nanidroid/SScriptRunner.java").read_text(
+            encoding="utf-8"
+        )
+        # SakuraView dispatched every physical tap as OnMouseDoubleClick; the
+        # Compose boundary must keep that desktop-ghost-shell compatibility.
+        self.assertIn("onTap = { position ->", stage)
+        self.assertIn("SurfacePointerInteractionDispatcher(interactionPort).dispatch(resolution)", stage)
+        # The runtime—not a short-lived Activity host—owns its shared talk gate.
+        self.assertIn("transition.state.talkingAnimationEnabled", stage)
+        # Asset decoding and scheduler work must stop when the stage is paused.
+        self.assertIn("renderedFrames.getOrPut", stage)
+        self.assertIn("LifecycleEventObserver", stage)
+        self.assertIn("if (!stageStarted) return@LaunchedEffect", stage)
+        # Legacy Kero input clears queued script before sending the mouse event.
+        self.assertIn("if ( !sakura ) clearMsgQueue();", runner)
+
 
 if __name__ == "__main__":
     unittest.main()

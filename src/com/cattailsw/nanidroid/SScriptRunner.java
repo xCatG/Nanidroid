@@ -107,6 +107,7 @@ public class SScriptRunner implements Runnable {
      * manufacture a hidden View merely to deliver a SHIORI mouse event.
      */
     public void dispatchComposeDoubleClick(int x, int y, boolean sakura, int collisionId, int buttonId) {
+	if ( !sakura ) clearMsgQueue();
 	doMouseDblClick(x, y, sakura, collisionId, buttonId);
     }
 

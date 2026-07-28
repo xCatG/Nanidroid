@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.compose
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -11,7 +12,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.IntSize
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import android.os.SystemClock
 import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceManager
@@ -36,18 +40,22 @@ class ComposeGhostStageHost(
     private var keroFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var sakuraScheduler: SurfaceAnimationScheduler? = null
     private var keroScheduler: SurfaceAnimationScheduler? = null
-    private val talkCadence = SurfaceTalkCadence()
+    /* A SurfaceManager describes immutable ghost assets. Cache both the parsed
+       plans and their rasterized frames for that manager; recomposition must
+       never reopen/decode assets merely because an animation clock ticked. */
+    private val speakerSurfaces = mutableMapOf<SpeakerSurfaceKey, SpeakerSurface>()
+    private val renderedFrames = mutableMapOf<RenderedFrameKey, SurfacePixelImage>()
 
     val renderer = KotlinGhostPresentationRuntime { transition ->
         runtimeState = transition.state
         val manager = activeSurfaceManager ?: return@KotlinGhostPresentationRuntime
-        // The legacy runner advances one global talking-animation gate per
-        // presentation update, shared by Sakura and Kero.
-        val talkUpdate = talkCadence.nextPresentationUpdate()
-        schedule(GhostSpeaker.SAKURA, manager.getSakuraSurface(transition.state.presentation.sakura.surfaceId)
-            .toSurfaceDefinition().toSurfaceRenderPlan(), transition.state.presentation.sakura, talkUpdate)
-        schedule(GhostSpeaker.KERO, manager.getKeroSurface(transition.state.presentation.kero.surfaceId)
-            .toSurfaceDefinition().toSurfaceRenderPlan(), transition.state.presentation.kero, talkUpdate)
+        // The Kotlin runtime owns the legacy shared talk cadence. Passing its
+        // gate through directly also keeps activity recreation from resetting it.
+        val talkUpdate = SurfaceTalkCadence.Update(transition.state.talkingAnimationEnabled)
+        schedule(GhostSpeaker.SAKURA, manager.speakerSurface(transition.state.presentation.sakura.surfaceId, true).plan,
+            transition.state.presentation.sakura, talkUpdate)
+        schedule(GhostSpeaker.KERO, manager.speakerSurface(transition.state.presentation.kero.surfaceId, false).plan,
+            transition.state.presentation.kero, talkUpdate)
     }
 
     fun setSurfaceManager(manager: SurfaceManager?) {
@@ -57,6 +65,8 @@ class ComposeGhostStageHost(
             sakuraFrame = null
             keroFrame = null
             schedulerSurfaceIds.clear()
+            speakerSurfaces.clear()
+            renderedFrames.clear()
         }
         activeSurfaceManager = manager
     }
@@ -70,9 +80,19 @@ class ComposeGhostStageHost(
         val compositor = remember(manager) { SurfaceCompositor(AndroidSurfacePixelAssets, SurfacePlanRegistry(plans)) }
         val sakura = manager.speakerSurface(state.presentation.sakura.surfaceId, true)
         val kero = manager.speakerSurface(state.presentation.kero.surfaceId, false)
-        val sakuraImage = remember(sakura.plan, sakuraFrame) { sakuraFrame?.let { compositor.frame(sakura.plan, it) } ?: compositor.normal(sakura.plan) }
-        val keroImage = remember(kero.plan, keroFrame) { keroFrame?.let { compositor.frame(kero.plan, it) } ?: compositor.normal(kero.plan) }
-        LaunchedEffect(sakuraScheduler, keroScheduler) {
+        val sakuraImage = renderedImage(compositor, SurfaceSpeaker.SAKURA, state.presentation.sakura.surfaceId, sakura.plan, sakuraFrame)
+        val keroImage = renderedImage(compositor, SurfaceSpeaker.KERO, state.presentation.kero.surfaceId, kero.plan, keroFrame)
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        var stageStarted by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+        DisposableEffect(lifecycle) {
+            val observer = LifecycleEventObserver { _, _ ->
+                stageStarted = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            }
+            lifecycle.addObserver(observer)
+            onDispose { lifecycle.removeObserver(observer) }
+        }
+        LaunchedEffect(sakuraScheduler, keroScheduler, stageStarted) {
+            if (!stageStarted) return@LaunchedEffect
             while (true) { delay(16); tickSchedulers() }
         }
         GhostPresentationStage(
@@ -98,7 +118,7 @@ class ComposeGhostStageHost(
                 .onSizeChanged { renderedSize = it }
                 .pointerInput(speaker, definition, image, renderedSize) {
                     detectTapGestures(
-                        onDoubleTap = { position ->
+                        onTap = { position ->
                             val resolution = SurfacePointerInteractionMapper.map(
                                 speaker = speaker,
                                 definition = definition,
@@ -121,6 +141,18 @@ class ComposeGhostStageHost(
     }
 
     private data class SpeakerSurface(val definition: SurfaceDefinition?, val plan: SurfaceRenderPlan, val visible: Boolean)
+    private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
+    private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
+
+    private fun renderedImage(
+        compositor: SurfaceCompositor,
+        speaker: SurfaceSpeaker,
+        surfaceId: String,
+        plan: SurfaceRenderPlan,
+        frame: SurfaceRenderFrame?,
+    ): SurfacePixelImage = renderedFrames.getOrPut(RenderedFrameKey(speaker, surfaceId, frame)) {
+        frame?.let { compositor.frame(plan, it) } ?: compositor.normal(plan)
+    }
 
     private fun schedule(
         speaker: GhostSpeaker,
@@ -161,8 +193,11 @@ class ComposeGhostStageHost(
 
     private fun SurfaceManager?.speakerSurface(id: String, sakura: Boolean): SpeakerSurface {
         if (id == "-1") return SpeakerSurface(null, SurfaceRenderPlan.Missing, false)
-        val shell = if (sakura) this?.getSakuraSurface(id) else this?.getKeroSurface(id)
-        val definition = shell?.toSurfaceDefinition()
-        return SpeakerSurface(definition, definition.toSurfaceRenderPlan(), true)
+        val key = SpeakerSurfaceKey(sakura, id)
+        return speakerSurfaces.getOrPut(key) {
+            val shell = if (sakura) this?.getSakuraSurface(id) else this?.getKeroSurface(id)
+            val definition = shell?.toSurfaceDefinition()
+            SpeakerSurface(definition, definition.toSurfaceRenderPlan(), true)
+        }
     }
 }
