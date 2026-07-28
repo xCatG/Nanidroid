@@ -108,7 +108,6 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
                 createSvcs2ndThread()
                 if (gm!!.getGhostCount() == 0) installFirstGhost()
                 createGhost()
-                setGhostToRunner(currentGhost!!)
                 currentRunCount = getStartCount()
                 if (currentRunCount == 0L) loadFirstRunScript()
                 setStartCount(++currentRunCount)
@@ -116,6 +115,10 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
                 return null
             }
             override fun onPostExecute(result: Void?) {
+                // Compose state and its caches are main-thread owned.  The
+                // ghost files were prepared above; bind them to the stage only
+                // after AsyncTask returns to the UI thread.
+                setGhostToRunner(currentGhost!!)
                 handleIncomingIntent(intent)
                 dbgRelatedSetup(currentGhost!!)
                 hideProgress()
@@ -132,7 +135,6 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         mGH.sendEmptyMessage(MSG_LOAD_F)
         val ghost = gm!!.createGhost(lastId)!!
         CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
-        runner!!.setGhost(ghost)
         gm!!.setLastRunGhost(ghost)
         currentGhost = ghost
     }
@@ -141,6 +143,7 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         runner!!.setPresentationRenderer(composeStage.renderer)
         // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
+        runner!!.setGhost(ghost)
     }
     private fun setupViews(dbgBuild: Boolean) {
         progressMessage = getString(R.string.prog_startup)
@@ -238,7 +241,32 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
     }
     fun switchGhost(nextId: String) { val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
-    @Suppress("DEPRECATION") fun ghostSwitchStep2() { object : AsyncTask<Void, Void, Void>() { override fun onPreExecute() { mGH.sendEmptyMessage(MSG_LOAD_N); showProgress() }; override fun doInBackground(vararg params: Void?): Void? { try { val ghost = gm!!.createGhost(nextGhostId!!)!!; nextGhostId = null; CrashReporting.setCustomKey("current_ghost", ghost.getGhostId()); currentGhost = ghost; composeStage.setSurfaceManager(ghost.mgr); updateSurfaceKeys(ghost); keyindex = 0; currentSurfaceKey = surfaceKeys!![keyindex] } catch (e: Exception) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", nextGhostId, -1); Log.d(TAG, "failed to switch to ghost:$nextGhostId"); nextGhostId = null; e.printStackTrace() }; return null }; override fun onPostExecute(result: Void?) { hideProgress(); gm!!.setLastRunGhost(currentGhost!!); runner!!.setGhost(currentGhost!!) } }.execute() }
+    @Suppress("DEPRECATION") fun ghostSwitchStep2() { object : AsyncTask<Void, Void, Ghost?>() {
+        override fun onPreExecute() { mGH.sendEmptyMessage(MSG_LOAD_N); showProgress() }
+        override fun doInBackground(vararg params: Void?): Ghost? = try {
+            gm!!.createGhost(nextGhostId!!)!!.also { nextGhostId = null }
+        } catch (e: Exception) {
+            AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", nextGhostId, -1)
+            Log.d(TAG, "failed to switch to ghost:$nextGhostId")
+            nextGhostId = null
+            e.printStackTrace()
+            null
+        }
+        override fun onPostExecute(ghost: Ghost?) {
+            hideProgress()
+            if (ghost == null) return
+            CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
+            currentGhost = ghost
+            // Keep the Compose stage and runner on the UI thread; its frame
+            // cache and scheduler state are intentionally not synchronized.
+            composeStage.setSurfaceManager(ghost.mgr)
+            updateSurfaceKeys(ghost)
+            keyindex = 0
+            currentSurfaceKey = surfaceKeys!![keyindex]
+            gm!!.setLastRunGhost(ghost)
+            runner!!.setGhost(ghost)
+        }
+    }.execute() }
     private fun handleIncomingIntent(incoming: Intent?) { if (!IncomingNarIntent.isApprovedDownload(incoming)) { if (incoming != null && Intent.ACTION_VIEW == incoming.action) { Log.w(TAG, "Rejected unapproved external install URI"); Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show() }; return }; Log.d(TAG, "Accepted HTTPS NAR download URI"); addNarToDownload(incoming!!.data!!) }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }
     fun onUpdate(v: View) { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }

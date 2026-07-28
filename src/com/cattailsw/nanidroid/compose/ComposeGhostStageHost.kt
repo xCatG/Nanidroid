@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.compose
 
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -44,7 +45,8 @@ class ComposeGhostStageHost(
        plans and their rasterized frames for that manager; recomposition must
        never reopen/decode assets merely because an animation clock ticked. */
     private val speakerSurfaces = mutableMapOf<SpeakerSurfaceKey, SpeakerSurface>()
-    private val renderedFrames = mutableMapOf<RenderedFrameKey, SurfacePixelImage>()
+    private val renderedFrames = LinkedHashMap<RenderedFrameKey, SurfacePixelImage>(16, 0.75f, true)
+    private var renderedFramePixels = 0L
 
     val renderer = KotlinGhostPresentationRuntime { transition ->
         runtimeState = transition.state
@@ -66,7 +68,7 @@ class ComposeGhostStageHost(
             keroFrame = null
             schedulerSurfaceIds.clear()
             speakerSurfaces.clear()
-            renderedFrames.clear()
+            clearRenderedFrames()
         }
         activeSurfaceManager = manager
     }
@@ -97,11 +99,13 @@ class ComposeGhostStageHost(
         }
         GhostPresentationStage(
             presentation = state.presentation,
-            sakuraSurfaceSize = IntSize(sakuraImage.width, sakuraImage.height),
-            keroSurfaceSize = IntSize(keroImage.width, keroImage.height),
+            // Legacy placement derives from the selected surface, not an
+            // animation frame whose base image happens to have other bounds.
+            sakuraSurfaceSize = IntSize(sakura.plan.width, sakura.plan.height),
+            keroSurfaceSize = IntSize(kero.plan.width, kero.plan.height),
             modifier = modifier,
-            sakuraSurface = { if (sakura.visible) SurfaceNode(SurfaceSpeaker.SAKURA, sakura.definition, sakuraImage) },
-            keroSurface = { if (kero.visible) SurfaceNode(SurfaceSpeaker.KERO, kero.definition, keroImage) },
+            sakuraSurface = { if (sakura.visible) SurfaceNode(SurfaceSpeaker.SAKURA, sakura.definition, sakuraImage, sakura.plan) },
+            keroSurface = { if (kero.visible) SurfaceNode(SurfaceSpeaker.KERO, kero.definition, keroImage, kero.plan) },
         )
     }
 
@@ -110,11 +114,13 @@ class ComposeGhostStageHost(
         speaker: SurfaceSpeaker,
         definition: SurfaceDefinition?,
         image: SurfacePixelImage,
+        plan: SurfaceRenderPlan,
     ) {
         var renderedSize by remember { mutableStateOf(IntSize.Zero) }
         SurfaceCompositorImage(
             image = image,
             modifier = Modifier
+                .fillMaxSize()
                 .onSizeChanged { renderedSize = it }
                 .pointerInput(speaker, definition, image, renderedSize) {
                     detectTapGestures(
@@ -128,8 +134,8 @@ class ComposeGhostStageHost(
                                     top = 0f,
                                     renderedWidth = renderedSize.width.toFloat(),
                                     renderedHeight = renderedSize.height.toFloat(),
-                                    sourceWidth = image.width,
-                                    sourceHeight = image.height,
+                                    sourceWidth = plan.width,
+                                    sourceHeight = plan.height,
                                 ),
                                 position = SurfacePointerPosition(position.x, position.y),
                             )
@@ -150,8 +156,25 @@ class ComposeGhostStageHost(
         surfaceId: String,
         plan: SurfaceRenderPlan,
         frame: SurfaceRenderFrame?,
-    ): SurfacePixelImage = renderedFrames.getOrPut(RenderedFrameKey(speaker, surfaceId, frame)) {
-        frame?.let { compositor.frame(plan, it) } ?: compositor.normal(plan)
+    ): SurfacePixelImage {
+        val key = RenderedFrameKey(speaker, surfaceId, frame)
+        renderedFrames[key]?.let { return it }
+        val image = frame?.let { compositor.frame(plan, it) } ?: compositor.normal(plan)
+        val pixels = image.width.toLong() * image.height.toLong()
+        if (pixels > MAX_CACHED_FRAME_PIXELS) return image
+        while (renderedFramePixels + pixels > MAX_CACHED_FRAME_PIXELS && renderedFrames.isNotEmpty()) {
+            val eldest = renderedFrames.entries.iterator().next()
+            renderedFramePixels -= eldest.value.width.toLong() * eldest.value.height.toLong()
+            renderedFrames.remove(eldest.key)
+        }
+        renderedFrames[key] = image
+        renderedFramePixels += pixels
+        return image
+    }
+
+    private fun clearRenderedFrames() {
+        renderedFrames.clear()
+        renderedFramePixels = 0L
     }
 
     private fun schedule(
@@ -199,5 +222,10 @@ class ComposeGhostStageHost(
             val definition = shell?.toSurfaceDefinition()
             SpeakerSurface(definition, definition.toSurfaceRenderPlan(), true)
         }
+    }
+
+    private companion object {
+        /** 32 MiB of ARGB pixels; oversized frames remain usable but uncached. */
+        const val MAX_CACHED_FRAME_PIXELS = 8L * 1024L * 1024L
     }
 }
