@@ -459,6 +459,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "SakuraScriptInteractionInterpreterTest.java"
             ),
             pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/runtime/"
+                "KotlinGhostPresentationRuntimeTest.kt"
+            ),
+            pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java"
             ),
             pathlib.PurePosixPath(
