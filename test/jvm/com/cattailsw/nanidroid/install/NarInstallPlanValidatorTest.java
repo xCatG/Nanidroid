@@ -445,6 +445,8 @@ public final class NarInstallPlanValidatorTest {
                 NarInstallPlan.Entry.class.getAnnotation(kotlin.Metadata.class));
         assertNotNull(
                 NarInstallPlanResult.class.getAnnotation(kotlin.Metadata.class));
+        assertNotNull(
+                NarInstallPlanValidator.class.getAnnotation(kotlin.Metadata.class));
         int publicMethods = 0;
         for (Method method
                 : NarInstallPlanValidator.class.getDeclaredMethods()) {
@@ -452,13 +454,15 @@ public final class NarInstallPlanValidatorTest {
                 publicMethods++;
                 assertTrue(
                         "validate".equals(method.getName())
-                                || "verify".equals(method.getName()));
+                                || "verify".equals(method.getName())
+                                || "validateStaged".equals(method.getName())
+                                || "verifyStaged".equals(method.getName()));
                 assertEquals(
                         NarInstallPlanResult.class,
                         method.getReturnType());
             }
         }
-        assertEquals(2, publicMethods);
+        assertEquals(4, publicMethods);
         for (Method method
                 : NarInstallPlanResult.class.getDeclaredMethods()) {
             if (Modifier.isPublic(method.getModifiers())) {
