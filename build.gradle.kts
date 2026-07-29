@@ -236,6 +236,9 @@ android {
         }
         getByName("emulator") {
             jniLibs.srcDir(emulatorNativeDirectory)
+            // API 37 x86_64 instrumentation uses the emulator build type; retain
+            // its ARM64 smoke payload and add the separately verified x86_64 lane.
+            jniLibs.srcDir(deviceNativeDirectory)
         }
         getByName("device") {
             jniLibs.srcDir(deviceNativeDirectory)
