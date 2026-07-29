@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.compose
 
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -18,10 +19,11 @@ class NanidroidComposeShellTest {
     fun shell_exposes_compose_controls_and_keeps_the_stage_in_compose() {
         var selected = ""
         var stageTapped = false
+        val loading = mutableStateOf(false)
         composeRule.setContent {
             NanidroidComposeShell(
                 ghostStage = {},
-                loading = true,
+                loading = loading.value,
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = { selected = "list" },
@@ -36,16 +38,17 @@ class NanidroidComposeShellTest {
 
         composeRule.onNodeWithTag("ghost-stage").assertIsDisplayed()
         composeRule.onNodeWithTag("ghost-stage").performClick()
-        assertEquals(true, stageTapped)
-        composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(true, stageTapped) }
         composeRule.onNodeWithTag("list-ghost").performClick()
-        assertEquals("list", selected)
+        composeRule.runOnIdle { assertEquals("list", selected) }
         composeRule.onNodeWithTag("update").performClick()
-        assertEquals("update", selected)
+        composeRule.runOnIdle { assertEquals("update", selected) }
         composeRule.onNodeWithTag("preferences").performClick()
-        assertEquals("preferences", selected)
+        composeRule.runOnIdle { assertEquals("preferences", selected) }
         composeRule.onNodeWithTag("help").performClick()
-        assertEquals("help", selected)
+        composeRule.runOnIdle { assertEquals("help", selected) }
+        composeRule.runOnIdle { loading.value = true }
+        composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
     }
 
     @Test
@@ -64,7 +67,7 @@ class NanidroidComposeShellTest {
 
         composeRule.onNodeWithText("To Get More Ghosts").assertIsDisplayed()
         composeRule.onNodeWithTag("simple-action-0").performClick()
-        assertEquals("url", selected)
+        composeRule.runOnIdle { assertEquals("url", selected) }
     }
 
 }

@@ -195,7 +195,7 @@ android {
         versionCode = 6
         versionName = "open_0.1"
         testApplicationId = "com.cattailsw.nanidroid.test"
-        testInstrumentationRunner = "android.test.InstrumentationTestRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -272,7 +272,16 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    // ComponentActivity is declared only by the device-test manifest, so package
+    // its runtime in the test APK rather than changing the production APK.
+    androidTestImplementation("androidx.activity:activity:1.13.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // This legacy project exposes emulatorImplementation without a Kotlin DSL
+    // accessor. The target-side host is required by ActivityScenario on device.
+    add("emulatorImplementation", "androidx.compose.ui:ui-test-manifest")
 
     // API 36 no longer exposes android.test.*. Keep the frozen legacy
     // characterization sources compiling against their historical API-only

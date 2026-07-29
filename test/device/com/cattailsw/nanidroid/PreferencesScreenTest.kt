@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -19,7 +20,7 @@ class PreferencesScreenTest {
     @Test
     fun analytics_checkbox_updates_the_hoisted_preference_value() {
         composeRule.setContent {
-            var enabled by mutableStateOf(true)
+            var enabled by remember { mutableStateOf(true) }
             PreferencesScreen(
                 analyticsEnabled = enabled,
                 onAnalyticsEnabledChanged = { enabled = it },
@@ -30,6 +31,7 @@ class PreferencesScreenTest {
         val checkbox = composeRule.onNodeWithTag("analytics-preference")
         checkbox.assertIsOn()
         checkbox.performClick()
-        checkbox.assertIsOff()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("analytics-preference").assertIsOff()
     }
 }
