@@ -9,6 +9,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -111,6 +112,90 @@ class NanidroidComposeShellTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Fixture Ghost").assertIsDisplayed()
         composeRule.onNodeWithText("Fixture ghost balloon").assertIsDisplayed()
+    }
+
+    @Test
+    fun url_entry_keeps_invalid_urls_open_and_submits_an_approved_nar_url() {
+        val value = mutableStateOf("")
+        val error = mutableStateOf(false)
+        var submitted = ""
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = NanidroidSimpleDialog.UrlEntry(
+                    value = value.value,
+                    validationError = error.value,
+                    onValueChanged = { value.value = it; error.value = false },
+                    onSubmit = { candidate ->
+                        candidate.startsWith("https://") && candidate.endsWith(".nar")
+                            .also { if (it) submitted = candidate }
+                    },
+                    onInvalid = { error.value = true },
+                ),
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("url-entry").performTextReplacement("http://example.test/ghost.nar")
+        composeRule.onNodeWithTag("url-submit").performClick()
+        composeRule.onNodeWithTag("url-validation-error").assertIsDisplayed()
+        composeRule.onNodeWithTag("url-entry").performTextReplacement("https://example.test/ghost.nar")
+        composeRule.onNodeWithTag("url-submit").performClick()
+        composeRule.runOnIdle { assertEquals("https://example.test/ghost.nar", submitted) }
+    }
+
+    @Test
+    fun script_input_and_choice_callbacks_remain_at_the_runner_boundary() {
+        val input = mutableStateOf("")
+        var submittedInput = ""
+        var selected = ""
+        val showChoice = mutableStateOf(false)
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = if (showChoice.value) {
+                    NanidroidSimpleDialog.UserChoice(listOf("First"), listOf("choice-id")) { selected = it }
+                } else {
+                    NanidroidSimpleDialog.UserInput(
+                        id = "name",
+                        value = input.value,
+                        onValueChanged = { input.value = it },
+                        onSubmit = { id, value -> submittedInput = "$id:$value" },
+                        onCancel = {},
+                    )
+                },
+                onDismiss = {},
+            )
+        }
+        composeRule.onNodeWithTag("script-user-input").performTextReplacement("Cat")
+        composeRule.onNodeWithTag("script-user-input-confirm").performClick()
+        composeRule.runOnIdle { assertEquals("name:Cat", submittedInput) }
+        composeRule.runOnIdle { showChoice.value = true }
+        composeRule.onNodeWithTag("script-choice-0").performClick()
+        composeRule.runOnIdle { assertEquals("choice-id", selected) }
+    }
+
+    @Test
+    fun ghost_list_exposes_selection_more_and_cancellation_actions() {
+        var selected = -1
+        var more = false
+        var cancelled = false
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = NanidroidSimpleDialog.GhostList(
+                    names = listOf("Fixture Ghost"),
+                    ids = listOf("fixture"),
+                    onSelect = { selected = it },
+                    onMore = { more = true },
+                    onCancel = { cancelled = true },
+                ),
+                onDismiss = {},
+            )
+        }
+        composeRule.onNodeWithTag("ghost-choice-0").performClick()
+        composeRule.runOnIdle { assertEquals(0, selected) }
+        composeRule.onNodeWithTag("ghost-list-more").performClick()
+        composeRule.runOnIdle { assertEquals(true, more) }
+        composeRule.onNodeWithTag("ghost-list-cancel").performClick()
+        composeRule.runOnIdle { assertEquals(true, cancelled) }
     }
 
 }

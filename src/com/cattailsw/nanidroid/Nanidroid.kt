@@ -19,7 +19,6 @@ import android.util.Log
 import android.view.ContextMenu
 import android.view.MenuItem
 import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,10 +47,8 @@ import java.util.Arrays
  * The production activity. Compose owns both chrome and ghost presentation;
  * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
  */
-class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
-    NarPickDlg.NarPickDlgListener, MoreGhostFuncDlg.MoreGhostFuncListener,
-    UserInputDlg.UserInputListener, UserSelectDlg.UserSelDlgListener,
-    SScriptRunner.UICallback {
+class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
+    MoreGhostFuncDlg.MoreGhostFuncListener, SScriptRunner.UICallback {
 
     private var loading by mutableStateOf(true)
     private var progressMessage by mutableStateOf("")
@@ -325,14 +322,20 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
                 ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
         }
     }
-    override fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); EnterUrlDlg().show(supportFragmentManager, Setup.DLG_E_URL) }
-    override fun onFinishURL(url: String) = addNarToDownload(Uri.parse(url))
+    override fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); simpleDialog = createUrlEntryDialog() }
     override fun showGhostTown() {
         AnalyticsUtils.getInstance(this).trackPageView("/ghost_town_portal")
         simpleDialog = NanidroidSimpleDialog.Notice(R.string.not_implemeted_title, R.string.not_implemented)
     }
     fun onMoreGhost(v: View) = getMoreGhost(0)
-    private fun showGhostListDlg() { val names = gm!!.getGnames()!!; gAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, names); AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_G_LIST}"); GhostListDialogFragment.newInstance(names, gm).show(supportFragmentManager, Setup.DLG_G_LIST) }
+    private fun showGhostListDlg() {
+        val manager = gm ?: return
+        AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_G_LIST}")
+        simpleDialog = createGhostListDialog(
+            manager.getGDispNames()?.map { it ?: "" }.orEmpty(),
+            manager.getGnames()?.toList().orEmpty(),
+        )
+    }
     override fun onContextItemSelected(item: MenuItem): Boolean = when (item.itemId) { R.id.item_about -> { showAbout(); true }; R.id.item_feedback -> { showFeedback(); true }; R.id.item_general_help -> { showHelp(); true }; else -> super.onContextItemSelected(item) }
     private fun showHelp() {
         AnalyticsUtils.getInstance(applicationContext).trackPageView("/help")
@@ -348,6 +351,37 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private fun createMoreGhostDialog() = NanidroidSimpleDialog.MoreGhost(
         onEnterUrl = { showUrlDlg() }, onInstallFromSdCard = { startInstallFromSDCard() }, onGhostTown = { showGhostTown() },
     )
+    private fun createUrlEntryDialog(value: String = "", error: Boolean = false): NanidroidSimpleDialog.UrlEntry = NanidroidSimpleDialog.UrlEntry(
+        value, error,
+        onValueChanged = { simpleDialog = createUrlEntryDialog(it) },
+        onSubmit = { url ->
+            if (!PatternHolders.url_ptrn.matcher(url).find() || !IncomingNarIntent.isApprovedDownload(Uri.parse(url))) false
+            else { addNarToDownload(Uri.parse(url)); true }
+        },
+        onInvalid = { simpleDialog = createUrlEntryDialog(value, true) },
+    )
+    private fun createUserInputDialog(id: String, value: String = ""): NanidroidSimpleDialog.UserInput = NanidroidSimpleDialog.UserInput(
+        id, value,
+        onValueChanged = { simpleDialog = createUserInputDialog(id, it) },
+        onSubmit = { inputId, input -> onFinishUserInput(inputId, input) },
+        onCancel = { onCancelInput() },
+    )
+    private fun createUserChoiceDialog(labels: List<String>, ids: List<String>) = NanidroidSimpleDialog.UserChoice(
+        labels, ids, onChoice = { onChoiceSelect(it) },
+    )
+    private fun createGhostListDialog(names: List<String>, ids: List<String>) = NanidroidSimpleDialog.GhostList(
+        names, ids,
+        onSelect = { index -> selectGhostFromList(ids.getOrNull(index), names.getOrNull(index) ?: "", index) },
+        onMore = { getMoreGhost(1) },
+        onCancel = { AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_BTN, "ghost_list_cancel", "", 0) },
+    )
+    private fun selectGhostFromList(id: String?, name: String, index: Int) {
+        val manager = gm ?: return
+        val ghostId = id ?: return
+        AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_UI_TOUCH, "ghost_list_touch", name, manager.getGhostLaunchCount(index))
+        if (manager.getGhostReadMe(ghostId).exists()) ReadmeDialogFragment.newInstance(manager.getGhostReadMe(ghostId), ghostId).show(supportFragmentManager, Setup.DLG_README)
+        else NoReadmeSwitchDlg.newInstance(ghostId, name).show(supportFragmentManager, Setup.DLG_NO_REAMDE)
+    }
     private fun saveSimpleDialog(outState: Bundle) {
         when (val dialog = simpleDialog) {
             null -> Unit
@@ -362,6 +396,26 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
             is NanidroidSimpleDialog.HelpMenu -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_HELP_MENU)
             is NanidroidSimpleDialog.GeneralHelp -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_GENERAL_HELP)
             is NanidroidSimpleDialog.MoreGhost -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_MORE_GHOST)
+            is NanidroidSimpleDialog.UrlEntry -> {
+                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_URL_ENTRY)
+                outState.putString(SIMPLE_DIALOG_VALUE, dialog.value)
+                outState.putBoolean(SIMPLE_DIALOG_ERROR, dialog.validationError)
+            }
+            is NanidroidSimpleDialog.UserInput -> {
+                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_USER_INPUT)
+                outState.putString(SIMPLE_DIALOG_ID, dialog.id)
+                outState.putString(SIMPLE_DIALOG_VALUE, dialog.value)
+            }
+            is NanidroidSimpleDialog.UserChoice -> {
+                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_USER_CHOICE)
+                outState.putStringArrayList(SIMPLE_DIALOG_LABELS, ArrayList(dialog.labels))
+                outState.putStringArrayList(SIMPLE_DIALOG_IDS, ArrayList(dialog.ids))
+            }
+            is NanidroidSimpleDialog.GhostList -> {
+                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_GHOST_LIST)
+                outState.putStringArrayList(SIMPLE_DIALOG_LABELS, ArrayList(dialog.names))
+                outState.putStringArrayList(SIMPLE_DIALOG_IDS, ArrayList(dialog.ids))
+            }
         }
     }
     private fun restoreSimpleDialog(state: Bundle?) {
@@ -374,6 +428,10 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
             DIALOG_HELP_MENU -> createHelpMenuDialog()
             DIALOG_GENERAL_HELP -> createGeneralHelpDialog()
             DIALOG_MORE_GHOST -> createMoreGhostDialog()
+            DIALOG_URL_ENTRY -> createUrlEntryDialog(state.getString(SIMPLE_DIALOG_VALUE) ?: "", state.getBoolean(SIMPLE_DIALOG_ERROR, false))
+            DIALOG_USER_INPUT -> createUserInputDialog(state.getString(SIMPLE_DIALOG_ID) ?: "", state.getString(SIMPLE_DIALOG_VALUE) ?: "")
+            DIALOG_USER_CHOICE -> createUserChoiceDialog(state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(), state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty())
+            DIALOG_GHOST_LIST -> createGhostListDialog(state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(), state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty())
             else -> null
         }
     }
@@ -395,11 +453,11 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         if (!toolbarVisible) AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar")
         toolbarVisible = !toolbarVisible
     }
-    override fun onFinishUserInput(id: String, userinput: String) { Log.d(TAG, "got user input:$userinput"); runner!!.resumeEvt(); runner!!.doUserInput(id, userinput) }
-    override fun onCancelInput() { Log.d(TAG, "user cancel"); runner!!.resumeEvt() }
-    override fun showUserInputBox(id: String) { UserInputDlg(id).show(supportFragmentManager, Setup.DLG_USR_INPUT) }
-    override fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
-    override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { UserSelectDlg.newInstance(textlabel, ids).show(supportFragmentManager, Setup.DLG_USR_SEL) }
+    private fun onFinishUserInput(id: String, userinput: String) { Log.d(TAG, "got user input:$userinput"); runner!!.resumeEvt(); runner!!.doUserInput(id, userinput) }
+    private fun onCancelInput() { Log.d(TAG, "user cancel"); runner!!.resumeEvt() }
+    override fun showUserInputBox(id: String) { simpleDialog = createUserInputDialog(id) }
+    private fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
+    override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList()) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; @JvmField var gAdapter: ArrayAdapter<String>? = null }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list" }
 }

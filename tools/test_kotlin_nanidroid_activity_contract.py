@@ -77,8 +77,32 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("DIALOG_HELP_MENU -> createHelpMenuDialog()", self.source)
         self.assertIn("DIALOG_GENERAL_HELP -> createGeneralHelpDialog()", self.source)
         self.assertIn("DIALOG_MORE_GHOST -> createMoreGhostDialog()", self.source)
+        self.assertIn("DIALOG_URL_ENTRY -> createUrlEntryDialog(", self.source)
+        self.assertIn("DIALOG_USER_INPUT -> createUserInputDialog(", self.source)
+        self.assertIn("DIALOG_USER_CHOICE -> createUserChoiceDialog(", self.source)
+        self.assertIn("DIALOG_GHOST_LIST -> createGhostListDialog(", self.source)
         self.assertIn("is NanidroidSimpleDialog.DebugMessage -> Unit", self.source)
         self.assertNotIn("DIALOG_DEBUG", self.source)
+
+    def test_operational_dialogs_are_compose_state_not_fragments_or_array_adapters(self):
+        dialog_source = (
+            ROOT / "src/com/cattailsw/nanidroid/compose/NanidroidSimpleDialogs.kt"
+        ).read_text(encoding="utf-8")
+        for name in (
+            "EnterUrlDlg.kt",
+            "UserInputDlg.kt",
+            "UserSelectDlg.kt",
+            "GhostListDialogFragment.kt",
+        ):
+            self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/dlgs" / name).exists())
+        self.assertIn("data class UrlEntry", dialog_source)
+        self.assertIn("KeyboardType.Uri", dialog_source)
+        self.assertIn("ImeAction.Done", dialog_source)
+        self.assertIn("data class UserInput", dialog_source)
+        self.assertIn("data class UserChoice", dialog_source)
+        self.assertIn("data class GhostList", dialog_source)
+        self.assertIn("url-validation-error", dialog_source)
+        self.assertNotIn("ArrayAdapter", self.source)
 
     def test_compose_stage_preserves_legacy_interaction_and_animation_lifecycle(self):
         stage = (

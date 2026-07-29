@@ -21,6 +21,22 @@ The remaining active View/XML work is intentionally limited to the
 support-fragment dialog/readme layer and its activity host; it is outside this
 stage-only retirement slice and needs the separate document-rendering decision.
 
+## Operational Compose dialogs
+
+URL entry, script text input/choice, and ghost switching now use Compose
+state/dialogs rather than support fragments, XML layouts, or `ArrayAdapter`.
+The URL path keeps the existing regex and approved HTTPS/NAR checks before it
+starts a download; IME Done invokes the same validation. Script input and
+choice retain their `SScriptRunner.UICallback` completion/cancellation
+semantics. Ghost selection keeps analytics plus the existing readme/no-readme
+switch actions. Each dialog's minimal state is restored from
+`savedInstanceState` after recreation. The focused Compose-shell class passed
+6/6 tests on `Nanidroid_API_37` (API 37).
+
+Readme, no-readme-switch, about, and WebView/document dialogs remain in the
+support-fragment layer by design; they are not part of this non-HTML dialog
+slice.
+
 Native runtime support is limited to the actively built NarFS JNI library.
 AGP/CMake builds `narfs_full` from `jni/narfs` for `arm64-v8a` and `x86_64`.
 Kawari and Satori descriptors continue to use `NotSupportedShiori`; simple
