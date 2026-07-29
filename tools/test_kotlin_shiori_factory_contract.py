@@ -15,19 +15,19 @@ class KotlinShioriFactoryContractTest(unittest.TestCase):
         self.assertIn("fun getShiori(path: String, masterDesc: Map<String, String>?): Shiori", source)
         self.assertIn("fun getShiori(path: String, masterDesc: Map<String, String>?, ctx: Context?): Shiori", source)
 
-    def test_factory_preserves_supported_and_fallback_engine_selection(self):
+    def test_factory_keeps_simple_shiori_and_routes_native_engines_to_the_legacy_stub(self):
         root = Path(__file__).resolve().parents[1]
         source = (root / "src/com/cattailsw/nanidroid/ShioriFactory.kt").read_text(
             encoding="utf-8"
         )
-        self.assertIn('"kawarirc.kis"', source)
-        self.assertIn('"kawari.ini"', source)
-        self.assertIn('"aya5.txt"', source)
         self.assertIn('"Nanidroid" -> NanidroidShiori(ctx, path)', source)
-        self.assertIn('"satori.dll" -> SatoriPosixShiori(path)', source)
+        self.assertIn('"satori.dll" -> NotSupportedShiori(ctx)', source)
         self.assertIn('"shiori.dll" -> checkShioriByPath(path, ctx)', source)
         self.assertIn('"yaya.dll" -> NotSupportedShiori(ctx)', source)
         self.assertIn("else -> NotSupportedShiori(ctx)", source)
+        self.assertIn("Native SHIORI engines are intentionally unsupported", source)
+        self.assertNotIn("Kawari(", source)
+        self.assertNotIn("SatoriPosixShiori(", source)
 
     def test_legacy_ant_factory_remains_java(self):
         root = Path(__file__).resolve().parents[1]

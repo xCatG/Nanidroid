@@ -18,7 +18,7 @@ longer carries that historical handoff file.
 | ViewServer product decision | Complete | The obsolete debug socket server and lifecycle adapter were removed from the active Android 12+ product. The frozen `legacy/` reference tree remains outside the production source set. |
 | Exported-component, intent, URI, cleartext/network audit | Audited; decisions remain | `SECURITY_ALIGNMENT_AUDIT.md` records an HTTPS-only exported deep link, private service, no nested-intent forwarding/grant surface, and immutable notification intents. The manifest-wide cleartext/legacy telemetry and broad-host distribution decisions remain product-owned. |
 | Firebase/Crashlytics privacy and release configuration | Incomplete product decision | The handoff explicitly retains this decision. No release Firebase project configuration, consent/privacy text, or production-reporting approval was added. |
-| ABI/device/native lifecycle support and native engine characterization | Incomplete | Existing native documentation/contracts describe the build boundary, but the required real native SHIORI load/request/unload evidence is absent and x86_64 native packaging currently blocks the device path. |
+| ABI/device/native lifecycle support and native engine characterization | Complete product decision | Native SHIORI engines are unsupported in the modern Android product. `ShioriFactory` routes Kawari/Satori descriptors to the established `NotSupportedShiori` compatibility stub; simple `NanidroidShiori` ghosts remain supported. JNI symbols remain only for frozen artifact compatibility. |
 | Remove obsolete View/XML-era paths only after Compose equivalence proof | Incomplete | Active Java migration is complete, but the handoff conditions removal on broader behavior evidence. The retained XML resources and legacy reference lane have not been removed. |
 
 ## Fresh local validation
@@ -40,8 +40,7 @@ The Kotlin-source conversion objective is complete, but the modernization
 handoff objective is **not complete**. The 197-test host artifact/security
 suite is complete and is not among the blockers. Completion is blocked by
 missing native artifacts/device proof and requires explicit product decisions
-for release, privacy/Crashlytics, cleartext/telemetry, and the supported native
-ABI/lifecycle scope.
+for release, privacy/Crashlytics, and cleartext/telemetry.
 
 ## Installer seam boundary
 
