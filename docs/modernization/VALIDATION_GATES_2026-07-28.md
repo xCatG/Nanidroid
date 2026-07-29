@@ -26,6 +26,7 @@ download was needed on this host.
 | `testEmulatorUnitTest -x verifyLegacyNativeLibraries` | Compiled production and test code; 229 tests ran and 32 failed. | Host-framework blocker, not a new Kotlin compiler failure. Eight failures call the nonfunctional host `android.os.SystemClock.uptimeMillis`; 24 fail because the API-15 `MockContext`/`Context` facades throw `RuntimeException: Stub!`, followed by teardown nulls. Device/instrumentation is required for those Android behavior tests. |
 | `assembleRelease` | Passed, including `verifyLegacyNativeLibraries` and `lintVitalRelease`, after native regeneration. | Non-publishing unsigned local release assembly; no lint baseline or suppression was added. |
 | `python -m unittest discover -s tools -p 'test_*.py'` | 196 tests passed. | Kotlin-aware source contracts inspect the active sources, including ViewServer retirement and native-SHIORI fallback. Synthetic native evidence uses platform-neutral paths, including drive-qualified Windows paths. |
+| API 37 targeted native instrumentation | Passed: `NarFilesystemInspectorInstrumentationTest` and all 3 `NarStagedTreeInstrumentationTest` cases. | The emulator APK now packages both ARM64 and x86_64 native roots. The filesystem test validates the selected ABI ELF entry from the target APK instead of assuming extraction to `nativeLibraryDir`. |
 
 The exact local release assembly is now unblocked by native artifacts. The full
 JVM host task still has the separately recorded Android-stub limitations; it is
@@ -35,7 +36,7 @@ not a native-preflight failure.
 
 `assembleRelease` now produces a local unsigned release APK, but no signed
 release APK/AAB is validated by this record. Before release, repeat the
-device/API-36 and API-37 validation gates on the regenerated payloads and make
+device/API-36 validation gates on the regenerated payloads and make
 the required signing, Firebase, privacy, and release-policy decisions. The
 Kotlin-aware host artifact/security contract suite is complete (196 tests
 passed) and is not a remaining blocker. The earlier API-36 native
