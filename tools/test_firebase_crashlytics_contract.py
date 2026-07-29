@@ -1,0 +1,43 @@
+import unittest
+from pathlib import Path
+
+
+class FirebaseCrashlyticsContractTest(unittest.TestCase):
+    def test_acra_is_replaced_by_firebase_crashlytics_boundary(self):
+        root = Path(__file__).resolve().parents[1]
+        build = (root / "build.gradle.kts").read_text(encoding="utf-8")
+        app = (root / "src/com/cattailsw/nanidroid/CatTailApplication.kt").read_text(
+            encoding="utf-8"
+        )
+        activity_path = root / "src/com/cattailsw/nanidroid/Nanidroid.kt"
+        if not activity_path.exists():
+            activity_path = root / "src/com/cattailsw/nanidroid/Nanidroid.java"
+        activity = activity_path.read_text(encoding="utf-8")
+        boundary = (
+            root / "src/com/cattailsw/nanidroid/util/CrashReporting.kt"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("acra-4.2.3", build)
+        self.assertIn("firebase-bom:34.16.0", build)
+        self.assertIn("firebase-crashlytics", build)
+        self.assertNotIn("org.acra", app)
+        self.assertNotIn("org.acra", activity)
+        self.assertIn("CrashReporting.initialize(this)", app)
+        self.assertIn("FirebaseApp.initializeApp(application)", boundary)
+        self.assertIn("FirebaseCrashlytics.getInstance()", boundary)
+        self.assertIn("setCustomKey", boundary)
+        self.assertIn('CrashReporting.setCustomKey("current_ghost"', activity)
+        self.assertFalse((root / "legacy").exists())
+        self.assertFalse((root / "src/com/cattailsw/nanidroid/util/CrashReporting.java").exists())
+
+    def test_setup_documentation_preserves_no_credentials_policy(self):
+        root = Path(__file__).resolve().parents[1]
+        documentation = (root / "docs/firebase-crashlytics.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("google-services.json", documentation)
+        self.assertIn("contains no Firebase credentials", documentation)
+
+
+if __name__ == "__main__":
+    unittest.main()

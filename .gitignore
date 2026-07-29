@@ -1,5 +1,40 @@
-#git ignore file
+# Editor and operating-system state
 *~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Local Android configuration
+local.properties
+
+# Gradle, Kotlin, and Android build output
+.gradle/
+.kotlin/
+.cxx/
+build/
+**/build/
+bin/
+obj/
+captures/
+
+# Compiled and packaged output
 *.class
 *.o
 *.o.d
+*.so.dbg
+*.apk
+*.aab
+*.ap_
+
+# Logs and local test output
+*.log
+*.pyc
+__pycache__/
+test-results/
+screenshots/generated/
+artifacts/
+
+# Keep tracked historical artifacts until the provenance inventory explicitly
+# approves their removal. Ignore rules do not untrack existing files.

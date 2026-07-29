@@ -1,0 +1,6 @@
+{
+  global:
+    Java_com_cattailsw_nanidroid_install_NarFilesystemInspector_nativeInspect;
+  local:
+    *;
+};

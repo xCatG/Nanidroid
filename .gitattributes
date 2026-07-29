@@ -1,0 +1,24 @@
+# Keep PR A from normalizing the untouched legacy tree. A later mechanical PR
+# can adopt a repository-wide policy without mixing line endings with behavior.
+.dockerignore text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.devcontainer/** text eol=lf
+docker/** text eol=lf
+.github/** text eol=lf
+docs/modernization/** text eol=lf
+test/jvm/** text eol=lf
+tools/** text eol=lf
+jni/CMakeLists.txt text eol=lf
+*.gradle.kts text eol=lf
+gradle.properties text eol=lf
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+gradle/wrapper/gradle-wrapper.properties text eol=lf
+
+*.jar binary
+*.zip binary
+*.png binary
+*.9.png binary
+*.so binary
+*.exe binary

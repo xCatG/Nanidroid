@@ -1,23 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-  package="com.cattailsw.nanidroid"
   android:versionCode="6"
   android:versionName="open_0.1">
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
   <uses-permission android:name="android.permission.INTERNET" />
-  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
   <uses-permission android:name="com.android.vending.BILLING" />
   <uses-permission android:name="android.permission.GET_ACCOUNTS" />
   <uses-permission android:name="android.permission.USE_CREDENTIALS" />
 	    
-  <uses-sdk android:minSdkVersion="9" android:targetSdkVersion="13" />
   <application android:label="@string/app_name" 
     android:icon="@drawable/ic_launcher"
     android:name="CatTailApplication"
     >
+    <!-- The bundled, pre-modern Google Analytics and ACRA jars still link
+         Apache HTTP.  API 36 exposes it only as this optional compatibility
+         shared library; the later Kotlin dependency migration removes it. -->
+    <uses-library android:name="org.apache.http.legacy" android:required="false" />
     <activity android:name="Nanidroid"
       android:label="@string/app_name"
-      android:launchMode="singleInstance"
+      android:launchMode="singleTop"
+      android:exported="true"
       android:theme="@style/NanidroidTheme">
       <intent-filter>
 	<action android:name="android.intent.action.MAIN" />
@@ -26,16 +30,15 @@
       <intent-filter >
 	<action android:name="android.intent.action.VIEW" />
 	<category android:name="android.intent.category.DEFAULT" />
-	<data android:host="*" />
-	<data android:scheme="file" />
-	<data android:pathPattern=".*.nar" />
 	<data android:scheme="https" />
-	<data android:scheme="http" />
+	<data android:pathPattern=".*\\.nar" />
+	<data android:pathPattern=".*\\.zip" />
       </intent-filter>
 
     </activity>
-    <service android:name=".NanidroidService" android:exported="false" />
-    <activity android:name=".Preferences" android:theme="@style/NanidroidTheme" />
+    <service android:name=".NanidroidService" android:exported="false"
+      android:foregroundServiceType="dataSync" />
+    <activity android:name=".Preferences" android:exported="false" android:theme="@style/NanidroidTheme" />
 
   </application>
   
