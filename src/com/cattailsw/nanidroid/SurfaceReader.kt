@@ -143,7 +143,7 @@ class SurfaceReader {
                 } while (!nextLine.startsWith("}"))
 
                 for (id in ids!!) {
-                    manager!!.addSurface(id.toString(), ShellSurface(rootPath, id, entries))
+                    manager!!.addSurface(id.toString(), ShellSurface(rootPath ?: "", id, entries))
                 }
             } else {
                 Log.d(TAG, "error at line $lineCount, expecting { but got:$nextLine")
