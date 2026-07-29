@@ -50,6 +50,13 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertNotIn("Balloon(this)", self.source)
         self.assertNotIn("FrameLayout(this)", self.source)
 
+    def test_compose_toolbar_stays_below_system_status_bars(self):
+        shell = (
+            ROOT / "src/com/cattailsw/nanidroid/compose/NanidroidComposeShell.kt"
+        ).read_text(encoding="utf-8")
+        self.assertIn("import androidx.compose.foundation.layout.statusBarsPadding", shell)
+        self.assertIn("Column(modifier = Modifier.statusBarsPadding())", shell)
+
     def test_incoming_nar_boundary_remains_https_approval_before_service_start(self):
         self.assertIn("if (!IncomingNarIntent.isApprovedDownload(target))", self.source)
         self.assertIn("if (!IncomingNarIntent.isApprovedDownload(incoming))", self.source)

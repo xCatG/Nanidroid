@@ -45,8 +45,23 @@ removed. Their user-visible actions and error categories are owned by
 `NanidroidSimpleDialog`; the active install action still launches the system
 document picker. The redundant context menu, menu XML, dialog XML, and string
 arrays were removed with those paths. The focused Compose-shell device class
-passed 7/7 tests on API 37; the emulator JVM suite and all 68 host contracts
+passed 7/7 tests on API 37; the emulator JVM suite and all 69 host contracts
 also passed.
+
+## API 37 system-picker import proof
+
+On the API 37 x86_64 emulator, the app used its visible Compose `List Ghosts`
+and `More Ghost` actions to launch the platform `ACTION_OPEN_DOCUMENT` picker.
+A deterministic `picker-nanidroid.zip` fixture, derived from
+`assets/nanidroid.zip` with the otherwise-identical ghost identity changed to
+`picker-nanidroid`, was selected from the device's public Downloads directory.
+The picker result was staged in cache, transactionally published under the
+app's external `ghost/picker-nanidroid` directory, and the staging directory
+was empty afterward. Selecting the installed ghost persisted
+`lastrunghost=picker-nanidroid` and rendered its initial “Hi there! Welcome
+back!” balloon in the Compose stage. API 37 edge-to-edge rendering initially
+placed the primary toolbar behind the status bar; the Compose shell now applies
+`statusBarsPadding()` so the picker entry action remains visible and tappable.
 
 Native runtime support is limited to the actively built NarFS JNI library.
 AGP/CMake builds `narfs_full` from `jni/narfs` for `arm64-v8a` and `x86_64`.
