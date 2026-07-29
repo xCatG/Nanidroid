@@ -1,0 +1,41 @@
+# Final modernization handoff completion audit
+
+Date: 2026-07-28.  The authoritative handoff was inspected from
+`codex/modernization-handoff:docs/modernization/HANDOFF.md`; this worktree no
+longer carries that historical handoff file.
+
+## Requirement status
+
+| Handoff requirement | Status | Current evidence |
+| --- | --- | --- |
+| Finish active Java-to-Kotlin migration | Complete | `rg --files src modern | rg '\\.java$'` returned no active production Java files; 102 active Kotlin files remain. The frozen `legacy/` tree is deliberately outside this scope. |
+| Preserve migration ABI/behavior with focused tests | Partially complete | Per-item characterization tests and Kotlin compilation exist; the host full suite compiles but cannot execute 32 Android-stub-dependent cases. The focused API-36 native staging class also cannot run because `libnarfs.so` is absent for x86_64. |
+| Installer integration/recovery: local file, content URI, network update, interruption/corruption/conflict/cancel/retry/no partial state | Incomplete | JVM policy/staging/transaction tests are present and the focused host installer subset passed previously. Active production import accepts HTTPS only, and the test tree contains no deterministic local-file/content-URI/network-update integration suite covering the complete recovery matrix. Device staging execution is blocked by missing x86_64 `libnarfs.so`. |
+| CI/Gradle and frozen legacy/reference lanes | Blocked externally | `verifyEmulatorNativeLibraries` passes with ARM64 artifacts. `verifyLegacyNativeLibraries` is blocked by missing frozen ARM libraries; `verifyDeviceNativeLibraries` is blocked by missing x86_64 libraries. Docker 29.6.2 is available, but regeneration was not run because it may download pinned toolchains. No current hosted-CI result was inspected. |
+| Release APK/AAB validation | Partially complete | `assembleRelease -x verifyLegacyNativeLibraries` passed after the stale `adview` lint fix. This is explicitly a partial diagnostic; the unmodified full release gate remains blocked by the frozen legacy artifacts. No AAB validation, signing, or publishing was performed. |
+| Repeatable API 36/37 release behavior: launch, import, interaction, recreation, native SHIORI | Incomplete | The API-36 AVD exists and was used for bounded instrumentation; the requested staging class ran 3/3 but failed to load `libnarfs.so`. No API-37 AVD run, complete launch/recreation flow, full installer matrix, or native SHIORI request has current passing evidence. |
+| ViewServer product decision | Partially resolved | `ViewServerLifecycle` only delegates for SDK &lt; 11, so current Android releases do not activate the listener. The handoff still asks product ownership to decide whether the legacy feature is supported, replaced, or debug-only; no explicit release policy decision is recorded. |
+| Exported-component, intent, URI, cleartext/network audit | Audited; decisions remain | `SECURITY_ALIGNMENT_AUDIT.md` records an HTTPS-only exported deep link, private service, no nested-intent forwarding/grant surface, and immutable notification intents. The manifest-wide cleartext/legacy telemetry and broad-host distribution decisions remain product-owned. |
+| Firebase/Crashlytics privacy and release configuration | Incomplete product decision | The handoff explicitly retains this decision. No release Firebase project configuration, consent/privacy text, or production-reporting approval was added. |
+| ABI/device/native lifecycle support and native engine characterization | Incomplete | Existing native documentation/contracts describe the build boundary, but the required real native SHIORI load/request/unload evidence is absent and x86_64 native packaging currently blocks the device path. |
+| Remove obsolete View/XML-era paths only after Compose equivalence proof | Incomplete | Active Java migration is complete, but the handoff conditions removal on broader behavior evidence. The retained XML resources and legacy reference lane have not been removed. |
+
+## Fresh local validation
+
+* `assembleRelease -x verifyLegacyNativeLibraries` — **passed** (non-publishing; no release credentials configured).
+* `lintVitalRelease -x verifyLegacyNativeLibraries` — **passed**.
+* Full JVM host run — **blocked by Android framework stubs**, not compilation: 229 tests, 32 failures.
+* Native preflights — ARM64 emulator **passed**; frozen ARM and x86_64 device profiles **blocked** by absent generated artifacts.
+
+## Git state
+
+At audit time, the intended worktree is clean. The only untracked path is the
+known generated `gradle/gradle-daemon-jvm.properties`; it is not staged.
+
+## Conclusion
+
+The Kotlin-source conversion objective is complete, but the modernization
+handoff objective is **not complete**. Completion is blocked by missing native
+artifacts/device proof and requires explicit product decisions for release,
+privacy/Crashlytics, ViewServer policy, cleartext/telemetry, and the supported
+native ABI/lifecycle scope.
