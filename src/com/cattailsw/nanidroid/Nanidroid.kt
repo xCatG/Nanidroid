@@ -13,11 +13,8 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Message
 import android.preference.PreferenceManager
-import android.support.v4.app.DialogFragment
 import android.support.v4.app.FragmentActivity
 import android.util.Log
-import android.view.ContextMenu
-import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.compose.runtime.getValue
@@ -47,8 +44,7 @@ import java.util.Arrays
  * The production activity. Compose owns both chrome and ghost presentation;
  * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
  */
-class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
-    MoreGhostFuncDlg.MoreGhostFuncListener, SScriptRunner.UICallback {
+class Nanidroid : FragmentActivity(), SScriptRunner.UICallback {
 
     private var loading by mutableStateOf(true)
     private var progressMessage by mutableStateOf("")
@@ -170,7 +166,6 @@ class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
             )
         }
         setContentView(composeRoot)
-        registerForContextMenu(composeRoot)
         showProgress()
     }
     private fun showProgress() { loading = true }
@@ -281,7 +276,7 @@ class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
         AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
         simpleDialog = createMoreGhostDialog()
     }
-    override fun startInstallFromSDCard() {
+    private fun startInstallFromSDCard() {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(
             Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0,
         )
@@ -299,9 +294,6 @@ class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
             if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file,
         )
     }
-    fun showNarPickDlg(narz: Array<String>) { Toast.makeText(this, "multiple nar exist", Toast.LENGTH_SHORT).show(); AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_NAR_PICK}"); NarPickDlg(narz).show(supportFragmentManager, Setup.DLG_NAR_PICK) }
-    override fun onNarPick(narName: String) { startInstallFromSDCard() }
-
     private fun importPickedNar(uri: Uri) {
         object : AsyncTask<Void, Void, NarContentUriImport.Result>() {
             override fun doInBackground(vararg params: Void?): NarContentUriImport.Result = NarContentUriImport.importContent(
@@ -322,8 +314,8 @@ class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
                 ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
         }
     }
-    override fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); simpleDialog = createUrlEntryDialog() }
-    override fun showGhostTown() {
+    private fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); simpleDialog = createUrlEntryDialog() }
+    private fun showGhostTown() {
         AnalyticsUtils.getInstance(this).trackPageView("/ghost_town_portal")
         simpleDialog = NanidroidSimpleDialog.Notice(R.string.not_implemeted_title, R.string.not_implemented)
     }
@@ -336,7 +328,6 @@ class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
             manager.getGnames()?.toList().orEmpty(),
         )
     }
-    override fun onContextItemSelected(item: MenuItem): Boolean = when (item.itemId) { R.id.item_about -> { showAbout(); true }; R.id.item_feedback -> { showFeedback(); true }; R.id.item_general_help -> { showHelp(); true }; else -> super.onContextItemSelected(item) }
     private fun showHelp() {
         AnalyticsUtils.getInstance(applicationContext).trackPageView("/help")
         simpleDialog = createGeneralHelpDialog()
@@ -446,7 +437,6 @@ class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
         // Keep that behavior until the HTML surface has a dedicated migration.
         AboutDialogFragment().show(supportFragmentManager, Setup.DLG_ABOUT)
     }
-    override fun onCreateContextMenu(menu: ContextMenu, v: View, menuInfo: ContextMenu.ContextMenuInfo?) { super.onCreateContextMenu(menu, v, menuInfo); menuInflater.inflate(R.menu.main_help_menu, menu) }
     fun onSetupClick(v: View) = showPreference()
     private fun showPreference() { val target = Intent(Intent.ACTION_VIEW); target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET); target.setClassName(this, Preferences::class.java.name); AnalyticsUtils.getInstance(this).trackPageView("/Preference"); startActivity(target) }
     fun frameClick(v: View) {
@@ -459,5 +449,5 @@ class Nanidroid : FragmentActivity(), NarPickDlg.NarPickDlgListener,
     private fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList()) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list" }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list" }
 }

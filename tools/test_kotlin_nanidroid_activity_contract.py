@@ -93,6 +93,12 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
             "UserInputDlg.kt",
             "UserSelectDlg.kt",
             "GhostListDialogFragment.kt",
+            "DbgMsgDlg.kt",
+            "ErrMsgDlg.kt",
+            "HelpFuncDlg.kt",
+            "MoreGhostFuncDlg.kt",
+            "NarPickDlg.kt",
+            "NotImplementedDlg.kt",
         ):
             self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/dlgs" / name).exists())
         self.assertIn("data class UrlEntry", dialog_source)
@@ -103,6 +109,12 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("data class GhostList", dialog_source)
         self.assertIn("url-validation-error", dialog_source)
         self.assertNotIn("ArrayAdapter", self.source)
+        self.assertNotIn("registerForContextMenu", self.source)
+        self.assertNotIn("onCreateContextMenu", self.source)
+        self.assertNotIn("onContextItemSelected", self.source)
+        self.assertFalse((ROOT / "res/layout/dbgdlg.xml").exists())
+        self.assertFalse((ROOT / "res/menu/main_help_menu.xml").exists())
+        self.assertFalse((ROOT / "res/values/arrays.xml").exists())
 
     def test_compose_stage_preserves_legacy_interaction_and_animation_lifecycle(self):
         stage = (

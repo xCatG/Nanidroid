@@ -75,6 +75,44 @@ class NanidroidComposeShellTest {
     }
 
     @Test
+    fun operational_notice_and_help_actions_stay_in_the_compose_host() {
+        val dialog = mutableStateOf<NanidroidSimpleDialog?>(null)
+        dialog.value = NanidroidSimpleDialog.HelpMenu(
+            onGeneralHelp = { dialog.value = NanidroidSimpleDialog.GeneralHelp({}, {}) },
+            onAbout = {},
+            onFeedback = {},
+        )
+        var installHelp = false
+        var confirmed = false
+        composeRule.setContent {
+            val current = dialog.value
+            NanidroidSimpleDialogHost(
+                dialog = when (current) {
+                    is NanidroidSimpleDialog.GeneralHelp -> NanidroidSimpleDialog.GeneralHelp(
+                        onInstallHelp = { installHelp = true },
+                        onSupportedOperations = {},
+                    )
+                    else -> current
+                },
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("simple-action-0").performClick()
+        composeRule.onNodeWithTag("simple-action-0").performClick()
+        composeRule.runOnIdle { assertEquals(true, installHelp) }
+        composeRule.runOnIdle {
+            dialog.value = NanidroidSimpleDialog.Notice(
+                title = android.R.string.dialog_alert_title,
+                message = android.R.string.ok,
+                onConfirm = { confirmed = true },
+            )
+        }
+        composeRule.onNodeWithTag("notice-confirm").performClick()
+        composeRule.runOnIdle { assertEquals(true, confirmed) }
+    }
+
+    @Test
     fun shell_routes_ghost_selection_and_keeps_the_selected_ghost_balloon_visible() {
         val selectedGhost = mutableStateOf("No ghost selected")
         composeRule.setContent {

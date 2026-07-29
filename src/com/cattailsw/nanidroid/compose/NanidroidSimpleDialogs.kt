@@ -52,7 +52,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
     }
 }
 
-@Composable private fun NoticeDialog(dialog: NanidroidSimpleDialog.Notice, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(dialog.title)) }, text = { Text(stringResource(dialog.message)) }, confirmButton = { TextButton(onClick = { onDismiss(); dialog.onConfirm?.invoke() }) { Text(stringResource(android.R.string.ok)) } })
+@Composable private fun NoticeDialog(dialog: NanidroidSimpleDialog.Notice, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(dialog.title)) }, text = { Text(stringResource(dialog.message)) }, confirmButton = { TextButton(onClick = { onDismiss(); dialog.onConfirm?.invoke() }, modifier = Modifier.testTag("notice-confirm")) { Text(stringResource(android.R.string.ok)) } })
 @Composable private fun DebugDialog(dialog: NanidroidSimpleDialog.DebugMessage, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, text = { SelectionContainer { Column(modifier = Modifier.verticalScroll(rememberScrollState())) { Text(dialog.message) } } }, confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) } })
 
 @Composable private fun UrlEntryDialog(dialog: NanidroidSimpleDialog.UrlEntry, onDismiss: () -> Unit) {

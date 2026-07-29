@@ -37,6 +37,17 @@ Readme, no-readme-switch, about, and WebView/document dialogs remain in the
 support-fragment layer by design; they are not part of this non-HTML dialog
 slice.
 
+## Operational fragment cleanup
+
+The remaining non-document `DialogFragment` paths—debug/error/notice, help,
+more-ghost, not-implemented, and the obsolete multi-NAR selector—have been
+removed. Their user-visible actions and error categories are owned by
+`NanidroidSimpleDialog`; the active install action still launches the system
+document picker. The redundant context menu, menu XML, dialog XML, and string
+arrays were removed with those paths. The focused Compose-shell device class
+passed 7/7 tests on API 37; the emulator JVM suite and all 68 host contracts
+also passed.
+
 Native runtime support is limited to the actively built NarFS JNI library.
 AGP/CMake builds `narfs_full` from `jni/narfs` for `arm64-v8a` and `x86_64`.
 Kawari and Satori descriptors continue to use `NotSupportedShiori`; simple
