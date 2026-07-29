@@ -16,7 +16,6 @@
     android:layout_height="fill_parent"
     android:id="@id/fl"
     android:layout_below="@id/btn_bar"
-    android:layout_above="@id/adview"
     android:onClick="frameClick"
     >
 <com.cattailsw.nanidroid.Balloon
