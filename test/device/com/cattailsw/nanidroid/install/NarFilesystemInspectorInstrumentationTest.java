@@ -1,11 +1,14 @@
 package com.cattailsw.nanidroid.install;
 
 import android.test.InstrumentationTestCase;
+import android.os.Build;
 
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.InputStream;
 import java.io.FileOutputStream;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public final class NarFilesystemInspectorInstrumentationTest
         extends InstrumentationTestCase {
@@ -112,22 +115,24 @@ public final class NarFilesystemInspectorInstrumentationTest
     }
 
     private void assertSelectedAarch64Library() throws Exception {
-        String nativeLibraryDir = getInstrumentation()
-                .getTargetContext().getApplicationInfo().nativeLibraryDir;
-        File library = new File(nativeLibraryDir, "libnarfs.so");
-        assertTrue("Selected narfs library is missing: " + library,
-                library.isFile());
+        String abi = Build.SUPPORTED_ABIS[0];
+        File apk = new File(getInstrumentation()
+                .getTargetContext().getApplicationInfo().sourceDir);
         byte[] header = new byte[20];
-        FileInputStream input = new FileInputStream(library);
         int offset = 0;
+        ZipFile zip = new ZipFile(apk);
         try {
+            ZipEntry library = zip.getEntry("lib/" + abi + "/libnarfs.so");
+            assertNotNull("Selected narfs APK entry is missing: " + abi, library);
+            InputStream input = zip.getInputStream(library);
+            try {
             while (offset < header.length) {
                 int count = input.read(header, offset, header.length - offset);
                 if (count < 0) break;
                 offset += count;
             }
-        } finally {
-            input.close();
+            } finally { input.close(); }
+        } finally { zip.close();
         }
         assertEquals(header.length, offset);
         assertEquals(0x7f, header[0] & 0xff);
@@ -137,7 +142,13 @@ public final class NarFilesystemInspectorInstrumentationTest
         assertEquals(2, header[4]);
         assertEquals(1, header[5]);
         int machine = (header[18] & 0xff) | ((header[19] & 0xff) << 8);
-        assertEquals(183, machine);
+        assertEquals(expectedElfMachine(abi), machine);
+    }
+
+    private static int expectedElfMachine(String abi) {
+        if ("arm64-v8a".equals(abi)) return 183;
+        if ("x86_64".equals(abi)) return 62;
+        throw new AssertionError("Unsupported runtime ABI: " + abi);
     }
 
     private static void assertResult(
