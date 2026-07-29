@@ -8,16 +8,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class KotlinAboutDialogContractTest(unittest.TestCase):
-    def test_gradle_uses_kotlin_while_frozen_ant_keeps_the_original_java_dialog(self):
+    def test_dialog_is_kotlin_without_a_java_or_archived_overlay(self):
         source = ROOT / "src/com/cattailsw/nanidroid/dlgs/AboutDialogFragment.kt"
-        legacy = ROOT / "legacy/src/com/cattailsw/nanidroid/dlgs/AboutDialogFragment.java"
 
         self.assertTrue(source.exists())
         self.assertFalse(
             (ROOT / "src/com/cattailsw/nanidroid/dlgs/AboutDialogFragment.java").exists()
         )
-        self.assertTrue(legacy.exists())
-        self.assertIn("public class AboutDialogFragment extends DialogFragment", legacy.read_text(encoding="utf-8"))
+        self.assertFalse((ROOT / "legacy").exists())
 
     def test_kotlin_dialog_preserves_the_legacy_webview_and_close_contract(self):
         source = (

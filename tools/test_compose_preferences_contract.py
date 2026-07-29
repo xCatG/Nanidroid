@@ -20,12 +20,7 @@ class ComposePreferencesContractTest(unittest.TestCase):
         )
         self.assertFalse((root / "src/com/cattailsw/nanidroid/Preferences.java").exists())
         self.assertFalse((root / "res/xml/main_pref.xml").exists())
-        legacy = (
-            root / "legacy/src/com/cattailsw/nanidroid/Preferences.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("class Preferences extends PreferenceActivity", legacy)
-        self.assertIn('analytics.setKey("enable_analytics")', legacy)
-        self.assertNotIn("main_pref", legacy)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

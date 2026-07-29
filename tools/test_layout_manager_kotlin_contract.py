@@ -18,9 +18,7 @@ class LayoutManagerKotlinContractTest(unittest.TestCase):
         self.assertIn("Gravity.LEFT", content)
         self.assertIn("params.bottomMargin = bottomMargin", content)
         self.assertFalse((root / "src/com/cattailsw/nanidroid/LayoutManager.java").exists())
-        self.assertTrue(
-            (root / "legacy/src/com/cattailsw/nanidroid/LayoutManager.java").exists()
-        )
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

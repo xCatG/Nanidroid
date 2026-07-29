@@ -6,7 +6,7 @@ class KotlinGhostDomainContractTest(unittest.TestCase):
     def test_ghost_is_kotlin_and_preserves_java_subclass_hooks(self):
         root = Path(__file__).resolve().parents[1]
         self.assertFalse((root / "src/com/cattailsw/nanidroid/Ghost.java").exists())
-        self.assertTrue((root / "legacy/src/com/cattailsw/nanidroid/Ghost.java").exists())
+        self.assertFalse((root / "legacy").exists())
         source = (root / "src/com/cattailsw/nanidroid/Ghost.kt").read_text(
             encoding="utf-8"
         )

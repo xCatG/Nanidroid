@@ -28,13 +28,9 @@ class KotlinDescriptorReaderContractTest(unittest.TestCase):
         self.assertIn("throw NullPointerException()", source)
         self.assertIn("input.readBytes()", source)
 
-    def test_legacy_ant_descriptor_reader_remains_java(self):
+    def test_descriptor_reader_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "legacy/src/com/cattailsw/nanidroid/DescReader.java").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("public class DescReader", source)
-        self.assertIn("public Map<String,String> parse() throws IOException", source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

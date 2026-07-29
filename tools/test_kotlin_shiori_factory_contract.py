@@ -29,14 +29,10 @@ class KotlinShioriFactoryContractTest(unittest.TestCase):
         self.assertNotIn("Kawari(", source)
         self.assertNotIn("SatoriPosixShiori(", source)
 
-    def test_legacy_ant_factory_remains_java(self):
+    def test_mainline_has_no_archived_java_factory(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "legacy/src/com/cattailsw/nanidroid/ShioriFactory.java").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("public class ShioriFactory", source)
-        self.assertIn("public static final ShioriFactory getInstance()", source)
-        self.assertIn("public Shiori getShiori(String path, Map<String, String> masterDesc", source)
+        self.assertFalse((root / "legacy").exists())
+        self.assertFalse((root / "src/com/cattailsw/nanidroid/ShioriFactory.java").exists())
 
 
 if __name__ == "__main__":

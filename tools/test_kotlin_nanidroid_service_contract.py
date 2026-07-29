@@ -7,9 +7,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src/com/cattailsw/nanidroid/NanidroidService.kt"
-LEGACY = ROOT / "legacy/src/com/cattailsw/nanidroid/NanidroidService.java"
-
-
 class KotlinNanidroidServiceContractTest(unittest.TestCase):
     def test_kotlin_service_preserves_manifest_and_java_command_api(self):
         source = SOURCE.read_text(encoding="utf-8")
@@ -45,9 +42,9 @@ class KotlinNanidroidServiceContractTest(unittest.TestCase):
         self.assertIn("PendingIntent.FLAG_UPDATE_CURRENT", source)
         self.assertIn("startForeground(FOREGROUND_NOTIFICATION_ID", source)
 
-    def test_frozen_java_overlay_remains_for_the_ant_compatibility_build(self):
-        self.assertTrue(LEGACY.is_file())
-        self.assertIn("public class NanidroidService extends Service", LEGACY.read_text(encoding="utf-8"))
+    def test_service_has_no_archived_java_overlay(self):
+        self.assertFalse((ROOT / "legacy").exists())
+        self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/NanidroidService.java").exists())
 
 
 if __name__ == "__main__":

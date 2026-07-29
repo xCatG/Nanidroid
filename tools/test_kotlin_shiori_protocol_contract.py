@@ -14,13 +14,9 @@ class KotlinShioriProtocolContractTest(unittest.TestCase):
         self.assertIn("class ShioriProtocolVersion(", source)
         self.assertIn('"$protocol/$major.$minor"', source)
 
-    def test_legacy_ant_overlay_remains_java(self):
+    def test_protocol_value_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "legacy/src/com/cattailsw/nanidroid/ShioriProtocolVersion.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("public final class ShioriProtocolVersion", source)
-        self.assertIn('return protocol + "/" + major + "." + minor;', source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

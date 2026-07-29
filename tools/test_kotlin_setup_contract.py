@@ -13,13 +13,9 @@ class KotlinSetupContractTest(unittest.TestCase):
         for name in ("NANIDROID", "UA_CODE", "DLG_README", "ANA_PERF", "PREF_KEY_USE_ANALYTICS"):
             self.assertIn("const val " + name, source)
 
-    def test_legacy_ant_constants_remain_java(self):
+    def test_constants_have_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "legacy/src/com/cattailsw/nanidroid/Setup.java").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("public class Setup", source)
-        self.assertIn("public static final String NANIDROID", source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

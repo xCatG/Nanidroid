@@ -13,13 +13,9 @@ class KotlinShioriContractTest(unittest.TestCase):
         self.assertIn("fun request(request: String): String", source)
         self.assertIn("fun unloadShiori()", source)
 
-    def test_legacy_ant_contract_is_java(self):
+    def test_shiori_contract_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "legacy/src/com/cattailsw/nanidroid/shiori/Shiori.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("public interface Shiori", source)
-        self.assertIn("String request(String req);", source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

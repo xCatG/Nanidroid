@@ -14,13 +14,9 @@ class KotlinPatternHoldersContractTest(unittest.TestCase):
         for field in ("element", "animation", "shiori_res_header_ptrn", "open_input"):
             self.assertIn("val " + field, source)
 
-    def test_legacy_ant_patterns_remain_java(self):
+    def test_patterns_have_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "legacy/src/com/cattailsw/nanidroid/PatternHolders.java").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("public class PatternHolders", source)
-        self.assertIn("public static final Pattern element", source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

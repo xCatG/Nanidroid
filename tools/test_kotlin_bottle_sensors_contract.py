@@ -24,18 +24,9 @@ class KotlinBottleSensorsContractTest(unittest.TestCase):
         self.assertIn("@JvmStatic", bottle_log)
         self.assertIn("fun getPageContent(ctx: Context): LinkedList<String>", bottle_log)
 
-    def test_frozen_ant_overlay_retains_java_sensor_api(self):
+    def test_sensors_have_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        sstp = (root / "legacy/src/com/cattailsw/nanidroid/SSTPBottleSensor.java").read_text(
-            encoding="utf-8"
-        )
-        bottle_log = (root / "legacy/src/com/cattailsw/nanidroid/BottleLogSensor.java").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("public class SSTPBottleSensor", sstp)
-        self.assertIn("public static class ApiException", sstp)
-        self.assertIn("public static LinkedList<String> getPageContent", sstp)
-        self.assertIn("public class BottleLogSensor extends SSTPBottleSensor", bottle_log)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

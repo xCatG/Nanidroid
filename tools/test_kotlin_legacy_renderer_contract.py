@@ -10,8 +10,8 @@ class KotlinLegacyRendererContractTest(unittest.TestCase):
         self.assertIn("layoutManager?.checkAndUpdateLayoutParam()", source)
         self.assertIn("view.startTalkingAnimation()", source)
         self.assertFalse((root / "src/com/cattailsw/nanidroid/LegacyGhostPresentationRenderer.java").exists())
-    def test_ant_overlay_is_java(self):
+    def test_renderer_has_no_archived_java_overlay(self):
         root = pathlib.Path(__file__).resolve().parents[1]
-        self.assertTrue((root / "legacy/src/com/cattailsw/nanidroid/LegacyGhostPresentationRenderer.java").exists())
+        self.assertFalse((root / "legacy").exists())
 
 if __name__ == "__main__": unittest.main()

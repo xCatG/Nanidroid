@@ -13,13 +13,9 @@ class KotlinEchoShioriContractTest(unittest.TestCase):
         self.assertIn("protected open fun genResponse(): String", source)
         self.assertIn("protected var reqTable", source)
 
-    def test_legacy_ant_base_implementation_is_java(self):
+    def test_echo_shiori_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "legacy/src/com/cattailsw/nanidroid/shiori/EchoShiori.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("public class EchoShiori implements Shiori", source)
-        self.assertIn("protected String genResponse()", source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

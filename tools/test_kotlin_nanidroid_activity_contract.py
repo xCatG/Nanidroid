@@ -20,7 +20,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
 
     def test_gradle_build_uses_kotlin_while_ant_keeps_the_frozen_java_activity(self):
         self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java").exists())
-        self.assertTrue((ROOT / "legacy/src/com/cattailsw/nanidroid/Nanidroid.java").exists())
+        self.assertFalse((ROOT / "legacy").exists())
         self.assertIn("class Nanidroid : FragmentActivity()", self.source)
         self.assertIn("composeRoot.setContent {", self.source)
         self.assertIn("NanidroidComposeShell(", self.source)

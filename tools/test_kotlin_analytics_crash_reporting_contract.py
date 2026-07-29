@@ -41,22 +41,11 @@ class KotlinAnalyticsAndCrashReportingContractTest(unittest.TestCase):
         self.assertIn("if (enabled)", crash_reporting)
         self.assertGreaterEqual(crash_reporting.count("@JvmStatic"), 2)
 
-    def test_frozen_ant_crash_reporting_shim_remains_a_java_noop(self):
+    def test_current_boundaries_have_no_archived_java_counterparts(self):
         root = Path(__file__).resolve().parents[1]
-        legacy = (
-            root / "legacy/src/com/cattailsw/nanidroid/util/CrashReporting.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("public final class CrashReporting", legacy)
-        self.assertIn("public static void initialize(Application application)", legacy)
-        self.assertIn("public static void setCustomKey(String key, String value)", legacy)
-        self.assertNotIn("import com.google.firebase", legacy)
-
-        analytics = (
-            root / "legacy/src/com/cattailsw/nanidroid/util/AnalyticsUtils.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("Frozen Ant-build compatibility shim", analytics)
-        self.assertIn("public static AnalyticsUtils getInstance(Context context)", analytics)
-        self.assertNotIn("com.google.android.apps.analytics", analytics)
+        self.assertFalse((root / "legacy").exists())
+        self.assertFalse((root / "src/com/cattailsw/nanidroid/util/AnalyticsUtils.java").exists())
+        self.assertFalse((root / "src/com/cattailsw/nanidroid/util/CrashReporting.java").exists())
 
 
 if __name__ == "__main__":

@@ -15,12 +15,9 @@ class KotlinNotSupportedShioriContractTest(unittest.TestCase):
         self.assertIn("override fun genResponse(): String", source)
         self.assertIn("R.string.unsupported_shiori", source)
 
-    def test_legacy_ant_implementation_is_java(self):
+    def test_unsupported_shiori_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "legacy/src/com/cattailsw/nanidroid/shiori/NotSupportedShiori.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("public class NotSupportedShiori extends EchoShiori", source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

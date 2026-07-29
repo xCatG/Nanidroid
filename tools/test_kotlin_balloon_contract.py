@@ -14,12 +14,10 @@ class KotlinBalloonContractTest(unittest.TestCase):
         self.assertIn("movementMethod = null", source)
         self.assertFalse((root / "src/com/cattailsw/nanidroid/Balloon.java").exists())
 
-    def test_frozen_ant_overlay_keeps_java_balloon(self):
+    def test_balloon_has_no_java_or_archived_overlay(self):
         root = pathlib.Path(__file__).resolve().parents[1]
-        source = (root / "legacy/src/com/cattailsw/nanidroid/Balloon.java").read_text(encoding="utf-8")
-
-        self.assertIn("public class Balloon extends TextView", source)
-        self.assertIn("public void setText(String str)", source)
+        self.assertFalse((root / "src/com/cattailsw/nanidroid/Balloon.java").exists())
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

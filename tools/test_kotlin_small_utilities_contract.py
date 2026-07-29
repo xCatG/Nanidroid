@@ -28,12 +28,8 @@ class KotlinSmallUtilitiesContractTest(unittest.TestCase):
         self.assertIn("fun isAfterEclair(): Boolean", ui)
         self.assertIn("fun isGingerbread(): Boolean", ui)
 
-    def test_frozen_ant_utilities_remain_java(self):
-        for name in ("PrefUtil", "UIUtil"):
-            source = (
-                self.root / "legacy/src/com/cattailsw/nanidroid/util" / (name + ".java")
-            ).read_text(encoding="utf-8")
-            self.assertIn("public class " + name, source)
+    def test_utilities_have_no_archived_java_overlay(self):
+        self.assertFalse((self.root / "legacy").exists())
 
 
 if __name__ == "__main__":

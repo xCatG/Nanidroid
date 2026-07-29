@@ -16,9 +16,6 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
         boundary = (
             root / "src/com/cattailsw/nanidroid/util/CrashReporting.kt"
         ).read_text(encoding="utf-8")
-        legacy_boundary = (
-            root / "legacy/src/com/cattailsw/nanidroid/util/CrashReporting.java"
-        ).read_text(encoding="utf-8")
 
         self.assertNotIn("acra-4.2.3", build)
         self.assertIn("firebase-bom:34.16.0", build)
@@ -30,13 +27,8 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
         self.assertIn("FirebaseCrashlytics.getInstance()", boundary)
         self.assertIn("setCustomKey", boundary)
         self.assertIn('CrashReporting.setCustomKey("current_ghost"', activity)
-        self.assertIn("Frozen Ant-build compatibility shim", legacy_boundary)
-        self.assertNotIn("org.acra", legacy_boundary)
-        legacy_app = (
-            root / "legacy/src/com/cattailsw/nanidroid/CatTailApplication.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("Frozen Ant-build compatibility shim", legacy_app)
-        self.assertIn("CrashReporting.initialize(this)", legacy_app)
+        self.assertFalse((root / "legacy").exists())
+        self.assertFalse((root / "src/com/cattailsw/nanidroid/util/CrashReporting.java").exists())
 
     def test_setup_documentation_preserves_no_credentials_policy(self):
         root = Path(__file__).resolve().parents[1]

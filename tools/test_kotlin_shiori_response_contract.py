@@ -18,13 +18,9 @@ class KotlinShioriResponseContractTest(unittest.TestCase):
         )
         self.assertIn("response.getStatusCode() == 200", ghost_source)
 
-    def test_frozen_ant_build_uses_java_overlay(self):
+    def test_response_parser_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        source = (
-            root / "legacy/src/com/cattailsw/nanidroid/ShioriResponse.java"
-        ).read_text(encoding="utf-8")
-        self.assertIn("public class ShioriResponse", source)
-        self.assertIn("public int getStatusCode()", source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

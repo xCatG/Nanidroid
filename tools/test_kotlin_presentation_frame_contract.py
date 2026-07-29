@@ -8,9 +8,7 @@ class KotlinPresentationFrameContractTest(unittest.TestCase):
         self.assertFalse(
             (root / "src/com/cattailsw/nanidroid/GhostPresentationFrame.java").exists()
         )
-        self.assertTrue(
-            (root / "legacy/src/com/cattailsw/nanidroid/GhostPresentationFrame.java").exists()
-        )
+        self.assertFalse((root / "legacy").exists())
         source = (
             root / "src/com/cattailsw/nanidroid/GhostPresentationFrame.kt"
         ).read_text(encoding="utf-8")

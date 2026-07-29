@@ -12,12 +12,10 @@ class KotlinKeroViewContractTest(unittest.TestCase):
         self.assertIn("mgr!!.getKeroSurface(surfaceId)", source)
         self.assertFalse((root / "src/com/cattailsw/nanidroid/KeroView.java").exists())
 
-    def test_frozen_ant_overlay_keeps_java_kero_view(self):
+    def test_kero_surface_resolution_has_no_java_or_archived_overlay(self):
         root = pathlib.Path(__file__).resolve().parents[1]
-        source = (root / "legacy/src/com/cattailsw/nanidroid/KeroView.java").read_text(encoding="utf-8")
-
-        self.assertIn("public class KeroView extends SakuraView", source)
-        self.assertIn("mgr.getKeroSurface(surfaceid)", source)
+        self.assertFalse((root / "src/com/cattailsw/nanidroid/KeroView.java").exists())
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

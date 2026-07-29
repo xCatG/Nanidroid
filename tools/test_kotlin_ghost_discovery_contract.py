@@ -26,16 +26,9 @@ class KotlinGhostDiscoveryContractTest(unittest.TestCase):
         self.assertIn('File(ctx.getExternalFilesDir(null), "ghost")', source)
         self.assertIn("InfoOnlyGhost", source)
 
-    def test_legacy_ant_sources_remain_java(self):
+    def test_discovery_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
-        for name, declaration in (
-            ("InfoOnlyGhost", "public class InfoOnlyGhost extends Ghost"),
-            ("DirList", "public class DirList"),
-        ):
-            source = (root / f"legacy/src/com/cattailsw/nanidroid/{name}.java").read_text(
-                encoding="utf-8"
-            )
-            self.assertIn(declaration, source)
+        self.assertFalse((root / "legacy").exists())
 
 
 if __name__ == "__main__":

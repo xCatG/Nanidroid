@@ -8,9 +8,7 @@ class KotlinIncomingNarIntentContractTest(unittest.TestCase):
         self.assertFalse(
             (root / "src/com/cattailsw/nanidroid/IncomingNarIntent.java").exists()
         )
-        self.assertTrue(
-            (root / "legacy/src/com/cattailsw/nanidroid/IncomingNarIntent.java").exists()
-        )
+        self.assertFalse((root / "legacy").exists())
         source = (
             root / "src/com/cattailsw/nanidroid/IncomingNarIntent.kt"
         ).read_text(encoding="utf-8")

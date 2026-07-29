@@ -16,51 +16,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.21"
 }
 
-val legacyNativeDirectory = layout.projectDirectory.dir("artifacts/legacy/native")
-val emulatorNativeDirectory = layout.projectDirectory.dir("artifacts/emulator/native")
-val deviceNativeDirectory = layout.projectDirectory.dir("artifacts/emulator/x86_64/native")
-val requiredLegacyNativeLibraries = listOf(
-    legacyNativeDirectory.file("armeabi/libkawari8.so"),
-    legacyNativeDirectory.file("armeabi/libnarfs.so"),
-    legacyNativeDirectory.file("armeabi/libsatoriya.so"),
-)
-val requiredEmulatorNativeLibraries = listOf(
-    emulatorNativeDirectory.file("arm64-v8a/libkawari8.so"),
-    emulatorNativeDirectory.file("arm64-v8a/libnarfs.so"),
-    emulatorNativeDirectory.file("arm64-v8a/libsatoriya.so"),
-)
-val requiredDeviceNativeLibraries = listOf(
-    deviceNativeDirectory.file("x86_64/libkawari8.so"),
-    deviceNativeDirectory.file("x86_64/libnarfs.so"),
-    deviceNativeDirectory.file("x86_64/libsatoriya.so"),
-)
-
-abstract class VerifyNativeLibraries : DefaultTask() {
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val libraries: ConfigurableFileCollection
-
-    @get:Input
-    abstract val artifactLabel: Property<String>
-
-    @get:Input
-    abstract val buildCommand: Property<String>
-
-    @TaskAction
-    fun verify() {
-        val missing = libraries.files.filterNot { it.isFile }
-        if (missing.isNotEmpty()) {
-            throw GradleException(
-                buildString {
-                    appendLine("Missing ${artifactLabel.get()} native libraries:")
-                    missing.forEach { appendLine("  - $it") }
-                    append("Run `${buildCommand.get()}` before assembling with Gradle.")
-                }
-            )
-        }
-    }
-}
-
 abstract class VerifyCharacterizationTestIsolation : DefaultTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -147,36 +102,6 @@ abstract class VerifyDeviceCharacterizationTestIsolation : DefaultTask() {
             )
         }
     }
-}
-
-val verifyLegacyNativeLibraries by tasks.registering(VerifyNativeLibraries::class) {
-    group = "verification"
-    description = "Checks that PR B1 produced the native libraries packaged by Gradle."
-    libraries.from(requiredLegacyNativeLibraries)
-    artifactLabel.set("frozen legacy")
-    buildCommand.set("docker compose -f docker/legacy/compose.yaml run --rm build")
-}
-
-val verifyEmulatorNativeLibraries by tasks.registering(VerifyNativeLibraries::class) {
-    group = "verification"
-    description = "Checks that the opt-in emulator lane produced both ARM64 engines."
-    libraries.from(requiredEmulatorNativeLibraries)
-    artifactLabel.set("ARM64 emulator")
-    buildCommand.set(
-        "docker compose -f docker/legacy/compose.yaml run --rm emulator-native"
-    )
-}
-
-val verifyDeviceNativeLibraries by tasks.registering(VerifyNativeLibraries::class) {
-    group = "verification"
-    description = "Checks the isolated x86_64 API-36 device profile native libraries."
-    libraries.from(requiredDeviceNativeLibraries)
-    artifactLabel.set("x86_64 API-36 device")
-    buildCommand.set(
-        "docker compose -f docker/legacy/compose.yaml run --rm " +
-            "--env EMULATOR_ABI=x86_64 --env OUTPUT_ROOT=/out/x86_64 " +
-            "emulator-native"
-    )
 }
 
 android {
