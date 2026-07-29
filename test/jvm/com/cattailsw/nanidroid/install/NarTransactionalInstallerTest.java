@@ -111,6 +111,54 @@ public final class NarTransactionalInstallerTest {
     }
 
     @Test
+    public void insufficientSpaceDuringExtractionLeavesNoPartialStateAndRetrySucceeds()
+            throws Exception {
+        File root = temporaryDirectory("transaction-no-space");
+        File archive = zip(
+                "install.txt", descriptor("space-id"),
+                "ghost/master.txt", bytes("payload"));
+
+        NarTransactionalInstaller.Result failed = NarTransactionalInstaller.install(
+                archive, root, null, failingOutput("no space left on device"));
+
+        assertFailureLeavesNoPartialState(
+                failed, NarTransactionalInstaller.Error.EXTRACTION_FAILED, root, "space-id");
+        assertSuccessfulRetry(archive, root, "space-id");
+    }
+
+    @Test
+    public void extractionIoFailureLeavesNoPartialStateAndRetrySucceeds()
+            throws Exception {
+        File root = temporaryDirectory("transaction-io");
+        File archive = zip(
+                "install.txt", descriptor("io-id"),
+                "ghost/master.txt", bytes("payload"));
+
+        NarTransactionalInstaller.Result failed = NarTransactionalInstaller.install(
+                archive, root, null, failingOutput("simulated write failure"));
+
+        assertFailureLeavesNoPartialState(
+                failed, NarTransactionalInstaller.Error.EXTRACTION_FAILED, root, "io-id");
+        assertSuccessfulRetry(archive, root, "io-id");
+    }
+
+    @Test
+    public void publishFailureLeavesNoPartialStateAndRetrySucceeds()
+            throws Exception {
+        File root = temporaryDirectory("transaction-publish");
+        File archive = zip(
+                "install.txt", descriptor("publish-id"),
+                "ghost/master.txt", bytes("payload"));
+
+        NarTransactionalInstaller.Result failed = NarTransactionalInstaller.install(
+                archive, root, null, refusingPublish());
+
+        assertFailureLeavesNoPartialState(
+                failed, NarTransactionalInstaller.Error.PUBLISH_FAILED, root, "publish-id");
+        assertSuccessfulRetry(archive, root, "publish-id");
+    }
+
+    @Test
     public void failureIsCategorizedForUserFacingErrorMapping() throws Exception {
         File root = temporaryDirectory("transaction-missing");
         NarTransactionalInstaller.Result result =
@@ -128,6 +176,54 @@ public final class NarTransactionalInstallerTest {
         File file = File.createTempFile(label, "");
         if (!file.delete() || !file.mkdir()) throw new IOException("temporary root");
         return file;
+    }
+
+    private static NarTransactionalInstaller.FileOperations failingOutput(
+            final String message) {
+        return new NarTransactionalInstaller.FileOperations() {
+            @Override
+            public FileOutputStream openOutput(File file) throws IOException {
+                throw new IOException(message);
+            }
+
+            @Override
+            public boolean rename(File source, File destination) {
+                return source.renameTo(destination);
+            }
+        };
+    }
+
+    private static NarTransactionalInstaller.FileOperations refusingPublish() {
+        return new NarTransactionalInstaller.FileOperations() {
+            @Override
+            public FileOutputStream openOutput(File file) throws IOException {
+                return new FileOutputStream(file);
+            }
+
+            @Override
+            public boolean rename(File source, File destination) {
+                return false;
+            }
+        };
+    }
+
+    private static void assertFailureLeavesNoPartialState(
+            NarTransactionalInstaller.Result result,
+            NarTransactionalInstaller.Error error,
+            File root,
+            String targetId) {
+        assertFalse(result.isSuccess());
+        assertEquals(error, result.getError());
+        assertFalse(new File(root, targetId).exists());
+        assertFalse(new File(root, ".nanidroid-install-staging").exists());
+    }
+
+    private static void assertSuccessfulRetry(File archive, File root, String targetId) {
+        NarTransactionalInstaller.Result retry =
+                NarTransactionalInstaller.install(archive, root, null);
+        assertTrue(retry.isSuccess());
+        assertEquals(targetId, retry.getTargetId());
+        assertFalse(new File(root, ".nanidroid-install-staging").exists());
     }
 
     private static File zip(Object... values) throws IOException {

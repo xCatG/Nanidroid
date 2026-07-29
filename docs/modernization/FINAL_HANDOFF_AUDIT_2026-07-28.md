@@ -11,7 +11,7 @@ longer carries that historical handoff file.
 | Finish active Java-to-Kotlin migration | Complete | `rg --files src modern | rg '\\.java$'` returned no active production Java files; 100 active Kotlin files remain. The frozen `legacy/` tree is deliberately outside this scope. |
 | Preserve migration ABI/behavior with focused tests | Partially complete | Per-item characterization tests and Kotlin compilation exist. All seven allowlisted device classes passed on API 36.1 and API 37; the host full suite still cannot execute 32 Android-stub-dependent cases. |
 | Host artifact/security contracts | Complete | `python -m unittest discover -s tools -p 'test_*.py'` passed all 196 tests after the ViewServer retirement; Kotlin-source and Windows path contracts are covered and are no longer a blocker. |
-| Installer integration/recovery: local file, content URI, network update, interruption/corruption/conflict/cancel/retry/no partial state | Incomplete | API 37 passed native staged-tree ownership/cleanup (3 cases) and filesystem inspection. JVM policy/staging/transaction tests are present, but no deterministic end-to-end local-file/content-URI/network-update recovery matrix exists. The active public import remains HTTPS-only. |
+| Installer integration/recovery: local file, content URI, network update, interruption/corruption/conflict/cancel/retry/no partial state | Partially complete | Fresh-install JVM coverage now includes corrupt archives plus deterministic write/space, extraction-I/O, and publication failures: each leaves no target or staging residue and permits retry. Archive conflicts, collisions, limits, and retained-overlay policy are characterized. The active public import remains HTTPS-only; `content:` and cancellable network/update flows require separate product contracts. |
 | CI/Gradle and frozen legacy/reference lanes | Partially complete | The documented pinned Docker/Ant ARM regeneration and x86_64 profile both passed; all three native preflight gates pass. No current hosted-CI result was inspected. |
 | Release APK/AAB validation | Partially complete | The exact non-publishing `assembleRelease` passed after native regeneration. No AAB validation, signing, or publishing was performed. |
 | Repeatable API 36/37 release behavior: launch, import, interaction, recreation | Partially complete | Both x86_64 AVDs passed the native filesystem/staged-tree, lifecycle/recreation, Preferences, Compose-shell, surface-rendering, and animation classes. The HTTPS download/import interaction and full installer recovery matrix remain outside that bounded device suite. Native SHIORI is intentionally unsupported. |
@@ -26,7 +26,7 @@ longer carries that historical handoff file.
 * `assembleRelease -x verifyLegacyNativeLibraries` — **passed** (non-publishing; no release credentials configured).
 * `lintVitalRelease -x verifyLegacyNativeLibraries` — **passed**.
 * `python -m unittest discover -s tools -p 'test_*.py'` — **passed**: 196 host artifact/security contract tests.
-* API 36.1 and API 37 device instrumentation — **passed**: native filesystem; staged tree (3/3); main-activity lifecycle/recreation (1/1); Preferences (1/1); Compose shell (2/2); surface rendering (2/2); and surface animation (2/2), on each x86_64 AVD.
+* API 36.1 and API 37 device instrumentation — **passed**: native filesystem; staged tree (3/3); main-activity lifecycle/recreation (1/1); Preferences (1/1); Compose shell including ghost-list routing and visible balloon rendering (3/3); surface rendering (2/2); and surface animation (2/2), on each x86_64 AVD.
 * Full JVM host run — **blocked by Android framework stubs**, not compilation: 229 tests, 32 failures.
 * Native preflights — frozen ARM, ARM64 emulator, and x86_64 device profiles **passed**.
 
@@ -48,8 +48,8 @@ and cleartext/telemetry.
 
 `NarTransactionalInstaller.install(File, File, String)` is the lowest
 faithful host seam after a download has been materialized as a local file. Its
-characterization covers corrupt-file cleanup followed by a successful retry,
-without native artifacts. There is no equivalent host seam for a `content:`
+characterization covers corrupt-file cleanup and deterministic extraction/publish
+failures followed by a successful retry, without native artifacts. There is no equivalent host seam for a `content:`
 grant or cancellation: the only public external entry is intentionally
 HTTPS-only, while `NarDownloadTask` and `GhostUpdateTask` are private Android
 `AsyncTask` implementations that call concrete `NetworkUtil` and `File`

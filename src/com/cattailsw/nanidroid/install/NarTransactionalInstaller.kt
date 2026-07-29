@@ -9,6 +9,16 @@ import java.util.zip.CRC32
 
 /** Fresh-install-only transactional NAR installer. */
 class NarTransactionalInstaller private constructor() {
+    /**
+     * Minimal filesystem boundary for deterministic transaction-failure tests.
+     * Production retains the direct FileOutputStream/rename behavior.
+     */
+    interface FileOperations {
+        @Throws(IOException::class)
+        fun openOutput(file: File): FileOutputStream
+        fun rename(source: File, destination: File): Boolean
+    }
+
     enum class Error {
         SOURCE_UNAVAILABLE,
         INSTALL_ROOT_INVALID,
@@ -46,9 +56,25 @@ class NarTransactionalInstaller private constructor() {
 
         @JvmStatic
         fun install(archive: File?, installRoot: File?, forcedId: String?): Result =
-            synchronized(INSTALL_LOCK) { installLocked(archive, installRoot, forcedId) }
+            install(archive, installRoot, forcedId, RealFileOperations)
 
-        private fun installLocked(archive: File?, installRoot: File?, forcedId: String?): Result {
+        /** Test seam for write and publication failures; callers retain the three-argument API. */
+        @JvmStatic
+        fun install(
+            archive: File?,
+            installRoot: File?,
+            forcedId: String?,
+            fileOperations: FileOperations
+        ): Result = synchronized(INSTALL_LOCK) {
+            installLocked(archive, installRoot, forcedId, fileOperations)
+        }
+
+        private fun installLocked(
+            archive: File?,
+            installRoot: File?,
+            forcedId: String?,
+            fileOperations: FileOperations
+        ): Result {
             if (archive == null || !archive.isFile) return failure(Error.SOURCE_UNAVAILABLE, "The selected ghost archive is no longer available.")
             val root = try { installRoot?.canonicalFile } catch (_: IOException) { null }
             if (root == null || !root.isDirectory) return failure(Error.INSTALL_ROOT_INVALID, "Nanidroid cannot access its ghost storage.")
@@ -78,7 +104,7 @@ class NarTransactionalInstaller private constructor() {
                             result = if (candidate == null) {
                                 failure(Error.STAGING_FAILED, "Nanidroid could not prepare the new ghost files.")
                             } else {
-                                extractAndPublish(session!!, plan, candidate, target)
+                                extractAndPublish(session!!, plan, candidate, target, fileOperations)
                             }
                             closeQuietly(session)
                             session = null
@@ -98,7 +124,13 @@ class NarTransactionalInstaller private constructor() {
 
         private fun resultCleanupNeeded(staging: File): Boolean = staging.list() != null && staging.list()!!.isNotEmpty()
 
-        private fun extractAndPublish(session: NarVerifiedInstallSession, plan: NarInstallPlan, candidate: File, target: File): Result {
+        private fun extractAndPublish(
+            session: NarVerifiedInstallSession,
+            plan: NarInstallPlan,
+            candidate: File,
+            target: File,
+            fileOperations: FileOperations
+        ): Result {
             val total = longArrayOf(0L)
             try {
                 for (entry in plan.entries) {
@@ -106,7 +138,7 @@ class NarTransactionalInstaller private constructor() {
                     val output = child(candidate, entry.relativePath!!) ?: return failure(Error.EXTRACTION_FAILED, "The ghost archive contains an unsafe file path.")
                     if (entry.isDirectory) {
                         if (!output.mkdirs() && !output.isDirectory) return failure(Error.EXTRACTION_FAILED, "Nanidroid could not create a ghost directory.")
-                    } else if (!copyEntry(session, entry, output, total)) {
+                    } else if (!copyEntry(session, entry, output, total, fileOperations)) {
                         return failure(Error.EXTRACTION_FAILED, "The ghost archive could not be extracted safely.")
                     }
                 }
@@ -116,11 +148,17 @@ class NarTransactionalInstaller private constructor() {
             } catch (_: RuntimeException) {
                 return failure(Error.EXTRACTION_FAILED, "The ghost archive could not be extracted safely.")
             }
-            if (target.exists() || !candidate.renameTo(target)) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
+            if (target.exists() || !fileOperations.rename(candidate, target)) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
             return success(target, plan.descriptor.getTargetId())
         }
 
-        private fun copyEntry(session: NarVerifiedInstallSession, entry: NarInstallPlan.Entry, output: File, total: LongArray): Boolean {
+        private fun copyEntry(
+            session: NarVerifiedInstallSession,
+            entry: NarInstallPlan.Entry,
+            output: File,
+            total: LongArray,
+            fileOperations: FileOperations
+        ): Boolean {
             val parent = output.parentFile!!
             if (!parent.exists() && !parent.mkdirs()) return false
             var input: InputStream? = null
@@ -128,7 +166,7 @@ class NarTransactionalInstaller private constructor() {
             var complete = false
             try {
                 input = session.open(entry)
-                target = FileOutputStream(output)
+                target = fileOperations.openOutput(output)
                 val buffer = ByteArray(BUFFER_SIZE)
                 val crc = CRC32()
                 var fileBytes = 0L
@@ -191,5 +229,10 @@ class NarTransactionalInstaller private constructor() {
         private fun closeQuietly(value: InputStream?) { try { value?.close() } catch (_: IOException) { } }
         private fun closeQuietly(value: FileOutputStream?) { try { value?.close() } catch (_: IOException) { } }
         private fun deleteTree(file: File) { if (file.isDirectory) file.listFiles()?.forEach { deleteTree(it) }; file.delete() }
+
+        private object RealFileOperations : FileOperations {
+            override fun openOutput(file: File): FileOutputStream = FileOutputStream(file)
+            override fun rename(source: File, destination: File): Boolean = source.renameTo(destination)
+        }
     }
 }
