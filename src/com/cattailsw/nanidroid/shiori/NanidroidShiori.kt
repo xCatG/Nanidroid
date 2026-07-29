@@ -1,7 +1,7 @@
 package com.cattailsw.nanidroid.shiori
 
 import android.content.Context
-import android.util.Log
+import com.cattailsw.nanidroid.LegacyPlatform
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
@@ -15,16 +15,28 @@ open class NanidroidShiori() : EchoShiori() {
     private var evtTable: Hashtable<String, String>? = null
     private var mCtx: Context? = null
     private var rootpath: String? = null
+    private var contentResponsesEnabled = false
 
     constructor(ctx: Context?, path: String) : this() {
         mCtx = ctx
         rootpath = path
+        contentResponsesEnabled = ctx != null
+        loadContent(path)
+    }
+
+    internal constructor(path: String, contentFixture: Boolean) : this() {
+        rootpath = path
+        contentResponsesEnabled = contentFixture
+        loadContent(path)
+    }
+
+    private fun loadContent(path: String) {
 
         val userLocale = Locale.getDefault().language
-        var locDir = File(rootpath, userLocale)
-        Log.d(TAG, "loc dir=${locDir.absolutePath}")
+        var locDir = File(path, userLocale)
+        LegacyPlatform.debug(TAG, "loc dir=${locDir.absolutePath}")
         if (!locDir.exists()) {
-            Log.d(TAG, "loc dir=${locDir.absolutePath} not found")
+            LegacyPlatform.debug(TAG, "loc dir=${locDir.absolutePath} not found")
             locDir = File(rootpath, "ja")
         }
 
@@ -61,7 +73,7 @@ open class NanidroidShiori() : EchoShiori() {
 
     override fun genResponse(): String {
         val values = reqTable ?: return super.genResponse()
-        if (mCtx == null) return super.genResponse()
+        if (!contentResponsesEnabled) return super.genResponse()
 
         // The Java implementation throws when a request is missing ID. Keep that
         // observable parser behavior instead of silently treating it as 204.
@@ -112,5 +124,11 @@ open class NanidroidShiori() : EchoShiori() {
         private const val RES_HEADER = "SHIORI/3.0 200 OK\r\nSender: $TAG\r\nValue: "
         private const val RES_END = "\r\nCharset: UTF-8\r\n"
         private const val CONTENT_FILE_NAME = "content.txt"
+
+        /** Internal host-fixture entry point; production callers use Context. */
+        @JvmStatic
+        @JvmName("createContentFixture")
+        internal fun createContentFixture(path: String): NanidroidShiori =
+            NanidroidShiori(path, true)
     }
 }

@@ -1,7 +1,5 @@
 package com.cattailsw.nanidroid
 
-import android.os.SystemClock
-import android.util.Log
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.io.BufferedReader
 import java.io.File
@@ -48,7 +46,7 @@ class SurfaceReader {
     constructor(file: File) {
         try {
             rootPath = file.parent
-            Log.d(TAG, "rootpath = $rootPath")
+            LegacyPlatform.debug(TAG, "rootpath = $rootPath")
             FileInputStream(file).use(::parse)
         } catch (_: FileNotFoundException) {
             // Legacy behavior: parsing errors here do not set the reader error flag.
@@ -67,7 +65,7 @@ class SurfaceReader {
             filename.lowercase().endsWith(".png")
         })!!
         for (file in files) {
-            Log.d(TAG, "got ${file.name}")
+            LegacyPlatform.debug(TAG, "got ${file.name}")
             val match = PatternHolders.surface_file_scan.matcher(file.name.lowercase())
             if (!match.matches()) continue
             var idPart = match.group(1)!!
@@ -78,7 +76,7 @@ class SurfaceReader {
                 if (catalog.containsSurface(idPart)) {
                     val surface = catalog.getSurface(idPart)!!
                     if (file.absolutePath != surface.selfFilename) {
-                        Log.d(TAG, "update shell file path to correct filename:${file.absolutePath}")
+                        LegacyPlatform.debug(TAG, "update shell file path to correct filename:${file.absolutePath}")
                         surface.updateFilename(file.absolutePath)
                     }
                 } else {
@@ -103,11 +101,11 @@ class SurfaceReader {
 
     @Throws(IOException::class)
     private fun parse(input: InputStream) {
-        parseTime = SystemClock.uptimeMillis()
+        parseTime = LegacyPlatform.uptimeMillis()
         val reader = try {
             BufferedReader(InputStreamReader(input, Charset.forName("SJIS")))
         } catch (_: Exception) {
-            Log.d(TAG, "error reading")
+            LegacyPlatform.debug(TAG, "error reading")
             AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface reading", descPath, 0)
             return
         }
@@ -122,7 +120,7 @@ class SurfaceReader {
 
             val ids = getSurfaceIds(line)
             if (ids == null) {
-                Log.d(TAG, "incorrect surface declaration:$line on line $lineCount")
+                LegacyPlatform.debug(TAG, "incorrect surface declaration:$line on line $lineCount")
                 AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface parse", descPath, lineCount)
             }
 
@@ -135,7 +133,7 @@ class SurfaceReader {
                     lineCount++
                     val current = nextLine
                     if (current == null) {
-                        Log.d(TAG, "error not expecting EOF at line:$lineCount")
+                        LegacyPlatform.debug(TAG, "error not expecting EOF at line:$lineCount")
                         break
                     }
                     if (current.isEmpty()) continue
@@ -146,12 +144,12 @@ class SurfaceReader {
                     manager!!.addSurface(id.toString(), ShellSurface(rootPath ?: "", id, entries))
                 }
             } else {
-                Log.d(TAG, "error at line $lineCount, expecting { but got:$nextLine")
+                LegacyPlatform.debug(TAG, "error at line $lineCount, expecting { but got:$nextLine")
                 break
             }
         }
-        parseTime = SystemClock.uptimeMillis() - parseTime
-        Log.d(TAG, "parse time:${parseTime}ms")
+        parseTime = LegacyPlatform.uptimeMillis() - parseTime
+        LegacyPlatform.debug(TAG, "parse time:${parseTime}ms")
         AnalyticsUtils.getInstance(null).trackEvent(
             Setup.ANA_PERF,
             "parsing time[ms]",

@@ -2,9 +2,6 @@ package com.cattailsw.nanidroid;
 
 import static org.junit.Assert.assertEquals;
 
-import android.content.Context;
-import android.test.mock.MockContext;
-
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -13,26 +10,24 @@ import java.util.List;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 /** Characterizes Sakura Script as an ordered semantic event trace. */
 public class SakuraScriptCharacterizationTest {
+    @Rule
+    public final HostAndroidStubRule androidStubs = new HostAndroidStubRule();
     private final Trace trace = new Trace();
     private SScriptRunner runner;
 
     @Before
     public void setUp() {
-        Context context = new MockContext();
-        runner = SScriptRunner.getInstance(context);
+        runner = SScriptRunner.getInstance(null);
         runner.setNoWaitMode(true);
         runner.setGhost(null);
         runner.setCallback(null);
         runner.setUICallback(new RecordingUiCallback(trace));
-        runner.setViews(
-                new RecordingSakuraView(context, "sakura", trace),
-                new RecordingKeroView(context, trace),
-                new RecordingBalloon(context, "sakura", trace),
-                new RecordingBalloon(context, "kero", trace));
+        runner.setPresentationRenderer(new RecordingRenderer(trace));
         runner.clearMsgQueue();
 
         // SScriptRunner is a process singleton and retains surface ids between runs.
@@ -114,22 +109,11 @@ public class SakuraScriptCharacterizationTest {
     }
 
     @Test
-    public void recorder_animationEventRequiresProductionStartAfterLoad() {
-        Context context = new MockContext();
-        Trace animationTrace = new Trace();
-        RecordingSakuraView sakura =
-                new RecordingSakuraView(context, "sakura", animationTrace);
-        RecordingKeroView kero = new RecordingKeroView(context, animationTrace);
-
-        sakura.loadAnimation("3");
-        kero.loadAnimation("4");
-        assertEquals(new ArrayList<String>(), animationTrace.events());
-
-        sakura.startAnimation();
-        kero.startAnimation();
+    public void rendererReceivesAnimationOnlyWhenTheRunnerSchedulesIt() {
+        runScript("\\h\\i[3]\\u\\i[4]\\e");
         assertEquals(
                 Arrays.asList("animation:sakura:3", "animation:kero:4"),
-                animationTrace.events());
+                trace.events());
     }
 
     private void runScript(String fixture) {
@@ -191,99 +175,50 @@ public class SakuraScriptCharacterizationTest {
         }
     }
 
-    private static class RecordingSakuraView extends SakuraView {
-        private final String speaker;
+    /** UI-free renderer fixture: unexpected frame fields remain observable. */
+    private static final class RecordingRenderer implements GhostPresentationRenderer {
         private final Trace trace;
-        private String surface;
-        private String pendingAnimation;
+        private String sakuraText = "";
+        private String keroText = "";
+        private String sakuraSurface;
+        private String keroSurface;
 
-        RecordingSakuraView(Context context, String speaker, Trace trace) {
-            super(context);
-            this.speaker = speaker;
+        RecordingRenderer(Trace trace) {
             this.trace = trace;
         }
 
         @Override
-        public void changeSurface(String id) {
-            if (!id.equals(surface)) {
-                surface = id;
-                trace.add("surface:" + speaker + ":" + id);
+        public void render(GhostPresentationFrame frame) {
+            recordSpeaker("sakura", frame.sakura, true);
+            recordSpeaker("kero", frame.kero, false);
+        }
+
+        private void recordSpeaker(
+                String speaker, GhostPresentationFrame.Speaker state, boolean sakura) {
+            String previousText = sakura ? sakuraText : keroText;
+            if (!state.text.equals(previousText)) {
+                if (!state.text.isEmpty()) {
+                    trace.add("text:" + speaker + ":" + state.text.replace("\n", "\\n"));
+                }
+                if (sakura) {
+                    sakuraText = state.text;
+                } else {
+                    keroText = state.text;
+                }
             }
-        }
-
-        @Override
-        public void loadAnimation(String id) {
-            pendingAnimation = id;
-        }
-
-        @Override
-        public void startAnimation() {
-            if (pendingAnimation != null) {
-                trace.add("animation:" + speaker + ":" + pendingAnimation);
-                pendingAnimation = null;
+            String previousSurface = sakura ? sakuraSurface : keroSurface;
+            if (!state.surfaceId.equals(previousSurface)) {
+                trace.add("surface:" + speaker + ":" + state.surfaceId);
+                if (sakura) {
+                    sakuraSurface = state.surfaceId;
+                } else {
+                    keroSurface = state.surfaceId;
+                }
             }
-        }
-
-        @Override
-        public void startTalkingAnimation() {
-            // Incidental view refresh behavior is not part of the semantic trace.
-        }
-    }
-
-    private static final class RecordingKeroView extends KeroView {
-        private final Trace trace;
-        private String surface;
-        private String pendingAnimation;
-
-        RecordingKeroView(Context context, Trace trace) {
-            super(context);
-            this.trace = trace;
-        }
-
-        @Override
-        public void changeSurface(String id) {
-            if (!id.equals(surface)) {
-                surface = id;
-                trace.add("surface:kero:" + id);
-            }
-        }
-
-        @Override
-        public void loadAnimation(String id) {
-            pendingAnimation = id;
-        }
-
-        @Override
-        public void startAnimation() {
-            if (pendingAnimation != null) {
-                trace.add("animation:kero:" + pendingAnimation);
-                pendingAnimation = null;
-            }
-        }
-
-        @Override
-        public void startTalkingAnimation() {
-            // Incidental view refresh behavior is not part of the semantic trace.
-        }
-    }
-
-    private static final class RecordingBalloon extends Balloon {
-        private final String speaker;
-        private final Trace trace;
-        private String text;
-
-        RecordingBalloon(Context context, String speaker, Trace trace) {
-            super(context);
-            this.speaker = speaker;
-            this.trace = trace;
-        }
-
-        @Override
-        public void setText(String value) {
-            if (!value.equals(text)) {
-                text = value;
-                trace.add("text:" + speaker + ":" + value.replace("\n", "\\n"));
+            if (state.animationId != null) {
+                trace.add("animation:" + speaker + ":" + state.animationId);
             }
         }
     }
+
 }

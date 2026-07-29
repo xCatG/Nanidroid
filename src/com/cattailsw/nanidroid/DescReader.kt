@@ -1,7 +1,5 @@
 package com.cattailsw.nanidroid
 
-import android.os.SystemClock
-import android.util.Log
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.NarUtil
 import java.io.File
@@ -42,7 +40,7 @@ class DescReader {
             dbgOutput = true
             parse(input)
         } catch (exception: Exception) {
-            Log.d(TAG, "parsing inputstream error")
+            LegacyPlatform.debug(TAG, "parsing inputstream error")
             exception.printStackTrace()
         }
     }
@@ -61,7 +59,7 @@ class DescReader {
         return try {
             Charset.forName(charsetFields[1])
         } catch (_: Exception) {
-            Log.d(TAG, "trouble charset is:${charsetFields[1]}")
+            LegacyPlatform.debug(TAG, "trouble charset is:${charsetFields[1]}")
             DEFAULT_CHARSET
         }
     }
@@ -78,18 +76,18 @@ class DescReader {
         bytes.toString(charset).lineSequence().forEach { line ->
             val pair = line.split(",".toRegex())
             if (pair.size != 2) return@forEach
-            if (dbgOutput) Log.d(TAG, "putting [${pair[0]},${pair[1]}]")
+            if (dbgOutput) LegacyPlatform.debug(TAG, "putting [${pair[0]},${pair[1]}]")
             destination[pair[0]] = pair[1]
         }
     }
 
     fun parse(): MutableMap<String, String> {
-        parseTime = SystemClock.uptimeMillis()
+        parseTime = LegacyPlatform.uptimeMillis()
         val result = Hashtable<String, String>()
         val path = infilePath ?: throw NullPointerException()
         File(path).inputStream().use { input -> parseBytes(input.readBytes(), result) }
-        parseTime = SystemClock.uptimeMillis() - parseTime
-        Log.d(TAG, "parsing took:${parseTime}ms")
+        parseTime = LegacyPlatform.uptimeMillis() - parseTime
+        LegacyPlatform.debug(TAG, "parsing took:${parseTime}ms")
         AnalyticsUtils.getInstance(null).trackEvent(
             Setup.ANA_PERF,
             "parsing time[ms]",

@@ -2,9 +2,6 @@ package com.cattailsw.nanidroid;
 
 import static org.junit.Assert.assertEquals;
 
-import android.content.Context;
-import android.test.mock.MockContext;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Hashtable;
@@ -12,6 +9,7 @@ import java.util.List;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 /**
@@ -19,6 +17,8 @@ import org.junit.Test;
  * filesystem discovery, Activity lifecycle, native engines, or view rebinding.
  */
 public final class GhostSwitchingCharacterizationTest {
+    @Rule
+    public final HostAndroidStubRule androidStubs = new HostAndroidStubRule();
     private static final String TRANSITION_SCRIPT = "\\_qSwitching\\e";
 
     private final Trace trace = new Trace();
@@ -27,13 +27,8 @@ public final class GhostSwitchingCharacterizationTest {
 
     @Before
     public void setUp() {
-        Context context = new MockContext();
-        runner = SScriptRunner.getInstance(context);
-        runner.setViews(
-                new InertSakuraView(context),
-                new InertKeroView(context),
-                new RecordingBalloon(context, trace),
-                new InertBalloon(context));
+        runner = SScriptRunner.getInstance(null);
+        runner.setPresentationRenderer(new TraceRenderer(trace));
         resetRunnerWithPublicApi();
         trace.clear();
     }
@@ -279,67 +274,22 @@ public final class GhostSwitchingCharacterizationTest {
         }
     }
 
-    private static class InertSakuraView extends SakuraView {
-        InertSakuraView(Context context) {
-            super(context);
-        }
-
-        @Override
-        public void changeSurface(String id) {}
-
-        @Override
-        public void loadAnimation(String id) {}
-
-        @Override
-        public void startAnimation() {}
-
-        @Override
-        public void startTalkingAnimation() {}
-    }
-
-    private static final class InertKeroView extends KeroView {
-        InertKeroView(Context context) {
-            super(context);
-        }
-
-        @Override
-        public void changeSurface(String id) {}
-
-        @Override
-        public void loadAnimation(String id) {}
-
-        @Override
-        public void startAnimation() {}
-
-        @Override
-        public void startTalkingAnimation() {}
-    }
-
-    private static class InertBalloon extends Balloon {
-        InertBalloon(Context context) {
-            super(context);
-        }
-
-        @Override
-        public void setText(String value) {}
-
-        @Override
-        public void setVisibility(int visibility) {}
-    }
-
-    private static final class RecordingBalloon extends InertBalloon {
+    /** Fail-fast UI-free collaborator for the runner's complete render frame. */
+    private static final class TraceRenderer implements GhostPresentationRenderer {
         private final Trace trace;
+        private String previousText = "";
 
-        RecordingBalloon(Context context, Trace trace) {
-            super(context);
+        TraceRenderer(Trace trace) {
             this.trace = trace;
         }
 
         @Override
-        public void setText(String value) {
-            if (value.length() > 0) {
+        public void render(GhostPresentationFrame frame) {
+            String value = frame.sakura.text;
+            if (!value.equals(previousText) && value.length() > 0) {
                 trace.add("render:" + value);
             }
+            previousText = value;
         }
     }
 }

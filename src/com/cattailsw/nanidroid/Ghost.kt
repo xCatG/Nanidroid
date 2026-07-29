@@ -1,7 +1,6 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
-import android.util.Log
 import com.cattailsw.nanidroid.shiori.Shiori
 import com.cattailsw.nanidroid.util.PrefUtil
 import java.io.BufferedReader
@@ -22,7 +21,7 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
     @JvmField protected var mCtx: Context? = ctx
 
     init {
-        Log.d(TAG, "gdname=$ghostDirName")
+        LegacyPlatform.debug(TAG, "gdname=$ghostDirName")
         mgr = SurfaceManager(ghostDirName)
         loadGhostInfo()
         incrementCreateCount()
@@ -47,7 +46,7 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
         try {
             ghostDesc = ghostReader.parse()
         } catch (error: Exception) {
-            Log.d(TAG, "desc parsing error")
+            LegacyPlatform.debug(TAG, "desc parsing error")
             error.printStackTrace()
             this.error = true
             return
@@ -55,7 +54,7 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
         try {
             shellDesc = shellReader.parse()
         } catch (error: Exception) {
-            Log.d(TAG, "shell desc parse error, but we will continue")
+            LegacyPlatform.debug(TAG, "shell desc parse error, but we will continue")
             error.printStackTrace()
         }
 

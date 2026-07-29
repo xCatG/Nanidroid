@@ -24,6 +24,9 @@ public class DescReaderCharacterizationTest {
     @Rule
     public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
+    @Rule
+    public final HostAndroidStubRule androidStubs = new HostAndroidStubRule();
+
     private int fixtureIndex;
 
     @Test

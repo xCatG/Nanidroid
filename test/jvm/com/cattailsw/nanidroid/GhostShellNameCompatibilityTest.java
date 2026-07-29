@@ -6,9 +6,12 @@ import java.util.Collections;
 import java.util.Map;
 
 import org.junit.Test;
+import org.junit.Rule;
 
 /** Guards the legacy distinction between a missing shell descriptor and a missing name. */
 public final class GhostShellNameCompatibilityTest {
+    @Rule
+    public final HostAndroidStubRule androidStubs = new HostAndroidStubRule();
     @Test
     public void missingNameInParsedShellDescriptorRemainsNull() {
         TestGhost ghost = new TestGhost();

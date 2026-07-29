@@ -3,7 +3,6 @@ package com.cattailsw.nanidroid;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
-import android.content.ContextWrapper;
 
 import com.cattailsw.nanidroid.shiori.NanidroidShiori;
 
@@ -14,10 +13,13 @@ import java.util.Locale;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 /** Pins the built-in content.txt SHIORI adapter before its Kotlin migration. */
 public class NanidroidShioriCharacterizationTest {
+    @Rule
+    public final HostAndroidStubRule androidStubs = new HostAndroidStubRule();
     private Locale originalLocale;
     private File root;
 
@@ -41,7 +43,7 @@ public class NanidroidShioriCharacterizationTest {
                 "; comment\n"
                         + "OnBoot,\\hboot\\e\n"
                         + "CustomEvent,custom value\n");
-        NanidroidShiori shiori = new NanidroidShiori(new ContextWrapper(null), root.getPath());
+        NanidroidShiori shiori = NanidroidShiori.createContentFixture(root.getPath());
 
         assertEquals(
                 "SHIORI/3.0 200 OK\r\nSender: NanidroidShiori\r\nValue: \\hboot\\e"
@@ -59,7 +61,7 @@ public class NanidroidShioriCharacterizationTest {
         writeContent("ja",
                 "OnGhostChanging,switch to %s\n"
                         + "OnGhostChanged,now %s\n");
-        NanidroidShiori shiori = new NanidroidShiori(new ContextWrapper(null), root.getPath());
+        NanidroidShiori shiori = NanidroidShiori.createContentFixture(root.getPath());
 
         assertEquals(response("switch to Alice"),
                 shiori.request(request("OnGhostChanging") + "Reference0: Alice\r\n\r\n"));
@@ -71,11 +73,11 @@ public class NanidroidShioriCharacterizationTest {
     public void onCloseHasContentOverrideAndLiteralFallback() throws Exception {
         Locale.setDefault(new Locale("zz"));
         writeContent("ja", "Malformed line without a separator\n");
-        NanidroidShiori fallback = new NanidroidShiori(new ContextWrapper(null), root.getPath());
+        NanidroidShiori fallback = NanidroidShiori.createContentFixture(root.getPath());
         assertEquals(response("OnClose"), fallback.request(request("OnClose")));
 
         writeContent("ja", "OnClose,goodbye\n");
-        NanidroidShiori override = new NanidroidShiori(new ContextWrapper(null), root.getPath());
+        NanidroidShiori override = NanidroidShiori.createContentFixture(root.getPath());
         assertEquals(response("goodbye"), override.request(request("OnClose")));
     }
 
@@ -83,7 +85,7 @@ public class NanidroidShioriCharacterizationTest {
     public void malformedContentCreatesAnEmptyTableAndUnknownEventIsNoContent() throws Exception {
         Locale.setDefault(new Locale("zz"));
         writeContent("ja", "; comment\nmissing separator\n");
-        NanidroidShiori shiori = new NanidroidShiori(new ContextWrapper(null), root.getPath());
+        NanidroidShiori shiori = NanidroidShiori.createContentFixture(root.getPath());
 
         assertEquals(NanidroidShiori.RES_NO_CONTENT, shiori.request(request("NoSuchEvent")));
     }
@@ -91,7 +93,7 @@ public class NanidroidShioriCharacterizationTest {
     @Test
     public void missingContentLeavesEventTableNullAndRequestCrashes() throws Exception {
         Locale.setDefault(new Locale("zz"));
-        NanidroidShiori shiori = new NanidroidShiori(new ContextWrapper(null), root.getPath());
+        NanidroidShiori shiori = NanidroidShiori.createContentFixture(root.getPath());
 
         assertThrows(NullPointerException.class, () -> shiori.request(request("NoSuchEvent")));
     }
@@ -100,7 +102,7 @@ public class NanidroidShioriCharacterizationTest {
     public void missingIdCrashesAfterTheRequestParserAcceptsTheHeader() throws Exception {
         Locale.setDefault(new Locale("zz"));
         writeContent("ja", "OnBoot,boot\n");
-        NanidroidShiori shiori = new NanidroidShiori(new ContextWrapper(null), root.getPath());
+        NanidroidShiori shiori = NanidroidShiori.createContentFixture(root.getPath());
 
         assertThrows(NullPointerException.class,
                 () -> shiori.request("GET SHIORI/3.0\r\n\r\n"));

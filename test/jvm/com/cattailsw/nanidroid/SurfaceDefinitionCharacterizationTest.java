@@ -27,6 +27,8 @@ import com.cattailsw.nanidroid.compose.ComposeSurfaceImagePolicy;
 
 /** Characterizes structural surface-definition loading without rendering resources. */
 public class SurfaceDefinitionCharacterizationTest {
+    @Rule
+    public final HostAndroidStubRule androidStubs = new HostAndroidStubRule();
     private static final String GROUPED_SURFACES_FIXTURE =
             "surface0,surface10\n"
                     + "{\n"

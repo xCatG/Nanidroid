@@ -428,6 +428,12 @@ class BuildScriptContractTest(unittest.TestCase):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         expected = {
             pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/HostAndroidStubRule.kt"
+            ),
+            pathlib.PurePosixPath(
+                "test/jvm/com/cattailsw/nanidroid/LegacyPlatformSeamTest.kt"
+            ),
+            pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java"
             ),
             pathlib.PurePosixPath(
