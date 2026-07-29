@@ -32,7 +32,7 @@ open class ShellSurface {
     var dim: Rect? = null
 
     constructor()
-    constructor(path: String, selfName: String?, id: Int, elements: List<String?>?) { basePath = path; surfaceId = id; selfFilename = selfName?.let { path + it } ?: "${path}surface$id.png"; bp2 = "%ssurface%04d.png".format(path, id); loadSurface(elements) }
+    constructor(path: String, selfName: String?, id: Int, elements: List<String?>?) { surfaceType = S_TYPE_BASE; basePath = path; surfaceId = id; selfFilename = selfName?.let { path + it } ?: "${path}surface$id.png"; bp2 = "%ssurface%04d.png".format(path, id); loadSurface(elements) }
     constructor(path: String, id: Int, elements: List<String?>?) : this(path, null, id, elements)
     constructor(path: String, id: Int?, elements: List<String?>?) : this(path, id ?: 0, elements)
     constructor(path: String, id: Int) : this(path, id, null)
@@ -47,7 +47,7 @@ open class ShellSurface {
         override fun getAnimation(res:Resources,mgr:SurfaceManager?):AnimationDrawable? { if(refidz.isEmpty())return null;val index=(Math.random()*refidz.size).toInt();return refAnimationz[index] ?: animationTable?.get(refidz[index])?.getAnimation(res,mgr)?.also{refAnimationz[index]=it} }
     }
     inner class AnimationFrame { @JvmField var sid: String?=null; @JvmField var filePath:String?=null; @JvmField var time=0; @JvmField var frameType=TYPE_BASE; @JvmField var startX=0; @JvmField var startY=0; @JvmField var W=0; @JvmField var H=0; @JvmField var d:Drawable?=null; @JvmField var hasError=false
-        fun getDrawable(res:Resources,mgr:SurfaceManager?=null):Drawable? { d?.let{return it};if(hasError)return null;return when(frameType){TYPE_RESET->getSurfaceDrawable(res);TYPE_BASE->filePath?.let{loadTransparentBitmapFromFile(it,res,BitmapFactory.Options()).also{drawable->d=drawable}};TYPE_MOVE->getSurfaceDrawable(res);TYPE_OVERLAY->{val base=getSurfaceDrawable(res) ?: return null;val overlay=if(mgr!=null&&sid!=null&&mgr.containsSurface(sid!!))mgr.getSurfaceDrawable(sid!!,res) else filePath?.let{loadTransparentBitmapFromFile(it,res,BitmapFactory.Options())};if(overlay==null){hasError=true;null}else LayerDrawable(arrayOf(base,overlay)).also{it.setLayerInset(1,startX,startY,origW-startX-W,origH-startY-H);d=it}};else->null} }
+        fun getDrawable(res:Resources,mgr:SurfaceManager?=null):Drawable? { d?.let{return it};if(hasError)return null;return when(frameType){TYPE_RESET->getSurfaceDrawable(res);TYPE_BASE->filePath?.let{loadTransparentBitmapFromFile(it,res,BitmapFactory.Options()).also{drawable->d=drawable}};TYPE_MOVE->getSurfaceDrawable(res);TYPE_OVERLAY->{val base=getSurfaceDrawable(res) ?: return null;val overlay=if(mgr!=null&&sid!=null&&mgr.containsSurface(sid!!)){mgr.getSurfaceRect(sid!!,res)?.let { W=it.width(); H=it.height() } ?: run { W=origW; H=origH };mgr.getSurfaceDrawable(sid!!,res)} else filePath?.let{loadTransparentBitmapFromFile(it,res,BitmapFactory.Options())};if(overlay==null){hasError=true;null}else LayerDrawable(arrayOf(base,overlay)).also{it.setLayerInset(1,startX,startY,origW-startX-W,origH-startY-H);d=it}};else->null} }
     }
     inner class CollisionArea(id:Int, sx:Int, sy:Int, ex:Int, ey:Int, name:String?) { @JvmField var id=id; @JvmField var name=name; @JvmField var startX=sx; @JvmField var startY=sy; @JvmField var W=ex-sx; @JvmField var H=ey-sy; @JvmField var rect=Rect(sx,sy,ex,ey) }
 
