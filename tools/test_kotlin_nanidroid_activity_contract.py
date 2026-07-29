@@ -56,6 +56,20 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("Rejected unapproved external install URI", self.source)
         self.assertIn("startModernService(Intent(this, NanidroidService::class.java)", self.source)
 
+    def test_picker_import_uses_one_shot_content_uri_staging_with_support_activity_dispatch(self):
+        self.assertIn("class Nanidroid : FragmentActivity()", self.source)
+        self.assertIn("Intent.ACTION_OPEN_DOCUMENT", self.source)
+        self.assertIn("Intent.CATEGORY_OPENABLE", self.source)
+        self.assertIn("Intent.EXTRA_MIME_TYPES", self.source)
+        self.assertIn("startActivityForResult(", self.source)
+        self.assertIn("override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)", self.source)
+        self.assertIn("NarContentUriImport.importContent(", self.source)
+        self.assertIn("uri.scheme", self.source)
+        self.assertIn("File(cacheDir, \"nar-import\")", self.source)
+        self.assertIn("outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)", self.source)
+        self.assertNotIn("takePersistableUriPermission", self.source)
+        self.assertNotIn("registerForActivityResult", self.source)
+
     def test_compose_dialog_state_is_saved_and_restored_across_recreation(self):
         self.assertIn("override fun onSaveInstanceState(outState: Bundle)", self.source)
         self.assertIn("saveSimpleDialog(outState)", self.source)

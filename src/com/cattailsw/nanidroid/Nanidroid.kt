@@ -36,6 +36,7 @@ import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.PrefUtil
+import com.cattailsw.nanidroid.install.NarContentUriImport
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
@@ -79,9 +80,11 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     private var currentSurface: ShellSurface? = null
     private var animeIndex = 0
     private var nextGhostId: String? = null
+    private var awaitingNarDocument = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        awaitingNarDocument = savedInstanceState?.getBoolean(NAR_PICK_PENDING, false) ?: false
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
@@ -199,6 +202,7 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     override fun onPause() { composeLifecycleOwner.pause(); super.onPause(); runner?.stopClock(); sendStopIntent() }
     override fun onSaveInstanceState(outState: Bundle) {
         saveSimpleDialog(outState)
+        outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
         super.onSaveInstanceState(outState)
     }
     override fun onDestroy() { composeLifecycleOwner.destroy(); super.onDestroy(); sendStopIntent() }
@@ -280,7 +284,17 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
         simpleDialog = createMoreGhostDialog()
     }
-    override fun startInstallFromSDCard() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0); Toast.makeText(this, R.string.err_legacy_local_install_disabled, Toast.LENGTH_LONG).show() }
+    override fun startInstallFromSDCard() {
+        AnalyticsUtils.getInstance(applicationContext).trackEvent(
+            Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0,
+        )
+        awaitingNarDocument = true
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/zip"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed"))
+        }, NAR_PICK_REQUEST)
+    }
     fun showNarErrDlg(dir: Boolean) {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "more_ghost_install_sd", if (dir) "no_nar_folder" else "no_nar_file", if (dir) -1 else -2)
         simpleDialog = NanidroidSimpleDialog.Notice(
@@ -289,7 +303,28 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         )
     }
     fun showNarPickDlg(narz: Array<String>) { Toast.makeText(this, "multiple nar exist", Toast.LENGTH_SHORT).show(); AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_NAR_PICK}"); NarPickDlg(narz).show(supportFragmentManager, Setup.DLG_NAR_PICK) }
-    override fun onNarPick(narName: String) { Toast.makeText(this, R.string.err_legacy_local_install_disabled, Toast.LENGTH_LONG).show() }
+    override fun onNarPick(narName: String) { startInstallFromSDCard() }
+
+    private fun importPickedNar(uri: Uri) {
+        object : AsyncTask<Void, Void, NarContentUriImport.Result>() {
+            override fun doInBackground(vararg params: Void?): NarContentUriImport.Result = NarContentUriImport.importContent(
+                uri.scheme, File(cacheDir, "nar-import"), { contentResolver.openInputStream(uri) },
+            ) { staged -> gm?.installGhost("picker", staged.path) }
+            override fun onPostExecute(result: NarContentUriImport.Result) {
+                if (result.isSuccess) { Toast.makeText(this@Nanidroid, "Ghost installed.", Toast.LENGTH_LONG).show(); gm?.refreshGhost() }
+                else Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
+            }
+        }.execute()
+    }
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != NAR_PICK_REQUEST || !awaitingNarDocument) return
+        awaitingNarDocument = false
+        if (resultCode == RESULT_OK) {
+            data?.data?.let(::importPickedNar)
+                ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
+        }
+    }
     override fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); EnterUrlDlg().show(supportFragmentManager, Setup.DLG_E_URL) }
     override fun onFinishURL(url: String) = addNarToDownload(Uri.parse(url))
     override fun showGhostTown() {
@@ -366,5 +401,5 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
     override fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { UserSelectDlg.newInstance(textlabel, ids).show(supportFragmentManager, Setup.DLG_USR_SEL) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; @JvmField var gAdapter: ArrayAdapter<String>? = null }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val FLAG_SD_ERR = 42; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; @JvmField var gAdapter: ArrayAdapter<String>? = null }
 }
