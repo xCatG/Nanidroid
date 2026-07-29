@@ -70,6 +70,15 @@ back!” balloon in the Compose stage. API 37 edge-to-edge rendering initially
 placed the primary toolbar behind the status bar; the Compose shell now applies
 `statusBarsPadding()` so the picker entry action remains visible and tappable.
 
+The same public-Downloads → DocumentsUI → transactional-install → switch/run
+flow was rerun at the final direct-`ComponentActivity` head (`674c648`) with a
+fresh `picker-final-nanidroid.zip` fixture (SHA-256
+`712EF8D3FEEB18EDA8DCCE59EB15C52D331B5EE0446D771938CD409CC2555A76`). It
+published `ghost/picker-final-nanidroid`, left `cache/nar-import` empty,
+persisted `lastrunghost=picker-final-nanidroid`, and displayed the running
+ghost's surface-status response for its installed `surface0000.png` and
+`surface0010.png` files.
+
 Native runtime support is limited to the actively built NarFS JNI library.
 AGP/CMake builds `narfs_full` from `jni/narfs` for `arm64-v8a` and `x86_64`.
 Kawari and Satori descriptors continue to use `NotSupportedShiori`; simple
