@@ -39,3 +39,17 @@ handoff objective is **not complete**. Completion is blocked by missing native
 artifacts/device proof and requires explicit product decisions for release,
 privacy/Crashlytics, ViewServer policy, cleartext/telemetry, and the supported
 native ABI/lifecycle scope.
+
+## Installer seam boundary
+
+`NarTransactionalInstaller.install(File, File, String)` is the lowest
+faithful host seam after a download has been materialized as a local file. Its
+characterization covers corrupt-file cleanup followed by a successful retry,
+without native artifacts. There is no equivalent host seam for a `content:`
+grant or cancellation: the only public external entry is intentionally
+HTTPS-only, while `NarDownloadTask` and `GhostUpdateTask` are private Android
+`AsyncTask` implementations that call concrete `NetworkUtil` and `File`
+operations directly. A future integration design should extract an
+install-source/stream coordinator with explicit cancellation and grant
+ownership, then exercise it under instrumentation; adding a fake provider or
+pretending that unsupported `content:` input installs would not be faithful.

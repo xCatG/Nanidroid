@@ -82,6 +82,35 @@ public final class NarTransactionalInstallerTest {
     }
 
     @Test
+    public void corruptLocalArchiveLeavesNoPartialStateAndValidRetrySucceeds()
+            throws Exception {
+        File root = temporaryDirectory("transaction-retry");
+        File interrupted = File.createTempFile("nar-interrupted", ".nar");
+        write(interrupted, bytes("incomplete archive transfer"));
+
+        NarTransactionalInstaller.Result rejected =
+                NarTransactionalInstaller.install(interrupted, root, "retry-id");
+
+        assertFalse(rejected.isSuccess());
+        assertEquals(NarTransactionalInstaller.Error.ARCHIVE_REJECTED,
+                rejected.getError());
+        assertFalse(new File(root, "retry-id").exists());
+        assertFalse(new File(root, ".nanidroid-install-staging").exists());
+
+        File retry = zip(
+                "install.txt", descriptor("retry-id"),
+                "ghost/master.txt", bytes("recovered"));
+        NarTransactionalInstaller.Result installed =
+                NarTransactionalInstaller.install(retry, root, null);
+
+        assertTrue(installed.isSuccess());
+        assertEquals("retry-id", installed.getTargetId());
+        assertArrayEquals(bytes("recovered"), read(
+                new File(root, "retry-id/ghost/master.txt")));
+        assertFalse(new File(root, ".nanidroid-install-staging").exists());
+    }
+
+    @Test
     public void failureIsCategorizedForUserFacingErrorMapping() throws Exception {
         File root = temporaryDirectory("transaction-missing");
         NarTransactionalInstaller.Result result =
