@@ -14,7 +14,7 @@ import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.util.TreeMap
 
 /** Kotlin transcription staging source for the legacy shell-surface parser. */
-class ShellSurface {
+open class ShellSurface {
     companion object {
         const val S_TYPE_NULL = -1; const val S_TYPE_BASE = 0; const val S_TYPE_ELEMENT = 1
         const val TYPE_RESET = -1; const val TYPE_BASE = 0; const val TYPE_OVERLAY = 1; const val TYPE_MOVE = 2
