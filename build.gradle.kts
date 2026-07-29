@@ -196,6 +196,24 @@ android {
         versionName = "open_0.1"
         testApplicationId = "com.cattailsw.nanidroid.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DNANIDROID_BUILD_NARFS_FULL_JNI_CANDIDATE=ON",
+                    "-DNANIDROID_BUILD_NARFS_STAGE_CANDIDATE=ON",
+                    "-DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON",
+                )
+                targets += "narfs_full"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("jni/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {
@@ -223,7 +241,6 @@ android {
             aidl.setSrcDirs(listOf("src"))
             res.setSrcDirs(listOf("res"))
             assets.setSrcDirs(listOf("assets"))
-            jniLibs.setSrcDirs(listOf(legacyNativeDirectory))
         }
         getByName("test") {
             java.srcDir("test/jvm")
@@ -233,15 +250,6 @@ android {
             java.setSrcDirs(listOf("test/device"))
             kotlin.setSrcDirs(listOf("test/device"))
             manifest.srcFile("test/device/AndroidManifest.xml")
-        }
-        getByName("emulator") {
-            jniLibs.srcDir(emulatorNativeDirectory)
-            // API 37 x86_64 instrumentation uses the emulator build type; retain
-            // its ARM64 smoke payload and add the separately verified x86_64 lane.
-            jniLibs.srcDir(deviceNativeDirectory)
-        }
-        getByName("device") {
-            jniLibs.srcDir(deviceNativeDirectory)
         }
     }
 
@@ -308,7 +316,6 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/LegacyPlatformSeamTest.kt",
     "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/ShioriEnvelopeCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/NanidroidShioriCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java",
     "test/jvm/com/cattailsw/nanidroid/compose/SurfaceRenderPlanTest.kt",
@@ -401,16 +408,4 @@ tasks.matching {
     it.name.startsWith("compile") && it.name.contains("AndroidTest")
 }.configureEach {
     dependsOn(verifyDeviceCharacterizationTestIsolation)
-}
-
-tasks.named("preBuild").configure {
-    dependsOn(verifyLegacyNativeLibraries)
-}
-
-tasks.matching { it.name == "preEmulatorBuild" }.configureEach {
-    dependsOn(verifyEmulatorNativeLibraries)
-}
-
-tasks.matching { it.name == "preDeviceBuild" }.configureEach {
-    dependsOn(verifyDeviceNativeLibraries)
 }
