@@ -129,7 +129,7 @@ android {
                     "-DNANIDROID_BUILD_NARFS_STAGE_CANDIDATE=ON",
                     "-DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON",
                 )
-                targets += "narfs_full"
+                targets += listOf("narfs_full", "satoriya", "ssu", "kawari8", "yaya")
             }
         }
     }
