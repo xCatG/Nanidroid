@@ -11,7 +11,7 @@ class NarfsFullJniContractTest(unittest.TestCase):
         make = (ROOT / "jni/narfs/Android.mk").read_text()
         cmake = (ROOT / "jni/narfs/CMakeLists.txt").read_text()
         candidate = (ROOT / "docker/narfs-jni/build.sh").read_text()
-        legacy = (ROOT / "docker/legacy/build.sh").read_text()
+        legacy = (ROOT / "docker/legacy/build-modern-native.sh").read_text()
         emulator = (ROOT / "docker/emulator/build-native.sh").read_text()
         for value in (
             "NANIDROID_NARFS_FULL_JNI_CANDIDATE",

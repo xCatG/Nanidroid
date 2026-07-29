@@ -26,12 +26,15 @@ class KotlinGhostManagerContractTest(unittest.TestCase):
         self.assertIn("NarTransactionalInstaller.install", source)
         self.assertNotIn("NarUtil.readNarArchive", source)
 
-    def test_legacy_ant_copy_restores_the_java_source_overlay(self):
+    def test_legacy_ant_copy_uses_the_complete_frozen_project(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "docker/legacy/build.sh").read_text(encoding="utf-8")
-        self.assertIn("LEGACY_JAVA_ROOT", build)
+        self.assertIn('REFERENCE_PROJECT_ROOT="${SOURCE_ROOT}/legacy/reference-project"', build)
+        self.assertIn('REFERENCE_THIRD_PARTY_ROOT="${SOURCE_ROOT}/legacy/reference-third-party"', build)
+        self.assertIn('REFERENCE_VALIDATOR="${SOURCE_ROOT}/tools/verify_legacy_reference_snapshot.py"', build)
+        self.assertIn('"${REFERENCE_PROJECT_ROOT}" "${REFERENCE_THIRD_PARTY_ROOT}"', build)
         self.assertIn(
-            'rsync -a "${LEGACY_JAVA_ROOT}/" "${BUILD_ROOT}/src/"',
+            'rsync -a "${REFERENCE_PROJECT_ROOT}/" "${REFERENCE_BUILD_ROOT}/"',
             build,
         )
 

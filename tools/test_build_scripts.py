@@ -1,6 +1,7 @@
 import pathlib
 import re
 import subprocess
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -56,18 +57,14 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn("minSdk = 31", gradle_build)
         self.assertNotIn("minSdk = 9", gradle_build)
 
-    def test_legacy_manifest_copy_strips_only_api15_incompatible_fgs_type(self):
+    def test_frozen_legacy_manifest_is_not_replaced_with_the_modern_manifest(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         legacy_build = (project_root / "docker" / "legacy" / "build.sh").read_text(
             encoding="utf-8"
         )
-        production_manifest = (project_root / "AndroidManifest.xml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn('android:foregroundServiceType="dataSync"', production_manifest)
-        self.assertIn('s/ android:foregroundServiceType="dataSync"//g', legacy_build)
-        self.assertIn('"${LEGACY_MANIFEST}"', legacy_build)
+        self.assertIn('rsync -a "${REFERENCE_PROJECT_ROOT}/" "${REFERENCE_BUILD_ROOT}/"', legacy_build)
+        self.assertNotIn('foregroundServiceType="dataSync"', legacy_build)
+        self.assertNotIn('sed -i', legacy_build)
 
     def test_device_characterization_sources_are_the_exact_expected_set(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
@@ -279,13 +276,41 @@ class BuildScriptContractTest(unittest.TestCase):
             ),
         )
 
-    def test_disposable_copy_excludes_gradle_working_state(self):
+    def test_frozen_reference_copy_does_not_copy_the_modern_worktree(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         build_script = (project_root / "docker" / "legacy" / "build.sh").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("--exclude /.gradle/", build_script)
+        self.assertNotIn('"${SOURCE_ROOT}/" "${REFERENCE_BUILD_ROOT}/"', build_script)
+        self.assertIn('rsync -a "${REFERENCE_PROJECT_ROOT}/" "${REFERENCE_BUILD_ROOT}/"', build_script)
+
+    def test_frozen_legacy_reference_snapshot_is_exact_and_not_the_modern_source(self):
+        project_root = pathlib.Path(__file__).resolve().parents[1]
+        validator = project_root / "tools" / "verify_legacy_reference_snapshot.py"
+        build_script = (project_root / "docker" / "legacy" / "build.sh").read_text(
+            encoding="utf-8"
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(validator),
+                str(project_root / "legacy" / "reference-project"),
+                str(project_root / "legacy" / "reference-third-party"),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("027c971", result.stdout)
+        self.assertIn('REFERENCE_PROJECT_ROOT="${SOURCE_ROOT}/legacy/reference-project"', build_script)
+        self.assertIn('REFERENCE_THIRD_PARTY_ROOT="${SOURCE_ROOT}/legacy/reference-third-party"', build_script)
+        self.assertIn('"${REFERENCE_PROJECT_ROOT}" "${REFERENCE_THIRD_PARTY_ROOT}"', build_script)
+        self.assertIn('rsync -a "${REFERENCE_PROJECT_ROOT}/" "${REFERENCE_BUILD_ROOT}/"', build_script)
+        self.assertIn('GoogleAdMobAdsSdk-6.0.1.jar', build_script)
+        self.assertIn('bash "${SOURCE_ROOT}/docker/legacy/build-modern-native.sh"', build_script)
+        self.assertNotIn('"${SOURCE_ROOT}/" "${REFERENCE_BUILD_ROOT}/"', build_script)
 
     def test_legacy_apk_payload_matches_the_promoted_ndk_artifacts(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
@@ -294,29 +319,11 @@ class BuildScriptContractTest(unittest.TestCase):
         )
 
         self.assertIn(
-            'python3 "${BUILD_ROOT}/tools/verify_apk_native_payload.py"',
+            'python3 "${REFERENCE_BUILD_ROOT}/tools/inspect_legacy_apk.py"',
             build_script,
         )
-        self.assertIn(
-            '--candidate-root "${STAGE_NDK_NATIVE_ROOT}"',
-            build_script,
-        )
-        self.assertIn(
-            '--output "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json"',
-            build_script,
-        )
-        self.assertIn(
-            'mv "${NATIVE_STAGE}/Nanidroid-debug-native-payload.json" '
-            '"${OUTPUT_ROOT}/Nanidroid-debug-native-payload.json"',
-            " ".join(build_script.split()),
-        )
-        clean = build_script.index("ant clean")
-        publish = build_script.index(
-            'cp "${BUILD_ROOT}/obj-narfs/local/${NATIVE_ABI}/libnarfs.so"'
-        )
-        package = build_script.index("ant debug")
-        self.assertLess(clean, publish)
-        self.assertLess(publish, package)
+        self.assertNotIn("verify_apk_native_payload.py", build_script)
+        self.assertIn("ant debug", build_script)
 
     def test_gradle_build_relocates_the_project_cache(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

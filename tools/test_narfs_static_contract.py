@@ -256,7 +256,7 @@ class NarfsStaticContractTest(unittest.TestCase):
                 )
 
     def test_build_scripts_execute_all_static_gates(self):
-        legacy = (ROOT / "docker/legacy/build.sh").read_text(encoding="utf-8")
+        legacy = (ROOT / "docker/legacy/build-modern-native.sh").read_text(encoding="utf-8")
         arm64 = (ROOT / "docker/emulator/build-native.sh").read_text(encoding="utf-8")
         for required in ("libnarfs_core.a", "narfs_core_link_probe", "narfs-static-ndk-build.json",
                          "narfs-static-cmake.json", "narfs-static-parity.json"):

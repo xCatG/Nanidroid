@@ -79,6 +79,22 @@ class InspectApkTest(unittest.TestCase):
         )
         self.assertEqual(len(report["sha256"]), 64)
 
+    def test_accepts_the_exact_pre_narfs_reference_payload(self) -> None:
+        apk = self._write_apk(
+            {
+                "AndroidManifest.xml": b"manifest",
+                "classes.dex": b"dex",
+                "resources.arsc": b"resources",
+                "lib/armeabi/libkawari8.so": b"\x7fELF-kawari",
+                "lib/armeabi/libsatoriya.so": b"\x7fELF-satori",
+            }
+        )
+        report = inspect_apk(apk, EXPECTED_BADGING, frozen_reference_project=True)
+        self.assertEqual(
+            ["lib/armeabi/libkawari8.so", "lib/armeabi/libsatoriya.so"],
+            report["nativeLibraries"],
+        )
+
     def test_accepts_the_approved_android_12_minimum_for_a_modern_artifact(self) -> None:
         apk = self._write_apk(
             {

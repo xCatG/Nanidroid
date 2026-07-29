@@ -34,6 +34,10 @@ REQUIRED_ENTRIES = {
 EXPECTED_NATIVE_LIBRARIES = sorted(
     entry for entry in REQUIRED_ENTRIES if entry.startswith("lib/")
 )
+REFERENCE_PROJECT_NATIVE_LIBRARIES = [
+    "lib/armeabi/libkawari8.so",
+    "lib/armeabi/libsatoriya.so",
+]
 COMPOSE_GRAPHICS_NATIVE_LIBRARIES = [
     "lib/arm64-v8a/libandroidx.graphics.path.so",
     "lib/armeabi-v7a/libandroidx.graphics.path.so",
@@ -96,6 +100,7 @@ def inspect_apk(
     expected_min_sdk: str = "9",
     allow_compose_graphics_runtime: bool = False,
     allow_firebase_crashlytics_runtime: bool = False,
+    frozen_reference_project: bool = False,
 ) -> dict[str, object]:
     """Return an artifact report, or raise when the contract is violated."""
     package = parse_badging(badging)
@@ -104,7 +109,11 @@ def inspect_apk(
         minSdk=expected_min_sdk,
         targetSdk=expected_target_sdk,
     )
-    expected_native_libraries = EXPECTED_NATIVE_LIBRARIES
+    expected_native_libraries = (
+        REFERENCE_PROJECT_NATIVE_LIBRARIES
+        if frozen_reference_project
+        else EXPECTED_NATIVE_LIBRARIES
+    )
     if allow_compose_graphics_runtime:
         expected_package["nativeCode"] = COMPOSE_GRAPHICS_NATIVE_CODES
         expected_native_libraries = sorted(
@@ -125,7 +134,10 @@ def inspect_apk(
     try:
         with zipfile.ZipFile(apk) as archive:
             entries = set(archive.namelist())
-            missing = sorted(REQUIRED_ENTRIES - entries)
+            required_entries = {
+                "AndroidManifest.xml", "classes.dex", "resources.arsc", *expected_native_libraries
+            }
+            missing = sorted(required_entries - entries)
             if missing:
                 _fail("APK is missing required entries: " + ", ".join(missing))
 
@@ -152,7 +164,7 @@ def inspect_apk(
         "sha256": digest.hexdigest(),
         "package": package,
         "nativeLibraries": native_libraries,
-        "requiredEntries": sorted(REQUIRED_ENTRIES),
+        "requiredEntries": sorted(required_entries),
     }
 
 
@@ -172,6 +184,11 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-min-sdk", default="9")
     parser.add_argument("--expected-target-sdk", default="13")
+    parser.add_argument(
+        "--frozen-reference-project",
+        action="store_true",
+        help="validate the exact pre-NarFS 027c971 Ant payload",
+    )
     parser.add_argument(
         "--allow-compose-graphics-runtime",
         action="store_true",
@@ -196,6 +213,7 @@ def main() -> int:
             args.expected_min_sdk,
             args.allow_compose_graphics_runtime,
             args.allow_firebase_crashlytics_runtime,
+            getattr(args, "frozen_reference_project", False),
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(

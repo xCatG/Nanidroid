@@ -19,6 +19,7 @@ EXPECTED_LIBRARIES = {
     "armeabi/libkawari8.so": "kawari8",
     "armeabi/libsatoriya.so": "satoriya",
 }
+CURRENT_NARFS_LIBRARY = {"armeabi/libnarfs.so": "narfs_full"}
 EXPECTED_MODULES = sorted(EXPECTED_LIBRARIES.values())
 BUILD_ONLY_SOURCES = {
     "jni/narfs/narfs_core.c",
@@ -1002,6 +1003,7 @@ def inspect_native_directory(
     ndk_root: Path,
     build_evidence: Path,
     cmake_cache: Path | None = None,
+    include_current_narfs: bool = False,
 ) -> dict[str, object]:
     """Return normalized build declarations and stable ELF/JNI facts."""
     if compiler != "gcc-4.9":
@@ -1011,7 +1013,10 @@ def inspect_native_directory(
     observed = sorted(
         path.relative_to(root).as_posix() for path in root.rglob("*.so")
     )
-    expected = sorted(EXPECTED_LIBRARIES)
+    expected_libraries = dict(EXPECTED_LIBRARIES)
+    if include_current_narfs:
+        expected_libraries.update(CURRENT_NARFS_LIBRARY)
+    expected = sorted(expected_libraries)
     if observed != expected:
         _fail(f"native library paths changed: expected {expected}, got {observed}")
 
@@ -1066,7 +1071,7 @@ def inspect_native_directory(
 
     libraries: list[dict[str, object]] = []
     hashes: dict[str, str] = {}
-    for relative_path, module_name in sorted(EXPECTED_LIBRARIES.items()):
+    for relative_path, module_name in sorted(expected_libraries.items()):
         library = root / relative_path
         if library.read_bytes()[:4] != b"\x7fELF":
             _fail(f"{relative_path} is not an ELF file")
@@ -1250,6 +1255,11 @@ def _arguments() -> argparse.Namespace:
     inspect_parser.add_argument("--ndk-root", type=Path, required=True)
     inspect_parser.add_argument("--build-evidence", type=Path, required=True)
     inspect_parser.add_argument("--cmake-cache", type=Path)
+    inspect_parser.add_argument(
+        "--include-current-narfs",
+        action="store_true",
+        help="include the separately built current NarFS JNI candidate in file checks",
+    )
     inspect_parser.add_argument("--output", type=Path, required=True)
 
     compare_parser = subparsers.add_parser("compare")
@@ -1277,6 +1287,7 @@ def main() -> int:
                 ndk_root=args.ndk_root,
                 build_evidence=args.build_evidence,
                 cmake_cache=args.cmake_cache,
+                include_current_narfs=args.include_current_narfs,
             )
         else:
             result = compare_native_contracts(
