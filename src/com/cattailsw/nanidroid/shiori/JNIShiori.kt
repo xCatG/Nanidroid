@@ -6,7 +6,7 @@ import java.nio.charset.Charset
 abstract class JNIShiori : Shiori {
     override fun getModuleName(): String = getModuleNameFromJNI()
 
-    override fun request(request: String): String =
+    open override fun request(request: String): String =
         modResponseWithCharSet(requestFromJNI(request))
 
     override fun terminate() {
