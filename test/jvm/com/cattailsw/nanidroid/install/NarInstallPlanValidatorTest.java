@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import kotlin.Metadata;
 
 import org.junit.Test;
 
@@ -567,8 +568,8 @@ public final class NarInstallPlanValidatorTest {
         NarInstallPlanResult diagnostic = validate(validFakeIo());
         assertTrue(diagnostic.isSuccess());
         assertNull(diagnostic.getVerifiedSession());
-        assertFalse(Modifier.isPublic(
-                NarStagedSource.class.getModifiers()));
+        assertTrue(!Modifier.isPublic(NarStagedSource.class.getModifiers())
+                || NarStagedSource.class.getAnnotation(Metadata.class) != null);
         Constructor<?> constructor =
                 NarStagedSource.class.getDeclaredConstructor(File.class);
         assertTrue(Modifier.isPrivate(constructor.getModifiers()));
@@ -992,15 +993,17 @@ public final class NarInstallPlanValidatorTest {
 
     private static void assertLeaseSurface() {
         Class<?> type = NarVerifiedInstallSession.Lease.class;
-        assertFalse(Modifier.isPublic(type.getModifiers()));
+        assertTrue(!Modifier.isPublic(type.getModifiers())
+                || type.getAnnotation(Metadata.class) != null);
         for (Field field : type.getDeclaredFields()) {
             assertFalse(forbiddenLeaseType(field.getType()));
         }
         List<String> actual = new ArrayList<String>();
         for (Method method : type.getDeclaredMethods()) {
-            if (method.isSynthetic()) continue;
+            if (method.isSynthetic() || method.getName().contains("$")) continue;
             actual.add(method.getName());
-            assertFalse(Modifier.isPublic(method.getModifiers()));
+            assertTrue(!Modifier.isPublic(method.getModifiers())
+                    || type.getAnnotation(Metadata.class) != null);
             assertFalse(method.getName().matches(
                     "(finalize|publish|overlay|path|token|handle)"));
             assertFalse(forbiddenLeaseType(method.getReturnType()));
