@@ -84,6 +84,10 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/device/com/cattailsw/nanidroid/PreferencesScreenTest.kt"
             ),
             pathlib.PurePosixPath(
+                "test/device/com/cattailsw/nanidroid/"
+                "NanidroidLifecycleInstrumentationTest.java"
+            ),
+            pathlib.PurePosixPath(
                 "test/device/com/cattailsw/nanidroid/compose/"
                 "NanidroidComposeShellTest.kt"
             ),
@@ -118,7 +122,7 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIsNotNone(application)
         self.assertEqual({}, application.attrib)
         self.assertEqual(
-            ["uses-library"], [child.tag for child in application]
+            ["uses-library", "activity"], [child.tag for child in application]
         )
         self.assertEqual(
             {"android.test.runner"},
@@ -126,6 +130,18 @@ class BuildScriptContractTest(unittest.TestCase):
                 child.attrib[android_name]
                 for child in application.findall("uses-library")
             },
+        )
+        activity = application.find("activity")
+        self.assertIsNotNone(activity)
+        self.assertEqual(
+            {
+                android_name: "androidx.activity.ComponentActivity",
+                "{http://schemas.android.com/apk/res/android}exported": "true",
+                "{http://schemas.android.com/apk/res/android}process": (
+                    "com.cattailsw.nanidroid"
+                ),
+            },
+            activity.attrib,
         )
 
     def test_gradle_wires_the_exact_platform_device_test_harness(self):
@@ -135,9 +151,11 @@ class BuildScriptContractTest(unittest.TestCase):
 
         self.assertIn('testApplicationId = "com.cattailsw.nanidroid.test"', gradle_build)
         self.assertIn(
-            'testInstrumentationRunner = "android.test.InstrumentationTestRunner"',
+            'testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"',
             gradle_build,
         )
+        self.assertIn('androidTestImplementation("androidx.test:runner:1.7.0")', gradle_build)
+        self.assertIn('androidTestImplementation("androidx.test.ext:junit:1.3.0")', gradle_build)
         self.assertIn('getByName("androidTest")', gradle_build)
         self.assertIn('java.setSrcDirs(listOf("test/device"))', gradle_build)
         self.assertIn(
@@ -152,6 +170,10 @@ class BuildScriptContractTest(unittest.TestCase):
         self.assertIn(
             '"test/device/com/cattailsw/nanidroid/" + '
             '"SurfaceAnimationExecutionCharacterizationTest.java"',
+            normalized,
+        )
+        self.assertIn(
+            '"test/device/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.java"',
             normalized,
         )
         self.assertIn(
@@ -176,7 +198,7 @@ class BuildScriptContractTest(unittest.TestCase):
         )
         self.assertIn('testBuildType = "emulator"', gradle_build)
 
-    def test_narfs_device_test_proves_the_selected_dso_is_aarch64(self):
+    def test_narfs_device_test_proves_the_selected_apk_dso_matches_runtime_abi(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         test_source = (
             project_root
@@ -189,15 +211,16 @@ class BuildScriptContractTest(unittest.TestCase):
             / "NarFilesystemInspectorInstrumentationTest.java"
         ).read_text(encoding="utf-8")
 
-        self.assertIn(
-            "getTargetContext().getApplicationInfo().nativeLibraryDir",
-            test_source,
-        )
-        self.assertIn('new File(nativeLibraryDir, "libnarfs.so")', test_source)
+        self.assertIn("Build.SUPPORTED_ABIS[0]", test_source)
+        self.assertIn("getTargetContext().getApplicationInfo().sourceDir", test_source)
+        self.assertIn('zip.getEntry("lib/" + abi + "/libnarfs.so")', test_source)
+        self.assertIn("new ZipFile(apk)", test_source)
         self.assertIn("assertEquals(2, header[4]);", test_source)
         self.assertIn("assertEquals(1, header[5]);", test_source)
-        self.assertIn("assertEquals(183, machine);", test_source)
-        self.assertNotIn("Build.SUPPORTED_ABIS", test_source)
+        self.assertIn('if ("arm64-v8a".equals(abi)) return 183;', test_source)
+        self.assertIn('if ("x86_64".equals(abi)) return 62;', test_source)
+        self.assertIn("assertEquals(expectedElfMachine(abi), machine);", test_source)
+        self.assertNotIn("nativeLibraryDir", test_source)
         self.assertNotIn("Build.CPU_ABI", test_source)
 
     def test_gradle_build_packages_and_inspects_the_debug_android_test_apk(self):
