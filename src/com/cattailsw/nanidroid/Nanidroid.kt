@@ -98,7 +98,6 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         checkIsRestore(savedInstanceState)
         runner = SScriptRunner.getInstance(this)
         initOnSeparateThread()
-        ViewServerLifecycle.onActivityCreated(this)
     }
 
     @Suppress("DEPRECATION")
@@ -202,8 +201,8 @@ class Nanidroid : FragmentActivity(), EnterUrlDlg.EUrlDlgListener,
         saveSimpleDialog(outState)
         super.onSaveInstanceState(outState)
     }
-    override fun onDestroy() { composeLifecycleOwner.destroy(); super.onDestroy(); ViewServerLifecycle.onActivityDestroyed(this); sendStopIntent() }
-    override fun onResume() { super.onResume(); composeLifecycleOwner.resume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG); ViewServerLifecycle.onActivityResumed(this) }
+    override fun onDestroy() { composeLifecycleOwner.destroy(); super.onDestroy(); sendStopIntent() }
+    override fun onResume() { super.onResume(); composeLifecycleOwner.resume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG) }
     @Suppress("DEPRECATION") override fun onBackPressed() { val r = runner; if (r != null) { r.stopClock(); r.setCallback(mscb); r.stop(); r.doExit() } else super.onBackPressed() }
     private val mscb = object : SScriptRunner.StatusCallback {
         override fun stop() = Unit

@@ -417,9 +417,6 @@ class BuildScriptContractTest(unittest.TestCase):
                 "test/jvm/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java"
             ),
             pathlib.PurePosixPath(
-                "test/jvm/com/cattailsw/nanidroid/ViewServerLifecycleCharacterizationTest.java"
-            ),
-            pathlib.PurePosixPath(
                 "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java"
             ),
             pathlib.PurePosixPath(
@@ -527,37 +524,15 @@ class BuildScriptContractTest(unittest.TestCase):
 
         self.assertEqual(expected, actual)
 
-    def test_active_nanidroid_lifecycle_methods_use_exact_compatibility_calls(self):
+    def test_active_nanidroid_has_no_view_server_lifecycle_surface(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]
         source_path = project_root / "src/com/cattailsw/nanidroid/Nanidroid.kt"
         if not source_path.exists():
             source_path = project_root / "src/com/cattailsw/nanidroid/Nanidroid.java"
         nanidroid = source_path.read_text(encoding="utf-8")
-        self.assertNotIn("ViewServer.get(", nanidroid)
-        for expected_call in (
-            "ViewServerLifecycle.onActivityCreated(this)",
-            "ViewServerLifecycle.onActivityResumed(this)",
-            "ViewServerLifecycle.onActivityDestroyed(this)",
-        ):
-            self.assertEqual(1, nanidroid.count(expected_call))
-
-    def test_production_view_server_facade_wiring_has_exact_backend_mapping(self):
-        project_root = pathlib.Path(__file__).resolve().parents[1]
-        lifecycle = (
-            project_root
-            / "src"
-            / "com"
-            / "cattailsw"
-            / "nanidroid"
-            / "ViewServerLifecycle.kt"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("onActivityCreated(Build.VERSION.SDK_INT, activity, legacyBackend)", lifecycle)
-        self.assertIn("onActivityResumed(Build.VERSION.SDK_INT, activity, legacyBackend)", lifecycle)
-        self.assertIn("onActivityDestroyed(Build.VERSION.SDK_INT, activity, legacyBackend)", lifecycle)
-        self.assertIn("ViewServer.get(activity!!).addWindow(activity)", lifecycle)
-        self.assertIn("ViewServer.get(activity!!).setFocusedWindow(activity)", lifecycle)
-        self.assertIn("ViewServer.get(activity!!).removeWindow(activity)", lifecycle)
+        self.assertNotIn("ViewServer", nanidroid)
+        self.assertFalse((project_root / "src/com/cattailsw/nanidroid/ViewServerLifecycle.kt").exists())
+        self.assertFalse((project_root / "src/com/android/debug/hv/ViewServer.kt").exists())
 
     def test_default_return_stub_guard_wires_every_app_unit_test_task(self):
         project_root = pathlib.Path(__file__).resolve().parents[1]

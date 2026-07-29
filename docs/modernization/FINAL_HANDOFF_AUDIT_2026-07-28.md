@@ -15,7 +15,7 @@ longer carries that historical handoff file.
 | CI/Gradle and frozen legacy/reference lanes | Blocked externally | `verifyEmulatorNativeLibraries` passes with ARM64 artifacts. `verifyLegacyNativeLibraries` is blocked by missing frozen ARM libraries; `verifyDeviceNativeLibraries` is blocked by missing x86_64 libraries. Docker 29.6.2 is available, but regeneration was not run because it may download pinned toolchains. No current hosted-CI result was inspected. |
 | Release APK/AAB validation | Partially complete | `assembleRelease -x verifyLegacyNativeLibraries` passed after the stale `adview` lint fix. This is explicitly a partial diagnostic; the unmodified full release gate remains blocked by the frozen legacy artifacts. No AAB validation, signing, or publishing was performed. |
 | Repeatable API 36/37 release behavior: launch, import, interaction, recreation, native SHIORI | Incomplete | The API-36 AVD exists and was used for bounded instrumentation; the requested staging class ran 3/3 but failed to load `libnarfs.so`. No API-37 AVD run, complete launch/recreation flow, full installer matrix, or native SHIORI request has current passing evidence. |
-| ViewServer product decision | Partially resolved | `ViewServerLifecycle` only delegates for SDK &lt; 11, so current Android releases do not activate the listener. The handoff still asks product ownership to decide whether the legacy feature is supported, replaced, or debug-only; no explicit release policy decision is recorded. |
+| ViewServer product decision | Complete | The obsolete debug socket server and lifecycle adapter were removed from the active Android 12+ product. The frozen `legacy/` reference tree remains outside the production source set. |
 | Exported-component, intent, URI, cleartext/network audit | Audited; decisions remain | `SECURITY_ALIGNMENT_AUDIT.md` records an HTTPS-only exported deep link, private service, no nested-intent forwarding/grant surface, and immutable notification intents. The manifest-wide cleartext/legacy telemetry and broad-host distribution decisions remain product-owned. |
 | Firebase/Crashlytics privacy and release configuration | Incomplete product decision | The handoff explicitly retains this decision. No release Firebase project configuration, consent/privacy text, or production-reporting approval was added. |
 | ABI/device/native lifecycle support and native engine characterization | Incomplete | Existing native documentation/contracts describe the build boundary, but the required real native SHIORI load/request/unload evidence is absent and x86_64 native packaging currently blocks the device path. |
@@ -40,8 +40,8 @@ The Kotlin-source conversion objective is complete, but the modernization
 handoff objective is **not complete**. The 197-test host artifact/security
 suite is complete and is not among the blockers. Completion is blocked by
 missing native artifacts/device proof and requires explicit product decisions
-for release, privacy/Crashlytics, ViewServer policy, cleartext/telemetry, and
-the supported native ABI/lifecycle scope.
+for release, privacy/Crashlytics, cleartext/telemetry, and the supported native
+ABI/lifecycle scope.
 
 ## Installer seam boundary
 

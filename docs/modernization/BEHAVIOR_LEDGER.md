@@ -18,7 +18,7 @@ behavior is safe or required.
 | Kawari and Satori native engine responses | Required invariant; characterization pending | Use small licensed fixtures and raw-byte differential tests in an Android device/emulator or separately justified host-native harness. JVM envelope tests do not complete this row. |
 | JNI class names and exported symbols | Required invariant through native migration | Keep Java façades stable until the native ABI is frozen. |
 | Emulator smoke ABI artifact | Validation-only additive profile | Keep the frozen debug APK `armeabi`-only. The opt-in emulator artifact may add exactly `arm64-v8a` Kawari and Satori libraries built with pinned r14b/GCC 4.9 at API 21; it is not a supported-ABI product decision or a runtime-success claim. |
-| Legacy debug ViewServer lifecycle | Retired device-compatibility boundary | Android 12/API 31 is the approved product minimum, so API 9–10 lifecycle routing is no longer a supported-device behavior. The legacy adapter remains until its View host is removed by the Compose migration. |
+| Legacy debug ViewServer lifecycle | Retired | Android 12/API 31 is the approved product minimum. The obsolete debug socket server and its lifecycle adapter are removed from active production sources; the frozen legacy reference tree remains outside the modern product. |
 | Android 12/API 31 device support | Approved product minimum | `minSdk = 31`; Android 2.3–11 devices are intentionally unsupported. This enables Jetpack Compose for the modern renderer migration. |
 | Target SDK 13 behavior | Legacy-observed | Replace through an explicit target-SDK compatibility ladder. |
 | Raw external-storage ghost directory | Intentional change required | Define app-private storage and an upgrade migration. |
