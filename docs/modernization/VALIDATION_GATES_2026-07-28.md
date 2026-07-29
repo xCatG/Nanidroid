@@ -33,8 +33,8 @@ native/reference gate.
 ## Release disposition
 
 No release APK/AAB is validated by this record. Before release, regenerate and
-verify the frozen/required ABI artifacts, resolve the release lint error without
-hiding it, update obsolete Java-only host contracts for the Kotlin source set,
-and repeat the device/API-36 and API-37 validation gates. The earlier API-36
-native instrumentation failure is separately recorded as a missing
+verify the frozen/required ABI artifacts and repeat the device/API-36 and
+API-37 validation gates. The Kotlin-aware host artifact/security contract suite
+is complete (197 tests passed) and is no longer a remaining blocker. The earlier
+API-36 native instrumentation failure is separately recorded as a missing
 `libnarfs.so` x86_64 packaging prerequisite.
