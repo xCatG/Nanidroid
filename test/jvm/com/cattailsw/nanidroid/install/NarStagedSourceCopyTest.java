@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.install;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -18,11 +19,44 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import kotlin.Metadata;
 import org.junit.Test;
 
 public final class NarStagedSourceCopyTest {
     private static final long MIB = 1024L * 1024L;
     private static final long MAX_ARCHIVE_BYTES = 544L * MIB;
+
+    @Test
+    public void stagedCopyErrorsRetainNamesOrderAndKotlinMetadata() {
+        assertNotNull(NarStagedSourceCopyError.class.getAnnotation(
+                Metadata.class));
+        assertEquals(
+                Arrays.asList(
+                        "SOURCE_INVALID",
+                        "STAGING_ROOT_INVALID",
+                        "STAGING_NAME_INVALID",
+                        "STAGING_NAME_COLLISION_LIMIT",
+                        "STAGING_CREATE_FAILED",
+                        "SOURCE_OPEN_FAILED",
+                        "STAGING_OPEN_FAILED",
+                        "SOURCE_READ_FAILED",
+                        "ARCHIVE_SIZE_LIMIT",
+                        "STAGING_WRITE_FAILED",
+                        "STAGING_SYNC_FAILED",
+                        "STAGING_CLOSE_FAILED",
+                        "SOURCE_CLOSE_FAILED",
+                        "STAGING_DELETE_FAILED"),
+                Arrays.stream(NarStagedSourceCopyError.values())
+                        .map(Enum::name)
+                        .collect(java.util.stream.Collectors.toList()));
+        for (NarStagedSourceCopyError error
+                : NarStagedSourceCopyError.values()) {
+            assertSame(error, NarStagedSourceCopyError.valueOf(
+                    error.name()));
+            assertEquals(error, NarStagedSourceCopyError.values()[
+                    error.ordinal()]);
+        }
+    }
 
     @Test
     public void defaultIoCopiesRealBytesIntoCanonicalRoot()

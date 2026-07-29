@@ -1,7 +1,7 @@
-package com.cattailsw.nanidroid.install;
+package com.cattailsw.nanidroid.install
 
 /** Stable internal failures while minting a staged NAR snapshot. */
-enum NarStagedSourceCopyError {
+internal enum class NarStagedSourceCopyError {
     SOURCE_INVALID,
     STAGING_ROOT_INVALID,
     STAGING_NAME_INVALID,
