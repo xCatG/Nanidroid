@@ -123,7 +123,6 @@ public final class GhostSwitchingCharacterizationTest {
 
         runner.setCallback(null);
         runner.setUICallback(null);
-        runner.setLayoutMgr(null);
 
         // setGhost(null) dereferences the replacement when the outgoing name is
         // non-null. Suppressing the test fake's name takes the public silent

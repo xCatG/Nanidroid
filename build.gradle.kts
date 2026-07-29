@@ -287,7 +287,7 @@ val deviceCharacterizationTests = listOf(
     "test/device/com/cattailsw/nanidroid/" +
         "SurfaceRenderingCharacterizationTest.java",
     "test/device/com/cattailsw/nanidroid/" +
-        "SurfaceAnimationExecutionCharacterizationTest.java",
+        "SurfaceAnimationExecutionCharacterizationTest.kt",
     "test/device/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
     "test/device/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.java",
     "test/device/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",

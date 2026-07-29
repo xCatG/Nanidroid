@@ -8,7 +8,7 @@ class ComposeStageLayoutContractTest(unittest.TestCase):
         stage = (root / "src/com/cattailsw/nanidroid/compose/GhostPresentationStage.kt").read_text(
             encoding="utf-8"
         )
-        host = (root / "modern/src/com/cattailsw/nanidroid/compose/GhostPresentationComposeHost.kt").read_text(
+        host = (root / "src/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("BoxWithConstraints", stage)
@@ -20,9 +20,9 @@ class ComposeStageLayoutContractTest(unittest.TestCase):
         self.assertIn("val density = LocalDensity.current", stage)
         self.assertIn("placement.size.width.toDp()", stage)
         self.assertIn("placement.size.height.toDp()", stage)
-        self.assertIn("sakuraSurfaceSize = sakuraSize", host)
-        self.assertIn("keroSurfaceSize = keroSize", host)
-        self.assertNotIn("SurfaceSpace", host)
+        self.assertIn("SurfaceCompositor", host)
+        self.assertIn("SurfacePointerInteractionDispatcher", host)
+        self.assertNotIn("GhostPresentationComposeHost", host)
 
 
 if __name__ == "__main__":

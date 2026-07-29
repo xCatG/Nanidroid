@@ -23,9 +23,6 @@ open class SScriptRunner(ctx: Context?) : Runnable {
         @JvmStatic fun getInstance(ctx: Context?): SScriptRunner { if (self == null) self = SScriptRunner(ctx); return self!! }
     }
 
-    private var layoutMgr: LayoutManager? = null
-    private var sakura: SakuraView? = null; private var kero: KeroView? = null
-    private var sakuraBalloon: Balloon? = null; private var keroBalloon: Balloon? = null
     private var presentationRenderer: GhostPresentationRenderer? = null
     private var g: Ghost? = null
     private val mCtx = ctx?.applicationContext
@@ -40,10 +37,7 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun dispatchComposeDoubleClick(x: Int, y: Int, sakura: Boolean, collisionId: Int, buttonId: Int) { if (!sakura) clearMsgQueue(); doMouseDblClick(x,y,sakura,collisionId,buttonId) }
-    fun setViews(s: SakuraView, k: KeroView, bS: Balloon, bK: Balloon) { sakura=s;kero=k;sakuraBalloon=bS;keroBalloon=bK;updatePresentationRenderer();s.setUiEventCallback(cbSakura);k.setUiEventCallback(cbKero) }
     fun setGhost(newGhost: Ghost?) { val name = g?.getGhostName(); g = newGhost; if (name != null) { if (g!!.getCreateCount() > 1) doShioriEvent("OnGhostChanged", arrayOf(name, null) as Array<String>) else { doShioriEvent("OnFirstBoot", arrayOf("0")); AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",g!!.getGhostId(),0) } } }
-    fun setLayoutMgr(lm: LayoutManager?) { layoutMgr=lm;updatePresentationRenderer() }
-    private fun updatePresentationRenderer() { val s=sakura;val k=kero;val bs=sakuraBalloon;val bk=keroBalloon;if(s!=null&&k!=null&&bs!=null&&bk!=null) presentationRenderer=LegacyGhostPresentationRenderer(s,k,bs,bk,layoutMgr) }
     @Synchronized fun addMsgToQueue(inCol: Collection<String>) { msgQueue.addAll(inCol) }
     @Synchronized fun addMsgToQueue(msgs: Array<String>) { msgs.forEach { msgQueue.add(it) } }
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
@@ -72,16 +66,13 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     private fun changeSurface(id:String){if(sakuraTalk)sakuraSurfaceId=id else keroSurfaceId=id;g?.doShioriEvent("OnSurfaceChange",arrayOf("Reference0: $sakuraSurfaceId","Reference1: $keroSurfaceId"))}
     private fun changeBalloon(id:String){if(sakuraTalk)bSakuraId=id else bKeroId=id}; private fun queueAnimation(id:String){if(sakuraTalk)sakuraAnimationId=id else keroAnimationId=id}
     private fun updateUI(){val sa=sakuraAnimationId!=null;val ka=keroAnimationId!=null;presentationRenderer?.render(GhostPresentationFrame(GhostPresentationFrame.Speaker(sakuraMsg.toString(),sakuraSurfaceId,sakuraAnimationId,bSakuraId),GhostPresentationFrame.Speaker(keroMsg.toString(),keroSurfaceId,keroAnimationId,bKeroId),talkAnimeControl==0));if(sa)sakuraAnimationId=null;if(ka)keroAnimationId=null;talkAnimeControl++;if(talkAnimeControl==10)talkAnimeControl=0}
-    private fun startPerSecondAnimation(target:SakuraView){val p=Math.random();if(p<.25)target.startRarelyAnimation()else if(p<.5)target.startSometimesAnimation()}
-    private fun doPerSecondEvent(hr:Int){sakura?.let{startPerSecondAnimation(it)};kero?.let{startPerSecondAnimation(it)};parseShioriResponseAndInsert(g!!.sendOnSecondChange(hr))}; private fun doPerMinuteEvent(hr:Int){parseShioriResponseAndInsert(g!!.sendOnMinuteChange(hr))}
+    private fun doPerSecondEvent(hr:Int){parseShioriResponseAndInsert(g!!.sendOnSecondChange(hr))}; private fun doPerMinuteEvent(hr:Int){parseShioriResponseAndInsert(g!!.sendOnMinuteChange(hr))}
     private fun perClockEvent(){val secondsAll=((SystemClock.uptimeMillis()-startTime)/1000).toInt();var minute=secondsAll/60;val hour=minute/60;val seconds=secondsAll%60;minute%=60;if(seconds-lastSec>=1||seconds==0){doPerSecondEvent(hour);lastSec=seconds};if(minute-lastMin>=1||(lastMin==59&&minute==0)){doPerMinuteEvent(hour);lastMin=minute};if(hour-lastHour>=1){lastHour=hour}}
     private fun parseShioriResponseAndInsert(res:ShioriResponse?){if(res==null||res.getStatusCode()!=200)return;msg=res.getKey("Value");addMsgToQueue(arrayOf(msg!!));if(!isRunning)run()}
     private fun doMouseClick(x:Int,y:Int,s:Boolean,c:Int,b:Int)=doShioriEvent("OnMouseClick",arrayOf("$x","$y","0",if(s)"0" else "1",if(c>-1)"$c" else "","$b","touch"))
     private fun doMouseDblClick(x:Int,y:Int,s:Boolean,c:Int,b:Int)=doShioriEvent("OnMouseDoubleClick",arrayOf("$x","$y","0",if(s)"0" else "1",if(c>-1)"$c" else "","$b","touch"))
     private fun doMouseWheel(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseWheel",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
     private fun doMouseMove(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseMove",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
-    private val cbSakura=object:SakuraView.UIEventCallback{override fun onHit(t:Int,x:Int,y:Int,o:Int,c:Int,b:Int){when(t){SakuraView.UIEventCallback.TYPE_SINGLE_CLICK->doMouseClick(x,y,true,c,b);SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK->doMouseDblClick(x,y,true,c,b);SakuraView.UIEventCallback.TYPE_WHEEL->doMouseWheel(x,y,o,true,c);SakuraView.UIEventCallback.TYPE_MOVE->doMouseMove(x,y,o,true,c)}}}
-    private val cbKero=object:SakuraView.UIEventCallback{override fun onHit(t:Int,x:Int,y:Int,o:Int,c:Int,b:Int){clearMsgQueue();when(t){SakuraView.UIEventCallback.TYPE_SINGLE_CLICK->doMouseClick(x,y,false,c,b);SakuraView.UIEventCallback.TYPE_DOUBLE_CLICK->doMouseDblClick(x,y,false,c,b);SakuraView.UIEventCallback.TYPE_WHEEL->doMouseWheel(x,y,o,false,c);SakuraView.UIEventCallback.TYPE_MOVE->doMouseMove(x,y,o,false,c)}}}
     fun doMinimize(){g?.doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){doShioriEvent("OnClose",null);exitPending=true};fun doGhostChanging(nextName:String,type:String,nextPath:String){changingPending=true;doShioriEvent("OnGhostChanging",arrayOf(nextName,type,null,nextPath))}
     fun doInstallBegin(id:String){doShioriEvent("OnInstallBegin",arrayOf("ghost",id,id))};fun doInstallComplete(id:String){doShioriEvent("OnInstallComplete",arrayOf("ghost",id,id))}
     @Suppress("UNCHECKED_CAST") fun doShioriEvent(evt:String,ref:Array<out String?>?):Boolean{val r=g?.doShioriEvent(evt,ref as Array<String>?)?:return false;parseShioriResponseAndInsert(r);return true}
