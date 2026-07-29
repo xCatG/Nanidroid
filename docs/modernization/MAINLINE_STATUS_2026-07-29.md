@@ -17,9 +17,8 @@ selection; the full JVM suite and host contracts pass. The focused class passed
 2/2 tests on the `Nanidroid_API_37` x86_64 emulator (API 37), which was then
 stopped.
 
-The remaining active View/XML work is intentionally limited to the
-support-fragment dialog/readme layer and its activity host; it is outside this
-stage-only retirement slice and needs the separate document-rendering decision.
+The remaining document layer has since been migrated to Compose-only text
+dialogs; no active production View/XML UI path remains.
 
 ## Operational Compose dialogs
 
@@ -33,9 +32,17 @@ switch actions. Each dialog's minimal state is restored from
 `savedInstanceState` after recreation. The focused Compose-shell class passed
 6/6 tests on `Nanidroid_API_37` (API 37).
 
-Readme, no-readme-switch, about, and WebView/document dialogs remain in the
-support-fragment layer by design; they are not part of this non-HTML dialog
-slice.
+Readme, no-readme-switch, and About are now Compose dialogs. Installed NAR
+readmes retain UTF-8-BOM/Shift_JIS decoding and line breaks, but are treated as
+plain text: only explicit `https`, `http`, and `mailto` links open externally.
+They no longer interpret embedded HTML, scripts, relative files, or images.
+About now reports the current Apache-licensed application and current credits,
+without stale unsupported-SHIORI library claims.
+
+`Nanidroid` is a direct `ComponentActivity` host using Compose `setContent`;
+the wallpaper drawable is painted by the Compose shell rather than assigned to
+a View. The obsolete support-v4 bridge, document fragments, WebView layout,
+and inactive stage/progress layouts have been removed.
 
 ## Operational fragment cleanup
 
@@ -45,7 +52,7 @@ removed. Their user-visible actions and error categories are owned by
 `NanidroidSimpleDialog`; the active install action still launches the system
 document picker. The redundant context menu, menu XML, dialog XML, and string
 arrays were removed with those paths. The focused Compose-shell device class
-passed 7/7 tests on API 37; the emulator JVM suite and all 69 host contracts
+passed 8/8 tests on API 37; the emulator JVM suite and all 69 host contracts
 also passed.
 
 ## API 37 system-picker import proof

@@ -229,7 +229,6 @@ dependencies {
     // the frozen API façade at test runtime; affected tests bypass its stub
     // constructor and never invoke Android APIs.
     testRuntimeOnly(legacyTestApi)
-    implementation(files("libs/android-support-v4.jar"))
     implementation(platform("com.google.firebase:firebase-bom:34.16.0"))
     implementation("com.google.firebase:firebase-crashlytics")
     implementation(files("libs/libGoogleAnalytics.jar"))

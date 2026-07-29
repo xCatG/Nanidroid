@@ -21,28 +21,28 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
     def test_gradle_build_uses_kotlin_while_ant_keeps_the_frozen_java_activity(self):
         self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java").exists())
         self.assertFalse((ROOT / "legacy").exists())
-        self.assertIn("class Nanidroid : FragmentActivity()", self.source)
-        self.assertIn("composeRoot.setContent {", self.source)
+        self.assertIn("class Nanidroid : ComponentActivity()", self.source)
+        self.assertIn("setContent {", self.source)
         self.assertIn("NanidroidComposeShell(", self.source)
 
     def test_compose_stage_and_dialog_callback_names_remain_public(self):
         for callback in (
-            "fun onNextSurface(v: View)",
-            "fun onAnimate(v: View)",
-            "fun onShowCollision(v: View)",
-            "fun runClick(v: View)",
-            "fun narTest(v: View)",
-            "fun onUpdate(v: View)",
-            "fun onListGhost(v: View)",
-            "fun onHelp(v: View)",
-            "fun onSetupClick(v: View)",
-            "fun frameClick(v: View)",
+            "fun onNextSurface()",
+            "fun onAnimate()",
+            "fun onShowCollision()",
+            "fun runClick()",
+            "fun narTest()",
+            "fun onUpdate()",
+            "fun onListGhost()",
+            "fun onHelp()",
+            "fun onSetupClick()",
+            "fun frameClick()",
             "override fun showUserInputBox(id: String)",
             "override fun showUserSelection(textlabel: Array<String>, ids: Array<String>)",
         ):
             self.assertIn(callback, self.source)
         self.assertIn("private val composeStage = ComposeGhostStageHost(", self.source)
-        self.assertIn("ghostStage = { composeStage.Stage(onSurfaceTap = { frameClick(composeRoot) }) },", self.source)
+        self.assertIn("ghostStage = { composeStage.Stage(onSurfaceTap = ::frameClick) },", self.source)
         self.assertIn("runner!!.setPresentationRenderer(composeStage.renderer)", self.source)
         self.assertIn("runner!!.setUICallback(this@Nanidroid)", self.source)
         self.assertNotIn("SakuraView(this)", self.source)
@@ -64,7 +64,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("startModernService(Intent(this, NanidroidService::class.java)", self.source)
 
     def test_picker_import_uses_one_shot_content_uri_staging_with_support_activity_dispatch(self):
-        self.assertIn("class Nanidroid : FragmentActivity()", self.source)
+        self.assertIn("class Nanidroid : ComponentActivity()", self.source)
         self.assertIn("Intent.ACTION_OPEN_DOCUMENT", self.source)
         self.assertIn("Intent.CATEGORY_OPENABLE", self.source)
         self.assertIn("Intent.EXTRA_MIME_TYPES", self.source)

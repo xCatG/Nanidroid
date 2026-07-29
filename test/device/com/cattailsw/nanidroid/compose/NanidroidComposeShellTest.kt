@@ -236,4 +236,27 @@ class NanidroidComposeShellTest {
         composeRule.runOnIdle { assertEquals(true, cancelled) }
     }
 
+    @Test
+    fun compose_documents_keep_text_links_and_switch_actions_without_webview() {
+        var opened = ""
+        var switched = false
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = NanidroidSimpleDialog.TextDocument(
+                    title = "Installed New Ghost",
+                    text = "Read this first. https://example.test/readme\nmailto:test@example.test",
+                    onOpenLink = { opened = it },
+                    sourceId = "fixture",
+                    onSwitch = { switched = true },
+                ),
+                onDismiss = {},
+            )
+        }
+        composeRule.onNodeWithTag("text-document").assertIsDisplayed()
+        composeRule.onNodeWithTag("document-link-0").performClick()
+        composeRule.runOnIdle { assertEquals("https://example.test/readme", opened) }
+        composeRule.onNodeWithTag("document-switch").performClick()
+        composeRule.runOnIdle { assertEquals(true, switched) }
+    }
+
 }

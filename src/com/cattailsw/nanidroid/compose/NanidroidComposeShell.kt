@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid.compose
 
-import android.view.View
+import android.graphics.drawable.Drawable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -17,19 +17,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.savedstate.SavedStateRegistry
-import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.SavedStateRegistryOwner
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.cattailsw.nanidroid.R
 
 /**
@@ -58,11 +52,17 @@ internal fun NanidroidComposeShell(
     onStageClick: () -> Unit = {},
     simpleDialog: NanidroidSimpleDialog?,
     onDismissSimpleDialog: () -> Unit,
+    wallpaper: Drawable? = null,
     modifier: Modifier = Modifier,
 ) {
     MaterialTheme {
         Surface(
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier.fillMaxSize().drawBehind {
+                wallpaper?.apply {
+                    setBounds(0, 0, size.width.toInt(), size.height.toInt())
+                    draw(drawContext.canvas.nativeCanvas)
+                }
+            },
             color = Color.Transparent,
         ) {
             Column(modifier = Modifier.statusBarsPadding()) {
@@ -175,27 +175,4 @@ private fun NanidroidLoadingPreview() {
             Box(modifier = Modifier.fillMaxSize()) { LoadingOverlay("Loading Nanidroid") }
         }
     }
-}
-
-/** Supplies Compose lifecycle ownership while the activity remains on support-v4. */
-internal class ComposeShellLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
-    private val registry = LifecycleRegistry(this)
-    private val savedStateController = SavedStateRegistryController.create(this).apply {
-        performAttach()
-        performRestore(null)
-    }
-
-    fun install(root: View) {
-        root.setViewTreeLifecycleOwner(this)
-        root.setViewTreeSavedStateRegistryOwner(this)
-    }
-
-    fun resume() { registry.currentState = Lifecycle.State.RESUMED }
-
-    fun pause() { registry.currentState = Lifecycle.State.CREATED }
-
-    fun destroy() { registry.currentState = Lifecycle.State.DESTROYED }
-
-    override val lifecycle: Lifecycle get() = registry
-    override val savedStateRegistry: SavedStateRegistry get() = savedStateController.savedStateRegistry
 }

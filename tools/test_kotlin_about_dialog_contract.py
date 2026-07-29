@@ -1,4 +1,4 @@
-"""Compatibility contract for the Kotlin About dialog migration."""
+"""Compose-only contract for About and installed-document presentation."""
 
 import pathlib
 import unittest
@@ -8,29 +8,27 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class KotlinAboutDialogContractTest(unittest.TestCase):
-    def test_dialog_is_kotlin_without_a_java_or_archived_overlay(self):
-        source = ROOT / "src/com/cattailsw/nanidroid/dlgs/AboutDialogFragment.kt"
+    def test_document_ui_is_compose_only(self):
+        dialogs = (ROOT / "src/com/cattailsw/nanidroid/compose/NanidroidSimpleDialogs.kt").read_text(encoding="utf-8")
+        activity = (ROOT / "src/com/cattailsw/nanidroid/Nanidroid.kt").read_text(encoding="utf-8")
+        reader = (ROOT / "src/com/cattailsw/nanidroid/compose/PlainTextDocument.kt").read_text(encoding="utf-8")
+        self.assertIn("data class TextDocument", dialogs)
+        self.assertIn("data class SwitchConfirmation", dialogs)
+        self.assertIn("PlainTextDocument.linkPattern", dialogs)
+        self.assertIn("createAboutDialog", activity)
+        self.assertIn("createReadmeDialog", activity)
+        self.assertIn("createNoReadmeDialog", activity)
+        self.assertIn("Shift_JIS", reader)
+        self.assertIn("https?://", reader)
+        self.assertFalse(any((ROOT / "src/com/cattailsw/nanidroid/dlgs").glob("*.kt")))
+        self.assertFalse((ROOT / "res/layout/installdlg.xml").exists())
 
-        self.assertTrue(source.exists())
-        self.assertFalse(
-            (ROOT / "src/com/cattailsw/nanidroid/dlgs/AboutDialogFragment.java").exists()
-        )
-        self.assertFalse((ROOT / "legacy").exists())
-
-    def test_kotlin_dialog_preserves_the_legacy_webview_and_close_contract(self):
-        source = (
-            ROOT / "src/com/cattailsw/nanidroid/dlgs/AboutDialogFragment.kt"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("class AboutDialogFragment : DialogFragment()", source)
-        self.assertIn("override fun onCreateDialog(savedInstanceState: Bundle?): Dialog", source)
-        self.assertIn("View.inflate(activity, R.layout.installdlg, null)", source)
-        self.assertIn("findViewById<WebView>(R.id.readme_view)", source)
-        self.assertIn('webView.loadUrl("file:///android_asset/about.html")', source)
-        self.assertNotIn("setWebViewClient", source)
-        self.assertIn(".setTitle(R.string.about_title)", source)
-        self.assertIn(".setPositiveButton(R.string.close_btn_text)", source)
-        self.assertIn("dialog.dismiss()", source)
+    def test_document_policy_has_no_embedded_html_or_webview(self):
+        for source in (ROOT / "src").rglob("*.kt"):
+            text = source.read_text(encoding="utf-8")
+            self.assertNotIn("WebView", text)
+            self.assertNotIn("loadDataWithBaseURL", text)
+            self.assertNotIn("DialogFragment", text)
 
 
 if __name__ == "__main__":
