@@ -232,9 +232,11 @@ class NarfsJniContractTest(unittest.TestCase):
         self.assertNotIn("GetStringUTF", jni)
         self.assertNotIn("NewStringUTF", jni)
         self.assertNotIn("ExceptionClear", jni)
-        java = (project / "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java").read_text()
-        for forbidden in ("->", "::", "java.util.Objects", "java.nio.file", "java.time.", "try ("):
-            self.assertNotIn(forbidden, java)
+        inspector = (project / "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.kt").read_text()
+        self.assertIn("internal class NarFilesystemInspector", inspector)
+        self.assertIn("private external fun nativeInspect", inspector)
+        for forbidden in ("java.io.File", "java.nio.file", "java.time.", "System.getenv"):
+            self.assertNotIn(forbidden, inspector)
         script = (project / "docker/narfs-jni/build.sh").read_text()
         self.assertIn("'TARGET_CXX=$(TARGET_CC)'", script)
         self.assertIn(
@@ -261,8 +263,8 @@ class NarfsJniContractTest(unittest.TestCase):
             "jni/narfs/narfs_utf.h": "9b99cc6d865358920a02afae1e550a0c21aa49045cb8cf1bbad5287751ad88c4",
             "jni/narfs/narfs_core.c": "6160699d0a2a3fdc2ffdddc3e7b225110a3749258e51159a75c2db1ae931692d",
             "jni/narfs/narfs_core.h": "c929545356a666849e9f0a92e5490dc33f1629718383b3b68983f79e0c23d756",
-            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java":
-                "e2da6a2d3a6e4c25bb37b6cf52e5e3a8de440b3eade5fd2df37261a09322bf47",
+            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.kt":
+                "cbf25a6f110d27b7b115d94868c1833bc6bb01be4fe44880b09ec985c9b1cee2",
         }
         actual = {
             relative: hashlib.sha256(

@@ -32,7 +32,7 @@ class NarfsStageContractTest(unittest.TestCase):
         expected = {
             "jni/narfs/narfs_jni.c": "2198c6549e33c5d9a38045d536526dad67262bab1f35b62174b046a4be84bf56",
             "jni/narfs/narfs_jni.map": "02f45b0ae1431df655013d5b707e11602c251d9c0ae5cf74c6237eff78bd5819",
-            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.java": "e2da6a2d3a6e4c25bb37b6cf52e5e3a8de440b3eade5fd2df37261a09322bf47",
+            "src/com/cattailsw/nanidroid/install/NarFilesystemInspector.kt": "cbf25a6f110d27b7b115d94868c1833bc6bb01be4fe44880b09ec985c9b1cee2",
         }
         actual = {
             relative: hashlib.sha256(

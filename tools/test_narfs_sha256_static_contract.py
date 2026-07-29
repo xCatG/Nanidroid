@@ -79,6 +79,7 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
     def test_compile_and_link_evidence_normalizes_and_rejects_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             build = Path(directory) / "build"
+            build_path = build.as_posix()
             evidence = build / "ndk-armeabi/build.log"
             evidence.parent.mkdir(parents=True)
             compiler = (
@@ -87,7 +88,7 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
             prefix = (
                 f"{compiler} "
                 "--sysroot=/opt/android-ndk-r14b/platforms/android-9/arch-arm "
-                f"-I{build}/jni/narfs -I{build}/jni/narfs/sha256 "
+                f"-I{build_path}/jni/narfs -I{build_path}/jni/narfs/sha256 "
                 "-march=armv5te -mtune=xscale -msoft-float -mthumb "
                 "-std=c99 -Wall -Wextra -Werror "
                 "-Wformat -Werror=format-security")
@@ -98,18 +99,18 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
             linker_flags = (
                 "-Wl,--gc-sections -Wl,-z,nocopyreloc "
                 f"-Wl,-rpath-link={sysroot}/usr/lib "
-                f"-Wl,-rpath-link={lane} ")
+                f"-Wl,-rpath-link={lane.as_posix()} ")
             commands = [
-                prefix + f" -c {build}/jni/narfs/narfs_sha256.c "
-                f"-o {lane}/objs/narfs_sha256/narfs_sha256.o",
-                prefix + f" -c {build}/test/native/narfs_sha256_link_probe.c "
-                f"-o {probe_object}",
+                prefix + f" -c {build_path}/jni/narfs/narfs_sha256.c "
+                f"-o {lane.as_posix()}/objs/narfs_sha256/narfs_sha256.o",
+                prefix + f" -c {build_path}/test/native/narfs_sha256_link_probe.c "
+                f"-o {probe_object.as_posix()}",
                 f"{compiler} --sysroot={sysroot} {linker_flags}"
-                f"{probe_object} {lane}/libnarfs_sha256.a -lgcc "
+                f"{probe_object.as_posix()} {lane.as_posix()}/libnarfs_sha256.a -lgcc "
                 "-no-canonical-prefixes -Wl,--no-undefined -Wl,--build-id "
                 "-Wl,--no-undefined -Wl,-z,noexecstack -Wl,-z,relro "
                 "-Wl,-z,now -Wl,--warn-shared-textrel -Wl,--fatal-warnings "
-                f"-lc -lm -o {lane}/narfs_sha256_link_probe",
+                f"-lc -lm -o {lane.as_posix()}/narfs_sha256_link_probe",
             ]
             evidence.write_text("\n".join(commands))
             report = sha.inspect_build_evidence(
@@ -126,15 +127,15 @@ class NarfsSha256StaticContractTest(unittest.TestCase):
                  *commands[1:]],
                 [commands[0].replace("narfs_sha256.c", "other.c"),
                  *commands[1:]],
-                [commands[0].replace(str(build), "/foreign"),
+                [commands[0].replace(build_path, "/foreign"),
                  *commands[1:]],
                 [commands[0] + " -I/foreign/jni/narfs", *commands[1:]],
                 [commands[0] + " -isystem /foreign/system", *commands[1:]],
                 [commands[0].replace(compiler, "/foreign/gcc"),
                  *commands[1:]],
                 [*commands[:2], commands[2].replace(
-                    f"{probe_object} {lane}/libnarfs_sha256.a",
-                    f"{lane}/libnarfs_sha256.a {probe_object}")],
+                    f"{probe_object.as_posix()} {lane.as_posix()}/libnarfs_sha256.a",
+                    f"{lane.as_posix()}/libnarfs_sha256.a {probe_object.as_posix()}")],
                 [*commands[:2], commands[2].replace(
                     "libnarfs_sha256.a", "extra.o libnarfs_sha256.a")],
                 [*commands[:2], commands[2] + " -lcrypto"],

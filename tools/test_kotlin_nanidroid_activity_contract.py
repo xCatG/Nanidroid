@@ -70,7 +70,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         stage = (
             ROOT / "src/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt"
         ).read_text(encoding="utf-8")
-        runner = (ROOT / "src/com/cattailsw/nanidroid/SScriptRunner.java").read_text(
+        runner = (ROOT / "src/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
             encoding="utf-8"
         )
         # SakuraView dispatched every physical tap as OnMouseDoubleClick; the
@@ -86,7 +86,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("LifecycleEventObserver", stage)
         self.assertIn("if (!stageStarted) return@LaunchedEffect", stage)
         # Legacy Kero input clears queued script before sending the mouse event.
-        self.assertIn("if ( !sakura ) clearMsgQueue();", runner)
+        self.assertIn("if (!sakura) clearMsgQueue()", runner)
 
 
 if __name__ == "__main__":

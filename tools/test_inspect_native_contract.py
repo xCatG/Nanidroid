@@ -206,6 +206,7 @@ class NativeContractTest(unittest.TestCase):
         self, _verify_ndk_identity_mock: mock.Mock
     ) -> None:
         project = self.root / "project"
+        project_path = project.as_posix()
         (project / "jni").mkdir(parents=True)
         evidence = self.root / "ndk-build.log"
         evidence.write_text(
@@ -216,8 +217,8 @@ class NativeContractTest(unittest.TestCase):
             "--sysroot /opt/android-ndk-r14b/platforms/android-9/arch-arm "
             "-I/opt/android-ndk-r14b/sources/cxx-stl/gnu-libstdc++/4.9/"
             "libs/armeabi/include "
-            f"-I{project}/jni/kawari8 -c "
-            f"{project}/jni/kawari8/libkawari/kawari_engine.cpp -o one.o\n",
+            f"-I{project_path}/jni/kawari8 -c "
+            f"{project_path}/jni/kawari8/libkawari/kawari_engine.cpp -o one.o\n",
             encoding="utf-8",
         )
         with self.assertRaisesRegex(NativeContractError, "compile flags"):
@@ -238,6 +239,7 @@ class NativeContractTest(unittest.TestCase):
         self, _verify_ndk_identity_mock: mock.Mock
     ) -> None:
         project = self.root / "project"
+        project_path = project.as_posix()
         (project / "jni").mkdir(parents=True)
         evidence = self.root / "ndk-build.log"
         evidence.write_text(
@@ -249,8 +251,8 @@ class NativeContractTest(unittest.TestCase):
             "-I/opt/android-ndk-r14b/sources/cxx-stl/gnu-libstdc++/4.9/"
             "libs/armeabi/include "
             "-I/tmp/undeclared-native-header "
-            f"-I{project}/jni/kawari8 -c "
-            f"{project}/jni/kawari8/libkawari/kawari_engine.cpp -o one.o\n",
+            f"-I{project_path}/jni/kawari8 -c "
+            f"{project_path}/jni/kawari8/libkawari/kawari_engine.cpp -o one.o\n",
             encoding="utf-8",
         )
         with self.assertRaisesRegex(NativeContractError, "include path escapes"):

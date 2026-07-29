@@ -113,7 +113,8 @@ def _commands(evidence: Path, build_system: str) -> list[str]:
 
 def _norm(value: object, base: Path | None = None) -> str:
     text = str(value).replace("\\", "/")
-    if base is not None and not posixpath.isabs(text):
+    if base is not None and not (
+            posixpath.isabs(text) or re.match(r"^[A-Za-z]:/", text)):
         text = posixpath.join(base.as_posix(), text)
     return posixpath.normpath(text)
 

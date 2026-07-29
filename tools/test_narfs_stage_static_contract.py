@@ -42,6 +42,7 @@ Num: Value Size Type Bind Vis Ndx Name
 
 
 def ndk_commands(build):
+    build_path = build.as_posix()
     compiler = (
         "/opt/android-ndk-r14b/toolchains/arm-linux-androideabi-4.9/"
         "prebuilt/linux-x86_64/bin/arm-linux-androideabi-gcc")
@@ -51,14 +52,14 @@ def ndk_commands(build):
     source_object = lane / "objs/narfs_stage/__/narfs_stage.o"
     def compile_command(source, output):
         return (
-            f"{compiler} -MMD -MP -MF {output}.d -fpic "
+            f"{compiler} -MMD -MP -MF {output.as_posix()}.d -fpic "
             "-ffunction-sections -funwind-tables -fstack-protector-strong "
             "-no-canonical-prefixes -g -march=armv5te -mtune=xscale "
             "-msoft-float -mthumb -Os -DNDEBUG "
-            f"-I{build}/jni/narfs/stage/.. -I{build}/jni/narfs/stage "
+            f"-I{build_path}/jni/narfs/stage/.. -I{build_path}/jni/narfs/stage "
             "-DANDROID -std=c99 -Wall -Wextra -Werror -Wa,--noexecstack "
             f"-Wformat -Werror=format-security --sysroot {sysroot} "
-            f"-c {source} -o {output}")
+            f"-c {source.as_posix()} -o {output.as_posix()}")
     archives = [
         lane / "libnarfs_stage.a", lane / "libnarfs_core.a",
         lane / "libnarfs_sha256.a",
@@ -70,13 +71,13 @@ def ndk_commands(build):
             build / "test/native/narfs_stage_link_probe.c", probe),
         f"{compiler} -Wl,--gc-sections -Wl,-z,nocopyreloc "
         f"--sysroot={sysroot} -Wl,-rpath-link={sysroot}/usr/lib "
-        f"-Wl,-rpath-link={lane} {probe} "
-        + " ".join(str(value) for value in archives)
+        f"-Wl,-rpath-link={lane.as_posix()} {probe.as_posix()} "
+        + " ".join(value.as_posix() for value in archives)
         + " -lgcc -no-canonical-prefixes -Wl,--no-undefined "
         "-Wl,--build-id -Wl,--no-undefined "
         "-Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now "
         "-Wl,--warn-shared-textrel -Wl,--fatal-warnings -lc -lm "
-        f"-o {lane}/narfs_stage_link_probe",
+        f"-o {lane.as_posix()}/narfs_stage_link_probe",
     ]
 
 
@@ -174,11 +175,13 @@ class NarfsStageStaticContractTest(unittest.TestCase):
                 [commands[0].replace(compiler, "/foreign/gcc"),
                  *commands[1:]],
                 [*commands[:2], commands[2].replace(
-                    f"{probe} {archive}", f"{archive} {probe}")],
+                    f"{probe.as_posix()} {archive.as_posix()}",
+                    f"{archive.as_posix()} {probe.as_posix()}")],
                 [*commands[:2], commands[2].replace(
                     "libnarfs_core.a", "extra.o libnarfs_core.a")],
                 [*commands[:2], commands[2].replace(
-                    f"{core} {sha256}", f"{sha256} {core}")],
+                    f"{core.as_posix()} {sha256.as_posix()}",
+                    f"{sha256.as_posix()} {core.as_posix()}")],
                 [*commands[:2], commands[2].replace(
                     compiler, "/foreign/g++")],
                 [*commands[:2],

@@ -43,7 +43,7 @@ class NarfsFullJniContractTest(unittest.TestCase):
         source = (ROOT / "src/com/cattailsw/nanidroid/install/"
                   "NarStagedTree.kt").read_text()
         inspector = (ROOT / "src/com/cattailsw/nanidroid/install/"
-                     "NarFilesystemInspector.java").read_text()
+                     "NarFilesystemInspector.kt").read_text()
         for value in (
             'System.loadLibrary("narfs")',
             "fromNativeBegin", "nativeBegin", "nativeDiscard",
