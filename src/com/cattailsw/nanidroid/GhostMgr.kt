@@ -65,7 +65,7 @@ class GhostMgr(ctx: Context) {
             return null
         }
         refreshGhost()
-        val id = getGhostId(installed.targetId)
+        val id = getGhostId(installed.targetId!!)
         if (id == -1) {
             lastInstallError =
                 "The installed archive does not contain a usable ghost."
