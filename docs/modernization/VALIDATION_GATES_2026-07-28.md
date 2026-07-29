@@ -27,6 +27,7 @@ download was needed on this host.
 | `assembleRelease` | Passed, including `verifyLegacyNativeLibraries` and `lintVitalRelease`, after native regeneration. | Non-publishing unsigned local release assembly; no lint baseline or suppression was added. |
 | `python -m unittest discover -s tools -p 'test_*.py'` | 196 tests passed. | Kotlin-aware source contracts inspect the active sources, including ViewServer retirement and native-SHIORI fallback. Synthetic native evidence uses platform-neutral paths, including drive-qualified Windows paths. |
 | API 37 targeted native instrumentation | Passed: `NarFilesystemInspectorInstrumentationTest` and all 3 `NarStagedTreeInstrumentationTest` cases. | The emulator APK now packages both ARM64 and x86_64 native roots. The filesystem test validates the selected ABI ELF entry from the target APK instead of assuming extraction to `nativeLibraryDir`. |
+| API 36.1 and API 37 surface instrumentation | Passed on both x86_64 AVDs: `SurfaceRenderingCharacterizationTest` (2/2) and `SurfaceAnimationExecutionCharacterizationTest` (2/2). | A device run exposed two ShellSurface Kotlin parity gaps: base constructors must set `S_TYPE_BASE`, and referenced overlay frames must use the referenced surface dimensions for layer insets. |
 
 The exact local release assembly is now unblocked by native artifacts. The full
 JVM host task still has the separately recorded Android-stub limitations; it is
