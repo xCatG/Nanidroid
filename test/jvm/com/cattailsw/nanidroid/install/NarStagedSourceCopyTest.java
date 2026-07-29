@@ -59,6 +59,47 @@ public final class NarStagedSourceCopyTest {
     }
 
     @Test
+    public void copyResultSnapshotsFailureStateAndCleanupErrors() {
+        List<NarStagedSourceCopyError> cleanup = new ArrayList<>();
+        cleanup.add(NarStagedSourceCopyError.STAGING_CLOSE_FAILED);
+
+        NarStagedSourceCopyResult result =
+                NarStagedSourceCopyResult.failure(
+                        NarStagedSourceCopyError.SOURCE_READ_FAILED,
+                        "read failed", cleanup);
+        cleanup.add(NarStagedSourceCopyError.STAGING_DELETE_FAILED);
+
+        assertNotNull(NarStagedSourceCopyResult.class.getAnnotation(
+                Metadata.class));
+        assertFalse(result.isSuccess());
+        assertNull(result.getSource());
+        assertEquals(NarStagedSourceCopyError.SOURCE_READ_FAILED,
+                result.getError());
+        assertEquals("read failed", result.getDetail());
+        assertEquals(Arrays.asList(
+                NarStagedSourceCopyError.STAGING_CLOSE_FAILED),
+                result.getCleanupErrors());
+        try {
+            result.getCleanupErrors().add(
+                    NarStagedSourceCopyError.STAGING_DELETE_FAILED);
+            throw new AssertionError("cleanup errors were mutable");
+        } catch (UnsupportedOperationException expected) {
+            // Immutable snapshot is required.
+        }
+
+        NarStagedSourceCopyResult nullDetail =
+                NarStagedSourceCopyResult.failure(
+                        NarStagedSourceCopyError.SOURCE_READ_FAILED,
+                        null, cleanup);
+        assertNull(nullDetail.getDetail());
+        NarStagedSourceCopyResult nullSource =
+                NarStagedSourceCopyResult.success(null);
+        assertFalse(nullSource.isSuccess());
+        assertEquals("", nullSource.getDetail());
+        assertTrue(nullSource.getCleanupErrors().isEmpty());
+    }
+
+    @Test
     public void defaultIoCopiesRealBytesIntoCanonicalRoot()
             throws Exception {
         File temporary = new File(
