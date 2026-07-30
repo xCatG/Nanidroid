@@ -65,7 +65,8 @@ class NarDescriptorParser {
         // fields. Kotlin requires a non-negative limit; Int.MAX_VALUE is the
         // equivalent unbounded, trailing-field-preserving limit.
         text.split(Regex("\\r?\\n"), Int.MAX_VALUE).forEach { line ->
-            if (javaTrim(line).isEmpty()) return@forEach
+            val trimmed = javaTrim(line)
+            if (trimmed.isEmpty() || trimmed.startsWith("//")) return@forEach
             val comma = line.indexOf(',')
             if (comma <= 0) reject(NarInstallError.INVALID_METADATA, "malformed line")
             val key = collisionKey(javaTrim(line.substring(0, comma)))
