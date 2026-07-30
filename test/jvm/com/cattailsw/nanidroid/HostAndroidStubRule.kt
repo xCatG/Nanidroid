@@ -13,7 +13,7 @@ class HostAndroidStubRule : TestRule {
     override fun apply(base: Statement, description: Description): Statement = object : Statement() {
         override fun evaluate() {
             var failure: Throwable? = null
-            LegacyPlatform.withTestSeams(clock = { 0L }, rectangles = ::hostRect) {
+            LegacyPlatform.withTestSeams(clock = { 0L }, rectangles = ::hostRect, delayedScheduler = { _, _ -> }, delayedCancellation = { _ -> }) {
                 try {
                     base.evaluate()
                 } catch (error: Throwable) {
