@@ -93,6 +93,11 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("configure_posix_fallback", header)
         self.assertLess(jni.index("configure_posix_saori_fallback"), jni.index("if (!load(copy, length))"))
 
+    def test_ssu_exports_the_yaya_saori_compatibility_abi(self):
+        source = (self.root / "jni/satori/ssu.cpp").read_text(encoding="utf-8", errors="replace")
+        self.assertIn('extern "C" long ssu_saori_load', source)
+        self.assertIn('extern "C" int ssu_saori_unload', source)
+        self.assertIn('extern "C" char* ssu_saori_request', source)
     def test_yaya_saori_fallback_is_not_configured_through_process_environment(self):
         jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
         library = (self.root / "jni/yaya/lib1.cpp").read_text(
