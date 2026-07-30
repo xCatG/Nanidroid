@@ -4,17 +4,17 @@ import java.nio.charset.Charset
 
 /** JNI host for the maintained POSIX build of YAYA. */
 class YayaShiori(path: String) : Shiori {
-    private val transportCharset: Charset
-
     init {
         nativeLoad(path)
-        transportCharset = Charset.forName(nativeTransportCharset())
     }
 
     override fun getModuleName(): String = "YAYA"
 
-    override fun request(request: String): String =
-        nativeRequest(request.toByteArray(transportCharset)).toString(transportCharset)
+    override fun request(request: String): String {
+        val requestCharset = transportCharset()
+        val response = nativeRequest(request.toByteArray(requestCharset))
+        return response.toString(transportCharset())
+    }
 
     override fun terminate() = nativeUnload()
 
@@ -24,6 +24,8 @@ class YayaShiori(path: String) : Shiori {
     private external fun nativeTransportCharset(): String
     private external fun nativeRequest(request: ByteArray): ByteArray
     private external fun nativeUnload()
+
+    private fun transportCharset(): Charset = Charset.forName(nativeTransportCharset())
 
     private companion object {
         init { System.loadLibrary("yaya") }

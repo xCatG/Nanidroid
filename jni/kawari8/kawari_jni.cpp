@@ -60,6 +60,9 @@ JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_requestF
 
 
 JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_load(JNIEnv *env, jobject thiz, jstring path){
+  if (h != 0) {
+    TKawariShioriFactory::GetFactory().DisposeInstance((int)h);
+  }
   h = TKawariShioriFactory::GetFactory().CreateInstance( make_utf8_string_from_jstring(env, path) );
 }
 
