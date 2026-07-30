@@ -38,35 +38,20 @@ void	PluginError(const string& str)
 // lrwxr-xr-x x foo bar xxxxx 1 1 00:00 ssu.dll -> libssu.so
 //
 // パスは環境変数 SAORI_FALLBACK_PATH から取得する。これはコロン区切りの絶対パスである。
-static vector<string> posix_dll_search_path;
-static bool posix_dll_search_path_is_ready = false;
-static string posix_search_fallback_dll(const string& dllfile) {
-    // dllfileは探したいファイルDLL名。パス区切り文字は/。
-    // 代替ライブラリが見付かればその絶対パスを、
-    // 見付けられなければ空文字列を返す。
-    
-    if (!posix_dll_search_path_is_ready) {
-	// SAORI_FALLBACK_PATHを見る。
-	char* cstr_path = getenv("SAORI_FALLBACK_PATH");
-	if (cstr_path != NULL) {
-	    split(cstr_path, ":", posix_dll_search_path);
-	}
-	posix_dll_search_path_is_ready = true;
-    }
+static string posix_search_fallback_dll(const string& dllfile, const string& search_path) {
+    vector<string> search_paths;
+    if (!search_path.empty()) split(search_path, ":", search_paths);
 
-    string::size_type pos_slash = dllfile.rfind('/');
+    string::size_type pos_slash = dllfile.rfind('/' );
     string fname(
-	dllfile.begin() + (pos_slash == string::npos ? 0 : pos_slash),
-	dllfile.end());
+        dllfile.begin() + (pos_slash == string::npos ? 0 : pos_slash),
+        dllfile.end());
 
-    for (vector<string>::const_iterator ite = posix_dll_search_path.begin();
-	 ite != posix_dll_search_path.end(); ite++ ) {
-	string fpath = *ite + '/' + fname;
-	struct stat sb;
-	if (stat(fpath.c_str(), &sb) == 0) {
-	    // 代替ライブラリが存在するようだ。これ以上のチェックは省略。
-	    return fpath;
-	}
+    for (vector<string>::const_iterator ite = search_paths.begin();
+         ite != search_paths.end(); ite++ ) {
+        string fpath = *ite + '/' + fname;
+        struct stat sb;
+        if (stat(fpath.c_str(), &sb) == 0) return fpath;
     }
     return string();
 }
@@ -166,17 +151,8 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 		// 環境変数 SAORI_FALLBACK_ALWAYS が定義されていて、且つ
 		// 空でも"0"でもなければ、このdllファイルを開いてみる事は
 		// 初めからやらない。そうでなければ、試しにdlopenしてみる。
-		char* env_fallback_always = getenv("SAORI_FALLBACK_ALWAYS");
-		bool fallback_always = false;
-		if (env_fallback_always != NULL) {
-		    string str_fallback_always(env_fallback_always);
-		    if (str_fallback_always.length() > 0 &&
-			str_fallback_always != "0") {
-			fallback_always = true;
-		    }
-		}
 		bool do_fallback = true;
-		if (!fallback_always) {
+		if (!mPosixFallbackAlways) {
 		    void* handle = dlopen(fullpath.c_str(), RTLD_LAZY);
 		    if (handle != NULL) {
 			// load, unload, requestを取出してみる。
@@ -192,13 +168,12 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 		}
 		if (do_fallback) {
 		    // 代替ライブラリを探す。
-		    string fallback_lib = posix_search_fallback_dll(filename+"."+extention);
+		    string fallback_lib = filename == "ssu" && extention == "dll"
+		        ? "libssu.so"
+		        : posix_search_fallback_dll(filename+"."+extention, mPosixFallbackPath);
 		    if (fallback_lib.length() == 0) {
 			// 無い。
-			char* cstr_path = getenv("SAORI_FALLBACK_PATH");
-			string fallback_path =
-			    (cstr_path == NULL ?
-			     "(environment variable `SAORI_FALLBACK_PATH' is empty)" : cstr_path);
+			string fallback_path = mPosixFallbackPath.empty() ? "(no instance fallback path)" : mPosixFallbackPath;
 			PluginError(
 			    fullpath+": This is not usable in this platform.\n"+
 			    "Fallback library `"+filename+"."+extention+"' doesn't exist: "+fallback_path);

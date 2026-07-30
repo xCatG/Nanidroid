@@ -40,6 +40,7 @@ class NativeShioriContractTest(unittest.TestCase):
         source = (self.root / "jni/CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn('target_link_options(satoriya PRIVATE "-Wl,-Bsymbolic")', source)
         self.assertIn('target_link_options(ssu PRIVATE "-Wl,-Bsymbolic")', source)
+        self.assertIn('target_link_options(yaya PRIVATE "-Wl,-Bsymbolic")', source)
 
     def test_ghost_switch_unloads_before_starting_replacement(self):
         source = (self.root / "src/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(encoding="utf-8")
@@ -64,6 +65,85 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("#include <stdint.h>", sha1_header)
         self.assertNotIn("typedef unsigned long uint32_t", sha1_header)
         self.assertIn("typedef uint32_t UINT4", global_header)
+
+    def test_yaya_uses_android_charset_bridge_for_legacy_transport(self):
+        bridge = (self.root / "jni/yaya/android_charset.cpp").read_text(encoding="utf-8")
+        source = (self.root / "jni/yaya/ccct.cpp").read_text(encoding="utf-8", errors="replace")
+        jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        self.assertIn("java/nio/charset/Charset", bridge)
+        self.assertIn("Shift_JIS", bridge)
+        self.assertIn("ISO-2022-JP", bridge)
+        self.assertIn("android_charset_to_utf16", source)
+        self.assertIn("android_utf16_to_charset", source)
+        self.assertIn("android_charset_initialize", jni)
+        bridge_call = source.index("android_utf16_to_charset")
+        bom_strip = source.index("pUcsStr[0] == static_cast<yaya::char_t>(0xfeff)")
+        self.assertLess(bom_strip, bridge_call)
+
+    def test_satori_saori_fallback_is_instance_scoped(self):
+        jni = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
+        plugins = (self.root / "jni/satori/shiori_plugin.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        header = (self.root / "jni/satori/shiori_plugin.h").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        self.assertNotIn("setenv(", jni)
+        self.assertNotIn("getenv(", plugins)
+        self.assertIn("configure_posix_fallback", header)
+        self.assertLess(jni.index("configure_posix_saori_fallback"), jni.index("if (!load(copy, length))"))
+
+    def test_android_ssu_fallback_uses_the_linked_soname_without_symlinks(self):
+        satori_jni = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
+        yaya_jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        satori_plugins = (self.root / "jni/satori/shiori_plugin.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        yaya_library = (self.root / "jni/yaya/lib1.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        self.assertNotIn("symlink(", satori_jni)
+        self.assertNotIn("symlink(", yaya_jni)
+        self.assertIn("satori_ssu_anchor();", satori_jni)
+        self.assertIn("satori_ssu_anchor();", yaya_jni)
+        self.assertIn('"libssu.so"', satori_plugins)
+        self.assertIn('"libssu.so"', yaya_library)
+        self.assertIn('filename = "ssu"', yaya_library)
+    def test_ssu_exports_the_yaya_saori_compatibility_abi(self):
+        source = (self.root / "jni/satori/ssu.cpp").read_text(encoding="utf-8", errors="replace")
+        self.assertIn('extern "C" long ssu_saori_load', source)
+        self.assertIn('extern "C" int ssu_saori_unload', source)
+        self.assertIn('extern "C" char* ssu_saori_request', source)
+    def test_yaya_saori_fallback_is_not_configured_through_process_environment(self):
+        jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        library = (self.root / "jni/yaya/lib1.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        kotlin = (self.root / "src/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(
+            encoding="utf-8"
+        )
+        factory = (self.root / "src/com/cattailsw/nanidroid/ShioriFactory.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("getenv(\"SAORI_FALLBACK", library)
+        self.assertIn("yaya_configure_posix_saori_fallback", jni)
+        self.assertIn("nativeLoad(path, context?.codeCacheDir?.absolutePath ?: path)", kotlin)
+        self.assertIn("YayaShiori(path, ctx)", factory)
+
+    def test_yaya_onload_checks_the_host_class_before_initializing_charsets(self):
+        jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        self.assertLess(jni.index("if (type == NULL) return JNI_ERR"), jni.index("android_charset_initialize(env)"))
+
+    def test_yaya_android_charset_bridge_preserves_utf16_surrogates(self):
+        bridge = (self.root / "jni/yaya/android_charset.cpp").read_text(encoding="utf-8")
+        decoder = bridge.split("yaya::char_t* android_charset_to_utf16", 1)[1]
+        self.assertIn("output.push_back(static_cast<yaya::char_t>(chars[i]));", decoder)
+        self.assertNotIn("0x10000 + ((value - 0xd800)", decoder)
+    def test_yaya_caches_android_charset_objects(self):
+        bridge = (self.root / "jni/yaya/android_charset.cpp").read_text(encoding="utf-8")
+        self.assertIn("gCharsetCache", bridge)
+        self.assertIn("NewGlobalRef", bridge)
+        self.assertNotIn("jobject charset_for(JNIEnv* env, int charset)", bridge)
 
     def test_vendor_tree_excludes_binary_and_ide_artifacts(self):
         for relative in (

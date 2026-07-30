@@ -6,6 +6,10 @@
 #include <string>
 
 #include "aya5.h"
+#include "android_charset.h"
+
+extern "C" void satori_ssu_anchor();
+
 
 namespace {
 pthread_mutex_t gYayaMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -17,13 +21,22 @@ public:
     ~YayaLock() { pthread_mutex_unlock(&gYayaMutex); }
 };
 
-void nativeLoad(JNIEnv* env, jobject, jstring path) {
-    if (path == NULL) return;
-    YayaLock lock;
-    if (gYayaLoaded) {
-        unload();
-        gYayaLoaded = false;
+void throwIllegalState(JNIEnv* env, const char* message) {
+    jclass exception = env->FindClass("java/lang/IllegalStateException");
+    if (exception != NULL) {
+        env->ThrowNew(exception, message);
+        env->DeleteLocalRef(exception);
     }
+}
+
+void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
+    if (path == NULL || cacheDirectory == NULL) {
+        throwIllegalState(env, "YAYA requires a ghost root directory");
+        return;
+    }
+    // SSU is a linked Android DSO; its soname is resolved by the loader.
+    (void)cacheDirectory;
+
     const char* value = env->GetStringUTFChars(path, NULL);
     if (value == NULL) return;
     const jsize length = env->GetStringUTFLength(path);
@@ -34,7 +47,18 @@ void nativeLoad(JNIEnv* env, jobject, jstring path) {
         copy[length] = '\0';
     }
     env->ReleaseStringUTFChars(path, value);
-    const int loaded = copy != NULL ? load(copy, length) : 0;
+    if (copy == NULL) {
+        throwIllegalState(env, "Could not allocate YAYA path");
+        return;
+    }
+
+    YayaLock lock;
+    if (gYayaLoaded) {
+        unload();
+        gYayaLoaded = false;
+    }
+    yaya_configure_posix_saori_fallback("", true);
+    const int loaded = load(copy, length);
     gYayaLoaded = loaded != 0;
     __android_log_print(ANDROID_LOG_INFO, "YayaJNI", "load(%s) = %d", directory.c_str(), loaded);
     // YAYA's POSIX load consumes and frees `copy`.
@@ -83,15 +107,22 @@ void nativeUnload(JNIEnv*, jobject) {
 }
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
+    satori_ssu_anchor();
     JNIEnv* env = NULL;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
     jclass type = env->FindClass("com/cattailsw/nanidroid/shiori/YayaShiori");
     if (type == NULL) return JNI_ERR;
+    if (!android_charset_initialize(env)) {
+        env->DeleteLocalRef(type);
+        return JNI_ERR;
+    }
     const JNINativeMethod methods[] = {
-        {const_cast<char*>("nativeLoad"), const_cast<char*>("(Ljava/lang/String;)V"), reinterpret_cast<void*>(nativeLoad)},
+        {const_cast<char*>("nativeLoad"), const_cast<char*>("(Ljava/lang/String;Ljava/lang/String;)V"), reinterpret_cast<void*>(nativeLoad)},
         {const_cast<char*>("nativeTransportCharset"), const_cast<char*>("()Ljava/lang/String;"), reinterpret_cast<void*>(nativeTransportCharset)},
         {const_cast<char*>("nativeRequest"), const_cast<char*>("([B)[B"), reinterpret_cast<void*>(nativeRequest)},
         {const_cast<char*>("nativeUnload"), const_cast<char*>("()V"), reinterpret_cast<void*>(nativeUnload)},
     };
-    return env->RegisterNatives(type, methods, 4) == 0 ? JNI_VERSION_1_6 : JNI_ERR;
+    const jint result = env->RegisterNatives(type, methods, 4) == 0 ? JNI_VERSION_1_6 : JNI_ERR;
+    env->DeleteLocalRef(type);
+    return result;
 }

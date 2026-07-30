@@ -21,8 +21,24 @@ class	ShioriPlugins {
 	map<string, DllData>	mDllData;	// DLLÇÃÉtÉãÉpÉXÅGDLLÇ≤Ç∆ÇÃèÓïÒ
 
 	string	mBaseFolder;
+#ifdef POSIX
+	string mPosixFallbackPath;
+	bool mPosixFallbackAlways;
+#endif
+
 
 public:
+	ShioriPlugins()
+#ifdef POSIX
+		: mPosixFallbackAlways(false)
+#endif
+	{}
+#ifdef POSIX
+	void configure_posix_fallback(const string& path, bool always) {
+		mPosixFallbackPath = path;
+		mPosixFallbackAlways = always;
+	}
+#endif
 	bool	load(const string& iBaseFolder);
 	bool	load_a_plugin(const string& iPluginLine);
 

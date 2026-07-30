@@ -565,3 +565,23 @@ SRV _choice(deque<string>& iArguments, deque<string>& oValues)
 	}
 	return iArguments[ rand() % iArguments.size() ];
 }
+
+#ifdef POSIX
+// YAYA's POSIX SAORI bridge uses per-module symbol names.  SSU has one
+// process-local host, so each successful load uses a nonzero compatibility id.
+extern "C" int load(char* i_data, long i_data_len);
+extern "C" int unload(void);
+extern "C" char* request(char* i_data, long* io_data_len);
+
+extern "C" long ssu_saori_load(char* i_data, long i_data_len) {
+    return ::load(i_data, i_data_len) ? 1 : 0;
+}
+
+extern "C" int ssu_saori_unload(long) {
+    return ::unload();
+}
+
+extern "C" char* ssu_saori_request(long, char* i_data, long* io_data_len) {
+    return ::request(i_data, io_data_len);
+}
+#endif

@@ -2,11 +2,8 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <dlfcn.h>
 #include <pthread.h>
 #include <string>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "satori.h"
 
@@ -16,6 +13,7 @@ int unload();
 }
 
 extern Satori gSatori;
+
 extern "C" void satori_ssu_anchor();
 
 namespace {
@@ -40,38 +38,13 @@ void throwIllegalState(JNIEnv* env, const char* message) {
     }
 }
 
-bool prepareSsuFallback(JNIEnv* env, jstring cacheDirectory) {
-    if (cacheDirectory == NULL) return false;
-    const char* cache = env->GetStringUTFChars(cacheDirectory, NULL);
-    if (cache == NULL) return false;
-    const std::string directory = std::string(cache) + "/satori-saori";
-    env->ReleaseStringUTFChars(cacheDirectory, cache);
-    if (mkdir(directory.c_str(), 0700) != 0 && access(directory.c_str(), F_OK) != 0) {
-        return false;
-    }
-
-    Dl_info library;
-    if (dladdr(reinterpret_cast<void*>(&satori_ssu_anchor), &library) == 0 ||
-        library.dli_fname == NULL) {
-        return false;
-    }
-    const std::string fallback = directory + "/ssu.dll";
-    unlink(fallback.c_str());
-    if (symlink(library.dli_fname, fallback.c_str()) != 0) return false;
-    setenv("SAORI_FALLBACK_ALWAYS", "1", 1);
-    setenv("SAORI_FALLBACK_PATH", directory.c_str(), 1);
-    return true;
-}
-
 void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
     if (path == NULL || cacheDirectory == NULL) {
         throwIllegalState(env, "Satori requires a ghost root directory");
         return;
     }
-    if (!prepareSsuFallback(env, cacheDirectory)) {
-        throwIllegalState(env, "Could not prepare Satori's SSU compatibility library");
-        return;
-    }
+    // SSU is a linked Android DSO; its soname is resolved by the loader.
+    (void)cacheDirectory;
 
     const char* utf8Path = env->GetStringUTFChars(path, nullptr);
     if (utf8Path == NULL) return;
@@ -91,6 +64,7 @@ void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
         unload();
         satoriLoaded = false;
     }
+    gSatori.configure_posix_saori_fallback("");
     if (!load(copy, length)) {
         // load owns and frees copy on every path.
         throwIllegalState(env, "Satori could not load this ghost");
@@ -148,6 +122,7 @@ JNINativeMethod methods[] = {
 }  // namespace
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
+    satori_ssu_anchor();
     JNIEnv* env = NULL;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;

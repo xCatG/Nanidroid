@@ -23,7 +23,7 @@ class KotlinShioriFactoryContractTest(unittest.TestCase):
         self.assertIn('"Nanidroid" -> NanidroidShiori(ctx, path)', source)
         self.assertIn('"satori.dll" -> SatoriShiori(path, ctx)', source)
         self.assertIn('"shiori.dll" -> checkShioriByPath(path, ctx)', source)
-        self.assertIn('"yaya.dll" -> YayaShiori(path)', source)
+        self.assertIn('"yaya.dll" -> YayaShiori(path, ctx)', source)
         self.assertIn("else -> NotSupportedShiori(ctx)", source)
         self.assertIn('File(path, "kawarirc.kis").isFile', source)
         self.assertIn("Kawari(path)", source)
