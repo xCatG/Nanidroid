@@ -32,6 +32,21 @@ class NarArchiveInventoryValidatorTest {
         assertEquals(raw, normalized.getRawName()); assertEquals(nfc, normalized.getNormalizedArchivePath())
     }
 
+    @Test fun acceptsWindowsStyleArchiveSeparators() {
+        val result = validate(
+            Record("ghost\\", false, sizeValue = 0, compressedValue = 0),
+            Record("ghost\\master\\", false, sizeValue = 0, compressedValue = 0),
+            file("install.txt", 20),
+            file("ghost\\master\\surface0.png", 4),
+        )
+
+        assertTrue(result.isSuccess())
+        assertEquals(
+            listOf("ghost", "ghost/master", "install.txt", "ghost/master/surface0.png"),
+            result.getInventory()!!.getEntries().map { it.getNormalizedArchivePath() },
+        )
+    }
+
     @Test fun rejectsCentralMetadataCollisionsAndUnsafePaths() {
         assertError(NarInstallError.INVALID_ENTRY_METADATA, NarArchiveInventoryValidator().validate(null))
         assertError(NarInstallError.INVALID_PATH, validate(file("../install.txt", 1)))
@@ -97,7 +112,7 @@ class NarArchiveInventoryValidatorTest {
             val baseline = "root${random.nextInt(100000)}/leaf$index.txt"
             assertTrue(validateWithPath(baseline).isSuccess())
             val mutations = listOf(
-                "../$baseline", "/$baseline", baseline.replace("/", "//"), baseline.replace("/", "\\"), baseline + '\u0001',
+                "../$baseline", "/$baseline", baseline.replace("/", "//"), "ghost\\..\\$baseline", baseline + '\u0001',
                 baseline.substring(0, baseline.indexOf('/') + 1) + "a".repeat(256), repeatedPath(31, 1) + "/$baseline",
                 baseline + "/" + asciiPath(1025 - baseline.toByteArray(Charsets.UTF_8).size - 1), baseline + "/" + "a".repeat(4097 - baseline.length - 1), baseline + '\uD800'
             )
