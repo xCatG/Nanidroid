@@ -118,6 +118,11 @@ class NativeShioriContractTest(unittest.TestCase):
         jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
         self.assertLess(jni.index("if (type == NULL) return JNI_ERR"), jni.index("android_charset_initialize(env)"))
 
+    def test_yaya_android_charset_bridge_preserves_utf16_surrogates(self):
+        bridge = (self.root / "jni/yaya/android_charset.cpp").read_text(encoding="utf-8")
+        decoder = bridge.split("yaya::char_t* android_charset_to_utf16", 1)[1]
+        self.assertIn("output.push_back(static_cast<yaya::char_t>(chars[i]));", decoder)
+        self.assertNotIn("0x10000 + ((value - 0xd800)", decoder)
     def test_yaya_caches_android_charset_objects(self):
         bridge = (self.root / "jni/yaya/android_charset.cpp").read_text(encoding="utf-8")
         self.assertIn("gCharsetCache", bridge)

@@ -201,17 +201,9 @@ yaya::char_t* android_charset_to_utf16(const char* input, int charset) {
 
     std::vector<yaya::char_t> output;
     for (jsize i = 0; i < length16; ++i) {
-        const unsigned int value = chars[i];
-#if WCHAR_MAX > 0xffff
-        if (value >= 0xd800 && value <= 0xdbff && i + 1 < length16 &&
-            chars[i + 1] >= 0xdc00 && chars[i + 1] <= 0xdfff) {
-            output.push_back(static_cast<yaya::char_t>(0x10000 + ((value - 0xd800) << 10) + (chars[++i] - 0xdc00)));
-        } else {
-            output.push_back(static_cast<yaya::char_t>(value));
-        }
-#else
-        output.push_back(static_cast<yaya::char_t>(value));
-#endif
+        // YAYA represents supplementary characters as UTF-16 surrogate units,
+        // even on Android's 32-bit-wchar_t ABI.
+        output.push_back(static_cast<yaya::char_t>(chars[i]));
     }
     env->ReleaseStringChars(text, chars);
     env->DeleteLocalRef(text);
