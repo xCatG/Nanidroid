@@ -43,7 +43,7 @@ Run the Step 1 command. Expected: `False` for all four paths.
 
 - [ ] **Step 3: Create the foreground and XML layers**
 
-Create `res/drawable-nodpi/ic_launcher_foreground.png` as a 432×432 transparent PNG. Center an upscaled copy of the 96×96 xhdpi artwork inside a 264×264 safe-zone square; do not crop, repaint, or generate replacement art.
+Create `res/drawable-nodpi/ic_launcher_foreground.png` as a 432×432 transparent PNG. Android's adaptive safe zone is a 264px-diameter circle within that canvas, so center an upscaled copy of the 96×96 xhdpi artwork in a 186×186 square at `(123,123)`, which is inscribed in that circle; do not crop, repaint, or generate replacement art.
 
 Create `res/drawable/ic_launcher_background.xml`:
 
@@ -73,7 +73,7 @@ Create `res/mipmap-anydpi-v26/ic_launcher.xml`:
 
 - [ ] **Step 4: Run the resource-contract check**
 
-Run the Step 1 command and inspect the XML. Expected: all paths exist; the adaptive icon has exactly one background and foreground; the PNG is 432×432.
+Run the Step 1 command and inspect the XML. Expected: all paths exist; the adaptive icon has exactly one background and foreground; the PNG is 432×432 and all illustrated content is contained within the 264px-diameter circular safe zone.
 
 - [ ] **Step 5: Commit the resource hierarchy**
 
