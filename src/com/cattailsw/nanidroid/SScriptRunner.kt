@@ -66,7 +66,7 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     private fun getFromQueue()=rewriteMsg(msgQueue.poll())
     private fun rewriteMsg(input:String?):String? { if(g==null||input==null)return input; return input.replace("%username",g!!.getUsername()).replace("%selfname2?",g!!.getSakuraName() ?: "null").replace("%keroname",g!!.getKeroName() ?: "null") }
     @Synchronized fun clearMsgQueue(){msgQueue.clear();msg=null;stop()}
-    @Synchronized fun stop(){isRunning=false;bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { it.stop();if(exitPending){it.canExit();exitPending=false};if(changingPending){changingPending=false;it.ghostSwitchScriptComplete();g!!.unload()} } }
+    @Synchronized fun stop(){isRunning=false;bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { it.stop();if(exitPending){it.canExit();exitPending=false};if(changingPending){changingPending=false;g!!.unload();it.ghostSwitchScriptComplete()} } }
     private fun reset(){sync=false;wholeline=false;sakuraTalk=true;sakuraMsg.setLength(0);keroMsg.setLength(0);msg="";charIndex=0;bSakuraId="-1";bKeroId="-1";sakuraAnimationId=null;keroAnimationId=null}
     private fun appendChar(c:Char){if(sync){sakuraMsg.append(c);keroMsg.append(c)}else if(sakuraTalk)sakuraMsg.append(c)else keroMsg.append(c);if(keroMsg.isNotEmpty())bKeroId="0"}
     private fun clearMsg(){if(sakuraTalk)sakuraMsg.setLength(0)else keroMsg.setLength(0)}

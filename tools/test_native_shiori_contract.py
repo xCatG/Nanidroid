@@ -41,6 +41,11 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn('target_link_options(satoriya PRIVATE "-Wl,-Bsymbolic")', source)
         self.assertIn('target_link_options(ssu PRIVATE "-Wl,-Bsymbolic")', source)
 
+    def test_ghost_switch_unloads_before_starting_replacement(self):
+        source = (self.root / "src/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(encoding="utf-8")
+        stop_body = source.split("@Synchronized fun stop()", 1)[1].split("private fun reset", 1)[0]
+        self.assertLess(stop_body.index("g!!.unload()"), stop_body.index("it.ghostSwitchScriptComplete()"))
+
     def test_vendor_tree_excludes_binary_and_ide_artifacts(self):
         for relative in (
             "jni/satori/lib",
