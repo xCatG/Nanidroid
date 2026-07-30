@@ -65,6 +65,28 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertNotIn("typedef unsigned long uint32_t", sha1_header)
         self.assertIn("typedef uint32_t UINT4", global_header)
 
+    def test_yaya_uses_android_charset_bridge_for_legacy_transport(self):
+        bridge = (self.root / "jni/yaya/android_charset.cpp").read_text(encoding="utf-8")
+        source = (self.root / "jni/yaya/ccct.cpp").read_text(encoding="utf-8", errors="replace")
+        jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        self.assertIn("java/nio/charset/Charset", bridge)
+        self.assertIn("Shift_JIS", bridge)
+        self.assertIn("ISO-2022-JP", bridge)
+        self.assertIn("android_charset_to_utf16", source)
+        self.assertIn("android_utf16_to_charset", source)
+        self.assertIn("android_charset_initialize", jni)
+    def test_satori_saori_fallback_is_instance_scoped(self):
+        jni = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
+        plugins = (self.root / "jni/satori/shiori_plugin.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        header = (self.root / "jni/satori/shiori_plugin.h").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        self.assertNotIn("setenv(", jni)
+        self.assertNotIn("getenv(", plugins)
+        self.assertIn("configure_posix_fallback", header)
+        self.assertLess(jni.index("configure_posix_saori_fallback"), jni.index("if (!load(copy, length))"))
     def test_vendor_tree_excludes_binary_and_ide_artifacts(self):
         for relative in (
             "jni/satori/lib",

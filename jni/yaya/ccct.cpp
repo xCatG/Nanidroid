@@ -19,6 +19,10 @@
 #include <string>
 
 #include "ccct.h"
+#if defined(__ANDROID__)
+# include "android_charset.h"
+#endif
+
 #include "manifest.h"
 #include "globaldef.h"
 //#include "babel/babel.h"
@@ -511,8 +515,13 @@ char *Ccct::utf16be_to_mbcs(const yaya::char_t *pUcsStr, int charset)
 	pAnsiStr[alen] = 0;
 
 #else
-	CcctSetLocaleSwitcher loc(LC_CTYPE, charset);
+#if defined(__ANDROID__)
+	if (charset != CHARSET_BINARY) {
+		return android_utf16_to_charset(pUcsStr, charset);
+	}
 
+#endif
+	CcctSetLocaleSwitcher loc(LC_CTYPE, charset);
     size_t nLen = wcslen( pUcsStr);
 
 	if (charset != CHARSET_BINARY) {
@@ -590,6 +599,11 @@ yaya::char_t *Ccct::mbcs_to_utf16be(const char *pAnsiStr, int charset)
 	pUcsStr[wlen] = 0;
 
 #else
+#if defined(__ANDROID__)
+	if (charset != CHARSET_BINARY) {
+		return android_charset_to_utf16(pAnsiStr, charset);
+	}
+#endif
 	CcctSetLocaleSwitcher loc(LC_CTYPE, charset);
 
     size_t nLen = strlen(pAnsiStr);

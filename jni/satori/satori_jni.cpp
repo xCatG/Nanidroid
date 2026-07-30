@@ -40,7 +40,7 @@ void throwIllegalState(JNIEnv* env, const char* message) {
     }
 }
 
-bool prepareSsuFallback(JNIEnv* env, jstring cacheDirectory) {
+bool prepareSsuFallback(JNIEnv* env, jstring cacheDirectory, std::string* directoryOut) {
     if (cacheDirectory == NULL) return false;
     const char* cache = env->GetStringUTFChars(cacheDirectory, NULL);
     if (cache == NULL) return false;
@@ -58,8 +58,7 @@ bool prepareSsuFallback(JNIEnv* env, jstring cacheDirectory) {
     const std::string fallback = directory + "/ssu.dll";
     unlink(fallback.c_str());
     if (symlink(library.dli_fname, fallback.c_str()) != 0) return false;
-    setenv("SAORI_FALLBACK_ALWAYS", "1", 1);
-    setenv("SAORI_FALLBACK_PATH", directory.c_str(), 1);
+    *directoryOut = directory;
     return true;
 }
 
@@ -68,7 +67,8 @@ void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
         throwIllegalState(env, "Satori requires a ghost root directory");
         return;
     }
-    if (!prepareSsuFallback(env, cacheDirectory)) {
+    std::string fallbackDirectory;
+    if (!prepareSsuFallback(env, cacheDirectory, &fallbackDirectory)) {
         throwIllegalState(env, "Could not prepare Satori's SSU compatibility library");
         return;
     }
@@ -91,6 +91,7 @@ void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
         unload();
         satoriLoaded = false;
     }
+    gSatori.configure_posix_saori_fallback(fallbackDirectory);
     if (!load(copy, length)) {
         // load owns and frees copy on every path.
         throwIllegalState(env, "Satori could not load this ghost");

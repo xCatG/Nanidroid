@@ -6,6 +6,7 @@
 #include <string>
 
 #include "aya5.h"
+#include "android_charset.h"
 
 namespace {
 pthread_mutex_t gYayaMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -86,6 +87,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
     JNIEnv* env = NULL;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
     jclass type = env->FindClass("com/cattailsw/nanidroid/shiori/YayaShiori");
+    if (!android_charset_initialize(env)) return JNI_ERR;
     if (type == NULL) return JNI_ERR;
     const JNINativeMethod methods[] = {
         {const_cast<char*>("nativeLoad"), const_cast<char*>("(Ljava/lang/String;)V"), reinterpret_cast<void*>(nativeLoad)},

@@ -321,6 +321,12 @@ public:
 	Satori() {}
 	~Satori() {}
 
+#ifdef POSIX
+	void configure_posix_saori_fallback(const string& path) {
+		mShioriPlugins.configure_posix_fallback(path, true);
+	}
+#endif
+
 	// SHIORI/3.0インタフェース
 	virtual bool load(const string& i_base_folder);
 	virtual bool unload();
