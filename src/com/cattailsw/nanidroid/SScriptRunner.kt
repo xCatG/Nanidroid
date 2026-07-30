@@ -32,12 +32,27 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     private val sakuraMsg = StringBuilder(); private val keroMsg = StringBuilder(); private var waitTime = WAIT_UNIT; private var charIndex = 0
     private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"; private var sakuraAnimationId: String? = null; private var keroAnimationId: String? = null
     private var bSakuraId = "0"; private var bKeroId = "-1"; private var talkAnimeControl = 0
-    private var lastSec = 0; private var lastMin = 0; private var lastHour = 0; private var restore = false; private var exitPending = false; private var changingPending = false; private var paused = false
+    private var lastSec = 0; private var lastMin = 0; private var lastHour = 0; private var restore = false; private var exitPending = false; private var changingPending = false; private var paused = false; private var clockStarted = false; private var bootDispatched = false
 
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun dispatchComposeDoubleClick(x: Int, y: Int, sakura: Boolean, collisionId: Int, buttonId: Int) { if (!sakura) clearMsgQueue(); doMouseDblClick(x,y,sakura,collisionId,buttonId) }
-    fun setGhost(newGhost: Ghost?) { val name = g?.getGhostName(); g = newGhost; val firstActivation = g?.getCreateCount() == 0L; g?.recordActivation(); if (name != null) { if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(name, null) as Array<String>) else { doShioriEvent("OnFirstBoot", arrayOf("0")); AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",g!!.getGhostId(),0) } } }
+    fun setGhost(newGhost: Ghost?) {
+        val name = g?.getGhostName()
+        g = newGhost
+        val firstActivation = g?.getCreateCount() == 0L
+        g?.recordActivation()
+        if (name != null) {
+            if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(name, null) as Array<String>)
+            else {
+                doShioriEvent("OnFirstBoot", arrayOf("0"))
+                AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW, "onfirstboot", g!!.getGhostId(), 0)
+            }
+            bootDispatched = true
+        } else {
+            bootDispatched = false
+        }
+    }
     @Synchronized fun addMsgToQueue(inCol: Collection<String>) { msgQueue.addAll(inCol) }
     @Synchronized fun addMsgToQueue(msgs: Array<String>) { msgs.forEach { msgQueue.add(it) } }
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
@@ -45,13 +60,13 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     private val loopHandler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==RUN) loopControl() else if(m.what==STOP) stop() } } }
     private val clockHandler: Handler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
     private fun loopControl() { if(paused)return; val current=msg; if(current!=null&&charIndex<current.length){parseMsg();updateUI();if(noWaitMode)loopControl()else loopHandler.sendEmptyMessageDelayed(RUN,waitTime)}else{reset();msg=getFromQueue();if(msg==null){if(noWaitMode)stop()else loopHandler.sendEmptyMessageDelayed(STOP,waitTime)}else if(noWaitMode)loopControl()else loopHandler.sendEmptyMessageDelayed(RUN,waitTime)} }
-    internal fun startClock() { Log.d(TAG,"startClock called");startTime=SystemClock.uptimeMillis();clockHandler.sendEmptyMessageDelayed(INC_CLOCK,CLOCK_STEP);if(restore)parseShioriResponseAndInsert(g!!.doShioriEvent("OnWindowStateRestore",null))else doBoot();restore=false }
-    internal fun stopClock() { clockHandler.removeMessages(INC_CLOCK) }
+    internal fun startClock() { Log.d(TAG,"startClock called"); if (clockStarted) return; clockStarted=true; startTime=SystemClock.uptimeMillis();clockHandler.sendEmptyMessageDelayed(INC_CLOCK,CLOCK_STEP);if(restore)parseShioriResponseAndInsert(g!!.doShioriEvent("OnWindowStateRestore",null))else if(!bootDispatched){doBoot();bootDispatched=true};restore=false }
+    internal fun stopClock() { clockHandler.removeMessages(INC_CLOCK); clockStarted=false }
     @Synchronized override fun run() { synchronized(this) { if(isRunning)return;isRunning=true };reset();msg=getFromQueue();if(msg==null)stop() else if(noWaitMode)loopControl()else loopHandler.sendEmptyMessage(RUN) }
     private fun getFromQueue()=rewriteMsg(msgQueue.poll())
     private fun rewriteMsg(input:String?):String? { if(g==null||input==null)return input; return input.replace("%username",g!!.getUsername()).replace("%selfname2?",g!!.getSakuraName() ?: "null").replace("%keroname",g!!.getKeroName() ?: "null") }
     @Synchronized fun clearMsgQueue(){msgQueue.clear();msg=null;stop()}
-    @Synchronized fun stop(){isRunning=false;bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { it.stop();if(exitPending){it.canExit();exitPending=false};if(changingPending){changingPending=false;it.ghostSwitchScriptComplete();g!!.unload()} } }
+    @Synchronized fun stop(){isRunning=false;bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { it.stop();if(exitPending){it.canExit();exitPending=false};if(changingPending){changingPending=false;g!!.unload();it.ghostSwitchScriptComplete()} } }
     private fun reset(){sync=false;wholeline=false;sakuraTalk=true;sakuraMsg.setLength(0);keroMsg.setLength(0);msg="";charIndex=0;bSakuraId="-1";bKeroId="-1";sakuraAnimationId=null;keroAnimationId=null}
     private fun appendChar(c:Char){if(sync){sakuraMsg.append(c);keroMsg.append(c)}else if(sakuraTalk)sakuraMsg.append(c)else keroMsg.append(c);if(keroMsg.isNotEmpty())bKeroId="0"}
     private fun clearMsg(){if(sakuraTalk)sakuraMsg.setLength(0)else keroMsg.setLength(0)}
