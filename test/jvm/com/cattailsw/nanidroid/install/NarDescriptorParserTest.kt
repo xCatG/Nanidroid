@@ -54,6 +54,14 @@ class NarDescriptorParserTest {
         assertEquals("G", result.getDescriptor()!!.getName())
     }
 
+    @Test fun decodesUtf8CharsetAfterAcceptedPrefixLines() {
+        val japanese = "境界ゴースト"
+        val result = parseBytes(("\n// descriptor comment\ncharset,UTF-8\ntype,ghost\nname,$japanese\ndirectory,g\n").toByteArray(utf8))
+
+        assertTrue(result.isSuccess())
+        assertEquals(japanese, result.getDescriptor()!!.getName())
+    }
+
     @Test fun acceptsStandardSlashSlashDescriptorComments() {
         val result = parse("charset,UTF-8\ntype,ghost\n//Menu name\nname,Study Buddies\n//Directory name\ndirectory,study_idk\n")
 

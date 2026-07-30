@@ -47,6 +47,17 @@ class NarArchiveInventoryValidatorTest {
         )
     }
 
+    @Test fun preservesWindowsStyleDirectoryIdentityForLaterVerification() {
+        val directory = Record("ghost\\", false, sizeValue = 0, compressedValue = 0)
+        val inventory = validate(
+            directory,
+            file("install.txt", 20),
+            file("ghost\\master\\surface0.png", 4),
+        ).getInventory()!!
+
+        assertTrue(NarInstallPlan.Entry(inventory.getEntries()[0]).sameCentral(directory))
+    }
+
     @Test fun rejectsCentralMetadataCollisionsAndUnsafePaths() {
         assertError(NarInstallError.INVALID_ENTRY_METADATA, NarArchiveInventoryValidator().validate(null))
         assertError(NarInstallError.INVALID_PATH, validate(file("../install.txt", 1)))

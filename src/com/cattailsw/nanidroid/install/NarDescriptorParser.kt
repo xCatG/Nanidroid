@@ -42,13 +42,22 @@ class NarDescriptorParser {
     @Throws(Rejected::class)
     private fun selectEncoding(bytes: ByteArray): Encoding {
         if (bytes.size >= 3 && (bytes[0].toInt() and 0xff) == 0xef && (bytes[1].toInt() and 0xff) == 0xbb && (bytes[2].toInt() and 0xff) == 0xbf) return Encoding(UTF_8, 3)
-        var end = 0
-        while (end < bytes.size && bytes[end] != '\n'.code.toByte() && bytes[end] != '\r'.code.toByte()) end++
-        val firstLine = String(bytes, 0, end, ASCII)
-        val comma = firstLine.indexOf(',')
-        if (comma > 0 && collisionKey(javaTrim(firstLine.substring(0, comma))) == "charset") {
-            val name = javaTrim(firstLine.substring(comma + 1))
-            return try { Encoding(Charset.forName(name), 0) } catch (_: RuntimeException) { reject(NarInstallError.UNSUPPORTED_DESCRIPTOR_CHARSET, name) }
+        var start = 0
+        while (start < bytes.size) {
+            var end = start
+            while (end < bytes.size && bytes[end] != '\n'.code.toByte() && bytes[end] != '\r'.code.toByte()) end++
+            val line = String(bytes, start, end - start, ASCII)
+            val trimmed = javaTrim(line)
+            if (trimmed.isNotEmpty() && !trimmed.startsWith("//")) {
+                val comma = trimmed.indexOf(',')
+                if (comma > 0 && collisionKey(javaTrim(trimmed.substring(0, comma))) == "charset") {
+                    val name = javaTrim(trimmed.substring(comma + 1))
+                    return try { Encoding(Charset.forName(name), 0) } catch (_: RuntimeException) { reject(NarInstallError.UNSUPPORTED_DESCRIPTOR_CHARSET, name) }
+                }
+                break
+            }
+            while (end < bytes.size && (bytes[end] == '\n'.code.toByte() || bytes[end] == '\r'.code.toByte())) end++
+            start = end
         }
         return Encoding(SHIFT_JIS, 0)
     }
