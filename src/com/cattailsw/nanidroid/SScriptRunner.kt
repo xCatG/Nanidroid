@@ -37,7 +37,7 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun dispatchComposeDoubleClick(x: Int, y: Int, sakura: Boolean, collisionId: Int, buttonId: Int) { if (!sakura) clearMsgQueue(); doMouseDblClick(x,y,sakura,collisionId,buttonId) }
-    fun setGhost(newGhost: Ghost?) { val name = g?.getGhostName(); g = newGhost; if (name != null) { if (g!!.getCreateCount() > 1) doShioriEvent("OnGhostChanged", arrayOf(name, null) as Array<String>) else { doShioriEvent("OnFirstBoot", arrayOf("0")); AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",g!!.getGhostId(),0) } } }
+    fun setGhost(newGhost: Ghost?) { val name = g?.getGhostName(); g = newGhost; val firstActivation = g?.getCreateCount() == 0L; g?.recordActivation(); if (name != null) { if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(name, null) as Array<String>) else { doShioriEvent("OnFirstBoot", arrayOf("0")); AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",g!!.getGhostId(),0) } } }
     @Synchronized fun addMsgToQueue(inCol: Collection<String>) { msgQueue.addAll(inCol) }
     @Synchronized fun addMsgToQueue(msgs: Array<String>) { msgs.forEach { msgQueue.add(it) } }
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
