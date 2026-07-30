@@ -6,7 +6,7 @@
 
 **Architecture:** The manifest resolves `@mipmap/ic_launcher`. A base bitmap resource delegates to the current density-qualified drawable PNGs, while an API 26-qualified adaptive icon combines a green background with a padded foreground copy of the existing xhdpi artwork.
 
-**Tech Stack:** Android resource XML, Android Ant project target `android-15`, PowerShell, Apache Ant.
+**Tech Stack:** Android resource XML, Android Gradle Plugin/Gradle wrapper, PowerShell.
 
 ## Global Constraints
 
@@ -86,7 +86,7 @@ git commit -m "add adaptive launcher icon resources"
 
 **Files:**
 - Modify: `AndroidManifest.xml:15-19`
-- Verify: APK resources produced by the Ant debug build
+- Verify: APK resources produced by the Gradle debug build
 
 **Interfaces:**
 - Consumes: `@mipmap/ic_launcher` from Task 1.
@@ -116,10 +116,10 @@ Run the Step 1 command. Expected: `@mipmap/ic_launcher`.
 - [ ] **Step 4: Build and inspect packaged resources**
 
 ```powershell
-ant debug
+.\gradlew.bat assembleDebug
 ```
 
-Expected: `BUILD SUCCESSFUL`. Use the SDK's `aapt list` (or equivalent) on the generated APK and verify it includes both `res/mipmap/ic_launcher.xml` and `res/mipmap-anydpi-v26/ic_launcher.xml`.
+Expected: `BUILD SUCCESSFUL`. Use the SDK's `aapt2 dump resources` (or equivalent) on the generated APK and verify it includes both `res/mipmap/ic_launcher.xml` and `res/mipmap-anydpi-v26/ic_launcher.xml`.
 
 - [ ] **Step 5: Commit manifest wiring**
 
