@@ -26,6 +26,11 @@ object PrefUtil {
     }
 
     @JvmStatic
+    fun setKeyAsync(ctx: Context?, key: String, value: Long) {
+        getSharedPreferences(ctx).edit().putLong(key, value).apply()
+    }
+
+    @JvmStatic
     fun setKey(ctx: Context?, key: String, value: Boolean) {
         getSharedPreferences(ctx).edit().putBoolean(key, value).commit()
     }

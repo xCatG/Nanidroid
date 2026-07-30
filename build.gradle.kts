@@ -248,6 +248,7 @@ val characterizationTests = listOf(
     "test/jvm/com/cattailsw/nanidroid/compose/SurfacePointerInteractionTest.kt",
     "test/jvm/com/cattailsw/nanidroid/compose/BalloonPresentationTest.kt",
     "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java",
+    "test/jvm/com/cattailsw/nanidroid/GhostSwitchRequestTest.kt",
     "test/jvm/com/cattailsw/nanidroid/GhostShellNameCompatibilityTest.java",
     "test/jvm/com/cattailsw/nanidroid/GhostPresentationFrameTest.java",
     "test/jvm/com/cattailsw/nanidroid/SScriptRunnerPresentationTest.java",
