@@ -12,7 +12,7 @@
 
 - Preserve the established production order: `setGhost()` precedes `startClock()` for initial launch and ghost replacement.
 - The first clock start of a runner may dispatch boot; repeated starts and starts after `stopClock()` may not dispatch it again.
-- A named replacement ghost receives `OnGhostChanged` and must not receive an additional boot when its clock starts.
+- A named replacement ghost follows the legacy activation split: `OnFirstBoot` when its pre-activation count is `0`, otherwise `OnGhostChanged`; neither path may be followed by an additional boot when its clock starts.
 - A distinct runner models app recreation and may dispatch boot once.
 - Tests must be allowlisted in `characterizationTests`; do not broaden `unitTests.isReturnDefaultValues`.
 - Follow red-green-refactor: run the new state test and observe its missing-symbol failure before adding production state code.
@@ -104,4 +104,56 @@ Expected: all host-JVM tests pass.
 ```bash
 git add build.gradle.kts src/com/cattailsw/nanidroid/BootDispatchState.kt src/com/cattailsw/nanidroid/SScriptRunner.kt test/jvm/com/cattailsw/nanidroid/BootDispatchStateTest.kt test/jvm/com/cattailsw/nanidroid/SScriptRunnerBootDispatchTest.java docs/superpowers/plans/2026-07-30-boot-dispatch-coverage.md
 git commit -m "test: cover boot dispatch lifecycle"
+```
+### Task 2: Characterize first-activation ghost replacement
+
+**Files:**
+
+- Modify: `test/jvm/com/cattailsw/nanidroid/SScriptRunnerBootDispatchTest.java`
+- Modify: `docs/superpowers/plans/2026-07-30-boot-dispatch-coverage.md`
+
+**Interfaces:**
+
+- Consumes: `SScriptRunner.setGhost`, `startClock`, and the existing `RecordingGhost` trace fixture.
+- Produces: a regression assertion that a named replacement with `createCount == 0` sends `OnFirstBoot` and does not receive a second `OnBoot` on clock start.
+
+- [x] **Step 1: Write the first-activation replacement trace**
+
+```java
+@Test
+public void firstActivationReplacementSendsFirstBootWithoutAdditionalBoot() {
+    List<String> trace = new ArrayList<String>();
+    SScriptRunner runner = runner();
+    runner.setGhost(new RecordingGhost("initial", "Initial Ghost", 2, trace));
+    runner.startClock();
+    runner.stopClock();
+    runner.setGhost(new RecordingGhost("replacement", "New Ghost", 0, trace));
+    runner.startClock();
+    assertEquals(
+            Arrays.asList(
+                    "initial:OnBoot:[master]",
+                    "replacement:OnFirstBoot:[0]"),
+            trace);
+}
+```
+
+- [x] **Step 2: Prove the test detects the wrong lifecycle branch**
+
+Run the focused test after temporarily changing the first-activation branch in `setGhost` to dispatch `OnGhostChanged`; confirm the new assertion fails because the replacement trace no longer contains `OnFirstBoot`. Restore the production file before continuing.
+
+- [x] **Step 3: Run the restored production behavior green**
+
+Run: `$env:ANDROID_HOME='C:\Users\yenchi\AppData\Local\Android\Sdk'; $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME; .\gradlew.bat testEmulatorUnitTest --tests com.cattailsw.nanidroid.SScriptRunnerBootDispatchTest --console=plain`
+
+Expected: all three runner lifecycle traces pass.
+
+- [x] **Step 4: Run the full host-JVM suite and commit**
+
+Run: `$env:ANDROID_HOME='C:\Users\yenchi\AppData\Local\Android\Sdk'; $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME; .\gradlew.bat testEmulatorUnitTest --console=plain`
+
+Expected: all host-JVM tests pass.
+
+```bash
+git add docs/superpowers/plans/2026-07-30-boot-dispatch-coverage.md test/jvm/com/cattailsw/nanidroid/SScriptRunnerBootDispatchTest.java
+git commit -m "test: characterize first ghost activation"
 ```

@@ -58,6 +58,23 @@ public final class SScriptRunnerBootDispatchTest {
         assertEquals(Arrays.asList("recreated:OnBoot:[master]"), trace);
     }
 
+    @Test
+    public void firstActivationReplacementSendsFirstBootWithoutAdditionalBoot() {
+        List<String> trace = new ArrayList<String>();
+        SScriptRunner runner = runner();
+        runner.setGhost(new RecordingGhost("initial", "Initial Ghost", 2, trace));
+        runner.startClock();
+        runner.stopClock();
+        runner.setGhost(new RecordingGhost("replacement", "New Ghost", 0, trace));
+        runner.startClock();
+
+        assertEquals(
+                Arrays.asList(
+                        "initial:OnBoot:[master]",
+                        "replacement:OnFirstBoot:[0]"),
+                trace);
+    }
+
     private SScriptRunner runner() {
         SScriptRunner runner = new SScriptRunner(null);
         runners.add(runner);
