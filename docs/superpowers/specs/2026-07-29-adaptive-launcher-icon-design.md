@@ -7,16 +7,17 @@ character-and-Android artwork.
 
 ## Approach
 
-- Retain every existing density-specific `ic_launcher.png` resource as the
-  fallback for pre-Android 8.0 devices.
-- Add API 26+ adaptive-icon resources under `mipmap-anydpi-v26`.
+- Retain every existing density- and locale-qualified `ic_launcher.png`
+  resource, including Japanese locale assets, as resource/localization
+  compatibility artifacts rather than a pre-Android-8 runtime fallback.
+- Add adaptive-icon resources under `mipmap-anydpi-v26`.
 - Use a dedicated foreground bitmap rendition of the existing icon, inset into
   Android's adaptive-icon safe zone so the full Nanidroid label and artwork are
   visible when launchers apply circular or squircle masks.
 - Supply a matching green background layer.
-- Point `application.android:icon` at the new `mipmap` resource. Android's
-  resource qualifiers choose the adaptive icon on API 26+ and the legacy PNG
-  fallback elsewhere.
+- Point `application.android:icon` at the new `mipmap` resource. The app's
+  runtime baseline is API 31+, where resource qualifiers resolve the adaptive
+  icon; the retained legacy PNGs remain packaged compatibility artifacts.
 
 ## Scope and compatibility
 
@@ -28,5 +29,6 @@ clipping. No application code or screen UI changes are included.
 
 - Inspect resource resolution and manifest references.
 - Build the debug APK with the project-supported Gradle command.
-- Confirm that the legacy PNG fallback remains present and the API 26 adaptive
-  XML is packaged.
+- Confirm that the retained density- and locale-qualified PNG compatibility
+  artifacts, including Japanese assets, remain present and the adaptive XML is
+  packaged for the API 31+ runtime baseline.
