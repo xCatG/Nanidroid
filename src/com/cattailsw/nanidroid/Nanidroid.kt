@@ -39,6 +39,9 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.util.Arrays
 
+internal fun ownsGhostSwitchRequest(targetGhostId: String, pendingGhostId: String?): Boolean =
+    targetGhostId == pendingGhostId
+
 /**
  * The production activity. Compose owns both chrome and ghost presentation;
  * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
@@ -256,8 +259,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             null
         }
         override fun onPostExecute(ghost: Ghost?) {
+            if (!ownsGhostSwitchRequest(targetGhostId, nextGhostId)) return
+            nextGhostId = null
             hideProgress()
-            if (nextGhostId == targetGhostId) nextGhostId = null
             if (ghost == null) return
             CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
             currentGhost = ghost
