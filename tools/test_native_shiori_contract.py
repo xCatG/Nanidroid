@@ -15,7 +15,7 @@ class NativeShioriContractTest(unittest.TestCase):
         source = (self.root / "src/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(
             encoding="utf-8"
         )
-        self.assertEqual(source.count("nativeTransportCharset()"), 2)
+        self.assertGreaterEqual(source.count("nativeTransportCharset()"), 2)
         self.assertIn("Charset.forName", source)
         self.assertNotIn("toByteArray(SHIFT_JIS)", source)
 
@@ -45,6 +45,18 @@ class NativeShioriContractTest(unittest.TestCase):
         source = (self.root / "src/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(encoding="utf-8")
         stop_body = source.split("@Synchronized fun stop()", 1)[1].split("private fun reset", 1)[0]
         self.assertLess(stop_body.index("g!!.unload()"), stop_body.index("it.ghostSwitchScriptComplete()"))
+
+    def test_ghost_switch_pauses_clock_until_replacement_is_bound(self):
+        source = (self.root / "src/com/cattailsw/nanidroid/Nanidroid.kt").read_text(encoding="utf-8")
+        switch_body = source.split("fun switchGhost(nextId: String)", 1)[1].split("fun ghostSwitchStep2()", 1)[0]
+        self.assertIn("runner!!.stopClock()", switch_body)
+        replacement_body = source.rsplit("runner!!.setGhost(ghost)", 1)[1]
+        self.assertTrue(replacement_body.lstrip().startswith("runner!!.startClock()"))
+
+    def test_yaya_maps_engine_pseudo_charsets_to_android_transports(self):
+        source = (self.root / "src/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(encoding="utf-8")
+        self.assertIn("Charset.defaultCharset()", source)
+        self.assertIn("Charsets.ISO_8859_1", source)
 
     def test_vendor_tree_excludes_binary_and_ide_artifacts(self):
         for relative in (

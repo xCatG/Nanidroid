@@ -25,7 +25,11 @@ class YayaShiori(path: String) : Shiori {
     private external fun nativeRequest(request: ByteArray): ByteArray
     private external fun nativeUnload()
 
-    private fun transportCharset(): Charset = Charset.forName(nativeTransportCharset())
+    private fun transportCharset(): Charset = when (nativeTransportCharset().lowercase()) {
+        "default", "osnative" -> Charset.defaultCharset()
+        "binary" -> Charsets.ISO_8859_1
+        else -> Charset.forName(nativeTransportCharset())
+    }
 
     private companion object {
         init { System.loadLibrary("yaya") }

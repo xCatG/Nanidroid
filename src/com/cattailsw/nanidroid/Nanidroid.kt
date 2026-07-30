@@ -241,7 +241,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun onNextGhost() {
         simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
     }
-    fun switchGhost(nextId: String) { val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
+    fun switchGhost(nextId: String) { val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
     @Suppress("DEPRECATION") fun ghostSwitchStep2() {
         val targetGhostId = nextGhostId ?: run {
             Log.w(TAG, "ghost switch completed without a target ghost")
@@ -273,6 +273,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             currentSurfaceKey = surfaceKeys!![keyindex]
             gm!!.setLastRunGhost(ghost)
             runner!!.setGhost(ghost)
+            runner!!.startClock()
         }
     }.execute()
     }
