@@ -257,7 +257,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
         override fun onPostExecute(ghost: Ghost?) {
             hideProgress()
-            nextGhostId = null
+            if (nextGhostId == targetGhostId) nextGhostId = null
             if (ghost == null) return
             CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
             currentGhost = ghost
