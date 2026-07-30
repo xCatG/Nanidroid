@@ -21,7 +21,7 @@ class NativeShioriContractTest(unittest.TestCase):
 
     def test_kawari_disposes_a_previous_global_handle_before_loading(self):
         source = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
-        load_body = source.split("Java_com_cattailsw_nanidroid_shiori_Kawari_load", 1)[1].split(
+        load_body = source.rsplit("Java_com_cattailsw_nanidroid_shiori_Kawari_load", 1)[1].split(
             "Java_com_cattailsw_nanidroid_shiori_Kawari_unload", 1
         )[0]
         self.assertIn("if (h != 0)", load_body)
