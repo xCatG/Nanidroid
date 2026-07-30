@@ -202,7 +202,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         override fun canExit() { runner!!.setCallback(null); finish() }
         override fun ghostSwitchScriptComplete() { runner!!.setCallback(null); runOnUiThread(ghostSwitchStep2Caller) }
     }
-    private val mGH = object : Handler() { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(nextGhostId!!)) } } }
+    private val mGH = object : Handler() { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
     private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
     fun onNextSurface() {
@@ -239,19 +239,25 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
     }
     fun switchGhost(nextId: String) { val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
-    @Suppress("DEPRECATION") fun ghostSwitchStep2() { object : AsyncTask<Void, Void, Ghost?>() {
-        override fun onPreExecute() { mGH.sendEmptyMessage(MSG_LOAD_N); showProgress() }
+    @Suppress("DEPRECATION") fun ghostSwitchStep2() {
+        val targetGhostId = nextGhostId ?: run {
+            Log.w(TAG, "ghost switch completed without a target ghost")
+            hideProgress()
+            return
+        }
+        object : AsyncTask<Void, Void, Ghost?>() {
+        override fun onPreExecute() { mGH.obtainMessage(MSG_LOAD_N, targetGhostId).sendToTarget(); showProgress() }
         override fun doInBackground(vararg params: Void?): Ghost? = try {
-            gm!!.createGhost(nextGhostId!!)!!.also { nextGhostId = null }
+            gm!!.createGhost(targetGhostId)
         } catch (e: Exception) {
-            AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", nextGhostId, -1)
-            Log.d(TAG, "failed to switch to ghost:$nextGhostId")
-            nextGhostId = null
+            AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", targetGhostId, -1)
+            Log.d(TAG, "failed to switch to ghost:$targetGhostId")
             e.printStackTrace()
             null
         }
         override fun onPostExecute(ghost: Ghost?) {
             hideProgress()
+            nextGhostId = null
             if (ghost == null) return
             CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
             currentGhost = ghost
@@ -264,7 +270,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             gm!!.setLastRunGhost(ghost)
             runner!!.setGhost(ghost)
         }
-    }.execute() }
+    }.execute()
+    }
     private fun handleIncomingIntent(incoming: Intent?) { if (!IncomingNarIntent.isApprovedDownload(incoming)) { if (incoming != null && Intent.ACTION_VIEW == incoming.action) { Log.w(TAG, "Rejected unapproved external install URI"); Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show() }; return }; Log.d(TAG, "Accepted HTTPS NAR download URI"); addNarToDownload(incoming!!.data!!) }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }
     fun onUpdate() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
