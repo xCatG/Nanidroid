@@ -24,6 +24,8 @@
 #include "manifest.h"
 #include "messages.h"
 #include "misc.h"
+#include "posix_utils.h"
+#include "value.h"
 
 class CAyaVMWrapper;
 
@@ -134,6 +136,12 @@ public:
 		vm->basis().SetLogRcvWnd(hwnd);
 #endif
 	}
+
+    std::string OutputCharset(void) const
+    {
+        if ( ! vm ) { return "UTF-8"; }
+        return narrow(vm->basis().GetParameter(L"charset.output").GetValueString());
+    }
 
 };
 
@@ -355,6 +363,16 @@ extern "C" DLLEXPORT yaya::global_t FUNCATTRIB request(yaya::global_t h, long *l
 	else {
 		return NULL;
 	}
+}
+
+extern "C" DLLEXPORT const char *FUNCATTRIB yaya_output_charset(void)
+{
+    static std::string charset;
+    if (vm.empty() || vm[0] == NULL) {
+        return "UTF-8";
+    }
+    charset = vm[0]->OutputCharset();
+    return charset.c_str();
 }
 
 extern "C" DLLEXPORT yaya::global_t FUNCATTRIB multi_request(long id, yaya::global_t h, long *len)

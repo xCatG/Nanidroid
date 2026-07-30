@@ -34,6 +34,7 @@ namespace yaya {
 extern "C" DLLEXPORT BOOL_TYPE FUNCATTRIB load(yaya::global_t h, long len);
 extern "C" DLLEXPORT BOOL_TYPE FUNCATTRIB unload();
 extern "C" DLLEXPORT yaya::global_t FUNCATTRIB request(yaya::global_t h, long *len);
+extern "C" DLLEXPORT const char *FUNCATTRIB yaya_output_charset(void);
 
 extern "C" DLLEXPORT long FUNCATTRIB multi_load(yaya::global_t h, long len);
 extern "C" DLLEXPORT BOOL_TYPE FUNCATTRIB multi_unload(long id);

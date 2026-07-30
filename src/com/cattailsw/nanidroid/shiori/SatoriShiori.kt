@@ -31,7 +31,6 @@ class SatoriShiori(path: String, context: Context?) : Shiori {
         val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
 
         init {
-            System.loadLibrary("ssu")
             System.loadLibrary("satoriya")
         }
     }
