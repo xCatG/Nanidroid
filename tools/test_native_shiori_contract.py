@@ -75,6 +75,10 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("android_charset_to_utf16", source)
         self.assertIn("android_utf16_to_charset", source)
         self.assertIn("android_charset_initialize", jni)
+        bridge_call = source.index("android_utf16_to_charset")
+        bom_strip = source.index("pUcsStr[0] == static_cast<yaya::char_t>(0xfeff)")
+        self.assertLess(bom_strip, bridge_call)
+
     def test_satori_saori_fallback_is_instance_scoped(self):
         jni = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
         plugins = (self.root / "jni/satori/shiori_plugin.cpp").read_text(

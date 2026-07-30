@@ -515,6 +515,11 @@ char *Ccct::utf16be_to_mbcs(const yaya::char_t *pUcsStr, int charset)
 	pAnsiStr[alen] = 0;
 
 #else
+	if (charset != CHARSET_BINARY &&
+		(pUcsStr[0] == static_cast<yaya::char_t>(0xfeff) ||
+		 pUcsStr[0] == static_cast<yaya::char_t>(0xfffe))) {
+		pUcsStr++;
+	}
 #if defined(__ANDROID__)
 	if (charset != CHARSET_BINARY) {
 		return android_utf16_to_charset(pUcsStr, charset);
@@ -524,13 +529,6 @@ char *Ccct::utf16be_to_mbcs(const yaya::char_t *pUcsStr, int charset)
 	CcctSetLocaleSwitcher loc(LC_CTYPE, charset);
     size_t nLen = wcslen( pUcsStr);
 
-	if (charset != CHARSET_BINARY) {
-	    if (pUcsStr[0] == static_cast<yaya::char_t>(0xfeff) ||
-				pUcsStr[0] == static_cast<yaya::char_t>(0xfffe)) {
-			pUcsStr++; // 先頭にBOM(byte Order Mark)があれば，スキップする
-	        nLen--;
-		}
-	}
 
 	//文字長×マルチバイト最大長＋ゼロ終端
     pAnsiStr = (char *)malloc((nLen*MB_CUR_MAX)+1);
