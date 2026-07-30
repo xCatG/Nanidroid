@@ -24,7 +24,6 @@ class NarDescriptorParser {
         val encoding = selectEncoding(bytes)
         val metadata = parseLines(decode(bytes, encoding.offset, encoding.charset))
         metadata["charset"] = encoding.charset.name()
-        val compoundInstall = scanCompoundInstall(metadata)
         val type = metadata["type"] ?: reject(NarInstallError.MISSING_TYPE, "type is required")
         if (type.isEmpty()) reject(NarInstallError.INVALID_TYPE, "blank type")
         val normalizedType = collisionKey(type)
@@ -32,8 +31,9 @@ class NarDescriptorParser {
         if (metadata["name"].isNullOrEmpty() || metadata["directory"].isNullOrEmpty()) reject(NarInstallError.MISSING_METADATA, "name and directory are required")
         val descriptorDirectory = normalizeTarget(metadata["directory"]) ?: reject(NarInstallError.INVALID_TARGET_ID, "unsafe directory")
         val targetId = if (forcedTargetId == null) descriptorDirectory else normalizeTarget(forcedTargetId) ?: reject(NarInstallError.INVALID_TARGET_ID, "unsafe forced id")
-        if (metadata["refresh"] == "1" || compoundInstall.refreshOneKey != null) reject(NarInstallError.UNSUPPORTED_REFRESH, compoundInstall.refreshOneKey ?: "refresh")
-        if (compoundInstall.hasDirective) reject(NarInstallError.UNSUPPORTED_COMPOUND_INSTALL, "compound install directive")
+        // Fresh installs extract a complete archive into a new target. Preserve
+        // refresh and companion metadata for runtime compatibility; update code
+        // continues to apply its own refresh restrictions.
         metadata["type"] = "ghost"
         metadata["directory"] = descriptorDirectory
         return NarInstallDescriptor("ghost", metadata["name"]!!, descriptorDirectory, targetId, metadata["accept"], metadata)
@@ -76,15 +76,6 @@ class NarDescriptorParser {
         return LinkedHashMap(metadata)
     }
 
-    private fun scanCompoundInstall(metadata: Map<String, String>): CompoundInstall {
-        var hasDirective = false; var refreshOneKey: String? = null
-        metadata.forEach { (key, value) ->
-            val match = COMPOUND_INSTALL_KEY.matchEntire(key) ?: return@forEach
-            hasDirective = true
-            if (match.groupValues[1] == "refresh" && value == "1") refreshOneKey = key
-        }
-        return CompoundInstall(hasDirective, refreshOneKey)
-    }
 
     private fun normalizeTarget(value: String?): String? {
         if (value == null || value.isEmpty() || value.length > MAX_TARGET_BYTES || !validUnicode(value) || hasBoundaryWhitespace(value) || '/' in value || '\\' in value || ':' in value || containsControl(value) || value == "." || value == "..") return null
@@ -99,12 +90,10 @@ class NarDescriptorParser {
     private fun validUnicode(value: String): Boolean { var index = 0; while (index < value.length) { val current = value[index]; if (Character.isHighSurrogate(current)) { if (++index >= value.length || !Character.isLowSurrogate(value[index])) return false } else if (Character.isLowSurrogate(current)) return false; index++ }; return true }
     @Throws(Rejected::class) private fun reject(error: NarInstallError, detail: String): Nothing = throw Rejected(error, detail)
     private class Encoding(val charset: Charset, val offset: Int)
-    private class CompoundInstall(val hasDirective: Boolean, val refreshOneKey: String?)
     private class Rejected(val error: NarInstallError, detail: String) : Exception(detail)
     private companion object {
         val ASCII: Charset = Charset.forName("US-ASCII"); val SHIFT_JIS: Charset = Charset.forName("Shift_JIS"); val UTF_8: Charset = Charset.forName("UTF-8")
         const val MAX_DESCRIPTOR_BYTES = 64 * 1024; const val MAX_TARGET_BYTES = 255
-        val COMPOUND_INSTALL_KEY = Regex("^(?:balloon|headline|plugin|calendar\\.skin|calendar\\.plugin)\\d*\\.(directory|source\\.directory|refresh|refreshundeletemask)$")
         val UNSUPPORTED_TYPES = setOf("shell", "supplement", "balloon", "plugin", "headline", "language", "calendar skin", "calendar plugin", "calendar", "package")
     }
 }

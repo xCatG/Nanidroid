@@ -62,17 +62,17 @@ class NarDescriptorParserTest {
         assertError(NarInstallError.INVALID_TYPE, parse("type,unknown-package\nname,G\ndirectory,g\n"))
     }
 
-    @Test fun onlyExactRefreshOneIsUnsupported() {
-        assertError(NarInstallError.UNSUPPORTED_REFRESH, parse(descriptor("g", "G") + "refresh,1\n"))
+    @Test fun preservesExactRefreshOneForFreshInstallPlanning() {
+        assertTrue(parse(descriptor("g", "G") + "refresh,1\n").isSuccess())
         listOf("", "0", "2", "true", "01").forEach { assertTrue(parse(descriptor("g", "G") + "refresh,$it\n").isSuccess()) }
     }
 
-    @Test fun rejectsEveryRecognizedCompoundInstallDirective() {
+    @Test fun preservesRecognizedCompoundInstallDirectivesForFreshInstallPlanning() {
         val prefixes = listOf("balloon", "balloon0", "headline", "headline12", "plugin", "plugin7", "calendar.skin", "calendar.skin3", "calendar.plugin", "calendar.plugin42")
         prefixes.forEach { prefix ->
-            listOf("directory", "source.directory", "refreshundeletemask").forEach { directive -> assertError(NarInstallError.UNSUPPORTED_COMPOUND_INSTALL, parse(descriptor("g", "G") + "$prefix.$directive,value\n")) }
-            assertError(NarInstallError.UNSUPPORTED_COMPOUND_INSTALL, parse(descriptor("g", "G") + "$prefix.refresh,0\n"))
-            assertError(NarInstallError.UNSUPPORTED_REFRESH, parse(descriptor("g", "G") + "$prefix.refresh,1\n"))
+            listOf("directory", "source.directory", "refreshundeletemask").forEach { directive -> assertTrue(parse(descriptor("g", "G") + "$prefix.$directive,value\n").isSuccess()) }
+            assertTrue(parse(descriptor("g", "G") + "$prefix.refresh,0\n").isSuccess())
+            assertTrue(parse(descriptor("g", "G") + "$prefix.refresh,1\n").isSuccess())
         }
     }
 
@@ -86,8 +86,8 @@ class NarDescriptorParserTest {
         assertError(NarInstallError.MISSING_METADATA, parse("type,ghost\ndirectory,g\n$compound"))
         assertError(NarInstallError.INVALID_TARGET_ID, parse(descriptor("../unsafe", "G") + compound))
         assertError(NarInstallError.INVALID_METADATA, parse(descriptor("g", "G") + compound + "Name,Again\n"))
-        assertError(NarInstallError.UNSUPPORTED_REFRESH, parse(descriptor("g", "G") + "refresh,1\n" + compound))
-        assertError(NarInstallError.UNSUPPORTED_COMPOUND_INSTALL, parse(descriptor("g", "G") + compound))
+        assertTrue(parse(descriptor("g", "G") + "refresh,1\n" + compound).isSuccess())
+        assertTrue(parse(descriptor("g", "G") + compound).isSuccess())
     }
 
     @Test fun forcedIdOverridesOnlyAfterDescriptorDirectoryIsValidated() {
@@ -110,14 +110,14 @@ class NarDescriptorParserTest {
         assertTrue(parseBytes(source).isSuccess()); assertTrue(source.contentEquals(expected))
     }
 
-    @Test fun validatesTypeMetadataRefreshAndCompoundDirectivesInOrder() {
+    @Test fun validatesTypeAndMetadataWhilePreservingFreshInstallDirectives() {
         assertError(NarInstallError.MISSING_TYPE, parse("name,G\ndirectory,g\n"))
         assertError(NarInstallError.INVALID_TYPE, parse("type, \nname,G\ndirectory,g\n"))
         assertError(NarInstallError.UNSUPPORTED_TYPE, parse("type,shell\nname,G\ndirectory,g\n"))
         assertError(NarInstallError.MISSING_METADATA, parse("type,ghost\ndirectory,g\n"))
-        assertError(NarInstallError.UNSUPPORTED_REFRESH, parse(descriptor("g", "G") + "refresh,1\n"))
-        assertError(NarInstallError.UNSUPPORTED_COMPOUND_INSTALL, parse(descriptor("g", "G") + "balloon.directory,x\n"))
-        assertError(NarInstallError.UNSUPPORTED_REFRESH, parse(descriptor("g", "G") + "Balloon0.Refresh,1\n"))
+        assertTrue(parse(descriptor("g", "G") + "refresh,1\n").isSuccess())
+        assertTrue(parse(descriptor("g", "G") + "balloon.directory,x\n").isSuccess())
+        assertTrue(parse(descriptor("g", "G") + "Balloon0.Refresh,1\n").isSuccess())
         assertTrue(parse(descriptor("g", "G") + "custom.directory,allowed\n").isSuccess())
     }
 
