@@ -168,7 +168,9 @@ bool ShioriPlugins::load_a_plugin(const string& iPluginLine)
 		}
 		if (do_fallback) {
 		    // 代替ライブラリを探す。
-		    string fallback_lib = posix_search_fallback_dll(filename+"."+extention, mPosixFallbackPath);
+		    string fallback_lib = filename == "ssu" && extention == "dll"
+		        ? "libssu.so"
+		        : posix_search_fallback_dll(filename+"."+extention, mPosixFallbackPath);
 		    if (fallback_lib.length() == 0) {
 			// 無い。
 			string fallback_path = mPosixFallbackPath.empty() ? "(no instance fallback path)" : mPosixFallbackPath;

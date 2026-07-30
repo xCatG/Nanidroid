@@ -2,16 +2,14 @@
 #include <android/log.h>
 #include <cstdlib>
 #include <cstring>
-#include <dlfcn.h>
 #include <pthread.h>
 #include <string>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include "aya5.h"
 #include "android_charset.h"
 
 extern "C" void satori_ssu_anchor();
+
 
 namespace {
 pthread_mutex_t gYayaMutex = PTHREAD_MUTEX_INITIALIZER;
@@ -31,38 +29,13 @@ void throwIllegalState(JNIEnv* env, const char* message) {
     }
 }
 
-bool prepareSsuFallback(JNIEnv* env, jstring cacheDirectory, std::string* directoryOut) {
-    if (cacheDirectory == NULL) return false;
-    const char* cache = env->GetStringUTFChars(cacheDirectory, NULL);
-    if (cache == NULL) return false;
-    const std::string directory = std::string(cache) + "/yaya-saori";
-    env->ReleaseStringUTFChars(cacheDirectory, cache);
-    if (mkdir(directory.c_str(), 0700) != 0 && access(directory.c_str(), F_OK) != 0) {
-        return false;
-    }
-
-    Dl_info library;
-    if (dladdr(reinterpret_cast<void*>(&satori_ssu_anchor), &library) == 0 ||
-        library.dli_fname == NULL) {
-        return false;
-    }
-    const std::string fallback = directory + "/ssu.dll";
-    unlink(fallback.c_str());
-    if (symlink(library.dli_fname, fallback.c_str()) != 0) return false;
-    *directoryOut = directory;
-    return true;
-}
-
 void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
     if (path == NULL || cacheDirectory == NULL) {
         throwIllegalState(env, "YAYA requires a ghost root directory");
         return;
     }
-    std::string fallbackDirectory;
-    if (!prepareSsuFallback(env, cacheDirectory, &fallbackDirectory)) {
-        throwIllegalState(env, "Could not prepare YAYA's SSU compatibility library");
-        return;
-    }
+    // SSU is a linked Android DSO; its soname is resolved by the loader.
+    (void)cacheDirectory;
 
     const char* value = env->GetStringUTFChars(path, NULL);
     if (value == NULL) return;
@@ -84,7 +57,7 @@ void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
         unload();
         gYayaLoaded = false;
     }
-    yaya_configure_posix_saori_fallback(fallbackDirectory.c_str(), true);
+    yaya_configure_posix_saori_fallback("", true);
     const int loaded = load(copy, length);
     gYayaLoaded = loaded != 0;
     __android_log_print(ANDROID_LOG_INFO, "YayaJNI", "load(%s) = %d", directory.c_str(), loaded);
@@ -134,6 +107,7 @@ void nativeUnload(JNIEnv*, jobject) {
 }
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
+    satori_ssu_anchor();
     JNIEnv* env = NULL;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
     jclass type = env->FindClass("com/cattailsw/nanidroid/shiori/YayaShiori");

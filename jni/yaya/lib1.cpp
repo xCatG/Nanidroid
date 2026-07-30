@@ -153,6 +153,9 @@ int CLib1::LoadLib() {
     if (do_fallback) {
 	// 代替ライブラリを探す。
 		std::string fallback_lib = posix_search_fallback_dll(get_fname(libfile));
+		if (fallback_lib.empty() && get_fname(libfile) == "ssu.dll") {
+		    fallback_lib = "libssu.so";
+		}
 	if (fallback_lib.length() == 0) {
 	    // 無い。
 	    std::string fallback_path = posix_fallback_path.empty()
@@ -174,12 +177,16 @@ int CLib1::LoadLib() {
 
     hDLL = dlopen(libfile.c_str(), RTLD_LAZY);
     if (hDLL != NULL) {
-        char *p = strdup(libfile.c_str());
-        filename = basename(p);
-        free(p);
-        auto pos = filename.rfind(".dll");
-        if (pos != decltype(filename)::npos) {
-            filename = filename.substr(0, pos);
+        if (libfile == "libssu.so") {
+            filename = "ssu";
+        } else {
+            char *p = strdup(libfile.c_str());
+            filename = basename(p);
+            free(p);
+            auto pos = filename.rfind(".dll");
+            if (pos != decltype(filename)::npos) {
+                filename = filename.substr(0, pos);
+            }
         }
         return 1;
     }

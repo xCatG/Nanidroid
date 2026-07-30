@@ -93,6 +93,22 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("configure_posix_fallback", header)
         self.assertLess(jni.index("configure_posix_saori_fallback"), jni.index("if (!load(copy, length))"))
 
+    def test_android_ssu_fallback_uses_the_linked_soname_without_symlinks(self):
+        satori_jni = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
+        yaya_jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        satori_plugins = (self.root / "jni/satori/shiori_plugin.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        yaya_library = (self.root / "jni/yaya/lib1.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        self.assertNotIn("symlink(", satori_jni)
+        self.assertNotIn("symlink(", yaya_jni)
+        self.assertIn("satori_ssu_anchor();", satori_jni)
+        self.assertIn("satori_ssu_anchor();", yaya_jni)
+        self.assertIn('"libssu.so"', satori_plugins)
+        self.assertIn('"libssu.so"', yaya_library)
+        self.assertIn('filename = "ssu"', yaya_library)
     def test_ssu_exports_the_yaya_saori_compatibility_abi(self):
         source = (self.root / "jni/satori/ssu.cpp").read_text(encoding="utf-8", errors="replace")
         self.assertIn('extern "C" long ssu_saori_load', source)
