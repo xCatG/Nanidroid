@@ -135,10 +135,14 @@ class NarArchiveInventoryValidator {
             reject(NarInstallError.INVALID_ENTRY_METADATA, "null entry")
         }
         return try {
+            val rawName = entry.getRawName()
             Snapshot(
                 entry.getOrdinal(),
-                entry.getRawName(),
-                entry.isDirectory(),
+                rawName,
+                // Java's ZIP reader does not mark Windows-style `directory\\`
+                // entries as directories. Treat that spelling as structural
+                // metadata, then validate the normalized path below.
+                entry.isDirectory() || rawName?.endsWith("\\") == true,
                 entry.getCrc(),
                 entry.getMethod(),
                 entry.getDeclaredSize(),
@@ -158,10 +162,11 @@ class NarArchiveInventoryValidator {
         if (raw.length > MAX_RAW_NAME_CHARS) {
             reject(NarInstallError.RAW_NAME_LENGTH_LIMIT, "raw name")
         }
-        if (entry.directory != raw.endsWith("/")) {
+        val archiveName = raw.replace('\\', '/')
+        if (entry.directory != archiveName.endsWith("/")) {
             reject(NarInstallError.INVALID_ENTRY_METADATA, raw)
         }
-        val original = if (entry.directory) raw.substring(0, raw.length - 1) else raw
+        val original = if (entry.directory) archiveName.substring(0, archiveName.length - 1) else archiveName
         val path = NarRelativePathPolicy.normalize(original)
         if (!path.isSuccess()) {
             when (path.error) {

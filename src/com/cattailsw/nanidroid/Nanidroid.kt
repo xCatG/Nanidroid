@@ -298,8 +298,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         awaitingNarDocument = true
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/zip"
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed"))
+            type = "*/*"
         }, NAR_PICK_REQUEST)
     }
     fun showNarErrDlg(dir: Boolean) {

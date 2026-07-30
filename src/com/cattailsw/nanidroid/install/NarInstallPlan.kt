@@ -34,10 +34,13 @@ class NarInstallPlan internal constructor(
 
         val isInstallEntry: Boolean get() = relativePath != null
 
-        fun sameCentral(other: NarArchiveInventoryValidator.CentralEntry): Boolean =
-            ordinal == other.getOrdinal() && rawName == other.getRawName() &&
-                isDirectory == other.isDirectory() && crc == other.getCrc() &&
+        fun sameCentral(other: NarArchiveInventoryValidator.CentralEntry): Boolean {
+            if (ordinal != other.getOrdinal()) return false
+            val otherRawName = other.getRawName()
+            val otherDirectory = other.isDirectory() || otherRawName?.endsWith("\\") == true
+            return rawName == otherRawName && isDirectory == otherDirectory && crc == other.getCrc() &&
                 method == other.getMethod() && declaredSize == other.getDeclaredSize() &&
                 compressedSize == other.getCompressedSize()
+        }
     }
 }
