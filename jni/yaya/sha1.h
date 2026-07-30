@@ -17,17 +17,7 @@
 #ifndef _SHA1_H_
 #define _SHA1_H_
 
-#if (_MSC_VER >= 1400)
 #include <stdint.h>
-#else
-#ifndef _STDINT_H
-#ifndef _SYS_STDINT_H_
-typedef unsigned long uint32_t;
-typedef unsigned char uint8_t;
-typedef int int_least16_t;
-#endif
-#endif
-#endif
 
 #ifdef __cplusplus
 extern "C" {

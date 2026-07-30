@@ -58,6 +58,13 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("Charset.defaultCharset()", source)
         self.assertIn("Charsets.ISO_8859_1", source)
 
+    def test_yaya_digest_words_are_fixed_width_on_64_bit_abis(self):
+        sha1_header = (self.root / "jni/yaya/sha1.h").read_text(encoding="utf-8")
+        global_header = (self.root / "jni/yaya/global.h").read_text(encoding="utf-8")
+        self.assertIn("#include <stdint.h>", sha1_header)
+        self.assertNotIn("typedef unsigned long uint32_t", sha1_header)
+        self.assertIn("typedef uint32_t UINT4", global_header)
+
     def test_vendor_tree_excludes_binary_and_ide_artifacts(self):
         for relative in (
             "jni/satori/lib",
