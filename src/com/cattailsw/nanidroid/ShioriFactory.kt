@@ -34,7 +34,7 @@ class ShioriFactory private constructor() {
             "Nanidroid" -> NanidroidShiori(ctx, path)
             "satori.dll" -> SatoriShiori(path, ctx)
             "shiori.dll" -> checkShioriByPath(path, ctx)
-            "yaya.dll" -> YayaShiori(path)
+            "yaya.dll" -> YayaShiori(path, ctx)
             else -> NotSupportedShiori(ctx)
         }
 }

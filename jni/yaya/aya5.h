@@ -36,6 +36,10 @@ extern "C" DLLEXPORT BOOL_TYPE FUNCATTRIB unload();
 extern "C" DLLEXPORT yaya::global_t FUNCATTRIB request(yaya::global_t h, long *len);
 extern "C" DLLEXPORT const char *FUNCATTRIB yaya_output_charset(void);
 
+#if defined(POSIX)
+extern "C" DLLEXPORT void FUNCATTRIB yaya_configure_posix_saori_fallback(const char* search_path, bool always);
+#endif
+
 extern "C" DLLEXPORT long FUNCATTRIB multi_load(yaya::global_t h, long len);
 extern "C" DLLEXPORT BOOL_TYPE FUNCATTRIB multi_unload(long id);
 extern "C" DLLEXPORT yaya::global_t FUNCATTRIB multi_request(long id,yaya::global_t h, long *len);

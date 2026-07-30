@@ -16,6 +16,13 @@ jmethodID gCharsetForName = NULL;
 jmethodID gStringFromBytes = NULL;
 jmethodID gStringGetBytes = NULL;
 
+const int kCharsets[] = {
+    CHARSET_SJIS, CHARSET_EUCJP, CHARSET_JIS, CHARSET_BIG5,
+    CHARSET_GB2312, CHARSET_EUCKR, CHARSET_UTF8,
+};
+const size_t kCharsetCount = sizeof(kCharsets) / sizeof(kCharsets[0]);
+jobject gCharsetCache[sizeof(kCharsets) / sizeof(kCharsets[0])] = { NULL };
+
 const char* charset_name(int charset) {
     switch (charset) {
     case CHARSET_SJIS: return "Shift_JIS";
@@ -60,12 +67,15 @@ private:
     bool attached_;
 };
 
-jobject charset_for(JNIEnv* env, int charset) {
-    jstring name = env->NewStringUTF(charset_name(charset));
-    if (name == NULL || clear_exception(env)) return NULL;
-    jobject result = env->CallStaticObjectMethod(gCharsetClass, gCharsetForName, name);
-    env->DeleteLocalRef(name);
-    return clear_exception(env) ? NULL : result;
+size_t charset_index(int charset) {
+    for (size_t i = 0; i < kCharsetCount; ++i) {
+        if (kCharsets[i] == charset) return i;
+    }
+    return kCharsetCount - 1;
+}
+
+jobject cached_charset_for(JNIEnv* env, int charset) {
+    return env->NewLocalRef(gCharsetCache[charset_index(charset)]);
 }
 
 void append_code_point(std::vector<jchar>& output, unsigned int value) {
@@ -101,7 +111,21 @@ bool android_charset_initialize(JNIEnv* env) {
     gCharsetForName = env->GetStaticMethodID(gCharsetClass, "forName", "(Ljava/lang/String;)Ljava/nio/charset/Charset;");
     gStringFromBytes = env->GetMethodID(gStringClass, "<init>", "([BLjava/nio/charset/Charset;)V");
     gStringGetBytes = env->GetMethodID(gStringClass, "getBytes", "(Ljava/nio/charset/Charset;)[B");
-    return gCharsetForName != NULL && gStringFromBytes != NULL && gStringGetBytes != NULL && !clear_exception(env);
+    if (gCharsetForName == NULL || gStringFromBytes == NULL ||
+        gStringGetBytes == NULL || clear_exception(env)) {
+        return false;
+    }
+    for (size_t i = 0; i < kCharsetCount; ++i) {
+        jstring name = env->NewStringUTF(charset_name(kCharsets[i]));
+        if (name == NULL || clear_exception(env)) return false;
+        jobject converter = env->CallStaticObjectMethod(gCharsetClass, gCharsetForName, name);
+        env->DeleteLocalRef(name);
+        if (converter == NULL || clear_exception(env)) return false;
+        gCharsetCache[i] = env->NewGlobalRef(converter);
+        env->DeleteLocalRef(converter);
+        if (gCharsetCache[i] == NULL || clear_exception(env)) return false;
+    }
+    return true;
 }
 
 char* android_utf16_to_charset(const yaya::char_t* input, int charset) {
@@ -118,7 +142,7 @@ char* android_utf16_to_charset(const yaya::char_t* input, int charset) {
     jstring text = env->NewString(units.empty() ? NULL : &units[0], static_cast<jsize>(units.size()));
     if (text == NULL || clear_exception(env)) return NULL;
 
-    jobject converter = charset_for(env, charset);
+    jobject converter = cached_charset_for(env, charset);
     if (converter == NULL) {
         env->DeleteLocalRef(text);
         return NULL;
@@ -158,7 +182,7 @@ yaya::char_t* android_charset_to_utf16(const char* input, int charset) {
         return NULL;
     }
 
-    jobject converter = charset_for(env, charset);
+    jobject converter = cached_charset_for(env, charset);
     if (converter == NULL) {
         env->DeleteLocalRef(bytes);
         return NULL;

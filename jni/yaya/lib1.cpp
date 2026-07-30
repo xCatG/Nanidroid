@@ -42,15 +42,6 @@
 ////////////////////////////////////////
 
 #if defined(POSIX)
-static std::string str_getenv(const std::string& name) {
-    char* var = getenv(name.c_str());
-    if (var == NULL) {
-        return std::string();
-    }
-    else {
-        return std::string(var);
-    }
-}
 // dllサーチパス関連。
 // POSIX上では、ある特定の場所にDLLと同名のライブラリを置く事でSAORIに対応する。
 // DLLと同名とは云っても、それはシンボリックリンクであるべきで、例えば次のようにである。
@@ -60,33 +51,31 @@ static std::string str_getenv(const std::string& name) {
 // -rwxr-xr-x x foo bar xxxxx 1 1 00:00 libssu.so
 // lrwxr-xr-x x foo bar xxxxx 1 1 00:00 ssu.dll -> libssu.so
 //
-// パスは環境変数 SAORI_FALLBACK_PATH から取得する。これはコロン区切りの絶対パスである。
+// The Android JNI host configures this path for each loaded YAYA instance.
 static std::vector<std::string> posix_dll_search_path;
-static bool posix_dll_search_path_is_ready = false;
+static std::string posix_fallback_path;
+static bool posix_fallback_always = false;
+
+extern "C" void yaya_configure_posix_saori_fallback(const char* search_path, bool always) {
+    posix_dll_search_path.clear();
+    posix_fallback_path = search_path == NULL ? std::string() : std::string(search_path);
+    std::string path = posix_fallback_path;
+    while (!path.empty()) {
+        std::string::size_type colon_pos = path.find(':');
+        if (colon_pos == std::string::npos) {
+            posix_dll_search_path.emplace_back(path);
+            break;
+        }
+        posix_dll_search_path.emplace_back(path.substr(0, colon_pos));
+        path.erase(0, colon_pos + 1);
+    }
+    posix_fallback_always = always;
+}
 static std::string posix_search_fallback_dll(const std::string& dllfile) {
     // dllfileは探したいファイルDLL名。パス区切り文字は/。
     // 代替ライブラリが見付かればその絶対パスを、
     // 見付けられなければ空文字列を返す。
     
-    if (!posix_dll_search_path_is_ready) {
-	// SAORI_FALLBACK_PATHを見る。
-		std::string path = str_getenv("SAORI_FALLBACK_PATH");
-        if (path.length() > 0) {
-            while (true) {
-				std::string::size_type colon_pos = path.find(':');
-                if (colon_pos == std::string::npos) {
-                    posix_dll_search_path.emplace_back(path);
-                    break;
-                }
-                else {
-                    posix_dll_search_path.emplace_back(path.substr(0, colon_pos));
-                    path.erase(0, colon_pos+1);
-                }
-            }
-        }
-        posix_dll_search_path_is_ready = true;
-    }
-
 	std::string::size_type pos_slash = dllfile.rfind('/');
 	std::string fname(
 		dllfile.begin() + (pos_slash == std::string::npos ? 0 : pos_slash),
@@ -144,18 +133,8 @@ int CLib1::LoadLib() {
 	std::string libfile = narrow(name);
     fix_filepath(libfile);
 
-    // 環境変数 SAORI_FALLBACK_ALWAYS が定義されていて、且つ
-    // 空でも"0"でもなければ、このdllファイルを開いてみる事は
-    // 初めからやらない。そうでなければ、試しにdlopenしてみる。
-    char* env_fallback_always = getenv("SAORI_FALLBACK_ALWAYS");
-    bool fallback_always = false;
-    if (env_fallback_always != NULL) {
-		std::string str_fallback_always(env_fallback_always);
-	if (str_fallback_always.length() > 0 &&
-	    str_fallback_always != "0") {
-	    fallback_always = true;
-	}
-    }
+    // The Android JNI host selects whether to force the SSU fallback.
+    bool fallback_always = posix_fallback_always;
     bool do_fallback = true;
     if (!fallback_always) {
 	void* handle = dlopen(libfile.c_str(), RTLD_LAZY);
@@ -176,10 +155,8 @@ int CLib1::LoadLib() {
 		std::string fallback_lib = posix_search_fallback_dll(get_fname(libfile));
 	if (fallback_lib.length() == 0) {
 	    // 無い。
-	    char* cstr_path = getenv("SAORI_FALLBACK_PATH");
-		std::string fallback_path =
-		(cstr_path == NULL ?
-		 "(environment variable `SAORI_FALLBACK_PATH' is empty)" : cstr_path);
+	    std::string fallback_path = posix_fallback_path.empty()
+        ? "(configured fallback path is empty)" : posix_fallback_path;
 		std::string message =
 		libfile+": This is not usable in this platform.\n"+
 		"Fallback library doesn't exist: "+fallback_path+"\n";

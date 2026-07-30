@@ -1,11 +1,12 @@
 package com.cattailsw.nanidroid.shiori
 
+import android.content.Context
 import java.nio.charset.Charset
 
 /** JNI host for the maintained POSIX build of YAYA. */
-class YayaShiori(path: String) : Shiori {
+class YayaShiori(path: String, context: Context?) : Shiori {
     init {
-        nativeLoad(path)
+        nativeLoad(path, context?.codeCacheDir?.absolutePath ?: path)
     }
 
     override fun getModuleName(): String = "YAYA"
@@ -20,7 +21,7 @@ class YayaShiori(path: String) : Shiori {
 
     override fun unloadShiori() = nativeUnload()
 
-    private external fun nativeLoad(path: String)
+    private external fun nativeLoad(path: String, cacheDirectory: String)
     private external fun nativeTransportCharset(): String
     private external fun nativeRequest(request: ByteArray): ByteArray
     private external fun nativeUnload()
