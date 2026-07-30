@@ -58,9 +58,12 @@ jbyteArray nativeRequest(JNIEnv* env, jobject, jbyteArray request) {
     long resultLength = length;
     char* result = ::request(input, &resultLength);
     // YAYA borrows input on its successful POSIX request path.  Do not free it
-    // until after the response has been copied; YAYA's failure paths consume it.
+    // until after the response has been copied.  POSIX YAYA leaves ownership
+    // with this bridge on every path.
     __android_log_print(ANDROID_LOG_INFO, "YayaJNI", "request bytes=%d response=%ld", length, resultLength);
     if (result == NULL || resultLength <= 0) {
+        free(result);
+        free(input);
         return env->NewByteArray(0);
     }
     jbyteArray response = env->NewByteArray(static_cast<jsize>(resultLength));

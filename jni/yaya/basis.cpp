@@ -1620,7 +1620,7 @@ void CBasis::CallOnMemoryError()
 yaya::global_t	CBasis::ExecuteRequest(yaya::global_t h, long *len, bool is_debug)
 {
 	if (IsSuppress() || requestindex.IsNotFound()) {
-		free(h);
+		// The caller owns h on POSIX and releases it after handling the response.
 		h = NULL;
 		*len = 0;
 		return NULL;
@@ -1629,7 +1629,7 @@ yaya::global_t	CBasis::ExecuteRequest(yaya::global_t h, long *len, bool is_debug
 	int funcpos = requestindex.Find(vm,L"request");
 
 	if ( funcpos < 0 ) {
-		free(h);
+		// The caller owns h on POSIX and releases it after handling the response.
 		h = NULL;
 		*len = 0;
 		return NULL;

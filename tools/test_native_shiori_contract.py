@@ -19,6 +19,15 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("Charset.forName", source)
         self.assertNotIn("toByteArray(SHIFT_JIS)", source)
 
+    def test_yaya_empty_responses_release_bridge_buffers(self):
+        source = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        self.assertIn("free(result);\n        free(input);\n        return env->NewByteArray(0);", source)
+
+    def test_satori_and_ssu_bind_their_own_host_symbols(self):
+        source = (self.root / "jni/CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn('target_link_options(satoriya PRIVATE "-Wl,-Bsymbolic")', source)
+        self.assertIn('target_link_options(ssu PRIVATE "-Wl,-Bsymbolic")', source)
+
     def test_vendor_tree_excludes_binary_and_ide_artifacts(self):
         for relative in (
             "jni/satori/lib",

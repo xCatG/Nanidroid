@@ -70,6 +70,10 @@ target_include_directories(ssu PRIVATE
 )
 target_link_libraries(ssu PRIVATE android log)
 target_link_libraries(satoriya PRIVATE android log dl ssu)
+# Both DSOs retain SakuraDLLHost's legacy C ABI.  Bind internal references so
+# libssu cannot interpose on Satori's host singleton (or vice versa).
+target_link_options(satoriya PRIVATE "-Wl,-Bsymbolic")
+target_link_options(ssu PRIVATE "-Wl,-Bsymbolic")
 
 # Kawari 8 was also maintained as a POSIX Android port.  Keep its original
 # source selection (the old Android.mk list) rather than compiling its tools
