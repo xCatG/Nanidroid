@@ -47,6 +47,13 @@ class NarDescriptorParserTest {
         assertTrue(crlf.isSuccess()); assertEquals("Ghost, With, Commas", crlf.getDescriptor()!!.getName())
     }
 
+    @Test fun acceptsCharsetDeclarationAfterLeadingBlankLines() {
+        val result = parse("\r\ncharset, Shift_JIS\r\ntype,ghost\r\nname,G\r\ndirectory,g\r\n")
+
+        assertTrue(result.isSuccess())
+        assertEquals("G", result.getDescriptor()!!.getName())
+    }
+
     @Test fun strictlyRejectsMalformedLinesAndEveryDuplicateKey() {
         assertError(NarInstallError.INVALID_METADATA, parse("type,ghost\n# comment\nname,G\ndirectory,g\n"))
         val complete = "charset,Shift_JIS\n" + descriptor("g", "G") + "accept,A\nrefresh,0\n"

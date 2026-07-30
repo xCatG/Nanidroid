@@ -64,13 +64,13 @@ class NarDescriptorParser {
         // Java used a negative split limit, which retains trailing empty
         // fields. Kotlin requires a non-negative limit; Int.MAX_VALUE is the
         // equivalent unbounded, trailing-field-preserving limit.
-        text.split(Regex("\\r?\\n"), Int.MAX_VALUE).forEachIndexed { index, line ->
-            if (javaTrim(line).isEmpty()) return@forEachIndexed
+        text.split(Regex("\\r?\\n"), Int.MAX_VALUE).forEach { line ->
+            if (javaTrim(line).isEmpty()) return@forEach
             val comma = line.indexOf(',')
             if (comma <= 0) reject(NarInstallError.INVALID_METADATA, "malformed line")
             val key = collisionKey(javaTrim(line.substring(0, comma)))
             val value = Normalizer.normalize(javaTrim(line.substring(comma + 1)), Normalizer.Form.NFC)
-            if (key.isEmpty() || containsControl(key) || containsControl(value) || (key == "charset" && index != 0) || metadata.containsKey(key)) reject(NarInstallError.INVALID_METADATA, "invalid or duplicate metadata")
+            if (key.isEmpty() || containsControl(key) || containsControl(value) || (key == "charset" && metadata.isNotEmpty()) || metadata.containsKey(key)) reject(NarInstallError.INVALID_METADATA, "invalid or duplicate metadata")
             metadata[key] = value
         }
         return LinkedHashMap(metadata)
