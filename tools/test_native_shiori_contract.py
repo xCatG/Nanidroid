@@ -27,6 +27,11 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("if (h != 0)", load_body)
         self.assertIn("DisposeInstance((int)h)", load_body)
 
+    def test_kawari_serializes_handle_access(self):
+        source = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
+        self.assertIn("pthread_mutex_t kawari_mutex", source)
+        self.assertEqual(source.count("KawariLock lock;"), 3)
+
     def test_yaya_empty_responses_release_bridge_buffers(self):
         source = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
         self.assertIn("free(result);\n        free(input);\n        return env->NewByteArray(0);", source)

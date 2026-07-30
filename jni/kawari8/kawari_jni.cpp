@@ -1,5 +1,6 @@
 #include <string>
 #include <jni.h>
+#include <pthread.h>
 
 #include <android/log.h>
 #define  LOG_TAG    "libgl2jni"
@@ -20,6 +21,14 @@ extern "C" {
 
   SO_HANDLE h = 0;
 }
+
+static pthread_mutex_t kawari_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+class KawariLock {
+public:
+  KawariLock() { pthread_mutex_lock(&kawari_mutex); }
+  ~KawariLock() { pthread_mutex_unlock(&kawari_mutex); }
+};
 
 static string make_utf8_string_from_jstring(JNIEnv *env, jstring jstr) {
     const char* chars = env->GetStringUTFChars(jstr, NULL);
@@ -53,6 +62,7 @@ static string make_string_from_jbyteArray(JNIEnv *env, jbyteArray jbytes) {
 
 
 JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_requestFromJNI(JNIEnv *env, jobject thiz, jbyteArray req){
+  KawariLock lock;
   string resstr = TKawariShioriFactory::GetFactory().RequestInstance((int)h, 
 								     make_string_from_jbyteArray(env, req));
   return make_jbyteArray_from_string(env, resstr);
@@ -60,6 +70,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_requestF
 
 
 JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_load(JNIEnv *env, jobject thiz, jstring path){
+  KawariLock lock;
   if (h != 0) {
     TKawariShioriFactory::GetFactory().DisposeInstance((int)h);
   }
@@ -67,5 +78,6 @@ JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_load(JNIEnv *e
 }
 
 JNIEXPORT void JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_unload(JNIEnv *env, jobject thiz){
+  KawariLock lock;
   TKawariShioriFactory::GetFactory().DisposeInstance((int)h);
 }
