@@ -21,6 +21,15 @@ class GhostSwitchRequestTest {
     }
 
     @Test
+    fun activationPersistsItsCountThroughTheDeferredPath() {
+        val ghost = DeferredPersistenceGhost()
+
+        ghost.recordActivation()
+
+        assertTrue(ghost.persistedCount == 1L)
+    }
+
+    @Test
     fun completedRequestIsDiscardedWhenANewerGhostIsPending() {
         assertFalse(ownsGhostSwitchRequest("ghost-a", "ghost-b"))
     }
@@ -35,6 +44,18 @@ class GhostSwitchRequestTest {
 
         override fun incrementCreateCount() {
             GhostActivationCounter.increments++
+        }
+    }
+
+    private class DeferredPersistenceGhost : Ghost("deferred-persistence-ghost") {
+        var persistedCount: Long? = null
+
+        override fun loadGhostInfo() = Unit
+
+        override fun getCreateCount() = 0L
+
+        override fun persistActivationCount(count: Long) {
+            persistedCount = count
         }
     }
 

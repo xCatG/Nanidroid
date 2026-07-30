@@ -30,7 +30,11 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
 
     protected open fun incrementCreateCount() {
         val count = getCreateCount()
-        PrefUtil.setKey(mCtx, KEY_CREATE_COUNT_PREFIX + ghostDirName, count + 1)
+        persistActivationCount(count + 1)
+    }
+
+    protected open fun persistActivationCount(count: Long) {
+        PrefUtil.setKeyAsync(mCtx, KEY_CREATE_COUNT_PREFIX + ghostDirName, count)
     }
 
     internal fun recordActivation() = incrementCreateCount()
