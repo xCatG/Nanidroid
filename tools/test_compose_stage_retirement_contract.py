@@ -14,10 +14,10 @@ class ComposeStageRetirementContractTest(unittest.TestCase):
             "LayoutManager.kt",
             "LegacyGhostPresentationRenderer.kt",
         ):
-            self.assertFalse((ROOT / "src/com/cattailsw/nanidroid" / name).exists())
+            self.assertFalse((ROOT / "src/main/kotlin/com/cattailsw/nanidroid" / name).exists())
 
     def test_runner_has_only_the_toolkit_neutral_presentation_seam(self):
-        source = (ROOT / "src/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
+        source = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("fun setPresentationRenderer(renderer: GhostPresentationRenderer?)", source)
@@ -29,13 +29,13 @@ class ComposeStageRetirementContractTest(unittest.TestCase):
         self.assertNotIn("KeroView", source)
 
     def test_compose_stage_owns_geometry_images_pointer_routing_and_balloons(self):
-        stage = (ROOT / "src/com/cattailsw/nanidroid/compose/GhostPresentationStage.kt").read_text(
+        stage = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/GhostPresentationStage.kt").read_text(
             encoding="utf-8"
         )
-        host = (ROOT / "src/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt").read_text(
+        host = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt").read_text(
             encoding="utf-8"
         )
-        scheduler = (ROOT / "src/com/cattailsw/nanidroid/compose/SurfaceAnimationScheduler.kt").read_text(
+        scheduler = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/SurfaceAnimationScheduler.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("GhostStageLayoutPolicy.calculate", stage)

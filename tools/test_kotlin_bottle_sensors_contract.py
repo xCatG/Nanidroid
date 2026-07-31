@@ -5,13 +5,13 @@ from pathlib import Path
 class KotlinBottleSensorsContractTest(unittest.TestCase):
     def test_gradle_sensors_are_kotlin_with_java_static_entry_points(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertFalse((root / "src/com/cattailsw/nanidroid/SSTPBottleSensor.java").exists())
-        self.assertFalse((root / "src/com/cattailsw/nanidroid/BottleLogSensor.java").exists())
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/SSTPBottleSensor.java").exists())
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/BottleLogSensor.java").exists())
 
-        sstp = (root / "src/com/cattailsw/nanidroid/SSTPBottleSensor.kt").read_text(
+        sstp = (root / "src/main/kotlin/com/cattailsw/nanidroid/SSTPBottleSensor.kt").read_text(
             encoding="utf-8"
         )
-        bottle_log = (root / "src/com/cattailsw/nanidroid/BottleLogSensor.kt").read_text(
+        bottle_log = (root / "src/main/kotlin/com/cattailsw/nanidroid/BottleLogSensor.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("open class SSTPBottleSensor", sstp)

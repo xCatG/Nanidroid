@@ -6,11 +6,11 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "src/com/cattailsw/nanidroid/NanidroidService.kt"
+SOURCE = ROOT / "src/main/kotlin/com/cattailsw/nanidroid/NanidroidService.kt"
 class KotlinNanidroidServiceContractTest(unittest.TestCase):
     def test_kotlin_service_preserves_manifest_and_java_command_api(self):
         source = SOURCE.read_text(encoding="utf-8")
-        manifest = (ROOT / "AndroidManifest.xml").read_text(encoding="utf-8")
+        manifest = (ROOT / "src/main/AndroidManifest.xml").read_text(encoding="utf-8")
 
         self.assertIn("class NanidroidService : Service()", source)
         self.assertIn('android:name=".NanidroidService"', manifest)
@@ -44,7 +44,7 @@ class KotlinNanidroidServiceContractTest(unittest.TestCase):
 
     def test_service_has_no_archived_java_overlay(self):
         self.assertFalse((ROOT / "legacy").exists())
-        self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/NanidroidService.java").exists())
+        self.assertFalse((ROOT / "src/main/kotlin/com/cattailsw/nanidroid/NanidroidService.java").exists())
 
 
 if __name__ == "__main__":

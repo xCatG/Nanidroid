@@ -15,14 +15,14 @@ ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 
 def _active_activity_source():
-    kotlin = ROOT / "src/com/cattailsw/nanidroid/Nanidroid.kt"
-    java = ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java"
+    kotlin = ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt"
+    java = ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.java"
     return (kotlin if kotlin.exists() else java).read_text(encoding="utf-8")
 
 
 class Target36SecurityContractTest(unittest.TestCase):
     def test_manifest_declares_modern_component_and_service_policy(self):
-        root = ET.parse(ROOT / "AndroidManifest.xml").getroot()
+        root = ET.parse(ROOT / "src/main/AndroidManifest.xml").getroot()
         application = root.find("application")
         activity = application.find("activity")
         service = application.find("service")
@@ -37,7 +37,7 @@ class Target36SecurityContractTest(unittest.TestCase):
         self.assertNotIn("android.permission.WRITE_EXTERNAL_STORAGE", permissions)
 
     def test_manifest_has_no_file_or_cleartext_deep_link_surface(self):
-        manifest = (ROOT / "AndroidManifest.xml").read_text(encoding="utf-8")
+        manifest = (ROOT / "src/main/AndroidManifest.xml").read_text(encoding="utf-8")
         self.assertNotIn('android:scheme="file"', manifest)
         self.assertNotIn('android:scheme="http"', manifest)
         self.assertNotIn('android:host="*"', manifest)
@@ -52,7 +52,7 @@ class Target36SecurityContractTest(unittest.TestCase):
         self.assertNotIn("getExternalStorageDirectory() + \"/nar/\"", source)
 
     def test_service_uses_immutable_pending_intent_and_no_file_uri(self):
-        source = (ROOT / "src/com/cattailsw/nanidroid/NanidroidService.kt").read_text(encoding="utf-8")
+        source = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/NanidroidService.kt").read_text(encoding="utf-8")
         self.assertIn("const val FLAG_IMMUTABLE = 0x04000000", source)
         self.assertIn("flags = flags or FLAG_IMMUTABLE", source)
         self.assertIn("PendingIntent.FLAG_UPDATE_CURRENT", source)
@@ -73,7 +73,7 @@ class Target36SecurityContractTest(unittest.TestCase):
         )
 
     def test_network_stack_rejects_cleartext_and_permissive_tls(self):
-        source = (ROOT / "src/com/cattailsw/nanidroid/util/NetworkUtil.kt").read_text(encoding="utf-8")
+        source = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/util/NetworkUtil.kt").read_text(encoding="utf-8")
         self.assertIn("HttpsURLConnection", source)
         self.assertIn("requireHttps", source)
         self.assertNotIn("DefaultHttpClient", source)

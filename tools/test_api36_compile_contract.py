@@ -24,10 +24,10 @@ class Api37CompileContractTest(unittest.TestCase):
 
     def test_removed_notification_setter_is_behind_the_min_sdk_bridge(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        service = (root / "src/com/cattailsw/nanidroid/NanidroidService.kt").read_text(
+        service = (root / "src/main/kotlin/com/cattailsw/nanidroid/NanidroidService.kt").read_text(
             encoding="utf-8"
         )
-        bridge = (root / "src/com/cattailsw/nanidroid/LegacyNotificationBridge.kt").read_text(
+        bridge = (root / "src/main/kotlin/com/cattailsw/nanidroid/LegacyNotificationBridge.kt").read_text(
             encoding="utf-8"
         )
 
@@ -36,7 +36,7 @@ class Api37CompileContractTest(unittest.TestCase):
         self.assertIn('"setLatestEventInfo"', bridge)
         self.assertIn("Build.VERSION.SDK_INT >= 11", bridge)
         self.assertFalse((root / "legacy").exists())
-        self.assertFalse((root / "src/com/cattailsw/nanidroid/LegacyNotificationBridge.java").exists())
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/LegacyNotificationBridge.java").exists())
 
 
 if __name__ == "__main__":

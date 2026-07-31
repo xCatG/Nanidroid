@@ -5,8 +5,8 @@ from pathlib import Path
 class KotlinDescriptorReaderContractTest(unittest.TestCase):
     def test_gradle_descriptor_reader_is_kotlin_with_legacy_java_apis(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertFalse((root / "src/com/cattailsw/nanidroid/DescReader.java").exists())
-        source = (root / "src/com/cattailsw/nanidroid/DescReader.kt").read_text(
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/DescReader.java").exists())
+        source = (root / "src/main/kotlin/com/cattailsw/nanidroid/DescReader.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("class DescReader", source)
@@ -19,7 +19,7 @@ class KotlinDescriptorReaderContractTest(unittest.TestCase):
 
     def test_parser_keeps_characterization_boundaries(self):
         root = Path(__file__).resolve().parents[1]
-        source = (root / "src/com/cattailsw/nanidroid/DescReader.kt").read_text(
+        source = (root / "src/main/kotlin/com/cattailsw/nanidroid/DescReader.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("Charset.forName(\"Shift_JIS\")", source)
