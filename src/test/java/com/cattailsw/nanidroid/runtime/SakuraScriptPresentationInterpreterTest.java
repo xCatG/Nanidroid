@@ -16,7 +16,7 @@ public final class SakuraScriptPresentationInterpreterTest {
                 "\\hA\\s[120]\\i[3]\\uB\\s[11]\\i[4]\\e");
 
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "A:0:null::10:null",
                         "A:120:null::10:null",
                         "A:120:3::10:null",

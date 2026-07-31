@@ -19,8 +19,8 @@ public final class SakuraScriptInteractionInterpreterTest {
         assertEquals(1, result.getEffects().size());
         SakuraScriptInteractionEffect.ShowSelection effect =
                 (SakuraScriptInteractionEffect.ShowSelection) result.getEffects().get(0);
-        assertEquals(Arrays.asList("One", "Two"), effect.getLabels());
-        assertEquals(Arrays.asList("id1", "id2"), effect.getIds());
+        assertEquals(Arrays.<String>asList("One", "Two"), effect.getLabels());
+        assertEquals(Arrays.<String>asList("id1", "id2"), effect.getIds());
     }
 
     @Test
@@ -41,7 +41,7 @@ public final class SakuraScriptInteractionInterpreterTest {
                 SakuraScriptInteractionInterpreter.extract("\\hplain text\\e");
 
         assertEquals("\\hplain text\\e", result.getPresentationScript());
-        assertEquals(Collections.emptyList(), result.getEffects());
+        assertEquals(Collections.<Object>emptyList(), result.getEffects());
     }
 
     @Test

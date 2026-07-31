@@ -31,7 +31,7 @@ public class SScriptRunnerPresentationTest {
         runner.run();
 
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "A:0:null::10:null",
                         "A:120:null::10:null",
                         "A:120:3::10:null",

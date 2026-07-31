@@ -41,7 +41,7 @@ public final class SScriptRunnerBootDispatchTest {
         runner.startClock();
 
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "initial:OnBoot:[master]",
                         "replacement:OnGhostChanged:[Initial Ghost, null]"),
                 trace);
@@ -55,7 +55,7 @@ public final class SScriptRunnerBootDispatchTest {
         runner.setGhost(new RecordingGhost("recreated", "Recreated Ghost", 2, trace));
         runner.startClock();
 
-        assertEquals(Arrays.asList("recreated:OnBoot:[master]"), trace);
+        assertEquals(Arrays.<String>asList("recreated:OnBoot:[master]"), trace);
     }
 
     @Test
@@ -69,7 +69,7 @@ public final class SScriptRunnerBootDispatchTest {
         runner.startClock();
 
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "initial:OnBoot:[master]",
                         "replacement:OnFirstBoot:[0]"),
                 trace);

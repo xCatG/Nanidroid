@@ -53,7 +53,7 @@ public final class GhostSwitchingCharacterizationTest {
         runner.doGhostChanging("Next Sakura", "manual", "/ghosts/next");
 
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "request:outgoing:OnGhostChanging:"
                                 + "[Next Sakura, manual, null, /ghosts/next]",
                         "render:Switching",
@@ -99,7 +99,7 @@ public final class GhostSwitchingCharacterizationTest {
         setGhost(replacement);
 
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "request:outgoing:OnGhostChanging:"
                                 + "[Next Sakura, manual, null, /ghosts/next]",
                         "render:Switching",

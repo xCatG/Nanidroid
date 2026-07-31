@@ -232,14 +232,14 @@ val jvmTestSources = files(
 )
 val deviceCharacterizationTests = listOf(
     "src/androidTest/java/com/cattailsw/nanidroid/" +
-        "SurfaceRenderingCharacterizationTest.java",
+        "SurfaceRenderingCharacterizationTest.kt",
     "src/androidTest/java/com/cattailsw/nanidroid/" +
         "SurfaceAnimationExecutionCharacterizationTest.kt",
     "src/androidTest/java/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
-    "src/androidTest/java/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.java",
+    "src/androidTest/java/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.kt",
     "src/androidTest/java/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",
     "src/androidTest/java/com/cattailsw/nanidroid/install/" +
-        "NarFilesystemInspectorInstrumentationTest.java",
+        "NarFilesystemInspectorInstrumentationTest.kt",
     "src/androidTest/java/com/cattailsw/nanidroid/install/" +
         "NarStagedTreeInstrumentationTest.kt",
 )

@@ -28,10 +28,10 @@ public final class NarStagedSourceCopyTest {
 
     @Test
     public void stagedCopyErrorsRetainNamesOrderAndKotlinMetadata() {
-        assertNotNull(NarStagedSourceCopyError.class.getAnnotation(
+        assertNotNull(NarStagedSourceCopyError.class.<Metadata>getAnnotation(
                 Metadata.class));
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "SOURCE_INVALID",
                         "STAGING_ROOT_INVALID",
                         "STAGING_NAME_INVALID",
@@ -46,8 +46,8 @@ public final class NarStagedSourceCopyTest {
                         "STAGING_CLOSE_FAILED",
                         "SOURCE_CLOSE_FAILED",
                         "STAGING_DELETE_FAILED"),
-                Arrays.stream(NarStagedSourceCopyError.values())
-                        .map(Enum::name)
+                Arrays.<@org.jetbrains.annotations.NotNull NarStagedSourceCopyError>stream(NarStagedSourceCopyError.values())
+                        .<String>map(Enum::name)
                         .collect(java.util.stream.Collectors.toList()));
         for (NarStagedSourceCopyError error
                 : NarStagedSourceCopyError.values()) {
@@ -69,14 +69,14 @@ public final class NarStagedSourceCopyTest {
                         "read failed", cleanup);
         cleanup.add(NarStagedSourceCopyError.STAGING_DELETE_FAILED);
 
-        assertNotNull(NarStagedSourceCopyResult.class.getAnnotation(
+        assertNotNull(NarStagedSourceCopyResult.class.<Metadata>getAnnotation(
                 Metadata.class));
         assertFalse(result.isSuccess());
         assertNull(result.getSource());
         assertEquals(NarStagedSourceCopyError.SOURCE_READ_FAILED,
                 result.getError());
         assertEquals("read failed", result.getDetail());
-        assertEquals(Arrays.asList(
+        assertEquals(Arrays.<@org.jetbrains.annotations.NotNull NarStagedSourceCopyError>asList(
                 NarStagedSourceCopyError.STAGING_CLOSE_FAILED),
                 result.getCleanupErrors());
         try {
@@ -156,7 +156,7 @@ public final class NarStagedSourceCopyTest {
         assertEquals(MAX_ARCHIVE_BYTES, io.sourceBytesRead);
         assertEquals(MAX_ARCHIVE_BYTES, io.targetBytesWritten);
         assertEquals(
-                Arrays.asList("sync", "writer-close", "source-close"),
+                Arrays.<String>asList("sync", "writer-close", "source-close"),
                 io.terminalEvents);
         assertEquals(0, io.deleteCount);
 
@@ -188,13 +188,13 @@ public final class NarStagedSourceCopyTest {
         assertEquals(MAX_ARCHIVE_BYTES + 1, io.sourceBytesRead);
         assertEquals(MAX_ARCHIVE_BYTES, io.targetBytesWritten);
         assertEquals(
-                Arrays.asList(
+                Arrays.<@org.jetbrains.annotations.NotNull NarStagedSourceCopyError>asList(
                         NarStagedSourceCopyError.STAGING_CLOSE_FAILED,
                         NarStagedSourceCopyError.SOURCE_CLOSE_FAILED,
                         NarStagedSourceCopyError.STAGING_DELETE_FAILED),
                 result.getCleanupErrors());
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "writer-close", "source-close", "delete"),
                 io.terminalEvents);
         try {
@@ -364,7 +364,7 @@ public final class NarStagedSourceCopyTest {
                 NarStagedSourceCopyError.SOURCE_READ_FAILED,
                 deleteFailure.getError());
         assertEquals(
-                Arrays.asList(
+                Arrays.<@org.jetbrains.annotations.NotNull NarStagedSourceCopyError>asList(
                         NarStagedSourceCopyError.STAGING_DELETE_FAILED),
                 deleteFailure.getCleanupErrors());
     }

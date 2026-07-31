@@ -102,9 +102,9 @@ public final class NarFilesystemInspectorTest {
 
     @Test
     public void kotlinPackageSeamExposesNoFilesystemCapabilityTypes() {
-        assertNotNull(NarFilesystemInspector.class.getAnnotation(kotlin.Metadata.class));
+        assertNotNull(NarFilesystemInspector.class.<kotlin.Metadata>getAnnotation(kotlin.Metadata.class));
         for (Class<?> nested : NarFilesystemInspector.class.getDeclaredClasses()) {
-            assertNotNull(nested.getAnnotation(kotlin.Metadata.class));
+            assertNotNull(nested.<kotlin.Metadata>getAnnotation(kotlin.Metadata.class));
         }
         for (Method method : NarFilesystemInspector.class.getDeclaredMethods()) {
             assertFalse(method.getReturnType().getName().matches(

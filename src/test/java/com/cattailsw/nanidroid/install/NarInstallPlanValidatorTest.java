@@ -441,13 +441,13 @@ public final class NarInstallPlanValidatorTest {
     @Test
     public void publicSurfaceReturnsDiagnosticPlansOnly()
             throws Exception {
-        assertNotNull(NarInstallPlan.class.getAnnotation(kotlin.Metadata.class));
+        assertNotNull(NarInstallPlan.class.<Metadata>getAnnotation(kotlin.Metadata.class));
         assertNotNull(
-                NarInstallPlan.Entry.class.getAnnotation(kotlin.Metadata.class));
+                NarInstallPlan.Entry.class.<Metadata>getAnnotation(kotlin.Metadata.class));
         assertNotNull(
-                NarInstallPlanResult.class.getAnnotation(kotlin.Metadata.class));
+                NarInstallPlanResult.class.<Metadata>getAnnotation(kotlin.Metadata.class));
         assertNotNull(
-                NarInstallPlanValidator.class.getAnnotation(kotlin.Metadata.class));
+                NarInstallPlanValidator.class.<Metadata>getAnnotation(kotlin.Metadata.class));
         int publicMethods = 0;
         for (Method method
                 : NarInstallPlanValidator.class.getDeclaredMethods()) {
@@ -569,7 +569,7 @@ public final class NarInstallPlanValidatorTest {
         assertTrue(diagnostic.isSuccess());
         assertNull(diagnostic.getVerifiedSession());
         assertTrue(!Modifier.isPublic(NarStagedSource.class.getModifiers())
-                || NarStagedSource.class.getAnnotation(Metadata.class) != null);
+                || NarStagedSource.class.<Metadata>getAnnotation(Metadata.class) != null);
         Constructor<?> constructor =
                 NarStagedSource.class.getDeclaredConstructor(File.class);
         assertTrue(Modifier.isPrivate(constructor.getModifiers()));
@@ -618,7 +618,7 @@ public final class NarInstallPlanValidatorTest {
         session.close();
         assertTrue(session.isClosed());
         assertEquals(
-                Arrays.asList("archive-close", "delete"),
+                Arrays.<String>asList("archive-close", "delete"),
                 io.events);
         session.close();
         assertEquals(1, io.archive.closeCount);
@@ -902,7 +902,7 @@ public final class NarInstallPlanValidatorTest {
         io.archive.closeFailure = true;
         io.deleteFailure = true;
         assertThrows(IOException.class, () -> session.close());
-        assertEquals(Arrays.asList("archive-close", "delete"), io.events);
+        assertEquals(Arrays.<String>asList("archive-close", "delete"), io.events);
         assertEquals("CONSUMED", session.state().name());
         assertFalse(session.isClosed());
         assertNull(session.lease());
@@ -994,7 +994,7 @@ public final class NarInstallPlanValidatorTest {
     private static void assertLeaseSurface() {
         Class<?> type = NarVerifiedInstallSession.Lease.class;
         assertTrue(!Modifier.isPublic(type.getModifiers())
-                || type.getAnnotation(Metadata.class) != null);
+                || type.<Metadata>getAnnotation(Metadata.class) != null);
         for (Field field : type.getDeclaredFields()) {
             assertFalse(forbiddenLeaseType(field.getType()));
         }
@@ -1003,7 +1003,7 @@ public final class NarInstallPlanValidatorTest {
             if (method.isSynthetic() || method.getName().contains("$")) continue;
             actual.add(method.getName());
             assertTrue(!Modifier.isPublic(method.getModifiers())
-                    || type.getAnnotation(Metadata.class) != null);
+                    || type.<Metadata>getAnnotation(Metadata.class) != null);
             assertFalse(method.getName().matches(
                     "(finalize|publish|overlay|path|token|handle)"));
             assertFalse(forbiddenLeaseType(method.getReturnType()));
@@ -1011,8 +1011,8 @@ public final class NarInstallPlanValidatorTest {
                 assertFalse(forbiddenLeaseType(parameter));
             }
         }
-        Collections.sort(actual);
-        assertEquals(Arrays.asList("cleanup", "plan"), actual);
+        Collections.<String>sort(actual);
+        assertEquals(Arrays.<String>asList("cleanup", "plan"), actual);
     }
 
     private static boolean forbiddenLeaseType(Class<?> type) {
@@ -1117,7 +1117,7 @@ public final class NarInstallPlanValidatorTest {
         FakeEntry payload = new FakeEntry("payload", false);
         payload.size = 7;
         FakeArchive archive = new FakeArchive(
-                new ArrayList<FakeEntry>(Arrays.asList(payload, install)),
+                new ArrayList<FakeEntry>(Arrays.<FakeEntry>asList(payload, install)),
                 descriptor);
         reindex(archive.entries);
         return new FakeIo(bytes("source identity"), archive);

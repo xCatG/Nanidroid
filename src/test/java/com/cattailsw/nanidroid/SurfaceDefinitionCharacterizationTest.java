@@ -57,14 +57,14 @@ public class SurfaceDefinitionCharacterizationTest {
 
         assertFalse(loaded.reader.error);
         assertArrayEquals(new String[] {"surfaces.txt"}, loaded.shellRoot.list());
-        assertEquals(Arrays.asList("0", "2", "10"), sortedSurfaceIds(loaded.manager));
+        assertEquals(Arrays.<String>asList("0", "2", "10"), sortedSurfaceIds(loaded.manager));
 
         ShellSurface surface0 = loaded.manager.getSurface("0");
         ShellSurface surface10 = loaded.manager.getSurface("10");
         ShellSurface surface2 = loaded.manager.getSurface("2");
         assertNotSame(surface0, surface10);
 
-        List<String> expectedModel = Arrays.asList(
+        List<String> expectedModel = Arrays.<String>asList(
                 "collision:0:Head:start=1,2:size=10x20",
                 "animation-type:2=0",
                 "animation:0:interval=2:exclusive=false",
@@ -105,7 +105,7 @@ public class SurfaceDefinitionCharacterizationTest {
         assertEquals(0, manager.getTotalSurfaceCount());
         assertEquals(1, manager.addSurface("99", surface));
         assertSame(surface, manager.getSurface("99"));
-        assertEquals(Collections.singleton("99"), manager.getSurfaceKeys());
+        assertEquals(Collections.<String>singleton("99"), manager.getSurfaceKeys());
     }
 
     @Test
@@ -158,7 +158,7 @@ public class SurfaceDefinitionCharacterizationTest {
         SurfaceAnimation animation = SurfaceDefinitionMapper.toSurfaceDefinition(
                 manager.getSurface("0")).getAnimations().get(0);
 
-        assertEquals(Arrays.asList("1", "2"), animation.getAlternativeAnimationIds());
+        assertEquals(Arrays.<String>asList("1", "2"), animation.getAlternativeAnimationIds());
         assertTrue(animation.getFrames().isEmpty());
     }
 
@@ -207,7 +207,7 @@ public class SurfaceDefinitionCharacterizationTest {
 
     private static List<String> sortedSurfaceIds(SurfaceManager manager) {
         List<String> ids = new ArrayList<String>(manager.getSurfaceKeys());
-        Collections.sort(ids, new Comparator<String>() {
+        Collections.<String>sort(ids, new Comparator<String>() {
             @Override
             public int compare(String left, String right) {
                 return Integer.valueOf(left).compareTo(Integer.valueOf(right));

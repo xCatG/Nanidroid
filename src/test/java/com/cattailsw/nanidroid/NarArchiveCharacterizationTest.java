@@ -66,7 +66,7 @@ public final class NarArchiveCharacterizationTest {
         assertArrayEquals(new String[] {"seed-ghost"}, sortedNames(installRoot));
         assertFalse(new File(installRoot, "descriptor-ghost").exists());
         assertEquals(
-                Arrays.asList(
+                Arrays.<String>asList(
                         "seed-ghost/",
                         "seed-ghost/ghost/",
                         "seed-ghost/ghost/master/",
@@ -136,7 +136,7 @@ public final class NarArchiveCharacterizationTest {
     private static List<String> sortedTree(File root) {
         List<String> paths = new ArrayList<String>();
         collectTree(root, "", paths);
-        Collections.sort(paths);
+        Collections.<String>sort(paths);
         return paths;
     }
 
@@ -148,7 +148,7 @@ public final class NarArchiveCharacterizationTest {
         if (children == null) {
             return;
         }
-        Arrays.sort(children, new Comparator<File>() {
+        Arrays.<File>sort(children, new Comparator<File>() {
             @Override
             public int compare(File left, File right) {
                 return left.getName().compareTo(right.getName());

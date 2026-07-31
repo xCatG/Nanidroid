@@ -112,7 +112,7 @@ public class SakuraScriptCharacterizationTest {
     public void rendererReceivesAnimationOnlyWhenTheRunnerSchedulesIt() {
         runScript("\\h\\i[3]\\u\\i[4]\\e");
         assertEquals(
-                Arrays.asList("animation:sakura:3", "animation:kero:4"),
+                Arrays.<String>asList("animation:sakura:3", "animation:kero:4"),
                 trace.events());
     }
 
@@ -124,7 +124,7 @@ public class SakuraScriptCharacterizationTest {
     private void assertTrace(String hash, String fixture, String... expectedEvents) {
         assertFixtureSha256(hash, fixture);
         runScript(fixture);
-        assertEquals(Arrays.asList(expectedEvents), trace.events());
+        assertEquals(Arrays.<String>asList(expectedEvents), trace.events());
     }
 
     private static void assertFixtureSha256(String expected, String fixture) {
