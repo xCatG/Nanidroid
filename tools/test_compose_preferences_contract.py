@@ -16,7 +16,7 @@ class ComposePreferencesContractTest(unittest.TestCase):
         self.assertIn("putBoolean(Setup.PREF_KEY_USE_ANALYTICS, enabled)", source)
         self.assertIn("@Preview", source)
         self.assertTrue(
-            (root / "src/androidTest/com/cattailsw/nanidroid/PreferencesScreenTest.kt").exists()
+            (root / "src/androidTest/java/com/cattailsw/nanidroid/PreferencesScreenTest.kt").exists()
         )
         self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/Preferences.java").exists())
         self.assertFalse((root / "src/main/res/xml/main_pref.xml").exists())

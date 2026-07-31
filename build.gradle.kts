@@ -141,19 +141,6 @@ android {
         }
     }
 
-    buildTypes {
-        create("emulator") {
-            initWith(getByName("debug"))
-            matchingFallbacks += listOf("debug")
-            isDebuggable = true
-        }
-        create("device") {
-            initWith(getByName("debug"))
-            matchingFallbacks += listOf("debug")
-            isDebuggable = true
-        }
-    }
-
     buildFeatures {
         aidl = true
         buildConfig = false
@@ -166,7 +153,7 @@ android {
     }
 
     testOptions {
-        testBuildType = "emulator"
+        testBuildType = "debug"
         unitTests.isReturnDefaultValues = true
     }
 }
@@ -188,9 +175,6 @@ dependencies {
     // its runtime in the test APK rather than changing the production APK.
     androidTestImplementation("androidx.activity:activity:1.13.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    // This legacy project exposes emulatorImplementation without a Kotlin DSL
-    // accessor. The target-side host is required by ActivityScenario on device.
-    add("emulatorImplementation", "androidx.compose.ui:ui-test-manifest")
 
     // API 36 no longer exposes android.test.*. Keep the frozen legacy
     // characterization sources compiling against their historical API-only
@@ -258,16 +242,16 @@ val jvmTestSources = files(
     },
 )
 val deviceCharacterizationTests = listOf(
-    "src/androidTest/com/cattailsw/nanidroid/" +
+    "src/androidTest/java/com/cattailsw/nanidroid/" +
         "SurfaceRenderingCharacterizationTest.java",
-    "src/androidTest/com/cattailsw/nanidroid/" +
+    "src/androidTest/java/com/cattailsw/nanidroid/" +
         "SurfaceAnimationExecutionCharacterizationTest.kt",
-    "src/androidTest/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
-    "src/androidTest/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.java",
-    "src/androidTest/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",
-    "src/androidTest/com/cattailsw/nanidroid/install/" +
+    "src/androidTest/java/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
+    "src/androidTest/java/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.java",
+    "src/androidTest/java/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",
+    "src/androidTest/java/com/cattailsw/nanidroid/install/" +
         "NarFilesystemInspectorInstrumentationTest.java",
-    "src/androidTest/com/cattailsw/nanidroid/install/" +
+    "src/androidTest/java/com/cattailsw/nanidroid/install/" +
         "NarStagedTreeInstrumentationTest.kt",
 )
 val deviceTestSources = files(
@@ -309,3 +293,4 @@ tasks.matching {
 }.configureEach {
     dependsOn(verifyDeviceCharacterizationTestIsolation)
 }
+
