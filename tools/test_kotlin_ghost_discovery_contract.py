@@ -5,8 +5,8 @@ from pathlib import Path
 class KotlinGhostDiscoveryContractTest(unittest.TestCase):
     def test_gradle_metadata_ghost_is_kotlin(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertFalse((root / "src/com/cattailsw/nanidroid/InfoOnlyGhost.java").exists())
-        source = (root / "src/com/cattailsw/nanidroid/InfoOnlyGhost.kt").read_text(
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/InfoOnlyGhost.java").exists())
+        source = (root / "src/main/kotlin/com/cattailsw/nanidroid/InfoOnlyGhost.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("class InfoOnlyGhost(path: String) : Ghost(path)", source)
@@ -16,8 +16,8 @@ class KotlinGhostDiscoveryContractTest(unittest.TestCase):
 
     def test_gradle_directory_discovery_is_kotlin_and_java_callable(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertFalse((root / "src/com/cattailsw/nanidroid/DirList.java").exists())
-        source = (root / "src/com/cattailsw/nanidroid/DirList.kt").read_text(
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/DirList.java").exists())
+        source = (root / "src/main/kotlin/com/cattailsw/nanidroid/DirList.kt").read_text(
             encoding="utf-8"
         )
         self.assertIn("object DirList", source)

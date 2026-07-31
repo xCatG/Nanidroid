@@ -4,7 +4,7 @@ target_compile_options(narfs_stage PRIVATE -std=c99 -Wall -Wextra -Werror)
 
 add_executable(
   narfs_stage_link_probe
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../../test/native/narfs_stage_link_probe.c)
+  ${CMAKE_CURRENT_SOURCE_DIR}/../test/narfs_stage_link_probe.c)
 target_compile_options(
   narfs_stage_link_probe PRIVATE -std=c99 -Wall -Wextra -Werror)
 target_link_libraries(

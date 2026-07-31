@@ -6,11 +6,11 @@ class KotlinIncomingNarIntentContractTest(unittest.TestCase):
     def test_security_gate_is_kotlin_and_keeps_java_static_entry_points(self):
         root = Path(__file__).resolve().parents[1]
         self.assertFalse(
-            (root / "src/com/cattailsw/nanidroid/IncomingNarIntent.java").exists()
+            (root / "src/main/kotlin/com/cattailsw/nanidroid/IncomingNarIntent.java").exists()
         )
         self.assertFalse((root / "legacy").exists())
         source = (
-            root / "src/com/cattailsw/nanidroid/IncomingNarIntent.kt"
+            root / "src/main/kotlin/com/cattailsw/nanidroid/IncomingNarIntent.kt"
         ).read_text(encoding="utf-8")
         self.assertIn("object IncomingNarIntent", source)
         self.assertEqual(2, source.count("@JvmStatic"))

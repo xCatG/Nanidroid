@@ -15,11 +15,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class KotlinNanidroidActivityContractTest(unittest.TestCase):
     def setUp(self):
         self.source = (
-            ROOT / "src/com/cattailsw/nanidroid/Nanidroid.kt"
+            ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt"
         ).read_text(encoding="utf-8")
 
     def test_gradle_build_uses_kotlin_while_ant_keeps_the_frozen_java_activity(self):
-        self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/Nanidroid.java").exists())
+        self.assertFalse((ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.java").exists())
         self.assertFalse((ROOT / "legacy").exists())
         self.assertIn("class Nanidroid : ComponentActivity()", self.source)
         self.assertIn("setContent {", self.source)
@@ -52,7 +52,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
 
     def test_compose_toolbar_stays_below_system_status_bars(self):
         shell = (
-            ROOT / "src/com/cattailsw/nanidroid/compose/NanidroidComposeShell.kt"
+            ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/NanidroidComposeShell.kt"
         ).read_text(encoding="utf-8")
         self.assertIn("import androidx.compose.foundation.layout.statusBarsPadding", shell)
         self.assertIn("Column(modifier = Modifier.statusBarsPadding())", shell)
@@ -94,7 +94,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
 
     def test_operational_dialogs_are_compose_state_not_fragments_or_array_adapters(self):
         dialog_source = (
-            ROOT / "src/com/cattailsw/nanidroid/compose/NanidroidSimpleDialogs.kt"
+            ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/NanidroidSimpleDialogs.kt"
         ).read_text(encoding="utf-8")
         for name in (
             "EnterUrlDlg.kt",
@@ -108,7 +108,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
             "NarPickDlg.kt",
             "NotImplementedDlg.kt",
         ):
-            self.assertFalse((ROOT / "src/com/cattailsw/nanidroid/dlgs" / name).exists())
+            self.assertFalse((ROOT / "src/main/kotlin/com/cattailsw/nanidroid/dlgs" / name).exists())
         self.assertIn("data class UrlEntry", dialog_source)
         self.assertIn("KeyboardType.Uri", dialog_source)
         self.assertIn("ImeAction.Done", dialog_source)
@@ -120,15 +120,15 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertNotIn("registerForContextMenu", self.source)
         self.assertNotIn("onCreateContextMenu", self.source)
         self.assertNotIn("onContextItemSelected", self.source)
-        self.assertFalse((ROOT / "res/layout/dbgdlg.xml").exists())
-        self.assertFalse((ROOT / "res/menu/main_help_menu.xml").exists())
-        self.assertFalse((ROOT / "res/values/arrays.xml").exists())
+        self.assertFalse((ROOT / "src/main/res/layout/dbgdlg.xml").exists())
+        self.assertFalse((ROOT / "src/main/res/menu/main_help_menu.xml").exists())
+        self.assertFalse((ROOT / "src/main/res/values/arrays.xml").exists())
 
     def test_compose_stage_preserves_legacy_interaction_and_animation_lifecycle(self):
         stage = (
-            ROOT / "src/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt"
+            ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt"
         ).read_text(encoding="utf-8")
-        runner = (ROOT / "src/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
+        runner = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
             encoding="utf-8"
         )
         # SakuraView dispatched every physical tap as OnMouseDoubleClick; the
