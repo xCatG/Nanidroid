@@ -17,10 +17,10 @@ class Api37CompileContractTest(unittest.TestCase):
         self.assertNotIn("minSdk = 9", gradle)
         self.assertIn("targetSdk = 37", gradle)
         self.assertNotIn('useLibrary("org.apache.http.legacy", false)', gradle)
-        self.assertIn('platforms/android-15/android.jar', gradle)
-        self.assertNotIn("compileOnly(legacyTestApi)", gradle)
-        self.assertIn("testCompileOnly(legacyTestApi)", gradle)
-        self.assertIn("androidTestCompileOnly(legacyTestApi)", gradle)
+        self.assertNotIn("android-15", gradle)
+        self.assertNotIn("legacyTestApi", gradle)
+        dockerfile = (root / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
+        self.assertNotIn("platforms;android-15", dockerfile)
 
     def test_removed_notification_setter_is_behind_the_min_sdk_bridge(self) -> None:
         root = Path(__file__).resolve().parents[1]

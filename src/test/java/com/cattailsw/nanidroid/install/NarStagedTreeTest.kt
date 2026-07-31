@@ -1,14 +1,13 @@
 package com.cattailsw.nanidroid.install
 
 import android.content.Context
-import android.test.mock.MockContext
+import io.mockk.mockk
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.security.MessageDigest
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
-import sun.misc.Unsafe
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -128,15 +127,8 @@ class NarStagedTreeTest {
     }
     private companion object {
         // These unit tests only pass Context through the fake backend by
-        // identity; no Android Context API is invoked.  Allocation without a
-        // constructor keeps the JVM test independent from android.jar stubs.
-        val CONTEXT: Context = inertContext()
+        // identity; no Android Context API is invoked.
+        val CONTEXT: Context = mockk(relaxed = true)
         val ROOT = NarFilesystemInspector.TrustedRoot("/trusted")
-
-        private fun inertContext(): Context {
-            val field = Unsafe::class.java.getDeclaredField("theUnsafe")
-            field.isAccessible = true
-            return (field.get(null) as Unsafe).allocateInstance(MockContext::class.java) as Context
-        }
     }
 }

@@ -1,6 +1,14 @@
 package com.cattailsw.nanidroid.install;
 
-import android.test.InstrumentationTestCase;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+import static org.junit.Assert.*;
 import android.os.Build;
 
 import java.io.File;
@@ -10,29 +18,25 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-public final class NarFilesystemInspectorInstrumentationTest
-        extends InstrumentationTestCase {
+@RunWith(AndroidJUnit4.class)
+public final class NarFilesystemInspectorInstrumentationTest {
     private static final int BULK_FILES = 96;
     private File fixtureRoot;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
+    @Before
+    public void setUp() throws Exception {
         fixtureRoot = new File(
-                getInstrumentation().getTargetContext().getCacheDir(),
+                InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir(),
                 "narfs-device-" + System.nanoTime());
         assertTrue("Could not create fixture root", fixtureRoot.mkdirs());
     }
 
-    @Override
-    protected void tearDown() throws Exception {
-        try {
-            deleteRecursively(fixtureRoot);
-        } finally {
-            super.tearDown();
-        }
+    @After
+    public void tearDown() {
+        deleteRecursively(fixtureRoot);
     }
 
+    @Test
     public void testArm64NativeFilesystemContract() throws Exception {
         assertSelectedAarch64Library();
 
@@ -116,7 +120,7 @@ public final class NarFilesystemInspectorInstrumentationTest
 
     private void assertSelectedAarch64Library() throws Exception {
         String abi = Build.SUPPORTED_ABIS[0];
-        File apk = new File(getInstrumentation()
+        File apk = new File(InstrumentationRegistry.getInstrumentation()
                 .getTargetContext().getApplicationInfo().sourceDir);
         byte[] header = new byte[20];
         int offset = 0;

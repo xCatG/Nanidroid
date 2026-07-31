@@ -4,7 +4,15 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
-import android.test.InstrumentationTestCase;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+import static org.junit.Assert.*;
 import android.util.Base64;
 
 import java.io.File;
@@ -17,7 +25,8 @@ import java.util.Arrays;
  * framework. The fixtures are original synthetic color matrices, encoded once
  * as tiny PNG byte arrays so the decoder input is stable across platform versions.
  */
-public final class SurfaceRenderingCharacterizationTest extends InstrumentationTestCase {
+@RunWith(AndroidJUnit4.class)
+public final class SurfaceRenderingCharacterizationTest {
     private static final String PADDED_PNG_BASE64 =
             "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAYAAACddGYaAAAAG0lEQVR42mP4z/D/"
                     + "/3+G/w0gmuE/wz8QARYBANdBEHDHkUDcAAAAAElFTkSuQmCC";
@@ -47,24 +56,20 @@ public final class SurfaceRenderingCharacterizationTest extends InstrumentationT
 
     private File fixtureRoot;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
+    @Before
+    public void setUp() throws Exception {
         fixtureRoot = new File(
-                getInstrumentation().getTargetContext().getCacheDir(),
+                InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir(),
                 "d7a-surface-rendering-" + System.nanoTime());
         assertTrue("Could not create fixture directory", fixtureRoot.mkdirs());
     }
 
-    @Override
-    protected void tearDown() throws Exception {
-        try {
-            deleteRecursively(fixtureRoot);
-        } finally {
-            super.tearDown();
-        }
+    @After
+    public void tearDown() {
+        deleteRecursively(fixtureRoot);
     }
 
+    @Test
     public void testRequiredMigrationInvariant_baseSurfaceUsesUpperLeftColorKeyAndPaddedFallback()
             throws Exception {
         File paddedSurface = writeFixture(
@@ -79,6 +84,7 @@ public final class SurfaceRenderingCharacterizationTest extends InstrumentationT
                 renderPixels(surface.getSurfaceDrawable(resources()), 3, 2));
     }
 
+    @Test
     public void testRequiredMigrationInvariant_elementSurfaceComposesDeclaredLayersAtOffsets()
             throws Exception {
         writeFixture("base.png", ELEMENT_BASE_PNG_BASE64, ELEMENT_BASE_PNG_SHA256);
@@ -101,7 +107,7 @@ public final class SurfaceRenderingCharacterizationTest extends InstrumentationT
     }
 
     private android.content.res.Resources resources() {
-        return getInstrumentation().getTargetContext().getResources();
+        return InstrumentationRegistry.getInstrumentation().getTargetContext().getResources();
     }
 
     private String rootPath() {

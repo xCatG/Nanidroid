@@ -55,7 +55,6 @@ RUN set -eux; \
 RUN yes | sdkmanager --licenses >/dev/null \
     && sdkmanager \
         "platforms;android-${ANDROID_PLATFORM_VERSION}" \
-        "platforms;android-15" \
         "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
         "platform-tools" \
     && rm -rf /root/.android

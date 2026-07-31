@@ -1,7 +1,13 @@
 package com.cattailsw.nanidroid.install
 
 import android.content.Context
-import android.test.InstrumentationTestCase
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
 import java.io.File
 import java.io.FileOutputStream
 import java.lang.reflect.Method
@@ -10,16 +16,17 @@ import java.util.Arrays
 import java.util.TreeSet
 
 /** On-device characterization of the native staged-tree ownership protocol. */
-class NarStagedTreeInstrumentationTest : InstrumentationTestCase() {
+@RunWith(AndroidJUnit4::class)
+class NarStagedTreeInstrumentationTest {
     private lateinit var context: Context
     private lateinit var fixtureRoot: File
     private lateinit var stagingRoot: File
     private lateinit var stagingBaseline: Set<String>
 
+    @Before
     @Throws(Exception::class)
-    override fun setUp() {
-        super.setUp()
-        context = instrumentation.targetContext
+    fun setUp() {
+        context = InstrumentationRegistry.getInstrumentation().targetContext
         val fixtures = context.getDir("narfs-fixtures-v1", Context.MODE_PRIVATE)
         fixtureRoot = File(fixtures, "run-" + System.nanoTime())
         assertTrue(fixtureRoot.mkdir())
@@ -27,16 +34,14 @@ class NarStagedTreeInstrumentationTest : InstrumentationTestCase() {
         stagingBaseline = children(stagingRoot)
     }
 
+    @After
     @Throws(Exception::class)
-    override fun tearDown() {
-        try {
-            deleteRecursively(fixtureRoot)
-            assertEquals(stagingBaseline, children(stagingRoot))
-        } finally {
-            super.tearDown()
-        }
+    fun tearDown() {
+        deleteRecursively(fixtureRoot)
+        assertEquals(stagingBaseline, children(stagingRoot))
     }
 
+    @Test
     @Throws(Exception::class)
     fun testPresentAbsentInventoryAndTreeClaimTransfer() {
         val session = NarStagedTree.Stager().session(context)
@@ -90,6 +95,7 @@ class NarStagedTreeInstrumentationTest : InstrumentationTestCase() {
         assertEquals(stagingBaseline, children(stagingRoot))
     }
 
+    @Test
     @Throws(Exception::class)
     fun testInodeMismatchFailureRetriesAndMalformedTokenRejects() {
         val ghost = directory(fixtureRoot, "retry")
@@ -142,6 +148,7 @@ class NarStagedTreeInstrumentationTest : InstrumentationTestCase() {
         assertEquals(100, (discard.invoke(null, stagingRoot.absolutePath, ByteArray(88)) as Int))
     }
 
+    @Test
     @Throws(Exception::class)
     fun testPolicyFailureAutomaticallyCleansNativeSession() {
         val ghost = directory(fixtureRoot, "collision")
