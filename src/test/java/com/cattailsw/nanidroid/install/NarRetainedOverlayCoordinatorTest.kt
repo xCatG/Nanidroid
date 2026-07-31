@@ -1,13 +1,13 @@
 package com.cattailsw.nanidroid.install
 
 import android.content.Context
-import android.test.mock.MockContext
+import io.mockk.mockk
+
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
-import sun.misc.Unsafe
 import java.lang.reflect.Modifier
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.*
@@ -106,15 +106,9 @@ class NarRetainedOverlayCoordinatorTest {
     private class FakeBackend : NarStagedTree.Backend { private val handle: NarStagedTree.Handle = FakeHandle(); var results = arrayOf(NarStagedTree.Error.OK); private var resultIndex = 0; var discards = 0; var throwable: Throwable? = null; override fun begin(context: Context, root: NarFilesystemInspector.TrustedRoot, target: CharSequence): NarStagedTree.BeginResult = NarStagedTree.BeginResult.present(handle); override fun describe(supplied: NarStagedTree.Handle): NarStagedTreeInventory.Description = NarStagedTreeInventory.Description(1, 2, emptyArray(), IntArray(0), LongArray(0), IntArray(0), ByteArray(0)); override fun discard(context: Context, supplied: NarStagedTree.Handle): NarStagedTree.Error { discards++; when (val failure = throwable) { is RuntimeException -> throw failure; is Error -> throw failure }; return results[minOf(resultIndex++, results.size - 1)] } }
 
     private companion object {
-        // The fake staged-tree backend verifies identity only, so avoid
-        // constructing an android.jar stub in a local JVM test.
-        val CONTEXT: Context = inertContext()
+        // The fake staged-tree backend verifies identity only; no Context API
+        // is invoked by this JVM characterization test.
+        val CONTEXT: Context = mockk(relaxed = true)
         val ROOT = NarFilesystemInspector.TrustedRoot("/trusted")
-
-        private fun inertContext(): Context {
-            val field = Unsafe::class.java.getDeclaredField("theUnsafe")
-            field.isAccessible = true
-            return (field.get(null) as Unsafe).allocateInstance(MockContext::class.java) as Context
-        }
     }
 }

@@ -169,6 +169,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.test:core:1.7.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     // ComponentActivity is declared only by the device-test manifest, so package
@@ -176,23 +177,11 @@ dependencies {
     androidTestImplementation("androidx.activity:activity:1.13.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // API 36 no longer exposes android.test.*. Keep the frozen legacy
-    // characterization sources compiling against their historical API-only
-    // facade; the application itself still compiles against API 36 above.
-    val legacyTestApi = files(
-        "${System.getenv("ANDROID_SDK_ROOT")}/platforms/android-15/android.jar"
-    )
-    testCompileOnly(legacyTestApi)
-    androidTestCompileOnly(legacyTestApi)
-    // Local JVM characterization tests use MockContext only as an identity
-    // token. API 36 removed android.test.* from its runtime stubs, so provide
-    // the frozen API façade at test runtime; affected tests bypass its stub
-    // constructor and never invoke Android APIs.
-    testRuntimeOnly(legacyTestApi)
     implementation(platform("com.google.firebase:firebase-bom:34.16.0"))
     implementation("com.google.firebase:firebase-crashlytics")
     implementation(files("libs/libGoogleAnalytics.jar"))
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.mockk:mockk:1.14.11")
 }
 
 val characterizationTests = listOf(
