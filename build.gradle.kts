@@ -154,18 +154,6 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("test") {
-            java.srcDir("test/jvm")
-            kotlin.srcDir("test/jvm")
-        }
-        getByName("androidTest") {
-            java.setSrcDirs(listOf("test/device"))
-            kotlin.setSrcDirs(listOf("test/device"))
-            manifest.srcFile("test/device/AndroidManifest.xml")
-        }
-    }
-
     buildFeatures {
         aidl = true
         buildConfig = false
@@ -224,69 +212,66 @@ dependencies {
 }
 
 val characterizationTests = listOf(
-    "test/jvm/com/cattailsw/nanidroid/HostAndroidStubRule.kt",
-    "test/jvm/com/cattailsw/nanidroid/LegacyPlatformSeamTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/NanidroidShioriCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/compose/SurfaceRenderPlanTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/compose/SurfaceCompositorTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/compose/SurfaceAnimationSchedulerTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/compose/SurfacePointerInteractionTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/compose/BalloonPresentationTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/GhostSwitchRequestTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/GhostShellNameCompatibilityTest.java",
-    "test/jvm/com/cattailsw/nanidroid/GhostPresentationFrameTest.java",
-    "test/jvm/com/cattailsw/nanidroid/SScriptRunnerPresentationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/BootDispatchStateTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/SScriptRunnerBootDispatchTest.java",
-    "test/jvm/com/cattailsw/nanidroid/SSTPBottleSensorCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/runtime/GhostPresentationReducerTest.java",
-    "test/jvm/com/cattailsw/nanidroid/runtime/GhostStageLayoutPolicyTest.java",
-    "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationReducerTest.java",
-    "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationInterpreterTest.java",
-    "test/jvm/com/cattailsw/nanidroid/runtime/SakuraScriptInteractionInterpreterTest.java",
-    "test/jvm/com/cattailsw/nanidroid/runtime/KotlinGhostPresentationRuntimeTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarArchiveInventoryValidatorTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/install/NarDescriptorParserTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/install/NarZipCentralPreflightTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarInstallPlanValidatorTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarStagedSourceCopyTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarGhostTreePolicyTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/install/NarFilesystemInspectorTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeInventoryTest.kt",
-      "test/jvm/com/cattailsw/nanidroid/install/NarStagedTreeTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.kt",
-    "test/jvm/com/cattailsw/nanidroid/install/NarTransactionalInstallerTest.java",
-    "test/jvm/com/cattailsw/nanidroid/install/NarContentUriImportTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/HostAndroidStubRule.kt",
+    "src/test/java/com/cattailsw/nanidroid/LegacyPlatformSeamTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/DescReaderCharacterizationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/NanidroidShioriCharacterizationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/compose/SurfaceRenderPlanTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/compose/SurfaceCompositorTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/compose/SurfaceAnimationSchedulerTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/compose/SurfacePointerInteractionTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/compose/BalloonPresentationTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/GhostSwitchRequestTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/GhostShellNameCompatibilityTest.java",
+    "src/test/java/com/cattailsw/nanidroid/GhostPresentationFrameTest.java",
+    "src/test/java/com/cattailsw/nanidroid/SScriptRunnerPresentationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/BootDispatchStateTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/SScriptRunnerBootDispatchTest.java",
+    "src/test/java/com/cattailsw/nanidroid/SSTPBottleSensorCharacterizationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/runtime/GhostPresentationReducerTest.java",
+    "src/test/java/com/cattailsw/nanidroid/runtime/GhostStageLayoutPolicyTest.java",
+    "src/test/java/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationReducerTest.java",
+    "src/test/java/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationInterpreterTest.java",
+    "src/test/java/com/cattailsw/nanidroid/runtime/SakuraScriptInteractionInterpreterTest.java",
+    "src/test/java/com/cattailsw/nanidroid/runtime/KotlinGhostPresentationRuntimeTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.java",
+    "src/test/java/com/cattailsw/nanidroid/install/NarArchiveInventoryValidatorTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/install/NarDescriptorParserTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/install/NarZipCentralPreflightTest.java",
+    "src/test/java/com/cattailsw/nanidroid/install/NarInstallPlanValidatorTest.java",
+    "src/test/java/com/cattailsw/nanidroid/install/NarStagedSourceCopyTest.java",
+    "src/test/java/com/cattailsw/nanidroid/install/NarGhostTreePolicyTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/install/NarFilesystemInspectorTest.java",
+    "src/test/java/com/cattailsw/nanidroid/install/NarStagedTreeInventoryTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/install/NarStagedTreeTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/install/NarTransactionalInstallerTest.java",
+    "src/test/java/com/cattailsw/nanidroid/install/NarContentUriImportTest.kt",
 )
 val jvmTestSources = files(
-    fileTree("src") {
-        include("test*/**/*.java", "test*/**/*.kt")
-    },
-    fileTree("test/jvm") {
+    fileTree("src/test/java") {
         include("**/*.java", "**/*.kt")
     },
 )
 val deviceCharacterizationTests = listOf(
-    "test/device/com/cattailsw/nanidroid/" +
+    "src/androidTest/com/cattailsw/nanidroid/" +
         "SurfaceRenderingCharacterizationTest.java",
-    "test/device/com/cattailsw/nanidroid/" +
+    "src/androidTest/com/cattailsw/nanidroid/" +
         "SurfaceAnimationExecutionCharacterizationTest.kt",
-    "test/device/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
-    "test/device/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.java",
-    "test/device/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",
-    "test/device/com/cattailsw/nanidroid/install/" +
+    "src/androidTest/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
+    "src/androidTest/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.java",
+    "src/androidTest/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",
+    "src/androidTest/com/cattailsw/nanidroid/install/" +
         "NarFilesystemInspectorInstrumentationTest.java",
-    "test/device/com/cattailsw/nanidroid/install/" +
+    "src/androidTest/com/cattailsw/nanidroid/install/" +
         "NarStagedTreeInstrumentationTest.kt",
 )
 val deviceTestSources = files(
-    fileTree("test/device") {
+    fileTree("src/androidTest") {
         include("**/*.java", "**/*.kt")
     },
 )
