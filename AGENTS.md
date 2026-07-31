@@ -15,15 +15,14 @@ layout and Kotlin sources.
 
 ## Build, Test, and Development Commands
 
-- `./gradlew.bat assembleDebug` builds the debug APK and native targets.
-- `./gradlew.bat testDebugUnitTest` runs the JVM JUnit 4 suite.
-- `./gradlew.bat lint` runs Android lint.
-- `./gradlew.bat connectedDebugAndroidTest` runs instrumentation tests on a
-  connected API 31+ emulator or device.
+- `./gradlew assembleDebug` builds the debug APK and native targets.
+- `./gradlew testDebugUnitTest` runs the JVM JUnit 4 suite.
+- `./gradlew lint` runs Android lint.
+- `./gradlew connectedDebugAndroidTest` runs instrumentation tests on a
+  connected API 31+ emulator or device. On Windows, use `./gradlew.bat`.
 
-Use the Gradle wrapper; dependency and plugin versions are centralized in
-`gradle/libs.versions.toml`. The app compiles and targets API 37, with minSdk
-31.
+Use the Gradle wrapper; dependency and plugin versions are declared in
+`build.gradle.kts`. The app compiles and targets API 37, with minSdk 31.
 
 ## Coding Style & Naming Conventions
 
