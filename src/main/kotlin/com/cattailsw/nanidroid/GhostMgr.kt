@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
+import com.cattailsw.nanidroid.install.ArchiveInstallFailure
+import com.cattailsw.nanidroid.install.ArchiveInstallResult
 import com.cattailsw.nanidroid.install.NarTransactionalInstaller
 import com.cattailsw.nanidroid.util.PrefUtil
 import java.io.File
@@ -46,33 +48,67 @@ class GhostMgr(ctx: Context) {
         installGhost(gid, narPath, false)
 
     fun installGhost(ghostId: String, narPath: String, usegid: Boolean): String? {
+        return when (val result = installGhost(ghostId, narPath, usegid, { false })) {
+            is ArchiveInstallResult.Installed -> result.installedPath
+            is ArchiveInstallResult.Failed -> {
+                lastInstallError = result.message
+                null
+            }
+            ArchiveInstallResult.Cancelled -> {
+                lastInstallError = "The selected ghost archive install was cancelled."
+                null
+            }
+        }
+    }
+
+    fun installFirstGhost(
+        gid: String,
+        narPath: String,
+        isCancelled: () -> Boolean,
+    ): ArchiveInstallResult = installGhost(gid, narPath, true, isCancelled)
+
+    fun installGhost(
+        ghostId: String,
+        narPath: String,
+        isCancelled: () -> Boolean,
+    ): ArchiveInstallResult = installGhost(ghostId, narPath, false, isCancelled)
+
+    fun installGhost(
+        ghostId: String,
+        narPath: String,
+        usegid: Boolean,
+        isCancelled: () -> Boolean,
+    ): ArchiveInstallResult {
         val externalFiles = context.getExternalFilesDir(null)
         if (externalFiles == null) {
-            lastInstallError =
-                "Nanidroid cannot access the selected ghost archive or storage."
-            return null
+            return ArchiveInstallResult.Failed(
+                "Nanidroid cannot access the selected ghost archive or storage.",
+                ArchiveInstallFailure.StorageUnavailable,
+            )
         }
         val dataDir = File(externalFiles, "ghost")
         if ((!dataDir.exists() && !dataDir.mkdirs()) || !dataDir.isDirectory) {
-            lastInstallError = "Nanidroid cannot prepare its ghost storage."
-            return null
+            return ArchiveInstallResult.Failed(
+                "Nanidroid cannot prepare its ghost storage.",
+                ArchiveInstallFailure.StorageUnavailable,
+            )
         }
         val installed = NarTransactionalInstaller.install(
-            File(narPath), dataDir, if (usegid) ghostId else null
+            File(narPath), dataDir, if (usegid) ghostId else null, isCancelled
         )
-        if (!installed.isSuccess) {
-            lastInstallError = installed.message
-            return null
+        if (installed !is ArchiveInstallResult.Installed) {
+            return installed
         }
         refreshGhost()
         val id = getGhostId(installed.targetId!!)
         if (id == -1) {
-            lastInstallError =
-                "The installed archive does not contain a usable ghost."
-            return null
+            return ArchiveInstallResult.Failed(
+                "The installed archive does not contain a usable ghost.",
+                ArchiveInstallFailure.InvalidArchive,
+            )
         }
         lastInstallError = null
-        return getGhostPath(id)
+        return ArchiveInstallResult.Installed(getGhostPath(id), installed.targetId)
     }
 
     fun getLastInstallError(): String? = lastInstallError
