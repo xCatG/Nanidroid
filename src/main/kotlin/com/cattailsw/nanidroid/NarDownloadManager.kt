@@ -32,29 +32,40 @@ object NarDownloadManager {
     }
 
     @JvmStatic
-    fun handleCompletedDownload(context: Context, id: Long) {
-        if (!isRecorded(context, id)) return
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return
+    fun handleCompletedDownload(context: Context, id: Long): Boolean {
+        if (!isRecorded(context, id)) return false
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return true
+        var installed = false
         try {
-            val query = manager.query(DownloadManager.Query().setFilterById(id)) ?: return
+            val query = manager.query(DownloadManager.Query().setFilterById(id)) ?: return true
             val successful = query.use { cursor ->
                 cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) == DownloadManager.STATUS_SUCCESSFUL
             }
-            if (!successful) return
+            if (!successful) return false
             manager.openDownloadedFile(id).use { descriptor ->
                 FileInputStream(descriptor.fileDescriptor).use { stream ->
-                    val result = NarContentUriImport.importStream(File(context.cacheDir, "nar-import"), { stream }) { staged ->
-                        GhostMgr(context).installGhost("download", staged.path)
+                    val result = NarContentUriImport.importStream(
+                        File(context.cacheDir, "nar-import"),
+                        { stream },
+                        maxBytes = MAX_ARCHIVE_BYTES,
+                    ) { staged -> GhostMgr(context).installGhost("download", staged.path) }
+                    if (!result.isSuccess) {
+                        Log.w(TAG, "Downloaded archive could not be installed: ${result.message}")
+                        return true
                     }
-                    if (!result.isSuccess) Log.w(TAG, "Downloaded archive could not be installed: ${result.message}")
+                    installed = true
                 }
             }
         } catch (error: Exception) {
             Log.w(TAG, "Downloaded archive could not be opened", error)
+            return true
         } finally {
-            forget(context, id)
-            manager.remove(id)
+            if (installed) {
+                forget(context, id)
+                manager.remove(id)
+            }
         }
+        return false
     }
 
     private fun record(context: Context, id: Long) {
@@ -71,6 +82,8 @@ object NarDownloadManager {
     }
 
     private fun pendingKey(id: Long): String = "pending_$id"
+
+    private const val MAX_ARCHIVE_BYTES = 544L * 1024L * 1024L
 
     private fun randomName(): String {
         val bytes = ByteArray(12)

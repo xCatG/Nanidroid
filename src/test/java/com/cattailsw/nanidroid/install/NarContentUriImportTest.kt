@@ -25,6 +25,21 @@ class NarContentUriImportTest {
         assertFalse(stage!!.exists())
     }
 
+    @Test fun streamImportRejectsArchivesThatExceedTheConfiguredLimit() {
+        val root = temporaryDirectory()
+        var installed = false
+
+        val result = NarContentUriImport.importStream(
+            root,
+            { ByteArrayInputStream(byteArrayOf(1, 2, 3, 4)) },
+            maxBytes = 3,
+        ) { installed = true; "/private/ghosts/oversized" }
+
+        assertFalse(result.isSuccess)
+        assertFalse(installed)
+        assertFalse(root.listFiles()!!.any { it.name.startsWith("nar-import-") })
+    }
+
     @Test fun rejectsAnythingOtherThanAContentUriBeforeOpeningIt() {
         var opened = false
         val result = NarContentUriImport.importContent(

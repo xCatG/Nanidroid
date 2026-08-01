@@ -10,10 +10,11 @@ class NarDownloadInstallJob : JobService() {
         val id = params.extras.getLong(NarDownloadReceiver.EXTRA_DOWNLOAD_ID, -1L)
         if (id < 0L) return false
         executor.execute {
+            var shouldRetry = true
             try {
-                NarDownloadManager.handleCompletedDownload(applicationContext, id)
+                shouldRetry = NarDownloadManager.handleCompletedDownload(applicationContext, id)
             } finally {
-                jobFinished(params, false)
+                jobFinished(params, shouldRetry)
             }
         }
         return true
