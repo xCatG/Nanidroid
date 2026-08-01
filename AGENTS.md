@@ -37,9 +37,9 @@ imports tidy.
 
 Name tests `*Test`; use JUnit 4 and MockK for mocks. Prefer JVM tests for pure
 behavior and `androidTest` only for framework or UI behavior. There is no
-coverage threshold. `build.gradle.kts` deliberately allowlists JVM and device
-characterization tests because of Android default-return stubs; update the
-corresponding list whenever adding, removing, or relocating a test.
+coverage threshold. Keep tests in Android's standard source-set layout:
+`src/test/java/` for local JVM tests and `src/androidTest/java/` for device and
+Compose instrumentation tests.
 
 ## Commit & Pull Request Guidelines
 
