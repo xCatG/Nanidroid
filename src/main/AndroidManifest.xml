@@ -27,6 +27,11 @@
 	<category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
     </activity>
+    <receiver android:name=".NarDownloadReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+      </intent-filter>
+    </receiver>
     <service android:name=".NanidroidService" android:exported="false"
       android:foregroundServiceType="dataSync" />
     <activity android:name=".Preferences" android:exported="false" android:theme="@style/NanidroidTheme" />

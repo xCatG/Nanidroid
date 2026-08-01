@@ -24,7 +24,6 @@ import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.FileReader
 import java.io.IOException
-import java.io.InputStream
 import java.net.SocketTimeoutException
 import java.util.LinkedList
 
@@ -57,16 +56,6 @@ class NanidroidService : Service() {
         val action = intent.action
         when {
             action == null -> startHttpTask(1_000)
-            action.equals(Intent.ACTION_RUN, ignoreCase = true) -> {
-                val data = intent.data
-                if (RemoteNarUrl.isApproved(data)) {
-                    startForegroundWork(startId)
-                    NarDownloadTask(data!!, startId).execute(this)
-                } else {
-                    Log.w(TAG, "Rejected non-HTTPS archive download request")
-                    finishForegroundWork(startId)
-                }
-            }
             Intent.ACTION_SYNC.equals(action, ignoreCase = true) -> {
                 val homeurl = intent.data
                 val gid = intent.getStringExtra(EXT_GID)
@@ -110,8 +99,8 @@ class NanidroidService : Service() {
         val contentIntent = PendingIntent.getActivity(this, 0, launchIntent, flags)
         val builder = Notification.Builder(this)
             .setSmallIcon(R.drawable.notification)
-            .setContentTitle(getString(R.string.download_in_progress))
-            .setContentText(getString(R.string.download_in_progress))
+            .setContentTitle(getString(R.string.service_in_progress))
+            .setContentText(getString(R.string.service_in_progress))
             .setContentIntent(contentIntent)
             .setOngoing(true)
         if (Build.VERSION.SDK_INT >= 26) {
@@ -129,7 +118,7 @@ class NanidroidService : Service() {
         try {
             val channelClass = Class.forName("android.app.NotificationChannel")
             val channel = channelClass.getConstructor(String::class.java, CharSequence::class.java, Int::class.javaPrimitiveType)
-                .newInstance(CHANNEL_ID, getString(R.string.download_channel_name), 2)
+                .newInstance(CHANNEL_ID, getString(R.string.service_channel_name), 2)
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.javaClass.getMethod("createNotificationChannel", channelClass).invoke(manager, channel)
         } catch (e: Exception) {
@@ -173,52 +162,6 @@ class NanidroidService : Service() {
         }
 
         override fun onPostExecute(result: String) { runner?.run() }
-    }
-
-    @Suppress("DEPRECATION")
-    private inner class NarDownloadTask(private val targeturi: Uri, private val svcid: Int) : AsyncTask<Context, String, String?>() {
-        private val targetUrl = Uri.decode(targeturi.toString())
-
-        override fun doInBackground(vararg args: Context): String? = try {
-            val context = args[0]
-            val targetPath = File(context.externalCacheDir, targeturi.lastPathSegment)
-            Log.d(TAG, "downloading:$targetUrl to ${targeturi.lastPathSegment}")
-            if (!NetworkUtil.exists(context, targetUrl)) {
-                Log.d(TAG, "file doesn't exist")
-                null
-            } else {
-                val input: InputStream = NetworkUtil.getURLStream(context, targetUrl)
-                NarUtil.copyFile(input, FileOutputStream(targetPath))
-                targetPath.toString()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-
-        override fun onPostExecute(result: String?) {
-            if (result == null) {
-                Log.d(TAG, "download failed.")
-                finishForegroundWork(svcid)
-                return
-            }
-            Log.d(TAG, "download complete?")
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val launch = Intent(this@NanidroidService, Nanidroid::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            var flags = PendingIntent.FLAG_UPDATE_CURRENT
-            if (Build.VERSION.SDK_INT >= 23) flags = flags or FLAG_IMMUTABLE
-            val content = PendingIntent.getActivity(this@NanidroidService, 0, launch, flags)
-            val noteText = String.format(getString(R.string.dl_note), targeturi.lastPathSegment)
-            val notification = LegacyNotificationBridge.create(
-                applicationContext, R.drawable.notification, getString(R.string.dl_complete),
-                System.currentTimeMillis(), getString(R.string.dl_complete), noteText, content
-            )
-            notification.flags = Notification.FLAG_AUTO_CANCEL
-            manager.notify(42, notification)
-            finishForegroundWork(svcid)
-        }
     }
 
     @Suppress("DEPRECATION")
@@ -364,7 +307,7 @@ class NanidroidService : Service() {
         private const val TAG = "HeadLineSensorService"
         private const val DEF_TIME = 600_000L
         private const val HTTP_TASK_START = 1
-        private const val CHANNEL_ID = "nanidroid_downloads"
+        private const val CHANNEL_ID = "nanidroid_service"
         private const val FOREGROUND_NOTIFICATION_ID = 41
         private const val FLAG_IMMUTABLE = 0x04000000
         private const val UPDATE_FILE = "updates2.dau"

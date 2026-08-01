@@ -3,10 +3,8 @@
     <string name="app_name">Nanidroid</string>
 
 
-  <string name="dl_complete">Download Completed</string>
-  <string name="dl_note">%1$s finished downloading. Local archive installation is being modernized.</string>
-  <string name="download_channel_name">Nanidroid downloads</string>
-  <string name="download_in_progress">Downloading archive</string>
+  <string name="service_channel_name">Nanidroid background work</string>
+  <string name="service_in_progress">Updating Nanidroid data</string>
   <string name="list_ghost_btn_text">List Ghosts</string>
   <string name="update_btn_text">Update</string>
   <string name="help_btn_text">Help</string>

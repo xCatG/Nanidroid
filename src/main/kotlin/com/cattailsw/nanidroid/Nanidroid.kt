@@ -221,7 +221,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun onShowCollision() = Unit
     fun runClick() { runner!!.addMsgToQueue(arrayOf("\\![open,inputbox,lalala]")); runner!!.run() }
     private fun sendStopIntent() { stopService(Intent(this, NanidroidService::class.java)) }
-    private fun addNarToDownload(target: Uri) { if (!RemoteNarUrl.isApproved(target)) { Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show(); return }; startModernService(Intent(this, NanidroidService::class.java).setAction(Intent.ACTION_RUN).setData(target)) }
+    private fun addNarToDownload(target: Uri) { if (NarDownloadManager.enqueue(this, target) == null) Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show() }
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
     private fun extractNar(targetPath: String) = extractNar(targetPath, false)

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="dl_complete">下載完成</string>
-  <string name="dl_note">可以安裝%1$s</string>
+  <string name="service_channel_name">Nanidroid 背景工作</string>
+  <string name="service_in_progress">正在更新 Nanidroid 資料</string>
   <string name="list_ghost_btn_text">偽人格列表</string>
   <string name="update_btn_text">更新</string>
   <string name="help_btn_text">說明</string>

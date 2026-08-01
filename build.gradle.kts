@@ -186,6 +186,7 @@ dependencies {
 
 val characterizationTests = listOf(
     "src/test/java/com/cattailsw/nanidroid/ArchiveIntentRetirementTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/DownloadManagerMigrationTest.kt",
     "src/test/java/com/cattailsw/nanidroid/RemoteNarUrlTest.kt",
     "src/test/java/com/cattailsw/nanidroid/HostAndroidStubRule.kt",
     "src/test/java/com/cattailsw/nanidroid/LegacyPlatformSeamTest.kt",
