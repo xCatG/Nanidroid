@@ -24,7 +24,13 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
     fun update(id: String, transform: (NarDownload) -> NarDownload): NarDownload? = synchronized(operationLock) {
         val records = readRecords()
         val current = records[id] ?: return@synchronized null
-        val updated = transform(current)
+        val updated = transform(current).let { candidate ->
+            if (candidate.state is NarDownloadState.NeedsAttention) {
+                candidate.copy(source = current.source, retainedUri = current.retainedUri)
+            } else {
+                candidate
+            }
+        }
         require(updated.id == id) { "download id cannot change" }
         records[id] = updated
         writeRecords(records)

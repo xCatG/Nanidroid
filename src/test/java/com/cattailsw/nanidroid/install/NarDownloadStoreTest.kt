@@ -32,6 +32,31 @@ class NarDownloadStoreTest {
         assertEquals(retainedUri, store.get("a")!!.retainedUri)
     }
 
+    @Test fun needsAttentionCannotReplaceItsRetrySource() {
+        val originalSource = NarDownloadSource.Remote("https://example.invalid/original.nar")
+        val originalRetainedUri = "content://downloads/original.nar"
+        store.create(
+            NarDownload(
+                id = "a",
+                source = originalSource,
+                retainedUri = originalRetainedUri,
+                state = NarDownloadState.Downloading,
+            ),
+        )
+
+        store.update("a") {
+            it.copy(
+                source = NarDownloadSource.Remote("https://example.invalid/replacement.nar"),
+                retainedUri = "content://downloads/replacement.nar",
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("offline")),
+            )
+        }
+
+        val stored = store.get("a")!!
+        assertEquals(originalSource, stored.source)
+        assertEquals(originalRetainedUri, stored.retainedUri)
+    }
+
     @Test fun recordsSurviveRecreatingTheStore() {
         val storage = NarDownloadStore.MemoryStorage()
         NarDownloadStore(storage).create(remote(id = "a"))
