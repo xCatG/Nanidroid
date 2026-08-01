@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,9 +39,9 @@ class Preferences : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext)
         setContent {
-            var analyticsEnabled by mutableStateOf(
-                preferences.getBoolean(Setup.PREF_KEY_USE_ANALYTICS, true),
-            )
+            var analyticsEnabled by remember {
+                mutableStateOf(preferences.getBoolean(Setup.PREF_KEY_USE_ANALYTICS, true))
+            }
             PreferencesScreen(
                 analyticsEnabled = analyticsEnabled,
                 onAnalyticsEnabledChanged = { enabled ->
