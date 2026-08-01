@@ -20,5 +20,6 @@ class RemoteNarUrlTest {
         assertFalse(RemoteNarUrl.isApproved("https:///ghost.nar"))
         assertFalse(RemoteNarUrl.isApproved("https://example.test/download?file=ghost.nar"))
         assertFalse(RemoteNarUrl.isApproved("https://example.test/ghost.txt"))
+        assertFalse(RemoteNarUrl.isApproved(" https://example.test/ghost.nar"))
     }
 }

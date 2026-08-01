@@ -24,5 +24,5 @@ object RemoteNarUrl {
         val path = target.rawPath ?: return false
         val lowerPath = path.lowercase(Locale.US)
         return lowerPath.endsWith(".nar") || lowerPath.endsWith(".zip")
-    } catch (_: IllegalArgumentException) { false }
+    } catch (_: Exception) { false }
 }
