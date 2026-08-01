@@ -1,8 +1,6 @@
 package com.cattailsw.nanidroid
 
-import android.app.WallpaperManager
 import android.content.Intent
-import android.graphics.drawable.Drawable
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.AnimationDrawable
@@ -17,6 +15,7 @@ import android.preference.PreferenceManager
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +51,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var progressMessage by mutableStateOf("")
     private var toolbarVisible by mutableStateOf(false)
     private var simpleDialog: NanidroidSimpleDialog? by mutableStateOf(null)
-    private var wallpaperDrawable: Drawable? by mutableStateOf(null)
     private var anime: AnimationDrawable? = null
     private var runner: SScriptRunner? = null
     private val composeStage = ComposeGhostStageHost(
@@ -79,12 +77,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, backPressedCallback)
         awaitingNarDocument = savedInstanceState?.getBoolean(NAR_PICK_PENDING, false) ?: false
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
         restoreSimpleDialog(savedInstanceState)
-        loadWallpaper()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             simpleDialog = NanidroidSimpleDialog.Notice(
                 R.string.err_title,
@@ -163,17 +161,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 onStageClick = ::frameClick,
                 simpleDialog = simpleDialog,
                 onDismissSimpleDialog = { simpleDialog = null },
-                wallpaper = wallpaperDrawable,
             )
         }
         showProgress()
     }
     private fun showProgress() { loading = true }
     private fun hideProgress() { loading = false; toolbarVisible = true }
-    @Suppress("DEPRECATION") private fun loadWallpaper() {
-        try { wallpaperDrawable = WallpaperManager.getInstance(applicationContext).fastDrawable }
-        catch (denied: SecurityException) { Log.w(TAG, "wallpaper background unavailable", denied) }
-    }
     private fun checkIsRestore(state: Bundle?): Boolean {
         if (state != null) { Log.d(TAG, "was minimized"); restoreFromMinimize = state.getBoolean(MIN_TAG, false); return restoreFromMinimize }; return false
     }
@@ -199,7 +192,21 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     override fun onDestroy() { super.onDestroy(); sendStopIntent() }
     override fun onResume() { super.onResume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG) }
-    @Suppress("DEPRECATION") override fun onBackPressed() { val r = runner; if (r != null) { r.stopClock(); r.setCallback(mscb); r.stop(); r.doExit() } else super.onBackPressed() }
+    private val backPressedCallback = object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            val activeRunner = runner
+            if (activeRunner != null) {
+                activeRunner.stopClock()
+                activeRunner.setCallback(mscb)
+                activeRunner.stop()
+                activeRunner.doExit()
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        }
+    }
     private val mscb = object : SScriptRunner.StatusCallback {
         override fun stop() = Unit
         override fun canExit() { runner!!.setCallback(null); finish() }

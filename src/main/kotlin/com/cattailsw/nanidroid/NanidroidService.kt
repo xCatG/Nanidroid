@@ -105,9 +105,12 @@ class NanidroidService : Service() {
         val launchIntent = Intent(this, Nanidroid::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        var flags = PendingIntent.FLAG_UPDATE_CURRENT
-        if (Build.VERSION.SDK_INT >= 23) flags = flags or FLAG_IMMUTABLE
-        val contentIntent = PendingIntent.getActivity(this, 0, launchIntent, flags)
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            0,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val builder = Notification.Builder(this)
             .setSmallIcon(R.drawable.notification)
             .setContentTitle(getString(R.string.download_in_progress))
@@ -207,15 +210,20 @@ class NanidroidService : Service() {
             val launch = Intent(this@NanidroidService, Nanidroid::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
-            var flags = PendingIntent.FLAG_UPDATE_CURRENT
-            if (Build.VERSION.SDK_INT >= 23) flags = flags or FLAG_IMMUTABLE
-            val content = PendingIntent.getActivity(this@NanidroidService, 0, launch, flags)
+            val content = PendingIntent.getActivity(
+                this@NanidroidService,
+                0,
+                launch,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
             val noteText = String.format(getString(R.string.dl_note), targeturi.lastPathSegment)
             val notification = LegacyNotificationBridge.create(
                 applicationContext, R.drawable.notification, getString(R.string.dl_complete),
                 System.currentTimeMillis(), getString(R.string.dl_complete), noteText, content
             )
             notification.flags = Notification.FLAG_AUTO_CANCEL
+            // The service-owned notification flow is evaluated in issue #161.
+            @Suppress("NotificationPermission")
             manager.notify(42, notification)
             finishForegroundWork(svcid)
         }
@@ -366,7 +374,6 @@ class NanidroidService : Service() {
         private const val HTTP_TASK_START = 1
         private const val CHANNEL_ID = "nanidroid_downloads"
         private const val FOREGROUND_NOTIFICATION_ID = 41
-        private const val FLAG_IMMUTABLE = 0x04000000
         private const val UPDATE_FILE = "updates2.dau"
         private const val UPDATE_FILE_FALLBACK = "updates.txt"
 

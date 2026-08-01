@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools"
   android:versionCode="6"
   android:versionName="open_0.1">
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -26,7 +27,8 @@
 	<action android:name="android.intent.action.MAIN" />
 	<category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
-      <intent-filter >
+      <!-- Tracked for removal in issue #160; suppress until that work lands. -->
+      <intent-filter tools:ignore="AppLinkUrlError">
 	<action android:name="android.intent.action.VIEW" />
 	<category android:name="android.intent.category.DEFAULT" />
 	<data android:scheme="https" />
