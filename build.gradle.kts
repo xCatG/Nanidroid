@@ -1,120 +1,14 @@
-import org.gradle.api.DefaultTask
-import org.gradle.api.GradleException
-import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.provider.ListProperty
-import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Internal
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
-abstract class VerifyCharacterizationTestIsolation : DefaultTask() {
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val testSources: ConfigurableFileCollection
-
-    @get:Input
-    abstract val expectedSourcePaths: ListProperty<String>
-
-    @get:Internal
-    abstract val projectRoot: DirectoryProperty
-
-    @TaskAction
-    fun verify() {
-        val expected = expectedSourcePaths.get()
-            .map { projectRoot.get().asFile.resolve(it).canonicalFile }
-            .toSet()
-        val actual = testSources.files.map { it.canonicalFile }.toSet()
-        val missing = (expected - actual).map { it.invariantSeparatorsPath }.sorted()
-        val unexpected = (actual - expected).map { it.invariantSeparatorsPath }.sorted()
-
-        if (missing.isNotEmpty() || unexpected.isNotEmpty()) {
-            throw GradleException(
-                buildString {
-                    appendLine(
-                        "Characterization tests temporarily enable Android " +
-                            "default-return stubs for app JVM tests."
-                    )
-                    appendLine(
-                        "Isolate or remove unitTests.isReturnDefaultValues before adding broader tests."
-                    )
-                    if (missing.isNotEmpty()) {
-                        appendLine("Missing expected JVM test sources:")
-                        missing.forEach { appendLine("  - $it") }
-                    }
-                    if (unexpected.isNotEmpty()) {
-                        appendLine("Unexpected JVM test sources:")
-                        unexpected.forEach { appendLine("  - $it") }
-                    }
-                }
-            )
-        }
-    }
-}
-
-abstract class VerifyDeviceCharacterizationTestIsolation : DefaultTask() {
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val testSources: ConfigurableFileCollection
-
-    @get:Input
-    abstract val expectedSourcePaths: ListProperty<String>
-
-    @get:Internal
-    abstract val projectRoot: DirectoryProperty
-
-    @TaskAction
-    fun verify() {
-        val expected = expectedSourcePaths.get()
-            .map { projectRoot.get().asFile.resolve(it).canonicalFile }
-            .toSet()
-        val actual = testSources.files.map { it.canonicalFile }.toSet()
-        val missing = (expected - actual).map { it.invariantSeparatorsPath }.sorted()
-        val unexpected = (actual - expected).map { it.invariantSeparatorsPath }.sorted()
-
-        if (missing.isNotEmpty() || unexpected.isNotEmpty()) {
-            throw GradleException(
-                buildString {
-                    appendLine(
-                        "Device characterization tests are an exact, headless " +
-                            "instrumentation boundary."
-                    )
-                    appendLine(
-                        "Review and explicitly allowlist every added or removed device test source."
-                    )
-                    if (missing.isNotEmpty()) {
-                        appendLine("Missing expected device test sources:")
-                        missing.forEach { appendLine("  - $it") }
-                    }
-                    if (unexpected.isNotEmpty()) {
-                        appendLine("Unexpected device test sources:")
-                        unexpected.forEach { appendLine("  - $it") }
-                    }
-                }
-            )
-        }
-    }
-}
-
 android {
     namespace = "com.cattailsw.nanidroid"
-    // PR46 validates the Android 37 preview surface after the API-36 security
-    // boundary and real-emulator runtime proof.
     compileSdk = 37
-
 
     defaultConfig {
         applicationId = "com.cattailsw.nanidroid"
-        // Android 12 / API 31 is the approved product minimum and enables
-        // the Compose migration that replaces the legacy View renderer.
         minSdk = 31
         targetSdk = 37
         versionCode = 6
@@ -154,7 +48,6 @@ android {
 
     testOptions {
         testBuildType = "debug"
-        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -172,8 +65,6 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
-    // ComponentActivity is declared only by the device-test manifest, so package
-    // its runtime in the test APK rather than changing the production APK.
     androidTestImplementation(libs.androidx.activity)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
@@ -182,106 +73,4 @@ dependencies {
     implementation(files("libs/libGoogleAnalytics.jar"))
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
-}
-
-val characterizationTests = listOf(
-    "src/test/java/com/cattailsw/nanidroid/ArchiveIntentRetirementTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/DownloadManagerMigrationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/RemoteNarUrlTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/HostAndroidStubRule.kt",
-    "src/test/java/com/cattailsw/nanidroid/LegacyPlatformSeamTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/DescReaderCharacterizationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/SakuraScriptCharacterizationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/NanidroidShioriCharacterizationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/SurfaceDefinitionCharacterizationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/compose/SurfaceRenderPlanTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/compose/SurfaceCompositorTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/compose/SurfaceAnimationSchedulerTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/compose/SurfacePointerInteractionTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/compose/BalloonPresentationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/GhostSwitchingCharacterizationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/GhostSwitchRequestTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/GhostShellNameCompatibilityTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/GhostPresentationFrameTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/SScriptRunnerPresentationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/BootDispatchStateTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/SScriptRunnerBootDispatchTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/SSTPBottleSensorCharacterizationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/runtime/GhostPresentationReducerTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/runtime/GhostStageLayoutPolicyTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationReducerTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/runtime/SakuraScriptPresentationInterpreterTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/runtime/SakuraScriptInteractionInterpreterTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/runtime/KotlinGhostPresentationRuntimeTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/NarArchiveCharacterizationTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarArchiveInventoryValidatorTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarDescriptorParserTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarZipCentralPreflightTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarInstallPlanValidatorTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarStagedSourceCopyTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarGhostTreePolicyTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarFilesystemInspectorTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarStagedTreeInventoryTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarStagedTreeTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarRetainedOverlayPolicyTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarRetainedOverlayCoordinatorTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarTransactionalInstallerTest.kt",
-    "src/test/java/com/cattailsw/nanidroid/install/NarContentUriImportTest.kt",
-)
-val jvmTestSources = files(
-    fileTree("src/test/java") {
-        include("**/*.java", "**/*.kt")
-    },
-)
-val deviceCharacterizationTests = listOf(
-    "src/androidTest/java/com/cattailsw/nanidroid/" +
-        "SurfaceRenderingCharacterizationTest.kt",
-    "src/androidTest/java/com/cattailsw/nanidroid/" +
-        "SurfaceAnimationExecutionCharacterizationTest.kt",
-    "src/androidTest/java/com/cattailsw/nanidroid/PreferencesScreenTest.kt",
-    "src/androidTest/java/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.kt",
-    "src/androidTest/java/com/cattailsw/nanidroid/compose/NanidroidComposeShellTest.kt",
-    "src/androidTest/java/com/cattailsw/nanidroid/install/" +
-        "NarFilesystemInspectorInstrumentationTest.kt",
-    "src/androidTest/java/com/cattailsw/nanidroid/install/" +
-        "NarStagedTreeInstrumentationTest.kt",
-)
-val deviceTestSources = files(
-    fileTree("src/androidTest") {
-        include("**/*.java", "**/*.kt")
-    },
-)
-
-val verifyCharacterizationTestIsolation by
-    tasks.registering(VerifyCharacterizationTestIsolation::class) {
-    group = "verification"
-    description = "Keeps Android default-return stubs isolated to allowlisted characterizations."
-    testSources.from(jvmTestSources)
-    expectedSourcePaths.set(characterizationTests)
-    projectRoot.set(layout.projectDirectory)
-}
-
-val verifyDeviceCharacterizationTestIsolation by
-    tasks.registering(VerifyDeviceCharacterizationTestIsolation::class) {
-    group = "verification"
-    description = "Keeps real-framework device characterizations exactly allowlisted."
-    testSources.from(deviceTestSources)
-    expectedSourcePaths.set(deviceCharacterizationTests)
-    projectRoot.set(layout.projectDirectory)
-}
-
-tasks.matching {
-    it.name.startsWith("test") && it.name.endsWith("UnitTest")
-}.configureEach {
-    dependsOn(verifyCharacterizationTestIsolation)
-}
-
-tasks.named("check").configure {
-    dependsOn(verifyDeviceCharacterizationTestIsolation)
-}
-
-tasks.matching {
-    it.name.startsWith("compile") && it.name.contains("AndroidTest")
-}.configureEach {
-    dependsOn(verifyDeviceCharacterizationTestIsolation)
 }
