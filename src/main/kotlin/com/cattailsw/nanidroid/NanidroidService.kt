@@ -94,9 +94,12 @@ class NanidroidService : Service() {
         val launchIntent = Intent(this, Nanidroid::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        var flags = PendingIntent.FLAG_UPDATE_CURRENT
-        if (Build.VERSION.SDK_INT >= 23) flags = flags or FLAG_IMMUTABLE
-        val contentIntent = PendingIntent.getActivity(this, 0, launchIntent, flags)
+        val contentIntent = PendingIntent.getActivity(
+            this,
+            0,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val builder = Notification.Builder(this)
             .setSmallIcon(R.drawable.notification)
             .setContentTitle(getString(R.string.service_in_progress))
@@ -164,7 +167,6 @@ class NanidroidService : Service() {
         override fun onPostExecute(result: String) { runner?.run() }
     }
 
-    @Suppress("DEPRECATION")
     private inner class GhostUpdateTask(
         private val base: Uri,
         private val ghostId: String,
@@ -309,7 +311,6 @@ class NanidroidService : Service() {
         private const val HTTP_TASK_START = 1
         private const val CHANNEL_ID = "nanidroid_service"
         private const val FOREGROUND_NOTIFICATION_ID = 41
-        private const val FLAG_IMMUTABLE = 0x04000000
         private const val UPDATE_FILE = "updates2.dau"
         private const val UPDATE_FILE_FALLBACK = "updates.txt"
 

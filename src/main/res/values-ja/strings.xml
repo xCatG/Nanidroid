@@ -26,6 +26,7 @@
   <string name="more_g_from_SD_text">SDカードから追加</string>
   <string name="more_g_ghost_town_text">ゴーストポータルサイト</string>
   <string name="err_invalid_url">無効なURLです。URLは.narや.zipで終わらないといけません。</string>
+  <string name="err_https_nar_only">安全のため、Nanidroid では HTTPS の .nar または .zip リンクのみをダウンロードできます。</string>
   <string name="err_nar_title">エラー：SDカードから追加</string>
   <string name="err_no_nar_folder">SDカード上にはNarフォルダが見つかりません</string>
   <string name="err_no_nar_file">Narファイルが見つかりません</string>
