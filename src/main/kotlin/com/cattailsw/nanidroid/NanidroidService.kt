@@ -59,7 +59,7 @@ class NanidroidService : Service() {
             action == null -> startHttpTask(1_000)
             action.equals(Intent.ACTION_RUN, ignoreCase = true) -> {
                 val data = intent.data
-                if (IncomingNarIntent.isApprovedDownload(data)) {
+                if (RemoteNarUrl.isApproved(data)) {
                     startForegroundWork(startId)
                     NarDownloadTask(data!!, startId).execute(this)
                 } else {

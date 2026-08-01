@@ -116,7 +116,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 // ghost files were prepared above; bind them to the stage only
                 // after AsyncTask returns to the UI thread.
                 setGhostToRunner(currentGhost!!)
-                handleIncomingIntent(intent)
                 dbgRelatedSetup(currentGhost!!)
                 hideProgress()
                 initComplete = true
@@ -222,7 +221,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun onShowCollision() = Unit
     fun runClick() { runner!!.addMsgToQueue(arrayOf("\\![open,inputbox,lalala]")); runner!!.run() }
     private fun sendStopIntent() { stopService(Intent(this, NanidroidService::class.java)) }
-    private fun addNarToDownload(target: Uri) { if (!IncomingNarIntent.isApprovedDownload(target)) { Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show(); return }; startModernService(Intent(this, NanidroidService::class.java).setAction(Intent.ACTION_RUN).setData(target)) }
+    private fun addNarToDownload(target: Uri) { if (!RemoteNarUrl.isApproved(target)) { Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show(); return }; startModernService(Intent(this, NanidroidService::class.java).setAction(Intent.ACTION_RUN).setData(target)) }
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
     private fun extractNar(targetPath: String) = extractNar(targetPath, false)
@@ -277,8 +276,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }.execute()
     }
-    private fun handleIncomingIntent(incoming: Intent?) { if (!IncomingNarIntent.isApprovedDownload(incoming)) { if (incoming != null && Intent.ACTION_VIEW == incoming.action) { Log.w(TAG, "Rejected unapproved external install URI"); Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show() }; return }; Log.d(TAG, "Accepted HTTPS NAR download URI"); addNarToDownload(incoming!!.data!!) }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }
     fun onUpdate() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
     fun onListGhost() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
     fun onHelp() {
@@ -360,7 +357,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         value, error,
         onValueChanged = { simpleDialog = createUrlEntryDialog(it) },
         onSubmit = { url ->
-            if (!PatternHolders.url_ptrn.matcher(url).find() || !IncomingNarIntent.isApprovedDownload(Uri.parse(url))) false
+            if (!PatternHolders.url_ptrn.matcher(url).find() || !RemoteNarUrl.isApproved(Uri.parse(url))) false
             else { addNarToDownload(Uri.parse(url)); true }
         },
         onInvalid = { simpleDialog = createUrlEntryDialog(value, true) },

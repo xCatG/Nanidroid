@@ -10,6 +10,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NarContentUriImportTest {
+    @Test fun streamImportCopiesPrivatelyInvokesInstallerAndDeletesStage() {
+        val root = temporaryDirectory()
+        val bytes = "downloaded nar bytes".toByteArray()
+        var stage: File? = null
+
+        val result = NarContentUriImport.importStream(root, { ByteArrayInputStream(bytes) }) { staged ->
+            stage = staged
+            assertArrayEquals(bytes, staged.readBytes())
+            "/private/ghosts/downloaded"
+        }
+
+        assertTrue(result.isSuccess)
+        assertFalse(stage!!.exists())
+    }
+
     @Test fun rejectsAnythingOtherThanAContentUriBeforeOpeningIt() {
         var opened = false
         val result = NarContentUriImport.importContent(

@@ -185,6 +185,8 @@ dependencies {
 }
 
 val characterizationTests = listOf(
+    "src/test/java/com/cattailsw/nanidroid/ArchiveIntentRetirementTest.kt",
+    "src/test/java/com/cattailsw/nanidroid/RemoteNarUrlTest.kt",
     "src/test/java/com/cattailsw/nanidroid/HostAndroidStubRule.kt",
     "src/test/java/com/cattailsw/nanidroid/LegacyPlatformSeamTest.kt",
     "src/test/java/com/cattailsw/nanidroid/DescReaderCharacterizationTest.kt",
@@ -282,4 +284,3 @@ tasks.matching {
 }.configureEach {
     dependsOn(verifyDeviceCharacterizationTestIsolation)
 }
-

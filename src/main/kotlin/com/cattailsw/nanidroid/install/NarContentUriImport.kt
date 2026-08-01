@@ -16,6 +16,13 @@ class NarContentUriImport private constructor() {
             scheme: String?, cacheDir: File?, open: () -> InputStream?, install: (File) -> String?
         ): Result {
             if (scheme != "content") return Result(null, "Choose a document from the system picker.")
+            return importStream(cacheDir, open, install)
+        }
+
+        /** Stages one untrusted stream in private storage before a transactional install. */
+        @JvmStatic fun importStream(
+            cacheDir: File?, open: () -> InputStream?, install: (File) -> String?
+        ): Result {
             val root = cacheDir ?: return Result(null, "Nanidroid cannot prepare private import storage.")
             if ((!root.exists() && !root.mkdirs()) || !root.isDirectory) return Result(null, "Nanidroid cannot prepare private import storage.")
             val staged = File(root, "nar-import-${randomName()}.zip")
