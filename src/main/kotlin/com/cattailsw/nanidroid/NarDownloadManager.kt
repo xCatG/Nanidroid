@@ -20,7 +20,7 @@ object NarDownloadManager {
         if (!RemoteNarUrl.isApproved(url)) return null
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return null
         return try {
-            val request = DownloadManager.Request(url)
+            val request = DownloadManager.Request(RemoteNarUrl.normalizeForDownload(url))
                 .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "nar/${randomName()}.zip")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setAllowedOverRoaming(false)
