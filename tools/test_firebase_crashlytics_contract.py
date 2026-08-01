@@ -6,6 +6,7 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
     def test_acra_is_replaced_by_firebase_crashlytics_boundary(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "build.gradle.kts").read_text(encoding="utf-8")
+        versions = (root / "gradle/libs.versions.toml").read_text(encoding="utf-8")
         app = (root / "src/main/kotlin/com/cattailsw/nanidroid/CatTailApplication.kt").read_text(
             encoding="utf-8"
         )
@@ -18,8 +19,9 @@ class FirebaseCrashlyticsContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertNotIn("acra-4.2.3", build)
-        self.assertIn("firebase-bom:34.16.0", build)
-        self.assertIn("firebase-crashlytics", build)
+        self.assertIn("libs.firebase.bom", build)
+        self.assertIn("libs.firebase.crashlytics", build)
+        self.assertIn('firebase-bom = "34.16.0"', versions)
         self.assertNotIn("org.acra", app)
         self.assertNotIn("org.acra", activity)
         self.assertIn("CrashReporting.initialize(this)", app)

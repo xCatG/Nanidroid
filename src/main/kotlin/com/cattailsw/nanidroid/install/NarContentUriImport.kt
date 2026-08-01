@@ -8,7 +8,7 @@ import java.security.SecureRandom
 
 /** Copies a one-shot picker URI into private storage before a transactional install. */
 class NarContentUriImport private constructor() {
-    data class Result(val installedPath: String?, val message: String) { val isSuccess get() = installedPath != null }
+    data class Result(val installedPath: String?, val message: String, val retryable: Boolean = false) { val isSuccess get() = installedPath != null }
 
     companion object {
         /** Stages a one-shot document opened by the platform picker. */
@@ -38,7 +38,7 @@ class NarContentUriImport private constructor() {
                 val installed = install(staged)
                 if (installed == null) Result(null, "Nanidroid could not install the selected ghost.") else Result(installed, "")
             } catch (_: IOException) {
-                Result(null, "Nanidroid could not read the selected document.")
+                Result(null, "Nanidroid could not read the selected document.", retryable = true)
         } catch (_: SecurityException) {
                 Result(null, "Nanidroid cannot read the selected document.")
             } finally { staged.delete() }

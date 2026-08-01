@@ -51,7 +51,7 @@ object NarDownloadManager {
                     ) { staged -> GhostMgr(context).installGhost("download", staged.path) }
                     if (!result.isSuccess) {
                         Log.w(TAG, "Downloaded archive could not be installed: ${result.message}")
-                        return true
+                        return result.retryable
                     }
                     installed = true
                 }

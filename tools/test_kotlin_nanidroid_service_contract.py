@@ -24,8 +24,7 @@ class KotlinNanidroidServiceContractTest(unittest.TestCase):
     def test_rejects_untrusted_download_and_update_commands_before_work(self):
         source = SOURCE.read_text(encoding="utf-8")
 
-        self.assertIn("IncomingNarIntent.isApprovedDownload(data)", source)
-        self.assertIn('"Rejected non-HTTPS archive download request"', source)
+        self.assertNotIn("IncomingNarIntent", source)
         self.assertIn("isHttpsUri(homeurl) && gid != null", source)
         self.assertIn('"Rejected update request without an HTTPS URL and ghost id"', source)
         self.assertIn('"https".equals(uri.scheme, ignoreCase = true)', source)
@@ -38,7 +37,7 @@ class KotlinNanidroidServiceContractTest(unittest.TestCase):
         self.assertIn("activeForegroundStartIds.remove(startId)", source)
         self.assertIn("activeForegroundStartIds.isEmpty()", source)
         self.assertIn("stopForeground(true)", source)
-        self.assertIn("flags = flags or FLAG_IMMUTABLE", source)
+        self.assertIn("PendingIntent.FLAG_IMMUTABLE", source)
         self.assertIn("PendingIntent.FLAG_UPDATE_CURRENT", source)
         self.assertIn("startForeground(FOREGROUND_NOTIFICATION_ID", source)
 

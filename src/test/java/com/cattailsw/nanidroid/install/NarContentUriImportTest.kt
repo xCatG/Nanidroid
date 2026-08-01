@@ -76,6 +76,7 @@ class NarContentUriImportTest {
             throw IOException("provider disconnected")
         }) { error("installer must not run") }
         assertFalse(unreadable.isSuccess)
+        assertTrue(unreadable.retryable)
         assertFalse(root.listFiles()!!.any { it.name.startsWith("nar-import-") })
 
         var failedStage: File? = null
@@ -83,6 +84,7 @@ class NarContentUriImportTest {
             "content", root, { ByteArrayInputStream(byteArrayOf(7)) },
         ) { staged -> failedStage = staged; null }
         assertFalse(failed.isSuccess)
+        assertFalse(failed.retryable)
         assertNull(failed.installedPath)
         assertFalse(failedStage!!.exists())
 

@@ -57,11 +57,10 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("import androidx.compose.foundation.layout.statusBarsPadding", shell)
         self.assertIn("Column(modifier = Modifier.statusBarsPadding())", shell)
 
-    def test_incoming_nar_boundary_remains_https_approval_before_service_start(self):
-        self.assertIn("if (!IncomingNarIntent.isApprovedDownload(target))", self.source)
-        self.assertIn("if (!IncomingNarIntent.isApprovedDownload(incoming))", self.source)
-        self.assertIn("Rejected unapproved external install URI", self.source)
-        self.assertIn("startModernService(Intent(this, NanidroidService::class.java)", self.source)
+    def test_manual_nar_boundary_validates_before_download_manager_enqueue(self):
+        self.assertIn("RemoteNarUrl.isApproved", self.source)
+        self.assertIn("NarDownloadManager.enqueue", self.source)
+        self.assertNotIn("IncomingNarIntent", self.source)
 
     def test_picker_import_uses_one_shot_content_uri_staging_with_support_activity_dispatch(self):
         self.assertIn("class Nanidroid : ComponentActivity()", self.source)
