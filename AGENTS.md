@@ -21,8 +21,8 @@ layout and Kotlin sources.
 - `./gradlew connectedDebugAndroidTest` runs instrumentation tests on a
   connected API 31+ emulator or device. On Windows, use `./gradlew.bat`.
 
-Use the Gradle wrapper; dependency and plugin versions are declared in
-`build.gradle.kts`. The app compiles and targets API 37, with minSdk 31.
+Use the Gradle wrapper; dependency and plugin versions are centralized in
+`gradle/libs.versions.toml`. The app compiles and targets API 37, with minSdk 31.
 
 ## Coding Style & Naming Conventions
 
