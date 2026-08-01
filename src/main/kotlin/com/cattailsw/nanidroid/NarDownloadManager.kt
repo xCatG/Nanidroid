@@ -44,14 +44,15 @@ object NarDownloadManager {
             if (!successful) return false
             manager.openDownloadedFile(id).use { descriptor ->
                 FileInputStream(descriptor.fileDescriptor).use { stream ->
+                    val ghostMgr = GhostMgr(context)
                     val result = NarContentUriImport.importStream(
                         File(context.cacheDir, "nar-import"),
                         { stream },
                         maxBytes = MAX_ARCHIVE_BYTES,
-                    ) { staged -> GhostMgr(context).installGhost("download", staged.path) }
+                    ) { staged -> ghostMgr.installGhost("download", staged.path) }
                     if (!result.isSuccess) {
                         Log.w(TAG, "Downloaded archive could not be installed: ${result.message}")
-                        return result.retryable
+                        return result.retryable || ghostMgr.getLastInstallError()?.startsWith("Nanidroid cannot") == true
                     }
                     installed = true
                 }
