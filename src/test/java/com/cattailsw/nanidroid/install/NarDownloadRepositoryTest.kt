@@ -1,0 +1,223 @@
+package com.cattailsw.nanidroid.install
+
+import androidx.work.ListenableWorker
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+import java.io.FileNotFoundException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+class NarDownloadRepositoryTest {
+    private val store = NarDownloadStore(NarDownloadStore.MemoryStorage())
+    private val downloads = FakeDownloadGateway()
+    private val work = FakeWorkScheduler()
+    private val installer = FakeArchiveInstaller()
+    private val ownedData = FakeOwnedData()
+    private val attempts = FakeAttemptPaths()
+    private val ids = ArrayDeque(listOf("old-item", "new-item", "third-item"))
+    private val repository = NarDownloadRepository(
+        store = store,
+        downloads = downloads,
+        work = work,
+        installer = installer,
+        ownedData = ownedData,
+        attemptPaths = attempts,
+        nextId = { ids.removeFirst() },
+    )
+
+    @Test fun unknownCompletionDoesNotScheduleWork() {
+        repository.onDownloadComplete(999L)
+
+        assertTrue(work.enqueuedNames.isEmpty())
+    }
+
+    @Test fun duplicateCompletionDoesNotRetryNeedsAttention() {
+        downloads.nextDownloadId = 21L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        store.update(item.id) {
+            it.copy(
+                state = NarDownloadState.NeedsAttention(
+                    NarDownloadState.Failure("invalid archive"),
+                ),
+            )
+        }
+
+        repository.onDownloadComplete(21L)
+
+        assertTrue(work.enqueuedNames.isEmpty())
+    }
+
+    @Test fun failedInstallPersistsNeedsAttentionAndWorkerSucceeds() {
+        val item = repository.enqueueLocal("content://provider/archive.nar")
+        installer.result = ArchiveInstallResult.Failed(
+            "invalid archive",
+            ArchiveInstallFailure.InvalidArchive,
+        )
+
+        val result = InstallNarWorker.execute(repository, item.id) { false }
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+    }
+
+    @Test fun deleteCancelsUniqueWorkRemovesDownloadAndDeletesOwnedData() {
+        downloads.nextDownloadId = 41L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        repository.delete(item.id)
+
+        assertEquals(listOf("install-nar-${item.id}"), work.cancelledNames)
+        assertEquals(listOf(41L), downloads.removedIds)
+        assertEquals(listOf(item.id), ownedData.deletedItemIds)
+        assertNull(store.get(item.id))
+    }
+
+    @Test fun revokedPersistedUriBecomesReselectableNeedsAttention() {
+        val item = repository.enqueueLocal("content://provider/archive.nar")
+        installer.failure = SecurityException("grant revoked")
+
+        InstallNarWorker.execute(repository, item.id) { false }
+
+        val state = store.get(item.id)!!.state as NarDownloadState.NeedsAttention
+        assertTrue(state.failure.message.contains("select", ignoreCase = true))
+    }
+
+    @Test fun missingProviderBecomesReselectableNeedsAttention() {
+        val item = repository.enqueueLocal("content://provider/archive.nar")
+        installer.failure = FileNotFoundException("provider missing")
+
+        InstallNarWorker.execute(repository, item.id) { false }
+
+        val state = store.get(item.id)!!.state as NarDownloadState.NeedsAttention
+        assertTrue(state.failure.message.contains("select", ignoreCase = true))
+    }
+
+    @Test fun reconciliationSchedulesCompletedRegisteredDownload() {
+        downloads.nextDownloadId = 73L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        downloads.statuses[73L] = NarRemoteDownloadStatus.Successful(
+            "file:///owned/${item.id}.nar",
+        )
+
+        repository.reconcile()
+
+        assertEquals(listOf("install-nar-${item.id}"), work.enqueuedNames)
+        assertEquals("file:///owned/${item.id}.nar", store.get(item.id)!!.retainedUri)
+    }
+
+    @Test fun deleteThenReenqueueUsesSeparateStagingDirectories() {
+        val oldItem = repository.enqueueLocal("content://provider/archive.nar")
+        repository.install(oldItem.id) { false }
+        val oldAttempt = installer.stagingDirectories.single()
+        repository.delete(oldItem.id)
+
+        val newItem = repository.enqueueLocal("content://provider/archive.nar")
+        repository.install(newItem.id) { false }
+
+        assertNotEquals(oldItem.id, newItem.id)
+        assertNotEquals(oldAttempt, installer.stagingDirectories.last())
+    }
+
+    @Test fun deleteCanCancelWhileInstallIsStillRunning() {
+        val enteredInstall = CountDownLatch(1)
+        val releaseInstall = CountDownLatch(1)
+        val blockingInstaller = object : NarArchiveInstaller {
+            override fun install(
+                download: NarDownload,
+                stagingDirectory: File,
+                isStopped: () -> Boolean,
+            ): ArchiveInstallResult {
+                enteredInstall.countDown()
+                releaseInstall.await(5, TimeUnit.SECONDS)
+                return ArchiveInstallResult.Cancelled
+            }
+        }
+        val cancellableRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = blockingInstaller,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            nextId = { ids.removeFirst() },
+        )
+        val item = cancellableRepository.enqueueLocal("content://provider/archive.nar")
+        val installThread = Thread { cancellableRepository.install(item.id) { false } }
+        installThread.start()
+        assertTrue(enteredInstall.await(2, TimeUnit.SECONDS))
+
+        val deleteThread = Thread { cancellableRepository.delete(item.id) }
+        deleteThread.start()
+        deleteThread.join(2_000)
+        val deleteCompletedBeforeInstall = !deleteThread.isAlive
+        releaseInstall.countDown()
+        installThread.join(5_000)
+        deleteThread.join(5_000)
+
+        assertTrue("delete waited for the running install", deleteCompletedBeforeInstall)
+        assertNull(store.get(item.id))
+    }
+
+    private class FakeDownloadGateway : NarDownloadGateway {
+        var nextDownloadId = 1L
+        val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
+        val removedIds = mutableListOf<Long>()
+
+        override fun enqueue(itemId: String, normalizedHttpsUrl: String) =
+            NarRemoteEnqueue(nextDownloadId, "file:///owned/$itemId.nar")
+
+        override fun remove(downloadManagerId: Long) {
+            removedIds += downloadManagerId
+        }
+
+        override fun status(downloadManagerId: Long) = statuses[downloadManagerId]
+    }
+
+    private class FakeWorkScheduler : NarInstallWorkScheduler {
+        val enqueuedNames = mutableListOf<String>()
+        val cancelledNames = mutableListOf<String>()
+
+        override fun enqueue(itemId: String) {
+            enqueuedNames += NarDownloadRepository.workName(itemId)
+        }
+
+        override fun cancel(itemId: String) {
+            cancelledNames += NarDownloadRepository.workName(itemId)
+        }
+    }
+
+    private class FakeArchiveInstaller : NarArchiveInstaller {
+        var result: ArchiveInstallResult = ArchiveInstallResult.Installed("installed")
+        var failure: Exception? = null
+        val stagingDirectories = mutableListOf<File>()
+
+        override fun install(
+            download: NarDownload,
+            stagingDirectory: File,
+            isStopped: () -> Boolean,
+        ): ArchiveInstallResult {
+            stagingDirectories += stagingDirectory
+            failure?.let { throw it }
+            return result
+        }
+    }
+
+    private class FakeOwnedData : NarOwnedDownloadData {
+        val deletedItemIds = mutableListOf<String>()
+
+        override fun delete(download: NarDownload) {
+            deletedItemIds += download.id
+        }
+    }
+
+    private class FakeAttemptPaths : NarInstallAttemptPaths {
+        private var attempt = 0
+
+        override fun create(itemId: String): File =
+            File("staging/$itemId/attempt-${attempt++}")
+    }
+}

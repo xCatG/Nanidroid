@@ -5,6 +5,7 @@ data class NarDownload(
     val id: String,
     val source: NarDownloadSource,
     val retainedUri: String? = null,
+    val downloadManagerId: Long? = null,
     val state: NarDownloadState = NarDownloadState.Queued,
 ) {
     init {

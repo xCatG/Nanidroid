@@ -26,7 +26,11 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
         val current = records[id] ?: return@synchronized null
         val updated = transform(current).let { candidate ->
             if (candidate.state is NarDownloadState.NeedsAttention) {
-                candidate.copy(source = current.source, retainedUri = current.retainedUri)
+                candidate.copy(
+                    source = current.source,
+                    retainedUri = current.retainedUri,
+                    downloadManagerId = current.downloadManagerId,
+                )
             } else {
                 candidate
             }
@@ -99,6 +103,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                     is NarDownloadSource.Remote -> append("remote\t").append(encoded(source.uri))
                 }
                 append('\t').append(encoded(download.retainedUri))
+                append('\t').append(download.downloadManagerId ?: "-")
                 append('\t')
                 when (val state = download.state) {
                     NarDownloadState.Queued -> append("queued\t-")
@@ -120,23 +125,36 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
 
         fun decodeRecord(line: String): NarDownload? = try {
             val fields = line.split('\t')
-            if (fields.size != 6) return null
+            if (fields.size !in 6..7) return null
+            val stateIndex = if (fields.size == 7) 5 else 4
+            val failureIndex = stateIndex + 1
             val source = when (fields[1]) {
                 "local" -> NarDownloadSource.Local(decoded(fields[2]) ?: return null)
                 "remote" -> NarDownloadSource.Remote(decoded(fields[2]) ?: return null)
                 else -> return null
             }
-            val state = when (fields[4]) {
+            val state = when (fields[stateIndex]) {
                 "queued" -> NarDownloadState.Queued
                 "downloading" -> NarDownloadState.Downloading
                 "installing" -> NarDownloadState.Installing
                 "complete" -> NarDownloadState.Complete
                 "attention" -> NarDownloadState.NeedsAttention(
-                    NarDownloadState.Failure(decoded(fields[5]) ?: return null),
+                    NarDownloadState.Failure(decoded(fields[failureIndex]) ?: return null),
                 )
                 else -> return null
             }
-            NarDownload(decoded(fields[0]) ?: return null, source, decoded(fields[3]), state)
+            val downloadManagerId = if (fields.size == 7 && fields[4] != "-") {
+                fields[4].toLong()
+            } else {
+                null
+            }
+            NarDownload(
+                id = decoded(fields[0]) ?: return null,
+                source = source,
+                retainedUri = decoded(fields[3]),
+                downloadManagerId = downloadManagerId,
+                state = state,
+            )
         } catch (_: IllegalArgumentException) {
             null
         }
