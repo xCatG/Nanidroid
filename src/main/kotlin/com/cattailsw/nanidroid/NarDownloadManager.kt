@@ -14,7 +14,6 @@ import java.security.SecureRandom
 object NarDownloadManager {
     private const val TAG = "NarDownloadManager"
     private const val PREFS = "nar_downloads"
-    private const val IDS = "pending_ids"
 
     @JvmStatic
     fun enqueue(context: Context, url: Uri): Long? {
@@ -55,16 +54,18 @@ object NarDownloadManager {
 
     private fun record(context: Context, id: Long) {
         val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        preferences.edit().putStringSet(IDS, preferences.getStringSet(IDS, emptySet()).orEmpty() + id.toString()).apply()
+        preferences.edit().putBoolean(pendingKey(id), true).apply()
     }
 
     private fun isRecorded(context: Context, id: Long): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(IDS, emptySet()).orEmpty().contains(id.toString())
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(pendingKey(id), false)
 
     private fun forget(context: Context, id: Long) {
         val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        preferences.edit().putStringSet(IDS, preferences.getStringSet(IDS, emptySet()).orEmpty() - id.toString()).apply()
+        preferences.edit().remove(pendingKey(id)).apply()
     }
+
+    private fun pendingKey(id: Long): String = "pending_$id"
 
     private fun randomName(): String {
         val bytes = ByteArray(12)

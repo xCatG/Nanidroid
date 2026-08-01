@@ -32,6 +32,10 @@
         <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
       </intent-filter>
     </receiver>
+    <service
+      android:name=".NarDownloadInstallJob"
+      android:exported="false"
+      android:permission="android.permission.BIND_JOB_SERVICE" />
     <service android:name=".NanidroidService" android:exported="false"
       android:foregroundServiceType="dataSync" />
     <activity android:name=".Preferences" android:exported="false" android:theme="@style/NanidroidTheme" />

@@ -333,6 +333,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun onMoreGhost() = getMoreGhost(0)
     private fun showGhostListDlg() {
         val manager = gm ?: return
+        manager.refreshGhost()
         AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_G_LIST}")
         simpleDialog = createGhostListDialog(
             manager.getGDispNames()?.map { it ?: "" }.orEmpty(),
