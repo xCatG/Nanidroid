@@ -1,0 +1,76 @@
+package com.cattailsw.nanidroid.install
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Test
+import java.util.concurrent.CountDownLatch
+
+class NarDownloadStoreTest {
+    private val store = NarDownloadStore(NarDownloadStore.MemoryStorage())
+
+    @Test fun updatingOneRecordDoesNotDiscardAnother() {
+        store.create(remote(id = "a", state = NarDownloadState.Downloading))
+        store.create(remote(id = "b", state = NarDownloadState.Downloading))
+
+        store.update("a") {
+            it.copy(state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("offline")))
+        }
+
+        assertEquals(NarDownloadState.Downloading, store.get("b")!!.state)
+    }
+
+    @Test fun needsAttentionRetainsItsSourceForRetry() {
+        val retainedUri = "content://downloads/archive.nar"
+        val item = remote(id = "a", retainedUri = retainedUri)
+
+        store.create(item)
+        store.update("a") {
+            it.copy(state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("invalid archive")))
+        }
+
+        assertEquals(retainedUri, store.get("a")!!.retainedUri)
+    }
+
+    @Test fun recordsSurviveRecreatingTheStore() {
+        val storage = NarDownloadStore.MemoryStorage()
+        NarDownloadStore(storage).create(remote(id = "a"))
+
+        val restored = NarDownloadStore(storage).get("a")
+
+        assertNotNull(restored)
+        assertEquals(NarDownloadSource.Remote("https://example.invalid/archive.nar"), restored!!.source)
+    }
+
+    @Test fun concurrentStoresDoNotLoseEitherCreatedRecord() {
+        val storage = NarDownloadStore.MemoryStorage()
+        val first = NarDownloadStore(storage)
+        val second = NarDownloadStore(storage)
+        val ready = CountDownLatch(2)
+        val start = CountDownLatch(1)
+        val firstThread = Thread { ready.countDown(); start.await(); first.create(remote(id = "a")) }
+        val secondThread = Thread { ready.countDown(); start.await(); second.create(remote(id = "b")) }
+
+        firstThread.start()
+        secondThread.start()
+        ready.await()
+        start.countDown()
+        firstThread.join(5_000)
+        secondThread.join(5_000)
+
+        assertFalse(firstThread.isAlive)
+        assertFalse(secondThread.isAlive)
+        assertEquals(listOf("a", "b"), first.getAll().map { it.id })
+    }
+
+    private fun remote(
+        id: String,
+        retainedUri: String? = null,
+        state: NarDownloadState = NarDownloadState.Downloading,
+    ) = NarDownload(
+        id = id,
+        source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+        retainedUri = retainedUri,
+        state = state,
+    )
+}
