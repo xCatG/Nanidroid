@@ -19,11 +19,16 @@ object NarDownloadManager {
     fun enqueue(context: Context, url: Uri): Long? {
         if (!RemoteNarUrl.isApproved(url)) return null
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return null
-        val request = DownloadManager.Request(url)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "nar/${randomName()}.zip")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setAllowedOverRoaming(false)
-        return manager.enqueue(request).also { record(context, it) }
+        return try {
+            val request = DownloadManager.Request(url)
+                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "nar/${randomName()}.zip")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverRoaming(false)
+            manager.enqueue(request).also { record(context, it) }
+        } catch (error: IllegalStateException) {
+            Log.w(TAG, "External download storage is unavailable", error)
+            null
+        }
     }
 
     @JvmStatic

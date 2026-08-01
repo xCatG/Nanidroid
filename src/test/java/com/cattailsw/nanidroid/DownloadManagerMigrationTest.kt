@@ -17,9 +17,11 @@ class DownloadManagerMigrationTest {
         assertTrue(coordinator.contains("DownloadManager"))
         assertTrue(installJob.exists())
         assertTrue(receiver.contains("JobScheduler"))
+        assertTrue(receiver.contains("setPersisted(true)"))
         assertTrue(manifest.contains(".NarDownloadReceiver"))
         assertTrue(manifest.contains(".NarDownloadInstallJob"))
         assertTrue(manifest.contains("android:exported=\"false\""))
+        assertTrue(manifest.contains("android.permission.RECEIVE_BOOT_COMPLETED"))
     }
 
     @Test fun pendingDownloadIdsUseIndependentPreferenceKeysAndGhostListsRefresh() {
@@ -28,6 +30,7 @@ class DownloadManagerMigrationTest {
 
         assertTrue(coordinator.contains("pending_\$id"))
         assertFalse(coordinator.contains("putStringSet"))
+        assertTrue(coordinator.contains("catch (error: IllegalStateException)"))
         assertTrue(activity.contains("manager.refreshGhost()"))
     }
 

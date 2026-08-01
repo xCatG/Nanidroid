@@ -20,6 +20,7 @@ class NarDownloadReceiver : BroadcastReceiver() {
         val extras = PersistableBundle().apply { putLong(EXTRA_DOWNLOAD_ID, id) }
         val job = JobInfo.Builder(id.hashCode(), ComponentName(context, NarDownloadInstallJob::class.java))
             .setExtras(extras)
+            .setPersisted(true)
             .build()
         if (scheduler.schedule(job) != JobScheduler.RESULT_SUCCESS) {
             Log.w(TAG, "Could not schedule archive installation for $id")
