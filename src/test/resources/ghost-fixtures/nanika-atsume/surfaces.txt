@@ -1,0 +1,12 @@
+// Synthetic compatibility fixture based on audited Nanika-style syntax; no ghost file copied.
+surface.append3
+{
+collision0,0,0,2,2,IgnoredBeforeDefinition
+}
+surface3,10{
+collision1,0,0,3,3,Bust
+}
+surface.append3,10
+{
+collision2,1,1,2,2,Button
+}

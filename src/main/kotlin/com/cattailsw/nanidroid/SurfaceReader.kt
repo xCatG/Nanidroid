@@ -1,23 +1,29 @@
 package com.cattailsw.nanidroid
 
+import com.cattailsw.nanidroid.surface.SurfaceDiagnosticReason
+import com.cattailsw.nanidroid.surface.SurfaceParseDiagnostic
+import com.cattailsw.nanidroid.surface.SurfaceParseSeed
+import com.cattailsw.nanidroid.surface.SurfaceParser
+import com.cattailsw.nanidroid.surface.SurfaceSourceDecoder
+import com.cattailsw.nanidroid.surface.SurfaceSourceInput
 import com.cattailsw.nanidroid.util.AnalyticsUtils
-import java.io.BufferedReader
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileNotFoundException
-import java.io.FilenameFilter
-import java.io.IOException
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.nio.charset.Charset
+import java.util.Locale
 
-/** Kotlin parser and filesystem publisher for a shell's `surfaces.txt` file. */
+/** Reads every surface source through the typed parser and publishes one materialized catalog. */
 class SurfaceReader {
-    @JvmField var error = false
+    @JvmField
+    var error = false
+
+    val diagnostics: List<SurfaceParseDiagnostic>
+        get() = mutableDiagnostics.toList()
+
     private var rootPath: String? = null
     private var descPath: String? = null
     private var manager: SurfaceManager? = null
     private var parseTime = 0L
+    private val mutableDiagnostics = mutableListOf<SurfaceParseDiagnostic>()
+    private val diagnosedPngPaths = mutableSetOf<String>()
 
     constructor(manager: SurfaceManager) {
         this.manager = manager
@@ -29,136 +35,145 @@ class SurfaceReader {
         rootPath = shellRoot
         descPath = descriptorPath
         this.manager = manager
-        try {
-            FileInputStream(File(descriptorPath)).use(::parse)
-        } catch (_: FileNotFoundException) {
-            error = true
-        } catch (_: IOException) {
-            error = true
-        }
-        try {
-            scanFolderForPng(rootPath!!)
-        } catch (_: Exception) {
-            error = true
-        }
+        loadShell(File(shellRoot))
     }
 
     constructor(file: File) {
-        try {
-            rootPath = file.parent
-            LegacyPlatform.debug(TAG, "rootpath = $rootPath")
-            FileInputStream(file).use(::parse)
-        } catch (_: FileNotFoundException) {
-            // Legacy behavior: parsing errors here do not set the reader error flag.
-        } catch (_: IOException) {
-            // Legacy behavior: parsing errors here do not set the reader error flag.
-        }
-        try {
-            scanFolderForPng(rootPath!!)
-        } catch (_: Exception) {
-            error = true
-        }
+        rootPath = file.parent
+        descPath = file.absolutePath
     }
 
-    private fun scanFolderForPng(folderPath: String) {
-        val files = File(folderPath).listFiles(FilenameFilter { _, filename ->
-            filename.lowercase().endsWith(".png")
-        })!!
-        for (file in files) {
-            LegacyPlatform.debug(TAG, "got ${file.name}")
-            val match = PatternHolders.surface_file_scan.matcher(file.name.lowercase())
-            if (!match.matches()) continue
-            var idPart = match.group(1)!!
+    private fun loadShell(root: File) {
+        val started = LegacyPlatform.uptimeMillis()
+        val catalog = manager ?: return
+        val rootDirectory = when {
+            root.isDirectory -> root
+            root.parentFile?.isDirectory == true -> root.parentFile
+            else -> {
+                error = true
+                return
+            }
+        }
+
+        val pngFiles = discoverPngFiles(rootDirectory)
+        val pngIds = linkedSetOf<Int>()
+        val pngById = linkedMapOf<Int, File>()
+        pngFiles.forEach { file ->
+            val id = PNG_NAME.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull() ?: return@forEach
+            pngIds += id
+            pngById[id] = file
+            catalog.addSurface(
+                id.toString(),
+                pngSurface(rootDirectory, file, id),
+            )
+        }
+
+        val sourceInputs = discoverSourceFiles(rootDirectory).mapNotNull { file ->
             try {
-                val id = idPart.toInt()
-                idPart = id.toString()
-                val catalog = manager!!
-                if (catalog.containsSurface(idPart)) {
-                    val surface = catalog.getSurface(idPart)!!
-                    if (file.absolutePath != surface.selfFilename) {
-                        LegacyPlatform.debug(TAG, "update shell file path to correct filename:${file.absolutePath}")
-                        surface.updateFilename(file.absolutePath)
-                    }
-                } else {
-                    catalog.addSurface(idPart, ShellSurface(folderPath, file.name, id, null))
-                }
+                SurfaceSourceInput(file.name, file.readBytes())
             } catch (_: Exception) {
-                continue
+                addDiagnostic(
+                    SurfaceParseDiagnostic(
+                        file.name,
+                        1,
+                        file.name,
+                        SurfaceDiagnosticReason.DECODE,
+                    ),
+                )
+                null
             }
         }
-    }
+        val decoded = SurfaceSourceDecoder.decode(sourceInputs)
+        decoded.diagnostics.forEach(::addDiagnostic)
+        val parsed = SurfaceParser().parse(decoded.files, SurfaceParseSeed(pngIds))
+        parsed.diagnostics.forEach(::addDiagnostic)
 
-    private fun getSurfaceIds(line: String): IntArray? {
-        if (line.contains(",")) {
-            return line.split(",").map { token ->
-                val match = PatternHolders.surface_desc_ptrn.matcher(token)
-                if (match.matches()) match.group(1)!!.toInt() else 0
-            }.toIntArray()
-        }
-        val match = PatternHolders.surface_desc_ptrn.matcher(line)
-        return if (match.find()) intArrayOf(match.group(1)!!.toInt()) else null
-    }
-
-    @Throws(IOException::class)
-    private fun parse(input: InputStream) {
-        parseTime = LegacyPlatform.uptimeMillis()
-        val reader = try {
-            BufferedReader(InputStreamReader(input, Charset.forName("SJIS")))
-        } catch (_: Exception) {
-            LegacyPlatform.debug(TAG, "error reading")
-            AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface reading", descPath, 0)
-            return
+        parsed.surfaces.forEach { (id, entries) ->
+            val surface = parsedSurface(rootDirectory, pngById[id], id, entries.map { it.source.text })
+            catalog.addParsedSurface(id.toString(), surface, entries)
         }
 
-        var lineCount = 0
-        while (true) {
-            val line = reader.readLine()
-            lineCount++
-            if (line == null) break
-            if (line.isEmpty() || line.startsWith("//") || line.startsWith(",")) continue
-            if (!line.startsWith("surface")) continue
-
-            val ids = getSurfaceIds(line)
-            if (ids == null) {
-                LegacyPlatform.debug(TAG, "incorrect surface declaration:$line on line $lineCount")
-                AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "surface parse", descPath, lineCount)
-            }
-
-            var nextLine = reader.readLine()
-            lineCount++
-            if (nextLine.equals("{", ignoreCase = true)) {
-                val entries = mutableListOf<String>()
-                do {
-                    nextLine = reader.readLine()
-                    lineCount++
-                    val current = nextLine
-                    if (current == null) {
-                        LegacyPlatform.debug(TAG, "error not expecting EOF at line:$lineCount")
-                        break
-                    }
-                    if (current.isEmpty()) continue
-                    if (!current.startsWith("}")) entries += current
-                } while (!nextLine.startsWith("}"))
-
-                for (id in ids!!) {
-                    manager!!.addSurface(id.toString(), ShellSurface(rootPath ?: "", id, entries))
-                }
-            } else {
-                LegacyPlatform.debug(TAG, "error at line $lineCount, expecting { but got:$nextLine")
-                break
-            }
-        }
-        parseTime = LegacyPlatform.uptimeMillis() - parseTime
+        parseTime = LegacyPlatform.uptimeMillis() - started
         LegacyPlatform.debug(TAG, "parse time:${parseTime}ms")
-        AnalyticsUtils.getInstance(null).trackEvent(
-            Setup.ANA_PERF,
-            "parsing time[ms]",
-            descPath,
-            parseTime.toInt(),
+        try {
+            AnalyticsUtils.getInstance(null).trackEvent(
+                Setup.ANA_PERF,
+                "parsing time[ms]",
+                descPath,
+                parseTime.toInt(),
+            )
+        } catch (_: Exception) {
+            // Parsing remains available in local JVM tests and minimal host environments.
+        }
+    }
+
+    private fun discoverSourceFiles(root: File): List<File> =
+        root.listFiles().orEmpty().filter { file ->
+            file.isFile && SOURCE_NAME.matches(file.name)
+        }
+
+    private fun discoverPngFiles(root: File): List<File> =
+        root.listFiles().orEmpty().filter { file ->
+            file.isFile && PNG_NAME.matches(file.name)
+        }.sortedWith(compareBy<File> { it.name.lowercase(Locale.ROOT) }.thenBy { it.name })
+
+    private fun addDiagnostic(diagnostic: SurfaceParseDiagnostic) {
+        if (mutableDiagnostics.size < MAX_DIAGNOSTICS) mutableDiagnostics += diagnostic
+    }
+
+    private fun pngSurface(root: File, file: File, id: Int): ShellSurface =
+        materializeSurface(root, file, id, null)
+
+    private fun parsedSurface(
+        root: File,
+        png: File?,
+        id: Int,
+        entries: List<String>,
+    ): ShellSurface {
+        return materializeSurface(root, png, id, entries)
+    }
+
+    private fun materializeSurface(
+        root: File,
+        png: File?,
+        id: Int,
+        entries: List<String>?,
+    ): ShellSurface {
+        val path = withSeparator(root)
+        val selfName = png?.name
+        val surface = try {
+            ShellSurface(path, selfName, id, entries).also { loaded ->
+                if (png != null && (loaded.origW <= 0 || loaded.origH <= 0)) {
+                    addPngDiagnostic(png)
+                }
+            }
+        } catch (_: RuntimeException) {
+            if (png != null) addPngDiagnostic(png)
+            ShellSurface(path, selfName, id, entries, probeBitmap = false)
+        }
+        if (png != null) surface.selfFilename = png.absolutePath
+        surface.bp2 = File(root, "surface%04d.png".format(id)).absolutePath
+        return surface
+    }
+
+    private fun addPngDiagnostic(file: File) {
+        if (!diagnosedPngPaths.add(file.absolutePath)) return
+        addDiagnostic(
+            SurfaceParseDiagnostic(
+                file.name,
+                1,
+                file.absolutePath,
+                SurfaceDiagnosticReason.DECODE,
+            ),
         )
     }
 
+    private fun withSeparator(root: File): String = root.absolutePath + File.separator
+
     private companion object {
         const val TAG = "SurfaceReader"
+        const val MAX_DIAGNOSTICS = 256
+        val SOURCE_NAME = Regex("^surfaces.*\\.txt$", RegexOption.IGNORE_CASE)
+        val PNG_NAME = Regex("^surface(\\d+)\\.png$", RegexOption.IGNORE_CASE)
     }
 }
