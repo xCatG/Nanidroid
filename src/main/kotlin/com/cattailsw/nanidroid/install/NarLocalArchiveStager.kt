@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.install
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.net.URI
 import java.security.SecureRandom
 
 /** Makes a temporary content grant durable before handing it to background work. */
@@ -45,6 +46,10 @@ object NarLocalArchiveStager {
         }
         if (result !is Result.Staged) file.delete()
         return result
+    }
+
+    fun discard(location: String) {
+        runCatching { File(URI(location)).delete() }
     }
 
     private fun randomName(): String = ByteArray(12).also(SecureRandom()::nextBytes)

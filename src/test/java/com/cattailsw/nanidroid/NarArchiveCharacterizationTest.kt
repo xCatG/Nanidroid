@@ -8,6 +8,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -62,6 +63,18 @@ class NarArchiveCharacterizationTest {
         val result = NarLocalArchiveStager.stage(directory) { null }
 
         Assert.assertTrue(result is NarLocalArchiveStager.Result.Failed)
+        Assert.assertTrue(directory.listFiles().isNullOrEmpty())
+    }
+
+    @Test
+    fun discardedTemporaryArchiveLeavesNoPrivateFile() {
+        val directory = temporaryFolder.newFolder("discarded-temporary-archive")
+        val staged = NarLocalArchiveStager.stage(directory) {
+            ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        } as NarLocalArchiveStager.Result.Staged
+
+        NarLocalArchiveStager.discard(staged.location)
+
         Assert.assertTrue(directory.listFiles().isNullOrEmpty())
     }
 

@@ -77,6 +77,9 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("private fun importPickedNar(uri: Uri, replacementId: String?)", self.source)
         self.assertIn("val replacing = replacementId ?: pendingCopyId", self.source)
         self.assertIn("val replacementId = replacingNarDownloadId", self.source)
+        self.assertIn("NAR_CONSUMED_INTENT_URI", self.source)
+        self.assertIn("if (consumedArchiveIntentUri == uri.toString()) return", self.source)
+        self.assertIn("NarLocalArchiveStager.discard(result.location)", self.source)
         self.assertNotIn("registerForActivityResult", self.source)
 
     def test_compose_dialog_state_is_saved_and_restored_across_recreation(self):

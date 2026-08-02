@@ -105,11 +105,7 @@ class NarDownloadRepository internal constructor(
                 state = NarDownloadState.Queued,
             ),
         )
-        try {
-            work.enqueue(item.id)
-        } catch (_: Exception) {
-            markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
-        }
+        scheduleInstall(item.id)
         publish()
         return store.get(item.id)!!
     }
@@ -160,11 +156,7 @@ class NarDownloadRepository internal constructor(
             }
             is NarDownloadSource.Local -> {
                 store.update(itemId) { it.copy(state = NarDownloadState.Queued) }
-                try {
-                    work.enqueue(itemId)
-                } catch (_: Exception) {
-                    markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
-                }
+                scheduleInstall(itemId)
             }
         }
         publish()
@@ -185,11 +177,7 @@ class NarDownloadRepository internal constructor(
             )
         }
         releasePersistedGrantIfUnused(item)
-        try {
-            work.enqueue(itemId)
-        } catch (_: Exception) {
-            markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
-        }
+        scheduleInstall(itemId)
         publish()
         return store.get(itemId)
     }
@@ -211,11 +199,7 @@ class NarDownloadRepository internal constructor(
         val item = store.getAll().firstOrNull {
             it.downloadManagerId == downloadManagerId && it.state.isNonterminal()
         } ?: return
-        try {
-            work.enqueue(item.id)
-        } catch (_: Exception) {
-            markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
-        }
+        scheduleInstall(item.id)
         publish()
     }
 
@@ -240,11 +224,7 @@ class NarDownloadRepository internal constructor(
                         store.update(item.id) {
                             it.copy(retainedUri = status.localUri ?: it.retainedUri)
                         }
-                        try {
-                            work.enqueue(item.id)
-                        } catch (_: Exception) {
-                            markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
-                        }
+                        scheduleInstall(item.id)
                     }
                     NarRemoteDownloadStatus.Failed,
                     null -> markNeedsAttention(item.id, DOWNLOAD_RECOVERY_FAILURE)
@@ -253,11 +233,7 @@ class NarDownloadRepository internal constructor(
         store.getAll()
             .filter { it.source is NarDownloadSource.Local && it.state.isNonterminal() }
             .forEach { item ->
-                try {
-                    work.enqueue(item.id)
-                } catch (_: Exception) {
-                    markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
-                }
+                scheduleInstall(item.id)
             }
         publish()
     }
@@ -316,6 +292,14 @@ class NarDownloadRepository internal constructor(
                     NarDownloadState.Failure(message),
                 ),
             )
+        }
+    }
+
+    private fun scheduleInstall(itemId: String) {
+        try {
+            work.enqueue(itemId)
+        } catch (_: Exception) {
+            markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
         }
     }
 
