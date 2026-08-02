@@ -15,6 +15,15 @@
     android:icon="@mipmap/ic_launcher"
     android:name="CatTailApplication"
     >
+    <provider
+      android:name="androidx.startup.InitializationProvider"
+      android:authorities="${applicationId}.androidx-startup"
+      tools:node="merge">
+      <meta-data
+        android:name="androidx.work.WorkManagerInitializer"
+        android:value="androidx.startup"
+        tools:node="remove" />
+    </provider>
     <!-- The bundled, pre-modern Google Analytics and ACRA jars still link
          Apache HTTP.  API 36 exposes it only as this optional compatibility
          shared library; the later Kotlin dependency migration removes it. -->

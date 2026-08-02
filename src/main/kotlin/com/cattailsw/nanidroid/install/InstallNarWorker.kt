@@ -33,7 +33,8 @@ class InstallNarWorker(
 }
 
 internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWorkScheduler {
-    private val workManager = WorkManager.getInstance(context.applicationContext)
+    private val applicationContext = context.applicationContext
+    private val workManager by lazy { WorkManager.getInstance(applicationContext) }
 
     override fun enqueue(itemId: String) {
         val request = OneTimeWorkRequestBuilder<InstallNarWorker>()
