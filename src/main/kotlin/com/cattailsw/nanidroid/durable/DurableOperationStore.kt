@@ -11,8 +11,7 @@ interface DurableOperationStore {
     fun putIfAbsent(record: DurableOperationRecord): Boolean
 
     fun compareAndSet(
-        handle: OperationHandle,
-        expected: OperationStatus,
+        expected: DurableOperationRecord,
         updated: DurableOperationRecord,
     ): Boolean
 }

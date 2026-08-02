@@ -30,17 +30,14 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
     }
 
     override fun compareAndSet(
-        handle: OperationHandle,
-        expected: OperationStatus,
+        expected: DurableOperationRecord,
         updated: DurableOperationRecord,
     ): Boolean = synchronized(operationLock) {
-        require(updated.id == handle.operationId) { "operation id cannot change" }
+        require(updated.id == expected.id) { "operation id cannot change" }
         val records = readRecords()
-        val current = records[handle.operationId] ?: return@synchronized false
-        if (current.attemptId != handle.attemptId || current.status != expected) {
-            return@synchronized false
-        }
-        records[handle.operationId] = updated
+        val current = records[expected.id] ?: return@synchronized false
+        if (current != expected) return@synchronized false
+        records[expected.id] = updated
         writeRecords(records)
         true
     }

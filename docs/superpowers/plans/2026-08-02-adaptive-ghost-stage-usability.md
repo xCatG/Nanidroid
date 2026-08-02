@@ -227,7 +227,7 @@ data class DurableOperationRecord(
 interface DurableOperationStore {
     fun read(): List<DurableOperationRecord>
     fun putIfAbsent(record: DurableOperationRecord): Boolean
-    fun compareAndSet(handle: OperationHandle, expected: OperationStatus, updated: DurableOperationRecord): Boolean
+    fun compareAndSet(expected: DurableOperationRecord, updated: DurableOperationRecord): Boolean
 }
 fun interface OperationCancellation {
     fun cancel(handle: OperationHandle, binding: ExternalJobBinding)
@@ -241,6 +241,8 @@ no DownloadManager row or Work UUID may ever be rebound to a later attempt.
 `reconcileUnboundCancellation(handle)` is the only unbound terminal transition:
 an adapter calls it after confirming no external job was created, and it CASes
 that exact `CANCEL_REQUESTED` attempt to `CANCELLED` without invoking cancellation.
+Every store mutation compares the complete expected durable record, so only one
+writer may replace a given snapshot even when attempt and status are unchanged.
 
 - [ ] **Step 4: Run the focused and full durable tests**
 

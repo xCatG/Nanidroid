@@ -4,8 +4,8 @@ The durable record is the source of truth for non-archive updates. Archive
 adapters use the same transitions while extending the `NarDownload` record,
 whose `id` is the canonical `OperationId`. An `OperationHandle` combines that
 stable ID with an incrementing attempt ID. Every callback must compare and set
-the exact handle so an older DownloadManager row or WorkManager execution
-cannot mutate a replacement attempt.
+the complete expected record snapshot so a competing writer, older
+DownloadManager row, or WorkManager execution cannot mutate newer state.
 
 The supervisor's monotonic `lastProgressAt` value is deliberately in memory.
 Restoring a running record starts a new observation window without restarting

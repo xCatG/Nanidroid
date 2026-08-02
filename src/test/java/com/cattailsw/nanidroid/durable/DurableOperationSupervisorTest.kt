@@ -374,13 +374,54 @@ class DurableOperationSupervisorTest {
         assertFalse(supervisor.reconcileUnboundCancellation(handle("update-1", 1)))
         assertEquals(OperationStatus.RUNNING, store.read().single().status)
 
-        store.compareAndSet(
-            handle,
-            OperationStatus.RUNNING,
-            store.read().single().copy(status = OperationStatus.CANCELLED),
-        )
+        val running = store.read().single()
+        store.compareAndSet(running, running.copy(status = OperationStatus.CANCELLED))
         assertFalse(supervisor.reconcileUnboundCancellation(handle))
         assertTrue(cancellation.requests.isEmpty())
+    }
+
+    @Test fun competingSupervisorsPersistOnlyOneExternalJob() {
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val handle = handle("update-1", 1)
+        val winningBinding = ExternalJobBinding.WorkManager("worker-winner")
+        val losingBinding = ExternalJobBinding.WorkManager("worker-loser")
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        var winnerAccepted = false
+        store.beforeNextCompareAndSet = {
+            winnerAccepted = secondSupervisor.bindExternalJob(handle, winningBinding)
+        }
+
+        val loserAccepted = firstSupervisor.bindExternalJob(handle, losingBinding)
+
+        assertTrue(winnerAccepted)
+        assertFalse(loserAccepted)
+        assertEquals(winningBinding, store.read().single().externalJob)
+    }
+
+    @Test fun competingProgressCannotRegressOrOverwriteTheWinner() {
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val handle = handle("update-1", 1)
+        assertTrue(
+            firstSupervisor.start(
+                handle,
+                OperationKind.GHOST_UPDATE,
+                "Downloading",
+                0,
+                ExternalJobBinding.WorkManager("worker-1"),
+            ),
+        )
+        var winnerAccepted = false
+        store.beforeNextCompareAndSet = {
+            winnerAccepted = secondSupervisor.reportProgress(handle, "Downloading", 10)
+        }
+
+        val loserAccepted = firstSupervisor.reportProgress(handle, "Downloading", 5)
+
+        assertTrue(winnerAccepted)
+        assertFalse(loserAccepted)
+        assertEquals(OperationProgress("Downloading", 10), store.read().single().progress)
     }
 
     @Test fun sharedPreferencesAdapterRoundTripsAndEnforcesHandleCas() {
@@ -407,15 +448,19 @@ class DurableOperationSupervisorTest {
         assertEquals(record, restoredStore.read().single())
         assertFalse(
             restoredStore.compareAndSet(
-                handle("update-1", 3),
-                OperationStatus.CANCEL_REQUESTED,
+                record.copy(attemptId = AttemptId(3)),
+                record.copy(status = OperationStatus.CANCELLED),
+            ),
+        )
+        assertFalse(
+            restoredStore.compareAndSet(
+                record.copy(status = OperationStatus.RUNNING),
                 record.copy(status = OperationStatus.CANCELLED),
             ),
         )
         assertTrue(
             restoredStore.compareAndSet(
-                handle("update-1", 4),
-                OperationStatus.CANCEL_REQUESTED,
+                record,
                 record.copy(status = OperationStatus.CANCELLED),
             ),
         )
@@ -443,6 +488,7 @@ class DurableOperationSupervisorTest {
 
     private class MemoryDurableOperationStore : DurableOperationStore {
         private val records = linkedMapOf<OperationId, DurableOperationRecord>()
+        var beforeNextCompareAndSet: (() -> Unit)? = null
 
         override fun read(): List<DurableOperationRecord> = records.values.toList()
 
@@ -453,13 +499,16 @@ class DurableOperationSupervisorTest {
         }
 
         override fun compareAndSet(
-            handle: OperationHandle,
-            expected: OperationStatus,
+            expected: DurableOperationRecord,
             updated: DurableOperationRecord,
         ): Boolean {
-            val current = records[handle.operationId] ?: return false
-            if (current.attemptId != handle.attemptId || current.status != expected) return false
-            records[handle.operationId] = updated
+            beforeNextCompareAndSet?.also {
+                beforeNextCompareAndSet = null
+                it()
+            }
+            val current = records[expected.id] ?: return false
+            if (current != expected) return false
+            records[expected.id] = updated
             return true
         }
     }

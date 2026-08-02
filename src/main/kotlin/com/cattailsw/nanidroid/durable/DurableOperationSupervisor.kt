@@ -18,8 +18,7 @@ class DurableOperationSupervisor(
             lastProgressAt[handle] = now
             if (restored.showStallPrompt) {
                 store.compareAndSet(
-                    handle,
-                    restored.status,
+                    restored,
                     restored.copy(showStallPrompt = false),
                 )
             }
@@ -60,7 +59,7 @@ class DurableOperationSupervisor(
             val history = previous.externalJobHistory + listOfNotNull(previous.externalJob)
             if (externalJob != null && externalJob in history) return@synchronized false
             accepted = accepted.copy(externalJobHistory = history + listOfNotNull(externalJob))
-            if (!store.compareAndSet(previous.handle(), previous.status, accepted)) {
+            if (!store.compareAndSet(previous, accepted)) {
                 return@synchronized false
             }
             lastProgressAt.remove(previous.handle())
@@ -82,7 +81,7 @@ class DurableOperationSupervisor(
                 progress = OperationProgress(phase, completed),
                 showStallPrompt = false,
             )
-            if (!store.compareAndSet(handle, OperationStatus.RUNNING, updated)) {
+            if (!store.compareAndSet(current, updated)) {
                 return@synchronized false
             }
             lastProgressAt[handle] = clock.nowMillis()
@@ -96,8 +95,7 @@ class DurableOperationSupervisor(
             if (binding in current.externalJobHistory) return@synchronized false
             if (
                 !store.compareAndSet(
-                    handle,
-                    current.status,
+                    current,
                     current.copy(
                         externalJob = binding,
                         externalJobHistory = current.externalJobHistory + binding,
@@ -114,7 +112,7 @@ class DurableOperationSupervisor(
 
     fun keepWaiting(handle: OperationHandle): Boolean = synchronized(operationLock) {
         val current = activeRecord(handle) ?: return@synchronized false
-        if (!store.compareAndSet(handle, current.status, current.copy(showStallPrompt = false))) {
+        if (!store.compareAndSet(current, current.copy(showStallPrompt = false))) {
             return@synchronized false
         }
         lastProgressAt[handle] = clock.nowMillis()
@@ -132,7 +130,7 @@ class DurableOperationSupervisor(
             status = OperationStatus.CANCEL_REQUESTED,
             showStallPrompt = false,
         )
-        if (!store.compareAndSet(handle, OperationStatus.RUNNING, updated)) {
+        if (!store.compareAndSet(current, updated)) {
             return@synchronized false
         }
         lastProgressAt[handle] = clock.nowMillis()
@@ -147,8 +145,7 @@ class DurableOperationSupervisor(
         }
         if (
             !store.compareAndSet(
-                handle,
-                OperationStatus.CANCEL_REQUESTED,
+                current,
                 current.copy(status = OperationStatus.CANCELLED, showStallPrompt = false),
             )
         ) {
@@ -172,7 +169,7 @@ class DurableOperationSupervisor(
             showStallPrompt = false,
             diagnostics = diagnostics,
         )
-        if (!store.compareAndSet(handle, current.status, updated)) return@synchronized false
+        if (!store.compareAndSet(current, updated)) return@synchronized false
         lastProgressAt.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
@@ -192,8 +189,7 @@ class DurableOperationSupervisor(
                     record.diagnostics
                 }
                 store.compareAndSet(
-                    handle,
-                    record.status,
+                    record,
                     record.copy(showStallPrompt = true, diagnostics = diagnostics),
                 )
             }

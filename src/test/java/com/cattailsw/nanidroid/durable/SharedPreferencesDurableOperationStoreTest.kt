@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.durable
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -86,6 +87,27 @@ class SharedPreferencesDurableOperationStoreTest {
         assertEquals(firstStorage.value, secondStorage.value)
     }
 
+    @Test fun twoUpdatesFromOneExpectedSnapshotCannotBothSucceed() {
+        val storage = SharedPreferencesDurableOperationStore.MemoryStorage()
+        val firstStore = SharedPreferencesDurableOperationStore(storage)
+        val secondStore = SharedPreferencesDurableOperationStore(storage)
+        val original = record("same", 3)
+        assertTrue(firstStore.putIfAbsent(original))
+        val firstExpected = firstStore.read().single()
+        val secondExpected = secondStore.read().single()
+        val winner = firstExpected.copy(progress = OperationProgress("Downloading", 10))
+        val loser = secondExpected.copy(progress = OperationProgress("Downloading", 5))
+
+        assertTrue(
+            firstStore.compareAndSet(firstExpected, winner),
+        )
+        assertFalse(
+            secondStore.compareAndSet(secondExpected, loser),
+        )
+
+        assertEquals(winner, firstStore.read().single())
+    }
+
     private fun assertCorruptionIsPreserved(raw: String, expectedDiagnostic: String) {
         val storage = RecordingStorage(raw)
         val store = SharedPreferencesDurableOperationStore(storage)
@@ -99,8 +121,7 @@ class SharedPreferencesDurableOperationStoreTest {
         }
         assertThrows(IllegalStateException::class.java) {
             store.compareAndSet(
-                OperationHandle(OperationId("a"), AttemptId(1)),
-                OperationStatus.RUNNING,
+                record("a", 1),
                 record("a", 1).copy(status = OperationStatus.COMPLETED),
             )
         }
