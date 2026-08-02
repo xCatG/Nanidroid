@@ -95,6 +95,40 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(second.id), ownedData.releasedItemIds)
     }
 
+    @Test fun reselectingTheSameDocumentKeepsItsPersistedGrant() {
+        val source = "content://provider/reselected.nar"
+        val item = repository.enqueueLocal(source, source)
+
+        repository.replaceLocalSource(item.id, source)
+
+        assertTrue(ownedData.releasedItemIds.isEmpty())
+    }
+
+    @Test fun recoveringPublishedInstallMarksTargetConflictComplete() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar", "file:///owned/archive.nar")
+        store.update(item.id) { it.copy(state = NarDownloadState.Installing) }
+        installer.result = ArchiveInstallResult.Failed(
+            "target exists",
+            ArchiveInstallFailure.TargetExists,
+        )
+
+        repository.install(item.id) { false }
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+    }
+
+    @Test fun freshInstallTargetConflictStillNeedsAttention() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar", "file:///owned/archive.nar")
+        installer.result = ArchiveInstallResult.Failed(
+            "target exists",
+            ArchiveInstallFailure.TargetExists,
+        )
+
+        repository.install(item.id) { false }
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+    }
+
     @Test fun deleteCancelsUniqueWorkRemovesDownloadAndDeletesOwnedData() {
         downloads.nextDownloadId = 41L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")

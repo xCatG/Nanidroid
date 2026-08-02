@@ -60,7 +60,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
     def test_archive_inputs_use_the_durable_queue_not_the_exported_https_route(self):
         self.assertIn("ArchiveIntentAdapter.contentUri(incoming,", self.source)
         self.assertIn("narDownloads.enqueueRemote(value)", self.source)
-        self.assertIn("narDownloads.enqueueLocal(result.location, result.location)", self.source)
+        self.assertIn("narDownloads.replaceLocalSource(retainedItemId, result.location)", self.source)
         self.assertNotIn("IncomingNarIntent", self.source)
 
     def test_picker_import_uses_one_shot_content_uri_staging_with_support_activity_dispatch(self):
@@ -75,11 +75,11 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("takePersistableUriPermission", self.source)
         self.assertIn("outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)", self.source)
         self.assertIn("private fun importPickedNar(uri: Uri, replacementId: String?)", self.source)
-        self.assertIn("val replacing = replacementId ?: pendingCopyId", self.source)
+        self.assertIn("val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id", self.source)
         self.assertIn("val replacementId = replacingNarDownloadId", self.source)
         self.assertIn("NAR_CONSUMED_INTENT_URI", self.source)
         self.assertIn("if (consumedArchiveIntentUri == uri.toString()) return", self.source)
-        self.assertIn("NarLocalArchiveStager.discard(result.location)", self.source)
+        self.assertIn("discardUnclaimedArchive(uri, result.location)", self.source)
         self.assertNotIn("registerForActivityResult", self.source)
 
     def test_compose_dialog_state_is_saved_and_restored_across_recreation(self):

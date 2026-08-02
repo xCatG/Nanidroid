@@ -364,9 +364,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId)
 
     private fun enqueueLocalArchive(uri: Uri, flags: Int, replacementId: String? = null) {
-        val pendingCopyId = if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) {
-            narDownloads.retainLocalSourceForCopy(uri.toString()).id
-        } else null
+        val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id
         object : AsyncTask<Void, Void, NarLocalArchiveStager.Result>() {
             override fun doInBackground(vararg params: Void?): NarLocalArchiveStager.Result {
                 val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
@@ -384,11 +382,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             override fun onPostExecute(result: NarLocalArchiveStager.Result) {
                 when (result) {
                     is NarLocalArchiveStager.Result.Staged -> {
-                        val replacing = replacementId ?: pendingCopyId
-                        if (replacing == null) {
-                            narDownloads.enqueueLocal(result.location, result.location)
-                        } else if (narDownloads.replaceLocalSource(replacing, result.location) == null) {
-                            pendingCopyId?.let { NarLocalArchiveStager.discard(result.location) }
+                        if (narDownloads.replaceLocalSource(retainedItemId, result.location) == null) {
+                            discardUnclaimedArchive(uri, result.location)
                         }
                     }
                     is NarLocalArchiveStager.Result.Failed -> {
@@ -397,6 +392,19 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 }
             }
         }.execute()
+    }
+
+    private fun discardUnclaimedArchive(sourceUri: Uri, location: String) {
+        if (location == sourceUri.toString()) {
+            runCatching {
+                contentResolver.releasePersistableUriPermission(
+                    sourceUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+        } else {
+            NarLocalArchiveStager.discard(location)
+        }
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)

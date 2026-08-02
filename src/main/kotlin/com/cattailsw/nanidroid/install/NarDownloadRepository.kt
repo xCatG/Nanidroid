@@ -176,7 +176,7 @@ class NarDownloadRepository internal constructor(
                 state = NarDownloadState.Queued,
             )
         }
-        releasePersistedGrantIfUnused(item)
+        if (item.retainedUri != uri) releasePersistedGrantIfUnused(item)
         scheduleInstall(itemId)
         publish()
         return store.get(itemId)
@@ -240,6 +240,7 @@ class NarDownloadRepository internal constructor(
 
     fun install(itemId: String, isStopped: () -> Boolean) {
         val item = store.get(itemId) ?: return
+        val recoveringPublishedInstall = item.state is NarDownloadState.Installing
         val installing = store.update(itemId) {
             it.copy(state = NarDownloadState.Installing)
         } ?: return
@@ -258,22 +259,21 @@ class NarDownloadRepository internal constructor(
             stagingDirectory?.let { runCatching { attemptPaths.delete(it) } }
         }
         when (result) {
-            is ArchiveInstallResult.Installed -> {
-                store.update(itemId) { it.copy(state = NarDownloadState.Complete) }
-                item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
-                runCatching { ownedData.delete(item) }
-                releasePersistedGrantIfUnused(item)
-            }
+            is ArchiveInstallResult.Installed -> completeInstall(itemId, item)
             is ArchiveInstallResult.Failed -> {
-                val message = if (
-                    item.source is NarDownloadSource.Local &&
-                    result.failure is ArchiveInstallFailure.SourceUnavailable
-                ) {
-                    RESELECT_SOURCE_FAILURE
+                if (recoveringPublishedInstall && result.failure is ArchiveInstallFailure.TargetExists) {
+                    completeInstall(itemId, item)
                 } else {
-                    result.message
+                    val message = if (
+                        item.source is NarDownloadSource.Local &&
+                        result.failure is ArchiveInstallFailure.SourceUnavailable
+                    ) {
+                        RESELECT_SOURCE_FAILURE
+                    } else {
+                        result.message
+                    }
+                    markNeedsAttention(itemId, message)
                 }
-                markNeedsAttention(itemId, message)
             }
             ArchiveInstallResult.Cancelled -> markNeedsAttention(itemId, INSTALL_INTERRUPTED)
         }
@@ -284,6 +284,13 @@ class NarDownloadRepository internal constructor(
         if (item.source is NarDownloadSource.Local) RESELECT_SOURCE_FAILURE else REMOTE_SOURCE_FAILURE,
         ArchiveInstallFailure.SourceUnavailable,
     )
+
+    private fun completeInstall(itemId: String, item: NarDownload) {
+        store.update(itemId) { it.copy(state = NarDownloadState.Complete) }
+        item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
+        runCatching { ownedData.delete(item) }
+        releasePersistedGrantIfUnused(item)
+    }
 
     private fun markNeedsAttention(itemId: String, message: String) {
         store.update(itemId) {
