@@ -222,15 +222,31 @@ data class DurableOperationRecord(
     val status: OperationStatus,
     val showStallPrompt: Boolean,
     val diagnostics: String? = null,
+    val externalJobHistory: Set<ExternalJobBinding> = emptySet(),
 )
 interface DurableOperationStore {
     fun read(): List<DurableOperationRecord>
-    fun compareAndSet(handle: OperationHandle, expected: OperationStatus, updated: DurableOperationRecord): Boolean
+    fun putIfAbsent(record: DurableOperationRecord): Boolean
+    fun compareAndSet(expected: DurableOperationRecord, updated: DurableOperationRecord): Boolean
 }
-fun interface OperationCancellation { fun cancel(handle: OperationHandle) }
+fun interface OperationCancellation {
+    fun cancel(handle: OperationHandle, binding: ExternalJobBinding)
+}
 ```
 
-`NarDownload.id` is the canonical `OperationId` for archive work; the durable store extends that existing record instead of maintaining a second unsynchronized archive state machine. Every retry increments `AttemptId`, binds the exact DownloadManager row or Work UUID, and requires compare-and-set on `(OperationId, AttemptId)` before callbacks mutate state. `SharedPreferencesDurableOperationStore` is the source for non-archive updates, stored in `durable_operations_v1`; it writes accepted state before invoking an external side effect. `DurableOperationSupervisor` keeps `lastProgressAt` only in memory, persists status/progress/cancel requests, starts a fresh 30-second observation window for restored running work, and immediately resumes cancellation for restored `CANCEL_REQUESTED` records. Repeating the same phase and completed value is not a heartbeat. Test cancel-then-retry, a late callback from the prior attempt, stale worker replay, and external-job rebinding.
+`NarDownload.id` is the canonical `OperationId` for archive work; the durable store extends that existing record instead of maintaining a second unsynchronized archive state machine. Every retry increments `AttemptId`, binds the exact DownloadManager row or Work UUID, and requires compare-and-set on `(OperationId, AttemptId)` before callbacks mutate state. `SharedPreferencesDurableOperationStore` is the source for non-archive updates, stored in `durable_operations_v1`; it writes accepted state before invoking an external side effect. `DurableOperationSupervisor` keeps `lastProgressAt` only in memory, persists status/progress/cancel requests, starts a fresh 30-second observation window for restored running work, immediately resumes cancellation for restored bound `CANCEL_REQUESTED` records, and cancels pending requests as soon as their binding is persisted. Repeating the same phase and completed value is not a heartbeat. Test cancel-then-retry, a late callback from the prior attempt, stale worker replay, and external-job rebinding.
+
+External-job history is retained for the canonical operation across every attempt;
+no DownloadManager row or Work UUID may ever be rebound to a later attempt.
+A terminal `REMOTE_NAR` or `LOCAL_NAR` attempt may advance to a strictly
+greater `NAR_INSTALL` attempt under the same canonical `NarDownload.id`.
+No other cross-kind retry is permitted, including reverse installation,
+remote/local switching, or any transition to or from `GHOST_UPDATE`.
+`reconcileUnboundCancellation(handle)` is the only unbound terminal transition:
+an adapter calls it after confirming no external job was created, and it CASes
+that exact `CANCEL_REQUESTED` attempt to `CANCELLED` without invoking cancellation.
+Every store mutation compares the complete expected durable record, so only one
+writer may replace a given snapshot even when attempt and status are unchanged.
 
 - [ ] **Step 4: Run the focused and full durable tests**
 
