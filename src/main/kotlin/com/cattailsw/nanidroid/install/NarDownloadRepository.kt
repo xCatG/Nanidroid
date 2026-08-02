@@ -82,19 +82,7 @@ class NarDownloadRepository internal constructor(
                 state = NarDownloadState.Downloading,
             ),
         )
-        try {
-            store.update(item.id) { it.copy(retainedUri = downloads.intendedRetainedUri(item.id)) }
-            val enqueued = downloads.enqueue(item.id, normalizeHttpsUrl(url))
-            store.update(item.id) {
-                it.copy(
-                    retainedUri = enqueued.retainedUri,
-                    downloadManagerId = enqueued.downloadManagerId,
-                    state = NarDownloadState.Downloading,
-                )
-            }
-        } catch (_: Exception) {
-            markNeedsAttention(item.id, DOWNLOAD_START_FAILURE)
-        }
+        startRemoteDownload(item.id, url)
         publish()
         return store.get(item.id)!!
     }
@@ -153,25 +141,7 @@ class NarDownloadRepository internal constructor(
                         state = NarDownloadState.Downloading,
                     )
                 }
-                try {
-                    store.update(itemId) {
-                        it.copy(
-                            retainedUri = downloads.intendedRetainedUri(itemId),
-                            downloadManagerId = null,
-                            state = NarDownloadState.Downloading,
-                        )
-                    }
-                    val enqueued = downloads.enqueue(itemId, normalizeHttpsUrl(source.uri))
-                    store.update(itemId) {
-                        it.copy(
-                            retainedUri = enqueued.retainedUri,
-                            downloadManagerId = enqueued.downloadManagerId,
-                            state = NarDownloadState.Downloading,
-                        )
-                    }
-                } catch (_: Exception) {
-                    markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
-                }
+                startRemoteDownload(itemId, source.uri)
             }
             is NarDownloadSource.Local -> {
                 store.update(itemId) { it.copy(state = NarDownloadState.Queued) }
@@ -349,6 +319,28 @@ class NarDownloadRepository internal constructor(
             work.enqueue(itemId)
         } catch (_: Exception) {
             markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
+        }
+    }
+
+    private fun startRemoteDownload(itemId: String, url: String) {
+        try {
+            store.update(itemId) {
+                it.copy(
+                    retainedUri = downloads.intendedRetainedUri(itemId),
+                    downloadManagerId = null,
+                    state = NarDownloadState.Downloading,
+                )
+            }
+            val enqueued = downloads.enqueue(itemId, normalizeHttpsUrl(url))
+            store.update(itemId) {
+                it.copy(
+                    retainedUri = enqueued.retainedUri,
+                    downloadManagerId = enqueued.downloadManagerId,
+                    state = NarDownloadState.Downloading,
+                )
+            }
+        } catch (_: Exception) {
+            markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
         }
     }
 
