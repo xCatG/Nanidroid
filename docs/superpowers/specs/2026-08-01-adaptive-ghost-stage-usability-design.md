@@ -1,6 +1,6 @@
 # Adaptive Ghost Stage and Usability Design
 
-**Status:** Revised; awaiting product-decision approval
+**Status:** Revised; awaiting final touch/passivemode confirmation
 
 **Date:** 2026-08-01
 
@@ -75,8 +75,8 @@ code, downloaded corpus, and official UKADOC references before inclusion.
 5. Restore reliable touch, mouse, pen, and eraser click interaction for real
    ghost packages while retaining the input source in SHIORI `Reference6`.
 6. Replace the second debug toolbar row with organized adaptive debug tools.
-7. Preserve structured choices, anchors, and input boxes inside the new
-   presentation architecture.
+7. Preserve structured choices, anchors, and input boxes through the adaptive
+   bubble presentation and its extracted action surfaces.
 8. Add automated coverage proportional to the real surface, grammar, pointer,
    accessibility, and viewport range.
 
@@ -171,8 +171,8 @@ ordinary dialogue so its speaker's upper bubble region remains usable.
 Each speaker owns a stable bubble cell inside its lane. The cell is above or
 over the transparent part of its own canvas, never over the other speaker, an
 authored collision, or visible artwork. The bubble consumes all pointer input
-inside its frame, including plain text and padding. Interactive links and choices
-have higher priority within that frame.
+inside its frame, including plain text and padding. Interactive links and the
+choice pop-out action have higher priority within that frame.
 
 ### Compact-Height Landscape
 
@@ -333,6 +333,10 @@ transparent padding, except when its composed content is classified as a fully
 hidden placeholder. A bubble may consume transparent canvas pixels behind its
 own frame, but it cannot cover visible artwork or an authored collision.
 
+This canvas-wide policy applies to Nanidroid's full-screen in-app stage. A
+future Chromebook overlay or freeform desktop mode may need alpha-aware
+click-through and must revisit this policy instead of inheriting it silently.
+
 ### Pointer effect and SHIORI references
 
 The internal effect contains event kind, source scope, intrinsic point, button,
@@ -355,21 +359,49 @@ Numeric parser IDs and the `NO_COLLISION` sentinel never cross the SHIORI
 boundary. A malformed collision without an authored identifier is not a valid
 named target.
 
-Pointer policy proposed for this slice:
+At ghost load and reload, Nanidroid builds a cached pointer-event capability
+record. Prefer `Get_Supported_Events`; when that resource is unavailable, query
+`Has_Event` for `OnMouseClick` and `OnMouseDoubleClick`. Only an explicit
+declaration counts as supported or unsupported. A missing or malformed response
+is `Unknown`. Capability discovery uses a dedicated raw-response path rather
+than `getStringFromShiori`: a normal 204 can carry
+`X-SSTP-PassThru-local`/`external` for `Get_Supported_Events` or
+`X-SSTP-PassThru-Result: 0|1` for `Has_Event`. Header absence or malformed
+values, not the 204 status itself, produce `Unknown`. `Has_Event` receives the
+event ID in `Reference0` and queries local support. Never infer support from an
+ordinary interaction response, never send both events for one gesture, and
+never replay a gesture as a fallback: either can duplicate ghost-side effects.
 
-- one touch tap dispatches exactly one `OnMouseDoubleClick`, preserving current
-  Nanidroid behavior and the working 2elf path;
+Touch single-tap uses the complete capability table below. `S`, `U`, and `?`
+mean supported, unsupported, and unknown:
+
+| `OnMouseClick` | `OnMouseDoubleClick` | One touch tap |
+| --- | --- | --- |
+| `S` | any | `OnMouseClick` |
+| `U` | `S` | `OnMouseDoubleClick` |
+| `U` | `U` | no event |
+| `U` | `?` | legacy `OnMouseDoubleClick` |
+| `?` | `S` | `OnMouseDoubleClick` |
+| `?` | `U` | `OnMouseClick` |
+| `?` | `?` | legacy `OnMouseDoubleClick` |
+
+Physical pointer policy for this slice:
+
 - a mouse or pen/eraser primary single-click dispatches exactly one
-  `OnMouseClick` after the platform double-click window expires;
+  `OnMouseClick` after the platform double-click window expires unless click is
+  explicitly unsupported, in which case it dispatches nothing;
 - a recognized physical double-click dispatches exactly one
-  `OnMouseDoubleClick` and suppresses the pending single-click; and
+  `OnMouseDoubleClick` and suppresses the pending single-click unless double
+  click is explicitly unsupported, in which case it dispatches nothing; and
 - cancellation, slop outside the original surface/scope, or unsupported buttons
   dispatch nothing.
 
-This exact-one-event mouse policy avoids duplicate ghost responses but is listed
-for explicit user approval because desktop baseware sequencing may differ. The
-touch mapping likewise requires approval because click-only ghosts remain a
-known compatibility limitation.
+This exact-one-event policy avoids duplicate ghost responses. The touch rule
+interprets the requested heuristic as "map a touch single-tap to double-click
+when the ghost does not declare single-click but does declare double-click";
+that wording requires confirmation. The physical exact-one sequence is a
+deliberate Nanidroid product policy approved for this slice, not a claim that it
+reproduces every SSP event in the same order.
 
 ## SakuraScript and Bubble Actions
 
@@ -378,9 +410,24 @@ string. Segments include text, newline, wait, clear, structured choice, anchor,
 external URL, and input-box action. Speaker association and authored order are
 never lost when choices are extracted.
 
-- `\q[label,id,args...]` renders inline in the current speaker's bubble. It
-  retains every argument and dispatches the documented extended choice event and
-  fallback behavior.
+- A parsed choice is a tagged action, not one generic `id`: `Normal(label, id,
+  extraReferences)`, `DirectEvent(label, eventId, references)`, or
+  `Script(label, sakuraScript)`. Its speaker is UI ownership metadata and is
+  never appended to its SHIORI References.
+- Each `\q[...]` action remains owned by the current speaker. Pending choices
+  open in a large extracted action surface: a
+  scrollable full-width dialog or sheet on compact/touch layouts and a capped
+  centered dialog/popover on expanded layouts. Every row has a minimum 48 dp
+  target. The speaker bubble exposes one 48 dp `Choose...` action while choices
+  are pending so the action surface can be opened or reopened; the complete
+  choice list is not squeezed into the bubble cell.
+- Activating `Normal` first sends `OnChoiceSelectEx` with `Reference0 = label`,
+  `Reference1 = id`, and authored extras in `Reference2+`; when that produces no
+  talk script, it falls back to `OnChoiceSelect` with `Reference0 = id`.
+  `DirectEvent` sends its authored `On...` event with arguments starting at
+  `Reference0`. `Script` executes its SakuraScript locally and sends no choice
+  event. Closing or recreating the host cannot silently discard a pending
+  authored choice.
 - `\_a[id,args...]label\_a` renders only `label`, retains the authored ID and
   arguments, and dispatches the documented extended anchor event and fallback.
 - External URLs remain distinct from ghost anchors and require an explicit user
@@ -389,9 +436,25 @@ never lost when choices are extracted.
   text, and options separately. Submission, cancellation, and `On...` IDs follow
   the documented input-box event behavior.
 - Balanced `enter,passivemode` and `leave,passivemode` update explicit runtime
-  state. While passive, Nanidroid suppresses its own random talk and surface
-  pointer dispatch, while allowing the authored bubble choices/anchors/input
-  needed to finish the sequence.
+  state until leave or ghost termination. One runtime `canTalk` decision applies
+  generally, not only to passive mode: idle sends `OnSecondChange` and
+  `OnMinuteChange` with `GET` and `Reference3 = 1`; normal talk playback,
+  pending-choice/input states, and passive mode send them with `NOTIFY` and
+  `Reference3 = 0`, and ignore returned scripts. For both methods, `Reference0`
+  is OS continuous uptime in whole hours, not elapsed time since this runner or
+  Activity started; References 1–3 retain the documented offscreen, overlap,
+  and can-talk meanings. Passive choices do not time out, displayed dialogue
+  does not disappear, and a surface response cannot break or replace the active
+  passive sequence.
+- One origin-aware passive user-action guard disables the Nanidroid-owned ghost
+  switch, minimize, exit, network update, NAR import/install, and uninstall
+  paths. Equivalent actions explicitly initiated by SakuraScript remain allowed.
+  It prevents new user-started work; a durable update/install already in progress
+  reaches its existing safe completion or failure boundary rather than being
+  cancelled into partial state. Nanidroid does not claim to prevent Android
+  system navigation or implement unrelated SSP desktop facilities. Authored
+  choices, anchors, and input remain available so the sequence can leave passive
+  mode.
 - Recognized presentational commands that remain unsupported are consumed only
   after complete tokenization and are logged in debuggable builds.
 - Unknown or truncated commands use a balanced-token recovery rule and cannot
@@ -409,8 +472,9 @@ never lost when choices are extracted.
   actions where practical. Accessibility activation dispatches the same typed
   effect as pointer input using the region's representative intrinsic point.
 - Exact collision geometry is not inflated or falsified in the debug overlay.
-- Choices, anchors, URLs, input controls, overflow items, bug icon, and debug
-  controls expose stable labels, roles, focus order, and keyboard/D-pad actions.
+- Choice rows and their bubble pop-out, anchors, URLs, input controls, overflow
+  items, bug icon, and debug controls expose stable labels, roles, focus order,
+  and keyboard/D-pad actions.
 - Material chrome and bubble actions meet a 48 dp minimum target. Authored
   collision geometry remains exact; custom actions provide the accessible
   alternative for tiny authored regions.
@@ -436,8 +500,9 @@ Debug presentation uses deterministic predicates:
   stage classification.
 
 The compact overlay replaces the earlier proposed 180 dp center debug column;
-that column is too narrow for readable logs and controls. This material mock
-change is listed for user approval.
+that column is too narrow for readable logs and controls. This changes only the
+debug-open state. The normal compact landscape mock remains `Kero | Kero/Sakura
+bubbles | Sakura`, and closing debug returns to that unchanged arrangement.
 
 Debug content is grouped by purpose:
 
@@ -470,9 +535,9 @@ them:
 2. **Adaptive stage:** stable environment classification, lane and bubble policy,
    optical sizing, measured pixel transforms, overlay/hit equality, pointer
    routing, and layout/property tests.
-3. **Usability completion:** inline bubble actions, accessibility semantics,
-   adaptive debug surfaces, restoration/error behavior, screenshot goldens, and
-   connected end-to-end coverage.
+3. **Usability completion:** adaptive extracted bubble actions, accessibility
+   semantics, adaptive debug surfaces, restoration/error behavior, screenshot
+   goldens, and connected end-to-end coverage.
 
 No milestone declares the feature complete independently. The foundation may be
 merged behind existing presentation, but the adaptive stage is not released
@@ -607,7 +672,10 @@ pinned in the version catalog and upgrades require a deliberate golden review.
 
 Use a deterministic fixture ghost to verify:
 
-1. exact SHIORI event and References 0–6 for touch, mouse, pen, and eraser;
+1. exact SHIORI event and References 0–6 for touch, mouse, pen, and eraser,
+   including click-only, double-only, both-declared, neither-declared, and
+   unknown capabilities; capability fixtures cover 204 responses with each
+   pass-through header, `0`, `1`, absent headers, and malformed values;
 2. named hits use exact case-preserved `Reference4`, while generic canvas uses
    empty `Reference4` and never exposes `-1`;
 3. rendered-edge taps agree with the actual overlay after scaling and rotation;
@@ -615,8 +683,13 @@ Use a deterministic fixture ghost to verify:
 5. an absent reserved bubble half does not intercept input;
 6. empty-stage input toggles chrome without dispatching SHIORI;
 7. pointer cancellation, slop, single/double sequencing, and unsupported buttons;
-8. choices retain label, ID, and all extended references;
+8. choice pop-out and extracted rows retain UI speaker, label, ID, and all
+   extended references with 48 dp targets; normal, extended, direct `On...`, and
+   `script:` forms assert their exact dispatch and normal-choice fallback order;
 9. anchors, external URLs, input submit/cancel, and passivemode behavior;
+   separate idle, busy-talk, pending-choice/input, and passive timer tests assert
+   request method, OS-uptime `Reference0`, References 1–3, response playback,
+   persistence, non-breaking input, and origin-aware user-action guards;
 10. semantics discovery and activation for surfaces, collisions, bubbles, chrome,
     debug controls, and fallback, including keyboard/D-pad activation;
 11. every debug control's observable effect and release-build absence;
@@ -643,8 +716,8 @@ connected instrumentation suite before implementation is considered complete.
   collision baseline without mutating unintended surfaces.
 - Surface actions never toggle chrome; bubble actions never leak; empty-stage
   actions never dispatch to the ghost.
-- Inline choices/anchors and structured input boxes preserve all authored data,
-  and unsupported control text is not visible.
+- Extracted choices, inline anchors, and structured input boxes preserve all
+  authored data, and unsupported control text is not visible.
 - Accessibility services and keyboards can discover and activate the primary
   stage interactions without falsifying authored collision geometry.
 - Debug tools occupy one adaptive surface, every exposed control works, and
@@ -654,36 +727,55 @@ connected instrumentation suite before implementation is considered complete.
 - The named layout, grammar, screenshot, semantics, recovery, and end-to-end
   suites are present and green.
 
-## Product Decisions Requiring User Approval
+## Product Decisions and Remaining Clarification
 
-The revised specification uses the following recommended defaults. They are
-fully specified rather than left as implementation placeholders, but
-implementation planning must wait for explicit approval or changes.
+The user approved decisions 2–6 and supplied direction or questions for 1, 7,
+and 8. The resulting recommended contracts are recorded below. Implementation
+planning waits for the wording confirmation in decision 1 and confirmation of
+the passivemode user-action scope in decision 8; decision 7 should receive a
+final usability glance but no protocol choice remains.
 
-1. **Touch compatibility:** retain one touch tap → exactly one
-   `OnMouseDoubleClick`. This preserves current behavior and 2elf, but ghosts that
-   implement only `OnMouseClick` remain unavailable from touch.
+1. **Touch compatibility:** use declared ghost capabilities. A touch single-tap
+   sends `OnMouseClick` when declared, maps to `OnMouseDoubleClick` when only
+   double-click is declared, sends nothing when both are explicitly unsupported,
+   and preserves legacy double-click behavior when capability metadata is
+   unavailable. Confirm that this is what was meant by "map single to double if
+   the ghost doesn't have double click"; the likely intended condition is
+   "doesn't have single click."
 2. **Physical pointing-device sequencing:** delay a mouse/pen single until the
    double-click window closes, so a double-click produces only
    `OnMouseDoubleClick`, not preceding click responses.
 3. **Transparent canvas:** keep the complete surface canvas tappable, including
    transparent padding, except fully hidden placeholders. Bubble bounds consume
    their overlap, and an explicit accessible control action restores chrome.
+   This applies to the full-screen app; Chromebook overlay mode revisits it.
 4. **Compact debug presentation:** replace the proposed 180 dp center debug
    column with a readable full-stage modal overlay; live stage state remains
-   behind it.
+   behind it. The normal center bubble column mock is unchanged.
 5. **Additional scopes:** consume scopes `2+` with a bounded diagnostic rather
    than misattribute their dialogue. Rendering more than Sakura/Kero remains a
    later design.
 6. **Collision compatibility boundary:** implement legacy rectangles plus
    `collisionex` rect/ellipse/circle/polygon now; defer image-mask `region` and
    animation-scoped collision definitions with explicit diagnostics.
-7. **Bubble action architecture:** replace the current modal choice extraction
-   with ordered inline choices and anchors inside the speaker's bubble, retaining
-   every extended argument and exact event fallback.
-8. **Passivemode:** implement it as explicit state that suppresses Nanidroid
-   random talk and surface-pointer dispatch while retaining the bubble actions
-   required to exit the authored sequence; do not merely strip the command text.
+7. **Bubble action architecture:** retain and improve extracted choices instead
+   of forcing small inline targets. Compact/touch layouts use a large scrollable
+   dialog or sheet; expanded layouts use a capped dialog/popover. A pending
+   choice adds a 48 dp `Choose...` pop-out action to the correct speaker bubble.
+   Structured parsing distinguishes normal/extended, direct `On...`, and
+   `script:` actions, retains every argument, and follows the exact event and
+   fallback order.
+8. **Passivemode:** implement the Nanidroid-owned semantics needed to protect an
+   authored passive sequence. The general runtime `canTalk` state, including
+   ordinary busy talk and pending input as well as passive mode, selects
+   `GET`/`Reference3 = 1` versus `NOTIFY`/`Reference3 = 0` and whether a timer
+   response may play. Choices/dialogue persist, surface responses do not break
+   the passive sequence, and an origin-aware guard disables owned ghost-switch,
+   minimize, exit, update, import/install, and uninstall user actions while
+   permitting SakuraScript-originated actions. Already-running durable work is
+   not cancelled into partial state. Confirm that this full Nanidroid-owned
+   user-action guard is in scope. Do not suppress Android system navigation or
+   claim unrelated SSP desktop features.
 
 ## Reference Contracts
 
