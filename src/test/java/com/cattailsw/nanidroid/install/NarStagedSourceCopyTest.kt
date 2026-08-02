@@ -33,6 +33,7 @@ class NarStagedSourceCopyTest {
                 "SOURCE_OPEN_FAILED",
                 "STAGING_OPEN_FAILED",
                 "SOURCE_READ_FAILED",
+                "CANCELLED",
                 "ARCHIVE_SIZE_LIMIT",
                 "STAGING_WRITE_FAILED",
                 "STAGING_SYNC_FAILED",

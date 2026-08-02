@@ -1,11 +1,14 @@
 package com.cattailsw.nanidroid
 
+import android.content.Intent
 import com.cattailsw.nanidroid.util.NarUtil
+import com.cattailsw.nanidroid.install.NarLocalArchiveStager
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -24,6 +27,56 @@ class NarArchiveCharacterizationTest {
     @Rule
     @JvmField
     val temporaryFolder: TemporaryFolder = TemporaryFolder()
+
+    @Test
+    fun externalArchiveIntent_acceptsOnlyGrantedContentArchives() {
+        Assert.assertTrue(
+            ArchiveIntentAdapter.accepts(
+                Intent.ACTION_VIEW,
+                "content",
+                "application/x-nar",
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            ),
+        )
+        Assert.assertFalse(
+            ArchiveIntentAdapter.accepts(
+                Intent.ACTION_VIEW,
+                "https",
+                "application/x-nar",
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            ),
+        )
+        Assert.assertFalse(
+            ArchiveIntentAdapter.accepts(
+                Intent.ACTION_VIEW,
+                "content",
+                "application/x-nar",
+                0,
+            ),
+        )
+    }
+
+    @Test
+    fun temporaryArchiveStageFailureLeavesNoPrivateFile() {
+        val directory = temporaryFolder.newFolder("temporary-archive")
+
+        val result = NarLocalArchiveStager.stage(directory) { null }
+
+        Assert.assertTrue(result is NarLocalArchiveStager.Result.Failed)
+        Assert.assertTrue(directory.listFiles().isNullOrEmpty())
+    }
+
+    @Test
+    fun discardedTemporaryArchiveLeavesNoPrivateFile() {
+        val directory = temporaryFolder.newFolder("discarded-temporary-archive")
+        val staged = NarLocalArchiveStager.stage(directory) {
+            ByteArrayInputStream(byteArrayOf(1, 2, 3))
+        } as NarLocalArchiveStager.Result.Staged
+
+        NarLocalArchiveStager.discard(staged.location)
+
+        Assert.assertTrue(directory.listFiles().isNullOrEmpty())
+    }
 
     @Test
     @Throws(Exception::class)

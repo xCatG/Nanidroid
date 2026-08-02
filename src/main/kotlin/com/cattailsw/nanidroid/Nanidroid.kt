@@ -20,6 +20,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
@@ -31,6 +33,9 @@ import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.PrefUtil
 import com.cattailsw.nanidroid.install.NarContentUriImport
+import com.cattailsw.nanidroid.install.NarDownloadRepository
+import com.cattailsw.nanidroid.install.NarLocalArchiveStager
+import com.cattailsw.nanidroid.install.NarDownloadState
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
@@ -74,11 +79,21 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var animeIndex = 0
     private var nextGhostId: String? = null
     private var awaitingNarDocument = false
+    private var replacingNarDownloadId: String? = null
+    private var archiveIntentState = ArchiveIntentState()
+    private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, backPressedCallback)
         awaitingNarDocument = savedInstanceState?.getBoolean(NAR_PICK_PENDING, false) ?: false
+        replacingNarDownloadId = savedInstanceState?.getString(NAR_PICK_REPLACEMENT_ID)
+        archiveIntentState = ArchiveIntentState(
+            consumedUri = savedInstanceState?.getString(NAR_CONSUMED_INTENT_URI),
+            pendingUri = savedInstanceState?.getString(NAR_PENDING_INTENT_URI),
+            pendingFlags = savedInstanceState?.getInt(NAR_PENDING_INTENT_FLAGS, 0) ?: 0,
+        )
+        handleIncomingIntent(intent)
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
@@ -110,11 +125,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 return null
             }
             override fun onPostExecute(result: Void?) {
+                if (isDestroyed || isFinishing) return
                 // Compose state and its caches are main-thread owned.  The
                 // ghost files were prepared above; bind them to the stage only
                 // after AsyncTask returns to the UI thread.
                 setGhostToRunner(currentGhost!!)
-                handleIncomingIntent(intent)
+                enqueuePendingArchiveIntent()
                 dbgRelatedSetup(currentGhost!!)
                 hideProgress()
                 initComplete = true
@@ -143,6 +159,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun setupViews(dbgBuild: Boolean) {
         progressMessage = getString(R.string.prog_startup)
         setContent {
+            val downloads by narDownloads.observeDownloads().collectAsState()
+            LaunchedEffect(downloads) {
+                if (downloads.any { it.state is NarDownloadState.Complete }) gm?.refreshGhost()
+            }
             NanidroidComposeShell(
                 ghostStage = { composeStage.Stage(onSurfaceTap = ::frameClick) },
                 loading = loading,
@@ -152,6 +172,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 onUpdate = ::onUpdate,
                 onPreferences = ::onSetupClick,
                 onHelp = ::onHelp,
+                onArchiveQueue = {
+                    simpleDialog = NanidroidSimpleDialog.ArchiveQueue(
+                        onRetry = { narDownloads.retry(it) },
+                        onReselect = { startInstallFromSDCard(it) },
+                        onDelete = { narDownloads.delete(it) },
+                    )
+                },
+                archiveDownloads = downloads,
                 showDebugControls = dbgBuild,
                 onNextSurface = ::onNextSurface,
                 onAnimate = ::onAnimate,
@@ -188,6 +216,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onSaveInstanceState(outState: Bundle) {
         saveSimpleDialog(outState)
         outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
+        outState.putString(NAR_PICK_REPLACEMENT_ID, replacingNarDownloadId)
+        outState.putString(NAR_CONSUMED_INTENT_URI, archiveIntentState.consumedUri)
+        outState.putString(NAR_PENDING_INTENT_URI, archiveIntentState.pendingUri)
+        outState.putInt(NAR_PENDING_INTENT_FLAGS, archiveIntentState.pendingFlags)
         super.onSaveInstanceState(outState)
     }
     override fun onDestroy() { super.onDestroy(); sendStopIntent() }
@@ -229,7 +261,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun onShowCollision() = Unit
     fun runClick() { runner!!.addMsgToQueue(arrayOf("\\![open,inputbox,lalala]")); runner!!.run() }
     private fun sendStopIntent() { stopService(Intent(this, NanidroidService::class.java)) }
-    private fun addNarToDownload(target: Uri) { if (!IncomingNarIntent.isApprovedDownload(target)) { Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show(); return }; startModernService(Intent(this, NanidroidService::class.java).setAction(Intent.ACTION_RUN).setData(target)) }
+    private fun addNarToDownload(target: Uri) {
+        val value = target.toString()
+        if (!isApprovedArchiveUrl(value)) {
+            Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show()
+            return
+        }
+        narDownloads.enqueueRemote(value)
+    }
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
     private fun extractNar(targetPath: String) = extractNar(targetPath, false)
@@ -284,8 +323,38 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }.execute()
     }
-    private fun handleIncomingIntent(incoming: Intent?) { if (!IncomingNarIntent.isApprovedDownload(incoming)) { if (incoming != null && Intent.ACTION_VIEW == incoming.action) { Log.w(TAG, "Rejected unapproved external install URI"); Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show() }; return }; Log.d(TAG, "Accepted HTTPS NAR download URI"); addNarToDownload(incoming!!.data!!) }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }
+    private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
+        val resolvedMimeType = incoming?.type ?: runCatching {
+            incoming?.data?.let(contentResolver::getType)
+        }.getOrNull()
+        val uri = ArchiveIntentAdapter.contentUri(incoming, resolvedMimeType) ?: return
+        val flags = incoming?.flags ?: 0
+        val reception = if (isNewIntent) {
+            archiveIntentState.receiveNewIntent(uri.toString(), flags)
+        } else {
+            archiveIntentState.receive(uri.toString(), flags)
+        }
+        when (reception) {
+            is ArchiveIntentState.Reception.Ignored -> Unit
+            is ArchiveIntentState.Reception.Pending -> archiveIntentState = reception.state
+            is ArchiveIntentState.Reception.Dispatch -> {
+                archiveIntentState = reception.state
+                enqueueLocalArchive(Uri.parse(reception.uri), reception.flags)
+            }
+        }
+    }
+
+    private fun enqueuePendingArchiveIntent() {
+        val pending = archiveIntentState.takePending() ?: return
+        archiveIntentState = pending.state
+        enqueueLocalArchive(Uri.parse(pending.uri), pending.flags)
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent, isNewIntent = true)
+        if (initComplete) enqueuePendingArchiveIntent()
+    }
     fun onUpdate() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
     fun onListGhost() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
     fun onHelp() {
@@ -298,11 +367,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
         simpleDialog = createMoreGhostDialog()
     }
-    private fun startInstallFromSDCard() {
+    private fun startInstallFromSDCard(replaceId: String? = null) {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(
             Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0,
         )
         awaitingNarDocument = true
+        replacingNarDownloadId = replaceId
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
@@ -315,23 +385,61 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file,
         )
     }
-    private fun importPickedNar(uri: Uri) {
-        object : AsyncTask<Void, Void, NarContentUriImport.Result>() {
-            override fun doInBackground(vararg params: Void?): NarContentUriImport.Result = NarContentUriImport.importContent(
-                uri.scheme, File(cacheDir, "nar-import"), { contentResolver.openInputStream(uri) },
-            ) { staged -> gm?.installGhost("picker", staged.path) }
-            override fun onPostExecute(result: NarContentUriImport.Result) {
-                if (result.isSuccess) { Toast.makeText(this@Nanidroid, "Ghost installed.", Toast.LENGTH_LONG).show(); gm?.refreshGhost() }
-                else Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
+    private fun importPickedNar(uri: Uri, replacementId: String?) =
+        enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId)
+
+    private fun enqueueLocalArchive(uri: Uri, flags: Int, replacementId: String? = null) {
+        val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id
+        object : AsyncTask<Void, Void, NarLocalArchiveStager.Result>() {
+            override fun doInBackground(vararg params: Void?): NarLocalArchiveStager.Result {
+                val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
+                if (canPersist) {
+                    try {
+                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        return NarLocalArchiveStager.Result.Staged(uri.toString())
+                    } catch (_: SecurityException) { /* Copy the one-shot grant below. */ }
+                }
+                return NarLocalArchiveStager.stage(File(filesDir, "nar-local-imports")) {
+                    contentResolver.openInputStream(uri)
+                }
+            }
+
+            override fun onPostExecute(result: NarLocalArchiveStager.Result) {
+                when (result) {
+                    is NarLocalArchiveStager.Result.Staged -> {
+                        if (narDownloads.replaceLocalSource(retainedItemId, result.location) == null) {
+                            discardUnclaimedArchive(uri, result.location)
+                        }
+                    }
+                    is NarLocalArchiveStager.Result.Failed -> {
+                        narDownloads.copyFailed(retainedItemId)
+                        Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
         }.execute()
+    }
+
+    private fun discardUnclaimedArchive(sourceUri: Uri, location: String) {
+        if (location == sourceUri.toString() && !narDownloads.isSourceReferenced(location)) {
+            runCatching {
+                contentResolver.releasePersistableUriPermission(
+                    sourceUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+        } else {
+            NarLocalArchiveStager.discard(location)
+        }
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != NAR_PICK_REQUEST || !awaitingNarDocument) return
         awaitingNarDocument = false
+        val replacementId = replacingNarDownloadId
+        replacingNarDownloadId = null
         if (resultCode == RESULT_OK) {
-            data?.data?.let(::importPickedNar)
+            data?.data?.let { importPickedNar(it, replacementId) }
                 ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
         }
     }
@@ -367,11 +475,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         value, error,
         onValueChanged = { simpleDialog = createUrlEntryDialog(it) },
         onSubmit = { url ->
-            if (!PatternHolders.url_ptrn.matcher(url).find() || !IncomingNarIntent.isApprovedDownload(Uri.parse(url))) false
+            if (!PatternHolders.url_ptrn.matcher(url).find() || !isApprovedArchiveUrl(url)) false
             else { addNarToDownload(Uri.parse(url)); true }
         },
         onInvalid = { simpleDialog = createUrlEntryDialog(value, true) },
     )
+
+    private fun isApprovedArchiveUrl(value: String): Boolean = try {
+        val parsed = java.net.URI(value)
+        parsed.scheme.equals("https", ignoreCase = true) && !parsed.host.isNullOrBlank()
+    } catch (_: Exception) { false }
     private fun createUserInputDialog(id: String, value: String = ""): NanidroidSimpleDialog.UserInput = NanidroidSimpleDialog.UserInput(
         id, value,
         onValueChanged = { simpleDialog = createUserInputDialog(id, it) },
@@ -447,6 +560,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 outState.putStringArrayList(SIMPLE_DIALOG_LABELS, ArrayList(dialog.names))
                 outState.putStringArrayList(SIMPLE_DIALOG_IDS, ArrayList(dialog.ids))
             }
+            is NanidroidSimpleDialog.ArchiveQueue -> Unit
             is NanidroidSimpleDialog.TextDocument -> {
                 outState.putString(SIMPLE_DIALOG_TYPE, if (dialog.onSwitch == null) DIALOG_ABOUT else DIALOG_README)
                 outState.putString(SIMPLE_DIALOG_VALUE, dialog.text)
@@ -503,5 +617,5 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList()) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
 }

@@ -41,20 +41,21 @@ class Target36SecurityContractTest(unittest.TestCase):
         self.assertNotIn('android:scheme="file"', manifest)
         self.assertNotIn('android:scheme="http"', manifest)
         self.assertNotIn('android:host="*"', manifest)
-        self.assertIn('android:scheme="https"', manifest)
+        self.assertNotIn('android:scheme="https"', manifest)
+        self.assertIn('android:scheme="content"', manifest)
+        self.assertNotIn('android:mimeType="*/*"', manifest)
 
     def test_activity_validates_initial_and_warm_intents(self):
         source = _active_activity_source()
         self.assertIn("handleIncomingIntent(intent)", source)
         self.assertIn("setIntent(intent)", source)
-        self.assertIn("IncomingNarIntent.isApprovedDownload", source)
+        self.assertIn("ArchiveIntentAdapter.contentUri(incoming,", source)
         self.assertNotIn("extractNar(data.getPath())", source)
         self.assertNotIn("getExternalStorageDirectory() + \"/nar/\"", source)
 
     def test_service_uses_immutable_pending_intent_and_no_file_uri(self):
         source = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/NanidroidService.kt").read_text(encoding="utf-8")
-        self.assertIn("const val FLAG_IMMUTABLE = 0x04000000", source)
-        self.assertIn("flags = flags or FLAG_IMMUTABLE", source)
+        self.assertIn("PendingIntent.FLAG_IMMUTABLE", source)
         self.assertIn("PendingIntent.FLAG_UPDATE_CURRENT", source)
         self.assertIn("startForeground", source)
         self.assertIn("private fun finishForegroundWork(startId: Int)", source)

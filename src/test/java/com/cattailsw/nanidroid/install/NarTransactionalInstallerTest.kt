@@ -175,6 +175,28 @@ class NarTransactionalInstallerTest {
         Assert.assertTrue(result.message.isNotEmpty())
     }
 
+    @Test
+    @Throws(Exception::class)
+    fun cancellationDuringExtractionDeletesPartialTransactionWithoutPublishing() {
+        val root = temporaryDirectory("transaction-cancelled")
+        val archive = zip(
+            "install.txt", descriptor("cancel-id"),
+            "ghost/master.txt", ByteArray(16 * 1024) { 1 },
+        )
+        var bytesWritten = false
+        val result = NarTransactionalInstaller.install(
+            archive = archive,
+            installRoot = root,
+            forcedId = null,
+            fileOperations = cancellationAwareOutput { bytesWritten = true },
+            isCancelled = { bytesWritten },
+        )
+
+        Assert.assertTrue(result === ArchiveInstallResult.Cancelled)
+        Assert.assertFalse(File(root, "cancel-id").exists())
+        Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+    }
+
     companion object {
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
 
@@ -202,6 +224,23 @@ class NarTransactionalInstallerTest {
                 override fun openOutput(file: File): FileOutputStream = FileOutputStream(file)
 
                 override fun rename(source: File, destination: File): Boolean = false
+            }
+
+        private fun cancellationAwareOutput(
+            onWrite: () -> Unit,
+        ): NarTransactionalInstaller.FileOperations =
+            object : NarTransactionalInstaller.FileOperations {
+                @Throws(IOException::class)
+                override fun openOutput(file: File): FileOutputStream =
+                    object : FileOutputStream(file) {
+                        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                            super.write(buffer, offset, length)
+                            onWrite()
+                        }
+                    }
+
+                override fun rename(source: File, destination: File): Boolean =
+                    source.renameTo(destination)
             }
 
         private fun assertFailureLeavesNoPartialState(

@@ -17,6 +17,9 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.source = (
             ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt"
         ).read_text(encoding="utf-8")
+        self.archive_intent_state = (
+            ROOT / "src/main/kotlin/com/cattailsw/nanidroid/ArchiveIntentState.kt"
+        ).read_text(encoding="utf-8")
 
     def test_gradle_build_uses_kotlin_while_ant_keeps_the_frozen_java_activity(self):
         self.assertFalse((ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.java").exists())
@@ -57,11 +60,11 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("import androidx.compose.foundation.layout.statusBarsPadding", shell)
         self.assertIn("Column(modifier = Modifier.statusBarsPadding())", shell)
 
-    def test_incoming_nar_boundary_remains_https_approval_before_service_start(self):
-        self.assertIn("if (!IncomingNarIntent.isApprovedDownload(target))", self.source)
-        self.assertIn("if (!IncomingNarIntent.isApprovedDownload(incoming))", self.source)
-        self.assertIn("Rejected unapproved external install URI", self.source)
-        self.assertIn("startModernService(Intent(this, NanidroidService::class.java)", self.source)
+    def test_archive_inputs_use_the_durable_queue_not_the_exported_https_route(self):
+        self.assertIn("ArchiveIntentAdapter.contentUri(incoming,", self.source)
+        self.assertIn("narDownloads.enqueueRemote(value)", self.source)
+        self.assertIn("narDownloads.replaceLocalSource(retainedItemId, result.location)", self.source)
+        self.assertNotIn("IncomingNarIntent", self.source)
 
     def test_picker_import_uses_one_shot_content_uri_staging_with_support_activity_dispatch(self):
         self.assertIn("class Nanidroid : ComponentActivity()", self.source)
@@ -71,11 +74,16 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertNotIn("Intent.EXTRA_MIME_TYPES", self.source)
         self.assertIn("startActivityForResult(", self.source)
         self.assertIn("override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)", self.source)
-        self.assertIn("NarContentUriImport.importContent(", self.source)
-        self.assertIn("uri.scheme", self.source)
-        self.assertIn("File(cacheDir, \"nar-import\")", self.source)
+        self.assertIn("NarLocalArchiveStager.stage", self.source)
+        self.assertIn("takePersistableUriPermission", self.source)
         self.assertIn("outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)", self.source)
-        self.assertNotIn("takePersistableUriPermission", self.source)
+        self.assertIn("private fun importPickedNar(uri: Uri, replacementId: String?)", self.source)
+        self.assertIn("val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id", self.source)
+        self.assertIn("val replacementId = replacingNarDownloadId", self.source)
+        self.assertIn("NAR_CONSUMED_INTENT_URI", self.source)
+        self.assertIn("archiveIntentState.receive(uri.toString()", self.source)
+        self.assertIn("Reception.Dispatch(copy(consumedUri = uri), uri, flags)", self.archive_intent_state)
+        self.assertIn("discardUnclaimedArchive(uri, result.location)", self.source)
         self.assertNotIn("registerForActivityResult", self.source)
 
     def test_compose_dialog_state_is_saved_and_restored_across_recreation(self):

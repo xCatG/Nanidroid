@@ -9,6 +9,7 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
   <uses-permission android:name="android.permission.GET_ACCOUNTS" />
   <uses-permission android:name="android.permission.USE_CREDENTIALS" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 	    
   <application android:label="@string/app_name" 
     android:icon="@mipmap/ic_launcher"
@@ -27,18 +28,31 @@
 	<action android:name="android.intent.action.MAIN" />
 	<category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
-      <!-- Tracked for removal in issue #160; suppress until that work lands. -->
-      <intent-filter tools:ignore="AppLinkUrlError">
-	<action android:name="android.intent.action.VIEW" />
-	<category android:name="android.intent.category.DEFAULT" />
-	<data android:scheme="https" />
-	<data android:pathPattern=".*\\.nar" />
-	<data android:pathPattern=".*\\.zip" />
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:scheme="content" android:mimeType="application/zip" />
+        <data android:scheme="content" android:mimeType="application/x-nar" />
       </intent-filter>
 
     </activity>
     <service android:name=".NanidroidService" android:exported="false"
       android:foregroundServiceType="dataSync" />
+    <receiver
+      android:name=".install.NarDownloadReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+      </intent-filter>
+    </receiver>
+    <receiver
+      android:name=".install.NarDownloadRecoveryReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+      </intent-filter>
+    </receiver>
     <activity android:name=".Preferences" android:exported="false" android:theme="@style/NanidroidTheme" />
 
   </application>
