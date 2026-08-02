@@ -162,7 +162,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                     "1" -> true
                     else -> return null
                 },
-                diagnostics = decoded(fields[10]),
+                diagnostics = decodedDiagnostics(fields[10]),
                 externalJobHistory = history,
             )
         } catch (_: IllegalArgumentException) {
@@ -205,7 +205,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                     "1" -> true
                     else -> return null
                 },
-                diagnostics = decoded(fields[phaseIndex + 4]),
+                diagnostics = decodedDiagnostics(fields[phaseIndex + 4]),
                 externalJobHistory = listOfNotNull(binding, previousBinding).toSet(),
             )
         } catch (_: IllegalArgumentException) {
@@ -250,6 +250,13 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         fun encoded(value: String?): String = value?.let {
             encoder.encodeToString(it.toByteArray(StandardCharsets.UTF_8))
         } ?: "-"
+
+        fun decodedDiagnostics(value: String): String? {
+            if (value == "-") return null
+            return decoded(value) ?: throw DurableOperationStoreCorruptionException(
+                "malformed durable operation row: invalid diagnostics",
+            )
+        }
 
         fun decoded(value: String): String? {
             if (value == "-") return null

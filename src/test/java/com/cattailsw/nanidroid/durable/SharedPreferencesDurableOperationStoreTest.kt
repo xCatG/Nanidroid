@@ -30,6 +30,12 @@ class SharedPreferencesDurableOperationStoreTest {
         assertCorruptionIsPreserved("v1\n$row", "malformed durable operation row")
     }
 
+    @Test fun malformedUtf8DiagnosticsFailsClosedWithoutRewritingRawData() {
+        val invalidUtf8Diagnostics = "wyg"
+        val row = "YQ\t3\tGHOST_UPDATE\tdm\t101\tZDoxMDE\tUXVldWVk\t0\tRUNNING\t0\t$invalidUtf8Diagnostics"
+        assertCorruptionIsPreserved("v2\n$row", "malformed durable operation row")
+    }
+
     @Test fun duplicateBindingHistoryFailsClosedWithoutRewritingRawData() {
         val duplicateHistory = "ZDoxMDEsZDoxMDE"
         val row = "YQ\t3\tGHOST_UPDATE\twm\td29yay0z\t$duplicateHistory\tUXVldWVk\t0\tRUNNING\t0\t-"
