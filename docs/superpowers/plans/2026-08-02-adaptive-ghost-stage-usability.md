@@ -222,16 +222,19 @@ data class DurableOperationRecord(
     val status: OperationStatus,
     val showStallPrompt: Boolean,
     val diagnostics: String? = null,
+    val previousExternalJob: ExternalJobBinding? = null,
 )
 interface DurableOperationStore {
     fun read(): List<DurableOperationRecord>
     fun putIfAbsent(record: DurableOperationRecord): Boolean
     fun compareAndSet(handle: OperationHandle, expected: OperationStatus, updated: DurableOperationRecord): Boolean
 }
-fun interface OperationCancellation { fun cancel(handle: OperationHandle) }
+fun interface OperationCancellation {
+    fun cancel(handle: OperationHandle, binding: ExternalJobBinding)
+}
 ```
 
-`NarDownload.id` is the canonical `OperationId` for archive work; the durable store extends that existing record instead of maintaining a second unsynchronized archive state machine. Every retry increments `AttemptId`, binds the exact DownloadManager row or Work UUID, and requires compare-and-set on `(OperationId, AttemptId)` before callbacks mutate state. `SharedPreferencesDurableOperationStore` is the source for non-archive updates, stored in `durable_operations_v1`; it writes accepted state before invoking an external side effect. `DurableOperationSupervisor` keeps `lastProgressAt` only in memory, persists status/progress/cancel requests, starts a fresh 30-second observation window for restored running work, and immediately resumes cancellation for restored `CANCEL_REQUESTED` records. Repeating the same phase and completed value is not a heartbeat. Test cancel-then-retry, a late callback from the prior attempt, stale worker replay, and external-job rebinding.
+`NarDownload.id` is the canonical `OperationId` for archive work; the durable store extends that existing record instead of maintaining a second unsynchronized archive state machine. Every retry increments `AttemptId`, binds the exact DownloadManager row or Work UUID, and requires compare-and-set on `(OperationId, AttemptId)` before callbacks mutate state. `SharedPreferencesDurableOperationStore` is the source for non-archive updates, stored in `durable_operations_v1`; it writes accepted state before invoking an external side effect. `DurableOperationSupervisor` keeps `lastProgressAt` only in memory, persists status/progress/cancel requests, starts a fresh 30-second observation window for restored running work, immediately resumes cancellation for restored bound `CANCEL_REQUESTED` records, and cancels pending requests as soon as their binding is persisted. Repeating the same phase and completed value is not a heartbeat. Test cancel-then-retry, a late callback from the prior attempt, stale worker replay, and external-job rebinding.
 
 - [ ] **Step 4: Run the focused and full durable tests**
 

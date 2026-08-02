@@ -93,6 +93,11 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                     is ExternalJobBinding.DownloadManager -> append("\tdm\t").append(binding.id)
                     is ExternalJobBinding.WorkManager -> append("\twm\t").append(encoded(binding.uuid))
                 }
+                when (val binding = record.previousExternalJob) {
+                    null -> append("\t-\t-")
+                    is ExternalJobBinding.DownloadManager -> append("\tdm\t").append(binding.id)
+                    is ExternalJobBinding.WorkManager -> append("\twm\t").append(encoded(binding.uuid))
+                }
                 append('\t').append(encoded(record.progress.phase))
                 append('\t').append(record.progress.completed)
                 append('\t').append(record.status.name)
@@ -102,40 +107,70 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         }
 
         fun decode(value: String?): MutableMap<OperationId, DurableOperationRecord> {
-            if (value.isNullOrEmpty()) return linkedMapOf()
-            if (value.lineSequence().firstOrNull() != VERSION) return linkedMapOf()
+            if (value == null) return linkedMapOf()
+            if (value.isEmpty()) {
+                throw DurableOperationStoreCorruptionException("missing durable operation version")
+            }
+            val lines = value.lineSequence().toList()
+            val version = lines.firstOrNull()
+            if (version != VERSION) {
+                throw DurableOperationStoreCorruptionException(
+                    "unsupported durable operation version: ${version ?: "missing"}",
+                )
+            }
             return linkedMapOf<OperationId, DurableOperationRecord>().apply {
-                value.lineSequence().drop(1).forEach { line ->
-                    decodeRecord(line)?.let { put(it.id, it) }
+                lines.drop(1).forEachIndexed { index, line ->
+                    val record = decodeRecord(line) ?: throw DurableOperationStoreCorruptionException(
+                        "malformed durable operation row ${index + 1}",
+                    )
+                    if (record.id in this) {
+                        throw DurableOperationStoreCorruptionException(
+                            "duplicate durable operation id: ${record.id.value}",
+                        )
+                    }
+                    put(record.id, record)
                 }
             }
         }
 
         fun decodeRecord(line: String): DurableOperationRecord? = try {
             val fields = line.split('\t')
-            if (fields.size != 10) return null
+            if (fields.size != 10 && fields.size != 12) return null
             val binding = when (fields[3]) {
-                "-" -> null
+                "-" -> if (fields[4] == "-") null else return null
                 "dm" -> ExternalJobBinding.DownloadManager(fields[4].toLong())
                 "wm" -> ExternalJobBinding.WorkManager(decoded(fields[4]) ?: return null)
                 else -> return null
             }
+            val hasPreviousBinding = fields.size == 12
+            val previousBinding = if (hasPreviousBinding) {
+                when (fields[5]) {
+                    "-" -> if (fields[6] == "-") null else return null
+                    "dm" -> ExternalJobBinding.DownloadManager(fields[6].toLong())
+                    "wm" -> ExternalJobBinding.WorkManager(decoded(fields[6]) ?: return null)
+                    else -> return null
+                }
+            } else {
+                null
+            }
+            val phaseIndex = if (hasPreviousBinding) 7 else 5
             DurableOperationRecord(
                 id = OperationId(decoded(fields[0]) ?: return null),
                 attemptId = AttemptId(fields[1].toLong()),
                 kind = OperationKind.valueOf(fields[2]),
                 externalJob = binding,
                 progress = OperationProgress(
-                    phase = decoded(fields[5]) ?: return null,
-                    completed = fields[6].toLong(),
+                    phase = decoded(fields[phaseIndex]) ?: return null,
+                    completed = fields[phaseIndex + 1].toLong(),
                 ),
-                status = OperationStatus.valueOf(fields[7]),
-                showStallPrompt = when (fields[8]) {
+                status = OperationStatus.valueOf(fields[phaseIndex + 2]),
+                showStallPrompt = when (fields[phaseIndex + 3]) {
                     "0" -> false
                     "1" -> true
                     else -> return null
                 },
-                diagnostics = decoded(fields[9]),
+                diagnostics = decoded(fields[phaseIndex + 4]),
+                previousExternalJob = previousBinding,
             )
         } catch (_: IllegalArgumentException) {
             null

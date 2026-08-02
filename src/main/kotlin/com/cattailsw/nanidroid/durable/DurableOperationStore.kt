@@ -1,5 +1,10 @@
 package com.cattailsw.nanidroid.durable
 
+class DurableOperationStoreCorruptionException(
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)
+
 interface DurableOperationStore {
     fun read(): List<DurableOperationRecord>
 

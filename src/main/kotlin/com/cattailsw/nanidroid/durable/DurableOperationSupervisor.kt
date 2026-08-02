@@ -9,7 +9,7 @@ class DurableOperationSupervisor(
 ) {
     private val operationLock = Any()
     private val lastProgressAt = mutableMapOf<OperationHandle, Long>()
-    private val cancellationIssued = mutableSetOf<OperationHandle>()
+    private val cancellationIssued = mutableSetOf<BoundCancellation>()
 
     init {
         val now = clock.nowMillis()
@@ -23,9 +23,8 @@ class DurableOperationSupervisor(
                     restored.copy(showStallPrompt = false),
                 )
             }
-            if (restored.status == OperationStatus.CANCEL_REQUESTED) {
-                cancellationIssued += handle
-                cancellation.cancel(handle)
+            if (restored.status == OperationStatus.CANCEL_REQUESTED && restored.externalJob != null) {
+                issueCancellation(handle, restored.externalJob)
             }
         }
     }
@@ -37,7 +36,7 @@ class DurableOperationSupervisor(
         completed: Long,
         externalJob: ExternalJobBinding? = null,
     ): Boolean = synchronized(operationLock) {
-        val accepted = DurableOperationRecord(
+        var accepted = DurableOperationRecord(
             id = handle.operationId,
             attemptId = handle.attemptId,
             kind = kind,
@@ -53,15 +52,17 @@ class DurableOperationSupervisor(
             if (
                 !previous.status.isTerminal() ||
                 previous.kind != kind ||
-                handle.attemptId.value <= previous.attemptId.value
+                handle.attemptId.value <= previous.attemptId.value ||
+                previous.externalJob != null && previous.externalJob == externalJob
             ) {
                 return@synchronized false
             }
+            accepted = accepted.copy(previousExternalJob = previous.externalJob)
             if (!store.compareAndSet(previous.handle(), previous.status, accepted)) {
                 return@synchronized false
             }
             lastProgressAt.remove(previous.handle())
-            cancellationIssued.remove(previous.handle())
+            cancellationIssued.removeAll { it.handle == previous.handle() }
         }
         lastProgressAt[handle] = clock.nowMillis()
         true
@@ -71,6 +72,7 @@ class DurableOperationSupervisor(
         synchronized(operationLock) {
             val current = activeRecord(handle) ?: return@synchronized false
             if (current.status != OperationStatus.RUNNING) return@synchronized false
+            if (current.externalJob == null) return@synchronized false
             val changedPhase = phase != current.progress.phase
             val advanced = completed > current.progress.completed
             if (!changedPhase && !advanced) return@synchronized false
@@ -88,8 +90,21 @@ class DurableOperationSupervisor(
     fun bindExternalJob(handle: OperationHandle, binding: ExternalJobBinding): Boolean =
         synchronized(operationLock) {
             val current = activeRecord(handle) ?: return@synchronized false
-            if (current.externalJob == binding) return@synchronized false
-            store.compareAndSet(handle, current.status, current.copy(externalJob = binding))
+            if (current.externalJob != null) return@synchronized current.externalJob == binding
+            if (current.previousExternalJob == binding) return@synchronized false
+            if (
+                !store.compareAndSet(
+                    handle,
+                    current.status,
+                    current.copy(externalJob = binding, previousExternalJob = null),
+                )
+            ) {
+                return@synchronized false
+            }
+            if (current.status == OperationStatus.CANCEL_REQUESTED) {
+                issueCancellation(handle, binding)
+            }
+            true
         }
 
     fun keepWaiting(handle: OperationHandle): Boolean = synchronized(operationLock) {
@@ -103,7 +118,10 @@ class DurableOperationSupervisor(
 
     fun requestStop(handle: OperationHandle): Boolean = synchronized(operationLock) {
         val current = activeRecord(handle) ?: return@synchronized false
-        if (current.status == OperationStatus.CANCEL_REQUESTED) return@synchronized true
+        if (current.status == OperationStatus.CANCEL_REQUESTED) {
+            current.externalJob?.let { issueCancellation(handle, it) }
+            return@synchronized true
+        }
         val updated = current.copy(
             progress = current.progress.copy(phase = STOPPING_PHASE),
             status = OperationStatus.CANCEL_REQUESTED,
@@ -113,7 +131,7 @@ class DurableOperationSupervisor(
             return@synchronized false
         }
         lastProgressAt[handle] = clock.nowMillis()
-        if (cancellationIssued.add(handle)) cancellation.cancel(handle)
+        current.externalJob?.let { issueCancellation(handle, it) }
         true
     }
 
@@ -124,6 +142,7 @@ class DurableOperationSupervisor(
     ): Boolean = synchronized(operationLock) {
         require(status.isTerminal()) { "finish requires a terminal status" }
         val current = activeRecord(handle) ?: return@synchronized false
+        if (current.externalJob == null) return@synchronized false
         val updated = current.copy(
             status = status,
             showStallPrompt = false,
@@ -131,7 +150,7 @@ class DurableOperationSupervisor(
         )
         if (!store.compareAndSet(handle, current.status, updated)) return@synchronized false
         lastProgressAt.remove(handle)
-        cancellationIssued.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
         true
     }
 
@@ -166,6 +185,11 @@ class DurableOperationSupervisor(
 
     private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
 
+    private fun issueCancellation(handle: OperationHandle, binding: ExternalJobBinding) {
+        val request = BoundCancellation(handle, binding)
+        if (cancellationIssued.add(request)) cancellation.cancel(handle, binding)
+    }
+
     private fun OperationStatus.isActive() =
         this == OperationStatus.RUNNING || this == OperationStatus.CANCEL_REQUESTED
 
@@ -179,4 +203,9 @@ class DurableOperationSupervisor(
         const val STOPPING_PHASE = "Stopping..."
         const val STOPPING_DIAGNOSTIC = "Cancellation has not completed after 30 seconds."
     }
+
+    private data class BoundCancellation(
+        val handle: OperationHandle,
+        val binding: ExternalJobBinding,
+    )
 }

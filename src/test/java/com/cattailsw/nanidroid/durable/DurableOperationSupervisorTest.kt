@@ -22,12 +22,18 @@ class DurableOperationSupervisorTest {
 
         assertTrue(supervisor.snapshot().single().showStallPrompt)
         assertEquals(OperationStatus.RUNNING, supervisor.snapshot().single().status)
-        assertTrue(cancellation.handles.isEmpty())
+        assertTrue(cancellation.requests.isEmpty())
     }
 
     @Test fun onlyRealProgressResetsTheObservationWindow() {
         val handle = handle("update-1", 1)
-        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Downloading", 8)
+        supervisor.start(
+            handle,
+            OperationKind.GHOST_UPDATE,
+            "Downloading",
+            8,
+            ExternalJobBinding.WorkManager("worker-1"),
+        )
         clock.value = 20_000
         assertFalse(supervisor.reportProgress(handle, "Downloading", 8))
         clock.value = 30_000
@@ -44,7 +50,13 @@ class DurableOperationSupervisorTest {
 
     @Test fun phaseChangeCountsAsProgressButARegressingCountDoesNot() {
         val handle = handle("install-1", 1)
-        supervisor.start(handle, OperationKind.NAR_INSTALL, "Extracting", 8)
+        supervisor.start(
+            handle,
+            OperationKind.NAR_INSTALL,
+            "Extracting",
+            8,
+            ExternalJobBinding.WorkManager("worker-1"),
+        )
         clock.value = 20_000
         assertTrue(supervisor.reportProgress(handle, "Verifying", 0))
         clock.value = 40_000
@@ -68,14 +80,15 @@ class DurableOperationSupervisorTest {
         assertFalse(supervisor.snapshot().single().showStallPrompt)
         clock.value = 60_000
         assertTrue(supervisor.snapshot().single().showStallPrompt)
-        assertTrue(cancellation.handles.isEmpty())
+        assertTrue(cancellation.requests.isEmpty())
     }
 
     @Test fun stopIsIdempotentAndOperationSpecific() {
         val selected = handle("nar-1", 1)
         val other = handle("nar-2", 1)
-        supervisor.start(selected, OperationKind.REMOTE_NAR, "Downloading", 1)
-        supervisor.start(other, OperationKind.REMOTE_NAR, "Downloading", 2)
+        val selectedJob = ExternalJobBinding.DownloadManager(101)
+        supervisor.start(selected, OperationKind.REMOTE_NAR, "Downloading", 1, selectedJob)
+        supervisor.start(other, OperationKind.REMOTE_NAR, "Downloading", 2, ExternalJobBinding.DownloadManager(202))
 
         assertTrue(supervisor.requestStop(selected))
         assertTrue(supervisor.requestStop(selected))
@@ -84,7 +97,7 @@ class DurableOperationSupervisorTest {
         assertEquals(OperationStatus.CANCEL_REQUESTED, records.getValue(selected.operationId).status)
         assertEquals("Stopping...", records.getValue(selected.operationId).progress.phase)
         assertEquals(OperationStatus.RUNNING, records.getValue(other.operationId).status)
-        assertEquals(listOf(selected), cancellation.handles)
+        assertEquals(listOf(CancellationRequest(selected, selectedJob)), cancellation.requests)
     }
 
     @Test fun recreationStartsAFreshWindowForRunningWork() {
@@ -101,19 +114,21 @@ class DurableOperationSupervisorTest {
 
     @Test fun recreationImmediatelyResumesPersistedCancellation() {
         val handle = handle("update-1", 1)
-        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing", 0)
+        val binding = ExternalJobBinding.WorkManager("worker-1")
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing", 0, binding)
         supervisor.requestStop(handle)
-        cancellation.handles.clear()
+        cancellation.requests.clear()
 
         DurableOperationSupervisor(store, clock, cancellation)
 
-        assertEquals(listOf(handle), cancellation.handles)
+        assertEquals(listOf(CancellationRequest(handle, binding)), cancellation.requests)
         assertEquals(OperationStatus.CANCEL_REQUESTED, store.read().single().status)
     }
 
     @Test fun stoppingGetsASecondObservationWindowAndDiagnostics() {
         val handle = handle("update-1", 1)
-        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing", 0)
+        val binding = ExternalJobBinding.WorkManager("worker-1")
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing", 0, binding)
         clock.value = 30_000
         supervisor.snapshot()
 
@@ -126,12 +141,18 @@ class DurableOperationSupervisorTest {
         assertEquals(OperationStatus.CANCEL_REQUESTED, stopping.status)
         assertTrue(stopping.showStallPrompt)
         assertNotNull(stopping.diagnostics)
-        assertEquals(listOf(handle), cancellation.handles)
+        assertEquals(listOf(CancellationRequest(handle, binding)), cancellation.requests)
     }
 
     @Test fun terminalCallbackIsPersistedAndCleanedFromActiveSnapshot() {
         val handle = handle("copy-1", 1)
-        supervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 4)
+        supervisor.start(
+            handle,
+            OperationKind.LOCAL_NAR,
+            "Copying",
+            4,
+            ExternalJobBinding.WorkManager("worker-1"),
+        )
 
         assertTrue(supervisor.finish(handle, OperationStatus.COMPLETED))
 
@@ -143,7 +164,15 @@ class DurableOperationSupervisorTest {
     @Test fun duplicateAcceptanceIsRejectedAndHigherAttemptReplacesOnlyTerminalWork() {
         val first = handle("nar-1", 1)
         val retry = handle("nar-1", 2)
-        assertTrue(supervisor.start(first, OperationKind.REMOTE_NAR, "Downloading", 0))
+        assertTrue(
+            supervisor.start(
+                first,
+                OperationKind.REMOTE_NAR,
+                "Downloading",
+                0,
+                ExternalJobBinding.DownloadManager(101),
+            ),
+        )
         assertFalse(supervisor.start(first, OperationKind.REMOTE_NAR, "Downloading", 0))
         assertFalse(supervisor.start(retry, OperationKind.REMOTE_NAR, "Downloading", 0))
 
@@ -165,7 +194,7 @@ class DurableOperationSupervisorTest {
         assertEquals(OperationStatus.RUNNING, current.status)
     }
 
-    @Test fun staleWorkerReplayAndStaleExternalRebindingAreRejected() {
+    @Test fun staleWorkerReplayAndExternalIdentityMutationAreRejected() {
         val current = handle("update-1", 2)
         supervisor.start(
             current,
@@ -182,7 +211,7 @@ class DurableOperationSupervisorTest {
                 ExternalJobBinding.WorkManager("stale-work"),
             ),
         )
-        assertTrue(
+        assertFalse(
             supervisor.bindExternalJob(
                 current,
                 ExternalJobBinding.WorkManager("replacement-work"),
@@ -191,7 +220,82 @@ class DurableOperationSupervisorTest {
 
         val record = supervisor.snapshot().single()
         assertEquals(OperationProgress("Queued", 0), record.progress)
-        assertEquals(ExternalJobBinding.WorkManager("replacement-work"), record.externalJob)
+        assertEquals(ExternalJobBinding.WorkManager("current-work"), record.externalJob)
+    }
+
+    @Test fun retryCannotReusePreviousAttemptsExternalJob() {
+        val first = handle("nar-1", 1)
+        val retry = handle("nar-1", 2)
+        val reusedJob = ExternalJobBinding.DownloadManager(101)
+        assertTrue(supervisor.start(first, OperationKind.REMOTE_NAR, "Downloading", 0, reusedJob))
+        assertTrue(supervisor.finish(first, OperationStatus.CANCELLED))
+
+        assertFalse(supervisor.start(retry, OperationKind.REMOTE_NAR, "Downloading", 0, reusedJob))
+
+        val record = store.read().single()
+        assertEquals(AttemptId(1), record.attemptId)
+        assertEquals(OperationStatus.CANCELLED, record.status)
+        assertEquals(reusedJob, record.externalJob)
+    }
+
+    @Test fun pendingRetryCannotLaterBindPreviousAttemptsExternalJob() {
+        val first = handle("nar-1", 1)
+        val retry = handle("nar-1", 2)
+        val previousJob = ExternalJobBinding.DownloadManager(101)
+        val replacementJob = ExternalJobBinding.DownloadManager(202)
+        assertTrue(supervisor.start(first, OperationKind.REMOTE_NAR, "Downloading", 0, previousJob))
+        assertTrue(supervisor.finish(first, OperationStatus.CANCELLED))
+        assertTrue(supervisor.start(retry, OperationKind.REMOTE_NAR, "Queued", 0))
+
+        assertFalse(supervisor.bindExternalJob(retry, previousJob))
+        assertTrue(supervisor.bindExternalJob(retry, replacementJob))
+
+        assertEquals(replacementJob, supervisor.snapshot().single().externalJob)
+    }
+
+    @Test fun progressBeforeExternalBindingIsRejected() {
+        val handle = handle("update-1", 1)
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+
+        assertFalse(supervisor.reportProgress(handle, "Downloading", 1))
+
+        assertEquals(OperationProgress("Queued", 0), store.read().single().progress)
+        assertTrue(supervisor.bindExternalJob(handle, ExternalJobBinding.WorkManager("worker-1")))
+        assertTrue(supervisor.reportProgress(handle, "Downloading", 1))
+    }
+
+    @Test fun terminalCallbackBeforeExternalBindingIsRejected() {
+        val handle = handle("update-1", 1)
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+
+        assertFalse(supervisor.finish(handle, OperationStatus.COMPLETED))
+
+        assertEquals(OperationStatus.RUNNING, store.read().single().status)
+        assertTrue(supervisor.bindExternalJob(handle, ExternalJobBinding.WorkManager("worker-1")))
+        assertTrue(supervisor.finish(handle, OperationStatus.COMPLETED))
+    }
+
+    @Test fun bindingAfterStopReissuesCancellationForTheNewlyIdentifiedJob() {
+        val handle = handle("update-1", 1)
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertTrue(supervisor.requestStop(handle))
+
+        assertTrue(
+            supervisor.bindExternalJob(
+                handle,
+                ExternalJobBinding.WorkManager("worker-1"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                CancellationRequest(
+                    handle,
+                    ExternalJobBinding.WorkManager("worker-1"),
+                ),
+            ),
+            cancellation.requests,
+        )
     }
 
     @Test fun sharedPreferencesAdapterRoundTripsAndEnforcesHandleCas() {
@@ -206,6 +310,7 @@ class DurableOperationSupervisorTest {
             status = OperationStatus.CANCEL_REQUESTED,
             showStallPrompt = true,
             diagnostics = "still stopping",
+            previousExternalJob = ExternalJobBinding.DownloadManager(12),
         )
         assertTrue(firstStore.putIfAbsent(record))
         assertFalse(firstStore.putIfAbsent(record))
@@ -235,11 +340,16 @@ class DurableOperationSupervisorTest {
         override fun nowMillis(): Long = value
     }
 
-    private class RecordingCancellation : OperationCancellation {
-        val handles = mutableListOf<OperationHandle>()
+    private data class CancellationRequest(
+        val handle: OperationHandle,
+        val binding: ExternalJobBinding,
+    )
 
-        override fun cancel(handle: OperationHandle) {
-            handles += handle
+    private class RecordingCancellation : OperationCancellation {
+        val requests = mutableListOf<CancellationRequest>()
+
+        override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
+            requests += CancellationRequest(handle, binding)
         }
     }
 
