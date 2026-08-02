@@ -41,6 +41,21 @@ coverage threshold. Keep tests in Android's standard source-set layout:
 `src/test/java/` for local JVM tests and `src/androidTest/java/` for device and
 Compose instrumentation tests.
 
+## Durable and Background Workflows
+
+For workflows that survive an Activity or process (downloads, workers,
+content-URI imports, installation, or long copies), follow the
+[durable workflow review checklist](docs/modernization/durable-workflow-review-checklist.md)
+before implementation and before requesting review.
+
+## Android Skill Routing
+
+Before editing Android code, inspect the available skill catalog and load every
+task-specific Android skill that matches the work. Use `android-cli` only for
+tasks involving the Android command-line tool; it is not the default Android
+architecture guide. Prefer the relevant testing, intent-security, adaptive UI,
+navigation, performance, build, or platform-integration skill when applicable.
+
 ## Commit & Pull Request Guidelines
 
 Use concise imperative subjects, optionally scoped (for example,
