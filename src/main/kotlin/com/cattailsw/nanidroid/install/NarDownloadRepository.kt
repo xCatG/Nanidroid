@@ -272,6 +272,7 @@ class NarDownloadRepository internal constructor(
         when (result) {
             is ArchiveInstallResult.Installed -> {
                 store.update(itemId) { it.copy(state = NarDownloadState.Complete) }
+                runCatching { ownedData.delete(item) }
             }
             is ArchiveInstallResult.Failed -> {
                 val message = if (

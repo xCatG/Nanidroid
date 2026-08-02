@@ -64,6 +64,15 @@ class NarDownloadRepositoryTest {
         assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
     }
 
+    @Test fun successfulInstallCleansOwnedArchiveAndKeepsCompletionVisible() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar", "file:///owned/archive.nar")
+
+        InstallNarWorker.execute(repository, item.id) { false }
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        assertEquals(listOf(item.id), ownedData.deletedItemIds)
+    }
+
     @Test fun deleteCancelsUniqueWorkRemovesDownloadAndDeletesOwnedData() {
         downloads.nextDownloadId = 41L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
