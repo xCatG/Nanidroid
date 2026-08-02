@@ -248,6 +248,11 @@ class NarDownloadRepository internal constructor(
 
     fun install(itemId: String, isStopped: () -> Boolean) {
         val item = store.get(itemId) ?: return
+        if (
+            item.state is NarDownloadState.NeedsAttention ||
+            item.state is NarDownloadState.Copying ||
+            item.state is NarDownloadState.Complete
+        ) return
         val recoveringPublishedInstall = item.state is NarDownloadState.Installing
         val installing = store.update(itemId) {
             it.copy(state = NarDownloadState.Installing)

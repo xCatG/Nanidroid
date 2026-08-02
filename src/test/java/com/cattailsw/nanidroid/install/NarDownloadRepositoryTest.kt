@@ -64,6 +64,19 @@ class NarDownloadRepositoryTest {
         assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
     }
 
+    @Test fun rescheduledInstallDoesNotRetryNeedsAttention() {
+        val item = repository.enqueueLocal("content://provider/archive.nar")
+        val attention = NarDownloadState.NeedsAttention(
+            NarDownloadState.Failure("install interrupted"),
+        )
+        store.update(item.id) { it.copy(state = attention) }
+
+        repository.install(item.id) { false }
+
+        assertEquals(attention, store.get(item.id)!!.state)
+        assertTrue(installer.stagingDirectories.isEmpty())
+    }
+
     @Test fun successfulInstallCleansOwnedArchiveAndKeepsCompletionVisible() {
         val item = repository.enqueueLocal("file:///owned/archive.nar", "file:///owned/archive.nar")
 

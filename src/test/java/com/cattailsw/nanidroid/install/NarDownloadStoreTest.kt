@@ -99,7 +99,7 @@ class NarDownloadStoreTest {
 
         assertFalse(firstThread.isAlive)
         assertFalse(secondThread.isAlive)
-        assertEquals(listOf("a", "b"), first.getAll().map { it.id })
+        assertEquals(setOf("a", "b"), first.getAll().map { it.id }.toSet())
     }
 
     private fun remote(
