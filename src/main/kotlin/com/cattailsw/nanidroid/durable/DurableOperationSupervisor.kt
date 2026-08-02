@@ -44,6 +44,7 @@ class DurableOperationSupervisor(
             progress = OperationProgress(phase, completed),
             status = OperationStatus.RUNNING,
             showStallPrompt = false,
+            externalJobHistory = externalJob?.let(::setOf).orEmpty(),
         )
         val inserted = store.putIfAbsent(accepted)
         if (!inserted) {
@@ -52,12 +53,13 @@ class DurableOperationSupervisor(
             if (
                 !previous.status.isTerminal() ||
                 previous.kind != kind ||
-                handle.attemptId.value <= previous.attemptId.value ||
-                previous.externalJob != null && previous.externalJob == externalJob
+                handle.attemptId.value <= previous.attemptId.value
             ) {
                 return@synchronized false
             }
-            accepted = accepted.copy(previousExternalJob = previous.externalJob)
+            val history = previous.externalJobHistory + listOfNotNull(previous.externalJob)
+            if (externalJob != null && externalJob in history) return@synchronized false
+            accepted = accepted.copy(externalJobHistory = history + listOfNotNull(externalJob))
             if (!store.compareAndSet(previous.handle(), previous.status, accepted)) {
                 return@synchronized false
             }
@@ -91,12 +93,15 @@ class DurableOperationSupervisor(
         synchronized(operationLock) {
             val current = activeRecord(handle) ?: return@synchronized false
             if (current.externalJob != null) return@synchronized current.externalJob == binding
-            if (current.previousExternalJob == binding) return@synchronized false
+            if (binding in current.externalJobHistory) return@synchronized false
             if (
                 !store.compareAndSet(
                     handle,
                     current.status,
-                    current.copy(externalJob = binding, previousExternalJob = null),
+                    current.copy(
+                        externalJob = binding,
+                        externalJobHistory = current.externalJobHistory + binding,
+                    ),
                 )
             ) {
                 return@synchronized false
@@ -132,6 +137,25 @@ class DurableOperationSupervisor(
         }
         lastProgressAt[handle] = clock.nowMillis()
         current.externalJob?.let { issueCancellation(handle, it) }
+        true
+    }
+
+    fun reconcileUnboundCancellation(handle: OperationHandle): Boolean = synchronized(operationLock) {
+        val current = activeRecord(handle) ?: return@synchronized false
+        if (current.status != OperationStatus.CANCEL_REQUESTED || current.externalJob != null) {
+            return@synchronized false
+        }
+        if (
+            !store.compareAndSet(
+                handle,
+                OperationStatus.CANCEL_REQUESTED,
+                current.copy(status = OperationStatus.CANCELLED, showStallPrompt = false),
+            )
+        ) {
+            return@synchronized false
+        }
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
         true
     }
 

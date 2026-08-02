@@ -26,7 +26,7 @@ data class DurableOperationRecord(
     val status: OperationStatus,
     val showStallPrompt: Boolean,
     val diagnostics: String? = null,
-    val previousExternalJob: ExternalJobBinding? = null,
+    val externalJobHistory: Set<ExternalJobBinding> = emptySet(),
 )
 
 fun interface OperationCancellation {

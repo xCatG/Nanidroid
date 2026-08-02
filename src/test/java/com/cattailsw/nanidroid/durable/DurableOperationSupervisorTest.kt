@@ -253,6 +253,50 @@ class DurableOperationSupervisorTest {
         assertEquals(replacementJob, supervisor.snapshot().single().externalJob)
     }
 
+    @Test fun thirdAttemptCannotReuseFirstAttemptsExternalJob() {
+        val first = handle("nar-1", 1)
+        val second = handle("nar-1", 2)
+        val third = handle("nar-1", 3)
+        val jobA = ExternalJobBinding.DownloadManager(101)
+        val jobB = ExternalJobBinding.DownloadManager(202)
+        assertTrue(supervisor.start(first, OperationKind.REMOTE_NAR, "Downloading", 0, jobA))
+        assertTrue(supervisor.finish(first, OperationStatus.CANCELLED))
+        assertTrue(supervisor.start(second, OperationKind.REMOTE_NAR, "Downloading", 0, jobB))
+        assertTrue(supervisor.finish(second, OperationStatus.CANCELLED))
+
+        assertFalse(supervisor.start(third, OperationKind.REMOTE_NAR, "Downloading", 0, jobA))
+
+        assertEquals(AttemptId(2), store.read().single().attemptId)
+        assertEquals(jobB, store.read().single().externalJob)
+    }
+
+    @Test fun completeBindingHistorySurvivesStoreAndSupervisorRecreation() {
+        val storage = SharedPreferencesDurableOperationStore.MemoryStorage()
+        val persistedStore = SharedPreferencesDurableOperationStore(storage)
+        val firstSupervisor = DurableOperationSupervisor(persistedStore, clock, cancellation)
+        val first = handle("update-1", 1)
+        val second = handle("update-1", 2)
+        val third = handle("update-1", 3)
+        val jobA = ExternalJobBinding.WorkManager("worker-a")
+        val jobB = ExternalJobBinding.WorkManager("worker-b")
+        val jobC = ExternalJobBinding.WorkManager("worker-c")
+        assertTrue(firstSupervisor.start(first, OperationKind.GHOST_UPDATE, "Queued", 0, jobA))
+        assertTrue(firstSupervisor.finish(first, OperationStatus.CANCELLED))
+        assertTrue(firstSupervisor.start(second, OperationKind.GHOST_UPDATE, "Queued", 0, jobB))
+        assertTrue(firstSupervisor.finish(second, OperationStatus.CANCELLED))
+        assertTrue(firstSupervisor.start(third, OperationKind.GHOST_UPDATE, "Queued", 0))
+
+        val restored = DurableOperationSupervisor(
+            SharedPreferencesDurableOperationStore(storage),
+            clock,
+            cancellation,
+        )
+        assertFalse(restored.bindExternalJob(third, jobA))
+        assertTrue(restored.bindExternalJob(third, jobC))
+
+        assertEquals(jobC, restored.snapshot().single().externalJob)
+    }
+
     @Test fun progressBeforeExternalBindingIsRejected() {
         val handle = handle("update-1", 1)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
@@ -298,6 +342,47 @@ class DurableOperationSupervisorTest {
         )
     }
 
+    @Test fun recreationCanReconcileUnboundCancellationWhenAdapterConfirmsNoJob() {
+        val handle = handle("update-1", 1)
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertTrue(supervisor.requestStop(handle))
+        val restored = DurableOperationSupervisor(store, clock, cancellation)
+
+        assertTrue(restored.reconcileUnboundCancellation(handle))
+
+        assertTrue(restored.snapshot().isEmpty())
+        assertEquals(OperationStatus.CANCELLED, store.read().single().status)
+        assertTrue(cancellation.requests.isEmpty())
+    }
+
+    @Test fun unboundCancellationReconciliationRejectsBoundAttempt() {
+        val handle = handle("update-1", 1)
+        val binding = ExternalJobBinding.WorkManager("worker-1")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(supervisor.requestStop(handle))
+
+        assertFalse(supervisor.reconcileUnboundCancellation(handle))
+
+        assertEquals(OperationStatus.CANCEL_REQUESTED, store.read().single().status)
+        assertEquals(listOf(CancellationRequest(handle, binding)), cancellation.requests)
+    }
+
+    @Test fun unboundCancellationReconciliationRejectsRunningStaleAndTerminalAttempts() {
+        val handle = handle("update-1", 2)
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertFalse(supervisor.reconcileUnboundCancellation(handle))
+        assertFalse(supervisor.reconcileUnboundCancellation(handle("update-1", 1)))
+        assertEquals(OperationStatus.RUNNING, store.read().single().status)
+
+        store.compareAndSet(
+            handle,
+            OperationStatus.RUNNING,
+            store.read().single().copy(status = OperationStatus.CANCELLED),
+        )
+        assertFalse(supervisor.reconcileUnboundCancellation(handle))
+        assertTrue(cancellation.requests.isEmpty())
+    }
+
     @Test fun sharedPreferencesAdapterRoundTripsAndEnforcesHandleCas() {
         val storage = SharedPreferencesDurableOperationStore.MemoryStorage()
         val firstStore = SharedPreferencesDurableOperationStore(storage)
@@ -310,7 +395,10 @@ class DurableOperationSupervisorTest {
             status = OperationStatus.CANCEL_REQUESTED,
             showStallPrompt = true,
             diagnostics = "still stopping",
-            previousExternalJob = ExternalJobBinding.DownloadManager(12),
+            externalJobHistory = setOf(
+                ExternalJobBinding.WorkManager("worker-4"),
+                ExternalJobBinding.DownloadManager(12),
+            ),
         )
         assertTrue(firstStore.putIfAbsent(record))
         assertFalse(firstStore.putIfAbsent(record))

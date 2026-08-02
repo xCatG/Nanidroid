@@ -2,6 +2,9 @@ package com.cattailsw.nanidroid.durable
 
 import android.content.Context
 import android.content.SharedPreferences
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
@@ -76,7 +79,8 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
     private companion object {
         const val PREFERENCES = "durable_operations_v1"
         const val RECORDS = "records"
-        const val VERSION = "v1"
+        const val VERSION = "v2"
+        const val LEGACY_VERSION = "v1"
         val operationLock = Any()
         val encoder = Base64.getUrlEncoder().withoutPadding()
         val decoder = Base64.getUrlDecoder()
@@ -93,11 +97,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                     is ExternalJobBinding.DownloadManager -> append("\tdm\t").append(binding.id)
                     is ExternalJobBinding.WorkManager -> append("\twm\t").append(encoded(binding.uuid))
                 }
-                when (val binding = record.previousExternalJob) {
-                    null -> append("\t-\t-")
-                    is ExternalJobBinding.DownloadManager -> append("\tdm\t").append(binding.id)
-                    is ExternalJobBinding.WorkManager -> append("\twm\t").append(encoded(binding.uuid))
-                }
+                append('\t').append(encodedHistory(record.externalJobHistory))
                 append('\t').append(encoded(record.progress.phase))
                 append('\t').append(record.progress.completed)
                 append('\t').append(record.status.name)
@@ -113,14 +113,18 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
             val lines = value.lineSequence().toList()
             val version = lines.firstOrNull()
-            if (version != VERSION) {
+            if (version != VERSION && version != LEGACY_VERSION) {
                 throw DurableOperationStoreCorruptionException(
                     "unsupported durable operation version: ${version ?: "missing"}",
                 )
             }
             return linkedMapOf<OperationId, DurableOperationRecord>().apply {
                 lines.drop(1).forEachIndexed { index, line ->
-                    val record = decodeRecord(line) ?: throw DurableOperationStoreCorruptionException(
+                    val record = when (version) {
+                        VERSION -> decodeRecord(line)
+                        LEGACY_VERSION -> decodeLegacyRecord(line)
+                        else -> null
+                    } ?: throw DurableOperationStoreCorruptionException(
                         "malformed durable operation row ${index + 1}",
                     )
                     if (record.id in this) {
@@ -134,6 +138,38 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         }
 
         fun decodeRecord(line: String): DurableOperationRecord? = try {
+            val fields = line.split('\t')
+            if (fields.size != 11) return null
+            val binding = when (fields[3]) {
+                "-" -> if (fields[4] == "-") null else return null
+                "dm" -> ExternalJobBinding.DownloadManager(fields[4].toLong())
+                "wm" -> ExternalJobBinding.WorkManager(decoded(fields[4]) ?: return null)
+                else -> return null
+            }
+            val history = decodedHistory(fields[5]) ?: return null
+            DurableOperationRecord(
+                id = OperationId(decoded(fields[0]) ?: return null),
+                attemptId = AttemptId(fields[1].toLong()),
+                kind = OperationKind.valueOf(fields[2]),
+                externalJob = binding,
+                progress = OperationProgress(
+                    phase = decoded(fields[6]) ?: return null,
+                    completed = fields[7].toLong(),
+                ),
+                status = OperationStatus.valueOf(fields[8]),
+                showStallPrompt = when (fields[9]) {
+                    "0" -> false
+                    "1" -> true
+                    else -> return null
+                },
+                diagnostics = decoded(fields[10]),
+                externalJobHistory = history,
+            )
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+
+        fun decodeLegacyRecord(line: String): DurableOperationRecord? = try {
             val fields = line.split('\t')
             if (fields.size != 10 && fields.size != 12) return null
             val binding = when (fields[3]) {
@@ -170,18 +206,64 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                     else -> return null
                 },
                 diagnostics = decoded(fields[phaseIndex + 4]),
-                previousExternalJob = previousBinding,
+                externalJobHistory = listOfNotNull(binding, previousBinding).toSet(),
             )
         } catch (_: IllegalArgumentException) {
             null
+        }
+
+        fun encodedHistory(history: Set<ExternalJobBinding>): String {
+            if (history.isEmpty()) return "-"
+            val canonical = history.map { binding ->
+                when (binding) {
+                    is ExternalJobBinding.DownloadManager -> "d:${binding.id}"
+                    is ExternalJobBinding.WorkManager -> "w:${encoded(binding.uuid)}"
+                }
+            }.sorted()
+            return encoded(canonical.joinToString(","))
+        }
+
+        fun decodedHistory(value: String): Set<ExternalJobBinding>? {
+            if (value == "-") return emptySet()
+            val payload = decoded(value) ?: return null
+            if (payload.isEmpty()) return null
+            val history = linkedSetOf<ExternalJobBinding>()
+            payload.split(',').forEach { item ->
+                val binding = when {
+                    item.startsWith("d:") -> ExternalJobBinding.DownloadManager(
+                        item.substring(2).toLongOrNull() ?: return null,
+                    )
+                    item.startsWith("w:") -> ExternalJobBinding.WorkManager(
+                        decoded(item.substring(2)) ?: return null,
+                    )
+                    else -> return null
+                }
+                if (!history.add(binding)) {
+                    throw DurableOperationStoreCorruptionException(
+                        "duplicate external job history binding",
+                    )
+                }
+            }
+            return history
         }
 
         fun encoded(value: String?): String = value?.let {
             encoder.encodeToString(it.toByteArray(StandardCharsets.UTF_8))
         } ?: "-"
 
-        fun decoded(value: String): String? = if (value == "-") null else {
-            String(decoder.decode(value), StandardCharsets.UTF_8)
+        fun decoded(value: String): String? {
+            if (value == "-") return null
+            return try {
+                StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(decoder.decode(value)))
+                    .toString()
+            } catch (_: IllegalArgumentException) {
+                null
+            } catch (_: CharacterCodingException) {
+                null
+            }
         }
     }
 }
