@@ -9,6 +9,7 @@ import com.cattailsw.nanidroid.durable.ExternalJobBinding
 import com.cattailsw.nanidroid.durable.OperationHandle
 import com.cattailsw.nanidroid.durable.OperationId
 import com.cattailsw.nanidroid.durable.OperationKind
+import com.cattailsw.nanidroid.durable.OperationProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +19,7 @@ class NarInstallProgressReporterTest {
     private val store = CountingStore()
     private val supervisor = DurableOperationSupervisor(store, clock) { _, _ -> }
     private val handle = OperationHandle(OperationId("large-install"), AttemptId(1L))
+    private val binding = ExternalJobBinding.WorkManager("install-worker")
     private val reporter = ThrottledNarInstallProgressReporter(supervisor, clock)
 
     @Test fun largeArchiveChunkCallbacksProduceBoundedDurableWritesAndExactFinalProgress() {
@@ -27,10 +29,10 @@ class NarInstallProgressReporterTest {
 
         var completed = chunkBytes
         while (completed <= archiveBytes) {
-            reporter.report(handle, "Extracting archive", completed)
+            reporter.report(handle, binding, "Extracting archive", completed)
             completed += chunkBytes
         }
-        reporter.complete(handle)
+        reporter.complete(handle, binding)
 
         assertEquals(513, store.updateCount)
         assertEquals("Extracting archive", store.read().single().progress.phase)
@@ -40,13 +42,13 @@ class NarInstallProgressReporterTest {
     @Test fun phaseBoundariesAndFinalProgressPersistWhileDuplicatesAndRegressionsDoNot() {
         startInstall()
 
-        reporter.report(handle, "Staging archive", 8_192L)
-        reporter.report(handle, "Staging archive", 8_192L)
-        reporter.report(handle, "Staging archive", 4_096L)
-        reporter.report(handle, "Staging archive", 16_384L)
-        reporter.report(handle, "Extracting archive", 0L)
-        reporter.report(handle, "Extracting archive", 8_192L)
-        reporter.complete(handle)
+        reporter.report(handle, binding, "Staging archive", 8_192L)
+        reporter.report(handle, binding, "Staging archive", 8_192L)
+        reporter.report(handle, binding, "Staging archive", 4_096L)
+        reporter.report(handle, binding, "Staging archive", 16_384L)
+        reporter.report(handle, binding, "Extracting archive", 0L)
+        reporter.report(handle, binding, "Extracting archive", 8_192L)
+        reporter.complete(handle, binding)
 
         assertEquals(3, store.updateCount)
         assertEquals("Extracting archive", store.read().single().progress.phase)
@@ -55,18 +57,30 @@ class NarInstallProgressReporterTest {
 
     @Test fun slowContinuousProgressPersistsHeartbeatBeforeThirtySecondStallWindow() {
         startInstall()
-        reporter.report(handle, "Extracting archive", 8_192L)
+        reporter.report(handle, binding, "Extracting archive", 8_192L)
 
         clock.value = 19_999L
-        reporter.report(handle, "Extracting archive", 16_384L)
+        reporter.report(handle, binding, "Extracting archive", 16_384L)
         assertEquals(1, store.updateCount)
 
         clock.value = 20_000L
-        reporter.report(handle, "Extracting archive", 24_576L)
+        reporter.report(handle, binding, "Extracting archive", 24_576L)
         assertEquals(2, store.updateCount)
 
         clock.value = 49_999L
         assertTrue(!supervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun losingWorkerBufferCannotFlushThroughWinningWorker() {
+        startInstall()
+        val losingBinding = ExternalJobBinding.WorkManager("losing-worker")
+
+        assertTrue(!reporter.report(handle, losingBinding, "Extracting archive", 512L))
+        assertTrue(!reporter.complete(handle, binding))
+
+        val current = store.read().single()
+        assertEquals(OperationProgress("Installing archive", 0L), current.progress)
+        assertEquals(binding, current.externalJob)
     }
 
     private fun startInstall() {
@@ -76,7 +90,7 @@ class NarInstallProgressReporterTest {
                 OperationKind.NAR_INSTALL,
                 "Installing archive",
                 0L,
-                ExternalJobBinding.WorkManager("install-worker"),
+                binding,
             ),
         )
     }

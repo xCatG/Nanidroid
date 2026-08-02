@@ -18,10 +18,16 @@ class InstallNarWorker(
     override fun doWork(): Result {
         val itemId = inputData.getString(INPUT_ITEM_ID) ?: return Result.success()
         val attemptId = inputData.getLong(INPUT_ATTEMPT_ID, NO_ATTEMPT)
+        val workManagerId = id.toString()
         return if (attemptId == NO_ATTEMPT) {
-            execute(NarDownloadRepository.get(applicationContext), itemId) { isStopped }
+            execute(NarDownloadRepository.get(applicationContext), itemId, workManagerId) { isStopped }
         } else {
-            execute(NarDownloadRepository.get(applicationContext), itemId, attemptId) { isStopped }
+            execute(
+                NarDownloadRepository.get(applicationContext),
+                itemId,
+                attemptId,
+                workManagerId,
+            ) { isStopped }
         }
     }
 
@@ -29,7 +35,11 @@ class InstallNarWorker(
         val itemId = inputData.getString(INPUT_ITEM_ID)
         val attemptId = inputData.getLong(INPUT_ATTEMPT_ID, NO_ATTEMPT)
         if (itemId != null && attemptId != NO_ATTEMPT) {
-            NarDownloadRepository.get(applicationContext).workerStopped(itemId, attemptId)
+            NarDownloadRepository.get(applicationContext).workerStopped(
+                itemId,
+                attemptId,
+                id.toString(),
+            )
         }
         super.onStopped()
     }
@@ -42,9 +52,10 @@ class InstallNarWorker(
         internal fun execute(
             repository: NarDownloadRepository,
             itemId: String,
+            workManagerId: String,
             isStopped: () -> Boolean,
         ): ListenableWorker.Result {
-            return if (repository.install(itemId, isStopped)) {
+            return if (repository.install(itemId, workManagerId, isStopped)) {
                 ListenableWorker.Result.success()
             } else {
                 ListenableWorker.Result.retry()
@@ -55,9 +66,10 @@ class InstallNarWorker(
             repository: NarDownloadRepository,
             itemId: String,
             attemptId: Long,
+            workManagerId: String,
             isStopped: () -> Boolean,
         ): ListenableWorker.Result {
-            return if (repository.install(itemId, attemptId, isStopped)) {
+            return if (repository.install(itemId, attemptId, workManagerId, isStopped)) {
                 ListenableWorker.Result.success()
             } else {
                 ListenableWorker.Result.retry()

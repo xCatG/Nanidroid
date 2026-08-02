@@ -195,6 +195,29 @@ class DurableOperationSupervisor(
         true
     }
 
+    internal fun activeBindingForExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): ExternalJobBinding? = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind &&
+                it.status.isActive()
+        }?.externalJob
+    }
+
+    internal fun isFailedAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): Boolean = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
+        }?.status == OperationStatus.FAILED
+    }
+
     fun failUnboundAttempt(handle: OperationHandle, diagnostics: String): Boolean =
         synchronized(operationLock) {
             val current = activeRecord(handle) ?: return@synchronized false

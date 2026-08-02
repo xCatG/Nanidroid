@@ -2,18 +2,25 @@ package com.cattailsw.nanidroid.install
 
 import com.cattailsw.nanidroid.di.MonotonicClock
 import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
+import com.cattailsw.nanidroid.durable.ExternalJobBinding
 import com.cattailsw.nanidroid.durable.OperationHandle
 
 internal class ThrottledNarInstallProgressReporter(
     private val supervisor: DurableOperationSupervisor,
     private val clock: MonotonicClock,
 ) {
-    private val progress = mutableMapOf<OperationHandle, ProgressState>()
+    private val progress = mutableMapOf<ProgressOwner, ProgressState>()
 
     @Synchronized
-    fun report(handle: OperationHandle, phase: String, completed: Long): Boolean {
+    fun report(
+        handle: OperationHandle,
+        binding: ExternalJobBinding.WorkManager,
+        phase: String,
+        completed: Long,
+    ): Boolean {
         if (completed < 0L) return false
-        val previous = progress[handle]
+        val owner = ProgressOwner(handle, binding)
+        val previous = progress[owner]
         if (
             previous != null &&
             previous.observedPhase == phase &&
@@ -33,13 +40,13 @@ internal class ThrottledNarInstallProgressReporter(
                 observedCompleted = completed,
             )
         }
-        progress[handle] = observed
+        progress[owner] = observed
         val phaseChanged = observed.persistedPhase != phase
         val bytesAdvanced = if (phaseChanged) 0L else completed - observed.persistedCompleted
         val heartbeatDue = observed.persistedAtMillis?.let { now - it >= HEARTBEAT_MILLIS } ?: true
         if (!phaseChanged && bytesAdvanced < BYTE_THRESHOLD && !heartbeatDue) return false
-        if (!supervisor.reportProgress(handle, phase, completed)) return false
-        progress[handle] = observed.copy(
+        if (!supervisor.reportProgress(handle, binding, phase, completed)) return false
+        progress[owner] = observed.copy(
             persistedPhase = phase,
             persistedCompleted = completed,
             persistedAtMillis = now,
@@ -48,8 +55,8 @@ internal class ThrottledNarInstallProgressReporter(
     }
 
     @Synchronized
-    fun complete(handle: OperationHandle): Boolean {
-        val final = progress.remove(handle) ?: return false
+    fun complete(handle: OperationHandle, binding: ExternalJobBinding.WorkManager): Boolean {
+        val final = progress.remove(ProgressOwner(handle, binding)) ?: return false
         if (
             final.observedPhase == final.persistedPhase &&
             final.observedCompleted == final.persistedCompleted
@@ -58,10 +65,16 @@ internal class ThrottledNarInstallProgressReporter(
         }
         return supervisor.reportProgress(
             handle,
+            binding,
             final.observedPhase,
             final.observedCompleted,
         )
     }
+
+    private data class ProgressOwner(
+        val handle: OperationHandle,
+        val binding: ExternalJobBinding.WorkManager,
+    )
 
     private data class ProgressState(
         val observedPhase: String,

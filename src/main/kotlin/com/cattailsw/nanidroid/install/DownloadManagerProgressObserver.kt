@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.install
 import android.os.Handler
 import android.os.Looper
 import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
+import com.cattailsw.nanidroid.durable.ExternalJobBinding
 import com.cattailsw.nanidroid.durable.OperationHandle
 
 internal interface NarRemoteProgressObserver {
@@ -65,7 +66,12 @@ internal class DownloadManagerProgressObserver(
     override fun observeOnce(handle: OperationHandle, downloadManagerId: Long): Boolean {
         val completed = downloads.downloadedBytes(downloadManagerId) ?: return false
         if (completed < 0L) return false
-        return supervisor.reportProgress(handle, "Downloading archive", completed)
+        return supervisor.reportProgress(
+            handle,
+            ExternalJobBinding.DownloadManager(downloadManagerId),
+            "Downloading archive",
+            completed,
+        )
     }
 
     private companion object {

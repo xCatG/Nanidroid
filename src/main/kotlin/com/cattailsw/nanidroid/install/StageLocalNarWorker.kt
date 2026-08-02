@@ -58,12 +58,18 @@ internal class NarLiveGrantHandoff(
             runCatching { source.close() }
             return null
         }
+        val workManagerId = item.workManagerId
+        if (workManagerId == null) {
+            runCatching { source.close() }
+            return item
+        }
         try {
             executor.execute {
                 try {
                     repository.stageLiveLocal(
                         item.id,
                         item.attemptId,
+                        workManagerId,
                         { Thread.currentThread().isInterrupted },
                     ) { _, isCancelled, onProgress ->
                         stage(BorrowedInputStream(source), isCancelled, onProgress)
@@ -99,6 +105,7 @@ class StageLocalNarWorker(
             repository,
             itemId,
             attemptId,
+            id.toString(),
             { isStopped },
         ) stage@{ download, isCancelled, onProgress ->
             val location = download.retainedUri ?: (download.source as? NarDownloadSource.Local)?.uri
@@ -115,7 +122,11 @@ class StageLocalNarWorker(
         val itemId = inputData.getString(INPUT_ITEM_ID)
         val attemptId = inputData.getLong(INPUT_ATTEMPT_ID, NO_ATTEMPT)
         if (itemId != null && attemptId != NO_ATTEMPT) {
-            NarDownloadRepository.get(applicationContext).workerStopped(itemId, attemptId)
+            NarDownloadRepository.get(applicationContext).workerStopped(
+                itemId,
+                attemptId,
+                id.toString(),
+            )
         }
         super.onStopped()
     }
@@ -130,6 +141,7 @@ class StageLocalNarWorker(
             repository: NarDownloadRepository,
             itemId: String,
             attemptId: Long,
+            workManagerId: String,
             isStopped: () -> Boolean,
             stage: (
                 download: NarDownload,
@@ -137,7 +149,7 @@ class StageLocalNarWorker(
                 onProgress: (phase: String, completed: Long) -> Unit,
             ) -> NarLocalArchiveStager.Result,
         ): ListenableWorker.Result = if (
-            repository.stageLocal(itemId, attemptId, isStopped, stage)
+            repository.stageLocal(itemId, attemptId, workManagerId, isStopped, stage)
         ) {
             ListenableWorker.Result.success()
         } else {

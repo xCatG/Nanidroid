@@ -238,7 +238,13 @@ class NarDownloadRepository internal constructor(
             }
             if (!enqueued) throw IllegalStateException("local stage work was not accepted")
         } catch (_: Exception) {
-            supervisor.finish(handle, OperationStatus.FAILED, COPY_INTERRUPTED)
+            val binding = store.get(item.id)
+                ?.takeIf { it.attemptId == item.attemptId }
+                ?.workManagerId
+                ?.let(ExternalJobBinding::WorkManager)
+            if (!supervisor.failUnboundAttempt(handle, COPY_INTERRUPTED) && binding != null) {
+                supervisor.finish(handle, binding, OperationStatus.FAILED, COPY_INTERRUPTED)
+            }
             markNeedsAttention(item.id, COPY_INTERRUPTED)
         }
     }
@@ -246,28 +252,45 @@ class NarDownloadRepository internal constructor(
     fun stageLocal(
         itemId: String,
         attemptId: Long,
+        workManagerId: String,
         isStopped: () -> Boolean,
         stage: (
             download: NarDownload,
             isCancelled: () -> Boolean,
             onProgress: (phase: String, completed: Long) -> Unit,
         ) -> NarLocalArchiveStager.Result,
-    ) = stageLocalAttempt(itemId, attemptId, isStopped, liveGrant = false, stage)
+    ) = stageLocalAttempt(
+        itemId,
+        attemptId,
+        workManagerId,
+        isStopped,
+        liveGrant = false,
+        stage,
+    )
 
     internal fun stageLiveLocal(
         itemId: String,
         attemptId: Long,
+        workManagerId: String,
         isStopped: () -> Boolean,
         stage: (
             download: NarDownload,
             isCancelled: () -> Boolean,
             onProgress: (phase: String, completed: Long) -> Unit,
         ) -> NarLocalArchiveStager.Result,
-    ) = stageLocalAttempt(itemId, attemptId, isStopped, liveGrant = true, stage)
+    ) = stageLocalAttempt(
+        itemId,
+        attemptId,
+        workManagerId,
+        isStopped,
+        liveGrant = true,
+        stage,
+    )
 
     private fun stageLocalAttempt(
         itemId: String,
         attemptId: Long,
+        workManagerId: String,
         isStopped: () -> Boolean,
         liveGrant: Boolean,
         stage: (
@@ -288,11 +311,18 @@ class NarDownloadRepository internal constructor(
         }
         try {
             val item = store.get(itemId) ?: return true
-            if (item.attemptId != attemptId || item.state != NarDownloadState.Copying) return true
+            if (
+                item.attemptId != attemptId ||
+                item.workManagerId != workManagerId ||
+                item.state != NarDownloadState.Copying
+            ) {
+                return true
+            }
+            val binding = ExternalJobBinding.WorkManager(workManagerId)
             val result = stage(
                 item,
                 { isStopped() || cancellationRequested(handle) },
-                { phase, completed -> supervisor.reportProgress(handle, phase, completed) },
+                { phase, completed -> supervisor.reportProgress(handle, binding, phase, completed) },
             )
             val current = store.get(itemId)
             if (current?.attemptId != attemptId || current.state != NarDownloadState.Copying) {
@@ -334,16 +364,16 @@ class NarDownloadRepository internal constructor(
                         NarLocalArchiveStager.discard(result.location)
                         return true
                     }
-                    supervisor.finish(handle, OperationStatus.COMPLETED)
+                    supervisor.finish(handle, binding, OperationStatus.COMPLETED)
                     scheduleInstall(itemId)
                 }
                 is NarLocalArchiveStager.Result.Failed -> {
-                    if (supervisor.finish(handle, OperationStatus.FAILED, result.message)) {
+                    if (supervisor.finish(handle, binding, OperationStatus.FAILED, result.message)) {
                         markNeedsAttention(itemId, result.message)
                     }
                 }
                 NarLocalArchiveStager.Result.Cancelled -> {
-                    if (supervisor.finish(handle, OperationStatus.CANCELLED)) {
+                    if (supervisor.finish(handle, binding, OperationStatus.CANCELLED)) {
                         store.update(itemId) { latest ->
                             if (latest.attemptId == attemptId) {
                                 latest.copy(state = NarDownloadState.Cancelled)
@@ -383,7 +413,11 @@ class NarDownloadRepository internal constructor(
         runCatching { work.cancel(itemId) }
         when (val source = item.source) {
             is NarDownloadSource.Remote -> {
-                val retryRetainedArchive = item.workManagerId != null && runCatching {
+                val failedInstallAttempt = supervisor.isFailedAttempt(
+                    item.handle(),
+                    OperationKind.NAR_INSTALL,
+                )
+                val retryRetainedArchive = failedInstallAttempt && runCatching {
                     ownedData.retainedArchiveAvailable(item)
                 }.getOrDefault(false)
                 if (retryRetainedArchive) {
@@ -412,7 +446,7 @@ class NarDownloadRepository internal constructor(
                     startRemoteDownload(
                         itemId,
                         source.uri,
-                        reacquiringAfterInstall = item.workManagerId != null,
+                        reacquiringAfterInstall = failedInstallAttempt,
                     )
                 }
             }
@@ -510,6 +544,7 @@ class NarDownloadRepository internal constructor(
         val item = store.get(itemId) ?: return false
         if (!item.state.isNonterminal() && item.state != NarDownloadState.Copying) return false
         val handle = item.handle()
+        val binding = item.externalJobBinding()
         if (!supervisor.requestStop(handle)) return false
         if (item.state == NarDownloadState.Downloading) remoteProgress.stop(handle)
         val updated = store.update(itemId) { current ->
@@ -520,19 +555,35 @@ class NarDownloadRepository internal constructor(
             }
         }
         if (updated?.attemptId != item.attemptId) return false
-        supervisor.finish(handle, OperationStatus.CANCELLED)
+        if (binding == null) {
+            supervisor.reconcileUnboundCancellation(handle)
+        } else {
+            supervisor.finish(handle, binding, OperationStatus.CANCELLED)
+        }
         publish()
         return true
     }
 
     @Synchronized
-    fun workerStopped(itemId: String, attemptId: Long) {
+    fun workerStopped(itemId: String, attemptId: Long, workManagerId: String) {
         val item = store.get(itemId) ?: return
-        if (item.attemptId != attemptId || !item.state.isNonterminal() && item.state != NarDownloadState.Copying) {
+        if (
+            item.attemptId != attemptId ||
+            item.workManagerId != workManagerId ||
+            !item.state.isNonterminal() && item.state != NarDownloadState.Copying
+        ) {
             return
         }
         if (!cancellationRequested(item.handle())) return
-        if (!supervisor.finish(item.handle(), OperationStatus.CANCELLED)) return
+        if (
+            !supervisor.finish(
+                item.handle(),
+                ExternalJobBinding.WorkManager(workManagerId),
+                OperationStatus.CANCELLED,
+            )
+        ) {
+            return
+        }
         store.update(itemId) { current ->
             if (current.attemptId == attemptId) current.copy(state = NarDownloadState.Cancelled)
             else current
@@ -564,7 +615,9 @@ class NarDownloadRepository internal constructor(
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
             .forEach { item ->
-                supervisor.finish(item.handle(), OperationStatus.COMPLETED)
+                item.externalJobBinding()?.let { binding ->
+                    supervisor.finish(item.handle(), binding, OperationStatus.COMPLETED)
+                }
                 cleanupCompletedInstall(item)
             }
         ownedData.deleteAbandonedLocalArchives(
@@ -606,11 +659,14 @@ class NarDownloadRepository internal constructor(
                     NarRemoteDownloadStatus.Failed,
                     null -> {
                         remoteProgress.stop(item.handle())
-                        supervisor.finish(
-                            item.handle(),
-                            OperationStatus.FAILED,
-                            DOWNLOAD_RECOVERY_FAILURE,
-                        )
+                        downloadManagerId?.let { bindingId ->
+                            supervisor.finish(
+                                item.handle(),
+                                ExternalJobBinding.DownloadManager(bindingId),
+                                OperationStatus.FAILED,
+                                DOWNLOAD_RECOVERY_FAILURE,
+                            )
+                        }
                         markNeedsAttention(item.id, DOWNLOAD_RECOVERY_FAILURE)
                     }
                 }
@@ -622,39 +678,45 @@ class NarDownloadRepository internal constructor(
             }
             .forEach { item ->
                 if (item.state == NarDownloadState.Queued && item.attemptId > 1L) {
-                    supervisor.finish(
-                        OperationHandle(
-                            OperationId(item.id),
-                            AttemptId(item.attemptId - 1L),
-                        ),
-                        OperationStatus.COMPLETED,
+                    val predecessor = OperationHandle(
+                        OperationId(item.id),
+                        AttemptId(item.attemptId - 1L),
                     )
+                    val predecessorKind = when (item.source) {
+                        is NarDownloadSource.Remote -> OperationKind.REMOTE_NAR
+                        is NarDownloadSource.Local -> OperationKind.LOCAL_NAR
+                    }
+                    supervisor.activeBindingForExactAttempt(predecessor, predecessorKind)
+                        ?.let { binding ->
+                            supervisor.finish(predecessor, binding, OperationStatus.COMPLETED)
+                        }
                 }
                 scheduleInstall(item.id)
             }
         publish()
     }
 
-    fun install(itemId: String, isStopped: () -> Boolean): Boolean {
+    fun install(itemId: String, workManagerId: String, isStopped: () -> Boolean): Boolean {
         val attemptId = store.get(itemId)?.attemptId ?: return true
-        return install(itemId, attemptId, isStopped)
+        return install(itemId, attemptId, workManagerId, isStopped)
     }
 
-    fun install(itemId: String, attemptId: Long, isStopped: () -> Boolean): Boolean {
+    fun install(
+        itemId: String,
+        attemptId: Long,
+        workManagerId: String,
+        isStopped: () -> Boolean,
+    ): Boolean {
         val item = store.get(itemId) ?: return true
-        if (item.attemptId != attemptId) return true
+        if (item.attemptId != attemptId || item.workManagerId != workManagerId) return true
         if (
             item.state is NarDownloadState.NeedsAttention ||
             item.state is NarDownloadState.Copying ||
             item.state is NarDownloadState.Complete
         ) return true
         if (item.state == NarDownloadState.Cancelled) return true
-        if (item.source is NarDownloadSource.Remote && item.state == NarDownloadState.Downloading) {
-            val installItem = advanceToInstall(item) ?: return true
-            scheduleInstall(itemId)
-            return install(itemId, installItem.attemptId, isStopped)
-        }
         val recoveringPublishedInstall = item.state is NarDownloadState.Installing
+        val binding = ExternalJobBinding.WorkManager(workManagerId)
         val installing = store.update(itemId) {
             it.copy(state = NarDownloadState.Installing)
         } ?: return true
@@ -667,7 +729,7 @@ class NarDownloadRepository internal constructor(
                 stagingDirectory,
                 { isStopped() || cancellationRequested(installing.handle()) },
             ) { phase, completed ->
-                installProgress.report(installing.handle(), phase, completed)
+                installProgress.report(installing.handle(), binding, phase, completed)
             }
         } catch (_: SecurityException) {
             sourceUnavailable(item)
@@ -678,18 +740,18 @@ class NarDownloadRepository internal constructor(
         } finally {
             stagingDirectory?.let { runCatching { attemptPaths.delete(it) } }
         }
-        installProgress.complete(installing.handle())
+        installProgress.complete(installing.handle(), binding)
         when (result) {
             is ArchiveInstallResult.Installed -> {
                 if (persistInstallComplete(itemId, installing.attemptId)) {
-                    supervisor.finish(installing.handle(), OperationStatus.COMPLETED)
+                    supervisor.finish(installing.handle(), binding, OperationStatus.COMPLETED)
                     cleanupCompletedInstall(item)
                 }
             }
             is ArchiveInstallResult.Failed -> {
                 if (recoveringPublishedInstall && result.failure is ArchiveInstallFailure.TargetExists) {
                     if (persistInstallComplete(itemId, installing.attemptId)) {
-                        supervisor.finish(installing.handle(), OperationStatus.COMPLETED)
+                        supervisor.finish(installing.handle(), binding, OperationStatus.COMPLETED)
                         cleanupCompletedInstall(item)
                     }
                 } else {
@@ -697,7 +759,14 @@ class NarDownloadRepository internal constructor(
                         publish()
                         return false
                     }
-                    if (!supervisor.finish(installing.handle(), OperationStatus.FAILED, result.message)) {
+                    if (
+                        !supervisor.finish(
+                            installing.handle(),
+                            binding,
+                            OperationStatus.FAILED,
+                            result.message,
+                        )
+                    ) {
                         publish()
                         return true
                     }
@@ -717,7 +786,7 @@ class NarDownloadRepository internal constructor(
                     publish()
                     return false
                 }
-                if (supervisor.finish(installing.handle(), OperationStatus.CANCELLED)) {
+                if (supervisor.finish(installing.handle(), binding, OperationStatus.CANCELLED)) {
                     store.update(itemId) { current ->
                         if (current.attemptId == installing.attemptId) {
                             current.copy(state = NarDownloadState.Cancelled)
@@ -754,7 +823,13 @@ class NarDownloadRepository internal constructor(
             }
         }?.takeIf { it.attemptId == item.attemptId + 1L }
         if (installAttempt != null) {
-            supervisor.finish(item.handle(), OperationStatus.COMPLETED)
+            item.downloadManagerId?.let { downloadManagerId ->
+                supervisor.finish(
+                    item.handle(),
+                    ExternalJobBinding.DownloadManager(downloadManagerId),
+                    OperationStatus.COMPLETED,
+                )
+            }
         }
         return installAttempt
     }
@@ -829,8 +904,12 @@ class NarDownloadRepository internal constructor(
             }
             if (!enqueued) throw IllegalStateException("install work was not accepted")
         } catch (_: Exception) {
-            if (!supervisor.failUnboundAttempt(handle, INSTALL_SCHEDULE_FAILURE)) {
-                supervisor.finish(handle, OperationStatus.FAILED, INSTALL_SCHEDULE_FAILURE)
+            val binding = store.get(item.id)
+                ?.takeIf { it.attemptId == item.attemptId }
+                ?.workManagerId
+                ?.let(ExternalJobBinding::WorkManager)
+            if (!supervisor.failUnboundAttempt(handle, INSTALL_SCHEDULE_FAILURE) && binding != null) {
+                supervisor.finish(handle, binding, OperationStatus.FAILED, INSTALL_SCHEDULE_FAILURE)
             }
             markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
         }
@@ -956,6 +1035,10 @@ class NarDownloadRepository internal constructor(
         } == true
 
     private fun NarDownload.handle() = OperationHandle(OperationId(id), AttemptId(attemptId))
+
+    private fun NarDownload.externalJobBinding(): ExternalJobBinding? =
+        workManagerId?.let(ExternalJobBinding::WorkManager)
+            ?: downloadManagerId?.let(ExternalJobBinding::DownloadManager)
 
     private fun NarDownloadState.isNonterminal() =
         this is NarDownloadState.Queued ||
