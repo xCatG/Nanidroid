@@ -727,6 +727,67 @@ class NarDownloadRepositoryTest {
         assertTrue(work.installEnqueuedIds.isEmpty())
     }
 
+    @Test fun terminalInstallQueryCannotOverwriteConcurrentInstallCompletion() {
+        val item = repository.enqueueLocal("file:///owned/concurrent-complete.nar")
+        installer.onInstall = { _, _, _, _ -> ArchiveInstallResult.Installed("installed") }
+        work.installRecovery = NarInstallWorkRecovery.FINISHED
+        val queryStarted = CountDownLatch(1)
+        val allowQueryToFinish = CountDownLatch(1)
+        work.installQueryStarted = queryStarted
+        work.allowInstallQuery = allowQueryToFinish
+        val reconciliation = startReconciliation(recreatedRepository())
+        assertTrue(queryStarted.await(5, TimeUnit.SECONDS))
+
+        repository.install(item.id, item.attemptId) { false }
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        allowQueryToFinish.countDown()
+        finishReconciliation(reconciliation)
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.COMPLETED, operationStore.read().single().status)
+        assertEquals(listOf(item.id), ownedData.deletedItemIds)
+    }
+
+    @Test fun terminalInstallQueryCannotOverwriteConcurrentRetryAttempt() {
+        val item = repository.enqueueLocal("file:///owned/concurrent-retry.nar")
+        work.installRecovery = NarInstallWorkRecovery.FINISHED
+        val queryStarted = CountDownLatch(1)
+        val allowQueryToFinish = CountDownLatch(1)
+        work.installQueryStarted = queryStarted
+        work.allowInstallQuery = allowQueryToFinish
+        val reconciliation = startReconciliation(recreatedRepository())
+        assertTrue(queryStarted.await(5, TimeUnit.SECONDS))
+
+        assertTrue(repository.stop(item.id))
+        val retry = repository.retry(item.id)!!
+        allowQueryToFinish.countDown()
+        finishReconciliation(reconciliation)
+
+        assertEquals(retry, store.get(item.id))
+        assertEquals(item.attemptId + 1L, retry.attemptId)
+        assertEquals("install-nar-${item.id}-${retry.attemptId}", retry.workManagerId)
+    }
+
+    @Test fun installQueryExceptionCannotOverwriteConcurrentInstallCompletion() {
+        val item = repository.enqueueLocal("file:///owned/concurrent-query-failure.nar")
+        installer.onInstall = { _, _, _, _ -> ArchiveInstallResult.Installed("installed") }
+        work.installQueryFailure = IllegalStateException("WorkManager unavailable")
+        val queryStarted = CountDownLatch(1)
+        val allowQueryToFinish = CountDownLatch(1)
+        work.installQueryStarted = queryStarted
+        work.allowInstallQuery = allowQueryToFinish
+        val reconciliation = startReconciliation(recreatedRepository())
+        assertTrue(queryStarted.await(5, TimeUnit.SECONDS))
+
+        repository.install(item.id, item.attemptId) { false }
+        allowQueryToFinish.countDown()
+        finishReconciliation(reconciliation)
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.COMPLETED, operationStore.read().single().status)
+        assertEquals(listOf(item.id), ownedData.deletedItemIds)
+    }
+
     @Test fun reconciliationRecreatesStageWorkMissingAfterPreparedUuidWasPersisted() {
         work.loseNextStageAfterPreparation = true
         val item = repository.enqueueLocalCopy("content://provider/archive.nar")
@@ -777,6 +838,59 @@ class NarDownloadRepositoryTest {
 
         assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
         assertTrue(work.stageRecreatedIds.isEmpty())
+    }
+
+    @Test fun terminalStageQueryCannotOverwriteConcurrentStageHandoff() {
+        val item = repository.enqueueLocalCopy("content://provider/concurrent-stage.nar")
+        work.stageWorkStates[item.workManagerId!!] = FakeStageWorkState.SUCCEEDED
+        val queryStarted = CountDownLatch(1)
+        val allowQueryToFinish = CountDownLatch(1)
+        work.stageQueryStarted = queryStarted
+        work.allowStageQuery = allowQueryToFinish
+        val reconciliation = startReconciliation(recreatedRepository())
+        assertTrue(queryStarted.await(5, TimeUnit.SECONDS))
+
+        repository.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            NarLocalArchiveStager.Result.Staged("file:///owned/concurrent-stage.nar")
+        }
+        val installAttempt = store.get(item.id)!!
+        assertEquals(NarDownloadState.Queued, installAttempt.state)
+        allowQueryToFinish.countDown()
+        finishReconciliation(reconciliation)
+
+        assertEquals(installAttempt, store.get(item.id))
+        assertEquals(item.attemptId + 1L, installAttempt.attemptId)
+        assertEquals("install-nar-${item.id}-${installAttempt.attemptId}", installAttempt.workManagerId)
+        assertEquals(listOf(installAttempt.workManagerId), work.installEnqueuedIds)
+        var staleCallbackRan = false
+        repository.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            staleCallbackRan = true
+            NarLocalArchiveStager.Result.Staged("file:///owned/stale-stage.nar")
+        }
+        assertTrue(!staleCallbackRan)
+    }
+
+    @Test fun stageQueryExceptionCannotOverwriteConcurrentStageHandoff() {
+        val item = repository.enqueueLocalCopy("content://provider/concurrent-stage-query-failure.nar")
+        work.stageQueryFailure = IllegalStateException("WorkManager unavailable")
+        val queryStarted = CountDownLatch(1)
+        val allowQueryToFinish = CountDownLatch(1)
+        work.stageQueryStarted = queryStarted
+        work.allowStageQuery = allowQueryToFinish
+        val reconciliation = startReconciliation(recreatedRepository())
+        assertTrue(queryStarted.await(5, TimeUnit.SECONDS))
+
+        repository.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            NarLocalArchiveStager.Result.Staged("file:///owned/concurrent-stage-query-failure.nar")
+        }
+        val installAttempt = store.get(item.id)!!
+        allowQueryToFinish.countDown()
+        finishReconciliation(reconciliation)
+
+        assertEquals(installAttempt, store.get(item.id))
+        assertEquals(NarDownloadState.Queued, installAttempt.state)
+        assertEquals(item.attemptId + 1L, installAttempt.attemptId)
+        assertEquals(listOf(installAttempt.workManagerId), work.installEnqueuedIds)
     }
 
     @Test fun temporaryReplacementUsesSupervisedCancellableCopyAttempt() {
@@ -1353,7 +1467,13 @@ class NarDownloadRepositoryTest {
         val installEnqueuedIds = mutableListOf<String>()
         var loseNextStageAfterPreparation = false
         var stageQueryFailure: Exception? = null
+        var stageQueryStarted: CountDownLatch? = null
+        var allowStageQuery: CountDownLatch? = null
         var installEnqueueFailure: Exception? = null
+        var installQueryFailure: Exception? = null
+        var installRecovery = NarInstallWorkRecovery.RESUMABLE
+        var installQueryStarted: CountDownLatch? = null
+        var allowInstallQuery: CountDownLatch? = null
 
         override fun enqueue(itemId: String) {
             enqueuedNames += NarDownloadRepository.workName(itemId)
@@ -1381,11 +1501,16 @@ class NarDownloadRepositoryTest {
             attemptId: Long,
             workManagerId: String,
         ): NarInstallWorkRecovery {
+            installQueryStarted?.countDown()
+            allowInstallQuery?.let { latch ->
+                check(latch.await(5, TimeUnit.SECONDS)) { "install query was not released" }
+            }
+            installQueryFailure?.let { throw it }
             if (workManagerId !in installEnqueuedIds) {
                 installEnqueuedIds += workManagerId
                 enqueue(itemId)
             }
-            return NarInstallWorkRecovery.RESUMABLE
+            return installRecovery
         }
 
         override fun enqueueStage(
@@ -1409,6 +1534,10 @@ class NarDownloadRepositoryTest {
             attemptId: Long,
             workManagerId: String,
         ): NarStageWorkRecovery {
+            stageQueryStarted?.countDown()
+            allowStageQuery?.let { latch ->
+                check(latch.await(5, TimeUnit.SECONDS)) { "stage query was not released" }
+            }
             stageQueryFailure?.let { throw it }
             if (workManagerId !in stageWorkStates) {
                 stageEnqueuedIds += workManagerId
@@ -1537,6 +1666,30 @@ class NarDownloadRepositoryTest {
             nextId = { ids.removeFirst() },
         )
     }
+
+    private fun startReconciliation(repository: NarDownloadRepository): BackgroundCall {
+        val failure = AtomicReference<Throwable?>()
+        val thread = Thread {
+            try {
+                repository.reconcile()
+            } catch (error: Throwable) {
+                failure.set(error)
+            }
+        }
+        thread.start()
+        return BackgroundCall(thread, failure)
+    }
+
+    private fun finishReconciliation(call: BackgroundCall) {
+        call.thread.join(5_000)
+        assertTrue(!call.thread.isAlive)
+        call.failure.get()?.let { throw AssertionError("reconciliation failed", it) }
+    }
+
+    private data class BackgroundCall(
+        val thread: Thread,
+        val failure: AtomicReference<Throwable?>,
+    )
 
     private fun assertTerminalStageWorkBecomesActionable(state: FakeStageWorkState) {
         val item = repository.enqueueLocalCopy("content://provider/terminal-$state.nar")

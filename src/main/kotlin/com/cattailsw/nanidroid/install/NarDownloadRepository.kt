@@ -552,14 +552,9 @@ class NarDownloadRepository internal constructor(
                     }.getOrNull()
                 }
                 if (recovery == NarStageWorkRecovery.FINISHED) {
-                    supervisor.finish(
-                        item.handle(),
-                        OperationStatus.FAILED,
-                        COPY_INTERRUPTED,
-                    )
-                    markNeedsAttention(item.id, COPY_INTERRUPTED)
+                    failAndMarkNeedsAttentionIfCurrent(item, COPY_INTERRUPTED)
                 } else if (recovery == null) {
-                    markNeedsAttention(item.id, COPY_INTERRUPTED)
+                    markNeedsAttentionIfCurrent(item, COPY_INTERRUPTED)
                 }
             }
         store.getAll()
@@ -802,8 +797,7 @@ class NarDownloadRepository internal constructor(
                     work.ensureInstallEnqueued(item.id, item.attemptId, workManagerId)
                 }.getOrNull()
                 if (recovery != NarInstallWorkRecovery.RESUMABLE) {
-                    supervisor.finish(handle, OperationStatus.FAILED, INSTALL_SCHEDULE_FAILURE)
-                    markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
+                    failAndMarkNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
                 }
             }
             return
@@ -832,6 +826,35 @@ class NarDownloadRepository internal constructor(
             }
             markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
         }
+    }
+
+    private fun failAndMarkNeedsAttentionIfCurrent(
+        expected: NarDownload,
+        diagnostics: String,
+    ): Boolean {
+        if (store.get(expected.id) != expected) return false
+        if (!supervisor.finish(expected.handle(), OperationStatus.FAILED, diagnostics)) return false
+        return markNeedsAttentionIfCurrent(expected, diagnostics)
+    }
+
+    private fun markNeedsAttentionIfCurrent(
+        expected: NarDownload,
+        diagnostics: String,
+    ): Boolean {
+        var transitioned = false
+        store.update(expected.id) { current ->
+            if (current == expected) {
+                transitioned = true
+                current.copy(
+                    state = NarDownloadState.NeedsAttention(
+                        NarDownloadState.Failure(diagnostics),
+                    ),
+                )
+            } else {
+                current
+            }
+        }
+        return transitioned
     }
 
     private fun startRemoteDownload(
