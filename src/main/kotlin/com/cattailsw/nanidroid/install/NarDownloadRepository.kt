@@ -129,6 +129,15 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
+    fun copyFailed(itemId: String) {
+        val item = store.get(itemId) ?: return
+        if (item.state == NarDownloadState.Copying) {
+            markNeedsAttention(itemId, COPY_INTERRUPTED)
+            publish()
+        }
+    }
+
+    @Synchronized
     fun retry(itemId: String): NarDownload? {
         val item = store.get(itemId) ?: return null
         if (item.state == NarDownloadState.Copying) return item

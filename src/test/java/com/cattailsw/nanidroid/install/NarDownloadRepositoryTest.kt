@@ -149,6 +149,14 @@ class NarDownloadRepositoryTest {
         assertTrue(work.enqueuedNames.isEmpty())
     }
 
+    @Test fun failedCopyBecomesActionableAttention() {
+        val item = repository.retainLocalSourceForCopy("content://provider/archive.nar")
+
+        repository.copyFailed(item.id)
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+    }
+
     @Test fun reselectingTheSameDocumentKeepsItsPersistedGrant() {
         val source = "content://provider/reselected.nar"
         val item = repository.enqueueLocal(source, source)

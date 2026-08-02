@@ -125,6 +125,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 return null
             }
             override fun onPostExecute(result: Void?) {
+                if (isDestroyed || isFinishing) return
                 // Compose state and its caches are main-thread owned.  The
                 // ghost files were prepared above; bind them to the stage only
                 // after AsyncTask returns to the UI thread.
@@ -405,6 +406,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                         }
                     }
                     is NarLocalArchiveStager.Result.Failed -> {
+                        narDownloads.copyFailed(retainedItemId)
                         Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
                     }
                 }
