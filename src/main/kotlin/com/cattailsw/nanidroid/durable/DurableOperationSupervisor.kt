@@ -51,7 +51,7 @@ class DurableOperationSupervisor(
                 ?: return@synchronized false
             if (
                 !previous.status.isTerminal() ||
-                previous.kind != kind ||
+                !previous.kind.canRetryAs(kind) ||
                 handle.attemptId.value <= previous.attemptId.value
             ) {
                 return@synchronized false
@@ -217,6 +217,11 @@ class DurableOperationSupervisor(
         this == OperationStatus.COMPLETED ||
             this == OperationStatus.FAILED ||
             this == OperationStatus.CANCELLED
+
+    private fun OperationKind.canRetryAs(next: OperationKind) =
+        this == next ||
+            next == OperationKind.NAR_INSTALL &&
+            (this == OperationKind.REMOTE_NAR || this == OperationKind.LOCAL_NAR)
 
     private companion object {
         const val STALL_MILLIS = 30_000L

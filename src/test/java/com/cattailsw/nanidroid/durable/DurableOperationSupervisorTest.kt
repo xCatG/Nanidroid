@@ -297,6 +297,251 @@ class DurableOperationSupervisorTest {
         assertEquals(jobC, restored.snapshot().single().externalJob)
     }
 
+    @Test fun archiveAcquisitionCanAdvanceToInstallationAfterRecreation() {
+        val cases = listOf(
+            ArchivePipelineCase(
+                sourceKind = OperationKind.REMOTE_NAR,
+                providerBinding = ExternalJobBinding.DownloadManager(101),
+                installBinding = ExternalJobBinding.WorkManager("install-remote"),
+            ),
+            ArchivePipelineCase(
+                sourceKind = OperationKind.LOCAL_NAR,
+                providerBinding = ExternalJobBinding.WorkManager("copy-local"),
+                installBinding = ExternalJobBinding.WorkManager("install-local"),
+            ),
+        )
+
+        val observed = cases.map { case ->
+            val storage = SharedPreferencesDurableOperationStore.MemoryStorage()
+            val persistedStore = SharedPreferencesDurableOperationStore(storage)
+            val sourceSupervisor = DurableOperationSupervisor(persistedStore, clock, cancellation)
+            val sourceHandle = handle("archive-${case.sourceKind.name}", 1)
+            val installHandle = handle(sourceHandle.operationId.value, 2)
+            assertTrue(
+                sourceSupervisor.start(
+                    sourceHandle,
+                    case.sourceKind,
+                    "Acquiring",
+                    1,
+                    case.providerBinding,
+                ),
+            )
+            assertTrue(sourceSupervisor.finish(sourceHandle, OperationStatus.COMPLETED))
+            val restoredStore = SharedPreferencesDurableOperationStore(storage)
+            val restored = DurableOperationSupervisor(restoredStore, clock, cancellation)
+            val installAccepted = restored.start(
+                installHandle,
+                OperationKind.NAR_INSTALL,
+                "Installing",
+                0,
+            )
+            if (!installAccepted) {
+                return@map ArchivePipelineObservation(
+                    sourceKind = case.sourceKind,
+                    installAccepted = false,
+                )
+            }
+            val providerReuseAccepted = restored.bindExternalJob(
+                installHandle,
+                case.providerBinding,
+            )
+            val installBindingAccepted = restored.bindExternalJob(
+                installHandle,
+                case.installBinding,
+            )
+            val staleProgressAccepted = restored.reportProgress(sourceHandle, "Late", 2)
+            val staleFinishAccepted = restored.finish(sourceHandle, OperationStatus.FAILED)
+            val staleBindingAccepted = restored.bindExternalJob(
+                sourceHandle,
+                ExternalJobBinding.WorkManager("stale-${case.sourceKind.name}"),
+            )
+            val persisted = restoredStore.read().single()
+            ArchivePipelineObservation(
+                sourceKind = case.sourceKind,
+                installAccepted = true,
+                providerReuseAccepted = providerReuseAccepted,
+                installBindingAccepted = installBindingAccepted,
+                staleProgressAccepted = staleProgressAccepted,
+                staleFinishAccepted = staleFinishAccepted,
+                staleBindingAccepted = staleBindingAccepted,
+                persistedKind = persisted.kind,
+                persistedAttempt = persisted.attemptId,
+                persistedBinding = persisted.externalJob,
+                bindingHistory = persisted.externalJobHistory,
+            )
+        }
+
+        assertEquals(
+            listOf(
+                ArchivePipelineObservation(
+                    sourceKind = OperationKind.REMOTE_NAR,
+                    installAccepted = true,
+                    providerReuseAccepted = false,
+                    installBindingAccepted = true,
+                    staleProgressAccepted = false,
+                    staleFinishAccepted = false,
+                    staleBindingAccepted = false,
+                    persistedKind = OperationKind.NAR_INSTALL,
+                    persistedAttempt = AttemptId(2),
+                    persistedBinding = ExternalJobBinding.WorkManager("install-remote"),
+                    bindingHistory = setOf(
+                        ExternalJobBinding.DownloadManager(101),
+                        ExternalJobBinding.WorkManager("install-remote"),
+                    ),
+                ),
+                ArchivePipelineObservation(
+                    sourceKind = OperationKind.LOCAL_NAR,
+                    installAccepted = true,
+                    providerReuseAccepted = false,
+                    installBindingAccepted = true,
+                    staleProgressAccepted = false,
+                    staleFinishAccepted = false,
+                    staleBindingAccepted = false,
+                    persistedKind = OperationKind.NAR_INSTALL,
+                    persistedAttempt = AttemptId(2),
+                    persistedBinding = ExternalJobBinding.WorkManager("install-local"),
+                    bindingHistory = setOf(
+                        ExternalJobBinding.WorkManager("copy-local"),
+                        ExternalJobBinding.WorkManager("install-local"),
+                    ),
+                ),
+            ),
+            observed,
+        )
+    }
+
+    @Test fun otherCrossKindTransitionsRemainForbidden() {
+        val cases = listOf(
+            KindTransitionCase("install-to-remote", OperationKind.NAR_INSTALL, OperationKind.REMOTE_NAR),
+            KindTransitionCase("install-to-local", OperationKind.NAR_INSTALL, OperationKind.LOCAL_NAR),
+            KindTransitionCase("remote-to-local", OperationKind.REMOTE_NAR, OperationKind.LOCAL_NAR),
+            KindTransitionCase("local-to-remote", OperationKind.LOCAL_NAR, OperationKind.REMOTE_NAR),
+            KindTransitionCase("ghost-to-install", OperationKind.GHOST_UPDATE, OperationKind.NAR_INSTALL),
+            KindTransitionCase("install-to-ghost", OperationKind.NAR_INSTALL, OperationKind.GHOST_UPDATE),
+            KindTransitionCase("remote-to-ghost", OperationKind.REMOTE_NAR, OperationKind.GHOST_UPDATE),
+            KindTransitionCase("local-to-ghost", OperationKind.LOCAL_NAR, OperationKind.GHOST_UPDATE),
+            KindTransitionCase("ghost-to-remote", OperationKind.GHOST_UPDATE, OperationKind.REMOTE_NAR),
+            KindTransitionCase("ghost-to-local", OperationKind.GHOST_UPDATE, OperationKind.LOCAL_NAR),
+        )
+
+        val observed = cases.map { case ->
+            val caseStore = MemoryDurableOperationStore()
+            val caseSupervisor = DurableOperationSupervisor(caseStore, clock, cancellation)
+            val source = handle(case.name, 1)
+            assertTrue(
+                caseSupervisor.start(
+                    source,
+                    case.sourceKind,
+                    "Source",
+                    0,
+                    ExternalJobBinding.WorkManager("${case.name}-source"),
+                ),
+            )
+            assertTrue(caseSupervisor.finish(source, OperationStatus.COMPLETED))
+            case.name to caseSupervisor.start(
+                handle(case.name, 2),
+                case.targetKind,
+                "Target",
+                0,
+                ExternalJobBinding.WorkManager("${case.name}-target"),
+            )
+        }
+
+        assertEquals(
+            listOf(
+                "install-to-remote" to false,
+                "install-to-local" to false,
+                "remote-to-local" to false,
+                "local-to-remote" to false,
+                "ghost-to-install" to false,
+                "install-to-ghost" to false,
+                "remote-to-ghost" to false,
+                "local-to-ghost" to false,
+                "ghost-to-remote" to false,
+                "ghost-to-local" to false,
+            ),
+            observed,
+        )
+    }
+
+    @Test fun archiveKindChangeStillRequiresTerminalStateAndGreaterAttempt() {
+        val cases = listOf(
+            ArchiveTransitionFenceCase(
+                "remote-active",
+                OperationKind.REMOTE_NAR,
+                terminal = false,
+                targetAttempt = 2,
+            ),
+            ArchiveTransitionFenceCase(
+                "local-active",
+                OperationKind.LOCAL_NAR,
+                terminal = false,
+                targetAttempt = 2,
+            ),
+            ArchiveTransitionFenceCase(
+                "remote-same",
+                OperationKind.REMOTE_NAR,
+                terminal = true,
+                targetAttempt = 1,
+            ),
+            ArchiveTransitionFenceCase(
+                "local-same",
+                OperationKind.LOCAL_NAR,
+                terminal = true,
+                targetAttempt = 1,
+            ),
+            ArchiveTransitionFenceCase(
+                "remote-lower",
+                OperationKind.REMOTE_NAR,
+                terminal = true,
+                targetAttempt = 0,
+            ),
+            ArchiveTransitionFenceCase(
+                "local-lower",
+                OperationKind.LOCAL_NAR,
+                terminal = true,
+                targetAttempt = 0,
+            ),
+        )
+
+        val observed = cases.map { case ->
+            val caseStore = MemoryDurableOperationStore()
+            val caseSupervisor = DurableOperationSupervisor(caseStore, clock, cancellation)
+            val source = handle(case.name, 1)
+            assertTrue(
+                caseSupervisor.start(
+                    source,
+                    case.sourceKind,
+                    "Acquiring",
+                    0,
+                    ExternalJobBinding.WorkManager("${case.name}-provider"),
+                ),
+            )
+            if (case.terminal) {
+                assertTrue(caseSupervisor.finish(source, OperationStatus.COMPLETED))
+            }
+            case.name to caseSupervisor.start(
+                handle(case.name, case.targetAttempt),
+                OperationKind.NAR_INSTALL,
+                "Installing",
+                0,
+                ExternalJobBinding.WorkManager("${case.name}-installer"),
+            )
+        }
+
+        assertEquals(
+            listOf(
+                "remote-active" to false,
+                "local-active" to false,
+                "remote-same" to false,
+                "local-same" to false,
+                "remote-lower" to false,
+                "local-lower" to false,
+            ),
+            observed,
+        )
+    }
+
     @Test fun progressBeforeExternalBindingIsRejected() {
         val handle = handle("update-1", 1)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
@@ -476,6 +721,39 @@ class DurableOperationSupervisorTest {
     private data class CancellationRequest(
         val handle: OperationHandle,
         val binding: ExternalJobBinding,
+    )
+
+    private data class ArchivePipelineCase(
+        val sourceKind: OperationKind,
+        val providerBinding: ExternalJobBinding,
+        val installBinding: ExternalJobBinding,
+    )
+
+    private data class ArchivePipelineObservation(
+        val sourceKind: OperationKind,
+        val installAccepted: Boolean,
+        val providerReuseAccepted: Boolean? = null,
+        val installBindingAccepted: Boolean? = null,
+        val staleProgressAccepted: Boolean? = null,
+        val staleFinishAccepted: Boolean? = null,
+        val staleBindingAccepted: Boolean? = null,
+        val persistedKind: OperationKind? = null,
+        val persistedAttempt: AttemptId? = null,
+        val persistedBinding: ExternalJobBinding? = null,
+        val bindingHistory: Set<ExternalJobBinding>? = null,
+    )
+
+    private data class KindTransitionCase(
+        val name: String,
+        val sourceKind: OperationKind,
+        val targetKind: OperationKind,
+    )
+
+    private data class ArchiveTransitionFenceCase(
+        val name: String,
+        val sourceKind: OperationKind,
+        val terminal: Boolean,
+        val targetAttempt: Long,
     )
 
     private class RecordingCancellation : OperationCancellation {

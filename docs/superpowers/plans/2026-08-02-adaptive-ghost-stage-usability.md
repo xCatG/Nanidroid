@@ -238,6 +238,10 @@ fun interface OperationCancellation {
 
 External-job history is retained for the canonical operation across every attempt;
 no DownloadManager row or Work UUID may ever be rebound to a later attempt.
+A terminal `REMOTE_NAR` or `LOCAL_NAR` attempt may advance to a strictly
+greater `NAR_INSTALL` attempt under the same canonical `NarDownload.id`.
+No other cross-kind retry is permitted, including reverse installation,
+remote/local switching, or any transition to or from `GHOST_UPDATE`.
 `reconcileUnboundCancellation(handle)` is the only unbound terminal transition:
 an adapter calls it after confirming no external job was created, and it CASes
 that exact `CANCEL_REQUESTED` attempt to `CANCELLED` without invoking cancellation.
