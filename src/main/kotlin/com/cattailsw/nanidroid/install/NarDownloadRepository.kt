@@ -238,13 +238,7 @@ class NarDownloadRepository internal constructor(
             }
             if (!enqueued) throw IllegalStateException("local stage work was not accepted")
         } catch (_: Exception) {
-            val binding = store.get(item.id)
-                ?.takeIf { it.attemptId == item.attemptId }
-                ?.workManagerId
-                ?.let(ExternalJobBinding::WorkManager)
-            if (!supervisor.failUnboundAttempt(handle, COPY_INTERRUPTED) && binding != null) {
-                supervisor.finish(handle, binding, OperationStatus.FAILED, COPY_INTERRUPTED)
-            }
+            failSchedulingAttempt(handle, OperationKind.LOCAL_NAR, COPY_INTERRUPTED)
             markNeedsAttention(item.id, COPY_INTERRUPTED)
         }
     }
@@ -595,7 +589,19 @@ class NarDownloadRepository internal constructor(
     fun reconcile() {
         store.getAll()
             .filter { it.state == NarDownloadState.Copying }
-            .forEach { item ->
+            .forEach { captured ->
+                val item = if (captured.workManagerId == null) {
+                    persistExactActiveWorkManagerBinding(captured, OperationKind.LOCAL_NAR)
+                        ?: run {
+                            if (store.get(captured.id) == captured) {
+                                supervisor.failUnboundAttempt(captured.handle(), COPY_INTERRUPTED)
+                                markNeedsAttentionIfCurrent(captured, COPY_INTERRUPTED)
+                            }
+                            return@forEach
+                        }
+                } else {
+                    captured
+                }
                 val workManagerId = item.workManagerId
                 val recovery = workManagerId?.let {
                     runCatching {
@@ -868,16 +874,22 @@ class NarDownloadRepository internal constructor(
             0L,
         )
         if (!started) {
-            val workManagerId = item.workManagerId
+            val recovered = if (item.workManagerId == null) {
+                persistExactActiveWorkManagerBinding(item, OperationKind.NAR_INSTALL)
+            } else {
+                item
+            }
+            val workManagerId = recovered?.workManagerId
             if (workManagerId == null) {
+                if (store.get(item.id) != item) return
                 enqueueInstallAttempt(item, handle)
             } else {
                 val recovery = runCatching {
-                    work.ensureInstallEnqueued(item.id, item.attemptId, workManagerId)
+                    work.ensureInstallEnqueued(recovered.id, recovered.attemptId, workManagerId)
                 }.getOrNull()
                 if (recovery != NarInstallWorkRecovery.RESUMABLE) {
                     failAndMarkNeedsAttentionIfCurrent(
-                        item,
+                        recovered,
                         OperationKind.NAR_INSTALL,
                         INSTALL_SCHEDULE_FAILURE,
                     )
@@ -904,15 +916,37 @@ class NarDownloadRepository internal constructor(
             }
             if (!enqueued) throw IllegalStateException("install work was not accepted")
         } catch (_: Exception) {
-            val binding = store.get(item.id)
-                ?.takeIf { it.attemptId == item.attemptId }
-                ?.workManagerId
-                ?.let(ExternalJobBinding::WorkManager)
-            if (!supervisor.failUnboundAttempt(handle, INSTALL_SCHEDULE_FAILURE) && binding != null) {
-                supervisor.finish(handle, binding, OperationStatus.FAILED, INSTALL_SCHEDULE_FAILURE)
-            }
+            failSchedulingAttempt(handle, OperationKind.NAR_INSTALL, INSTALL_SCHEDULE_FAILURE)
             markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
         }
+    }
+
+    private fun persistExactActiveWorkManagerBinding(
+        expected: NarDownload,
+        kind: OperationKind,
+    ): NarDownload? {
+        val binding = supervisor.activeBindingForExactAttempt(expected.handle(), kind)
+            as? ExternalJobBinding.WorkManager
+            ?: return null
+        var persisted: NarDownload? = null
+        store.update(expected.id) { current ->
+            if (current == expected) {
+                current.copy(workManagerId = binding.uuid).also { persisted = it }
+            } else {
+                current
+            }
+        }
+        return persisted
+    }
+
+    private fun failSchedulingAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        diagnostics: String,
+    ) {
+        if (supervisor.failUnboundAttempt(handle, diagnostics)) return
+        val binding = supervisor.activeBindingForExactAttempt(handle, kind) ?: return
+        supervisor.finish(handle, binding, OperationStatus.FAILED, diagnostics)
     }
 
     private fun failAndMarkNeedsAttentionIfCurrent(

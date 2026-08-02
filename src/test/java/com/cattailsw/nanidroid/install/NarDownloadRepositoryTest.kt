@@ -775,6 +775,129 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
     }
 
+    @Test fun reconciliationRecoversStageBindingPersistedOnlyBySupervisor() {
+        val item = store.create(
+            NarDownload(
+                id = "stage-binding-crash-window",
+                source = NarDownloadSource.Local("content://provider/archive.nar"),
+                retainedUri = "content://provider/archive.nar",
+                state = NarDownloadState.Copying,
+            ),
+        )
+        val binding = ExternalJobBinding.WorkManager("11111111-1111-1111-1111-111111111111")
+        assertTrue(
+            supervisor.start(
+                item.handle(),
+                OperationKind.LOCAL_NAR,
+                "Copying archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.bindExternalJob(item.handle(), binding))
+        val recreated = recreatedRepository()
+
+        recreated.reconcile()
+        val recovered = store.get(item.id)!!
+        recreated.reconcile()
+
+        assertEquals(NarDownloadState.Copying, recovered.state)
+        assertEquals(binding.uuid, recovered.workManagerId)
+        assertEquals(setOf(binding.uuid), work.stageEnqueuedIds)
+        assertEquals(listOf(binding.uuid), work.stageRecreatedIds)
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.LOCAL_NAR, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertEquals(binding, operation.externalJob)
+    }
+
+    @Test fun reconciliationRecoversInstallBindingPersistedOnlyBySupervisor() {
+        val item = store.create(
+            NarDownload(
+                id = "install-binding-crash-window",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val binding = ExternalJobBinding.WorkManager("22222222-2222-2222-2222-222222222222")
+        assertTrue(
+            supervisor.start(
+                item.handle(),
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.bindExternalJob(item.handle(), binding))
+        val recreated = recreatedRepository()
+
+        recreated.reconcile()
+        val recovered = store.get(item.id)!!
+        recreated.reconcile()
+
+        assertEquals(NarDownloadState.Queued, recovered.state)
+        assertEquals(binding.uuid, recovered.workManagerId)
+        assertEquals(listOf(binding.uuid), work.installEnqueuedIds)
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertEquals(binding, operation.externalJob)
+    }
+
+    @Test fun stageBindingStoreWriteFailureTerminalizesExactBoundAttempt() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "stage-write-failure")
+
+        val item = exactRepository.enqueueLocalCopy("content://provider/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertNull(item.workManagerId)
+        val operation = exactOperationStore.read().single()
+        assertEquals(item.attemptId, operation.attemptId.value)
+        assertEquals(OperationKind.LOCAL_NAR, operation.kind)
+        assertEquals(
+            ExternalJobBinding.WorkManager("stage-local-nar-${item.id}-${item.attemptId}"),
+            operation.externalJob,
+        )
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertTrue(work.stageEnqueuedIds.isEmpty())
+    }
+
+    @Test fun installBindingStoreWriteFailureTerminalizesExactBoundAttempt() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "install-write-failure")
+
+        val item = exactRepository.enqueueLocal("file:///owned/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertNull(item.workManagerId)
+        val operation = exactOperationStore.read().single()
+        assertEquals(item.attemptId, operation.attemptId.value)
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(
+            ExternalJobBinding.WorkManager("install-nar-${item.id}-${item.attemptId}"),
+            operation.externalJob,
+        )
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+    }
+
     @Test fun reconciliationBindsMissingInstallWorkerToExactActiveAttemptOnce() {
         val item = store.create(
             NarDownload(
@@ -1907,6 +2030,37 @@ class NarDownloadRepositoryTest {
             remoteProgress = FakeRemoteProgressObserver(downloads, recreatedSupervisor),
             nextId = { ids.removeFirst() },
         )
+    }
+
+    private fun repositoryWith(
+        queueStore: NarDownloadStore,
+        exactSupervisor: DurableOperationSupervisor,
+        itemId: String,
+    ) = NarDownloadRepository(
+        store = queueStore,
+        downloads = downloads,
+        work = work,
+        installer = installer,
+        ownedData = ownedData,
+        attemptPaths = attempts,
+        supervisor = exactSupervisor,
+        remoteProgress = FakeRemoteProgressObserver(downloads, exactSupervisor),
+        nextId = { itemId },
+    )
+
+    private class FailSelectedWriteStorage(
+        private val failOnWrite: Int,
+    ) : NarDownloadStore.Storage {
+        private var value: String? = null
+        private var writeCount = 0
+
+        @Synchronized override fun read(): String? = value
+
+        @Synchronized override fun write(value: String) {
+            writeCount += 1
+            if (writeCount == failOnWrite) throw IllegalStateException("queue write failed")
+            this.value = value
+        }
     }
 
     private fun startReconciliation(repository: NarDownloadRepository): BackgroundCall {
