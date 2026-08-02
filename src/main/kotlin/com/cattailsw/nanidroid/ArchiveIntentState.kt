@@ -32,6 +32,10 @@ internal data class ArchiveIntentState(
         return Reception.Pending(copy(consumedUri = uri, pendingUri = uri, pendingFlags = flags))
     }
 
+    /** A newly delivered intent is an explicit user action, even for the same URI. */
+    fun receiveNewIntent(uri: String, flags: Int): Reception =
+        copy(consumedUri = null).receive(uri, flags)
+
     fun takePending(): PendingArchive? {
         val uri = pendingUri ?: return null
         return PendingArchive(copy(pendingUri = null, pendingFlags = 0), uri, pendingFlags)

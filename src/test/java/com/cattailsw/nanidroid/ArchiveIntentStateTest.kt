@@ -17,4 +17,24 @@ class ArchiveIntentStateTest {
         assertEquals("content://archives/second", second.uri)
         assertEquals(2, second.flags)
     }
+
+    @Test
+    fun receivingFreshIntentForPreviouslyConsumedArchive_queuesItAgain() {
+        val initial = ArchiveIntentState().receive("content://archives/reinstall", 1)
+            as ArchiveIntentState.Reception.Pending
+        val afterCompletion = initial.state.takePending()!!.state
+
+        val repeated = afterCompletion.receiveNewIntent("content://archives/reinstall", 2)
+
+        assertEquals(
+            ArchiveIntentState.Reception.Pending(
+                ArchiveIntentState(
+                    consumedUri = "content://archives/reinstall",
+                    pendingUri = "content://archives/reinstall",
+                    pendingFlags = 2,
+                ),
+            ),
+            repeated,
+        )
+    }
 }

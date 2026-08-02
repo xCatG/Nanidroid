@@ -323,12 +323,18 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }.execute()
     }
-    private fun handleIncomingIntent(incoming: Intent?) {
+    private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
         val resolvedMimeType = incoming?.type ?: runCatching {
             incoming?.data?.let(contentResolver::getType)
         }.getOrNull()
         val uri = ArchiveIntentAdapter.contentUri(incoming, resolvedMimeType) ?: return
-        when (val reception = archiveIntentState.receive(uri.toString(), incoming?.flags ?: 0)) {
+        val flags = incoming?.flags ?: 0
+        val reception = if (isNewIntent) {
+            archiveIntentState.receiveNewIntent(uri.toString(), flags)
+        } else {
+            archiveIntentState.receive(uri.toString(), flags)
+        }
+        when (reception) {
             is ArchiveIntentState.Reception.Ignored -> Unit
             is ArchiveIntentState.Reception.Pending -> archiveIntentState = reception.state
             is ArchiveIntentState.Reception.Dispatch -> {
@@ -346,7 +352,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIncomingIntent(intent)
+        handleIncomingIntent(intent, isNewIntent = true)
         if (initComplete) enqueuePendingArchiveIntent()
     }
     fun onUpdate() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
