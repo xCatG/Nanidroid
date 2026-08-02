@@ -62,6 +62,88 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `final merge preserves a non-manifest save changed after candidate snapshot`() {
+        val fixture = fixture("live-save-changed")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.writeLive("ghost/save.dat", "before-snapshot")
+        fixture.network.manifest("ghost/master.txt" to bytes("server"))
+        var changed = false
+
+        val result = fixture.repository(onProgress = { phase, _ ->
+            if (phase == "Committing update" && !changed) {
+                changed = true
+                fixture.writeLive("ghost/save.dat", "after-snapshot")
+            }
+        }).run(fixture.request()) { false }
+
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), result)
+        assertBytes("server", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertBytes("after-snapshot", File(fixture.ghostRoot, "ghost/save.dat"))
+    }
+
+    @Test
+    fun `final merge preserves a non-manifest log created after candidate snapshot`() {
+        val fixture = fixture("live-log-created")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("server"))
+        var created = false
+
+        val result = fixture.repository(onProgress = { phase, _ ->
+            if (phase == "Committing update" && !created) {
+                created = true
+                fixture.writeLive("ghost/runtime/new.log", "late-log")
+            }
+        }).run(fixture.request()) { false }
+
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), result)
+        assertBytes("late-log", File(fixture.ghostRoot, "ghost/runtime/new.log"))
+    }
+
+    @Test
+    fun `final merge preserves deletion of a non-manifest save after candidate snapshot`() {
+        val fixture = fixture("live-save-deleted")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.writeLive("ghost/stale-save.dat", "remove-me")
+        fixture.network.manifest("ghost/master.txt" to bytes("server"))
+        var deleted = false
+
+        val result = fixture.repository(onProgress = { phase, _ ->
+            if (phase == "Committing update" && !deleted) {
+                deleted = true
+                check(File(fixture.ghostRoot, "ghost/stale-save.dat").delete())
+            }
+        }).run(fixture.request()) { false }
+
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), result)
+        assertFalse(File(fixture.ghostRoot, "ghost/stale-save.dat").exists())
+    }
+
+    @Test
+    fun `final merge keeps manifest and delete paths server authoritative`() {
+        val fixture = fixture("managed-live-writes")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.writeLive("ghost/obsolete.txt", "obsolete")
+        val delete = "ghost\\obsolete.txt\r\n".toByteArray(Charset.forName("Windows-31J"))
+        fixture.network.manifest(
+            "delete.txt" to delete,
+            "ghost/master.txt" to bytes("server"),
+        )
+        var wroteManagedPaths = false
+
+        val result = fixture.repository(onProgress = { phase, _ ->
+            if (phase == "Committing update" && !wroteManagedPaths) {
+                wroteManagedPaths = true
+                fixture.writeLive("ghost/master.txt", "late-local-write")
+                fixture.writeLive("ghost/obsolete.txt", "late-recreated")
+            }
+        }).run(fixture.request()) { false }
+
+        assertTrue(result is GhostUpdateResult.Completed)
+        assertBytes("server", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(File(fixture.ghostRoot, "ghost/obsolete.txt").exists())
+    }
+
+    @Test
     fun `digest mismatch leaves the live tree untouched and removes candidate`() {
         val fixture = fixture("digest")
         fixture.writeLive("ghost/master.txt", "old")
@@ -123,6 +205,88 @@ class GhostUpdateRepositoryTest {
         assertEquals(GhostUpdateResult.Cancelled, result)
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
         assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `system interruption during manifest download or digest is retryable and keeps live tree`() {
+        listOf("prefetch", "manifest", "download", "digest").forEach { phase ->
+            val fixture = fixture("system-interruption-$phase")
+            val original = ByteArray(32 * 1024) { 3 }
+            fixture.writeLiveBytes("ghost/master.txt", original)
+            fixture.network.manifest(
+                "ghost/master.txt" to if (phase == "digest") original else ByteArray(32 * 1024) { 7 },
+            )
+            var stop = GhostUpdateStopReason.NONE
+            when (phase) {
+                "prefetch" -> fixture.network.beforeOpen = { path ->
+                    if (path == "updates2.dau" || path == "updates.txt") {
+                        stop = GhostUpdateStopReason.SYSTEM_INTERRUPTED
+                        false
+                    } else true
+                }
+                "manifest" -> fixture.network.onManifestRead = {
+                    stop = GhostUpdateStopReason.SYSTEM_INTERRUPTED
+                    throw IOException("stream closed by system stop")
+                }
+                "download" -> fixture.network.onCandidateRead = {
+                    stop = GhostUpdateStopReason.SYSTEM_INTERRUPTED
+                    throw IOException("stream closed by system stop")
+                }
+                "digest" -> Unit
+            }
+
+            val result = fixture.repository(onProgress = { progressPhase, completed ->
+                if (phase == "digest" && progressPhase == "Comparing installed files" && completed > 0) {
+                    stop = GhostUpdateStopReason.SYSTEM_INTERRUPTED
+                }
+            }).runInterruptible(fixture.request()) { stop }
+
+            assertEquals(phase, GhostUpdateResult.Interrupted, result)
+            assertArrayEquals(original, File(fixture.ghostRoot, "ghost/master.txt").readBytes())
+            assertFalse(phase, fixture.transactionRoot().exists())
+            assertTrue(phase, fixture.network.openedStreams.all { it.closed })
+        }
+    }
+
+    @Test
+    fun `explicit user cancellation during manifest download or digest is terminal cancellation`() {
+        listOf("prefetch", "manifest", "download", "digest").forEach { phase ->
+            val fixture = fixture("user-cancellation-$phase")
+            val original = ByteArray(32 * 1024) { 4 }
+            fixture.writeLiveBytes("ghost/master.txt", original)
+            fixture.network.manifest(
+                "ghost/master.txt" to if (phase == "digest") original else ByteArray(32 * 1024) { 8 },
+            )
+            var stop = GhostUpdateStopReason.NONE
+            when (phase) {
+                "prefetch" -> fixture.network.beforeOpen = { path ->
+                    if (path == "updates2.dau" || path == "updates.txt") {
+                        stop = GhostUpdateStopReason.USER_CANCELLED
+                        false
+                    } else true
+                }
+                "manifest" -> fixture.network.onManifestRead = {
+                    stop = GhostUpdateStopReason.USER_CANCELLED
+                    throw IOException("stream closed by user stop")
+                }
+                "download" -> fixture.network.onCandidateRead = {
+                    stop = GhostUpdateStopReason.USER_CANCELLED
+                    throw IOException("stream closed by user stop")
+                }
+                "digest" -> Unit
+            }
+
+            val result = fixture.repository(onProgress = { progressPhase, completed ->
+                if (phase == "digest" && progressPhase == "Comparing installed files" && completed > 0) {
+                    stop = GhostUpdateStopReason.USER_CANCELLED
+                }
+            }).runInterruptible(fixture.request()) { stop }
+
+            assertEquals(phase, GhostUpdateResult.Cancelled, result)
+            assertArrayEquals(original, File(fixture.ghostRoot, "ghost/master.txt").readBytes())
+            assertFalse(phase, fixture.transactionRoot().exists())
+            assertTrue(phase, fixture.network.openedStreams.all { it.closed })
+        }
     }
 
     @Test
@@ -266,6 +430,55 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `system interruption requested after journal persistence cannot interrupt bounded commit`() {
+        val fixture = fixture("post-journal-system-stop")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        var stop = GhostUpdateStopReason.NONE
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun rename(source: File, destination: File): Boolean =
+                source.renameTo(destination).also {
+                    if (source.canonicalFile == fixture.ghostRoot.canonicalFile) {
+                        stop = GhostUpdateStopReason.SYSTEM_INTERRUPTED
+                    }
+                }
+        }
+
+        val result = fixture.repository(fileOperations = fileOperations)
+            .runInterruptible(fixture.request()) { stop }
+
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), result)
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `user or system stop inside commit gate interrupts final resync before journal`() {
+        listOf(
+            GhostUpdateStopReason.USER_CANCELLED to GhostUpdateResult.Cancelled,
+            GhostUpdateStopReason.SYSTEM_INTERRUPTED to GhostUpdateResult.Interrupted,
+        ).forEachIndexed { index, (requested, expected) ->
+            val fixture = fixture("commit-gate-stop-$index")
+            fixture.writeLive("ghost/master.txt", "old")
+            fixture.writeLiveBytes("ghost/save.dat", ByteArray(64 * 1024) { 5 })
+            fixture.network.manifest("ghost/master.txt" to bytes("new"))
+            var commitStarted = false
+            var resyncPolls = 0
+
+            val result = fixture.repository(
+                onProgress = { phase, _ -> if (phase == "Committing update") commitStarted = true },
+            ).runInterruptible(fixture.request()) {
+                if (commitStarted && ++resyncPolls >= 3) requested else GhostUpdateStopReason.NONE
+            }
+
+            assertEquals(requested.name, expected, result)
+            assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+            assertFalse(requested.name, fixture.transactionRoot().exists())
+            assertTrue(requested.name, resyncPolls >= 3)
+        }
+    }
+
+    @Test
     fun `failure after live rename finishes verified commit`() {
         val fixture = fixture("crash-backup")
         fixture.writeLive("ghost/master.txt", "old")
@@ -280,12 +493,14 @@ class GhostUpdateRepositoryTest {
                 return renamed
             }
         }
+        val lifecycle = RecordingLifecycleCommitGuard()
 
-        val result = fixture.repository(fileOperations = fileOperations)
+        val result = fixture.repository(fileOperations = fileOperations, commitGuard = lifecycle)
             .run(fixture.request()) { false }
 
         assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), result)
         assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertEquals(listOf("unload", "recover", "reload:new"), lifecycle.values)
         assertFalse(fixture.transactionRoot().exists())
     }
 
@@ -368,11 +583,14 @@ class GhostUpdateRepositoryTest {
         fixture.writeLive("ghost/master.txt", "old")
         fixture.network.manifest("ghost/master.txt" to bytes("new"))
         val journalIo = FailingJournalIo(CommitPhase.PUBLISHED)
+        val lifecycle = RecordingLifecycleCommitGuard()
 
-        val result = fixture.repository(journalIo = journalIo).run(fixture.request()) { false }
+        val result = fixture.repository(journalIo = journalIo, commitGuard = lifecycle)
+            .run(fixture.request()) { false }
 
         assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), result)
         assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertEquals(listOf("unload", "recover", "reload:new"), lifecycle.values)
         assertFalse(fixture.transactionRoot().exists())
     }
 
@@ -430,6 +648,82 @@ class GhostUpdateRepositoryTest {
 
         assertEquals(ListenableWorker.Result.success().toString(), result.toString())
         assertEquals(OperationStatus.COMPLETED, durableStore.read().single().status)
+    }
+
+    @Test
+    fun `worker retries system interruption without terminalizing exact running attempt`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val handle = OperationHandle(OperationId("worker-interrupted"), AttemptId(1))
+        val binding = ExternalJobBinding.WorkManager("interrupted-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        val result = GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
+            GhostUpdateResult.Interrupted
+        }
+
+        assertEquals(ListenableWorker.Result.retry().toString(), result.toString())
+        assertEquals(OperationStatus.RUNNING, durableStore.read().single().status)
+    }
+
+    @Test
+    fun `worker stop reason distinguishes exact user request from system interruption`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val handle = OperationHandle(OperationId("worker-stop-reason"), AttemptId(1))
+        val binding = ExternalJobBinding.WorkManager("stop-reason-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        assertEquals(
+            GhostUpdateStopReason.SYSTEM_INTERRUPTED,
+            GhostUpdateWorker.stopReason(supervisor, handle, binding) { true },
+        )
+        assertTrue(supervisor.requestStop(handle))
+        assertEquals(
+            GhostUpdateStopReason.USER_CANCELLED,
+            GhostUpdateWorker.stopReason(supervisor, handle, binding) { true },
+        )
+    }
+
+    @Test
+    fun `worker upgrades interrupted result when exact cancellation wins the stop race`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val handle = OperationHandle(OperationId("worker-interrupted-cancel-race"), AttemptId(1))
+        val binding = ExternalJobBinding.WorkManager("interrupted-cancel-race-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        val result = GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
+            assertTrue(supervisor.requestStop(handle))
+            GhostUpdateResult.Interrupted
+        }
+
+        assertEquals(ListenableWorker.Result.success().toString(), result.toString())
+        assertEquals(OperationStatus.CANCELLED, durableStore.read().single().status)
+    }
+
+    @Test
+    fun `worker stop reason rechecks cancellation after WorkManager stop becomes visible`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val handle = OperationHandle(OperationId("worker-stop-race"), AttemptId(1))
+        val binding = ExternalJobBinding.WorkManager("stop-race-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        val reason = GhostUpdateWorker.stopReason(supervisor, handle, binding) {
+            assertTrue(supervisor.requestStop(handle))
+            true
+        }
+
+        assertEquals(GhostUpdateStopReason.USER_CANCELLED, reason)
     }
 
     @Test
@@ -1728,6 +2022,7 @@ class GhostUpdateRepositoryTest {
             onProgress: (String, Long) -> Unit = { _, _ -> },
             onCommitClassified: (GhostUpdateResult.Completed) -> Boolean = { true },
             onRollbackClassified: (OperationStatus) -> Boolean = { true },
+            commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
         ) = GhostUpdateRepository(
             network,
             events,
@@ -1736,6 +2031,7 @@ class GhostUpdateRepositoryTest {
             onProgress,
             onCommitClassified,
             onRollbackClassified,
+            commitGuard,
         )
 
         fun transactionRoot() = GhostUpdateRepository.transactionRootFor(ghostRoot, operationId)
@@ -1769,8 +2065,30 @@ class GhostUpdateRepositoryTest {
         }
     }
 
+    private class RecordingLifecycleCommitGuard : GhostUpdateCommitGuard {
+        val values = mutableListOf<String>()
+
+        override fun commit(
+            ghostId: String,
+            ghostRoot: File,
+            onFailure: (Throwable) -> GhostUpdateResult,
+            action: () -> GhostUpdateResult,
+        ): GhostUpdateResult {
+            values += "unload"
+            val result = try {
+                action()
+            } catch (error: Throwable) {
+                values += "recover"
+                onFailure(error)
+            }
+            values += "reload:${File(ghostRoot, "ghost/master.txt").readText()}"
+            return result
+        }
+    }
+
     private class FakeNetwork : GhostUpdateNetwork {
         private val content = linkedMapOf<String, ByteArray>()
+        var beforeOpen: (String) -> Boolean = { true }
         var onCandidateRead: () -> Unit = {}
         var onManifestRead: () -> Unit = {}
         val openedStreams = mutableListOf<TrackingInputStream>()
@@ -1799,6 +2117,7 @@ class GhostUpdateRepositoryTest {
         }
 
         override fun open(baseUri: Uri, relativePath: String): InputStream? {
+            if (!beforeOpen(relativePath)) return null
             val bytes = content[relativePath] ?: return null
             openedPaths += relativePath
             val delegate = ByteArrayInputStream(bytes)

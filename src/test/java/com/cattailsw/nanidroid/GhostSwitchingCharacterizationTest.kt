@@ -6,6 +6,7 @@ import org.junit.Assert
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
 import java.util.Arrays
 import java.util.Hashtable
 import java.util.concurrent.CountDownLatch
@@ -148,6 +149,263 @@ class GhostSwitchingCharacterizationTest {
         Assert.assertFalse(trace.events().any { it?.startsWith("request:replacement:OnUpdateComplete") == true })
     }
 
+    @Test
+    fun ghostUpdateQuiesceBlocksOnlyTheBoundGhostDispatch() {
+        val gateEntered = CountDownLatch(1)
+        val releaseGate = CountDownLatch(1)
+        val outgoingDispatchFinished = CountDownLatch(1)
+        val currentDispatchFinished = CountDownLatch(1)
+        val replacementDispatchFinished = CountDownLatch(1)
+        val outgoing = RecordingGhost("outgoing", null, null, 2, null, trace)
+        val replacement = RecordingGhost("replacement", null, null, 2, null, trace)
+        setGhost(outgoing)
+
+        val gate = Thread {
+            runner.withGhostUpdateQuiesced("outgoing") {
+                gateEntered.countDown()
+                releaseGate.await(2, TimeUnit.SECONDS)
+            }
+        }.apply { start() }
+        Assert.assertTrue(gateEntered.await(2, TimeUnit.SECONDS))
+
+        val outgoingDispatch = Thread {
+            runner.doShioriEventForGhost("outgoing", "OnUpdateReady", arrayOf("late"))
+            outgoingDispatchFinished.countDown()
+        }.apply { start() }
+        Assert.assertFalse(outgoingDispatchFinished.await(100, TimeUnit.MILLISECONDS))
+        val currentDispatch = Thread {
+            runner.doMinimize()
+            currentDispatchFinished.countDown()
+        }.apply { start() }
+        Assert.assertFalse(currentDispatchFinished.await(100, TimeUnit.MILLISECONDS))
+
+        setGhost(replacement)
+        val replacementDispatch = Thread {
+            runner.doShioriEventForGhost("replacement", "OnUpdateReady", arrayOf("current"))
+            replacementDispatchFinished.countDown()
+        }.apply { start() }
+        Assert.assertTrue(replacementDispatchFinished.await(1, TimeUnit.SECONDS))
+        Assert.assertFalse(outgoingDispatchFinished.await(100, TimeUnit.MILLISECONDS))
+
+        releaseGate.countDown()
+        gate.join(2_000)
+        outgoingDispatch.join(2_000)
+        currentDispatch.join(2_000)
+        replacementDispatch.join(2_000)
+        Assert.assertTrue(outgoingDispatchFinished.await(0, TimeUnit.MILLISECONDS))
+        Assert.assertTrue(currentDispatchFinished.await(0, TimeUnit.MILLISECONDS))
+        Assert.assertFalse(trace.events().any { it?.startsWith("request:outgoing:OnUpdateReady") == true })
+        Assert.assertTrue(trace.events().any { it?.startsWith("request:replacement:OnUpdateReady") == true })
+    }
+
+    @Test
+    fun ghostSwitchUnloadWaitsForTheBoundGhostUpdateGate() {
+        val gateEntered = CountDownLatch(1)
+        val releaseGate = CountDownLatch(1)
+        val unloadCalled = CountDownLatch(1)
+        val stopFinished = CountDownLatch(1)
+        val outgoing = RecordingGhost(
+            "outgoing",
+            "Outgoing",
+            null,
+            2,
+            null,
+            trace,
+            unloadCalled = unloadCalled,
+        )
+        setGhost(outgoing)
+        runner.setCallback(RecordingStatusCallback(trace))
+        runner.doGhostChanging("Next", "manual", "/next")
+
+        val gate = Thread {
+            runner.withGhostUpdateQuiesced("outgoing") {
+                gateEntered.countDown()
+                releaseGate.await(2, TimeUnit.SECONDS)
+            }
+        }.apply { start() }
+        Assert.assertTrue(gateEntered.await(2, TimeUnit.SECONDS))
+        val stop = Thread {
+            runner.stop()
+            stopFinished.countDown()
+        }.apply { start() }
+
+        Assert.assertFalse(unloadCalled.await(100, TimeUnit.MILLISECONDS))
+        Assert.assertFalse(stopFinished.await(100, TimeUnit.MILLISECONDS))
+        releaseGate.countDown()
+        gate.join(2_000)
+        stop.join(2_000)
+        Assert.assertTrue(unloadCalled.await(0, TimeUnit.MILLISECONDS))
+        Assert.assertTrue(stopFinished.await(0, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun activeGhostCommitGateFlushesBeforeActionAndReloadsAfterSuccessOrFailure() {
+        listOf(false, true).forEach { fail ->
+            val lifecycle = Trace()
+            val active = RecordingGhost(
+                "active-${if (fail) "failure" else "success"}",
+                null,
+                null,
+                2,
+                null,
+                trace,
+                lifecycle = lifecycle,
+            )
+            setGhost(active)
+
+            runner.withGhostUpdateCommitQuiesced(
+                active.getGhostId(),
+                File(active.getGhostPath()),
+                onFailure = { error ->
+                    Assert.assertEquals("simulated commit failure", error.message)
+                    lifecycle.add("recover")
+                },
+            ) {
+                lifecycle.add("commit")
+                if (fail) throw IllegalStateException("simulated commit failure")
+            }
+
+            Assert.assertEquals(
+                if (fail) Arrays.asList<String?>("unload", "commit", "recover", "reload")
+                else Arrays.asList<String?>("unload", "commit", "reload"),
+                lifecycle.events(),
+            )
+        }
+    }
+
+    @Test
+    fun unloadFailureRunsRecoveryAndReloadBeforeReleasingCommitGate() {
+        val lifecycle = Trace()
+        val active = RecordingGhost(
+            "active-unload-failure",
+            null,
+            null,
+            2,
+            null,
+            trace,
+            lifecycle = lifecycle,
+            failUnload = true,
+        )
+        setGhost(active)
+
+        runner.withGhostUpdateCommitQuiesced(
+            active.getGhostId(),
+            File(active.getGhostPath()),
+            onFailure = { error ->
+                Assert.assertEquals("simulated unload failure", error.message)
+                lifecycle.add("recover")
+            },
+        ) {
+            lifecycle.add("commit")
+        }
+
+        Assert.assertEquals(
+            Arrays.asList<String?>("unload", "recover", "reload"),
+            lifecycle.events(),
+        )
+    }
+
+    @Test
+    fun reloadFailureDoesNotOverrideAuthoritativeCommitOrRecoveryResult() {
+        listOf(
+            Triple("success", false, "completed"),
+            Triple("recovered-publish", true, "completed"),
+            Triple("recovered-rollback", true, "failed"),
+        ).forEach { (name, failCommit, recoveryResult) ->
+            val lifecycle = Trace()
+            val active = RecordingGhost(
+                "reload-failure-$name",
+                null,
+                null,
+                2,
+                null,
+                trace,
+                lifecycle = lifecycle,
+                failReload = true,
+            )
+            setGhost(active)
+            var recoveryCalls = 0
+
+            val result = runner.withGhostUpdateCommitQuiesced(
+                active.getGhostId(),
+                File(active.getGhostPath()),
+                onFailure = {
+                    recoveryCalls++
+                    lifecycle.add("recover")
+                    recoveryResult
+                },
+            ) {
+                lifecycle.add("commit")
+                if (failCommit) throw IllegalStateException("simulated commit failure")
+                "completed"
+            }
+
+            Assert.assertEquals(recoveryResult, result)
+            Assert.assertEquals(if (failCommit) 1 else 0, recoveryCalls)
+            Assert.assertEquals(
+                if (failCommit) {
+                    Arrays.asList<String?>("unload", "commit", "recover", "reload", "deactivate")
+                } else {
+                    Arrays.asList<String?>("unload", "commit", "reload", "deactivate")
+                },
+                lifecycle.events(),
+            )
+        }
+    }
+
+    @Test
+    fun suppressedDescriptorReloadFailureCannotRetainTheUnloadedSession() {
+        listOf("missing", "empty", "malformed").forEach { failure ->
+            val oldSession = RequestCountingShiori()
+            val active = SuppressedDescriptorReloadGhost("descriptor-$failure", oldSession)
+            runner.setGhost(active)
+
+            val result = runner.withGhostUpdateCommitQuiesced(
+                active.getGhostId(),
+                File(active.getGhostPath()),
+            ) { "completed" }
+
+            Assert.assertEquals("completed", result)
+            Assert.assertEquals(1, oldSession.unloadCalls)
+            Assert.assertFalse(active.hasSession())
+            Assert.assertTrue(active.ghostError())
+            Assert.assertEquals(500, active.doShioriEvent("OnProbe", null).getStatusCode())
+            Assert.assertEquals(0, oldSession.requestCalls)
+        }
+    }
+
+    @Test
+    fun commitGateDoesNotUnloadInactiveMismatchedOrReplacedGhost() {
+        val lifecycle = Trace()
+        val active = RecordingGhost(
+            "active-isolation",
+            null,
+            null,
+            2,
+            null,
+            trace,
+            lifecycle = lifecycle,
+        )
+        val replacement = RecordingGhost("replacement-isolation", null, null, 2, null, trace)
+        setGhost(active)
+
+        runner.withGhostUpdateCommitQuiesced("inactive", File("inactive")) {
+            lifecycle.add("inactive-commit")
+        }
+        runner.withGhostUpdateCommitQuiesced(active.getGhostId(), File("different-root")) {
+            lifecycle.add("mismatched-commit")
+        }
+        runner.withGhostUpdateCommitQuiesced(active.getGhostId(), File(active.getGhostPath())) {
+            lifecycle.add("active-commit")
+            setGhost(replacement)
+        }
+
+        Assert.assertEquals(
+            Arrays.asList<String?>("inactive-commit", "mismatched-commit", "unload", "active-commit"),
+            lifecycle.events(),
+        )
+    }
+
     private fun setGhost(ghost: RecordingGhost) {
         currentGhost = ghost
         runner.setGhost(ghost)
@@ -227,6 +485,10 @@ class GhostSwitchingCharacterizationTest {
         private val trace: Trace,
         private val entered: CountDownLatch? = null,
         private val release: CountDownLatch? = null,
+        private val unloadCalled: CountDownLatch? = null,
+        private val lifecycle: Trace? = null,
+        private val failUnload: Boolean = false,
+        private val failReload: Boolean = false,
     ) : com.cattailsw.nanidroid.Ghost(
         ghostId
     ) {
@@ -273,7 +535,62 @@ public override fun doShioriEvent(
         }
 
         public override fun unload() {
-            // Ownership and unload ordering are intentionally deferred.
+            unloadCalled?.countDown()
+            lifecycle?.add("unload")
+            if (failUnload) throw IllegalStateException("simulated unload failure")
+        }
+
+        override fun reloadAfterGhostUpdate() {
+            lifecycle?.add("reload")
+            if (failReload) throw IllegalStateException("simulated reload failure")
+        }
+
+        override fun deactivateAfterGhostUpdateReloadFailure() {
+            lifecycle?.add("deactivate")
+        }
+    }
+
+    private class SuppressedDescriptorReloadGhost(
+        ghostId: String,
+        oldSession: com.cattailsw.nanidroid.shiori.Shiori,
+    ) : com.cattailsw.nanidroid.Ghost(ghostId) {
+        private val fakeGhostId = ghostId
+
+        init {
+            shiori = oldSession
+            error = false
+        }
+
+        override fun loadGhostInfo() {
+            error = true
+        }
+
+        override fun getGhostId(): String = fakeGhostId
+        override fun getGhostName(): String? = null
+        override fun getSakuraName(): String? = null
+        override fun getKeroName(): String = "Kero"
+        override fun getUsername(): String = "User"
+        override fun getCreateCount(): Long = 2
+        override fun incrementCreateCount() = Unit
+
+        fun hasSession(): Boolean = shiori != null
+    }
+
+    private class RequestCountingShiori : com.cattailsw.nanidroid.shiori.Shiori {
+        var requestCalls = 0
+        var unloadCalls = 0
+
+        override fun getModuleName(): String = "test"
+
+        override fun request(request: String): String {
+            requestCalls++
+            return "SHIORI/3.0 204 No Content\r\n\r\n"
+        }
+
+        override fun terminate() = Unit
+
+        override fun unloadShiori() {
+            unloadCalls++
         }
     }
 

@@ -27,9 +27,16 @@ sealed interface GhostUpdateResult {
     data class Completed(val files: List<String>) : GhostUpdateResult
     data object NoChanges : GhostUpdateResult
     data object Cancelled : GhostUpdateResult
+    data object Interrupted : GhostUpdateResult
     data class PublishPending(val files: List<String>) : GhostUpdateResult
     data class RollbackPending(val status: OperationStatus, val files: List<String>) : GhostUpdateResult
     data class Failed(val diagnostic: String) : GhostUpdateResult
+}
+
+internal enum class GhostUpdateStopReason {
+    NONE,
+    USER_CANCELLED,
+    SYSTEM_INTERRUPTED,
 }
 
 fun interface GhostUpdateNetwork {
@@ -60,6 +67,25 @@ internal interface GhostUpdateFileOperations {
     }
 }
 
+internal fun interface GhostUpdateCommitGuard {
+    fun commit(
+        ghostId: String,
+        ghostRoot: File,
+        onFailure: (Throwable) -> GhostUpdateResult,
+        action: () -> GhostUpdateResult,
+    ): GhostUpdateResult
+
+    companion object {
+        val NONE = GhostUpdateCommitGuard { _, _, onFailure, action ->
+            try {
+                action()
+            } catch (error: Exception) {
+                onFailure(error)
+            }
+        }
+    }
+}
+
 class GhostUpdateRepository internal constructor(
     private val network: GhostUpdateNetwork,
     private val events: GhostUpdateEvents = GhostUpdateEvents.NONE,
@@ -68,18 +94,27 @@ class GhostUpdateRepository internal constructor(
     private val onProgress: (phase: String, completed: Long) -> Unit = { _, _ -> },
     private val onCommitClassified: (GhostUpdateResult.Completed) -> Boolean = { true },
     private val onRollbackClassified: (OperationStatus) -> Boolean = { true },
+    private val commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
 ) {
     fun run(
         request: GhostUpdateRequest,
         isCancelled: () -> Boolean,
+    ): GhostUpdateResult = runInterruptible(request) {
+        if (isCancelled()) GhostUpdateStopReason.USER_CANCELLED else GhostUpdateStopReason.NONE
+    }
+
+    internal fun runInterruptible(
+        request: GhostUpdateRequest,
+        stopReason: () -> GhostUpdateStopReason,
     ): GhostUpdateResult = withGhostLock(request.ghostRoot) {
-        runLocked(request, isCancelled)
+        runLocked(request, stopReason)
     }
 
     private fun runLocked(
         request: GhostUpdateRequest,
-        isCancelled: () -> Boolean,
+        stopReason: () -> GhostUpdateStopReason,
     ): GhostUpdateResult {
+        val isStopped = { stopReason() != GhostUpdateStopReason.NONE }
         val ghostRoot = request.ghostRoot.canonicalFile
         if (request.operationId.value.isBlank()) {
             return failed("invalid ghost update request", emptyList())
@@ -118,7 +153,7 @@ class GhostUpdateRepository internal constructor(
                 else -> Unit
             }
             if (!ghostRoot.isDirectory) return failed("invalid ghost update request", emptyList())
-            if (isCancelled()) return GhostUpdateResult.Cancelled
+            stopResult(stopReason())?.let { return it }
             onProgress("Preparing candidate", 0)
             if (transactionRoot.exists() && !fileOperations.deleteTree(transactionRoot)) {
                 return failed("cannot clear abandoned update staging", emptyList())
@@ -127,21 +162,24 @@ class GhostUpdateRepository internal constructor(
                 return failed("cannot prepare update staging", emptyList())
             }
             var copiedBytes = 0L
-            copyTree(ghostRoot, candidateRoot, isCancelled) { count ->
+            copyTree(ghostRoot, candidateRoot, isStopped) { count ->
                 copiedBytes += count
                 onProgress("Preparing candidate", copiedBytes)
             }
-            if (isCancelled()) return cancelledBeforeJournal(transactionRoot)
+            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
 
             onProgress("Fetching update manifest", 0)
-            val manifestSource = readManifest(request, isCancelled)
-                ?: return failedBeforeJournal(transactionRoot, "update manifest not found")
-            if (isCancelled()) return cancelledBeforeJournal(transactionRoot)
+            val manifestSource = readManifest(request, stopReason)
+            if (manifestSource == null) {
+                stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+                return failedBeforeJournal(transactionRoot, "update manifest not found")
+            }
+            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
             val manifest = parseManifest(manifestSource)
             var comparedBytes = 0L
             val changedManifest = manifest.filter { entry ->
                 val local = resolveChild(candidateRoot, entry.path)
-                !local.isFile || !fileDigest(local, isCancelled) { count ->
+                !local.isFile || !fileDigest(local, stopReason) { count ->
                     comparedBytes += count
                     onProgress("Comparing installed files", comparedBytes)
                 }.equals(entry.digest, ignoreCase = true)
@@ -151,7 +189,7 @@ class GhostUpdateRepository internal constructor(
 
             var downloadedBytes = 0L
             changedManifest.forEachIndexed { index, entry ->
-                if (isCancelled()) return cancelledBeforeJournal(transactionRoot)
+                stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
                 events.downloadBegin(entry.path, index, changedManifest.lastIndex)
                 onProgress("Downloading update", downloadedBytes)
                 val target = resolveChild(candidateRoot, entry.path)
@@ -166,7 +204,7 @@ class GhostUpdateRepository internal constructor(
                     FileOutputStream(target).use { output ->
                         val buffer = ByteArray(COPY_BUFFER)
                         while (true) {
-                            if (isCancelled()) throw UpdateCancelledException()
+                            throwIfStopped(stopReason)
                             val count = input.read(buffer)
                             if (count < 0) break
                             if (count == 0) continue
@@ -178,7 +216,7 @@ class GhostUpdateRepository internal constructor(
                         output.fd.sync()
                     }
                 }
-                if (isCancelled()) throw UpdateCancelledException()
+                throwIfStopped(stopReason)
                 val actual = digest.digest().toHex()
                 onProgress("Verifying update", index.toLong())
                 events.digestCompareBegin(entry.path, entry.digest, actual)
@@ -189,48 +227,84 @@ class GhostUpdateRepository internal constructor(
                 events.digestCompareComplete(entry.path, entry.digest, actual)
             }
 
-            val deletedCandidateEntry = applyCandidateDeletes(candidateRoot)
-            if (changedManifest.isEmpty() && !deletedCandidateEntry) {
+            val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
+            if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
                 fileOperations.deleteTree(transactionRoot)
                 events.noChanges()
                 return GhostUpdateResult.NoChanges
             }
 
-            if (isCancelled()) return cancelledBeforeJournal(transactionRoot)
-            val journal = GhostUpdateJournal(
-                operationId = request.operationId,
-                ghostRoot = ghostRoot.canonicalPath,
-                candidateRoot = candidateRoot.canonicalPath,
-                backupRoot = backupRoot.canonicalPath,
-                phase = CommitPhase.PREPARED,
-                files = manifestFiles,
-                attemptId = request.attemptId,
-                workManagerUuid = request.workManagerUuid,
-            )
-            journalIo.write(journalFile, journal)
-            journalPersisted = true
+            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+            val commitResult = commitGuard.commit(
+                request.ghostId,
+                ghostRoot,
+                onFailure = { error ->
+                    handleCommitFailure(
+                        error,
+                        ghostRoot,
+                        request,
+                        transactionRoot,
+                        journalPersisted,
+                        manifestFiles,
+                        stopReason,
+                    )
+                },
+            ) {
+                onProgress("Committing update", 0)
+                throwIfStopped(stopReason)
+                resyncUnmanagedLivePaths(
+                    ghostRoot,
+                    candidateRoot,
+                    manifest.map { it.path },
+                    deletedCandidateEntries.entries,
+                    stopReason,
+                )
+                throwIfStopped(stopReason)
+                val journal = GhostUpdateJournal(
+                    operationId = request.operationId,
+                    ghostRoot = ghostRoot.canonicalPath,
+                    candidateRoot = candidateRoot.canonicalPath,
+                    backupRoot = backupRoot.canonicalPath,
+                    phase = CommitPhase.PREPARED,
+                    files = manifestFiles,
+                    attemptId = request.attemptId,
+                    workManagerUuid = request.workManagerUuid,
+                )
+                journalIo.write(journalFile, journal)
+                journalPersisted = true
 
-            onProgress("Committing update", 0)
-            if (!fileOperations.rename(ghostRoot, backupRoot)) throw IOException("cannot back up live ghost")
-            journalIo.write(journalFile, journal.copy(phase = CommitPhase.BACKED_UP))
-            if (!fileOperations.rename(candidateRoot, ghostRoot)) throw IOException("cannot publish candidate ghost")
-            journalIo.write(journalFile, journal.copy(phase = CommitPhase.PUBLISHED))
-            val completed = GhostUpdateResult.Completed(manifestFiles)
-            if (!onCommitClassified(completed)) {
-                return GhostUpdateResult.PublishPending(manifestFiles)
+                if (!fileOperations.rename(ghostRoot, backupRoot)) throw IOException("cannot back up live ghost")
+                journalIo.write(journalFile, journal.copy(phase = CommitPhase.BACKED_UP))
+                if (!fileOperations.rename(candidateRoot, ghostRoot)) throw IOException("cannot publish candidate ghost")
+                journalIo.write(journalFile, journal.copy(phase = CommitPhase.PUBLISHED))
+                val completed = GhostUpdateResult.Completed(manifestFiles)
+                if (!onCommitClassified(completed)) {
+                    return@commit GhostUpdateResult.PublishPending(manifestFiles)
+                }
+                if (backupRoot.exists() && !fileOperations.deleteTree(backupRoot)) {
+                    throw IOException("cannot remove ghost update backup")
+                }
+                onProgress("Cleaning up update", 0)
+                journalIo.write(journalFile, journal.copy(phase = CommitPhase.CLEANED))
+                if (!fileOperations.deleteTree(transactionRoot)) throw IOException("cannot clean update transaction")
+                completed
             }
-            if (backupRoot.exists() && !fileOperations.deleteTree(backupRoot)) {
-                throw IOException("cannot remove ghost update backup")
+            when (commitResult) {
+                is GhostUpdateResult.Completed -> events.complete(manifestFiles)
+                is GhostUpdateResult.Failed -> events.failure(commitResult.diagnostic, manifestFiles)
+                else -> Unit
             }
-            onProgress("Cleaning up update", 0)
-            journalIo.write(journalFile, journal.copy(phase = CommitPhase.CLEANED))
-            if (!fileOperations.deleteTree(transactionRoot)) throw IOException("cannot clean update transaction")
-            events.complete(manifestFiles)
-            return completed
-        } catch (_: UpdateCancelledException) {
-            if (!journalPersisted) return cancelledBeforeJournal(transactionRoot)
+            return commitResult
+        } catch (stopped: UpdateStoppedException) {
+            if (!journalPersisted) return stopBeforeJournal(transactionRoot, stopped.reason)
+                ?: GhostUpdateResult.Interrupted
             return when (val recovered = recoverAfterJournalFailure(
-                ghostRoot, request, OperationStatus.CANCELLED, journalIo,
+                ghostRoot,
+                request,
+                if (stopped.reason == GhostUpdateStopReason.USER_CANCELLED) {
+                    OperationStatus.CANCELLED
+                } else OperationStatus.FAILED,
+                journalIo,
                 classify = { pending, status ->
                     when (status) {
                         OperationStatus.COMPLETED -> onCommitClassified(GhostUpdateResult.Completed(pending.files))
@@ -250,7 +324,8 @@ class GhostUpdateRepository internal constructor(
                 )
                 is RecoveryResult.CommitPending ->
                     failed("recovery direction is unknown", recovered.files)
-                RecoveryResult.RolledBack, RecoveryResult.NoJournal -> GhostUpdateResult.Cancelled
+                RecoveryResult.RolledBack, RecoveryResult.NoJournal -> stopResult(stopped.reason)
+                    ?: GhostUpdateResult.Interrupted
                 is RecoveryResult.Failed -> failed(recovered.diagnostic, manifestFiles)
             }
         } catch (e: Exception) {
@@ -285,19 +360,80 @@ class GhostUpdateRepository internal constructor(
                 }
             } else {
                 fileOperations.deleteTree(transactionRoot)
+                stopResult(stopReason())?.let { return it }
             }
             return failed(e.message ?: "ghost update failed", manifestFiles)
         }
     }
 
-    private fun readManifest(request: GhostUpdateRequest, isCancelled: () -> Boolean): ManifestSource? {
+    private fun handleCommitFailure(
+        error: Throwable,
+        ghostRoot: File,
+        request: GhostUpdateRequest,
+        transactionRoot: File,
+        journalPersisted: Boolean,
+        manifestFiles: List<String>,
+        stopReason: () -> GhostUpdateStopReason,
+    ): GhostUpdateResult {
+        val stopped = error as? UpdateStoppedException
+        if (!journalPersisted) {
+            fileOperations.deleteTree(transactionRoot)
+            val reason = stopped?.reason ?: stopReason()
+            return stopResult(reason)
+                ?: GhostUpdateResult.Failed(error.message ?: "ghost update failed")
+        }
+
+        val failureStatus = if (stopped?.reason == GhostUpdateStopReason.USER_CANCELLED) {
+            OperationStatus.CANCELLED
+        } else {
+            OperationStatus.FAILED
+        }
+        return when (val recovered = recoverAfterJournalFailure(
+            ghostRoot,
+            request,
+            failureStatus,
+            journalIo,
+            classify = { pending, status ->
+                when (status) {
+                    OperationStatus.COMPLETED ->
+                        onCommitClassified(GhostUpdateResult.Completed(pending.files))
+                    OperationStatus.FAILED,
+                    OperationStatus.CANCELLED,
+                    -> onRollbackClassified(status)
+                    else -> false
+                }
+            },
+        )) {
+            RecoveryResult.CompletedCommit -> GhostUpdateResult.Completed(manifestFiles)
+            is RecoveryResult.PublishPending -> completePendingWithoutEvents(
+                ghostRoot,
+                request.operationId,
+                recovered.files,
+            )
+            is RecoveryResult.RollbackPending -> GhostUpdateResult.RollbackPending(
+                recovered.status,
+                recovered.files,
+            )
+            is RecoveryResult.CommitPending ->
+                GhostUpdateResult.Failed("recovery direction is unknown")
+            RecoveryResult.RolledBack, RecoveryResult.NoJournal ->
+                stopped?.let { stopResult(it.reason) }
+                    ?: GhostUpdateResult.Failed(error.message ?: "ghost update failed")
+            is RecoveryResult.Failed -> GhostUpdateResult.Failed(recovered.diagnostic)
+        }
+    }
+
+    private fun readManifest(
+        request: GhostUpdateRequest,
+        stopReason: () -> GhostUpdateStopReason,
+    ): ManifestSource? {
         for (name in listOf(UPDATE_V2, UPDATE_V3)) {
             val source = network.open(request.baseUri, name) ?: continue
             source.use { input ->
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(COPY_BUFFER)
                 while (true) {
-                    if (isCancelled()) throw UpdateCancelledException()
+                    throwIfStopped(stopReason)
                     val count = input.read(buffer)
                     if (count < 0) break
                     if (count == 0) continue
@@ -315,10 +451,19 @@ class GhostUpdateRepository internal constructor(
         operationId: OperationId,
         files: List<String>,
     ): GhostUpdateResult {
+        val result = completePendingWithoutEvents(ghostRoot, operationId, files)
+        if (result is GhostUpdateResult.Completed) events.complete(files)
+        return result
+    }
+
+    private fun completePendingWithoutEvents(
+        ghostRoot: File,
+        operationId: OperationId,
+        files: List<String>,
+    ): GhostUpdateResult {
         val completed = GhostUpdateResult.Completed(files)
         if (!onCommitClassified(completed)) return GhostUpdateResult.PublishPending(files)
         finishPublishedTransaction(ghostRoot, operationId, journalIo)
-        events.complete(files)
         return completed
     }
 
@@ -396,10 +541,11 @@ class GhostUpdateRepository internal constructor(
         }
     }
 
-    private fun applyCandidateDeletes(candidateRoot: File): Boolean {
+    private fun applyCandidateDeletes(candidateRoot: File): DeleteApplication {
         val deleteFile = File(candidateRoot, DELETE_FILE)
-        if (!deleteFile.isFile) return false
+        if (!deleteFile.isFile) return DeleteApplication(false, emptyList())
         var changed = false
+        val entries = mutableListOf<DeleteEntry>()
         val bytes = readDeleteManifestBytes(deleteFile)
         val ascii = bytes.toString(Charsets.ISO_8859_1)
         val declared = ascii.lineSequence().firstOrNull()?.removeSuffix("\r")
@@ -418,6 +564,7 @@ class GhostUpdateRepository internal constructor(
             }
             val directory = line.endsWith('\\')
             val normalized = normalizedPath(line.removeSuffix("\\").replace('\\', '/'))
+            entries += DeleteEntry(normalized, directory)
             val target = resolveChild(candidateRoot, normalized)
             if (target.exists()) {
                 changed = true
@@ -428,19 +575,191 @@ class GhostUpdateRepository internal constructor(
                 }
             }
         }
-        return changed
+        return DeleteApplication(changed, entries)
+    }
+
+    private fun resyncUnmanagedLivePaths(
+        liveRoot: File,
+        candidateRoot: File,
+        manifestPaths: List<String>,
+        deleteEntries: List<DeleteEntry>,
+        stopReason: () -> GhostUpdateStopReason,
+    ) {
+        val managed = ManagedPaths(manifestPaths, deleteEntries)
+        val liveBefore = scanTree(liveRoot, stopReason)
+        val candidateBefore = scanTree(candidateRoot, stopReason)
+
+        liveBefore.values.forEach { entry ->
+            throwIfStopped(stopReason)
+            if (managed.hasManagedFileAncestor(entry.path)) {
+                throw IOException("live path descends from a managed file")
+            }
+        }
+
+        candidateBefore.values
+            .filter { it.kind == TreeEntryKind.FILE && !managed.isManaged(it.path) }
+            .filter { liveBefore[it.key]?.kind != TreeEntryKind.FILE }
+            .forEach { entry ->
+                throwIfStopped(stopReason)
+                val file = resolveChild(candidateRoot, entry.path)
+                if (!file.delete()) throw IOException("cannot remove stale candidate file")
+            }
+
+        candidateBefore.values
+            .filter { it.kind == TreeEntryKind.DIRECTORY && !managed.isManaged(it.path) }
+            .filter { liveBefore[it.key]?.kind != TreeEntryKind.DIRECTORY }
+            .sortedByDescending { it.path.count { character -> character == '/' } }
+            .forEach { entry ->
+                throwIfStopped(stopReason)
+                if (managed.isRequiredParent(entry.path)) return@forEach
+                val directory = resolveChild(candidateRoot, entry.path)
+                if (directory.exists() && !fileOperations.deleteTree(directory)) {
+                    throw IOException("cannot remove stale candidate directory")
+                }
+            }
+
+        liveBefore.values
+            .filter { it.kind == TreeEntryKind.DIRECTORY && !managed.isManaged(it.path) }
+            .sortedBy { it.path.count { character -> character == '/' } }
+            .forEach { entry ->
+                throwIfStopped(stopReason)
+                val target = resolveChild(candidateRoot, entry.path)
+                if (target.isFile) {
+                    if (managed.isRequiredParent(entry.path) || !target.delete()) {
+                        throw IOException("unsafe candidate directory type change")
+                    }
+                }
+                if ((!target.exists() && !target.mkdir()) || !target.isDirectory) {
+                    throw IOException("cannot mirror live directory")
+                }
+            }
+
+        liveBefore.values
+            .filter { it.kind == TreeEntryKind.FILE && !managed.isManaged(it.path) }
+            .forEach { entry ->
+                throwIfStopped(stopReason)
+                val source = resolveChild(liveRoot, entry.path)
+                val target = resolveChild(candidateRoot, entry.path)
+                if (target.isDirectory) {
+                    if (managed.isRequiredParent(entry.path) || !fileOperations.deleteTree(target)) {
+                        throw IOException("unsafe candidate file type change")
+                    }
+                }
+                val parent = target.parentFile ?: throw IOException("candidate mirror has no parent")
+                if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
+                    throw IOException("cannot prepare candidate mirror parent")
+                }
+                copyFile(source, target, stopReason)
+            }
+
+        val liveAfter = scanTree(liveRoot, stopReason)
+        if (liveBefore != liveAfter) throw IOException("live ghost changed during final merge")
+        val candidateAfter = scanTree(candidateRoot, stopReason)
+        val liveUnmanaged = liveAfter.values.filterNot { managed.isManaged(it.path) }
+        liveUnmanaged.forEach { live ->
+            throwIfStopped(stopReason)
+            val candidate = candidateAfter[live.key]
+                ?: throw IOException("candidate mirror is missing live path")
+            if (candidate.kind != live.kind) throw IOException("candidate mirror type mismatch")
+            if (live.kind == TreeEntryKind.FILE && !filesEqual(
+                    resolveChild(liveRoot, live.path),
+                    resolveChild(candidateRoot, candidate.path),
+                    stopReason,
+                )
+            ) throw IOException("candidate mirror content mismatch")
+        }
+        candidateAfter.values
+            .filterNot { managed.isManaged(it.path) || managed.isRequiredParent(it.path) }
+            .forEach { candidate ->
+                throwIfStopped(stopReason)
+                if (liveAfter[candidate.key]?.kind != candidate.kind) {
+                    throw IOException("candidate retained stale unmanaged path")
+                }
+            }
+    }
+
+    private fun scanTree(
+        root: File,
+        stopReason: () -> GhostUpdateStopReason,
+    ): Map<String, TreeEntry> {
+        throwIfStopped(stopReason)
+        if (Files.isSymbolicLink(root.toPath()) || !root.isDirectory) {
+            throw IOException("unsafe ghost tree root")
+        }
+        val entries = linkedMapOf<String, TreeEntry>()
+        fun visit(directory: File, prefix: String) {
+            val children = directory.listFiles() ?: throw IOException("cannot list ghost tree")
+            children.forEach { child ->
+                throwIfStopped(stopReason)
+                if (Files.isSymbolicLink(child.toPath())) throw IOException("ghost tree contains symlink")
+                val rawPath = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
+                val path = normalizedPath(rawPath)
+                val key = NarRelativePathPolicy.collisionKey(path)
+                val kind = when {
+                    child.isDirectory -> TreeEntryKind.DIRECTORY
+                    child.isFile -> TreeEntryKind.FILE
+                    else -> throw IOException("ghost tree contains special file")
+                }
+                val entry = TreeEntry(key, path, kind, child.length(), child.lastModified())
+                if (entries.put(key, entry) != null) throw IOException("ghost tree contains colliding paths")
+                if (kind == TreeEntryKind.DIRECTORY) visit(child, path)
+            }
+        }
+        visit(root, "")
+        return entries
+    }
+
+    private fun copyFile(
+        source: File,
+        destination: File,
+        stopReason: () -> GhostUpdateStopReason,
+    ) {
+        FileInputStream(source).use { input ->
+            FileOutputStream(destination).use { output ->
+                val buffer = ByteArray(COPY_BUFFER)
+                while (true) {
+                    throwIfStopped(stopReason)
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count > 0) output.write(buffer, 0, count)
+                }
+                output.fd.sync()
+            }
+        }
+    }
+
+    private fun filesEqual(
+        left: File,
+        right: File,
+        stopReason: () -> GhostUpdateStopReason,
+    ): Boolean {
+        if (left.length() != right.length()) return false
+        FileInputStream(left).use { leftInput ->
+            FileInputStream(right).use { rightInput ->
+                val leftBuffer = ByteArray(COPY_BUFFER)
+                val rightBuffer = ByteArray(COPY_BUFFER)
+                while (true) {
+                    throwIfStopped(stopReason)
+                    val leftCount = leftInput.read(leftBuffer)
+                    val rightCount = rightInput.read(rightBuffer)
+                    if (leftCount != rightCount) return false
+                    if (leftCount < 0) return true
+                    if (!leftBuffer.copyOf(leftCount).contentEquals(rightBuffer.copyOf(rightCount))) return false
+                }
+            }
+        }
     }
 
     private fun fileDigest(
         file: File,
-        isCancelled: () -> Boolean,
+        stopReason: () -> GhostUpdateStopReason,
         onBytes: (Long) -> Unit,
     ): String {
         val digest = MessageDigest.getInstance("MD5")
         FileInputStream(file).use { input ->
             val buffer = ByteArray(COPY_BUFFER)
             while (true) {
-                if (isCancelled()) throw UpdateCancelledException()
+                throwIfStopped(stopReason)
                 val count = input.read(buffer)
                 if (count < 0) break
                 if (count > 0) {
@@ -471,10 +790,75 @@ class GhostUpdateRepository internal constructor(
         return GhostUpdateResult.Cancelled
     }
 
+    private fun interruptedBeforeJournal(transactionRoot: File): GhostUpdateResult {
+        fileOperations.deleteTree(transactionRoot)
+        return GhostUpdateResult.Interrupted
+    }
+
+    private fun stopBeforeJournal(
+        transactionRoot: File,
+        reason: GhostUpdateStopReason,
+    ): GhostUpdateResult? = when (reason) {
+        GhostUpdateStopReason.NONE -> null
+        GhostUpdateStopReason.USER_CANCELLED -> cancelledBeforeJournal(transactionRoot)
+        GhostUpdateStopReason.SYSTEM_INTERRUPTED -> interruptedBeforeJournal(transactionRoot)
+    }
+
+    private fun stopResult(reason: GhostUpdateStopReason): GhostUpdateResult? = when (reason) {
+        GhostUpdateStopReason.NONE -> null
+        GhostUpdateStopReason.USER_CANCELLED -> GhostUpdateResult.Cancelled
+        GhostUpdateStopReason.SYSTEM_INTERRUPTED -> GhostUpdateResult.Interrupted
+    }
+
+    private fun throwIfStopped(stopReason: () -> GhostUpdateStopReason) {
+        val reason = stopReason()
+        if (reason != GhostUpdateStopReason.NONE) throw UpdateStoppedException(reason)
+    }
+
     private data class ManifestEntry(val path: String, val digest: String)
     private data class ManifestSource(val name: String, val bytes: ByteArray)
+    private data class DeleteEntry(val path: String, val directory: Boolean)
+    private data class DeleteApplication(val changed: Boolean, val entries: List<DeleteEntry>)
+    private enum class TreeEntryKind { FILE, DIRECTORY }
+    private data class TreeEntry(
+        val key: String,
+        val path: String,
+        val kind: TreeEntryKind,
+        val size: Long,
+        val lastModified: Long,
+    )
 
-    private class UpdateCancelledException : IOException("ghost update cancelled")
+    private class ManagedPaths(
+        manifestPaths: List<String>,
+        deleteEntries: List<DeleteEntry>,
+    ) {
+        private val manifestFiles = manifestPaths.associateBy(NarRelativePathPolicy::collisionKey)
+        private val deleteFiles = deleteEntries.filterNot { it.directory }
+            .associateBy { NarRelativePathPolicy.collisionKey(it.path) }
+        private val deleteDirectories = deleteEntries.filter { it.directory }
+            .map { NarRelativePathPolicy.collisionKey(it.path) }
+        private val requiredPaths = (manifestPaths + deleteEntries.map { it.path })
+            .map(NarRelativePathPolicy::collisionKey)
+
+        fun isManaged(path: String): Boolean {
+            val key = NarRelativePathPolicy.collisionKey(path)
+            return key in manifestFiles || key in deleteFiles ||
+                deleteDirectories.any { directory -> key == directory || key.startsWith("$directory/") }
+        }
+
+        fun isRequiredParent(path: String): Boolean {
+            val key = NarRelativePathPolicy.collisionKey(path)
+            return requiredPaths.any { managed -> managed.startsWith("$key/") }
+        }
+
+        fun hasManagedFileAncestor(path: String): Boolean {
+            val key = NarRelativePathPolicy.collisionKey(path)
+            return (manifestFiles.keys + deleteFiles.keys).any { managed -> key.startsWith("$managed/") }
+        }
+    }
+
+    private class UpdateStoppedException(val reason: GhostUpdateStopReason) :
+        IOException("ghost update stopped: $reason")
 
     companion object {
         private const val UPDATE_V2 = "updates2.dau"

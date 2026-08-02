@@ -177,11 +177,18 @@ class GhostUpdateWorker(
                                 record.status == status
                         }
                 },
+                commitGuard = GhostUpdateCommitGuard { expectedGhostId, expectedGhostRoot, onFailure, action ->
+                    runner.withGhostUpdateCommitQuiesced(
+                        expectedGhostId,
+                        expectedGhostRoot,
+                        onFailure,
+                        action,
+                    )
+                },
             )
-            repository.run(
+            repository.runInterruptible(
                 GhostUpdateRequest(handle.operationId, ghostId, ghostRoot, baseUri, handle.attemptId, binding.uuid),
-                { isStopped },
-            )
+            ) { stopReason(supervisor, handle, binding) { isStopped } }
         }
     }
 
@@ -211,6 +218,7 @@ class GhostUpdateWorker(
             supervisor: DurableOperationSupervisor,
             handle: OperationHandle,
             binding: ExternalJobBinding.WorkManager,
+            @Suppress("UNUSED_PARAMETER")
             isStopped: () -> Boolean,
             run: () -> GhostUpdateResult,
         ): ListenableWorker.Result {
@@ -218,6 +226,18 @@ class GhostUpdateWorker(
                 return ListenableWorker.Result.success()
             }
             val result = run()
+            if (result is GhostUpdateResult.Interrupted) {
+                if (supervisor.cancellationRequestedForExactAttempt(
+                        handle,
+                        OperationKind.GHOST_UPDATE,
+                        binding,
+                    )
+                ) {
+                    supervisor.finish(handle, binding, OperationStatus.CANCELLED)
+                    return ListenableWorker.Result.success()
+                }
+                return ListenableWorker.Result.retry()
+            }
             if (result is GhostUpdateResult.PublishPending) {
                 return ListenableWorker.Result.retry()
             }
@@ -228,6 +248,7 @@ class GhostUpdateWorker(
                 is GhostUpdateResult.Completed -> OperationStatus.COMPLETED
                 GhostUpdateResult.NoChanges -> OperationStatus.COMPLETED
                 GhostUpdateResult.Cancelled -> OperationStatus.CANCELLED
+                GhostUpdateResult.Interrupted -> error("interrupted result handled above")
                 is GhostUpdateResult.PublishPending,
                 is GhostUpdateResult.RollbackPending,
                 -> error("classification pending result handled above")
@@ -235,11 +256,31 @@ class GhostUpdateWorker(
             }
             val diagnostic = (result as? GhostUpdateResult.Failed)?.diagnostic
             supervisor.finish(handle, binding, status, diagnostic)
-            return if (result is GhostUpdateResult.Failed && !isStopped()) {
+            return if (result is GhostUpdateResult.Failed) {
                 ListenableWorker.Result.failure()
             } else {
                 ListenableWorker.Result.success()
             }
+        }
+
+        internal fun stopReason(
+            supervisor: DurableOperationSupervisor,
+            handle: OperationHandle,
+            binding: ExternalJobBinding.WorkManager,
+            isStopped: () -> Boolean,
+        ): GhostUpdateStopReason = when {
+            supervisor.cancellationRequestedForExactAttempt(
+                handle,
+                OperationKind.GHOST_UPDATE,
+                binding,
+            ) -> GhostUpdateStopReason.USER_CANCELLED
+            isStopped() -> if (supervisor.cancellationRequestedForExactAttempt(
+                    handle,
+                    OperationKind.GHOST_UPDATE,
+                    binding,
+                )
+            ) GhostUpdateStopReason.USER_CANCELLED else GhostUpdateStopReason.SYSTEM_INTERRUPTED
+            else -> GhostUpdateStopReason.NONE
         }
 
         internal fun workerStopped(
