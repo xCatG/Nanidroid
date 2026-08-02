@@ -17,10 +17,12 @@ object ArchiveIntentAdapter {
         mimeType: String?,
         flags: Int,
     ): Uri? {
-        if (action != Intent.ACTION_VIEW || uri == null) return null
-        if (!uri.scheme.equals("content", ignoreCase = true)) return null
-        if (mimeType?.lowercase() !in supportedMimeTypes) return null
-        if (flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return null
-        return uri
+        return uri?.takeIf { accepts(action, it.scheme, mimeType, flags) }
     }
+
+    internal fun accepts(action: String?, scheme: String?, mimeType: String?, flags: Int): Boolean =
+        action == Intent.ACTION_VIEW &&
+            scheme.equals("content", ignoreCase = true) &&
+            mimeType?.lowercase() in supportedMimeTypes &&
+            flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0
 }

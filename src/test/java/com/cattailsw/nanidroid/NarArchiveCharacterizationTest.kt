@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid
 
-import android.net.Uri
 import android.content.Intent
 import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.install.NarLocalArchiveStager
@@ -30,29 +29,26 @@ class NarArchiveCharacterizationTest {
 
     @Test
     fun externalArchiveIntent_acceptsOnlyGrantedContentArchives() {
-        val content = Uri.parse("content://provider/archive.nar")
-
-        Assert.assertEquals(
-            content,
-            ArchiveIntentAdapter.contentUri(
+        Assert.assertTrue(
+            ArchiveIntentAdapter.accepts(
                 Intent.ACTION_VIEW,
-                content,
+                "content",
                 "application/x-nar",
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             ),
         )
-        Assert.assertNull(
-            ArchiveIntentAdapter.contentUri(
+        Assert.assertFalse(
+            ArchiveIntentAdapter.accepts(
                 Intent.ACTION_VIEW,
-                Uri.parse("https://host/archive.nar"),
+                "https",
                 "application/x-nar",
                 Intent.FLAG_GRANT_READ_URI_PERMISSION,
             ),
         )
-        Assert.assertNull(
-            ArchiveIntentAdapter.contentUri(
+        Assert.assertFalse(
+            ArchiveIntentAdapter.accepts(
                 Intent.ACTION_VIEW,
-                content,
+                "content",
                 "application/x-nar",
                 0,
             ),
