@@ -49,7 +49,7 @@ class Target36SecurityContractTest(unittest.TestCase):
         source = _active_activity_source()
         self.assertIn("handleIncomingIntent(intent)", source)
         self.assertIn("setIntent(intent)", source)
-        self.assertIn("ArchiveIntentAdapter.contentUri(incoming)", source)
+        self.assertIn("ArchiveIntentAdapter.contentUri(incoming,", source)
         self.assertNotIn("extractNar(data.getPath())", source)
         self.assertNotIn("getExternalStorageDirectory() + \"/nar/\"", source)
 

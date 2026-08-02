@@ -86,6 +86,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, backPressedCallback)
         awaitingNarDocument = savedInstanceState?.getBoolean(NAR_PICK_PENDING, false) ?: false
+        replacingNarDownloadId = savedInstanceState?.getString(NAR_PICK_REPLACEMENT_ID)
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
@@ -207,6 +208,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onSaveInstanceState(outState: Bundle) {
         saveSimpleDialog(outState)
         outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
+        outState.putString(NAR_PICK_REPLACEMENT_ID, replacingNarDownloadId)
         super.onSaveInstanceState(outState)
     }
     override fun onDestroy() { super.onDestroy(); sendStopIntent() }
@@ -348,6 +350,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun importPickedNar(uri: Uri) = enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
 
     private fun enqueueLocalArchive(uri: Uri, flags: Int) {
+        val pendingCopyId = if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) {
+            narDownloads.retainLocalSourceForCopy(uri.toString()).id
+        } else null
         object : AsyncTask<Void, Void, NarLocalArchiveStager.Result>() {
             override fun doInBackground(vararg params: Void?): NarLocalArchiveStager.Result {
                 val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
@@ -365,12 +370,15 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             override fun onPostExecute(result: NarLocalArchiveStager.Result) {
                 when (result) {
                     is NarLocalArchiveStager.Result.Staged -> {
-                        val replacing = replacingNarDownloadId
+                        val replacing = replacingNarDownloadId ?: pendingCopyId
                         replacingNarDownloadId = null
                         if (replacing == null) narDownloads.enqueueLocal(result.location, result.location)
                         else narDownloads.replaceLocalSource(replacing, result.location)
                     }
-                    is NarLocalArchiveStager.Result.Failed -> Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
+                    is NarLocalArchiveStager.Result.Failed -> {
+                        replacingNarDownloadId = null
+                        Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }.execute()
@@ -558,5 +566,5 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList()) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
 }

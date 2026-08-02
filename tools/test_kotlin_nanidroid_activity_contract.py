@@ -58,7 +58,7 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("Column(modifier = Modifier.statusBarsPadding())", shell)
 
     def test_archive_inputs_use_the_durable_queue_not_the_exported_https_route(self):
-        self.assertIn("ArchiveIntentAdapter.contentUri(incoming)", self.source)
+        self.assertIn("ArchiveIntentAdapter.contentUri(incoming,", self.source)
         self.assertIn("narDownloads.enqueueRemote(value)", self.source)
         self.assertIn("narDownloads.enqueueLocal(result.location, result.location)", self.source)
         self.assertNotIn("IncomingNarIntent", self.source)

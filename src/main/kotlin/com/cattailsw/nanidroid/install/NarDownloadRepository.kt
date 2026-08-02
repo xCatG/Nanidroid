@@ -114,6 +114,22 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
+    fun retainLocalSourceForCopy(uri: String): NarDownload {
+        val item = store.create(
+            NarDownload(
+                id = nextId(),
+                source = NarDownloadSource.Local(uri),
+                retainedUri = uri,
+                state = NarDownloadState.NeedsAttention(
+                    NarDownloadState.Failure("Select the archive again to continue."),
+                ),
+            ),
+        )
+        publish()
+        return item
+    }
+
+    @Synchronized
     fun retry(itemId: String): NarDownload? {
         val item = store.get(itemId) ?: return null
         runCatching { work.cancel(itemId) }
