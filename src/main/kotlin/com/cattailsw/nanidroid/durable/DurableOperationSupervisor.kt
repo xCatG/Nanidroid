@@ -195,6 +195,29 @@ class DurableOperationSupervisor(
         true
     }
 
+    fun failUnboundAttempt(handle: OperationHandle, diagnostics: String): Boolean =
+        synchronized(operationLock) {
+            val current = activeRecord(handle) ?: return@synchronized false
+            if (current.status != OperationStatus.RUNNING || current.externalJob != null) {
+                return@synchronized false
+            }
+            if (
+                !store.compareAndSet(
+                    current,
+                    current.copy(
+                        status = OperationStatus.FAILED,
+                        showStallPrompt = false,
+                        diagnostics = diagnostics,
+                    ),
+                )
+            ) {
+                return@synchronized false
+            }
+            lastProgressAt.remove(handle)
+            cancellationIssued.removeAll { it.handle == handle }
+            true
+        }
+
     fun finish(
         handle: OperationHandle,
         binding: ExternalJobBinding,

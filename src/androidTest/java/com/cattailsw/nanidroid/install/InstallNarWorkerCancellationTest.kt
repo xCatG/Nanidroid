@@ -118,6 +118,11 @@ class InstallNarWorkerCancellationTest {
         work = object : NarInstallWorkScheduler {
             override fun enqueue(itemId: String) = Unit
             override fun cancel(itemId: String) = Unit
+            override fun ensureInstallEnqueued(
+                itemId: String,
+                attemptId: Long,
+                workManagerId: String,
+            ) = NarInstallWorkRecovery.RESUMABLE
             override fun ensureStageEnqueued(
                 itemId: String,
                 attemptId: Long,

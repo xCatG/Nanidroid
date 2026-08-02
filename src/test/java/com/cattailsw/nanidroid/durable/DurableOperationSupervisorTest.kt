@@ -629,6 +629,36 @@ class DurableOperationSupervisorTest {
         assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
     }
 
+    @Test fun exactActiveUnboundAttemptCanBeFailedDuringSchedulerRecovery() {
+        val handle = handle("install-1", 2)
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0))
+
+        assertFalse(
+            supervisor.failUnboundAttempt(
+                handle("install-1", 1),
+                "scheduler unavailable",
+            ),
+        )
+        assertTrue(supervisor.failUnboundAttempt(handle, "scheduler unavailable"))
+
+        val failed = store.read().single()
+        assertEquals(OperationStatus.FAILED, failed.status)
+        assertEquals("scheduler unavailable", failed.diagnostics)
+        assertFalse(supervisor.bindExternalJob(handle, ExternalJobBinding.WorkManager("late-worker")))
+    }
+
+    @Test fun unboundFailureRecoveryRejectsBoundAttempt() {
+        val handle = handle("install-1", 2)
+        val binding = ExternalJobBinding.WorkManager("worker-2")
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0, binding))
+
+        assertFalse(supervisor.failUnboundAttempt(handle, "scheduler unavailable"))
+
+        val running = store.read().single()
+        assertEquals(OperationStatus.RUNNING, running.status)
+        assertEquals(binding, running.externalJob)
+    }
+
     @Test fun bindingAfterStopReissuesCancellationForTheNewlyIdentifiedJob() {
         val handle = handle("update-1", 1)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))

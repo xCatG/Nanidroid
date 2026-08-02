@@ -90,14 +90,7 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         attemptId: Long,
         onPrepared: (workManagerId: String) -> Boolean,
     ): Boolean {
-        val request = OneTimeWorkRequestBuilder<InstallNarWorker>()
-            .setInputData(
-                Data.Builder()
-                    .putString(InstallNarWorker.INPUT_ITEM_ID, itemId)
-                    .putLong(InstallNarWorker.INPUT_ATTEMPT_ID, attemptId)
-                    .build(),
-            )
-            .build()
+        val request = installRequest(itemId, attemptId)
         if (!onPrepared(request.id.toString())) return false
         workManager.enqueueUniqueWork(
             NarDownloadRepository.workName(itemId),
@@ -106,6 +99,42 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         )
         return true
     }
+
+    override fun ensureInstallEnqueued(
+        itemId: String,
+        attemptId: Long,
+        workManagerId: String,
+    ): NarInstallWorkRecovery {
+        val requestId = UUID.fromString(workManagerId)
+        val workInfo = workManager.getWorkInfoById(requestId).get()
+        if (workInfo != null) {
+            return if (workInfo.state.isFinished) {
+                NarInstallWorkRecovery.FINISHED
+            } else {
+                NarInstallWorkRecovery.RESUMABLE
+            }
+        }
+        workManager.enqueueUniqueWork(
+            NarDownloadRepository.workName(itemId),
+            ExistingWorkPolicy.KEEP,
+            installRequest(itemId, attemptId, requestId),
+        )
+        return NarInstallWorkRecovery.RESUMABLE
+    }
+
+    private fun installRequest(
+        itemId: String,
+        attemptId: Long,
+        requestId: UUID? = null,
+    ) = OneTimeWorkRequestBuilder<InstallNarWorker>()
+        .setInputData(
+            Data.Builder()
+                .putString(InstallNarWorker.INPUT_ITEM_ID, itemId)
+                .putLong(InstallNarWorker.INPUT_ATTEMPT_ID, attemptId)
+                .build(),
+        )
+        .also { builder -> requestId?.let(builder::setId) }
+        .build()
 
     override fun enqueueStage(
         itemId: String,

@@ -74,9 +74,20 @@ internal interface NarInstallWorkScheduler {
         attemptId: Long,
         workManagerId: String,
     ): NarStageWorkRecovery
+
+    fun ensureInstallEnqueued(
+        itemId: String,
+        attemptId: Long,
+        workManagerId: String,
+    ): NarInstallWorkRecovery
 }
 
 internal enum class NarStageWorkRecovery {
+    RESUMABLE,
+    FINISHED,
+}
+
+internal enum class NarInstallWorkRecovery {
     RESUMABLE,
     FINISHED,
 }
@@ -117,6 +128,11 @@ class NarDownloadRepository internal constructor(
     private val ownedData: NarOwnedDownloadData,
     private val attemptPaths: NarInstallAttemptPaths,
     private val supervisor: DurableOperationSupervisor,
+    private val installProgress: ThrottledNarInstallProgressReporter =
+        ThrottledNarInstallProgressReporter(
+            supervisor,
+            MonotonicClock { System.nanoTime() / 1_000_000L },
+        ),
     private val remoteProgress: NarRemoteProgressObserver = DownloadManagerProgressObserver(
         downloads,
         supervisor,
@@ -535,7 +551,14 @@ class NarDownloadRepository internal constructor(
                         work.ensureStageEnqueued(item.id, item.attemptId, workManagerId)
                     }.getOrNull()
                 }
-                if (recovery != NarStageWorkRecovery.RESUMABLE) {
+                if (recovery == NarStageWorkRecovery.FINISHED) {
+                    supervisor.finish(
+                        item.handle(),
+                        OperationStatus.FAILED,
+                        COPY_INTERRUPTED,
+                    )
+                    markNeedsAttention(item.id, COPY_INTERRUPTED)
+                } else if (recovery == null) {
                     markNeedsAttention(item.id, COPY_INTERRUPTED)
                 }
             }
@@ -645,7 +668,7 @@ class NarDownloadRepository internal constructor(
                 stagingDirectory,
                 { isStopped() || cancellationRequested(installing.handle()) },
             ) { phase, completed ->
-                supervisor.reportProgress(installing.handle(), phase, completed)
+                installProgress.report(installing.handle(), phase, completed)
             }
         } catch (_: SecurityException) {
             sourceUnavailable(item)
@@ -656,6 +679,7 @@ class NarDownloadRepository internal constructor(
         } finally {
             stagingDirectory?.let { runCatching { attemptPaths.delete(it) } }
         }
+        installProgress.complete(installing.handle())
         when (result) {
             is ArchiveInstallResult.Installed -> {
                 if (persistInstallComplete(itemId, installing.attemptId)) {
@@ -770,14 +794,29 @@ class NarDownloadRepository internal constructor(
             0L,
         )
         if (!started) {
-            if (item.workManagerId != null) runCatching { work.enqueue(itemId) }
+            val workManagerId = item.workManagerId
+            if (workManagerId == null) {
+                enqueueInstallAttempt(item, handle)
+            } else {
+                val recovery = runCatching {
+                    work.ensureInstallEnqueued(item.id, item.attemptId, workManagerId)
+                }.getOrNull()
+                if (recovery != NarInstallWorkRecovery.RESUMABLE) {
+                    supervisor.finish(handle, OperationStatus.FAILED, INSTALL_SCHEDULE_FAILURE)
+                    markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
+                }
+            }
             return
         }
+        enqueueInstallAttempt(item, handle)
+    }
+
+    private fun enqueueInstallAttempt(item: NarDownload, handle: OperationHandle) {
         try {
-            val enqueued = work.enqueue(itemId, item.attemptId) { workManagerId ->
+            val enqueued = work.enqueue(item.id, item.attemptId) { workManagerId ->
                 val binding = ExternalJobBinding.WorkManager(workManagerId)
                 if (!supervisor.bindExternalJob(handle, binding)) return@enqueue false
-                val updated = store.update(itemId) { current ->
+                val updated = store.update(item.id) { current ->
                     if (current.attemptId == item.attemptId) {
                         current.copy(workManagerId = workManagerId)
                     } else {
@@ -788,8 +827,10 @@ class NarDownloadRepository internal constructor(
             }
             if (!enqueued) throw IllegalStateException("install work was not accepted")
         } catch (_: Exception) {
-            supervisor.finish(handle, OperationStatus.FAILED, INSTALL_SCHEDULE_FAILURE)
-            markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
+            if (!supervisor.failUnboundAttempt(handle, INSTALL_SCHEDULE_FAILURE)) {
+                supervisor.finish(handle, OperationStatus.FAILED, INSTALL_SCHEDULE_FAILURE)
+            }
+            markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
         }
     }
 
@@ -915,9 +956,10 @@ class NarDownloadRepository internal constructor(
             val managedFiles = AndroidNarManagedFiles(context)
             val workScheduler = AndroidNarInstallWorkScheduler(context)
             val downloadGateway = AndroidNarDownloadGateway(context)
+            val clock = MonotonicClock { android.os.SystemClock.elapsedRealtime() }
             val supervisor = DurableOperationSupervisor(
                 SharedPreferencesDurableOperationStore(context),
-                MonotonicClock { android.os.SystemClock.elapsedRealtime() },
+                clock,
                 AndroidNarOperationCancellation(context),
             )
             return NarDownloadRepository(
@@ -928,6 +970,7 @@ class NarDownloadRepository internal constructor(
                 ownedData = managedFiles,
                 attemptPaths = managedFiles,
                 supervisor = supervisor,
+                installProgress = ThrottledNarInstallProgressReporter(supervisor, clock),
                 remoteProgress = DownloadManagerProgressObserver(downloadGateway, supervisor),
                 nextId = { UUID.randomUUID().toString() },
             )

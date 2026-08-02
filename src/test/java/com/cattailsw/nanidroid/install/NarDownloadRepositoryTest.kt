@@ -3,6 +3,8 @@ package com.cattailsw.nanidroid.install
 import androidx.work.ListenableWorker
 import com.cattailsw.nanidroid.di.MonotonicClock
 import com.cattailsw.nanidroid.durable.AttemptId
+import com.cattailsw.nanidroid.durable.DurableOperationRecord
+import com.cattailsw.nanidroid.durable.DurableOperationStore
 import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
 import com.cattailsw.nanidroid.durable.ExternalJobBinding
 import com.cattailsw.nanidroid.durable.OperationCancellation
@@ -145,7 +147,8 @@ class NarDownloadRepositoryTest {
         repository.reconcile()
 
         assertEquals(install, store.get(remote.id))
-        assertEquals(listOf("install-nar-${remote.id}"), work.enqueuedNames)
+        assertTrue(work.enqueuedNames.isEmpty())
+        assertEquals(1, work.installEnqueuedIds.size)
     }
 
     @Test fun staleInstallWorkerCannotMutateNewAttempt() {
@@ -175,6 +178,52 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.COMPLETED, terminal.status)
         assertEquals(8L, terminal.progress.completed)
         assertTrue(!supervisor.reportProgress(item.handle(), "Late", 9L))
+    }
+
+    @Test fun repositoryKeepsEveryInstallerCallbackWhileBoundingDurableProgressWrites() {
+        val progressStore = CountingOperationStore()
+        val progressClock = MutableClock()
+        val progressSupervisor = DurableOperationSupervisor(
+            progressStore,
+            progressClock,
+            cancellations,
+        )
+        val progressInstaller = FakeArchiveInstaller()
+        var callbackCount = 0
+        val archiveBytes = 512L * 1024L * 1024L
+        val chunkBytes = 8L * 1024L
+        progressInstaller.onInstall = { _, _, _, onProgress ->
+            var completed = chunkBytes
+            while (completed <= archiveBytes) {
+                callbackCount += 1
+                onProgress("Extracting archive", completed)
+                completed += chunkBytes
+            }
+            ArchiveInstallResult.Installed("installed")
+        }
+        val boundedRepository = NarDownloadRepository(
+            store = NarDownloadStore(NarDownloadStore.MemoryStorage()),
+            downloads = downloads,
+            work = work,
+            installer = progressInstaller,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = progressSupervisor,
+            installProgress = ThrottledNarInstallProgressReporter(
+                progressSupervisor,
+                progressClock,
+            ),
+            nextId = { "bounded-progress" },
+        )
+        val item = boundedRepository.enqueueLocal("file:///owned/large.nar")
+
+        boundedRepository.install(item.id, item.attemptId) { false }
+
+        assertEquals(65_536, callbackCount)
+        assertEquals(513, progressStore.progressUpdateCount)
+        val completed = progressStore.read().single()
+        assertEquals(archiveBytes, completed.progress.completed)
+        assertEquals(OperationStatus.COMPLETED, completed.status)
     }
 
     @Test fun stopAfterAtomicPublicationStillCompletesQueueAndCleanup() {
@@ -609,6 +658,73 @@ class NarDownloadRepositoryTest {
 
         assertEquals(bound, store.get(item.id))
         assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+    }
+
+    @Test fun reconciliationBindsMissingInstallWorkerToExactActiveAttemptOnce() {
+        val item = store.create(
+            NarDownload(
+                id = "unbound-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                item.handle(),
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        val recreated = recreatedRepository()
+
+        recreated.reconcile()
+        val recovered = store.get(item.id)!!
+        recreated.reconcile()
+
+        assertEquals(item.attemptId, recovered.attemptId)
+        assertEquals("install-nar-${item.id}-${item.attemptId}", recovered.workManagerId)
+        assertEquals(listOf(recovered.workManagerId), work.installEnqueuedIds)
+        val operation = operationStore.read().single()
+        assertEquals(item.attemptId, operation.attemptId.value)
+        assertEquals(
+            ExternalJobBinding.WorkManager(recovered.workManagerId!!),
+            operation.externalJob,
+        )
+
+        assertTrue(recreated.stop(item.id))
+        val retry = recreated.retry(item.id)!!
+        recreated.install(item.id, item.attemptId) { false }
+        assertEquals(retry, store.get(item.id))
+    }
+
+    @Test fun missingInstallWorkerSchedulerFailureTerminalizesAttemptAndBecomesActionable() {
+        val item = store.create(
+            NarDownload(
+                id = "unbound-install-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                item.handle(),
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        work.installEnqueueFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        val operation = operationStore.read().single()
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertEquals(item.attemptId, operation.attemptId.value)
+        assertTrue(work.installEnqueuedIds.isEmpty())
     }
 
     @Test fun reconciliationRecreatesStageWorkMissingAfterPreparedUuidWasPersisted() {
@@ -1122,7 +1238,8 @@ class NarDownloadRepositoryTest {
 
         repository.reconcile()
 
-        assertEquals(listOf("install-nar-${item.id}"), work.enqueuedNames)
+        assertTrue(work.enqueuedNames.isEmpty())
+        assertEquals(1, work.installEnqueuedIds.size)
         assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
     }
 
@@ -1233,8 +1350,10 @@ class NarDownloadRepositoryTest {
         val stageEnqueuedIds = mutableSetOf<String>()
         val stageRecreatedIds = mutableListOf<String>()
         val stageWorkStates = mutableMapOf<String, FakeStageWorkState>()
+        val installEnqueuedIds = mutableListOf<String>()
         var loseNextStageAfterPreparation = false
         var stageQueryFailure: Exception? = null
+        var installEnqueueFailure: Exception? = null
 
         override fun enqueue(itemId: String) {
             enqueuedNames += NarDownloadRepository.workName(itemId)
@@ -1242,6 +1361,31 @@ class NarDownloadRepositoryTest {
 
         override fun cancel(itemId: String) {
             cancelledNames += NarDownloadRepository.workName(itemId)
+        }
+
+        override fun enqueue(
+            itemId: String,
+            attemptId: Long,
+            onPrepared: (workManagerId: String) -> Boolean,
+        ): Boolean {
+            installEnqueueFailure?.let { throw it }
+            val workManagerId = "install-nar-$itemId-$attemptId"
+            if (!onPrepared(workManagerId)) return false
+            installEnqueuedIds += workManagerId
+            enqueue(itemId)
+            return true
+        }
+
+        override fun ensureInstallEnqueued(
+            itemId: String,
+            attemptId: Long,
+            workManagerId: String,
+        ): NarInstallWorkRecovery {
+            if (workManagerId !in installEnqueuedIds) {
+                installEnqueuedIds += workManagerId
+                enqueue(itemId)
+            }
+            return NarInstallWorkRecovery.RESUMABLE
         }
 
         override fun enqueueStage(
@@ -1347,6 +1491,34 @@ class NarDownloadRepositoryTest {
             File("staging/$itemId/attempt-${attempt++}")
     }
 
+    private class MutableClock(var value: Long = 0L) : MonotonicClock {
+        override fun nowMillis() = value
+    }
+
+    private class CountingOperationStore : DurableOperationStore {
+        private var record: DurableOperationRecord? = null
+        var progressUpdateCount = 0
+            private set
+
+        override fun read() = listOfNotNull(record)
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean {
+            if (this.record != null) return false
+            this.record = record
+            return true
+        }
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            if (record != expected) return false
+            record = updated
+            if (expected.progress != updated.progress) progressUpdateCount += 1
+            return true
+        }
+    }
+
     private fun recreatedRepository(): NarDownloadRepository {
         val recreatedSupervisor = DurableOperationSupervisor(
             operationStore,
@@ -1369,13 +1541,36 @@ class NarDownloadRepositoryTest {
     private fun assertTerminalStageWorkBecomesActionable(state: FakeStageWorkState) {
         val item = repository.enqueueLocalCopy("content://provider/terminal-$state.nar")
         work.stageWorkStates[item.workManagerId!!] = state
+        val recreated = recreatedRepository()
 
-        recreatedRepository().reconcile()
+        recreated.reconcile()
 
         val recovered = store.get(item.id)!!
         assertEquals(item.attemptId, recovered.attemptId)
         assertTrue(recovered.state is NarDownloadState.NeedsAttention)
         assertTrue(work.stageRecreatedIds.isEmpty())
+        val failedCopy = operationStore.read().single()
+        assertEquals(OperationKind.LOCAL_NAR, failedCopy.kind)
+        assertEquals(OperationStatus.FAILED, failedCopy.status)
+
+        val replacement = "file:///owned/reselected-$state.nar"
+        val reselected = recreated.replaceLocalSource(item.id, replacement)!!
+        assertEquals(item.attemptId + 1L, reselected.attemptId)
+        assertEquals(NarDownloadState.Queued, reselected.state)
+        assertEquals(replacement, reselected.retainedUri)
+        assertEquals("install-nar-${item.id}-${reselected.attemptId}", reselected.workManagerId)
+        val install = operationStore.read().single()
+        assertEquals(OperationKind.NAR_INSTALL, install.kind)
+        assertEquals(OperationStatus.RUNNING, install.status)
+        assertEquals(reselected.attemptId, install.attemptId.value)
+
+        var staleCallbackRan = false
+        recreated.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            staleCallbackRan = true
+            NarLocalArchiveStager.Result.Staged("file:///owned/stale-$state.nar")
+        }
+        assertTrue(!staleCallbackRan)
+        assertEquals(reselected, store.get(item.id))
     }
 
     private class RecordingOperationCancellation(
