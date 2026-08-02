@@ -313,7 +313,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }.execute()
     }
     private fun handleIncomingIntent(incoming: Intent?) {
-        val uri = ArchiveIntentAdapter.contentUri(incoming, incoming?.type ?: incoming?.data?.let(contentResolver::getType)) ?: return
+        val resolvedMimeType = incoming?.type ?: runCatching {
+            incoming?.data?.let(contentResolver::getType)
+        }.getOrNull()
+        val uri = ArchiveIntentAdapter.contentUri(incoming, resolvedMimeType) ?: return
         enqueueLocalArchive(uri, incoming?.flags ?: 0)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }

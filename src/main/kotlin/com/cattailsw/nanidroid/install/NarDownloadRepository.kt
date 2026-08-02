@@ -48,6 +48,7 @@ internal interface NarArchiveInstaller {
 
 internal interface NarOwnedDownloadData {
     fun delete(download: NarDownload)
+    fun releasePersistedGrant(download: NarDownload) = Unit
 }
 
 internal interface NarInstallAttemptPaths {
@@ -176,6 +177,7 @@ class NarDownloadRepository internal constructor(
         if (item.source !is NarDownloadSource.Local) return null
         runCatching { work.cancel(itemId) }
         runCatching { ownedData.delete(item) }
+        runCatching { ownedData.releasePersistedGrant(item) }
         store.update(itemId) {
             it.copy(
                 source = NarDownloadSource.Local(uri),
@@ -198,6 +200,7 @@ class NarDownloadRepository internal constructor(
         runCatching { work.cancel(itemId) }
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
+        runCatching { ownedData.releasePersistedGrant(item) }
         store.delete(itemId)
         publish()
         return true
@@ -273,6 +276,7 @@ class NarDownloadRepository internal constructor(
             is ArchiveInstallResult.Installed -> {
                 store.update(itemId) { it.copy(state = NarDownloadState.Complete) }
                 runCatching { ownedData.delete(item) }
+                runCatching { ownedData.releasePersistedGrant(item) }
             }
             is ArchiveInstallResult.Failed -> {
                 val message = if (
@@ -467,6 +471,18 @@ private class AndroidNarManagedFiles(context: Context) :
     override fun delete(download: NarDownload) {
         managedFile(download.retainedUri)?.deleteRecursively()
         File(attemptsRoot, safeName(download.id)).deleteRecursively()
+    }
+
+    override fun releasePersistedGrant(download: NarDownload) {
+        val location = download.retainedUri ?: return
+        val uri = runCatching { Uri.parse(location) }.getOrNull() ?: return
+        if (!uri.scheme.equals("content", ignoreCase = true)) return
+        runCatching {
+            appContext.contentResolver.releasePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
     }
 
     private fun managedFile(value: String?): File? {
