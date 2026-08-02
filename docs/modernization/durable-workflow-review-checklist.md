@@ -18,6 +18,20 @@ any workflow with durable user-visible status.
   separate boundaries. Each boundary must tolerate duplicate delivery and an
   interruption immediately before or after its external side effect.
 
+## Worked recovery examples
+
+Use the following pattern when deciding what to persist and what recovery must
+do. The exact state names may differ, but the ordering should not.
+
+| When this happens | Persist first | Then do | On replay or restart |
+| --- | --- | --- | --- |
+| An Activity accepts an archive intent | The accepted URI and a pending handoff | Start asynchronous initialization or copying | Ignore the restored delivery of that handoff; treat a new `onNewIntent` as a new user action |
+| A temporary `content://` grant needs copying | A visible `Copying` record | Copy into an app-owned location | Convert an interrupted copy to actionable attention and sweep unreferenced temporary files |
+| A remote archive is enqueued | The intended destination URI | Call `DownloadManager.enqueue` and persist its ID | Re-find the row by its destination when the ID was not committed |
+| A worker runs after a user-visible failure | Nothing; preserve `NeedsAttention` | Return without installing | Retry only after the user explicitly chooses Retry or Select again |
+| Installation publishes successfully | `Complete` before cleanup | Remove the owned file, grant, and download row | Retry cleanup during reconciliation; never reinstall a completed record |
+| Two records use one document URI | The records themselves are the reference count | Release a persisted grant only after deletion/replacement/completion | Keep the grant while any non-complete record still references it |
+
 ## Test matrix
 
 For every durable transition, add focused tests for the applicable cases:
