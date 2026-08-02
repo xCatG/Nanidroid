@@ -218,15 +218,14 @@ class NarDownloadRepository internal constructor(
             markNeedsAttention(item.id, COPY_INTERRUPTED)
             return
         }
+        var acceptedBinding: ExternalJobBinding.WorkManager? = null
         try {
             val enqueued = work.enqueueStage(item.id, item.attemptId) { workManagerId ->
-                if (!supervisor.bindExternalJob(
-                        handle,
-                        ExternalJobBinding.WorkManager(workManagerId),
-                    )
-                ) {
+                val binding = ExternalJobBinding.WorkManager(workManagerId)
+                if (!supervisor.bindExternalJob(handle, binding)) {
                     return@enqueueStage false
                 }
+                acceptedBinding = binding
                 val updated = store.update(item.id) { current ->
                     if (current.attemptId == item.attemptId) {
                         current.copy(workManagerId = workManagerId)
@@ -238,8 +237,9 @@ class NarDownloadRepository internal constructor(
             }
             if (!enqueued) throw IllegalStateException("local stage work was not accepted")
         } catch (_: Exception) {
-            failSchedulingAttempt(handle, OperationKind.LOCAL_NAR, COPY_INTERRUPTED)
-            markNeedsAttention(item.id, COPY_INTERRUPTED)
+            if (failSchedulingAttempt(handle, acceptedBinding, COPY_INTERRUPTED)) {
+                markNeedsAttention(item.id, COPY_INTERRUPTED)
+            }
         }
     }
 
@@ -901,10 +901,12 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun enqueueInstallAttempt(item: NarDownload, handle: OperationHandle) {
+        var acceptedBinding: ExternalJobBinding.WorkManager? = null
         try {
             val enqueued = work.enqueue(item.id, item.attemptId) { workManagerId ->
                 val binding = ExternalJobBinding.WorkManager(workManagerId)
                 if (!supervisor.bindExternalJob(handle, binding)) return@enqueue false
+                acceptedBinding = binding
                 val updated = store.update(item.id) { current ->
                     if (current.attemptId == item.attemptId) {
                         current.copy(workManagerId = workManagerId)
@@ -916,8 +918,9 @@ class NarDownloadRepository internal constructor(
             }
             if (!enqueued) throw IllegalStateException("install work was not accepted")
         } catch (_: Exception) {
-            failSchedulingAttempt(handle, OperationKind.NAR_INSTALL, INSTALL_SCHEDULE_FAILURE)
-            markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
+            if (failSchedulingAttempt(handle, acceptedBinding, INSTALL_SCHEDULE_FAILURE)) {
+                markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
+            }
         }
     }
 
@@ -941,12 +944,12 @@ class NarDownloadRepository internal constructor(
 
     private fun failSchedulingAttempt(
         handle: OperationHandle,
-        kind: OperationKind,
+        acceptedBinding: ExternalJobBinding.WorkManager?,
         diagnostics: String,
-    ) {
-        if (supervisor.failUnboundAttempt(handle, diagnostics)) return
-        val binding = supervisor.activeBindingForExactAttempt(handle, kind) ?: return
-        supervisor.finish(handle, binding, OperationStatus.FAILED, diagnostics)
+    ): Boolean = if (acceptedBinding == null) {
+        supervisor.failUnboundAttempt(handle, diagnostics)
+    } else {
+        supervisor.finish(handle, acceptedBinding, OperationStatus.FAILED, diagnostics)
     }
 
     private fun failAndMarkNeedsAttentionIfCurrent(

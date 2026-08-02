@@ -214,6 +214,50 @@ class NarDownloadRepositoryTest {
         assertEquals("file:///owned/winner.nar", installAttempt.retainedUri)
     }
 
+    @Test fun losingStageEnqueueCannotFailWinningBinding() {
+        val winningBinding = ExternalJobBinding.WorkManager(
+            "33333333-3333-3333-3333-333333333333",
+        )
+        var winningRow: NarDownload? = null
+        work.beforeNextStagePrepared = { itemId, attemptId ->
+            val handle = OperationHandle(OperationId(itemId), AttemptId(attemptId))
+            assertTrue(supervisor.bindExternalJob(handle, winningBinding))
+            winningRow = store.update(itemId) { current ->
+                current.copy(workManagerId = winningBinding.uuid)
+            }
+        }
+
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+
+        assertEquals(winningRow, store.get(item.id))
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.LOCAL_NAR, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertEquals(winningBinding, operation.externalJob)
+    }
+
+    @Test fun losingInstallEnqueueCannotFailWinningBinding() {
+        val winningBinding = ExternalJobBinding.WorkManager(
+            "44444444-4444-4444-4444-444444444444",
+        )
+        var winningRow: NarDownload? = null
+        work.beforeNextInstallPrepared = { itemId, attemptId ->
+            val handle = OperationHandle(OperationId(itemId), AttemptId(attemptId))
+            assertTrue(supervisor.bindExternalJob(handle, winningBinding))
+            winningRow = store.update(itemId) { current ->
+                current.copy(workManagerId = winningBinding.uuid)
+            }
+        }
+
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+
+        assertEquals(winningRow, store.get(item.id))
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertEquals(winningBinding, operation.externalJob)
+    }
+
     @Test fun installProgressUsesExactAttemptAndTerminalCallbackIsFenced() {
         val item = repository.enqueueLocal("file:///owned/archive.nar")
         installer.onInstall = { _, _, _, onProgress ->
@@ -1839,6 +1883,8 @@ class NarDownloadRepositoryTest {
         var installRecovery = NarInstallWorkRecovery.RESUMABLE
         var installQueryStarted: CountDownLatch? = null
         var allowInstallQuery: CountDownLatch? = null
+        var beforeNextInstallPrepared: ((itemId: String, attemptId: Long) -> Unit)? = null
+        var beforeNextStagePrepared: ((itemId: String, attemptId: Long) -> Unit)? = null
 
         override fun enqueue(itemId: String) {
             enqueuedNames += NarDownloadRepository.workName(itemId)
@@ -1855,6 +1901,9 @@ class NarDownloadRepositoryTest {
         ): Boolean {
             installEnqueueFailure?.let { throw it }
             val workManagerId = "install-nar-$itemId-$attemptId"
+            val beforePrepared = beforeNextInstallPrepared
+            beforeNextInstallPrepared = null
+            beforePrepared?.invoke(itemId, attemptId)
             if (!onPrepared(workManagerId)) return false
             installEnqueuedIds += workManagerId
             enqueue(itemId)
@@ -1884,6 +1933,9 @@ class NarDownloadRepositoryTest {
             onPrepared: (workManagerId: String) -> Boolean,
         ): Boolean {
             val workManagerId = "stage-local-nar-$itemId-$attemptId"
+            val beforePrepared = beforeNextStagePrepared
+            beforeNextStagePrepared = null
+            beforePrepared?.invoke(itemId, attemptId)
             if (!onPrepared(workManagerId)) return false
             if (loseNextStageAfterPreparation) {
                 loseNextStageAfterPreparation = false
