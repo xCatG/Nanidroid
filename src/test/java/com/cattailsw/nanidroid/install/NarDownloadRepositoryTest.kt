@@ -188,6 +188,24 @@ class NarDownloadRepositoryTest {
         assertEquals("file:///owned/${item.id}.nar", store.get(item.id)!!.retainedUri)
     }
 
+    @Test fun reconciliationReattachesDownloadWhoseIdWasNotPersisted() {
+        val item = store.create(
+            NarDownload(
+                id = "orphaned-item",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/orphaned-item.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        downloads.recoveredIds[item.retainedUri!!] = 74L
+        downloads.statuses[74L] = NarRemoteDownloadStatus.InProgress
+
+        repository.reconcile()
+
+        assertEquals(74L, store.get(item.id)!!.downloadManagerId)
+        assertEquals(NarDownloadState.Downloading, store.get(item.id)!!.state)
+    }
+
     @Test fun reconciliationSchedulesQueuedLocalArchive() {
         val item = repository.enqueueLocal("file:///owned/archive.nar")
         work.enqueuedNames.clear()
@@ -254,10 +272,15 @@ class NarDownloadRepositoryTest {
     private class FakeDownloadGateway : NarDownloadGateway {
         var nextDownloadId = 1L
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
+        val recoveredIds = mutableMapOf<String, Long>()
         val removedIds = mutableListOf<Long>()
+
+        override fun intendedRetainedUri(itemId: String) = "file:///owned/$itemId.nar"
 
         override fun enqueue(itemId: String, normalizedHttpsUrl: String) =
             NarRemoteEnqueue(nextDownloadId, "file:///owned/$itemId.nar")
+
+        override fun findDownloadId(retainedUri: String) = recoveredIds[retainedUri]
 
         override fun remove(downloadManagerId: Long) {
             removedIds += downloadManagerId

@@ -67,6 +67,13 @@ class NarDownloadStoreTest {
         assertEquals(NarDownloadSource.Remote("https://example.invalid/archive.nar"), restored!!.source)
     }
 
+    @Test fun recordsAreListedInEnqueueOrder() {
+        store.create(remote(id = "z"))
+        store.create(remote(id = "a"))
+
+        assertEquals(listOf("z", "a"), store.getAll().map(NarDownload::id))
+    }
+
     @Test fun concurrentStoresDoNotLoseEitherCreatedRecord() {
         val storage = NarDownloadStore.MemoryStorage()
         val first = NarDownloadStore(storage)

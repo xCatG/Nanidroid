@@ -28,7 +28,9 @@ internal sealed interface NarRemoteDownloadStatus {
 }
 
 internal interface NarDownloadGateway {
+    fun intendedRetainedUri(itemId: String): String
     fun enqueue(itemId: String, normalizedHttpsUrl: String): NarRemoteEnqueue
+    fun findDownloadId(retainedUri: String): Long?
     fun remove(downloadManagerId: Long)
     fun status(downloadManagerId: Long): NarRemoteDownloadStatus?
 }
@@ -80,6 +82,7 @@ class NarDownloadRepository internal constructor(
             ),
         )
         try {
+            store.update(item.id) { it.copy(retainedUri = downloads.intendedRetainedUri(item.id)) }
             val enqueued = downloads.enqueue(item.id, normalizeHttpsUrl(url))
             store.update(item.id) {
                 it.copy(
@@ -208,7 +211,11 @@ class NarDownloadRepository internal constructor(
         store.getAll()
             .filter { it.source is NarDownloadSource.Remote && it.state.isNonterminal() }
             .forEach { item ->
-                val downloadManagerId = item.downloadManagerId
+                val downloadManagerId = item.downloadManagerId ?: item.retainedUri?.let { retainedUri ->
+                    runCatching { downloads.findDownloadId(retainedUri) }.getOrNull()?.also { recoveredId ->
+                        store.update(item.id) { it.copy(downloadManagerId = recoveredId) }
+                    }
+                }
                 val status = downloadManagerId?.let { id ->
                     try {
                         downloads.status(id)
@@ -390,20 +397,37 @@ private class AndroidNarDownloadGateway(context: Context) : NarDownloadGateway {
     private val manager = appContext.getSystemService(DownloadManager::class.java)
         ?: throw IllegalStateException("DownloadManager unavailable")
 
+    override fun intendedRetainedUri(itemId: String): String = destination(itemId).toURI().toString()
+
     override fun enqueue(itemId: String, normalizedHttpsUrl: String): NarRemoteEnqueue {
-        val externalRoot = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            ?: throw IOException("external download storage unavailable")
-        val directory = File(externalRoot, DOWNLOAD_DIRECTORY)
-        if ((!directory.exists() && !directory.mkdirs()) || !directory.isDirectory) {
-            throw IOException("external download directory unavailable")
-        }
-        val destination = File(directory, "$itemId.nar")
+        val destination = destination(itemId)
         val request = DownloadManager.Request(Uri.parse(normalizedHttpsUrl))
             .setNotificationVisibility(
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED,
             )
             .setDestinationUri(Uri.fromFile(destination))
         return NarRemoteEnqueue(manager.enqueue(request), destination.toURI().toString())
+    }
+
+    override fun findDownloadId(retainedUri: String): Long? {
+        manager.query(DownloadManager.Query()).use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI)) == retainedUri) {
+                    return cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
+                }
+            }
+        }
+        return null
+    }
+
+    private fun destination(itemId: String): File {
+        val externalRoot = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?: throw IOException("external download storage unavailable")
+        val directory = File(externalRoot, DOWNLOAD_DIRECTORY)
+        if ((!directory.exists() && !directory.mkdirs()) || !directory.isDirectory) {
+            throw IOException("external download directory unavailable")
+        }
+        return File(directory, "$itemId.nar")
     }
 
     override fun remove(downloadManagerId: Long) {
