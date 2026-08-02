@@ -83,6 +83,32 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(61L), downloads.removedIds)
     }
 
+    @Test fun retryPersistsDestinationBeforeEnqueueing() {
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        downloads.onEnqueue = { itemId ->
+            assertEquals("file:///owned/$itemId.nar", store.get(itemId)!!.retainedUri)
+        }
+
+        repository.retry(item.id)
+    }
+
+    @Test fun reconciliationCleansCompletedInstallAfterInterruptedCleanup() {
+        val item = store.create(
+            NarDownload(
+                id = "completed-item",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/completed-item.nar",
+                downloadManagerId = 62L,
+                state = NarDownloadState.Complete,
+            ),
+        )
+
+        repository.reconcile()
+
+        assertEquals(listOf(62L), downloads.removedIds)
+        assertEquals(listOf(item.id), ownedData.deletedItemIds)
+    }
+
     @Test fun deletingOneOfTwoSharedDocumentSourcesRetainsItsGrant() {
         val source = "content://provider/shared.nar"
         val first = repository.enqueueLocal(source, source)
@@ -271,14 +297,17 @@ class NarDownloadRepositoryTest {
 
     private class FakeDownloadGateway : NarDownloadGateway {
         var nextDownloadId = 1L
+        var onEnqueue: ((String) -> Unit)? = null
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
         val removedIds = mutableListOf<Long>()
 
         override fun intendedRetainedUri(itemId: String) = "file:///owned/$itemId.nar"
 
-        override fun enqueue(itemId: String, normalizedHttpsUrl: String) =
-            NarRemoteEnqueue(nextDownloadId, "file:///owned/$itemId.nar")
+        override fun enqueue(itemId: String, normalizedHttpsUrl: String): NarRemoteEnqueue {
+            onEnqueue?.invoke(itemId)
+            return NarRemoteEnqueue(nextDownloadId, "file:///owned/$itemId.nar")
+        }
 
         override fun findDownloadId(retainedUri: String) = recoveredIds[retainedUri]
 

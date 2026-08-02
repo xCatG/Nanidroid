@@ -139,7 +139,7 @@ class NarDownloadRepository internal constructor(
                 runCatching { ownedData.delete(item) }
                 store.update(itemId) {
                     it.copy(
-                        retainedUri = null,
+                        retainedUri = downloads.intendedRetainedUri(itemId),
                         downloadManagerId = null,
                         state = NarDownloadState.Downloading,
                     )
@@ -208,6 +208,9 @@ class NarDownloadRepository internal constructor(
 
     @Synchronized
     fun reconcile() {
+        store.getAll()
+            .filter { it.state == NarDownloadState.Complete }
+            .forEach(::cleanupCompletedInstall)
         store.getAll()
             .filter { it.source is NarDownloadSource.Remote && it.state.isNonterminal() }
             .forEach { item ->
@@ -294,6 +297,10 @@ class NarDownloadRepository internal constructor(
 
     private fun completeInstall(itemId: String, item: NarDownload) {
         store.update(itemId) { it.copy(state = NarDownloadState.Complete) }
+        cleanupCompletedInstall(item)
+    }
+
+    private fun cleanupCompletedInstall(item: NarDownload) {
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
         releasePersistedGrantIfUnused(item)
