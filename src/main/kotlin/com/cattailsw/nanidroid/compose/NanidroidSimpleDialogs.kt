@@ -38,11 +38,11 @@ internal sealed interface NanidroidSimpleDialog {
     data class GhostList(val names: List<String>, val ids: List<String>, val onSelect: (Int) -> Unit, val onMore: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
     data class TextDocument(val title: String, val text: String, val onOpenLink: (String) -> Unit, val sourceId: String? = null, val onSwitch: (() -> Unit)? = null) : NanidroidSimpleDialog
     data class SwitchConfirmation(val ghostId: String, val ghostName: String, val onSwitch: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
-    data class ArchiveQueue(val downloads: List<NarDownload>, val onRetry: (String) -> Unit, val onDelete: (String) -> Unit) : NanidroidSimpleDialog
+    data class ArchiveQueue(val onRetry: (String) -> Unit, val onReselect: (String) -> Unit, val onDelete: (String) -> Unit) : NanidroidSimpleDialog
 }
 
 @Composable
-internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss: () -> Unit) {
+internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss: () -> Unit, archiveDownloads: List<NarDownload> = emptyList()) {
     when (dialog) {
         null -> Unit
         is NanidroidSimpleDialog.Notice -> NoticeDialog(dialog, onDismiss)
@@ -56,7 +56,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
         is NanidroidSimpleDialog.GhostList -> GhostListDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.TextDocument -> TextDocumentDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.SwitchConfirmation -> SwitchConfirmationDialog(dialog, onDismiss)
-        is NanidroidSimpleDialog.ArchiveQueue -> ArchiveQueueDialog(dialog, onDismiss)
+        is NanidroidSimpleDialog.ArchiveQueue -> ArchiveQueueDialog(dialog, archiveDownloads, onDismiss)
     }
 }
 
@@ -138,16 +138,18 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
     dismissButton = { TextButton(onClick = { onDismiss(); dialog.onCancel() }, modifier = Modifier.testTag("no-readme-cancel")) { Text(stringResource(android.R.string.cancel)) } },
 )
 
-@Composable private fun ArchiveQueueDialog(dialog: NanidroidSimpleDialog.ArchiveQueue, onDismiss: () -> Unit) = AlertDialog(
+@Composable private fun ArchiveQueueDialog(dialog: NanidroidSimpleDialog.ArchiveQueue, downloads: List<NarDownload>, onDismiss: () -> Unit) = AlertDialog(
     onDismissRequest = onDismiss,
     title = { Text("Archive downloads") },
     text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-        if (dialog.downloads.isEmpty()) Text("No archive downloads.")
-        dialog.downloads.forEach { item ->
+        if (downloads.isEmpty()) Text("No archive downloads.")
+        downloads.forEach { item ->
             Text(item.source.toString())
             Text(item.state.toString())
             if (item.state is NarDownloadState.NeedsAttention) {
-                TextButton(onClick = { dialog.onRetry(item.id) }, modifier = Modifier.testTag("archive-retry-${item.id}")) { Text("Retry") }
+                if (item.source is com.cattailsw.nanidroid.install.NarDownloadSource.Local) {
+                    TextButton(onClick = { dialog.onReselect(item.id) }, modifier = Modifier.testTag("archive-reselect-${item.id}")) { Text("Select again") }
+                } else TextButton(onClick = { dialog.onRetry(item.id) }, modifier = Modifier.testTag("archive-retry-${item.id}")) { Text("Retry") }
             }
             TextButton(onClick = { dialog.onDelete(item.id) }, modifier = Modifier.testTag("archive-delete-${item.id}")) { Text("Delete") }
         }

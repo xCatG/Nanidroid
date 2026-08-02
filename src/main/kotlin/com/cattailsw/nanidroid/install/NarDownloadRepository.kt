@@ -155,6 +155,28 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
+    fun replaceLocalSource(itemId: String, uri: String): NarDownload? {
+        val item = store.get(itemId) ?: return null
+        if (item.source !is NarDownloadSource.Local) return null
+        runCatching { work.cancel(itemId) }
+        runCatching { ownedData.delete(item) }
+        store.update(itemId) {
+            it.copy(
+                source = NarDownloadSource.Local(uri),
+                retainedUri = uri,
+                state = NarDownloadState.Queued,
+            )
+        }
+        try {
+            work.enqueue(itemId)
+        } catch (_: Exception) {
+            markNeedsAttention(itemId, INSTALL_SCHEDULE_FAILURE)
+        }
+        publish()
+        return store.get(itemId)
+    }
+
+    @Synchronized
     fun delete(itemId: String): Boolean {
         val item = store.get(itemId) ?: return false
         runCatching { work.cancel(itemId) }

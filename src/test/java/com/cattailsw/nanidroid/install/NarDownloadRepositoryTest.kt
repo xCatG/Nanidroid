@@ -96,6 +96,20 @@ class NarDownloadRepositoryTest {
         assertTrue(state.failure.message.contains("select", ignoreCase = true))
     }
 
+    @Test fun replacingUnavailableLocalSourceKeepsRecordAndSchedulesInstall() {
+        val item = repository.enqueueLocal("content://provider/unavailable.nar")
+        installer.failure = SecurityException("grant revoked")
+        InstallNarWorker.execute(repository, item.id) { false }
+
+        repository.replaceLocalSource(item.id, "file:///owned/reselected.nar")
+
+        val replaced = store.get(item.id)!!
+        assertEquals(NarDownloadSource.Local("file:///owned/reselected.nar"), replaced.source)
+        assertEquals(NarDownloadState.Queued, replaced.state)
+        assertEquals("file:///owned/reselected.nar", replaced.retainedUri)
+        assertEquals(listOf("install-nar-${item.id}", "install-nar-${item.id}"), work.enqueuedNames)
+    }
+
     @Test fun reconciliationSchedulesCompletedRegisteredDownload() {
         downloads.nextDownloadId = 73L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")

@@ -79,6 +79,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var animeIndex = 0
     private var nextGhostId: String? = null
     private var awaitingNarDocument = false
+    private var replacingNarDownloadId: String? = null
     private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -164,11 +165,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 onHelp = ::onHelp,
                 onArchiveQueue = {
                     simpleDialog = NanidroidSimpleDialog.ArchiveQueue(
-                        downloads,
                         onRetry = { narDownloads.retry(it) },
+                        onReselect = { startInstallFromSDCard(it) },
                         onDelete = { narDownloads.delete(it) },
                     )
                 },
+                archiveDownloads = downloads,
                 showDebugControls = dbgBuild,
                 onNextSurface = ::onNextSurface,
                 onAnimate = ::onAnimate,
@@ -309,7 +311,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }.execute()
     }
     private fun handleIncomingIntent(incoming: Intent?) {
-        val uri = ArchiveIntentAdapter.contentUri(incoming) ?: return
+        val uri = ArchiveIntentAdapter.contentUri(incoming, incoming?.type ?: incoming?.data?.let(contentResolver::getType)) ?: return
         enqueueLocalArchive(uri, incoming?.flags ?: 0)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleIncomingIntent(intent) }
@@ -325,11 +327,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
         simpleDialog = createMoreGhostDialog()
     }
-    private fun startInstallFromSDCard() {
+    private fun startInstallFromSDCard(replaceId: String? = null) {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(
             Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0,
         )
         awaitingNarDocument = true
+        replacingNarDownloadId = replaceId
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
@@ -362,7 +365,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             override fun onPostExecute(result: NarLocalArchiveStager.Result) {
                 when (result) {
                     is NarLocalArchiveStager.Result.Staged -> {
-                        narDownloads.enqueueLocal(result.location, result.location)
+                        val replacing = replacingNarDownloadId
+                        replacingNarDownloadId = null
+                        if (replacing == null) narDownloads.enqueueLocal(result.location, result.location)
+                        else narDownloads.replaceLocalSource(replacing, result.location)
                     }
                     is NarLocalArchiveStager.Result.Failed -> Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
                 }
@@ -376,7 +382,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (resultCode == RESULT_OK) {
             data?.data?.let(::importPickedNar)
                 ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
-        }
+        } else replacingNarDownloadId = null
     }
     private fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); simpleDialog = createUrlEntryDialog() }
     private fun showGhostTown() {

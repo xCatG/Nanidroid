@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import com.cattailsw.nanidroid.R
+import com.cattailsw.nanidroid.install.NarDownload
 
 /**
  * The activity's Compose-owned chrome.
@@ -44,6 +45,7 @@ internal fun NanidroidComposeShell(
     onPreferences: () -> Unit,
     onHelp: () -> Unit,
     onArchiveQueue: () -> Unit = {},
+    archiveDownloads: List<NarDownload> = emptyList(),
     showDebugControls: Boolean = false,
     onNextSurface: () -> Unit = {},
     onAnimate: () -> Unit = {},
@@ -87,6 +89,7 @@ internal fun NanidroidComposeShell(
                     NanidroidSimpleDialogHost(
                         dialog = simpleDialog,
                         onDismiss = onDismissSimpleDialog,
+                        archiveDownloads = archiveDownloads,
                     )
                 }
             }

@@ -7,8 +7,8 @@ import android.net.Uri
 object ArchiveIntentAdapter {
     private val supportedMimeTypes = setOf("application/zip", "application/x-nar")
 
-    fun contentUri(intent: Intent?): Uri? {
-        return contentUri(intent?.action, intent?.data, intent?.type, intent?.flags ?: 0)
+    fun contentUri(intent: Intent?, resolvedMimeType: String? = intent?.type): Uri? {
+        return contentUri(intent?.action, intent?.data, resolvedMimeType, intent?.flags ?: 0)
     }
 
     internal fun contentUri(
