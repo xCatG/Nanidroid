@@ -6,6 +6,7 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.io.File
 import java.io.FileInputStream
+import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.URI
 import java.util.concurrent.Executor
@@ -20,6 +21,23 @@ internal class NarLiveGrantHandoff(
         onProgress: (phase: String, completed: Long) -> Unit,
     ) -> NarLocalArchiveStager.Result,
 ) {
+    constructor(
+        repository: NarDownloadRepository,
+        executor: Executor,
+        privateDirectory: File,
+    ) : this(
+        repository,
+        executor,
+        { source, isCancelled, onProgress ->
+            NarLocalArchiveStager.stage(
+                directory = privateDirectory,
+                open = { source },
+                isCancelled = isCancelled,
+                onProgress = { completed -> onProgress("Copying archive", completed) },
+            )
+        },
+    )
+
     fun enqueue(
         uri: String,
         replacementId: String?,
@@ -41,16 +59,17 @@ internal class NarLiveGrantHandoff(
         }
         try {
             executor.execute {
-                var sourceClaimed = false
-                repository.stageLiveLocal(
-                    item.id,
-                    item.attemptId,
-                    { Thread.currentThread().isInterrupted },
-                ) { _, isCancelled, onProgress ->
-                    sourceClaimed = true
-                    stage(source, isCancelled, onProgress)
+                try {
+                    repository.stageLiveLocal(
+                        item.id,
+                        item.attemptId,
+                        { Thread.currentThread().isInterrupted },
+                    ) { _, isCancelled, onProgress ->
+                        stage(BorrowedInputStream(source), isCancelled, onProgress)
+                    }
+                } finally {
+                    runCatching { source.close() }
                 }
-                if (!sourceClaimed) runCatching { source.close() }
             }
         } catch (_: RuntimeException) {
             runCatching { source.close() }
@@ -58,6 +77,10 @@ internal class NarLiveGrantHandoff(
             repository.stop(item.id)
         }
         return item
+    }
+
+    private class BorrowedInputStream(source: InputStream) : FilterInputStream(source) {
+        override fun close() = Unit
     }
 }
 
@@ -108,23 +131,14 @@ class StageLocalNarWorker(
             isCancelled: () -> Boolean = { false },
             onProgress: (completed: Long) -> Unit = { },
         ): NarLocalArchiveStager.Result = NarLocalArchiveStager.stage(
-            directory = File(context.filesDir, LOCAL_IMPORT_DIRECTORY),
+            directory = localImportDirectory(context),
             open = { open(context, location) },
             isCancelled = isCancelled,
             onProgress = onProgress,
         )
 
-        internal fun stageOpenedSource(
-            context: Context,
-            source: InputStream,
-            isCancelled: () -> Boolean,
-            onProgress: (completed: Long) -> Unit,
-        ): NarLocalArchiveStager.Result = NarLocalArchiveStager.stage(
-            directory = File(context.filesDir, LOCAL_IMPORT_DIRECTORY),
-            open = { source },
-            isCancelled = isCancelled,
-            onProgress = onProgress,
-        )
+        internal fun localImportDirectory(context: Context) =
+            File(context.applicationContext.filesDir, LOCAL_IMPORT_DIRECTORY)
 
         private fun open(context: Context, location: String) =
             when (URI(location).scheme?.lowercase()) {

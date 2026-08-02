@@ -90,15 +90,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         Thread(task, "nar-live-grant-copy")
     }
     private val narLiveGrantHandoff by lazy {
-        NarLiveGrantHandoff(narDownloads, narLiveGrantExecutor) { source, isCancelled, onProgress ->
-            StageLocalNarWorker.stageOpenedSource(
-                applicationContext,
-                source,
-                isCancelled,
-            ) { completed ->
-                onProgress("Copying archive", completed)
-            }
-        }
+        val privateDirectory = StageLocalNarWorker.localImportDirectory(applicationContext)
+        NarLiveGrantHandoff(narDownloads, narLiveGrantExecutor, privateDirectory)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

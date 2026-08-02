@@ -20,10 +20,13 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
+import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class NarDownloadRepositoryTest {
@@ -436,6 +439,7 @@ class NarDownloadRepositoryTest {
         val openedOn = AtomicReference<Thread>()
         val copiedOn = AtomicReference<Thread>()
         val supervisedProgressObserved = AtomicBoolean(false)
+        val sourceCloseCount = AtomicInteger()
         val copyStarted = CountDownLatch(1)
         val allowCopy = CountDownLatch(1)
         val copyFinished = CountDownLatch(1)
@@ -484,6 +488,11 @@ class NarDownloadRepositoryTest {
                     assertTrue("source copied after grant window", grantLive.get())
                     return super.read(target, offset, length)
                 }
+
+                override fun close() {
+                    sourceCloseCount.incrementAndGet()
+                    super.close()
+                }
             }
         }!!
 
@@ -507,6 +516,75 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Queued, staged.state)
         assertTrue(staged.retainedUri!!.startsWith("file:"))
         assertTrue(supervisedProgressObserved.get())
+        assertEquals(1, sourceCloseCount.get())
+        NarLocalArchiveStager.discard(staged.retainedUri!!)
+        privateImports.delete()
+    }
+
+    @Test fun oneShotStreamClosesExactlyOnceWhenStagingReturnsBeforeOpen() {
+        listOf<NarLocalArchiveStager.Result>(
+            NarLocalArchiveStager.Result.Cancelled,
+            NarLocalArchiveStager.Result.Failed("storage unavailable"),
+        ).forEachIndexed { index, result ->
+            val closeCount = AtomicInteger()
+            val source = closeCountingSource(closeCount)
+            val handoff = NarLiveGrantHandoff(
+                repository = repository,
+                executor = Executor(Runnable::run),
+                stage = { _, _, _ -> result },
+            )
+
+            handoff.enqueue("content://provider/before-open-$index.nar", null) { source }
+
+            assertEquals(1, closeCount.get())
+        }
+    }
+
+    @Test fun oneShotStreamClosesExactlyOnceWhenHandoffCannotStart() {
+        val rejectedCloseCount = AtomicInteger()
+        val rejectingHandoff = NarLiveGrantHandoff(
+            repository = repository,
+            executor = Executor { throw RejectedExecutionException("executor stopped") },
+            stage = { _, _, _ -> NarLocalArchiveStager.Result.Cancelled },
+        )
+
+        rejectingHandoff.enqueue("content://provider/rejected.nar", null) {
+            closeCountingSource(rejectedCloseCount)
+        }
+
+        val missingReplacementCloseCount = AtomicInteger()
+        val missingReplacement = NarLiveGrantHandoff(
+            repository = repository,
+            executor = Executor(Runnable::run),
+            stage = { _, _, _ -> NarLocalArchiveStager.Result.Cancelled },
+        ).enqueue("content://provider/missing-replacement.nar", "missing-item") {
+            closeCountingSource(missingReplacementCloseCount)
+        }
+        assertEquals(1, rejectedCloseCount.get())
+        assertNull(missingReplacement)
+        assertEquals(1, missingReplacementCloseCount.get())
+    }
+
+    @Test fun queuedOneShotCopyDoesNotRetainItsActivityOwner() {
+        val queuedTask = AtomicReference<Runnable>()
+        val sourceCloseCount = AtomicInteger()
+        val privateImports = File.createTempFile("nar-owner-release", "").also {
+            assertTrue(it.delete())
+            assertTrue(it.mkdir())
+        }
+        val ownerReference = enqueueFromActivityLikeOwner(
+            repository,
+            Executor(queuedTask::set),
+            privateImports,
+            sourceCloseCount,
+        )
+
+        assertEventuallyCollected(ownerReference)
+        queuedTask.get().run()
+
+        val staged = store.get("old-item")!!
+        assertEquals(NarDownloadState.Queued, staged.state)
+        assertEquals(1, sourceCloseCount.get())
         NarLocalArchiveStager.discard(staged.retainedUri!!)
         privateImports.delete()
     }
@@ -882,6 +960,44 @@ class NarDownloadRepositoryTest {
         fun runNext() {
             pending.removeFirst().run()
         }
+    }
+
+    private class ActivityLikeOwner(
+        repository: NarDownloadRepository,
+        executor: Executor,
+        privateImports: File,
+    ) {
+        val handoff = NarLiveGrantHandoff(repository, executor, privateImports)
+    }
+
+    private fun enqueueFromActivityLikeOwner(
+        repository: NarDownloadRepository,
+        executor: Executor,
+        privateImports: File,
+        closeCount: AtomicInteger,
+    ): WeakReference<ActivityLikeOwner> {
+        val owner = ActivityLikeOwner(repository, executor, privateImports)
+        owner.handoff.enqueue("content://provider/owner-release.nar", null) {
+            closeCountingSource(closeCount)
+        }
+        return WeakReference(owner)
+    }
+
+    private fun closeCountingSource(closeCount: AtomicInteger) =
+        object : ByteArrayInputStream(ByteArray(20 * 1024) { 7 }) {
+            override fun close() {
+                closeCount.incrementAndGet()
+                super.close()
+            }
+        }
+
+    private fun assertEventuallyCollected(reference: WeakReference<*>) {
+        repeat(40) {
+            System.gc()
+            if (reference.get() == null) return
+            Thread.sleep(25L)
+        }
+        assertNull("submitted copy retained its Activity owner", reference.get())
     }
 
     private fun NarDownload.handle() = OperationHandle(OperationId(id), AttemptId(attemptId))
