@@ -51,6 +51,7 @@ internal interface NarArchiveInstaller {
 internal interface NarOwnedDownloadData {
     fun delete(download: NarDownload)
     fun releasePersistedGrant(download: NarDownload) = Unit
+    fun deleteAbandonedLocalArchives(retainedUris: Set<String>) = Unit
 }
 
 internal interface NarInstallAttemptPaths {
@@ -139,12 +140,19 @@ class NarDownloadRepository internal constructor(
                 runCatching { ownedData.delete(item) }
                 store.update(itemId) {
                     it.copy(
-                        retainedUri = downloads.intendedRetainedUri(itemId),
+                        retainedUri = null,
                         downloadManagerId = null,
                         state = NarDownloadState.Downloading,
                     )
                 }
                 try {
+                    store.update(itemId) {
+                        it.copy(
+                            retainedUri = downloads.intendedRetainedUri(itemId),
+                            downloadManagerId = null,
+                            state = NarDownloadState.Downloading,
+                        )
+                    }
                     val enqueued = downloads.enqueue(itemId, normalizeHttpsUrl(source.uri))
                     store.update(itemId) {
                         it.copy(
@@ -214,6 +222,12 @@ class NarDownloadRepository internal constructor(
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
             .forEach(::cleanupCompletedInstall)
+        ownedData.deleteAbandonedLocalArchives(
+            store.getAll()
+                .filter { it.state != NarDownloadState.Complete }
+                .mapNotNull(NarDownload::retainedUri)
+                .toSet(),
+        )
         store.getAll()
             .filter { it.source is NarDownloadSource.Remote && it.state.isNonterminal() }
             .forEach { item ->
@@ -336,7 +350,7 @@ class NarDownloadRepository internal constructor(
 
     private fun hasSourceReference(location: String, excludedItemId: String? = null) =
         store.getAll().any { other ->
-            other.id != excludedItemId && (
+            other.id != excludedItemId && other.state != NarDownloadState.Complete && (
                 other.retainedUri == location ||
                     (other.source as? NarDownloadSource.Local)?.uri == location
                 )
@@ -503,6 +517,7 @@ private class AndroidNarManagedFiles(context: Context) :
     NarInstallAttemptPaths {
     private val appContext = context.applicationContext
     private val attemptsRoot = File(appContext.cacheDir, "nar-install-attempts")
+    private val localImportsRoot = File(appContext.filesDir, "nar-local-imports")
 
     override fun create(itemId: String): File {
         val itemRoot = File(attemptsRoot, safeName(itemId))
@@ -533,6 +548,12 @@ private class AndroidNarManagedFiles(context: Context) :
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
         }
+    }
+
+    override fun deleteAbandonedLocalArchives(retainedUris: Set<String>) {
+        localImportsRoot.listFiles()
+            ?.filter { it.isFile && it.toURI().toString() !in retainedUris }
+            ?.forEach { it.delete() }
     }
 
     private fun managedFile(value: String?): File? {

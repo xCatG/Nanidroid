@@ -92,6 +92,15 @@ class NarDownloadRepositoryTest {
         repository.retry(item.id)
     }
 
+    @Test fun retryDestinationFailureReturnsItemToAttention() {
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        downloads.intendedDestinationFailure = IllegalStateException("storage unavailable")
+
+        repository.retry(item.id)
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+    }
+
     @Test fun reconciliationCleansCompletedInstallAfterInterruptedCleanup() {
         val item = store.create(
             NarDownload(
@@ -138,6 +147,18 @@ class NarDownloadRepositoryTest {
         repository.replaceLocalSource(item.id, source)
 
         assertTrue(ownedData.releasedItemIds.isEmpty())
+    }
+
+    @Test fun completedHistoryDoesNotRetainAReacquiredDocumentGrant() {
+        val source = "content://provider/reacquired.nar"
+        val completed = repository.enqueueLocal(source, source)
+        repository.install(completed.id) { false }
+        ownedData.releasedItemIds.clear()
+        val active = repository.enqueueLocal(source, source)
+
+        repository.delete(active.id)
+
+        assertEquals(listOf(active.id), ownedData.releasedItemIds)
     }
 
     @Test fun recoveringPublishedInstallMarksTargetConflictComplete() {
@@ -252,6 +273,21 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
     }
 
+    @Test fun reconciliationPreservesTrackedLocalArchiveFilesDuringCleanup() {
+        val item = store.create(
+            NarDownload(
+                id = "tracked-copy",
+                source = NarDownloadSource.Local("content://provider/archive.nar"),
+                retainedUri = "file:///owned/tracked-copy.nar",
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("copy interrupted")),
+            ),
+        )
+
+        repository.reconcile()
+
+        assertEquals(setOf(item.retainedUri), ownedData.retainedLocalArchiveUris)
+    }
+
     @Test fun deleteThenReenqueueUsesSeparateStagingDirectories() {
         val oldItem = repository.enqueueLocal("content://provider/archive.nar")
         repository.install(oldItem.id) { false }
@@ -308,11 +344,15 @@ class NarDownloadRepositoryTest {
     private class FakeDownloadGateway : NarDownloadGateway {
         var nextDownloadId = 1L
         var onEnqueue: ((String) -> Unit)? = null
+        var intendedDestinationFailure: Exception? = null
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
         val removedIds = mutableListOf<Long>()
 
-        override fun intendedRetainedUri(itemId: String) = "file:///owned/$itemId.nar"
+        override fun intendedRetainedUri(itemId: String): String {
+            intendedDestinationFailure?.let { throw it }
+            return "file:///owned/$itemId.nar"
+        }
 
         override fun enqueue(itemId: String, normalizedHttpsUrl: String): NarRemoteEnqueue {
             onEnqueue?.invoke(itemId)
@@ -360,6 +400,7 @@ class NarDownloadRepositoryTest {
     private class FakeOwnedData : NarOwnedDownloadData {
         val deletedItemIds = mutableListOf<String>()
         val releasedItemIds = mutableListOf<String>()
+        var retainedLocalArchiveUris = emptySet<String?>()
 
         override fun delete(download: NarDownload) {
             deletedItemIds += download.id
@@ -367,6 +408,10 @@ class NarDownloadRepositoryTest {
 
         override fun releasePersistedGrant(download: NarDownload) {
             releasedItemIds += download.id
+        }
+
+        override fun deleteAbandonedLocalArchives(retainedUris: Set<String>) {
+            retainedLocalArchiveUris = retainedUris
         }
     }
 
