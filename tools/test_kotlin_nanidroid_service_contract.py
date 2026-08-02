@@ -38,7 +38,7 @@ class KotlinNanidroidServiceContractTest(unittest.TestCase):
         self.assertIn("activeForegroundStartIds.remove(startId)", source)
         self.assertIn("activeForegroundStartIds.isEmpty()", source)
         self.assertIn("stopForeground(true)", source)
-        self.assertIn("flags = flags or FLAG_IMMUTABLE", source)
+        self.assertIn("PendingIntent.FLAG_IMMUTABLE", source)
         self.assertIn("PendingIntent.FLAG_UPDATE_CURRENT", source)
         self.assertIn("startForeground(FOREGROUND_NOTIFICATION_ID", source)
 

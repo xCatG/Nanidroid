@@ -132,6 +132,16 @@ class NarDownloadRepositoryTest {
         assertEquals("file:///owned/${item.id}.nar", store.get(item.id)!!.retainedUri)
     }
 
+    @Test fun reconciliationSchedulesQueuedLocalArchive() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+        work.enqueuedNames.clear()
+
+        repository.reconcile()
+
+        assertEquals(listOf("install-nar-${item.id}"), work.enqueuedNames)
+        assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
+    }
+
     @Test fun deleteThenReenqueueUsesSeparateStagingDirectories() {
         val oldItem = repository.enqueueLocal("content://provider/archive.nar")
         repository.install(oldItem.id) { false }

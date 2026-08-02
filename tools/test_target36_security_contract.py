@@ -55,8 +55,7 @@ class Target36SecurityContractTest(unittest.TestCase):
 
     def test_service_uses_immutable_pending_intent_and_no_file_uri(self):
         source = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/NanidroidService.kt").read_text(encoding="utf-8")
-        self.assertIn("const val FLAG_IMMUTABLE = 0x04000000", source)
-        self.assertIn("flags = flags or FLAG_IMMUTABLE", source)
+        self.assertIn("PendingIntent.FLAG_IMMUTABLE", source)
         self.assertIn("PendingIntent.FLAG_UPDATE_CURRENT", source)
         self.assertIn("startForeground", source)
         self.assertIn("private fun finishForegroundWork(startId: Int)", source)

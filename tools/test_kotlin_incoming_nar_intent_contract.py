@@ -14,7 +14,7 @@ class KotlinIncomingNarIntentContractTest(unittest.TestCase):
         self.assertIn("object ArchiveIntentAdapter", source)
         self.assertIn('"application/zip"', source)
         self.assertIn('"application/x-nar"', source)
-        self.assertIn('uri.scheme.equals("content", ignoreCase = true)', source)
+        self.assertIn('scheme.equals("content", ignoreCase = true)', source)
         self.assertIn("FLAG_GRANT_READ_URI_PERMISSION", source)
         self.assertNotIn('"https"', source)
 

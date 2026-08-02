@@ -250,6 +250,15 @@ class NarDownloadRepository internal constructor(
                     null -> markNeedsAttention(item.id, DOWNLOAD_RECOVERY_FAILURE)
                 }
             }
+        store.getAll()
+            .filter { it.source is NarDownloadSource.Local && it.state.isNonterminal() }
+            .forEach { item ->
+                try {
+                    work.enqueue(item.id)
+                } catch (_: Exception) {
+                    markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
+                }
+            }
         publish()
     }
 
