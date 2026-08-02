@@ -73,6 +73,16 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(item.id), ownedData.deletedItemIds)
     }
 
+    @Test fun successfulRemoteInstallRemovesCompletedDownload() {
+        downloads.nextDownloadId = 61L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        repository.install(item.id) { false }
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        assertEquals(listOf(61L), downloads.removedIds)
+    }
+
     @Test fun deleteCancelsUniqueWorkRemovesDownloadAndDeletesOwnedData() {
         downloads.nextDownloadId = 41L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")

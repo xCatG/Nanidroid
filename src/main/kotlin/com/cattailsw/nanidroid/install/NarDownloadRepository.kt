@@ -284,6 +284,7 @@ class NarDownloadRepository internal constructor(
         when (result) {
             is ArchiveInstallResult.Installed -> {
                 store.update(itemId) { it.copy(state = NarDownloadState.Complete) }
+                item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
                 runCatching { ownedData.delete(item) }
                 runCatching { ownedData.releasePersistedGrant(item) }
             }
