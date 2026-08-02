@@ -11,6 +11,8 @@ import com.cattailsw.nanidroid.durable.OperationId
 import com.cattailsw.nanidroid.durable.OperationKind
 import com.cattailsw.nanidroid.durable.OperationStatus
 import com.cattailsw.nanidroid.durable.SharedPreferencesDurableOperationStore
+import io.mockk.every
+import io.mockk.spyk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -563,6 +565,46 @@ class NarDownloadRepositoryTest {
         assertEquals(1, rejectedCloseCount.get())
         assertNull(missingReplacement)
         assertEquals(1, missingReplacementCloseCount.get())
+    }
+
+    @Test fun rejectedOneShotHandoffStopsAttemptBeforeReleasingWorkerFence() {
+        val claimAbandoned = CountDownLatch(1)
+        val allowRejectionToFinish = CountDownLatch(1)
+        val fencedRepository = spyk(repository)
+        every { fencedRepository.abandonLiveLocalCopy(any(), any()) } answers {
+            callOriginal()
+            claimAbandoned.countDown()
+            allowRejectionToFinish.await(5, TimeUnit.SECONDS)
+        }
+        val handoff = NarLiveGrantHandoff(
+            repository = fencedRepository,
+            executor = Executor { throw RejectedExecutionException("executor stopped") },
+            stage = { _, _, _ -> NarLocalArchiveStager.Result.Cancelled },
+        )
+        val rejectionThread = Thread {
+            handoff.enqueue("content://provider/rejected-race.nar", null) {
+                ByteArrayInputStream(byteArrayOf(1))
+            }
+        }
+        rejectionThread.start()
+
+        assertTrue(claimAbandoned.await(2, TimeUnit.SECONDS))
+        try {
+            val item = store.getAll().single()
+            var workerOpenedSource = false
+
+            fencedRepository.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+                workerOpenedSource = true
+                NarLocalArchiveStager.Result.Failed("duplicate opener")
+            }
+
+            assertTrue("worker opened the one-shot URI after its fence was released", !workerOpenedSource)
+        } finally {
+            allowRejectionToFinish.countDown()
+            rejectionThread.join(5_000)
+        }
+        assertTrue(!rejectionThread.isAlive)
+        assertEquals(NarDownloadState.Cancelled, store.getAll().single().state)
     }
 
     @Test fun queuedOneShotCopyDoesNotRetainItsActivityOwner() {
