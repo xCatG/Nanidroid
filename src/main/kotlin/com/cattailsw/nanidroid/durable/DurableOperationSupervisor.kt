@@ -34,6 +34,36 @@ class DurableOperationSupervisor(
         phase: String,
         completed: Long,
         externalJob: ExternalJobBinding? = null,
+    ): Boolean = start(
+        handle = handle,
+        kind = kind,
+        phase = phase,
+        completed = completed,
+        externalJob = externalJob,
+        allowRemoteNarReacquisition = false,
+    )
+
+    fun startRemoteNarReacquisition(
+        handle: OperationHandle,
+        phase: String,
+        completed: Long,
+        externalJob: ExternalJobBinding.DownloadManager,
+    ): Boolean = start(
+        handle = handle,
+        kind = OperationKind.REMOTE_NAR,
+        phase = phase,
+        completed = completed,
+        externalJob = externalJob,
+        allowRemoteNarReacquisition = true,
+    )
+
+    private fun start(
+        handle: OperationHandle,
+        kind: OperationKind,
+        phase: String,
+        completed: Long,
+        externalJob: ExternalJobBinding?,
+        allowRemoteNarReacquisition: Boolean,
     ): Boolean = synchronized(operationLock) {
         var accepted = DurableOperationRecord(
             id = handle.operationId,
@@ -51,7 +81,11 @@ class DurableOperationSupervisor(
                 ?: return@synchronized false
             if (
                 !previous.status.isTerminal() ||
-                !previous.kind.canRetryAs(kind) ||
+                !previous.kind.canRetryAs(kind) && !(
+                    allowRemoteNarReacquisition &&
+                        previous.kind == OperationKind.NAR_INSTALL &&
+                        kind == OperationKind.REMOTE_NAR
+                    ) ||
                 handle.attemptId.value <= previous.attemptId.value
             ) {
                 return@synchronized false

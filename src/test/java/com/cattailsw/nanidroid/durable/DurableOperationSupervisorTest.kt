@@ -487,6 +487,45 @@ class DurableOperationSupervisorTest {
         )
     }
 
+    @Test fun completedInstallCanUseOnlyExplicitRemoteReacquisitionTransition() {
+        val source = handle("remote-install", 2)
+        assertTrue(
+            supervisor.start(
+                source,
+                OperationKind.NAR_INSTALL,
+                "Installing",
+                0,
+                ExternalJobBinding.WorkManager("install-work"),
+            ),
+        )
+        assertTrue(supervisor.finish(source, OperationStatus.FAILED))
+        val reacquisition = handle("remote-install", 3)
+        val download = ExternalJobBinding.DownloadManager(81L)
+
+        assertFalse(
+            supervisor.start(
+                reacquisition,
+                OperationKind.REMOTE_NAR,
+                "Downloading",
+                0,
+                download,
+            ),
+        )
+        assertTrue(
+            supervisor.startRemoteNarReacquisition(
+                reacquisition,
+                "Downloading",
+                0,
+                download,
+            ),
+        )
+
+        val current = store.read().single()
+        assertEquals(OperationKind.REMOTE_NAR, current.kind)
+        assertEquals(AttemptId(3), current.attemptId)
+        assertEquals(download, current.externalJob)
+    }
+
     @Test fun archiveKindChangeStillRequiresTerminalStateAndGreaterAttempt() {
         val cases = listOf(
             ArchiveTransitionFenceCase(

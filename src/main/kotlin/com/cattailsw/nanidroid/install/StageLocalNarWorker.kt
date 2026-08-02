@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.install
 
 import android.content.Context
 import android.net.Uri
+import androidx.work.ListenableWorker
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.io.File
@@ -94,20 +95,20 @@ class StageLocalNarWorker(
         val attemptId = inputData.getLong(INPUT_ATTEMPT_ID, NO_ATTEMPT)
         if (attemptId == NO_ATTEMPT) return Result.success()
         val repository = NarDownloadRepository.get(applicationContext)
-        val accepted = repository.stageLocal(
+        return execute(
+            repository,
             itemId,
             attemptId,
             { isStopped },
-        ) { download, isCancelled, onProgress ->
+        ) stage@{ download, isCancelled, onProgress ->
             val location = download.retainedUri ?: (download.source as? NarDownloadSource.Local)?.uri
-                ?: return@stageLocal NarLocalArchiveStager.Result.Failed(
+                ?: return@stage NarLocalArchiveStager.Result.Failed(
                     "The selected document is no longer available.",
                 )
             stageGrantedSource(applicationContext, location, isCancelled) { completed ->
                 onProgress("Copying archive", completed)
             }
         }
-        return if (accepted) Result.success() else Result.retry()
     }
 
     override fun onStopped() {
@@ -124,6 +125,24 @@ class StageLocalNarWorker(
         internal const val INPUT_ATTEMPT_ID = "nar-local-stage-attempt-id"
         private const val NO_ATTEMPT = -1L
         private const val LOCAL_IMPORT_DIRECTORY = "nar-local-imports"
+
+        internal fun execute(
+            repository: NarDownloadRepository,
+            itemId: String,
+            attemptId: Long,
+            isStopped: () -> Boolean,
+            stage: (
+                download: NarDownload,
+                isCancelled: () -> Boolean,
+                onProgress: (phase: String, completed: Long) -> Unit,
+            ) -> NarLocalArchiveStager.Result,
+        ): ListenableWorker.Result = if (
+            repository.stageLocal(itemId, attemptId, isStopped, stage)
+        ) {
+            ListenableWorker.Result.success()
+        } else {
+            ListenableWorker.Result.retry()
+        }
 
         internal fun stageGrantedSource(
             context: Context,

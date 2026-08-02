@@ -44,8 +44,11 @@ class InstallNarWorker(
             itemId: String,
             isStopped: () -> Boolean,
         ): ListenableWorker.Result {
-            repository.install(itemId, isStopped)
-            return ListenableWorker.Result.success()
+            return if (repository.install(itemId, isStopped)) {
+                ListenableWorker.Result.success()
+            } else {
+                ListenableWorker.Result.retry()
+            }
         }
 
         internal fun execute(
@@ -54,8 +57,11 @@ class InstallNarWorker(
             attemptId: Long,
             isStopped: () -> Boolean,
         ): ListenableWorker.Result {
-            repository.install(itemId, attemptId, isStopped)
-            return ListenableWorker.Result.success()
+            return if (repository.install(itemId, attemptId, isStopped)) {
+                ListenableWorker.Result.success()
+            } else {
+                ListenableWorker.Result.retry()
+            }
         }
     }
 }

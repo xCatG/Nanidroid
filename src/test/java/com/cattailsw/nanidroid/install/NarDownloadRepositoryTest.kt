@@ -298,17 +298,105 @@ class NarDownloadRepositoryTest {
         assertEquals(retry, store.get(item.id))
     }
 
-    @Test fun stoppedInstallWorkerCancelsOnlyItsMatchingAttempt() {
+    @Test fun schedulerStoppedCallbackDoesNotCancelAndLateOldCallbackCannotMutateRetry() {
         val item = repository.enqueueLocal("file:///owned/archive.nar")
 
         repository.workerStopped(item.id, item.attemptId)
 
+        assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+        assertTrue(repository.stop(item.id))
+        assertTrue(!repository.stop(item.id))
         assertEquals(NarDownloadState.Cancelled, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+        assertEquals(1, work.cancelledBindings.size)
         val retry = repository.retry(item.id)!!
 
         repository.workerStopped(item.id, item.attemptId)
 
         assertEquals(retry, store.get(item.id))
+    }
+
+    @Test fun systemStoppedInstallWorkerRetriesWithoutCancellingAndCanReplay() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+        var cancellationObserved = false
+        installer.onInstall = { _, _, isStopped, _ ->
+            cancellationObserved = isStopped()
+            ArchiveInstallResult.Cancelled
+        }
+
+        val stopped = InstallNarWorker.execute(
+            repository,
+            item.id,
+            item.attemptId,
+        ) { true }
+
+        assertEquals(ListenableWorker.Result.retry(), stopped)
+        assertTrue(cancellationObserved)
+        assertEquals(NarDownloadState.Installing, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+
+        repository.workerStopped(item.id, item.attemptId)
+        assertEquals(NarDownloadState.Installing, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+
+        installer.onInstall = null
+        installer.result = ArchiveInstallResult.Installed("installed")
+        val replay = InstallNarWorker.execute(
+            repository,
+            item.id,
+            item.attemptId,
+        ) { false }
+
+        assertEquals(ListenableWorker.Result.success(), replay)
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.COMPLETED, operationStore.read().single().status)
+
+        repository.workerStopped(item.id, item.attemptId)
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+    }
+
+    @Test fun systemStoppedStageWorkerRetriesWithoutCancellingAndCanReplay() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        var cancellationObserved = false
+
+        val stopped = StageLocalNarWorker.execute(
+            repository,
+            item.id,
+            item.attemptId,
+            { true },
+        ) { _, isCancelled, _ ->
+            cancellationObserved = isCancelled()
+            NarLocalArchiveStager.Result.Cancelled
+        }
+
+        assertEquals(ListenableWorker.Result.retry(), stopped)
+        assertTrue(cancellationObserved)
+        assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+
+        repository.workerStopped(item.id, item.attemptId)
+        assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+
+        val replay = StageLocalNarWorker.execute(
+            repository,
+            item.id,
+            item.attemptId,
+            { false },
+        ) { _, _, _ ->
+            NarLocalArchiveStager.Result.Staged("file:///owned/replayed-stage.nar")
+        }
+
+        assertEquals(ListenableWorker.Result.success(), replay)
+        val installAttempt = store.get(item.id)!!
+        assertEquals(item.attemptId + 1L, installAttempt.attemptId)
+        assertEquals(NarDownloadState.Queued, installAttempt.state)
+        assertEquals(OperationKind.NAR_INSTALL, operationStore.read().single().kind)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+
+        repository.workerStopped(item.id, item.attemptId)
+        assertEquals(installAttempt, store.get(item.id))
     }
 
     @Test fun unknownCompletionDoesNotScheduleWork() {
@@ -376,6 +464,64 @@ class NarDownloadRepositoryTest {
 
         assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
         assertEquals(listOf(61L), downloads.removedIds)
+    }
+
+    @Test fun failedRemoteInstallRetriesRetainedArchiveAsNewInstallAttempt() {
+        downloads.nextDownloadId = 62L
+        val download = repository.enqueueRemote("https://example.invalid/archive.nar")
+        repository.onDownloadComplete(62L)
+        val firstInstall = store.get(download.id)!!
+        installer.result = ArchiveInstallResult.Failed(
+            "invalid archive",
+            ArchiveInstallFailure.InvalidArchive,
+        )
+        repository.install(firstInstall.id, firstInstall.attemptId) { false }
+        ownedData.isRetainedArchiveAvailable = true
+        work.enqueuedNames.clear()
+        downloads.removedIds.clear()
+        ownedData.deletedItemIds.clear()
+
+        val retry = repository.retry(download.id)!!
+
+        assertEquals(firstInstall.attemptId + 1L, retry.attemptId)
+        assertEquals(NarDownloadState.Queued, retry.state)
+        assertEquals(firstInstall.retainedUri, retry.retainedUri)
+        assertEquals(62L, retry.downloadManagerId)
+        assertTrue(downloads.removedIds.isEmpty())
+        assertTrue(ownedData.deletedItemIds.isEmpty())
+        assertEquals(listOf("install-nar-${download.id}"), work.enqueuedNames)
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(retry.attemptId, operation.attemptId.value)
+
+        repository.install(download.id, firstInstall.attemptId) { false }
+        assertEquals(retry, store.get(download.id))
+    }
+
+    @Test fun missingRemoteInstallArchiveRetriesThroughExplicitReacquisitionAttempt() {
+        downloads.nextDownloadId = 63L
+        val download = repository.enqueueRemote("https://example.invalid/archive.nar")
+        repository.onDownloadComplete(63L)
+        val firstInstall = store.get(download.id)!!
+        installer.failure = FileNotFoundException("download vanished")
+        repository.install(firstInstall.id, firstInstall.attemptId) { false }
+        ownedData.isRetainedArchiveAvailable = false
+        downloads.nextDownloadId = 64L
+        downloads.removedIds.clear()
+
+        val retry = repository.retry(download.id)!!
+
+        assertEquals(firstInstall.attemptId + 1L, retry.attemptId)
+        assertEquals(NarDownloadState.Downloading, retry.state)
+        assertEquals(64L, retry.downloadManagerId)
+        assertEquals(listOf(63L), downloads.removedIds)
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.REMOTE_NAR, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertEquals(retry.attemptId, operation.attemptId.value)
+
+        repository.install(download.id, firstInstall.attemptId) { false }
+        assertEquals(retry, store.get(download.id))
     }
 
     @Test fun retryPersistsDestinationBeforeEnqueueing() {
@@ -885,6 +1031,53 @@ class NarDownloadRepositoryTest {
         assertEquals("file:///owned/${item.id}.nar", store.get(item.id)!!.retainedUri)
     }
 
+    @Test fun failedRemoteRowIsTerminalizedBeforeRetryStartsNewDownloadAttempt() {
+        downloads.nextDownloadId = 76L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        downloads.statuses[76L] = NarRemoteDownloadStatus.Failed
+
+        repository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+
+        downloads.nextDownloadId = 77L
+        val retry = repository.retry(item.id)!!
+
+        assertEquals(item.attemptId + 1L, retry.attemptId)
+        assertEquals(NarDownloadState.Downloading, retry.state)
+        assertEquals(77L, retry.downloadManagerId)
+        val retryOperation = operationStore.read().single()
+        assertEquals(retry.attemptId, retryOperation.attemptId.value)
+        assertEquals(OperationStatus.RUNNING, retryOperation.status)
+
+        repository.onDownloadComplete(76L)
+        assertEquals(retry, store.get(item.id))
+    }
+
+    @Test fun missingRemoteRowIsTerminalizedBeforeRetryStartsNewDownloadAttempt() {
+        downloads.nextDownloadId = 78L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        repository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+
+        downloads.nextDownloadId = 79L
+        val retry = repository.retry(item.id)!!
+
+        assertEquals(item.attemptId + 1L, retry.attemptId)
+        assertEquals(NarDownloadState.Downloading, retry.state)
+        assertEquals(79L, retry.downloadManagerId)
+        val retryOperation = operationStore.read().single()
+        assertEquals(retry.attemptId, retryOperation.attemptId.value)
+        assertEquals(OperationStatus.RUNNING, retryOperation.status)
+
+        repository.onDownloadComplete(78L)
+        assertEquals(retry, store.get(item.id))
+    }
+
     @Test fun recreatedReconciliationCommitsDownloadHandoffWhenSupervisorAlreadyCompleted() {
         downloads.nextDownloadId = 75L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -1130,10 +1323,13 @@ class NarDownloadRepositoryTest {
         val deletedItemIds = mutableListOf<String>()
         val releasedItemIds = mutableListOf<String>()
         var retainedLocalArchiveUris = emptySet<String?>()
+        var isRetainedArchiveAvailable = false
 
         override fun delete(download: NarDownload) {
             deletedItemIds += download.id
         }
+
+        override fun retainedArchiveAvailable(download: NarDownload) = isRetainedArchiveAvailable
 
         override fun releasePersistedGrant(download: NarDownload) {
             releasedItemIds += download.id
