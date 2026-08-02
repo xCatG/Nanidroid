@@ -46,6 +46,14 @@ import java.io.InputStreamReader
 import java.util.Arrays
 import java.util.concurrent.Executors
 
+internal fun launchCandidateIds(preferred: String, available: List<String>): List<String> =
+    listOf(preferred) + available.filterNot { it.equals(preferred, ignoreCase = true) }
+
+internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf(
+    R.string.err_no_sdcard,
+    R.string.err_no_ghost_available,
+)
+
 internal fun ownsGhostSwitchRequest(targetGhostId: String, pendingGhostId: String?): Boolean =
     targetGhostId == pendingGhostId
 
@@ -127,7 +135,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         object : AsyncTask<Void, Void, Void>() {
             override fun doInBackground(vararg params: Void?): Void? {
                 createSvcs2ndThread()
-                if (gm!!.getGhostCount() == 0) installFirstGhost()
+                if (gm!!.shouldInstallFirstGhost()) installFirstGhost()
                 createGhost()
                 currentRunCount = getStartCount()
                 if (currentRunCount == 0L) loadFirstRunScript()
@@ -137,12 +145,22 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             }
             override fun onPostExecute(result: Void?) {
                 if (isDestroyed || isFinishing) return
+                val ghost = currentGhost
+                if (ghost == null) {
+                    hideProgress()
+                    simpleDialog = NanidroidSimpleDialog.Notice(
+                        R.string.err_title,
+                        R.string.err_no_ghost_available,
+                        onConfirm = { finish() },
+                    )
+                    return
+                }
                 // Compose state and its caches are main-thread owned.  The
                 // ghost files were prepared above; bind them to the stage only
                 // after AsyncTask returns to the UI thread.
-                setGhostToRunner(currentGhost!!)
+                setGhostToRunner(ghost)
                 enqueuePendingArchiveIntent()
-                dbgRelatedSetup(currentGhost!!)
+                dbgRelatedSetup(ghost)
                 hideProgress()
                 initComplete = true
                 runner!!.startClock()
@@ -155,11 +173,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun createGhost() {
         val lastId = gm!!.getLastRunGhostId() ?: "nanidroid"
         mGH.sendEmptyMessage(MSG_LOAD_F)
-        val ghost = gm!!.createGhost(lastId)!!
+        val ghost = launchCandidateIds(lastId, gm!!.getGnames().orEmpty().toList())
+            .firstNotNullOfOrNull(gm!!::createGhost)
+            ?: return
         CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
         gm!!.setLastRunGhost(ghost)
         currentGhost = ghost
     }
+
     private fun setGhostToRunner(ghost: Ghost) {
         composeStage.setSurfaceManager(ghost.mgr)
         runner!!.setPresentationRenderer(composeStage.renderer)
@@ -579,7 +600,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             DIALOG_NOTICE -> {
                 val title = state.getInt(SIMPLE_DIALOG_TITLE)
                 val message = state.getInt(SIMPLE_DIALOG_MESSAGE)
-                NanidroidSimpleDialog.Notice(title, message, if (message == R.string.err_no_sdcard) ({ finish() }) else null)
+                NanidroidSimpleDialog.Notice(
+                    title,
+                    message,
+                    if (finishAfterRestoredNotice(message)) ({ finish() }) else null,
+                )
             }
             DIALOG_HELP_MENU -> createHelpMenuDialog()
             DIALOG_GENERAL_HELP -> createGeneralHelpDialog()

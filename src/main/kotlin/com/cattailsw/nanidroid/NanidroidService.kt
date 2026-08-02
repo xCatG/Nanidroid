@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.os.Message
 import android.util.Log
 import android.util.Pair
+import com.cattailsw.nanidroid.durable.GhostUpdateWorker
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.NetworkUtil
@@ -27,11 +28,20 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.SocketTimeoutException
 import java.util.LinkedList
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+
+internal fun dispatchGhostUpdateEnqueue(executor: Executor, task: () -> Unit) {
+    executor.execute(task)
+}
 
 /** Kotlin owner of foreground downloads, polling, and ghost updates. */
 class NanidroidService : Service() {
     private var runner: SScriptRunner? = null
     private val activeForegroundStartIds = HashSet<Int>()
+    private val ghostUpdateEnqueueExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "ghost-update-enqueue")
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,11 +75,19 @@ class NanidroidService : Service() {
                 val homeurl = intent.data
                 val gid = intent.getStringExtra(EXT_GID)
                 val ghostRoot = intent.getStringExtra(EXT_GROOT)
-                if (isHttpsUri(homeurl) && gid != null) {
+                if (isHttpsUri(homeurl) && gid != null && ghostRoot != null) {
                     startForegroundWork(startId)
-                    GhostUpdateTask(homeurl!!, gid, ghostRoot, startId).execute(this)
+                    dispatchGhostUpdateEnqueue(ghostUpdateEnqueueExecutor) {
+                        try {
+                            if (!GhostUpdateWorker.enqueue(this, homeurl!!, gid, File(ghostRoot))) {
+                                Log.w(TAG, "Ghost update is already active or could not be queued")
+                            }
+                        } finally {
+                            finishForegroundWork(startId)
+                        }
+                    }
                 } else {
-                    Log.w(TAG, "Rejected update request without an HTTPS URL and ghost id")
+                    Log.w(TAG, "Rejected update request without an HTTPS URL, ghost id, and root")
                     finishForegroundWork(startId)
                 }
             }
@@ -136,6 +154,7 @@ class NanidroidService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        ghostUpdateEnqueueExecutor.shutdown()
         runner?.stop()
         Log.d(TAG, "onDestory: called")
         handler.removeMessages(HTTP_TASK_START)

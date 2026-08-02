@@ -8,6 +8,8 @@ import org.junit.Rule
 import org.junit.Test
 import java.util.Arrays
 import java.util.Hashtable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Characterizes the deterministic SScriptRunner ghost-handoff protocol without
@@ -116,6 +118,36 @@ class GhostSwitchingCharacterizationTest {
         )
     }
 
+    @Test
+    fun boundUpdateDispatchCannotSwitchGhostBetweenIdentityCheckAndSend() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val switched = CountDownLatch(1)
+        val outgoing = RecordingGhost("outgoing", null, null, 2, null, trace, entered, release)
+        val replacement = RecordingGhost("replacement", null, null, 2, null, trace)
+        setGhost(outgoing)
+
+        val dispatch = Thread {
+            runner.doShioriEventForGhost("outgoing", "OnUpdateComplete", arrayOf("changed"))
+        }.apply { start() }
+        Assert.assertTrue(entered.await(2, TimeUnit.SECONDS))
+        val switch = Thread {
+            runner.setGhost(replacement)
+            switched.countDown()
+        }.apply { start() }
+
+        Assert.assertFalse(switched.await(100, TimeUnit.MILLISECONDS))
+        release.countDown()
+        dispatch.join(2_000)
+        switch.join(2_000)
+        Assert.assertTrue(switched.await(0, TimeUnit.MILLISECONDS))
+        Assert.assertFalse(
+            runner.doShioriEventForGhost("outgoing", "OnUpdateFailure", arrayOf("late")),
+        )
+        Assert.assertTrue(trace.events().any { it?.startsWith("request:outgoing:OnUpdateComplete") == true })
+        Assert.assertFalse(trace.events().any { it?.startsWith("request:replacement:OnUpdateComplete") == true })
+    }
+
     private fun setGhost(ghost: RecordingGhost) {
         currentGhost = ghost
         runner.setGhost(ghost)
@@ -192,7 +224,9 @@ class GhostSwitchingCharacterizationTest {
         sakuraName: String?,
         createCount: Long,
         private val transitionScript: String?,
-        private val trace: Trace
+        private val trace: Trace,
+        private val entered: CountDownLatch? = null,
+        private val release: CountDownLatch? = null,
     ) : com.cattailsw.nanidroid.Ghost(
         ghostId
     ) {
@@ -224,6 +258,8 @@ public override fun doShioriEvent(
             event: String,
             references: Array<String>?
         ): com.cattailsw.nanidroid.ShioriResponse {
+            entered?.countDown()
+            release?.await(2, TimeUnit.SECONDS)
             trace.add(
                 ("request:" + fakeGhostId + ":" + event + ":"
                         + references.contentToString())

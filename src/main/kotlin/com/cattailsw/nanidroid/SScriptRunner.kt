@@ -37,7 +37,7 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun dispatchComposeDoubleClick(x: Int, y: Int, sakura: Boolean, collisionId: Int, buttonId: Int) { if (!sakura) clearMsgQueue(); doMouseDblClick(x,y,sakura,collisionId,buttonId) }
-    fun setGhost(newGhost: Ghost?) {
+    @Synchronized fun setGhost(newGhost: Ghost?) {
         val name = g?.getGhostName()
         g = newGhost
         val firstActivation = g?.getCreateCount() == 0L
@@ -91,6 +91,18 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     fun doMinimize(){g?.doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){doShioriEvent("OnClose",null);exitPending=true};fun doGhostChanging(nextName:String,type:String,nextPath:String){changingPending=true;doShioriEvent("OnGhostChanging",arrayOf(nextName,type,null,nextPath))}
     fun doInstallBegin(id:String){doShioriEvent("OnInstallBegin",arrayOf("ghost",id,id))};fun doInstallComplete(id:String){doShioriEvent("OnInstallComplete",arrayOf("ghost",id,id))}
     @Suppress("UNCHECKED_CAST") fun doShioriEvent(evt:String,ref:Array<out String?>?):Boolean{val r=g?.doShioriEvent(evt,ref as Array<String>?)?:return false;parseShioriResponseAndInsert(r);return true}
+    @Suppress("UNCHECKED_CAST")
+    @Synchronized internal fun doShioriEventForGhost(
+        expectedGhostId: String,
+        evt: String,
+        ref: Array<out String?>?,
+    ): Boolean {
+        val target = g ?: return false
+        if (target.getGhostId() != expectedGhostId) return false
+        val response = target.doShioriEvent(evt, ref as Array<String>?)
+        parseShioriResponseAndInsert(response)
+        return true
+    }
     fun doBoot(){g?.let{val shell=it.getShellName();val count=it.getCreateCount();if(count>1){doShioriEvent("OnBoot",arrayOf(shell) as Array<String>);AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onboot",it.getGhostId(),count.toInt())}else{doShioriEvent("OnFirstBoot",arrayOf("0"));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",it.getGhostId(),0)}}}
     fun getStringValueFromShiori(id:String):String?=g?.getStringFromShiori(id);fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
 }
