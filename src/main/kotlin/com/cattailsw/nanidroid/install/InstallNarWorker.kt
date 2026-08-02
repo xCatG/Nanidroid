@@ -120,15 +120,22 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         itemId: String,
         attemptId: Long,
         workManagerId: String,
-    ): Boolean {
-        val requestId = runCatching { UUID.fromString(workManagerId) }.getOrNull() ?: return false
-        if (workManager.getWorkInfoById(requestId).get() != null) return true
+    ): NarStageWorkRecovery {
+        val requestId = UUID.fromString(workManagerId)
+        val workInfo = workManager.getWorkInfoById(requestId).get()
+        if (workInfo != null) {
+            return if (workInfo.state.isFinished) {
+                NarStageWorkRecovery.FINISHED
+            } else {
+                NarStageWorkRecovery.RESUMABLE
+            }
+        }
         workManager.enqueueUniqueWork(
             NarDownloadRepository.stageWorkName(itemId),
             ExistingWorkPolicy.KEEP,
             stageRequest(itemId, attemptId, requestId),
         )
-        return true
+        return NarStageWorkRecovery.RESUMABLE
     }
 
     private fun stageRequest(

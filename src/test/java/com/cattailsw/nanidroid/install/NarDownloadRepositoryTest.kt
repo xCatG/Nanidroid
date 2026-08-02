@@ -477,6 +477,46 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
     }
 
+    @Test fun reconciliationMakesSucceededStageWorkActionable() {
+        assertTerminalStageWorkBecomesActionable(FakeStageWorkState.SUCCEEDED)
+    }
+
+    @Test fun reconciliationMakesFailedStageWorkActionable() {
+        assertTerminalStageWorkBecomesActionable(FakeStageWorkState.FAILED)
+    }
+
+    @Test fun reconciliationMakesCancelledStageWorkActionable() {
+        assertTerminalStageWorkBecomesActionable(FakeStageWorkState.CANCELLED)
+    }
+
+    @Test fun reconciliationPreservesNonterminalStageWorkWithoutDuplicateEnqueue() {
+        val items = listOf(
+            FakeStageWorkState.ENQUEUED,
+            FakeStageWorkState.RUNNING,
+            FakeStageWorkState.BLOCKED,
+        ).mapIndexed { index, state ->
+            repository.enqueueLocalCopy("content://provider/nonterminal-$index.nar").also { item ->
+                work.stageWorkStates[item.workManagerId!!] = state
+            }
+        }
+        val before = items.map { store.get(it.id)!! }
+
+        recreatedRepository().reconcile()
+
+        assertEquals(before, items.map { store.get(it.id)!! })
+        assertTrue(work.stageRecreatedIds.isEmpty())
+    }
+
+    @Test fun reconciliationMakesStageWorkQueryFailureActionable() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        work.stageQueryFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertTrue(work.stageRecreatedIds.isEmpty())
+    }
+
     @Test fun temporaryReplacementUsesSupervisedCancellableCopyAttempt() {
         val item = repository.enqueueLocal("content://provider/unavailable.nar")
         installer.failure = SecurityException("grant revoked")
@@ -998,7 +1038,10 @@ class NarDownloadRepositoryTest {
         val cancelledNames = mutableListOf<String>()
         val cancelledBindings = mutableListOf<String>()
         val stageEnqueuedIds = mutableSetOf<String>()
+        val stageRecreatedIds = mutableListOf<String>()
+        val stageWorkStates = mutableMapOf<String, FakeStageWorkState>()
         var loseNextStageAfterPreparation = false
+        var stageQueryFailure: Exception? = null
 
         override fun enqueue(itemId: String) {
             enqueuedNames += NarDownloadRepository.workName(itemId)
@@ -1019,6 +1062,7 @@ class NarDownloadRepositoryTest {
                 loseNextStageAfterPreparation = false
             } else {
                 stageEnqueuedIds += workManagerId
+                stageWorkStates[workManagerId] = FakeStageWorkState.ENQUEUED
             }
             return true
         }
@@ -1027,10 +1071,31 @@ class NarDownloadRepositoryTest {
             itemId: String,
             attemptId: Long,
             workManagerId: String,
-        ): Boolean {
-            stageEnqueuedIds += workManagerId
-            return true
+        ): NarStageWorkRecovery {
+            stageQueryFailure?.let { throw it }
+            if (workManagerId !in stageWorkStates) {
+                stageEnqueuedIds += workManagerId
+                stageRecreatedIds += workManagerId
+                stageWorkStates[workManagerId] = FakeStageWorkState.ENQUEUED
+            }
+            return when (stageWorkStates.getValue(workManagerId)) {
+                FakeStageWorkState.SUCCEEDED,
+                FakeStageWorkState.FAILED,
+                FakeStageWorkState.CANCELLED -> NarStageWorkRecovery.FINISHED
+                FakeStageWorkState.ENQUEUED,
+                FakeStageWorkState.RUNNING,
+                FakeStageWorkState.BLOCKED -> NarStageWorkRecovery.RESUMABLE
+            }
         }
+    }
+
+    private enum class FakeStageWorkState {
+        ENQUEUED,
+        RUNNING,
+        BLOCKED,
+        SUCCEEDED,
+        FAILED,
+        CANCELLED,
     }
 
     private class FakeArchiveInstaller : NarArchiveInstaller {
@@ -1103,6 +1168,18 @@ class NarDownloadRepositoryTest {
             remoteProgress = FakeRemoteProgressObserver(downloads, recreatedSupervisor),
             nextId = { ids.removeFirst() },
         )
+    }
+
+    private fun assertTerminalStageWorkBecomesActionable(state: FakeStageWorkState) {
+        val item = repository.enqueueLocalCopy("content://provider/terminal-$state.nar")
+        work.stageWorkStates[item.workManagerId!!] = state
+
+        recreatedRepository().reconcile()
+
+        val recovered = store.get(item.id)!!
+        assertEquals(item.attemptId, recovered.attemptId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        assertTrue(work.stageRecreatedIds.isEmpty())
     }
 
     private class RecordingOperationCancellation(

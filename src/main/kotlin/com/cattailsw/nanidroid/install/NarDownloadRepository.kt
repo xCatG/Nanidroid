@@ -73,7 +73,12 @@ internal interface NarInstallWorkScheduler {
         itemId: String,
         attemptId: Long,
         workManagerId: String,
-    ): Boolean
+    ): NarStageWorkRecovery
+}
+
+internal enum class NarStageWorkRecovery {
+    RESUMABLE,
+    FINISHED,
 }
 
 internal interface NarArchiveInstaller {
@@ -497,10 +502,14 @@ class NarDownloadRepository internal constructor(
             .filter { it.state == NarDownloadState.Copying }
             .forEach { item ->
                 val workManagerId = item.workManagerId
-                val resumable = workManagerId != null && runCatching {
-                    work.ensureStageEnqueued(item.id, item.attemptId, workManagerId)
-                }.getOrDefault(false)
-                if (!resumable) markNeedsAttention(item.id, COPY_INTERRUPTED)
+                val recovery = workManagerId?.let {
+                    runCatching {
+                        work.ensureStageEnqueued(item.id, item.attemptId, workManagerId)
+                    }.getOrNull()
+                }
+                if (recovery != NarStageWorkRecovery.RESUMABLE) {
+                    markNeedsAttention(item.id, COPY_INTERRUPTED)
+                }
             }
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
