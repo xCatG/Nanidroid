@@ -198,6 +198,9 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
+    fun isSourceReferenced(location: String): Boolean = hasSourceReference(location)
+
+    @Synchronized
     fun onDownloadComplete(downloadManagerId: Long) {
         val item = store.getAll().firstOrNull {
             it.downloadManagerId == downloadManagerId && it.state.isNonterminal()
@@ -326,14 +329,18 @@ class NarDownloadRepository internal constructor(
 
     private fun releasePersistedGrantIfUnused(item: NarDownload) {
         val location = item.retainedUri ?: return
-        val isStillReferenced = store.getAll().any { other ->
-            other.id != item.id && (
+        if (!hasSourceReference(location, item.id)) {
+            runCatching { ownedData.releasePersistedGrant(item) }
+        }
+    }
+
+    private fun hasSourceReference(location: String, excludedItemId: String? = null) =
+        store.getAll().any { other ->
+            other.id != excludedItemId && (
                 other.retainedUri == location ||
                     (other.source as? NarDownloadSource.Local)?.uri == location
                 )
         }
-        if (!isStillReferenced) runCatching { ownedData.releasePersistedGrant(item) }
-    }
 
     private fun publish() {
         observedDownloads.value = store.getAll()

@@ -395,7 +395,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
 
     private fun discardUnclaimedArchive(sourceUri: Uri, location: String) {
-        if (location == sourceUri.toString()) {
+        if (location == sourceUri.toString() && !narDownloads.isSourceReferenced(location)) {
             runCatching {
                 contentResolver.releasePersistableUriPermission(
                     sourceUri,

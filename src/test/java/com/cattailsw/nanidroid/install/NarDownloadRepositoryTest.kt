@@ -121,6 +121,16 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(second.id), ownedData.releasedItemIds)
     }
 
+    @Test fun reportsSharedDocumentSourceReferencedAfterPlaceholderDeletion() {
+        val source = "content://provider/shared.nar"
+        val placeholder = repository.retainLocalSourceForCopy(source)
+        repository.enqueueLocal(source, source)
+
+        repository.delete(placeholder.id)
+
+        assertTrue(repository.isSourceReferenced(source))
+    }
+
     @Test fun reselectingTheSameDocumentKeepsItsPersistedGrant() {
         val source = "content://provider/reselected.nar"
         val item = repository.enqueueLocal(source, source)
