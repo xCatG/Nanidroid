@@ -53,4 +53,5 @@
   <string name="unsupported_shiori">\\0\\s0抱歉，這個偽人格使用Nanidroid尚未支援的SHIORI模組！將無法顯示偽人格專屬的對話等功能。\\e</string>
   <string name="unsupported_shiori_ongchanging">\\0\\s0切換至偽人格%1$s\\e</string>
   <string name="unsupported_shiori_onclose">\\0\\s0感謝您使用Nanidroid！\\e</string>    
+  <string name="err_no_ghost_available">目前沒有可用的偽人格。先前中斷的更新可能仍在復原中。請嘗試重新開啟 Nanidroid。</string>
 </resources>
