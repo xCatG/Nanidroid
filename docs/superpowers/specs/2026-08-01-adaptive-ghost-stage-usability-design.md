@@ -1,6 +1,6 @@
 # Adaptive Ghost Stage and Usability Design
 
-**Status:** Revised; awaiting final touch/passivemode confirmation
+**Status:** Revised; awaiting final user review
 
 **Date:** 2026-08-01
 
@@ -24,7 +24,7 @@ authoritative for rendering, input, collision overlays, and diagnostics.
 The review pass retains those layout decisions and strengthens the compatibility
 contract around stable window classification, shell parsing, collision geometry,
 SHIORI references, SakuraScript actions, pointer sources, accessibility, recovery,
-and deterministic verification.
+durable-operation escape hatches, and deterministic verification.
 
 ## Audit and Review Evidence
 
@@ -79,6 +79,8 @@ code, downloaded corpus, and official UKADOC references before inclusion.
    bubble presentation and its extracted action surfaces.
 8. Add automated coverage proportional to the real surface, grammar, pointer,
    accessibility, and viewport range.
+9. Keep passivemode-compatible durable work from trapping the user when an
+   update, download, copy, or install stops making progress.
 
 ## Non-Goals
 
@@ -94,8 +96,10 @@ code, downloaded corpus, and official UKADOC references before inclusion.
 - Image-mask `collisionex ... region` and animation-scoped collisions are not in
   the proposed compatibility baseline. They are diagnosed rather than silently
   treated as rectangles.
-- Archive download and installation queue behavior is outside this stage/UI
-  change.
+- Redesigning archive discovery, queue ordering, retry policy, or download
+  management is outside this stage/UI change. The narrow passive-mode guard and
+  stalled-operation cancellation/recovery contract are included because they
+  determine whether the user can safely escape this UI state.
 - A project-wide Navigation 3 migration is not required because this work does
   not introduce a new destination or list-detail relationship.
 - Transparent margins are not cropped. Collision coordinates are authored
@@ -398,10 +402,10 @@ Physical pointer policy for this slice:
 
 This exact-one-event policy avoids duplicate ghost responses. The touch rule
 interprets the requested heuristic as "map a touch single-tap to double-click
-when the ghost does not declare single-click but does declare double-click";
-that wording requires confirmation. The physical exact-one sequence is a
-deliberate Nanidroid product policy approved for this slice, not a claim that it
-reproduces every SSP event in the same order.
+when the ghost does not declare single-click but does declare double-click,"
+as confirmed. The physical exact-one sequence is a deliberate Nanidroid product
+policy approved for this slice, not a claim that it reproduces every SSP event
+in the same order.
 
 ## SakuraScript and Bubble Actions
 
@@ -449,12 +453,11 @@ never lost when choices are extracted.
 - One origin-aware passive user-action guard disables the Nanidroid-owned ghost
   switch, minimize, exit, network update, NAR import/install, and uninstall
   paths. Equivalent actions explicitly initiated by SakuraScript remain allowed.
-  It prevents new user-started work; a durable update/install already in progress
-  reaches its existing safe completion or failure boundary rather than being
-  cancelled into partial state. Nanidroid does not claim to prevent Android
-  system navigation or implement unrelated SSP desktop facilities. Authored
-  choices, anchors, and input remain available so the sequence can leave passive
-  mode.
+  Entering passive mode never auto-cancels work already in progress; that work
+  remains supervised and the user can invoke the specific safe-stop recovery
+  flow below. Nanidroid does not claim to prevent Android system navigation or
+  implement unrelated SSP desktop facilities. Authored choices, anchors, and
+  input remain available so the sequence can leave passive mode.
 - Recognized presentational commands that remain unsupported are consumed only
   after complete tokenization and are logged in debuggable builds.
 - Unknown or truncated commands use a balanced-token recovery rule and cannot
@@ -463,6 +466,50 @@ never lost when choices are extracted.
   tertiary dialogue to Sakura/Kero. The proposed behavior is to consume that
   scope's presentation with one bounded diagnostic until multi-scope UI is
   designed.
+
+## Stalled Durable Operation Recovery
+
+Passivemode prevents new user-originated ghost updates, archive imports/installs,
+and uninstall work, but it never hides recovery for work that was already
+active. Recovery controls are baseware safety controls, not ghost interactions,
+and remain available while passive.
+
+Each remote archive download, local archive copy/install, and ghost network
+update publishes an operation ID, human-readable phase, monotonically increasing
+progress value, and in-process monotonic `lastProgressAt`. A heartbeat is a real
+phase transition or increase in bytes/items processed; recomposition, polling,
+or repeating the same status is not progress.
+
+When one specific active operation has no heartbeat for 30,000 ms, Nanidroid
+shows a named stalled-operation prompt in the app and exposes the equivalent
+action from its ongoing notification when backgrounded:
+
+- `Keep waiting` dismisses the prompt and starts a new 30-second observation
+  window without changing or restarting the operation;
+- `Stop operation` records an idempotent durable cancellation request for only
+  that operation and changes its visible state to `Stopping...`; and
+- there is no countdown, implicit default, or automatic cancellation.
+
+Cancellation is cooperative. It cancels the matching DownloadManager or
+WorkManager job where applicable, closes owned network/file streams, and is
+checked between bounded copy/extraction chunks and phase boundaries. A stalled
+`Stopping...` state may expose diagnostics and `Keep waiting` again after 30
+seconds, but Nanidroid does not force-kill its process or worker thread.
+
+Fresh NAR install continues to use private staging and publishes only a verified
+tree, so cancellation removes staging and leaves installed ghosts untouched.
+Ghost network update must gain equivalent transactional safety before exposing
+Stop: download and verify all candidate files outside the live ghost, record a
+rollback/recovery journal, and then publish through a bounded commit phase.
+Cancellation before commit deletes staging. Cancellation or process death during
+commit is resolved from the journal by completing or rolling back before that
+ghost can boot; it never leaves an unclassified partially updated state.
+
+Durable operation phase and `CancelRequested` survive recreation. A recreated
+active operation receives a fresh 30-second observation window to avoid a false
+stall prompt; a persisted cancellation request is honored immediately. Terminal
+states are `Completed`, `Failed`, and `Cancelled`, each with bounded diagnostics
+and cleanup ownership.
 
 ## Accessibility
 
@@ -475,6 +522,9 @@ never lost when choices are extracted.
 - Choice rows and their bubble pop-out, anchors, URLs, input controls, overflow
   items, bug icon, and debug controls expose stable labels, roles, focus order,
   and keyboard/D-pad actions.
+- Stalled-operation prompts name the affected operation and phase; `Keep
+  waiting`, `Stop operation`, and diagnostic actions remain reachable through
+  touch, keyboard/D-pad, and accessibility services while passive.
 - Material chrome and bubble actions meet a 48 dp minimum target. Authored
   collision geometry remains exact; custom actions provide the accessible
   alternative for tiny authored regions.
@@ -526,16 +576,19 @@ nor a hidden focusable debug panel.
 ## Implementation Sequencing
 
 The feature remains one user-facing design, but implementation is divided into
-three dependency-ordered milestones with green tests and focused commits between
+four dependency-ordered milestones with green tests and focused commits between
 them:
 
-1. **Compatibility foundation:** decoded surface files, selector expansion,
+1. **Durable-work safety:** operation identity/progress, stall observation,
+   cooperative cancellation, transactional ghost updates, restart recovery, and
+   deterministic cancellation tests.
+2. **Compatibility foundation:** decoded surface files, selector expansion,
    ordered collision shapes, structured SakuraScript actions, exact SHIORI
    references, and pure parser/protocol fixtures.
-2. **Adaptive stage:** stable environment classification, lane and bubble policy,
+3. **Adaptive stage:** stable environment classification, lane and bubble policy,
    optical sizing, measured pixel transforms, overlay/hit equality, pointer
    routing, and layout/property tests.
-3. **Usability completion:** adaptive extracted bubble actions, accessibility
+4. **Usability completion:** adaptive extracted bubble actions, accessibility
    semantics, adaptive debug surfaces, restoration/error behavior, screenshot
    goldens, and connected end-to-end coverage.
 
@@ -576,6 +629,15 @@ visibility, selected diagnostic scope, overlay switch, and each bubble's scroll
 position. The runtime retains bounded diagnostics and republishes its latest
 frame after recreation; bitmaps and logs are not serialized into a Bundle.
 
+### `DurableOperationSupervisor`
+
+One application-scoped owner observes operation identity, phase, real progress,
+stall windows, and durable cancellation requests across DownloadManager,
+WorkManager, and the transactional updater. Compose and notifications consume
+its state but do not calculate stalls independently. The supervisor uses an
+injectable monotonic clock for in-process decisions and restarts only the
+observation window—not the underlying work—after process recreation.
+
 ## Error Handling
 
 - Tiny windows render the fallback rather than a partially clipped stage.
@@ -587,6 +649,12 @@ frame after recreation; bitmaps and logs are not serialized into a Bundle.
   diagnostics rather than misparsed as another supported construct.
 - A failed SHIORI interaction retains the current frame and both bubble states,
   logs one bounded failure, and does not block the next successful event.
+- A stalled operation never cancels automatically. A specific stop request is
+  idempotent, does not affect other queued/running operations, and reaches a
+  terminal state or remains visibly `Stopping...` with diagnostics.
+- Cancellation and process death cannot expose partial NAR trees or an
+  unclassified partially published ghost update; staging and recovery journals
+  have explicit owners and bounded cleanup.
 - Opening/closing IME, debug, or chrome never changes stage classification.
 
 ## Verification Strategy
@@ -646,6 +714,26 @@ Parser fixtures cover:
 - a malformed selector that must not mutate surface 0; and
 - malformed blocks/regions followed by multiple valid blocks.
 
+### Durable-operation recovery tests
+
+Use an injectable clock and fake DownloadManager/WorkManager/filesystem
+boundaries to verify:
+
+- no prompt at 29,999 ms without progress and one prompt at 30,000 ms;
+- real byte/item/phase progress resets the window while repeated status does not;
+- `Keep waiting` begins a new window and never restarts or cancels work;
+- no timeout path cancels automatically;
+- `Stop operation` is idempotent, names and cancels only its selected operation,
+  persists across recreation, and remains available while passive;
+- download, local copy, staged extraction, verification, pre-commit, commit, and
+  cleanup cancellation paths reach the specified terminal/recovery state;
+- process death before and during update publication deterministically rolls
+  forward or back before ghost boot and preserves the previous usable ghost;
+- a recreated active operation receives a fresh observation window while a
+  recreated `CancelRequested` operation resumes stopping immediately; and
+- a second 30-second stall while `Stopping...` exposes diagnostics without
+  force-killing or silently changing terminal state.
+
 ### Screenshot tests
 
 Use Compose Preview Screenshot Testing with deterministic in-memory shell and
@@ -659,6 +747,7 @@ contains named cases rather than a Cartesian explosion:
 - flat foldable and separating-feature fallback;
 - tiny wide and tiny tall;
 - debug bottom sheet, full-stage compact overlay, and side panel;
+- named stalled-operation prompt in normal and passive states;
 - collision overlay with rectangle, ellipse, and polygon; and
 - LTR/RTL, light/dark, and font scales 1.0, 1.5, and 2.0 on selected cases.
 
@@ -722,26 +811,29 @@ connected instrumentation suite before implementation is considered complete.
   stage interactions without falsifying authored collision geometry.
 - Debug tools occupy one adaptive surface, every exposed control works, and
   release builds expose none of them.
+- A healthy long operation is never prompted merely for its total duration. One
+  operation with no real progress for 30 seconds offers `Keep waiting` and a
+  specific `Stop operation`, never cancels automatically, and remains recoverable
+  while passive or after process recreation.
+- Cancelling or losing the process during NAR install or ghost update never
+  exposes a partial published tree; the prior ghost remains usable or the journal
+  completes a classified commit before boot.
 - Tiny windows show the agreed message, have no hidden ghost interaction, and
   restore the existing frame when resized.
 - The named layout, grammar, screenshot, semantics, recovery, and end-to-end
   suites are present and green.
 
-## Product Decisions and Remaining Clarification
+## Resolved Product Decisions
 
-The user approved decisions 2–6 and supplied direction or questions for 1, 7,
-and 8. The resulting recommended contracts are recorded below. Implementation
-planning waits for the wording confirmation in decision 1 and confirmation of
-the passivemode user-action scope in decision 8; decision 7 should receive a
-final usability glance but no protocol choice remains.
+The user approved the following contracts. Implementation planning waits only
+for final review of this written specification.
 
 1. **Touch compatibility:** use declared ghost capabilities. A touch single-tap
    sends `OnMouseClick` when declared, maps to `OnMouseDoubleClick` when only
    double-click is declared, sends nothing when both are explicitly unsupported,
    and preserves legacy double-click behavior when capability metadata is
-   unavailable. Confirm that this is what was meant by "map single to double if
-   the ghost doesn't have double click"; the likely intended condition is
-   "doesn't have single click."
+   unavailable. "Map single to double" means the ghost does not support
+   single-click but does support double-click.
 2. **Physical pointing-device sequencing:** delay a mouse/pen single until the
    double-click window closes, so a double-click produces only
    `OnMouseDoubleClick`, not preceding click responses.
@@ -773,9 +865,12 @@ final usability glance but no protocol choice remains.
    the passive sequence, and an origin-aware guard disables owned ghost-switch,
    minimize, exit, update, import/install, and uninstall user actions while
    permitting SakuraScript-originated actions. Already-running durable work is
-   not cancelled into partial state. Confirm that this full Nanidroid-owned
-   user-action guard is in scope. Do not suppress Android system navigation or
-   claim unrelated SSP desktop features.
+   supervised instead of cancelled automatically. After 30 seconds with no real
+   progress, a prompt names the specific operation and offers `Keep waiting` or
+   cooperative `Stop operation`; neither the stall threshold nor passivemode
+   triggers cancellation by itself. Transactional staging/journaling prevents a
+   partial published install or update. Do not suppress Android system navigation
+   or claim unrelated SSP desktop features.
 
 ## Reference Contracts
 
