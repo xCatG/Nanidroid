@@ -1,0 +1,182 @@
+package com.cattailsw.nanidroid.durable
+
+import com.cattailsw.nanidroid.di.MonotonicClock
+
+class DurableOperationSupervisor(
+    private val store: DurableOperationStore,
+    private val clock: MonotonicClock,
+    private val cancellation: OperationCancellation,
+) {
+    private val operationLock = Any()
+    private val lastProgressAt = mutableMapOf<OperationHandle, Long>()
+    private val cancellationIssued = mutableSetOf<OperationHandle>()
+
+    init {
+        val now = clock.nowMillis()
+        store.read().filter { it.status.isActive() }.forEach { restored ->
+            val handle = restored.handle()
+            lastProgressAt[handle] = now
+            if (restored.showStallPrompt) {
+                store.compareAndSet(
+                    handle,
+                    restored.status,
+                    restored.copy(showStallPrompt = false),
+                )
+            }
+            if (restored.status == OperationStatus.CANCEL_REQUESTED) {
+                cancellationIssued += handle
+                cancellation.cancel(handle)
+            }
+        }
+    }
+
+    fun start(
+        handle: OperationHandle,
+        kind: OperationKind,
+        phase: String,
+        completed: Long,
+        externalJob: ExternalJobBinding? = null,
+    ): Boolean = synchronized(operationLock) {
+        val accepted = DurableOperationRecord(
+            id = handle.operationId,
+            attemptId = handle.attemptId,
+            kind = kind,
+            externalJob = externalJob,
+            progress = OperationProgress(phase, completed),
+            status = OperationStatus.RUNNING,
+            showStallPrompt = false,
+        )
+        val inserted = store.putIfAbsent(accepted)
+        if (!inserted) {
+            val previous = store.read().singleOrNull { it.id == handle.operationId }
+                ?: return@synchronized false
+            if (
+                !previous.status.isTerminal() ||
+                previous.kind != kind ||
+                handle.attemptId.value <= previous.attemptId.value
+            ) {
+                return@synchronized false
+            }
+            if (!store.compareAndSet(previous.handle(), previous.status, accepted)) {
+                return@synchronized false
+            }
+            lastProgressAt.remove(previous.handle())
+            cancellationIssued.remove(previous.handle())
+        }
+        lastProgressAt[handle] = clock.nowMillis()
+        true
+    }
+
+    fun reportProgress(handle: OperationHandle, phase: String, completed: Long): Boolean =
+        synchronized(operationLock) {
+            val current = activeRecord(handle) ?: return@synchronized false
+            if (current.status != OperationStatus.RUNNING) return@synchronized false
+            val changedPhase = phase != current.progress.phase
+            val advanced = completed > current.progress.completed
+            if (!changedPhase && !advanced) return@synchronized false
+            val updated = current.copy(
+                progress = OperationProgress(phase, completed),
+                showStallPrompt = false,
+            )
+            if (!store.compareAndSet(handle, OperationStatus.RUNNING, updated)) {
+                return@synchronized false
+            }
+            lastProgressAt[handle] = clock.nowMillis()
+            true
+        }
+
+    fun bindExternalJob(handle: OperationHandle, binding: ExternalJobBinding): Boolean =
+        synchronized(operationLock) {
+            val current = activeRecord(handle) ?: return@synchronized false
+            if (current.externalJob == binding) return@synchronized false
+            store.compareAndSet(handle, current.status, current.copy(externalJob = binding))
+        }
+
+    fun keepWaiting(handle: OperationHandle): Boolean = synchronized(operationLock) {
+        val current = activeRecord(handle) ?: return@synchronized false
+        if (!store.compareAndSet(handle, current.status, current.copy(showStallPrompt = false))) {
+            return@synchronized false
+        }
+        lastProgressAt[handle] = clock.nowMillis()
+        true
+    }
+
+    fun requestStop(handle: OperationHandle): Boolean = synchronized(operationLock) {
+        val current = activeRecord(handle) ?: return@synchronized false
+        if (current.status == OperationStatus.CANCEL_REQUESTED) return@synchronized true
+        val updated = current.copy(
+            progress = current.progress.copy(phase = STOPPING_PHASE),
+            status = OperationStatus.CANCEL_REQUESTED,
+            showStallPrompt = false,
+        )
+        if (!store.compareAndSet(handle, OperationStatus.RUNNING, updated)) {
+            return@synchronized false
+        }
+        lastProgressAt[handle] = clock.nowMillis()
+        if (cancellationIssued.add(handle)) cancellation.cancel(handle)
+        true
+    }
+
+    fun finish(
+        handle: OperationHandle,
+        status: OperationStatus,
+        diagnostics: String? = null,
+    ): Boolean = synchronized(operationLock) {
+        require(status.isTerminal()) { "finish requires a terminal status" }
+        val current = activeRecord(handle) ?: return@synchronized false
+        val updated = current.copy(
+            status = status,
+            showStallPrompt = false,
+            diagnostics = diagnostics,
+        )
+        if (!store.compareAndSet(handle, current.status, updated)) return@synchronized false
+        lastProgressAt.remove(handle)
+        cancellationIssued.remove(handle)
+        true
+    }
+
+    fun snapshot(): List<DurableOperationRecord> = synchronized(operationLock) {
+        val now = clock.nowMillis()
+        store.read().filter { it.status.isActive() }.forEach { record ->
+            val handle = record.handle()
+            val observedAt = lastProgressAt.getOrPut(handle) { now }
+            if (!record.showStallPrompt && now - observedAt >= STALL_MILLIS) {
+                val diagnostics = if (
+                    record.status == OperationStatus.CANCEL_REQUESTED && record.diagnostics == null
+                ) {
+                    STOPPING_DIAGNOSTIC
+                } else {
+                    record.diagnostics
+                }
+                store.compareAndSet(
+                    handle,
+                    record.status,
+                    record.copy(showStallPrompt = true, diagnostics = diagnostics),
+                )
+            }
+        }
+        store.read()
+            .filter { it.status.isActive() }
+            .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
+    }
+
+    private fun activeRecord(handle: OperationHandle): DurableOperationRecord? = store.read().singleOrNull {
+        it.id == handle.operationId && it.attemptId == handle.attemptId && it.status.isActive()
+    }
+
+    private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
+
+    private fun OperationStatus.isActive() =
+        this == OperationStatus.RUNNING || this == OperationStatus.CANCEL_REQUESTED
+
+    private fun OperationStatus.isTerminal() =
+        this == OperationStatus.COMPLETED ||
+            this == OperationStatus.FAILED ||
+            this == OperationStatus.CANCELLED
+
+    private companion object {
+        const val STALL_MILLIS = 30_000L
+        const val STOPPING_PHASE = "Stopping..."
+        const val STOPPING_DIAGNOSTIC = "Cancellation has not completed after 30 seconds."
+    }
+}

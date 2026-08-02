@@ -225,6 +225,7 @@ data class DurableOperationRecord(
 )
 interface DurableOperationStore {
     fun read(): List<DurableOperationRecord>
+    fun putIfAbsent(record: DurableOperationRecord): Boolean
     fun compareAndSet(handle: OperationHandle, expected: OperationStatus, updated: DurableOperationRecord): Boolean
 }
 fun interface OperationCancellation { fun cancel(handle: OperationHandle) }
