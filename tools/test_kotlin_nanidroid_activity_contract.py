@@ -17,6 +17,9 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.source = (
             ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt"
         ).read_text(encoding="utf-8")
+        self.archive_intent_state = (
+            ROOT / "src/main/kotlin/com/cattailsw/nanidroid/ArchiveIntentState.kt"
+        ).read_text(encoding="utf-8")
 
     def test_gradle_build_uses_kotlin_while_ant_keeps_the_frozen_java_activity(self):
         self.assertFalse((ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.java").exists())
@@ -78,7 +81,8 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
         self.assertIn("val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id", self.source)
         self.assertIn("val replacementId = replacingNarDownloadId", self.source)
         self.assertIn("NAR_CONSUMED_INTENT_URI", self.source)
-        self.assertIn("if (consumedArchiveIntentUri == uri.toString()) return", self.source)
+        self.assertIn("archiveIntentState.receive(uri.toString()", self.source)
+        self.assertIn("Reception.Dispatch(copy(consumedUri = uri), uri, flags)", self.archive_intent_state)
         self.assertIn("discardUnclaimedArchive(uri, result.location)", self.source)
         self.assertNotIn("registerForActivityResult", self.source)
 

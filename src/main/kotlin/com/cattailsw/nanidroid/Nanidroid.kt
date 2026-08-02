@@ -80,9 +80,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var nextGhostId: String? = null
     private var awaitingNarDocument = false
     private var replacingNarDownloadId: String? = null
-    private var consumedArchiveIntentUri: String? = null
-    private var pendingArchiveIntentUri: String? = null
-    private var pendingArchiveIntentFlags = 0
+    private var archiveIntentState = ArchiveIntentState()
     private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,9 +88,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         onBackPressedDispatcher.addCallback(this, backPressedCallback)
         awaitingNarDocument = savedInstanceState?.getBoolean(NAR_PICK_PENDING, false) ?: false
         replacingNarDownloadId = savedInstanceState?.getString(NAR_PICK_REPLACEMENT_ID)
-        consumedArchiveIntentUri = savedInstanceState?.getString(NAR_CONSUMED_INTENT_URI)
-        pendingArchiveIntentUri = savedInstanceState?.getString(NAR_PENDING_INTENT_URI)
-        pendingArchiveIntentFlags = savedInstanceState?.getInt(NAR_PENDING_INTENT_FLAGS, 0) ?: 0
+        archiveIntentState = ArchiveIntentState(
+            consumedUri = savedInstanceState?.getString(NAR_CONSUMED_INTENT_URI),
+            pendingUri = savedInstanceState?.getString(NAR_PENDING_INTENT_URI),
+            pendingFlags = savedInstanceState?.getInt(NAR_PENDING_INTENT_FLAGS, 0) ?: 0,
+        )
         handleIncomingIntent(intent)
         val dbgBuild = isDbgBuild()
         initGA()
@@ -217,9 +217,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         saveSimpleDialog(outState)
         outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
         outState.putString(NAR_PICK_REPLACEMENT_ID, replacingNarDownloadId)
-        outState.putString(NAR_CONSUMED_INTENT_URI, consumedArchiveIntentUri)
-        outState.putString(NAR_PENDING_INTENT_URI, pendingArchiveIntentUri)
-        outState.putInt(NAR_PENDING_INTENT_FLAGS, pendingArchiveIntentFlags)
+        outState.putString(NAR_CONSUMED_INTENT_URI, archiveIntentState.consumedUri)
+        outState.putString(NAR_PENDING_INTENT_URI, archiveIntentState.pendingUri)
+        outState.putInt(NAR_PENDING_INTENT_FLAGS, archiveIntentState.pendingFlags)
         super.onSaveInstanceState(outState)
     }
     override fun onDestroy() { super.onDestroy(); sendStopIntent() }
@@ -328,21 +328,20 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             incoming?.data?.let(contentResolver::getType)
         }.getOrNull()
         val uri = ArchiveIntentAdapter.contentUri(incoming, resolvedMimeType) ?: return
-        if (consumedArchiveIntentUri == uri.toString()) return
-        if (pendingArchiveIntentUri != null) {
-            enqueueLocalArchive(uri, incoming?.flags ?: 0)
-            return
+        when (val reception = archiveIntentState.receive(uri.toString(), incoming?.flags ?: 0)) {
+            is ArchiveIntentState.Reception.Ignored -> Unit
+            is ArchiveIntentState.Reception.Pending -> archiveIntentState = reception.state
+            is ArchiveIntentState.Reception.Dispatch -> {
+                archiveIntentState = reception.state
+                enqueueLocalArchive(Uri.parse(reception.uri), reception.flags)
+            }
         }
-        consumedArchiveIntentUri = uri.toString()
-        pendingArchiveIntentUri = uri.toString()
-        pendingArchiveIntentFlags = incoming?.flags ?: 0
     }
 
     private fun enqueuePendingArchiveIntent() {
-        val location = pendingArchiveIntentUri ?: return
-        pendingArchiveIntentUri = null
-        enqueueLocalArchive(Uri.parse(location), pendingArchiveIntentFlags)
-        pendingArchiveIntentFlags = 0
+        val pending = archiveIntentState.takePending() ?: return
+        archiveIntentState = pending.state
+        enqueueLocalArchive(Uri.parse(pending.uri), pending.flags)
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
