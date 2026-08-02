@@ -140,6 +140,15 @@ class NarDownloadRepositoryTest {
         assertTrue(repository.isSourceReferenced(source))
     }
 
+    @Test fun copyingPlaceholderCannotBeRetriedBeforeStagingFinishes() {
+        val item = repository.retainLocalSourceForCopy("content://provider/archive.nar")
+
+        repository.retry(item.id)
+
+        assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+        assertTrue(work.enqueuedNames.isEmpty())
+    }
+
     @Test fun reselectingTheSameDocumentKeepsItsPersistedGrant() {
         val source = "content://provider/reselected.nar"
         val item = repository.enqueueLocal(source, source)

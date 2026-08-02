@@ -22,6 +22,7 @@ sealed interface NarDownloadSource {
 
 /** Immutable state recorded for an archive request. */
 sealed interface NarDownloadState {
+    data object Copying : NarDownloadState
     data object Queued : NarDownloadState
     data object Downloading : NarDownloadState
     data object Installing : NarDownloadState

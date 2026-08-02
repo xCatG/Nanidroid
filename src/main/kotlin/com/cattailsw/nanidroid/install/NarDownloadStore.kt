@@ -110,6 +110,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 append('\t').append(download.downloadManagerId ?: "-")
                 append('\t')
                 when (val state = download.state) {
+                    NarDownloadState.Copying -> append("copying\t-")
                     NarDownloadState.Queued -> append("queued\t-")
                     NarDownloadState.Downloading -> append("downloading\t-")
                     NarDownloadState.Installing -> append("installing\t-")
@@ -140,6 +141,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 else -> return null
             }
             val state = when (fields[stateIndex]) {
+                "copying" -> NarDownloadState.Copying
                 "queued" -> NarDownloadState.Queued
                 "downloading" -> NarDownloadState.Downloading
                 "installing" -> NarDownloadState.Installing

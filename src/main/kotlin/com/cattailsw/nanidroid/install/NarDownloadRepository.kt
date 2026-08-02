@@ -121,9 +121,7 @@ class NarDownloadRepository internal constructor(
                 id = nextId(),
                 source = NarDownloadSource.Local(uri),
                 retainedUri = uri,
-                state = NarDownloadState.NeedsAttention(
-                    NarDownloadState.Failure("Select the archive again to continue."),
-                ),
+                state = NarDownloadState.Copying,
             ),
         )
         publish()
@@ -133,6 +131,7 @@ class NarDownloadRepository internal constructor(
     @Synchronized
     fun retry(itemId: String): NarDownload? {
         val item = store.get(itemId) ?: return null
+        if (item.state == NarDownloadState.Copying) return item
         runCatching { work.cancel(itemId) }
         when (val source = item.source) {
             is NarDownloadSource.Remote -> {
@@ -219,6 +218,9 @@ class NarDownloadRepository internal constructor(
 
     @Synchronized
     fun reconcile() {
+        store.getAll()
+            .filter { it.state == NarDownloadState.Copying }
+            .forEach { markNeedsAttention(it.id, COPY_INTERRUPTED) }
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
             .forEach(::cleanupCompletedInstall)
@@ -380,6 +382,8 @@ class NarDownloadRepository internal constructor(
             "Nanidroid could not install this archive. Retry or delete it."
         private const val INSTALL_INTERRUPTED =
             "The archive install was interrupted. Retry it."
+        private const val COPY_INTERRUPTED =
+            "The archive copy was interrupted. Select the archive again to continue."
 
         @Volatile private var instance: NarDownloadRepository? = null
 

@@ -81,6 +81,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var awaitingNarDocument = false
     private var replacingNarDownloadId: String? = null
     private var consumedArchiveIntentUri: String? = null
+    private var pendingArchiveIntentUri: String? = null
+    private var pendingArchiveIntentFlags = 0
     private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,6 +91,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         awaitingNarDocument = savedInstanceState?.getBoolean(NAR_PICK_PENDING, false) ?: false
         replacingNarDownloadId = savedInstanceState?.getString(NAR_PICK_REPLACEMENT_ID)
         consumedArchiveIntentUri = savedInstanceState?.getString(NAR_CONSUMED_INTENT_URI)
+        pendingArchiveIntentUri = savedInstanceState?.getString(NAR_PENDING_INTENT_URI)
+        pendingArchiveIntentFlags = savedInstanceState?.getInt(NAR_PENDING_INTENT_FLAGS, 0) ?: 0
+        handleIncomingIntent(intent)
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
@@ -124,7 +129,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 // ghost files were prepared above; bind them to the stage only
                 // after AsyncTask returns to the UI thread.
                 setGhostToRunner(currentGhost!!)
-                handleIncomingIntent(intent)
+                enqueuePendingArchiveIntent()
                 dbgRelatedSetup(currentGhost!!)
                 hideProgress()
                 initComplete = true
@@ -212,6 +217,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
         outState.putString(NAR_PICK_REPLACEMENT_ID, replacingNarDownloadId)
         outState.putString(NAR_CONSUMED_INTENT_URI, consumedArchiveIntentUri)
+        outState.putString(NAR_PENDING_INTENT_URI, pendingArchiveIntentUri)
+        outState.putInt(NAR_PENDING_INTENT_FLAGS, pendingArchiveIntentFlags)
         super.onSaveInstanceState(outState)
     }
     override fun onDestroy() { super.onDestroy(); sendStopIntent() }
@@ -322,13 +329,24 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val uri = ArchiveIntentAdapter.contentUri(incoming, resolvedMimeType) ?: return
         if (consumedArchiveIntentUri == uri.toString()) return
         consumedArchiveIntentUri = uri.toString()
-        enqueueLocalArchive(uri, incoming?.flags ?: 0)
+        pendingArchiveIntentUri = uri.toString()
+        pendingArchiveIntentFlags = incoming?.flags ?: 0
+    }
+
+    private fun enqueuePendingArchiveIntent() {
+        val location = pendingArchiveIntentUri ?: return
+        pendingArchiveIntentUri = null
+        enqueueLocalArchive(Uri.parse(location), pendingArchiveIntentFlags)
+        pendingArchiveIntentFlags = 0
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         consumedArchiveIntentUri = null
+        pendingArchiveIntentUri = null
+        pendingArchiveIntentFlags = 0
         handleIncomingIntent(intent)
+        if (initComplete) enqueuePendingArchiveIntent()
     }
     fun onUpdate() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
     fun onListGhost() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
@@ -591,5 +609,5 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList()) }
 
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
 }
