@@ -69,11 +69,16 @@ class DurableOperationSupervisor(
         true
     }
 
-    fun reportProgress(handle: OperationHandle, phase: String, completed: Long): Boolean =
+    fun reportProgress(
+        handle: OperationHandle,
+        binding: ExternalJobBinding,
+        phase: String,
+        completed: Long,
+    ): Boolean =
         synchronized(operationLock) {
             val current = activeRecord(handle) ?: return@synchronized false
             if (current.status != OperationStatus.RUNNING) return@synchronized false
-            if (current.externalJob == null) return@synchronized false
+            if (current.externalJob != binding) return@synchronized false
             val changedPhase = phase != current.progress.phase
             val advanced = completed > current.progress.completed
             if (!changedPhase && !advanced) return@synchronized false
@@ -158,12 +163,13 @@ class DurableOperationSupervisor(
 
     fun finish(
         handle: OperationHandle,
+        binding: ExternalJobBinding,
         status: OperationStatus,
         diagnostics: String? = null,
     ): Boolean = synchronized(operationLock) {
         require(status.isTerminal()) { "finish requires a terminal status" }
         val current = activeRecord(handle) ?: return@synchronized false
-        if (current.externalJob == null) return@synchronized false
+        if (current.externalJob != binding) return@synchronized false
         val updated = current.copy(
             status = status,
             showStallPrompt = false,
