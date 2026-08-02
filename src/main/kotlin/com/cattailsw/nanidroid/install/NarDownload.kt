@@ -4,13 +4,16 @@ package com.cattailsw.nanidroid.install
 data class NarDownload(
     val id: String,
     val source: NarDownloadSource,
+    val attemptId: Long = 1L,
     val retainedUri: String? = null,
     val downloadManagerId: Long? = null,
+    val workManagerId: String? = null,
     val createdAtMillis: Long = 0,
     val state: NarDownloadState = NarDownloadState.Queued,
 ) {
     init {
         require(id.isNotBlank()) { "download id must not be blank" }
+        require(attemptId > 0L) { "attempt id must be positive" }
     }
 }
 
@@ -27,6 +30,7 @@ sealed interface NarDownloadState {
     data object Downloading : NarDownloadState
     data object Installing : NarDownloadState
     data object Complete : NarDownloadState
+    data object Cancelled : NarDownloadState
     data class NeedsAttention(val failure: Failure) : NarDownloadState
 
     data class Failure(val message: String)

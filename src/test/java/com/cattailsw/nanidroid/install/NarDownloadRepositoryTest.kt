@@ -1,6 +1,15 @@
 package com.cattailsw.nanidroid.install
 
 import androidx.work.ListenableWorker
+import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.durable.AttemptId
+import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
+import com.cattailsw.nanidroid.durable.ExternalJobBinding
+import com.cattailsw.nanidroid.durable.OperationCancellation
+import com.cattailsw.nanidroid.durable.OperationHandle
+import com.cattailsw.nanidroid.durable.OperationId
+import com.cattailsw.nanidroid.durable.OperationStatus
+import com.cattailsw.nanidroid.durable.SharedPreferencesDurableOperationStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -8,6 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.ByteArrayInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -18,6 +28,15 @@ class NarDownloadRepositoryTest {
     private val installer = FakeArchiveInstaller()
     private val ownedData = FakeOwnedData()
     private val attempts = FakeAttemptPaths()
+    private val operationStore = SharedPreferencesDurableOperationStore(
+        SharedPreferencesDurableOperationStore.MemoryStorage(),
+    )
+    private val cancellations = RecordingOperationCancellation(downloads, work)
+    private val supervisor = DurableOperationSupervisor(
+        operationStore,
+        MonotonicClock { 0L },
+        cancellations,
+    )
     private val ids = ArrayDeque(listOf("old-item", "new-item", "third-item"))
     private val repository = NarDownloadRepository(
         store = store,
@@ -26,8 +45,148 @@ class NarDownloadRepositoryTest {
         installer = installer,
         ownedData = ownedData,
         attemptPaths = attempts,
+        supervisor = supervisor,
         nextId = { ids.removeFirst() },
     )
+
+    @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
+        downloads.nextDownloadId = 31L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        downloads.downloadedBytes[31L] = 8L
+
+        assertTrue(repository.observeRemoteProgress(item.id))
+        assertEquals(8L, operationStore.read().single().progress.completed)
+        assertTrue(!repository.observeRemoteProgress(item.id))
+
+        downloads.downloadedBytes[31L] = 9L
+        assertTrue(repository.observeRemoteProgress(item.id))
+        assertEquals(9L, operationStore.read().single().progress.completed)
+    }
+
+    @Test fun cancelThenRetryUsesNewAttemptAndRejectsLateDownloadCompletion() {
+        downloads.nextDownloadId = 41L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(repository.stop(item.id))
+        assertEquals(NarDownloadState.Cancelled, store.get(item.id)!!.state)
+        assertEquals(listOf(41L), downloads.removedIds)
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+
+        downloads.nextDownloadId = 42L
+        val retry = repository.retry(item.id)!!
+        assertEquals(item.attemptId + 1L, retry.attemptId)
+        assertEquals(42L, retry.downloadManagerId)
+
+        repository.onDownloadComplete(41L)
+
+        assertTrue(work.enqueuedNames.isEmpty())
+        assertEquals(retry, store.get(item.id))
+    }
+
+    @Test fun staleInstallWorkerCannotMutateNewAttempt() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+        val firstAttempt = item.attemptId
+        assertTrue(repository.stop(item.id))
+        val retry = repository.retry(item.id)!!
+
+        repository.install(item.id, firstAttempt) { false }
+
+        assertEquals(retry, store.get(item.id))
+        assertTrue(installer.stagingDirectories.isEmpty())
+    }
+
+    @Test fun installProgressUsesExactAttemptAndTerminalCallbackIsFenced() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+        installer.onInstall = { _, _, _, onProgress ->
+            onProgress("Extracting archive", 8L)
+            onProgress("Extracting archive", 8L)
+            ArchiveInstallResult.Installed("installed")
+        }
+
+        repository.install(item.id, item.attemptId) { false }
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        val terminal = operationStore.read().single()
+        assertEquals(OperationStatus.COMPLETED, terminal.status)
+        assertEquals(8L, terminal.progress.completed)
+        assertTrue(!supervisor.reportProgress(item.handle(), "Late", 9L))
+    }
+
+    @Test fun retainedUriCopyReportsBytesAndHandsOffToANewInstallAttempt() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        val phases = mutableListOf<Pair<String, Long>>()
+        val privateImports = File.createTempFile("nar-private-imports", "").also {
+            assertTrue(it.delete())
+            assertTrue(it.mkdir())
+        }
+
+        repository.stageLocal(item.id, item.attemptId, { false }) { _, isCancelled, onProgress ->
+            NarLocalArchiveStager.stage(
+                directory = privateImports,
+                open = { ByteArrayInputStream(ByteArray(20 * 1024) { 1 }) },
+                isCancelled = isCancelled,
+                onProgress = { completed ->
+                    phases += "Copying archive" to completed
+                    onProgress("Copying archive", completed)
+                },
+            )
+        }
+
+        val staged = store.get(item.id)!!
+        assertEquals(item.attemptId + 1L, staged.attemptId)
+        assertEquals(NarDownloadState.Queued, staged.state)
+        assertTrue(staged.retainedUri!!.startsWith("file:"))
+        assertTrue(phases.zipWithNext().all { (left, right) -> right.second > left.second })
+        assertEquals(listOf("install-nar-${item.id}"), work.enqueuedNames)
+        NarLocalArchiveStager.discard(staged.retainedUri!!)
+        privateImports.delete()
+    }
+
+    @Test fun cancelledLocalCopyDeletesPartialPrivateArchive() {
+        val directory = File.createTempFile("nar-local-stage", "").also {
+            assertTrue(it.delete())
+            assertTrue(it.mkdir())
+        }
+        var stopRequested = false
+
+        val result = NarLocalArchiveStager.stage(
+            directory = directory,
+            open = { ByteArrayInputStream(ByteArray(20 * 1024) { 2 }) },
+            isCancelled = { stopRequested },
+            onProgress = { stopRequested = true },
+        )
+
+        assertEquals(NarLocalArchiveStager.Result.Cancelled, result)
+        assertTrue(directory.listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun lateLocalStageWorkerCannotReplaceRetryAttempt() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        assertTrue(repository.stop(item.id))
+        val retry = repository.retry(item.id)!!
+        var staleStageStarted = false
+
+        repository.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            staleStageStarted = true
+            NarLocalArchiveStager.Result.Staged("file:///stale/archive.nar")
+        }
+
+        assertTrue(!staleStageStarted)
+        assertEquals(retry, store.get(item.id))
+    }
+
+    @Test fun stoppedInstallWorkerCancelsOnlyItsMatchingAttempt() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+
+        repository.workerStopped(item.id, item.attemptId)
+
+        assertEquals(NarDownloadState.Cancelled, store.get(item.id)!!.state)
+        val retry = repository.retry(item.id)!!
+
+        repository.workerStopped(item.id, item.attemptId)
+
+        assertEquals(retry, store.get(item.id))
+    }
 
     @Test fun unknownCompletionDoesNotScheduleWork() {
         repository.onDownloadComplete(999L)
@@ -262,6 +421,22 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf("install-nar-${item.id}", "install-nar-${item.id}"), work.enqueuedNames)
     }
 
+    @Test fun reselectStartsANewAttemptAndFencesTheUnavailableWorker() {
+        val item = repository.enqueueLocal("content://provider/unavailable.nar")
+        installer.failure = SecurityException("grant revoked")
+        repository.install(item.id, item.attemptId) { false }
+        installer.failure = null
+
+        val replaced = repository.replaceLocalSource(
+            item.id,
+            "content://provider/reselected.nar",
+        )!!
+
+        assertEquals(item.attemptId + 1L, replaced.attemptId)
+        repository.install(item.id, item.attemptId) { false }
+        assertEquals(replaced, store.get(item.id))
+    }
+
     @Test fun reconciliationSchedulesCompletedRegisteredDownload() {
         downloads.nextDownloadId = 73L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -352,6 +527,7 @@ class NarDownloadRepositoryTest {
             installer = blockingInstaller,
             ownedData = ownedData,
             attemptPaths = attempts,
+            supervisor = supervisor,
             nextId = { ids.removeFirst() },
         )
         val item = cancellableRepository.enqueueLocal("content://provider/archive.nar")
@@ -378,6 +554,7 @@ class NarDownloadRepositoryTest {
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
         val removedIds = mutableListOf<Long>()
+        val downloadedBytes = mutableMapOf<Long, Long>()
 
         override fun intendedRetainedUri(itemId: String): String {
             intendedDestinationFailure?.let { throw it }
@@ -396,11 +573,14 @@ class NarDownloadRepositoryTest {
         }
 
         override fun status(downloadManagerId: Long) = statuses[downloadManagerId]
+
+        override fun downloadedBytes(downloadManagerId: Long) = downloadedBytes[downloadManagerId]
     }
 
     private class FakeWorkScheduler : NarInstallWorkScheduler {
         val enqueuedNames = mutableListOf<String>()
         val cancelledNames = mutableListOf<String>()
+        val cancelledBindings = mutableListOf<String>()
 
         override fun enqueue(itemId: String) {
             enqueuedNames += NarDownloadRepository.workName(itemId)
@@ -415,6 +595,7 @@ class NarDownloadRepositoryTest {
         var result: ArchiveInstallResult = ArchiveInstallResult.Installed("installed")
         var failure: Exception? = null
         val stagingDirectories = mutableListOf<File>()
+        var onInstall: ((NarDownload, File, () -> Boolean, (String, Long) -> Unit) -> ArchiveInstallResult)? = null
 
         override fun install(
             download: NarDownload,
@@ -424,6 +605,17 @@ class NarDownloadRepositoryTest {
             stagingDirectories += stagingDirectory
             failure?.let { throw it }
             return result
+        }
+
+        override fun install(
+            download: NarDownload,
+            stagingDirectory: File,
+            isStopped: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
+        ): ArchiveInstallResult {
+            stagingDirectories += stagingDirectory
+            failure?.let { throw it }
+            return onInstall?.invoke(download, stagingDirectory, isStopped, onProgress) ?: result
         }
     }
 
@@ -451,4 +643,18 @@ class NarDownloadRepositoryTest {
         override fun create(itemId: String): File =
             File("staging/$itemId/attempt-${attempt++}")
     }
+
+    private class RecordingOperationCancellation(
+        private val downloads: FakeDownloadGateway,
+        private val work: FakeWorkScheduler,
+    ) : OperationCancellation {
+        override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
+            when (binding) {
+                is ExternalJobBinding.DownloadManager -> downloads.remove(binding.id)
+                is ExternalJobBinding.WorkManager -> work.cancelledBindings += binding.uuid
+            }
+        }
+    }
+
+    private fun NarDownload.handle() = OperationHandle(OperationId(id), AttemptId(attemptId))
 }

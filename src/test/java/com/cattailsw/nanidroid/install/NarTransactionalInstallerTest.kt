@@ -197,6 +197,122 @@ class NarTransactionalInstallerTest {
         Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
     }
 
+    @Test
+    fun installReportsPhaseBoundariesAndRealByteProgress() {
+        val root = temporaryDirectory("transaction-progress")
+        val archive = zip(
+            "install.txt", descriptor("progress-id"),
+            "ghost/master.txt", ByteArray(20 * 1024) { 7 },
+        )
+        val progress = mutableListOf<Pair<String, Long>>()
+
+        val result = NarTransactionalInstaller.install(
+            archive = archive,
+            installRoot = root,
+            forcedId = null,
+            isCancelled = { false },
+            onProgress = { phase, completed -> progress += phase to completed },
+        )
+
+        Assert.assertTrue(result is ArchiveInstallResult.Installed)
+        Assert.assertTrue(progress.any { it.first == "Copying archive" && it.second > 0L })
+        Assert.assertTrue(progress.any { it.first == "Preflighting archive" })
+        Assert.assertTrue(progress.any { it.first == "Verifying archive" })
+        Assert.assertTrue(progress.any { it.first == "Extracting archive" && it.second > 0L })
+        Assert.assertTrue(progress.any { it.first == "Preparing commit" })
+        Assert.assertTrue(progress.any { it.first == "Publishing archive" })
+        Assert.assertTrue(progress.any { it.first == "Cleaning up" })
+        val byteHeartbeats = progress.filter { it.second > 0L }
+        Assert.assertTrue(byteHeartbeats.zipWithNext().all { (left, right) ->
+            left.first != right.first || right.second > left.second
+        })
+    }
+
+    @Test
+    fun cancellationAtInstallBoundariesDoesNotPublish() {
+        listOf(
+            "Preflighting archive",
+            "Verifying archive",
+            "Preparing commit",
+            "Publishing archive",
+        ).forEach { cancelledPhase ->
+            val root = temporaryDirectory("transaction-boundary")
+            val targetId = "cancel-${cancelledPhase.hashCode()}"
+            val archive = zip(
+                "install.txt", descriptor(targetId),
+                "ghost/master.txt", bytes("payload"),
+            )
+            var stopRequested = false
+
+            val result = NarTransactionalInstaller.install(
+                archive = archive,
+                installRoot = root,
+                forcedId = null,
+                isCancelled = { stopRequested },
+                onProgress = { phase, _ ->
+                    if (phase == cancelledPhase) stopRequested = true
+                },
+            )
+
+            Assert.assertTrue("$cancelledPhase returned $result", result === ArchiveInstallResult.Cancelled)
+            Assert.assertFalse(File(root, targetId).exists())
+            Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+        }
+    }
+
+    @Test
+    fun stop_install_removes_only_staging_and_preserves_live_ghost() {
+        val root = temporaryDirectory("transaction-owned-cleanup")
+        val installedGhost = File(root, "live-ghost")
+        Assert.assertTrue(installedGhost.mkdir())
+        write(File(installedGhost, "ghost/master.txt"), bytes("previous live tree"))
+        val previousTree = read(File(installedGhost, "ghost/master.txt"))
+        val archive = zip(
+            "install.txt", descriptor("candidate-ghost"),
+            "ghost/master.txt", ByteArray(20 * 1024) { 3 },
+        )
+        var stopRequested = false
+
+        val result = NarTransactionalInstaller.install(
+            archive = archive,
+            installRoot = root,
+            forcedId = null,
+            isCancelled = { stopRequested },
+            onProgress = { phase, completed ->
+                if (phase == "Extracting archive" && completed > 0L) stopRequested = true
+            },
+        )
+
+        Assert.assertEquals(ArchiveInstallResult.Cancelled, result)
+        Assert.assertArrayEquals(previousTree, read(File(installedGhost, "ghost/master.txt")))
+        Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+        Assert.assertFalse(File(root, "candidate-ghost").exists())
+    }
+
+    @Test
+    fun cancellationRequestedAfterPublishPreservesCommittedGhostAndFinishesCleanup() {
+        val root = temporaryDirectory("transaction-post-commit")
+        val archive = zip(
+            "install.txt", descriptor("published-id"),
+            "ghost/master.txt", bytes("committed"),
+        )
+        var stopRequested = false
+
+        val result = NarTransactionalInstaller.install(
+            archive = archive,
+            installRoot = root,
+            forcedId = null,
+            isCancelled = { stopRequested },
+            onProgress = { phase, _ ->
+                if (phase == "Cleaning up") stopRequested = true
+            },
+        )
+
+        Assert.assertTrue(result is ArchiveInstallResult.Installed)
+        Assert.assertArrayEquals(bytes("committed"), read(File(root, "published-id/ghost/master.txt")))
+        Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+    }
+
     companion object {
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
 

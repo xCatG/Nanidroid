@@ -1,0 +1,68 @@
+package com.cattailsw.nanidroid.install
+
+import android.content.Context
+import android.net.Uri
+import androidx.work.Worker
+import androidx.work.WorkerParameters
+import java.io.File
+import java.io.FileInputStream
+import java.net.URI
+
+/** Copies one retained document URI into app-owned storage before installation. */
+class StageLocalNarWorker(
+    appContext: Context,
+    workerParameters: WorkerParameters,
+) : Worker(appContext, workerParameters) {
+    override fun doWork(): Result {
+        val itemId = inputData.getString(INPUT_ITEM_ID) ?: return Result.success()
+        val attemptId = inputData.getLong(INPUT_ATTEMPT_ID, NO_ATTEMPT)
+        if (attemptId == NO_ATTEMPT) return Result.success()
+        val repository = NarDownloadRepository.get(applicationContext)
+        repository.stageLocal(itemId, attemptId, { isStopped }) { download, isCancelled, onProgress ->
+            val location = download.retainedUri ?: (download.source as? NarDownloadSource.Local)?.uri
+                ?: return@stageLocal NarLocalArchiveStager.Result.Failed(
+                    "The selected document is no longer available.",
+                )
+            stageGrantedSource(applicationContext, location, isCancelled) { completed ->
+                onProgress("Copying archive", completed)
+            }
+        }
+        return Result.success()
+    }
+
+    override fun onStopped() {
+        val itemId = inputData.getString(INPUT_ITEM_ID)
+        val attemptId = inputData.getLong(INPUT_ATTEMPT_ID, NO_ATTEMPT)
+        if (itemId != null && attemptId != NO_ATTEMPT) {
+            NarDownloadRepository.get(applicationContext).workerStopped(itemId, attemptId)
+        }
+        super.onStopped()
+    }
+
+    companion object {
+        internal const val INPUT_ITEM_ID = "nar-local-stage-item-id"
+        internal const val INPUT_ATTEMPT_ID = "nar-local-stage-attempt-id"
+        private const val NO_ATTEMPT = -1L
+        private const val LOCAL_IMPORT_DIRECTORY = "nar-local-imports"
+
+        internal fun stageGrantedSource(
+            context: Context,
+            location: String,
+            isCancelled: () -> Boolean = { false },
+            onProgress: (completed: Long) -> Unit = { },
+        ): NarLocalArchiveStager.Result = NarLocalArchiveStager.stage(
+            directory = File(context.filesDir, LOCAL_IMPORT_DIRECTORY),
+            open = { open(context, location) },
+            isCancelled = isCancelled,
+            onProgress = onProgress,
+        )
+
+        private fun open(context: Context, location: String) =
+            when (URI(location).scheme?.lowercase()) {
+                "content" -> context.contentResolver.openInputStream(Uri.parse(location))
+                "file" -> FileInputStream(File(URI(location)))
+                null -> FileInputStream(File(location))
+                else -> null
+            }
+    }
+}

@@ -36,6 +36,7 @@ import com.cattailsw.nanidroid.util.PrefUtil
 import com.cattailsw.nanidroid.install.NarContentUriImport
 import com.cattailsw.nanidroid.install.NarDownloadRepository
 import com.cattailsw.nanidroid.install.NarLocalArchiveStager
+import com.cattailsw.nanidroid.install.StageLocalNarWorker
 import com.cattailsw.nanidroid.install.NarDownloadState
 import java.io.BufferedReader
 import java.io.File
@@ -391,35 +392,48 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId)
 
     private fun enqueueLocalArchive(uri: Uri, flags: Int, replacementId: String? = null) {
-        val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id
-        object : AsyncTask<Void, Void, NarLocalArchiveStager.Result>() {
-            override fun doInBackground(vararg params: Void?): NarLocalArchiveStager.Result {
-                val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
-                if (canPersist) {
-                    try {
-                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        return NarLocalArchiveStager.Result.Staged(uri.toString())
-                    } catch (_: SecurityException) { /* Copy the one-shot grant below. */ }
+        val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
+        if (canPersist) {
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+                if (replacementId == null) {
+                    narDownloads.enqueueLocalCopy(uri.toString())
+                } else {
+                    narDownloads.replaceLocalSource(replacementId, uri.toString())
                 }
-                return NarLocalArchiveStager.stage(File(filesDir, "nar-local-imports")) {
-                    contentResolver.openInputStream(uri)
-                }
+                return
+            } catch (_: SecurityException) {
+                // A one-shot grant must be copied before this intent handler returns.
             }
+        }
 
-            override fun onPostExecute(result: NarLocalArchiveStager.Result) {
-                when (result) {
-                    is NarLocalArchiveStager.Result.Staged -> {
-                        if (narDownloads.replaceLocalSource(retainedItemId, result.location) == null) {
-                            discardUnclaimedArchive(uri, result.location)
-                        }
-                    }
-                    is NarLocalArchiveStager.Result.Failed -> {
-                        narDownloads.copyFailed(retainedItemId)
-                        Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
-                    }
+        val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id
+        Thread {
+            val result = StageLocalNarWorker.stageGrantedSource(this, uri.toString())
+            runOnUiThread { finishLocalArchiveCopy(retainedItemId, uri, result) }
+        }.start()
+    }
+
+    private fun finishLocalArchiveCopy(
+        retainedItemId: String,
+        sourceUri: Uri,
+        result: NarLocalArchiveStager.Result,
+    ) {
+        when (result) {
+            is NarLocalArchiveStager.Result.Staged -> {
+                if (narDownloads.replaceLocalSource(retainedItemId, result.location) == null) {
+                    discardUnclaimedArchive(sourceUri, result.location)
                 }
             }
-        }.execute()
+            is NarLocalArchiveStager.Result.Failed -> {
+                narDownloads.copyFailed(retainedItemId)
+                Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+            }
+            NarLocalArchiveStager.Result.Cancelled -> narDownloads.copyFailed(retainedItemId)
+        }
     }
 
     private fun discardUnclaimedArchive(sourceUri: Uri, location: String) {

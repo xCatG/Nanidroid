@@ -34,6 +34,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                     source = current.source,
                     retainedUri = current.retainedUri,
                     downloadManagerId = current.downloadManagerId,
+                    workManagerId = current.workManagerId,
                 )
             } else {
                 candidate
@@ -91,7 +92,8 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
     private companion object {
         const val PREFERENCES = "nar-download-queue"
         const val RECORDS = "records-v1"
-        const val VERSION = "v1"
+        const val VERSION = "v2"
+        const val LEGACY_VERSION = "v1"
         val operationLock = Any()
         val encoder = Base64.getUrlEncoder().withoutPadding()
         val decoder = Base64.getUrlDecoder()
@@ -115,23 +117,30 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                     NarDownloadState.Downloading -> append("downloading\t-")
                     NarDownloadState.Installing -> append("installing\t-")
                     NarDownloadState.Complete -> append("complete\t-")
+                    NarDownloadState.Cancelled -> append("cancelled\t-")
                     is NarDownloadState.NeedsAttention -> append("attention\t").append(encoded(state.failure.message))
                 }
                 append('\t').append(download.createdAtMillis)
+                append('\t').append(download.attemptId)
+                append('\t').append(encoded(download.workManagerId))
             }
         }
 
         fun decode(value: String?): MutableMap<String, NarDownload> {
             if (value.isNullOrEmpty()) return linkedMapOf()
-            if (value.lineSequence().firstOrNull() != VERSION) return linkedMapOf()
+            val version = value.lineSequence().firstOrNull()
+            if (version != VERSION && version != LEGACY_VERSION) return linkedMapOf()
             return linkedMapOf<String, NarDownload>().apply {
-                value.lineSequence().drop(1).forEach { line -> decodeRecord(line)?.let { put(it.id, it) } }
+                value.lineSequence().drop(1).forEach { line ->
+                    decodeRecord(line, version == VERSION)?.let { put(it.id, it) }
+                }
             }
         }
 
-        fun decodeRecord(line: String): NarDownload? = try {
+        fun decodeRecord(line: String, currentVersion: Boolean = true): NarDownload? = try {
             val fields = line.split('\t')
-            if (fields.size !in 6..8) return null
+            if (currentVersion && fields.size != 10) return null
+            if (!currentVersion && fields.size !in 6..8) return null
             val hasDownloadManagerId = fields.size >= 7
             val stateIndex = if (hasDownloadManagerId) 5 else 4
             val failureIndex = stateIndex + 1
@@ -146,6 +155,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 "downloading" -> NarDownloadState.Downloading
                 "installing" -> NarDownloadState.Installing
                 "complete" -> NarDownloadState.Complete
+                "cancelled" -> NarDownloadState.Cancelled
                 "attention" -> NarDownloadState.NeedsAttention(
                     NarDownloadState.Failure(decoded(fields[failureIndex]) ?: return null),
                 )
@@ -161,7 +171,9 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 source = source,
                 retainedUri = decoded(fields[3]),
                 downloadManagerId = downloadManagerId,
+                workManagerId = if (currentVersion) decoded(fields[9]) else null,
                 createdAtMillis = fields.getOrNull(7)?.toLongOrNull() ?: 0,
+                attemptId = if (currentVersion) fields[8].toLong() else 1L,
                 state = state,
             )
         } catch (_: IllegalArgumentException) {

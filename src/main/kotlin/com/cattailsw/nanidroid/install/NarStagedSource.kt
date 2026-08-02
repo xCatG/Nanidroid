@@ -52,7 +52,23 @@ internal class NarStagedSource private constructor(private val file: File?) {
             trustedStagingRoot: File?,
             isCancelled: () -> Boolean,
         ): NarStagedSourceCopyResult =
-            copy(externalArchive, trustedStagingRoot, FileStageIo(), RandomNameSource(), isCancelled)
+            copy(externalArchive, trustedStagingRoot, isCancelled) { }
+
+        @JvmStatic
+        fun copy(
+            externalArchive: File?,
+            trustedStagingRoot: File?,
+            isCancelled: () -> Boolean,
+            onProgress: (completed: Long) -> Unit,
+        ): NarStagedSourceCopyResult =
+            copy(
+                externalArchive,
+                trustedStagingRoot,
+                FileStageIo(),
+                RandomNameSource(),
+                isCancelled,
+                onProgress,
+            )
 
         @JvmStatic
         fun copy(
@@ -61,6 +77,7 @@ internal class NarStagedSource private constructor(private val file: File?) {
             io: StageIo?,
             names: NameSource?,
             isCancelled: () -> Boolean = { false },
+            onProgress: (completed: Long) -> Unit = { },
         ): NarStagedSourceCopyResult {
             if (externalArchive == null) return failure(NarStagedSourceCopyError.SOURCE_INVALID, "source is null")
             if (trustedStagingRoot == null || io == null) return failure(NarStagedSourceCopyError.STAGING_ROOT_INVALID, "staging root is null")
@@ -71,7 +88,7 @@ internal class NarStagedSource private constructor(private val file: File?) {
                 if (!isSafeName(name)) return failure(NarStagedSourceCopyError.STAGING_NAME_INVALID, "invalid staging name")
                 val candidate = try { io.canonical(File(root, name!!)) } catch (_: java.io.IOException) { return failure(NarStagedSourceCopyError.STAGING_NAME_INVALID, "cannot canonicalize staging path") } catch (_: RuntimeException) { return failure(NarStagedSourceCopyError.STAGING_NAME_INVALID, "cannot inspect staging path") }
                 if (candidate == null || candidate.parentFile != root) return failure(NarStagedSourceCopyError.STAGING_NAME_INVALID, "staging path escapes root")
-                try { if (io.createNew(candidate)) return copyIntoCreated(externalArchive, candidate, io, isCancelled) } catch (_: Exception) { return failure(NarStagedSourceCopyError.STAGING_CREATE_FAILED, "cannot create staging file") }
+                try { if (io.createNew(candidate)) return copyIntoCreated(externalArchive, candidate, io, isCancelled, onProgress) } catch (_: Exception) { return failure(NarStagedSourceCopyError.STAGING_CREATE_FAILED, "cannot create staging file") }
             }
             return failure(NarStagedSourceCopyError.STAGING_NAME_COLLISION_LIMIT, "staging name collision limit")
         }
@@ -80,23 +97,23 @@ internal class NarStagedSource private constructor(private val file: File?) {
         private fun Char.isAsciiLetterOrDigit() = this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9'
         private fun failure(error: NarStagedSourceCopyError, detail: String) = NarStagedSourceCopyResult.failure(error, detail, ArrayList())
 
-        private fun copyIntoCreated(sourceFile: File, staged: File, io: StageIo, isCancelled: () -> Boolean): NarStagedSourceCopyResult {
+        private fun copyIntoCreated(sourceFile: File, staged: File, io: StageIo, isCancelled: () -> Boolean, onProgress: (Long) -> Unit): NarStagedSourceCopyResult {
             var source: java.io.InputStream? = null; var target: StageOutput? = null; var primary: NarStagedSourceCopyError? = null; var detail = ""; val cleanup = ArrayList<NarStagedSourceCopyError>()
             try { source = io.openSource(sourceFile) } catch (_: Exception) { primary = NarStagedSourceCopyError.SOURCE_OPEN_FAILED; detail = "cannot open source" }
             if (primary == null) try { target = io.openTarget(staged) } catch (_: Exception) { primary = NarStagedSourceCopyError.STAGING_OPEN_FAILED; detail = "cannot open staging writer" }
-            if (primary == null) { val copied = copyBytes(source!!, target!!, isCancelled); primary = copied.first; detail = copied.second }
+            if (primary == null) { val copied = copyBytes(source!!, target!!, isCancelled, onProgress); primary = copied.first; detail = copied.second }
             if (primary == null) try { target!!.sync() } catch (_: Exception) { primary = NarStagedSourceCopyError.STAGING_SYNC_FAILED; detail = "cannot sync staging writer" }
             try { target?.close() } catch (_: Exception) { primary = record(primary, NarStagedSourceCopyError.STAGING_CLOSE_FAILED, cleanup); if (detail.isEmpty()) detail = "cannot close staging writer" }
             try { source?.close() } catch (_: Exception) { primary = record(primary, NarStagedSourceCopyError.SOURCE_CLOSE_FAILED, cleanup); if (detail.isEmpty()) detail = "cannot close source" }
             if (primary != null) { if (!try { io.delete(staged) } catch (_: RuntimeException) { false }) cleanup.add(NarStagedSourceCopyError.STAGING_DELETE_FAILED); return NarStagedSourceCopyResult.failure(primary, detail, cleanup) }
             return NarStagedSourceCopyResult.success(NarStagedSource(staged))
         }
-        private fun copyBytes(source: java.io.InputStream, target: StageOutput, isCancelled: () -> Boolean): Pair<NarStagedSourceCopyError?, String> {
+        private fun copyBytes(source: java.io.InputStream, target: StageOutput, isCancelled: () -> Boolean, onProgress: (Long) -> Unit): Pair<NarStagedSourceCopyError?, String> {
             val buffer = ByteArray(BUFFER_SIZE); var total = 0L
             while (true) { if (isCancelled()) return Pair(NarStagedSourceCopyError.CANCELLED, "copy cancelled"); val limit = minOf(buffer.size.toLong(), MAX_ARCHIVE_BYTES - total + 1).toInt(); val count = try { source.read(buffer, 0, limit) } catch (_: Exception) { return Pair(NarStagedSourceCopyError.SOURCE_READ_FAILED, "cannot read source") }
                 if (count == -1) break; if (count < -1 || count > limit) return Pair(NarStagedSourceCopyError.SOURCE_READ_FAILED, "invalid source read count")
                 val actual = if (count == 0) { val one = try { source.read() } catch (_: Exception) { return Pair(NarStagedSourceCopyError.SOURCE_READ_FAILED, "cannot read source") }; if (one == -1) break; if (one < -1 || one > 255) return Pair(NarStagedSourceCopyError.SOURCE_READ_FAILED, "invalid single-byte read"); buffer[0] = one.toByte(); 1 } else count
-                try { target.write(buffer, 0, minOf(actual.toLong(), MAX_ARCHIVE_BYTES - total).toInt()) } catch (_: Exception) { return Pair(NarStagedSourceCopyError.STAGING_WRITE_FAILED, "cannot write staging file") }; total += actual; if (total > MAX_ARCHIVE_BYTES) return Pair(NarStagedSourceCopyError.ARCHIVE_SIZE_LIMIT, "archive exceeds 544 MiB") }
+                try { target.write(buffer, 0, minOf(actual.toLong(), MAX_ARCHIVE_BYTES - total).toInt()) } catch (_: Exception) { return Pair(NarStagedSourceCopyError.STAGING_WRITE_FAILED, "cannot write staging file") }; total += actual; if (total > MAX_ARCHIVE_BYTES) return Pair(NarStagedSourceCopyError.ARCHIVE_SIZE_LIMIT, "archive exceeds 544 MiB"); onProgress(total) }
             return Pair(null, "")
         }
         private fun record(primary: NarStagedSourceCopyError?, next: NarStagedSourceCopyError, cleanup: MutableList<NarStagedSourceCopyError>) = if (primary == null) next else { cleanup.add(next); primary }

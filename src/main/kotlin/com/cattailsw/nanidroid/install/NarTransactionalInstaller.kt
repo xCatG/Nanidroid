@@ -66,7 +66,16 @@ class NarTransactionalInstaller private constructor() {
             forcedId: String?,
             fileOperations: FileOperations,
         ): Result = synchronized(INSTALL_LOCK) {
-            legacy(installLocked(archive, installRoot, forcedId, fileOperations, { false }))
+            legacy(
+                installLocked(
+                    archive,
+                    installRoot,
+                    forcedId,
+                    fileOperations,
+                    { false },
+                    { _, _ -> },
+                ),
+            )
         }
 
         @JvmStatic
@@ -75,7 +84,30 @@ class NarTransactionalInstaller private constructor() {
             installRoot: File?,
             forcedId: String?,
             isCancelled: () -> Boolean,
-        ): ArchiveInstallResult = install(archive, installRoot, forcedId, RealFileOperations, isCancelled)
+        ): ArchiveInstallResult = install(
+            archive,
+            installRoot,
+            forcedId,
+            RealFileOperations,
+            isCancelled,
+            { _, _ -> },
+        )
+
+        @JvmStatic
+        fun install(
+            archive: File?,
+            installRoot: File?,
+            forcedId: String?,
+            isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
+        ): ArchiveInstallResult = install(
+            archive,
+            installRoot,
+            forcedId,
+            RealFileOperations,
+            isCancelled,
+            onProgress,
+        )
 
         @JvmStatic
         fun install(
@@ -84,8 +116,32 @@ class NarTransactionalInstaller private constructor() {
             forcedId: String?,
             fileOperations: FileOperations,
             isCancelled: () -> Boolean,
+        ): ArchiveInstallResult = install(
+            archive,
+            installRoot,
+            forcedId,
+            fileOperations,
+            isCancelled,
+            { _, _ -> },
+        )
+
+        @JvmStatic
+        fun install(
+            archive: File?,
+            installRoot: File?,
+            forcedId: String?,
+            fileOperations: FileOperations,
+            isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
         ): ArchiveInstallResult = synchronized(INSTALL_LOCK) {
-            installLocked(archive, installRoot, forcedId, fileOperations, isCancelled)
+            installLocked(
+                archive,
+                installRoot,
+                forcedId,
+                fileOperations,
+                isCancelled,
+                onProgress,
+            )
         }
 
         private fun installLocked(
@@ -94,6 +150,7 @@ class NarTransactionalInstaller private constructor() {
             forcedId: String?,
             fileOperations: FileOperations,
             isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
         ): ArchiveInstallResult {
             if (isCancelled()) return ArchiveInstallResult.Cancelled
             if (archive == null || !archive.isFile) return failure(Error.SOURCE_UNAVAILABLE, "The selected ghost archive is no longer available.")
@@ -106,33 +163,51 @@ class NarTransactionalInstaller private constructor() {
             var session: NarVerifiedInstallSession? = null
             var result: ArchiveInstallResult = failure(Error.STAGING_FAILED, "Nanidroid could not complete the install transaction.")
             try {
-                val copied = NarStagedSource.copy(archive, transaction, isCancelled)
+                onProgress("Copying archive", 0L)
+                if (isCancelled()) return ArchiveInstallResult.Cancelled
+                val copied = NarStagedSource.copy(archive, transaction, isCancelled) { completed ->
+                    onProgress("Copying archive", completed)
+                }
                 if (!copied.isSuccess()) {
                     result = if (copied.getError() == NarStagedSourceCopyError.CANCELLED) ArchiveInstallResult.Cancelled
                     else failure(Error.STAGING_FAILED, "Nanidroid could not safely copy the selected ghost archive.")
                 } else if (isCancelled()) {
                     result = ArchiveInstallResult.Cancelled
                 } else {
+                    onProgress("Preflighting archive", 0L)
+                    if (isCancelled()) return ArchiveInstallResult.Cancelled
                     val validated = NarInstallPlanValidator().validateStaged(copied.getSource(), root, forcedId)
                     if (!validated.isSuccess()) {
                         result = failure(Error.ARCHIVE_REJECTED, archiveMessage(validated.error))
                     } else {
+                        session = validated.getVerifiedSession()
+                        onProgress("Verifying archive", 0L)
+                        if (isCancelled()) {
+                            result = ArchiveInstallResult.Cancelled
+                            return result
+                        }
                         val plan = validated.plan!!
                         val target = plan.targetDirectory
                         if (target.exists()) {
-                            closeQuietly(validated.getVerifiedSession())
                             result = failure(Error.TARGET_EXISTS, "This ghost is already installed. Remove it before installing a new copy.")
                         } else {
-                            session = validated.getVerifiedSession()
                             candidate = File(transaction, "tree").takeIf { it.mkdir() }
                             result = if (candidate == null) {
                                 failure(Error.STAGING_FAILED, "Nanidroid could not prepare the new ghost files.")
                             } else {
-                                extractAndPublish(session!!, plan, candidate, target, fileOperations, isCancelled)
+                                extractAndPublish(
+                                    session!!,
+                                    plan,
+                                    candidate,
+                                    target,
+                                    fileOperations,
+                                    isCancelled,
+                                    onProgress,
+                                )
                             }
-                            closeQuietly(session)
-                            session = null
                         }
+                        closeQuietly(session)
+                        session = null
                     }
                 }
             } finally {
@@ -155,8 +230,10 @@ class NarTransactionalInstaller private constructor() {
             target: File,
             fileOperations: FileOperations,
             isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
         ): ArchiveInstallResult {
             val total = longArrayOf(0L)
+            onProgress("Extracting archive", 0L)
             try {
                 for (entry in plan.entries) {
                     if (isCancelled()) return ArchiveInstallResult.Cancelled
@@ -164,7 +241,7 @@ class NarTransactionalInstaller private constructor() {
                     val output = child(candidate, entry.relativePath!!) ?: return failure(Error.EXTRACTION_FAILED, "The ghost archive contains an unsafe file path.")
                     if (entry.isDirectory) {
                         if (!output.mkdirs() && !output.isDirectory) return failure(Error.EXTRACTION_FAILED, "Nanidroid could not create a ghost directory.")
-                    } else when (copyEntry(session, entry, output, total, fileOperations, isCancelled)) {
+                    } else when (copyEntry(session, entry, output, total, fileOperations, isCancelled, onProgress)) {
                         CopyEntryOutcome.COMPLETE -> Unit
                         CopyEntryOutcome.CANCELLED -> return ArchiveInstallResult.Cancelled
                         CopyEntryOutcome.FAILED -> return failure(Error.EXTRACTION_FAILED, "The ghost archive could not be extracted safely.")
@@ -176,8 +253,13 @@ class NarTransactionalInstaller private constructor() {
             } catch (_: RuntimeException) {
                 return failure(Error.EXTRACTION_FAILED, "The ghost archive could not be extracted safely.")
             }
+            onProgress("Preparing commit", total[0])
             if (isCancelled()) return ArchiveInstallResult.Cancelled
-            if (target.exists() || !fileOperations.rename(candidate, target)) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
+            if (target.exists()) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
+            onProgress("Publishing archive", total[0])
+            if (isCancelled()) return ArchiveInstallResult.Cancelled
+            if (!fileOperations.rename(candidate, target)) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
+            onProgress("Cleaning up", total[0])
             return success(target, plan.descriptor.getTargetId())
         }
 
@@ -188,6 +270,7 @@ class NarTransactionalInstaller private constructor() {
             total: LongArray,
             fileOperations: FileOperations,
             isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
         ): CopyEntryOutcome {
             val parent = output.parentFile!!
             if (!parent.exists() && !parent.mkdirs()) return CopyEntryOutcome.FAILED
@@ -216,7 +299,9 @@ class NarTransactionalInstaller private constructor() {
                     if (isCancelled()) return CopyEntryOutcome.CANCELLED
                     crc.update(buffer, 0, count)
                     target.write(buffer, 0, count)
+                    onProgress("Extracting archive", total[0])
                 }
+                if (isCancelled()) return CopyEntryOutcome.CANCELLED
                 target.fd.sync()
                 complete = entry.declaredSize < 0 || fileBytes == entry.declaredSize
                 if (complete && entry.crc >= 0) complete = crc.value == entry.crc
