@@ -727,6 +727,27 @@ class NarDownloadRepositoryTest {
         assertTrue(work.installEnqueuedIds.isEmpty())
     }
 
+    @Test fun reconciliationRepairsInstallQueueAfterExactSupervisorFailureWasAlreadyPersisted() {
+        val item = repository.enqueueLocal("file:///owned/install-failure-replay.nar")
+        work.installRecovery = NarInstallWorkRecovery.FINISHED
+        assertTrue(
+            supervisor.finish(
+                item.handle(),
+                OperationStatus.FAILED,
+                "Nanidroid could not schedule this archive install. Retry it.",
+            ),
+        )
+
+        recreatedRepository().reconcile()
+
+        val recovered = store.get(item.id)!!
+        assertEquals(item.attemptId, recovered.attemptId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        val failed = operationStore.read().single()
+        assertEquals(OperationKind.NAR_INSTALL, failed.kind)
+        assertEquals(OperationStatus.FAILED, failed.status)
+    }
+
     @Test fun terminalInstallQueryCannotOverwriteConcurrentInstallCompletion() {
         val item = repository.enqueueLocal("file:///owned/concurrent-complete.nar")
         installer.onInstall = { _, _, _, _ -> ArchiveInstallResult.Installed("installed") }
@@ -810,6 +831,27 @@ class NarDownloadRepositoryTest {
 
     @Test fun reconciliationMakesCancelledStageWorkActionable() {
         assertTerminalStageWorkBecomesActionable(FakeStageWorkState.CANCELLED)
+    }
+
+    @Test fun reconciliationRepairsStageQueueAfterExactSupervisorFailureWasAlreadyPersisted() {
+        val item = repository.enqueueLocalCopy("content://provider/stage-failure-replay.nar")
+        work.stageWorkStates[item.workManagerId!!] = FakeStageWorkState.FAILED
+        assertTrue(
+            supervisor.finish(
+                item.handle(),
+                OperationStatus.FAILED,
+                "The archive copy was interrupted. Select the archive again to continue.",
+            ),
+        )
+
+        recreatedRepository().reconcile()
+
+        val recovered = store.get(item.id)!!
+        assertEquals(item.attemptId, recovered.attemptId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        val failed = operationStore.read().single()
+        assertEquals(OperationKind.LOCAL_NAR, failed.kind)
+        assertEquals(OperationStatus.FAILED, failed.status)
     }
 
     @Test fun reconciliationPreservesNonterminalStageWorkWithoutDuplicateEnqueue() {

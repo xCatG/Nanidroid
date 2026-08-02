@@ -552,7 +552,11 @@ class NarDownloadRepository internal constructor(
                     }.getOrNull()
                 }
                 if (recovery == NarStageWorkRecovery.FINISHED) {
-                    failAndMarkNeedsAttentionIfCurrent(item, COPY_INTERRUPTED)
+                    failAndMarkNeedsAttentionIfCurrent(
+                        item,
+                        OperationKind.LOCAL_NAR,
+                        COPY_INTERRUPTED,
+                    )
                 } else if (recovery == null) {
                     markNeedsAttentionIfCurrent(item, COPY_INTERRUPTED)
                 }
@@ -797,7 +801,11 @@ class NarDownloadRepository internal constructor(
                     work.ensureInstallEnqueued(item.id, item.attemptId, workManagerId)
                 }.getOrNull()
                 if (recovery != NarInstallWorkRecovery.RESUMABLE) {
-                    failAndMarkNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
+                    failAndMarkNeedsAttentionIfCurrent(
+                        item,
+                        OperationKind.NAR_INSTALL,
+                        INSTALL_SCHEDULE_FAILURE,
+                    )
                 }
             }
             return
@@ -830,10 +838,21 @@ class NarDownloadRepository internal constructor(
 
     private fun failAndMarkNeedsAttentionIfCurrent(
         expected: NarDownload,
+        kind: OperationKind,
         diagnostics: String,
     ): Boolean {
         if (store.get(expected.id) != expected) return false
-        if (!supervisor.finish(expected.handle(), OperationStatus.FAILED, diagnostics)) return false
+        val workManagerId = expected.workManagerId ?: return false
+        if (
+            !supervisor.failOrConfirmExactAttempt(
+                expected.handle(),
+                kind,
+                ExternalJobBinding.WorkManager(workManagerId),
+                diagnostics,
+            )
+        ) {
+            return false
+        }
         return markNeedsAttentionIfCurrent(expected, diagnostics)
     }
 

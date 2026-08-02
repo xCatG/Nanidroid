@@ -218,6 +218,42 @@ class DurableOperationSupervisor(
             true
         }
 
+    fun failOrConfirmExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        binding: ExternalJobBinding,
+        diagnostics: String,
+    ): Boolean = synchronized(operationLock) {
+        val current = store.read().singleOrNull { it.id == handle.operationId }
+            ?: return@synchronized false
+        if (
+            current.attemptId != handle.attemptId ||
+            current.kind != kind ||
+            current.externalJob != binding
+        ) {
+            return@synchronized false
+        }
+        if (current.status == OperationStatus.FAILED) {
+            return@synchronized current.diagnostics == diagnostics
+        }
+        if (!current.status.isActive()) return@synchronized false
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    status = OperationStatus.FAILED,
+                    showStallPrompt = false,
+                    diagnostics = diagnostics,
+                ),
+            )
+        ) {
+            return@synchronized false
+        }
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
     fun finish(
         handle: OperationHandle,
         binding: ExternalJobBinding,
