@@ -22,6 +22,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
+import com.cattailsw.nanidroid.install.NarDownload
+import com.cattailsw.nanidroid.install.NarDownloadState
 
 /** Compose-owned activity dialogs. State values are kept in the Activity bundle. */
 internal sealed interface NanidroidSimpleDialog {
@@ -36,6 +38,7 @@ internal sealed interface NanidroidSimpleDialog {
     data class GhostList(val names: List<String>, val ids: List<String>, val onSelect: (Int) -> Unit, val onMore: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
     data class TextDocument(val title: String, val text: String, val onOpenLink: (String) -> Unit, val sourceId: String? = null, val onSwitch: (() -> Unit)? = null) : NanidroidSimpleDialog
     data class SwitchConfirmation(val ghostId: String, val ghostName: String, val onSwitch: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
+    data class ArchiveQueue(val downloads: List<NarDownload>, val onRetry: (String) -> Unit, val onDelete: (String) -> Unit) : NanidroidSimpleDialog
 }
 
 @Composable
@@ -53,6 +56,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
         is NanidroidSimpleDialog.GhostList -> GhostListDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.TextDocument -> TextDocumentDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.SwitchConfirmation -> SwitchConfirmationDialog(dialog, onDismiss)
+        is NanidroidSimpleDialog.ArchiveQueue -> ArchiveQueueDialog(dialog, onDismiss)
     }
 }
 
@@ -132,6 +136,23 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
     text = { Text(stringResource(R.string.no_readme_text, dialog.ghostName)) },
     confirmButton = { TextButton(onClick = { onDismiss(); dialog.onSwitch() }, modifier = Modifier.testTag("no-readme-switch")) { Text(stringResource(R.string.switch_to_ghost_btn_text)) } },
     dismissButton = { TextButton(onClick = { onDismiss(); dialog.onCancel() }, modifier = Modifier.testTag("no-readme-cancel")) { Text(stringResource(android.R.string.cancel)) } },
+)
+
+@Composable private fun ArchiveQueueDialog(dialog: NanidroidSimpleDialog.ArchiveQueue, onDismiss: () -> Unit) = AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Archive downloads") },
+    text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+        if (dialog.downloads.isEmpty()) Text("No archive downloads.")
+        dialog.downloads.forEach { item ->
+            Text(item.source.toString())
+            Text(item.state.toString())
+            if (item.state is NarDownloadState.NeedsAttention) {
+                TextButton(onClick = { dialog.onRetry(item.id) }, modifier = Modifier.testTag("archive-retry-${item.id}")) { Text("Retry") }
+            }
+            TextButton(onClick = { dialog.onDelete(item.id) }, modifier = Modifier.testTag("archive-delete-${item.id}")) { Text("Delete") }
+        }
+    } },
+    confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) } },
 )
 
 @Composable private fun HelpMenuDialog(dialog: NanidroidSimpleDialog.HelpMenu, onDismiss: () -> Unit) = ActionMenuDialog(stringResource(R.string.help_btn_text), listOf(stringResource(R.string.menu_help) to dialog.onGeneralHelp, stringResource(R.string.menu_about) to dialog.onAbout, stringResource(R.string.menu_feedback) to dialog.onFeedback), onDismiss)

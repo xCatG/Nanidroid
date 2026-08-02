@@ -21,11 +21,11 @@ class KotlinNanidroidServiceContractTest(unittest.TestCase):
         self.assertIn("fun createUpdateIntent(", source)
         self.assertIn("Intent.ACTION_SYNC", source)
 
-    def test_rejects_untrusted_download_and_update_commands_before_work(self):
+    def test_retires_service_owned_archive_downloads_and_keeps_update_validation(self):
         source = SOURCE.read_text(encoding="utf-8")
 
-        self.assertIn("IncomingNarIntent.isApprovedDownload(data)", source)
-        self.assertIn('"Rejected non-HTTPS archive download request"', source)
+        self.assertIn('"Archive downloads are handled by NarDownloadRepository"', source)
+        self.assertNotIn("IncomingNarIntent", source)
         self.assertIn("isHttpsUri(homeurl) && gid != null", source)
         self.assertIn('"Rejected update request without an HTTPS URL and ghost id"', source)
         self.assertIn('"https".equals(uri.scheme, ignoreCase = true)', source)

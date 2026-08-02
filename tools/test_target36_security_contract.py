@@ -41,13 +41,15 @@ class Target36SecurityContractTest(unittest.TestCase):
         self.assertNotIn('android:scheme="file"', manifest)
         self.assertNotIn('android:scheme="http"', manifest)
         self.assertNotIn('android:host="*"', manifest)
-        self.assertIn('android:scheme="https"', manifest)
+        self.assertNotIn('android:scheme="https"', manifest)
+        self.assertIn('android:scheme="content"', manifest)
+        self.assertNotIn('android:mimeType="*/*"', manifest)
 
     def test_activity_validates_initial_and_warm_intents(self):
         source = _active_activity_source()
         self.assertIn("handleIncomingIntent(intent)", source)
         self.assertIn("setIntent(intent)", source)
-        self.assertIn("IncomingNarIntent.isApprovedDownload", source)
+        self.assertIn("ArchiveIntentAdapter.contentUri(incoming)", source)
         self.assertNotIn("extractNar(data.getPath())", source)
         self.assertNotIn("getExternalStorageDirectory() + \"/nar/\"", source)
 

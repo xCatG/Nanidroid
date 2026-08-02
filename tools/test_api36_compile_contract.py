@@ -22,19 +22,14 @@ class Api37CompileContractTest(unittest.TestCase):
         dockerfile = (root / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
         self.assertNotIn("platforms;android-15", dockerfile)
 
-    def test_removed_notification_setter_is_behind_the_min_sdk_bridge(self) -> None:
+    def test_notification_uses_the_modern_min_sdk_builder(self) -> None:
         root = Path(__file__).resolve().parents[1]
         service = (root / "src/main/kotlin/com/cattailsw/nanidroid/NanidroidService.kt").read_text(
             encoding="utf-8"
         )
-        bridge = (root / "src/main/kotlin/com/cattailsw/nanidroid/LegacyNotificationBridge.kt").read_text(
-            encoding="utf-8"
-        )
-
         self.assertNotIn("setLatestEventInfo", service)
-        self.assertIn("LegacyNotificationBridge.create", service)
-        self.assertIn('"setLatestEventInfo"', bridge)
-        self.assertIn("Build.VERSION.SDK_INT >= 11", bridge)
+        self.assertIn("Notification.Builder(applicationContext)", service)
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/LegacyNotificationBridge.kt").exists())
         self.assertFalse((root / "legacy").exists())
         self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/LegacyNotificationBridge.java").exists())
 

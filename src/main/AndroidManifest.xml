@@ -28,13 +28,11 @@
 	<action android:name="android.intent.action.MAIN" />
 	<category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
-      <!-- Tracked for removal in issue #160; suppress until that work lands. -->
-      <intent-filter tools:ignore="AppLinkUrlError">
-	<action android:name="android.intent.action.VIEW" />
-	<category android:name="android.intent.category.DEFAULT" />
-	<data android:scheme="https" />
-	<data android:pathPattern=".*\\.nar" />
-	<data android:pathPattern=".*\\.zip" />
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:scheme="content" android:mimeType="application/zip" />
+        <data android:scheme="content" android:mimeType="application/x-nar" />
       </intent-filter>
 
     </activity>

@@ -1,6 +1,9 @@
 package com.cattailsw.nanidroid
 
+import android.net.Uri
+import android.content.Intent
 import com.cattailsw.nanidroid.util.NarUtil
+import com.cattailsw.nanidroid.install.NarLocalArchiveStager
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
@@ -24,6 +27,47 @@ class NarArchiveCharacterizationTest {
     @Rule
     @JvmField
     val temporaryFolder: TemporaryFolder = TemporaryFolder()
+
+    @Test
+    fun externalArchiveIntent_acceptsOnlyGrantedContentArchives() {
+        val content = Uri.parse("content://provider/archive.nar")
+
+        Assert.assertEquals(
+            content,
+            ArchiveIntentAdapter.contentUri(
+                Intent.ACTION_VIEW,
+                content,
+                "application/x-nar",
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            ),
+        )
+        Assert.assertNull(
+            ArchiveIntentAdapter.contentUri(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://host/archive.nar"),
+                "application/x-nar",
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            ),
+        )
+        Assert.assertNull(
+            ArchiveIntentAdapter.contentUri(
+                Intent.ACTION_VIEW,
+                content,
+                "application/x-nar",
+                0,
+            ),
+        )
+    }
+
+    @Test
+    fun temporaryArchiveStageFailureLeavesNoPrivateFile() {
+        val directory = temporaryFolder.newFolder("temporary-archive")
+
+        val result = NarLocalArchiveStager.stage(directory) { null }
+
+        Assert.assertTrue(result is NarLocalArchiveStager.Result.Failed)
+        Assert.assertTrue(directory.listFiles().isNullOrEmpty())
+    }
 
     @Test
     @Throws(Exception::class)

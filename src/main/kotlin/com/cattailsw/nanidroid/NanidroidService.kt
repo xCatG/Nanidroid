@@ -58,14 +58,8 @@ class NanidroidService : Service() {
         when {
             action == null -> startHttpTask(1_000)
             action.equals(Intent.ACTION_RUN, ignoreCase = true) -> {
-                val data = intent.data
-                if (IncomingNarIntent.isApprovedDownload(data)) {
-                    startForegroundWork(startId)
-                    NarDownloadTask(data!!, startId).execute(this)
-                } else {
-                    Log.w(TAG, "Rejected non-HTTPS archive download request")
-                    finishForegroundWork(startId)
-                }
+                Log.w(TAG, "Archive downloads are handled by NarDownloadRepository")
+                finishForegroundWork(startId)
             }
             Intent.ACTION_SYNC.equals(action, ignoreCase = true) -> {
                 val homeurl = intent.data
@@ -217,10 +211,14 @@ class NanidroidService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             val noteText = String.format(getString(R.string.dl_note), targeturi.lastPathSegment)
-            val notification = LegacyNotificationBridge.create(
-                applicationContext, R.drawable.notification, getString(R.string.dl_complete),
-                System.currentTimeMillis(), getString(R.string.dl_complete), noteText, content
-            )
+            val notification = Notification.Builder(applicationContext)
+                .setSmallIcon(R.drawable.notification)
+                .setTicker(getString(R.string.dl_complete))
+                .setWhen(System.currentTimeMillis())
+                .setContentTitle(getString(R.string.dl_complete))
+                .setContentText(noteText)
+                .setContentIntent(content)
+                .build()
             notification.flags = Notification.FLAG_AUTO_CANCEL
             // The service-owned notification flow is evaluated in issue #161.
             @Suppress("NotificationPermission")

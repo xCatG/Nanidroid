@@ -43,6 +43,7 @@ internal fun NanidroidComposeShell(
     onUpdate: () -> Unit,
     onPreferences: () -> Unit,
     onHelp: () -> Unit,
+    onArchiveQueue: () -> Unit = {},
     showDebugControls: Boolean = false,
     onNextSurface: () -> Unit = {},
     onAnimate: () -> Unit = {},
@@ -72,6 +73,7 @@ internal fun NanidroidComposeShell(
                         onUpdate = onUpdate,
                         onPreferences = onPreferences,
                         onHelp = onHelp,
+                        onArchiveQueue = onArchiveQueue,
                     )
                     if (showDebugControls) {
                         DebugToolbar(onNextSurface, onAnimate, onNextGhost, onRun, onNarTest)
@@ -98,6 +100,7 @@ internal fun NanidroidToolbar(
     onUpdate: () -> Unit,
     onPreferences: () -> Unit,
     onHelp: () -> Unit,
+    onArchiveQueue: () -> Unit = {},
 ) {
     // The old desktop-style strip had no title. Scrolling preserves access to
     // every localized control on compact widths and at large font scales.
@@ -118,6 +121,7 @@ internal fun NanidroidToolbar(
         Button(onClick = onHelp, modifier = Modifier.testTag("help")) {
             Text(stringResource(R.string.help_btn_text))
         }
+        Button(onClick = onArchiveQueue, modifier = Modifier.testTag("archive-queue")) { Text("Downloads") }
     }
 }
 
