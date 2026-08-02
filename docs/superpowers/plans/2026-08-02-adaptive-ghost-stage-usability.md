@@ -63,9 +63,11 @@
 - Modify: `src/main/AndroidManifest.xml`
 - Modify: `src/main/kotlin/com/cattailsw/nanidroid/CatTailApplication.kt`
 - Modify: `src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt`
+- Modify: `src/main/kotlin/com/cattailsw/nanidroid/install/InstallNarWorker.kt`
 - Create: `src/main/kotlin/com/cattailsw/nanidroid/di/PlatformClockModule.kt`
 - Create: `src/androidTest/java/com/cattailsw/nanidroid/NanidroidTestRunner.kt`
 - Create: `src/androidTest/java/com/cattailsw/nanidroid/DependencyInjectionSmokeTest.kt`
+- Modify: `src/androidTest/java/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.kt`
 - Create: `src/screenshotTest/kotlin/com/cattailsw/nanidroid/compose/ScreenshotHarness.kt`
 - Create: `src/screenshotTestDebug/reference/`
 - Create: `docs/testing.md`
@@ -145,7 +147,7 @@ Expected: dependency resolution and every task PASS; the inspected sanity image 
 Commit:
 
 ```text
-git add AGENTS.md build.gradle.kts gradle.properties gradle/libs.versions.toml docs/testing.md src/main/AndroidManifest.xml src/main/kotlin/com/cattailsw/nanidroid/CatTailApplication.kt src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt src/main/kotlin/com/cattailsw/nanidroid/di src/androidTest/java/com/cattailsw/nanidroid/NanidroidTestRunner.kt src/androidTest/java/com/cattailsw/nanidroid/DependencyInjectionSmokeTest.kt src/screenshotTest src/screenshotTestDebug/reference
+git add AGENTS.md build.gradle.kts gradle.properties gradle/libs.versions.toml docs/testing.md src/main/AndroidManifest.xml src/main/kotlin/com/cattailsw/nanidroid/CatTailApplication.kt src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt src/main/kotlin/com/cattailsw/nanidroid/di src/main/kotlin/com/cattailsw/nanidroid/install/InstallNarWorker.kt src/androidTest/java/com/cattailsw/nanidroid/NanidroidTestRunner.kt src/androidTest/java/com/cattailsw/nanidroid/DependencyInjectionSmokeTest.kt src/androidTest/java/com/cattailsw/nanidroid/NanidroidLifecycleInstrumentationTest.kt src/screenshotTest src/screenshotTestDebug/reference
 git commit -m "test: establish adaptive UI test infrastructure"
 ```
 
