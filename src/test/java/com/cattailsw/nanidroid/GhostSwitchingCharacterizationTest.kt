@@ -27,7 +27,7 @@ class GhostSwitchingCharacterizationTest {
 
     @Before
     fun setUp() {
-        runner = com.cattailsw.nanidroid.SScriptRunner.getInstance(null)
+        runner = com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
         runner.setPresentationRenderer(TraceRenderer(trace))
         resetRunnerWithPublicApi()
         trace.clear()
@@ -35,7 +35,7 @@ class GhostSwitchingCharacterizationTest {
 
     @After
     fun tearDown() {
-        resetRunnerWithPublicApi()
+        try { resetRunnerWithPublicApi() } catch (_: IllegalStateException) { }
     }
 
     @Test
@@ -85,7 +85,7 @@ class GhostSwitchingCharacterizationTest {
 
         // Prove setup cleanup does not depend on another test having cleared
         // the process singleton's named ghost.
-        runner.setGhost(
+        setGhost(
             RecordingGhost(
                 "foreign",
                 "Foreign Ghost Metadata",
@@ -133,7 +133,8 @@ class GhostSwitchingCharacterizationTest {
         }.apply { start() }
         Assert.assertTrue(entered.await(2, TimeUnit.SECONDS))
         val switch = Thread {
-            runner.setGhost(replacement)
+            runner.unloadGhostForSwitchForTesting(outgoing)
+            runner.attachReservedGhost(runner.reserveGhostForAttachmentForTesting(replacement))
             switched.countDown()
         }.apply { start() }
 
@@ -179,22 +180,26 @@ class GhostSwitchingCharacterizationTest {
         }.apply { start() }
         Assert.assertFalse(currentDispatchFinished.await(100, TimeUnit.MILLISECONDS))
 
-        setGhost(replacement)
+        val switch = Thread {
+            runner.unloadGhostForSwitchForTesting(outgoing)
+            runner.attachReservedGhost(runner.reserveGhostForAttachmentForTesting(replacement))
+        }.apply { start() }
+        Assert.assertTrue(switch.isAlive)
+        releaseGate.countDown()
+        switch.join(2_000)
         val replacementDispatch = Thread {
             runner.doShioriEventForGhost("replacement", "OnUpdateReady", arrayOf("current"))
             replacementDispatchFinished.countDown()
         }.apply { start() }
         Assert.assertTrue(replacementDispatchFinished.await(1, TimeUnit.SECONDS))
-        Assert.assertFalse(outgoingDispatchFinished.await(100, TimeUnit.MILLISECONDS))
+        Assert.assertTrue(outgoingDispatchFinished.await(1, TimeUnit.SECONDS))
 
-        releaseGate.countDown()
         gate.join(2_000)
         outgoingDispatch.join(2_000)
         currentDispatch.join(2_000)
         replacementDispatch.join(2_000)
         Assert.assertTrue(outgoingDispatchFinished.await(0, TimeUnit.MILLISECONDS))
         Assert.assertTrue(currentDispatchFinished.await(0, TimeUnit.MILLISECONDS))
-        Assert.assertFalse(trace.events().any { it?.startsWith("request:outgoing:OnUpdateReady") == true })
         Assert.assertTrue(trace.events().any { it?.startsWith("request:replacement:OnUpdateReady") == true })
     }
 
@@ -270,6 +275,7 @@ class GhostSwitchingCharacterizationTest {
                 else Arrays.asList<String?>("unload", "commit", "reload"),
                 lifecycle.events(),
             )
+            runner.setGhost(null)
         }
     }
 
@@ -300,9 +306,14 @@ class GhostSwitchingCharacterizationTest {
         }
 
         Assert.assertEquals(
-            Arrays.asList<String?>("unload", "recover", "reload"),
+            Arrays.asList<String?>("unload", "recover"),
             lifecycle.events(),
         )
+        Assert.assertThrows(IllegalStateException::class.java) {
+            runner.reserveGhostForAttachmentForTesting(
+                RecordingGhost("later", null, null, 2, null, trace),
+            )
+        }
     }
 
     @Test
@@ -386,24 +397,238 @@ class GhostSwitchingCharacterizationTest {
             trace,
             lifecycle = lifecycle,
         )
-        val replacement = RecordingGhost("replacement-isolation", null, null, 2, null, trace)
         setGhost(active)
 
         runner.withGhostUpdateCommitQuiesced("inactive", File("inactive")) {
             lifecycle.add("inactive-commit")
         }
-        runner.withGhostUpdateCommitQuiesced(active.getGhostId(), File("different-root")) {
-            lifecycle.add("mismatched-commit")
-        }
+        runner.withGhostUpdateCommitQuiesced(
+            active.getGhostId(),
+            File("different-root"),
+            onFailure = { lifecycle.add("mismatched-rejected") },
+        ) { lifecycle.add("mismatched-commit") }
         runner.withGhostUpdateCommitQuiesced(active.getGhostId(), File(active.getGhostPath())) {
             lifecycle.add("active-commit")
-            setGhost(replacement)
         }
 
         Assert.assertEquals(
-            Arrays.asList<String?>("inactive-commit", "mismatched-commit", "unload", "active-commit"),
+            Arrays.asList<String?>("inactive-commit", "mismatched-rejected", "unload", "active-commit", "reload"),
             lifecycle.events(),
         )
+    }
+
+    @Test
+    fun unreservedNativeGlobalReplacementPoisonsEveryLaterSessionOperation() {
+        val active = RecordingGhost("active-poison", null, null, 2, null, trace)
+        val replacement = RecordingGhost("replacement-poison", null, null, 2, null, trace)
+        setGhost(active)
+
+        Assert.assertThrows(IllegalStateException::class.java) { setGhost(replacement) }
+        Assert.assertFalse(
+            runner.doShioriEventForGhost(
+                active.getGhostId(),
+                File(active.getGhostPath()),
+                "OnProbe",
+                null,
+            ),
+        )
+        var mutationFailure: Throwable? = null
+        runner.withGhostUpdateCommitQuiesced(
+            active.getGhostId(),
+            File(active.getGhostPath()),
+            onFailure = { mutationFailure = it },
+        ) { Assert.fail("poisoned mutation must not run") }
+        Assert.assertNotNull(mutationFailure)
+        Assert.assertThrows(IllegalStateException::class.java) {
+            runner.reserveGhostForAttachmentForTesting(
+                RecordingGhost("later-poison", null, null, 2, null, trace),
+            )
+        }
+    }
+
+    @Test
+    fun sameIdDifferentRootCannotReceiveBoundUpdateEvent() {
+        val active = RecordingGhost(
+            "same-id",
+            null,
+            null,
+            2,
+            null,
+            trace,
+            ghostPath = File("event-root-a", "same-id").path,
+        )
+        setGhost(active)
+
+        Assert.assertFalse(
+            runner.doShioriEventForGhost(
+                "same-id",
+                File("event-root-b", "same-id"),
+                "OnUpdateComplete",
+                arrayOf("ghost/master.txt"),
+            ),
+        )
+        Assert.assertFalse(trace.events().any { it?.contains("OnUpdateComplete") == true })
+    }
+
+    @Test
+    fun reloadDeactivationDoesNotMakeGhostSwitchStopSpin() {
+        val lifecycle = Trace()
+        val active = RecordingGhost(
+            "reload-stop",
+            "Reload Stop",
+            null,
+            2,
+            null,
+            trace,
+            lifecycle = lifecycle,
+            failReload = true,
+        )
+        setGhost(active)
+        runner.setCallback(RecordingStatusCallback(trace))
+        runner.doGhostChanging("Next", "manual", "/next")
+        runner.withGhostUpdateCommitQuiesced(
+            active.getGhostId(),
+            File(active.getGhostPath()),
+        ) { Unit }
+
+        val stopped = CountDownLatch(1)
+        Thread { runner.stop(); stopped.countDown() }.start()
+
+        Assert.assertTrue(stopped.await(1, TimeUnit.SECONDS))
+        Assert.assertEquals(listOf("unload", "reload", "deactivate"), lifecycle.events())
+        Assert.assertTrue(trace.events().contains("handoff"))
+    }
+
+    @Test
+    fun reservedConstructionCannotBeSwappedBeforeExactAttachment() {
+        val lifecycle = Trace()
+        val reservedGhost = RecordingGhost(
+            "reserved-gap",
+            null,
+            null,
+            2,
+            null,
+            trace,
+            lifecycle = lifecycle,
+        )
+        val reservation = runner.reserveGhostForAttachmentForTesting(reservedGhost)
+        val mutationEntered = CountDownLatch(1)
+        val mutationFinished = CountDownLatch(1)
+        val mutation = Thread {
+            runner.withGhostUpdateCommitQuiesced(
+                reservedGhost.getGhostId(),
+                File(reservedGhost.getGhostPath()),
+            ) {
+                lifecycle.add("commit")
+                mutationEntered.countDown()
+            }
+            mutationFinished.countDown()
+        }.apply { start() }
+
+        Assert.assertFalse(mutationEntered.await(100, TimeUnit.MILLISECONDS))
+        Assert.assertTrue(runner.attachReservedGhost(reservation))
+        Assert.assertTrue(mutationFinished.await(2, TimeUnit.SECONDS))
+        mutation.join(2_000)
+
+        Assert.assertEquals(
+            Arrays.asList<String?>("unload", "commit", "reload"),
+            lifecycle.events(),
+        )
+    }
+
+    @Test
+    fun reservationsUseExactRootAndIdAndStaleReleaseCannotConsumeReplacement() {
+        val root = File("reservation-shared-root/expected-id")
+        val first = RecordingGhost(
+            "expected-id", null, null, 2, null, trace,
+            lifecycle = Trace(), ghostPath = root.path,
+        )
+        val replacementLifecycle = Trace()
+        val replacement = RecordingGhost(
+            "expected-id", null, null, 2, null, trace,
+            lifecycle = replacementLifecycle, ghostPath = root.path,
+        )
+        val firstReservation = runner.reserveGhostForAttachmentForTesting(first)
+
+        val wrongId = runner.withGhostUpdateCommitQuiesced(
+            "different-id",
+            root,
+            onFailure = { "failed" },
+        ) { "committed" }
+        Assert.assertEquals("failed", wrongId)
+
+        val otherRoot = runner.withGhostUpdateCommitQuiesced(
+            "expected-id",
+            File("reservation-other-root/expected-id"),
+        ) { "independent" }
+        Assert.assertEquals("independent", otherRoot)
+
+        Assert.assertTrue(runner.abandonReservedGhost(firstReservation))
+        val replacementReservation = runner.reserveGhostForAttachmentForTesting(replacement)
+        val mutationEntered = CountDownLatch(1)
+        val mutation = Thread {
+            runner.withGhostUpdateCommitQuiesced("expected-id", root) {
+                mutationEntered.countDown()
+            }
+        }.apply { start() }
+        Assert.assertFalse(mutationEntered.await(100, TimeUnit.MILLISECONDS))
+        Assert.assertFalse(runner.abandonReservedGhost(firstReservation))
+        Assert.assertEquals(0, replacementLifecycle.events().size)
+        Assert.assertTrue(runner.attachReservedGhost(replacementReservation))
+        Assert.assertTrue(mutationEntered.await(2, TimeUnit.SECONDS))
+        mutation.join(2_000)
+        Assert.assertEquals(
+            Arrays.asList<String?>("unload", "reload"),
+            replacementLifecycle.events(),
+        )
+    }
+
+    @Test
+    fun abandonedReservationUnloadsBeforeReleasingMutation() {
+        val lifecycle = Trace()
+        val reservedGhost = RecordingGhost(
+            "abandoned-reservation", null, null, 2, null, trace, lifecycle = lifecycle,
+        )
+        val reservation = runner.reserveGhostForAttachmentForTesting(reservedGhost)
+        val mutationEntered = CountDownLatch(1)
+        val mutation = Thread {
+            runner.withGhostUpdateCommitQuiesced(
+                reservedGhost.getGhostId(), File(reservedGhost.getGhostPath()),
+            ) {
+                lifecycle.add("commit")
+                mutationEntered.countDown()
+            }
+        }.apply { start() }
+
+        Assert.assertFalse(mutationEntered.await(100, TimeUnit.MILLISECONDS))
+        Assert.assertTrue(runner.abandonReservedGhost(reservation))
+        Assert.assertTrue(mutationEntered.await(2, TimeUnit.SECONDS))
+        mutation.join(2_000)
+        Assert.assertEquals(
+            Arrays.asList<String?>("unload", "commit"),
+            lifecycle.events(),
+        )
+    }
+
+    @Test
+    fun concurrentFirstCallersShareOneRunnerAuthority() {
+        resetRunnerWithPublicApi()
+        SScriptRunner.resetInstanceForTesting()
+        val start = CountDownLatch(1)
+        val results = java.util.Collections.synchronizedList(mutableListOf<SScriptRunner>())
+        val callers = List(12) {
+            Thread {
+                start.await(2, TimeUnit.SECONDS)
+                results += SScriptRunner.getInstance(null)
+            }.apply { start() }
+        }
+
+        start.countDown()
+        callers.forEach { it.join(2_000) }
+
+        Assert.assertEquals(12, results.size)
+        Assert.assertEquals(1, results.map(System::identityHashCode).toSet().size)
+        runner = results.first()
     }
 
     private fun setGhost(ghost: RecordingGhost) {
@@ -487,15 +712,17 @@ class GhostSwitchingCharacterizationTest {
         private val release: CountDownLatch? = null,
         private val unloadCalled: CountDownLatch? = null,
         private val lifecycle: Trace? = null,
-        private val failUnload: Boolean = false,
+        failUnload: Boolean = false,
         private val failReload: Boolean = false,
+        ghostPath: String = ghostId,
     ) : com.cattailsw.nanidroid.Ghost(
-        ghostId
+        ghostPath
     ) {
         private val fakeGhostId = ghostId
         private var fakeGhostName = ghostName
         private var fakeSakuraName = sakuraName
         private val fakeCreateCount = createCount
+        private var unloadFailuresRemaining = if (failUnload) 1 else 0
 
         override fun getGhostId(): String = fakeGhostId
         override fun getGhostName(): String? = fakeGhostName
@@ -537,7 +764,10 @@ public override fun doShioriEvent(
         public override fun unload() {
             unloadCalled?.countDown()
             lifecycle?.add("unload")
-            if (failUnload) throw IllegalStateException("simulated unload failure")
+            if (unloadFailuresRemaining > 0) {
+                unloadFailuresRemaining--
+                throw IllegalStateException("simulated unload failure")
+            }
         }
 
         override fun reloadAfterGhostUpdate() {

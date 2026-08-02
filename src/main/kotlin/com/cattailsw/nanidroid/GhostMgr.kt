@@ -40,11 +40,23 @@ class GhostMgr(ctx: Context) {
 
     fun getGhostPath(id: Int): String = ghosts!![id].getGhostPath()
 
-    fun createGhost(name: String): Ghost? {
+    internal fun createGhost(name: String): ReservedGhost? {
         val id = getGhostId(name)
         if (id == -1) return null
-        val (recovery, ghost) = GhostUpdateRepository.withRecoveredGhostRoot(File(getGhostPath(id))) {
-            Ghost(getGhostPath(id), context)
+        val root = File(getGhostPath(id)).canonicalFile
+        val (recovery, ghost) = GhostUpdateRepository.withRecoveredGhostRoot(root) {
+            SScriptRunner.reuseActiveGhost(root.name, root) ?: run {
+                val construction = SScriptRunner.beginGhostConstruction(root.name, root)
+                try {
+                    construction.bind(Ghost(root.path, context))
+                } catch (error: Exception) {
+                    construction.failConstruction()
+                    throw error
+                } catch (error: LinkageError) {
+                    construction.failConstruction()
+                    throw error
+                }
+            }
         }
         if (recovery is RecoveryResult.Failed) {
             Log.e(TAG, "Ghost update recovery failed before construction: ${recovery.diagnostic}")

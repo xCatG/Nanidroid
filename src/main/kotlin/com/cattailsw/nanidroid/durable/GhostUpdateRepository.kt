@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.durable
 
 import android.net.Uri
+import com.cattailsw.nanidroid.SScriptRunner
 import com.cattailsw.nanidroid.install.NarRelativePathPolicy
 import java.io.File
 import java.io.FileInputStream
@@ -75,6 +76,15 @@ internal fun interface GhostUpdateCommitGuard {
         action: () -> GhostUpdateResult,
     ): GhostUpdateResult
 
+    fun commit(
+        ghostId: String,
+        ghostRoot: File,
+        onFailure: (Throwable) -> GhostUpdateResult,
+        shouldStop: () -> Boolean,
+        onStopped: () -> GhostUpdateResult,
+        action: () -> GhostUpdateResult,
+    ): GhostUpdateResult = commit(ghostId, ghostRoot, onFailure, action)
+
     companion object {
         val NONE = GhostUpdateCommitGuard { _, _, onFailure, action ->
             try {
@@ -82,6 +92,30 @@ internal fun interface GhostUpdateCommitGuard {
             } catch (error: Exception) {
                 onFailure(error)
             }
+        }
+    }
+}
+
+internal fun interface GhostUpdateRecoveryGuard {
+    fun recover(
+        ghostId: String,
+        ghostRoot: File,
+        onFailure: (Throwable) -> RecoveryResult,
+        action: () -> RecoveryResult,
+    ): RecoveryResult
+
+    fun recover(
+        ghostId: String,
+        ghostRoot: File,
+        onFailure: (Throwable) -> RecoveryResult,
+        shouldStop: () -> Boolean,
+        onStopped: () -> RecoveryResult,
+        action: () -> RecoveryResult,
+    ): RecoveryResult = recover(ghostId, ghostRoot, onFailure, action)
+
+    companion object {
+        val NONE = GhostUpdateRecoveryGuard { _, _, onFailure, action ->
+            try { action() } catch (error: Exception) { onFailure(error) }
         }
     }
 }
@@ -95,6 +129,7 @@ class GhostUpdateRepository internal constructor(
     private val onCommitClassified: (GhostUpdateResult.Completed) -> Boolean = { true },
     private val onRollbackClassified: (OperationStatus) -> Boolean = { true },
     private val commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
+    private val recoveryGuard: GhostUpdateRecoveryGuard = GhostUpdateRecoveryGuard.NONE,
 ) {
     fun run(
         request: GhostUpdateRequest,
@@ -127,15 +162,30 @@ class GhostUpdateRepository internal constructor(
         var manifestFiles = emptyList<String>()
         try {
             val replayFiles = replayJournalFiles(ghostRoot, request, journalIo)
-            val prior = recoverForReplay(ghostRoot, request, journalIo) { pending, status ->
-                when (status) {
-                    OperationStatus.COMPLETED -> onCommitClassified(GhostUpdateResult.Completed(pending.files))
-                    OperationStatus.FAILED,
-                    OperationStatus.CANCELLED,
-                    -> onRollbackClassified(status)
-                    else -> false
+            var replayStopped: GhostUpdateResult? = null
+            val prior = if (journalFile.isFile) {
+                recoveryGuard.recover(
+                    request.ghostId,
+                    ghostRoot,
+                    onFailure = { RecoveryResult.Failed(it.message ?: "replay recovery gate failed") },
+                    shouldStop = isStopped,
+                    onStopped = {
+                        replayStopped = stopResult(stopReason()) ?: GhostUpdateResult.Interrupted
+                        RecoveryResult.Failed("ghost update stopped while awaiting replay recovery")
+                    },
+                ) {
+                    recoverForReplay(ghostRoot, request, journalIo) { pending, status ->
+                        when (status) {
+                            OperationStatus.COMPLETED -> onCommitClassified(GhostUpdateResult.Completed(pending.files))
+                            OperationStatus.FAILED,
+                            OperationStatus.CANCELLED,
+                            -> onRollbackClassified(status)
+                            else -> false
+                        }
+                    }
                 }
-            }
+            } else RecoveryResult.NoJournal
+            replayStopped?.let { return it }
             if (prior is RecoveryResult.Failed) return failed(prior.diagnostic, emptyList())
             if (prior is RecoveryResult.CompletedCommit && replayFiles != null) {
                 events.complete(replayFiles)
@@ -248,6 +298,10 @@ class GhostUpdateRepository internal constructor(
                         manifestFiles,
                         stopReason,
                     )
+                },
+                shouldStop = isStopped,
+                onStopped = {
+                    stopBeforeJournal(transactionRoot, stopReason()) ?: GhostUpdateResult.Interrupted
                 },
             ) {
                 onProgress("Committing update", 0)
@@ -903,11 +957,14 @@ class GhostUpdateRepository internal constructor(
 
         fun recoverBeforeGhostLoad(ghostRoot: File): RecoveryResult =
             withGhostLock(ghostRoot) {
-                recoverLocked(
-                    ghostRoot.canonicalFile,
-                    GhostUpdateJournalIo.DEFAULT,
-                    RecoveryAuthorization.WAIT,
-                )
+                val root = ghostRoot.canonicalFile
+                SScriptRunner.withProductionGhostMutation(
+                    root.name,
+                    root,
+                    onFailure = { RecoveryResult.Failed(it.message ?: "ghost recovery gate failed") },
+                ) {
+                    recoverLocked(root, GhostUpdateJournalIo.DEFAULT, RecoveryAuthorization.WAIT)
+                }
             }
 
         internal fun recoverAllBeforeGhostLoad(
@@ -967,18 +1024,20 @@ class GhostUpdateRepository internal constructor(
             val rollbackPendingFiles = mutableMapOf<OperationStatus, MutableList<String>>()
             journalRecords.forEach { (root, journal) ->
                 val recovery = withGhostLock(root) {
-                    val transaction = transactionRoot(root, journal.operationId)
-                    val topology = topologyOf(
+                    SScriptRunner.withProductionGhostMutation(
+                        root.name,
                         root,
-                        File(transaction, CANDIDATE),
-                        File(transaction, BACKUP),
-                    )
-                    recoverLocked(
-                        root,
-                        GhostUpdateJournalIo.DEFAULT,
-                        authorize(journal, topology),
-                        classify,
-                    )
+                        onFailure = { RecoveryResult.Failed(it.message ?: "ghost recovery gate failed") },
+                    ) {
+                        val transaction = transactionRoot(root, journal.operationId)
+                        val topology = topologyOf(root, File(transaction, CANDIDATE), File(transaction, BACKUP))
+                        recoverLocked(
+                            root,
+                            GhostUpdateJournalIo.DEFAULT,
+                            authorize(journal, topology),
+                            classify,
+                        )
+                    }
                 }
                 when (recovery) {
                     RecoveryResult.CompletedCommit -> completedCommit = true
@@ -1014,11 +1073,12 @@ class GhostUpdateRepository internal constructor(
             ghostRoot: File,
             block: () -> T,
         ): Pair<RecoveryResult, T?> = withGhostLock(ghostRoot) {
-            val recovery = recoverLocked(
-                ghostRoot.canonicalFile,
-                GhostUpdateJournalIo.DEFAULT,
-                RecoveryAuthorization.WAIT,
-            )
+            val root = ghostRoot.canonicalFile
+            val recovery = SScriptRunner.withProductionGhostMutation(
+                root.name,
+                root,
+                onFailure = { RecoveryResult.Failed(it.message ?: "ghost recovery gate failed") },
+            ) { recoverLocked(root, GhostUpdateJournalIo.DEFAULT, RecoveryAuthorization.WAIT) }
             if (recovery is RecoveryResult.Failed ||
                 recovery is RecoveryResult.PublishPending ||
                 recovery is RecoveryResult.RollbackPending ||

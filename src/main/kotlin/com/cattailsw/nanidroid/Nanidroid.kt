@@ -57,6 +57,22 @@ internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf
 internal fun ownsGhostSwitchRequest(targetGhostId: String, pendingGhostId: String?): Boolean =
     targetGhostId == pendingGhostId
 
+internal fun <T : Any> routeGhostSwitchResult(
+    result: T?,
+    destroyed: Boolean,
+    finishing: Boolean,
+    targetGhostId: String,
+    pendingGhostId: String?,
+    abandon: (T) -> Unit,
+    apply: (T?) -> Unit,
+) {
+    if (destroyed || finishing || !ownsGhostSwitchRequest(targetGhostId, pendingGhostId)) {
+        result?.let(abandon)
+        return
+    }
+    apply(result)
+}
+
 /**
  * The production activity. Compose owns both chrome and ghost presentation;
  * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
@@ -81,6 +97,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     )
     private var gm: GhostMgr? = null
     private var currentGhost: Ghost? = null
+    private var pendingGhost: ReservedGhost? = null
     private var restoreFromMinimize = false
     private var currentRunCount = -1L
     private var initComplete = false
@@ -144,9 +161,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 return null
             }
             override fun onPostExecute(result: Void?) {
-                if (isDestroyed || isFinishing) return
-                val ghost = currentGhost
-                if (ghost == null) {
+                if (isDestroyed || isFinishing) {
+                    pendingGhost?.let { runner?.abandonReservedGhost(it) }
+                    pendingGhost = null
+                    return
+                }
+                val reservation = pendingGhost
+                val ghost = reservation?.ghost
+                if (reservation == null || ghost == null) {
                     hideProgress()
                     simpleDialog = NanidroidSimpleDialog.Notice(
                         R.string.err_title,
@@ -158,7 +180,17 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 // Compose state and its caches are main-thread owned.  The
                 // ghost files were prepared above; bind them to the stage only
                 // after AsyncTask returns to the UI thread.
-                setGhostToRunner(ghost)
+                if (!setGhostToRunner(reservation)) {
+                    pendingGhost = null
+                    hideProgress()
+                    simpleDialog = NanidroidSimpleDialog.Notice(
+                        R.string.err_title,
+                        R.string.err_no_ghost_available,
+                        onConfirm = { finish() },
+                    )
+                    return
+                }
+                pendingGhost = null
                 enqueuePendingArchiveIntent()
                 dbgRelatedSetup(ghost)
                 hideProgress()
@@ -176,17 +208,21 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val ghost = launchCandidateIds(lastId, gm!!.getGnames().orEmpty().toList())
             .firstNotNullOfOrNull(gm!!::createGhost)
             ?: return
-        CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
-        gm!!.setLastRunGhost(ghost)
-        currentGhost = ghost
+        CrashReporting.setCustomKey("current_ghost", ghost.ghost.getGhostId())
+        gm!!.setLastRunGhost(ghost.ghost)
+        pendingGhost = ghost
+        currentGhost = ghost.ghost
     }
 
-    private fun setGhostToRunner(ghost: Ghost) {
+    private fun setGhostToRunner(reservation: ReservedGhost): Boolean {
+        val ghost = reservation.ghost
         composeStage.setSurfaceManager(ghost.mgr)
         runner!!.setPresentationRenderer(composeStage.renderer)
         // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
-        runner!!.setGhost(ghost)
+        val attached = runner!!.attachReservedGhost(reservation)
+        if (!attached) runner!!.abandonReservedGhost(reservation)
+        return attached
     }
     private fun setupViews(dbgBuild: Boolean) {
         progressMessage = getString(R.string.prog_startup)
@@ -255,6 +291,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         super.onSaveInstanceState(outState)
     }
     override fun onDestroy() {
+        pendingGhost?.let { runner?.abandonReservedGhost(it) }
+        pendingGhost = null
         narLiveGrantExecutor.shutdown()
         super.onDestroy()
         sendStopIntent()
@@ -330,9 +368,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             hideProgress()
             return
         }
-        object : AsyncTask<Void, Void, Ghost?>() {
+        object : AsyncTask<Void, Void, ReservedGhost?>() {
         override fun onPreExecute() { mGH.obtainMessage(MSG_LOAD_N, targetGhostId).sendToTarget(); showProgress() }
-        override fun doInBackground(vararg params: Void?): Ghost? = try {
+        override fun doInBackground(vararg params: Void?): ReservedGhost? = try {
             gm!!.createGhost(targetGhostId)
         } catch (e: Exception) {
             AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", targetGhostId, -1)
@@ -340,22 +378,37 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             e.printStackTrace()
             null
         }
-        override fun onPostExecute(ghost: Ghost?) {
-            if (!ownsGhostSwitchRequest(targetGhostId, nextGhostId)) return
-            nextGhostId = null
-            hideProgress()
-            if (ghost == null) return
-            CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
-            currentGhost = ghost
-            // Keep the Compose stage and runner on the UI thread; its frame
-            // cache and scheduler state are intentionally not synchronized.
-            composeStage.setSurfaceManager(ghost.mgr)
-            updateSurfaceKeys(ghost)
-            keyindex = 0
-            currentSurfaceKey = surfaceKeys!![keyindex]
-            gm!!.setLastRunGhost(ghost)
-            runner!!.setGhost(ghost)
-            runner!!.startClock()
+        override fun onPostExecute(reservation: ReservedGhost?) {
+            routeGhostSwitchResult(
+                reservation,
+                isDestroyed,
+                isFinishing,
+                targetGhostId,
+                nextGhostId,
+                abandon = { runner!!.abandonReservedGhost(it) },
+            ) { ownedReservation ->
+                nextGhostId = null
+                hideProgress()
+                val exactReservation = ownedReservation ?: return@routeGhostSwitchResult
+                val ghost = exactReservation.ghost
+                CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
+                // Keep the Compose stage and runner on the UI thread; its frame
+                // cache and scheduler state are intentionally not synchronized.
+                composeStage.setSurfaceManager(ghost.mgr)
+                updateSurfaceKeys(ghost)
+                keyindex = 0
+                currentSurfaceKey = surfaceKeys!![keyindex]
+                gm!!.setLastRunGhost(ghost)
+                if (!runner!!.attachReservedGhost(exactReservation)) {
+                    runner!!.abandonReservedGhost(exactReservation)
+                    return@routeGhostSwitchResult
+                }
+                currentGhost = ghost
+                runner!!.startClock()
+            }
+        }
+        override fun onCancelled(reservation: ReservedGhost?) {
+            reservation?.let { runner!!.abandonReservedGhost(it) }
         }
     }.execute()
     }

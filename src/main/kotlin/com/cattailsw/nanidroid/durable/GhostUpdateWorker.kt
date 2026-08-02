@@ -148,7 +148,7 @@ class GhostUpdateWorker(
                 GhostBoundEventSink(
                     ghostId,
                 ) { expected, event, references ->
-                    runner.doShioriEventForGhost(expected, event, references.toTypedArray())
+                    runner.doShioriEventForGhost(expected, ghostRoot, event, references.toTypedArray())
                 },
             )
             val repository = GhostUpdateRepository(
@@ -177,12 +177,44 @@ class GhostUpdateWorker(
                                 record.status == status
                         }
                 },
-                commitGuard = GhostUpdateCommitGuard { expectedGhostId, expectedGhostRoot, onFailure, action ->
-                    runner.withGhostUpdateCommitQuiesced(
-                        expectedGhostId,
-                        expectedGhostRoot,
-                        onFailure,
-                        action,
+                commitGuard = object : GhostUpdateCommitGuard {
+                    override fun commit(
+                        ghostId: String,
+                        ghostRoot: File,
+                        onFailure: (Throwable) -> GhostUpdateResult,
+                        action: () -> GhostUpdateResult,
+                    ) = runner.withGhostUpdateCommitQuiesced(
+                        ghostId, ghostRoot, onFailure = onFailure, action = action,
+                    )
+
+                    override fun commit(
+                        ghostId: String,
+                        ghostRoot: File,
+                        onFailure: (Throwable) -> GhostUpdateResult,
+                        shouldStop: () -> Boolean,
+                        onStopped: () -> GhostUpdateResult,
+                        action: () -> GhostUpdateResult,
+                    ) = runner.withGhostUpdateCommitQuiesced(
+                        ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
+                    )
+                },
+                recoveryGuard = object : GhostUpdateRecoveryGuard {
+                    override fun recover(
+                        ghostId: String,
+                        ghostRoot: File,
+                        onFailure: (Throwable) -> RecoveryResult,
+                        action: () -> RecoveryResult,
+                    ) = SScriptRunner.withProductionGhostMutation(ghostId, ghostRoot, onFailure, action)
+
+                    override fun recover(
+                        ghostId: String,
+                        ghostRoot: File,
+                        onFailure: (Throwable) -> RecoveryResult,
+                        shouldStop: () -> Boolean,
+                        onStopped: () -> RecoveryResult,
+                        action: () -> RecoveryResult,
+                    ) = runner.withGhostUpdateCommitQuiesced(
+                        ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
                     )
                 },
             )
@@ -223,7 +255,14 @@ class GhostUpdateWorker(
             run: () -> GhostUpdateResult,
         ): ListenableWorker.Result {
             if (!supervisor.reportProgress(handle, binding, "Fetching update manifest", 0)) {
-                return ListenableWorker.Result.success()
+                when (supervisor.exactStatusForAttempt(handle, OperationKind.GHOST_UPDATE, binding)) {
+                    OperationStatus.RUNNING -> Unit
+                    OperationStatus.CANCEL_REQUESTED -> {
+                        supervisor.finish(handle, binding, OperationStatus.CANCELLED)
+                        return ListenableWorker.Result.success()
+                    }
+                    else -> return ListenableWorker.Result.success()
+                }
             }
             val result = run()
             if (result is GhostUpdateResult.Interrupted) {

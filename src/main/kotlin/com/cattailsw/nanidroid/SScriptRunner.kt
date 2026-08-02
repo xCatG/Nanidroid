@@ -6,11 +6,16 @@ import android.os.Message
 import android.os.SystemClock
 import android.util.Log
 import com.cattailsw.nanidroid.util.AnalyticsUtils
-import java.util.concurrent.ConcurrentHashMap
+import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /** Executes Sakura Script while keeping the legacy Java-facing runner contract. */
-open class SScriptRunner(ctx: Context?) : Runnable {
+open class SScriptRunner internal constructor(
+    ctx: Context?,
+    private val sessionCoordinator: GhostSessionCoordinator,
+) : Runnable {
+    constructor(ctx: Context?) : this(ctx, productionSessionCoordinator)
     interface StatusCallback { fun stop(); fun canExit(); fun ghostSwitchScriptComplete() }
     interface UICallback { fun showUserInputBox(id: String); fun showUserSelection(textlabel: Array<String>, ids: Array<String>) }
 
@@ -19,10 +24,34 @@ open class SScriptRunner(ctx: Context?) : Runnable {
         @JvmField val WAIT_UNIT: Long = 50
         @JvmField val WAIT_YEN_E: Long = 1000
         private const val RUN = 42; private const val STOP = 43; private const val INC_CLOCK = 44; private const val CLOCK_STEP = 1000L
-        private var self: SScriptRunner? = null
+        @Volatile private var self: SScriptRunner? = null
+        private val productionSessionCoordinator = GhostSessionCoordinator()
         private val msgQueue = ConcurrentLinkedQueue<String>()
-        private val ghostUpdateMonitors = ConcurrentHashMap<String, Any>()
-        @JvmStatic fun getInstance(ctx: Context?): SScriptRunner { if (self == null) self = SScriptRunner(ctx); return self!! }
+        @JvmStatic fun getInstance(ctx: Context?): SScriptRunner = self ?: synchronized(this) {
+            self ?: SScriptRunner(ctx).also { self = it }
+        }
+        internal fun beginGhostConstruction(ghostId: String, ghostRoot: File): GhostConstructionReservation =
+            productionSessionCoordinator.beginConstruction(ghostId, ghostRoot)
+        internal fun reserveGhostForAttachment(ghost: Ghost): ReservedGhost =
+            productionSessionCoordinator.reserveLoadedGhostForTesting(ghost)
+        internal fun reuseActiveGhost(ghostId: String, ghostRoot: File): ReservedGhost? =
+            productionSessionCoordinator.reuseActive(ghostId, ghostRoot)
+        internal fun <T> withProductionGhostMutation(
+            ghostId: String,
+            ghostRoot: File,
+            onFailure: (Throwable) -> T,
+            action: () -> T,
+        ): T = productionSessionCoordinator.withMutation(
+            ghostId,
+            ghostRoot,
+            onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
+            onFailure = onFailure,
+            action = action,
+        )
+        internal fun resetInstanceForTesting() = synchronized(this) {
+            productionSessionCoordinator.clearForTesting()
+            self = null
+        }
     }
 
     private var presentationRenderer: GhostPresentationRenderer? = null
@@ -40,26 +69,49 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun dispatchComposeDoubleClick(x: Int, y: Int, sakura: Boolean, collisionId: Int, buttonId: Int) { if (!sakura) clearMsgQueue(); doMouseDblClick(x,y,sakura,collisionId,buttonId) }
     fun setGhost(newGhost: Ghost?) {
-        val update = {
+        if (!setGhostInternal(newGhost, null)) throw IllegalStateException("ghost assignment was rejected")
+    }
+    internal fun attachReservedGhost(reservation: ReservedGhost): Boolean =
+        setGhostInternal(reservation.ghost, reservation)
+    internal fun abandonReservedGhost(reservation: ReservedGhost): Boolean =
+        sessionCoordinator.abandon(reservation)
+    internal fun reserveGhostForAttachmentForTesting(ghost: Ghost): ReservedGhost =
+        sessionCoordinator.reserveLoadedGhostForTesting(ghost)
+    internal fun unloadGhostForSwitchForTesting(ghost: Ghost): Boolean =
+        sessionCoordinator.markActiveUnloaded(ghost)
+    private fun setGhostInternal(newGhost: Ghost?, reservation: ReservedGhost?): Boolean {
+        val outgoing = synchronized(this) { g }
+        val firstActivation = newGhost?.getCreateCount() == 0L
+        var outgoingName: String? = null
+        val assign = {
             synchronized(this) {
-                val name = g?.getGhostName()
+                outgoingName = g?.getGhostName()
                 g = newGhost
-                val firstActivation = g?.getCreateCount() == 0L
-                g?.recordActivation()
-                if (name != null) {
-                    if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(name, null) as Array<String>)
-                    else {
-                        doShioriEvent("OnFirstBoot", arrayOf("0"))
-                        AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW, "onfirstboot", g!!.getGhostId(), 0)
-                    }
-                    bootDispatchState.markBootDispatched()
-                } else {
-                    bootDispatchState.resetForNoGhost()
-                }
+                if (outgoingName == null) bootDispatchState.resetForNoGhost()
             }
         }
-        val ghostId = newGhost?.getGhostId()
-        if (ghostId == null) update() else withGhostUpdateQuiesced(ghostId, update)
+        val assigned = if (reservation == null) {
+            sessionCoordinator.transition(outgoing, newGhost, assign)
+            true
+        } else sessionCoordinator.attach(reservation, outgoing, assign)
+        if (!assigned) return false
+        if (reservation?.reusedActive == true) return true
+        try {
+            newGhost?.recordActivation()
+        } catch (error: RuntimeException) {
+            LegacyPlatform.debug(TAG, "ghost activation count update failed: ${error.message}")
+        }
+        if (outgoingName != null && newGhost != null) {
+            if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(outgoingName, null) as Array<String>)
+            else {
+                doShioriEvent("OnFirstBoot", arrayOf("0"))
+                AnalyticsUtils.getInstance(null).trackEvent(
+                    Setup.ANA_PGM_FLOW, "onfirstboot", newGhost.getGhostId(), 0,
+                )
+            }
+            bootDispatchState.markBootDispatched()
+        }
+        return true
     }
     @Synchronized fun addMsgToQueue(inCol: Collection<String>) { msgQueue.addAll(inCol) }
     @Synchronized fun addMsgToQueue(msgs: Array<String>) { msgs.forEach { msgQueue.add(it) } }
@@ -90,23 +142,17 @@ open class SScriptRunner(ctx: Context?) : Runnable {
                 synchronized(this) { finishStop(null) }
                 return
             }
-            val stopped = withGhostUpdateQuiesced(unloadTarget.getGhostId()) {
-                synchronized(this) {
-                    if (!changingPending || cb == null || g !== unloadTarget) false
-                    else {
-                        finishStop(unloadTarget)
-                        true
-                    }
-                }
+            if (sessionCoordinator.markActiveUnloaded(unloadTarget)) {
+                synchronized(this) { finishStop(unloadTarget) }
+                return
             }
-            if (stopped) return
         }
     }
     private fun finishStop(unloadTarget: Ghost?) {
         isRunning=false;bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { callback ->
             callback.stop()
             if(exitPending){callback.canExit();exitPending=false}
-            if(changingPending && unloadTarget != null){changingPending=false;unloadTarget.unload();callback.ghostSwitchScriptComplete()}
+            if(changingPending && unloadTarget != null){changingPending=false;callback.ghostSwitchScriptComplete()}
         }
     }
     private fun reset(){sync=false;wholeline=false;sakuraTalk=true;sakuraMsg.setLength(0);keroMsg.setLength(0);msg="";charIndex=0;bSakuraId="-1";bKeroId="-1";sakuraAnimationId=null;keroAnimationId=null}
@@ -143,78 +189,52 @@ open class SScriptRunner(ctx: Context?) : Runnable {
     @Suppress("UNCHECKED_CAST")
     internal fun doShioriEventForGhost(
         expectedGhostId: String,
+        expectedGhostRoot: File,
         evt: String,
         ref: Array<out String?>?,
-    ): Boolean = withGhostUpdateQuiesced(expectedGhostId) {
-        synchronized(this) {
-            val target = g ?: return@synchronized false
-            if (target.getGhostId() != expectedGhostId) return@synchronized false
-            val response = target.doShioriEvent(evt, ref as Array<String>?)
-            parseShioriResponseAndInsert(response)
-            true
-        }
+    ): Boolean = withCurrentGhost { target ->
+        if (
+            target.getGhostId() != expectedGhostId ||
+            File(target.getGhostPath()).canonicalFile != expectedGhostRoot.canonicalFile
+        ) return@withCurrentGhost false
+        val response = target.doShioriEvent(evt, ref as Array<String>?)
+        parseShioriResponseAndInsert(response)
+        true
+    } ?: false
+
+    internal fun doShioriEventForGhost(
+        expectedGhostId: String,
+        evt: String,
+        ref: Array<out String?>?,
+    ): Boolean {
+        val root = synchronized(this) { g?.let { File(it.getGhostPath()) } } ?: return false
+        return doShioriEventForGhost(expectedGhostId, root, evt, ref)
     }
 
-    internal fun <T> withGhostUpdateQuiesced(ghostId: String, action: () -> T): T =
-        synchronized(ghostUpdateMonitors.computeIfAbsent(ghostId) { Any() }) { action() }
+    internal fun <T> withGhostUpdateQuiesced(ghostId: String, action: () -> T): T {
+        val expected = synchronized(this) { g?.takeIf { it.getGhostId() == ghostId } }
+            ?: return action()
+        return sessionCoordinator.withGhostGate(expected) { action() }
+    }
 
     internal fun <T> withGhostUpdateCommitQuiesced(
         ghostId: String,
         ghostRoot: java.io.File,
         onFailure: (Throwable) -> T = { throw it },
+        shouldStop: () -> Boolean = { false },
+        onStopped: () -> T = { onFailure(IOException("ghost update stopped while awaiting attachment")) },
         action: () -> T,
-    ): T = withGhostUpdateQuiesced(ghostId) {
-        val active = synchronized(this) {
-            g?.takeIf { ghost ->
-                ghost.getGhostId() == ghostId &&
-                    java.io.File(ghost.getGhostPath()).canonicalFile == ghostRoot.canonicalFile
-            }
-        }
-        val unloadFailure = try {
-            active?.unload()
-            null
-        } catch (error: Exception) {
-            error
-        }
-        try {
-            if (unloadFailure != null) onFailure(unloadFailure)
-            else try {
-                action()
-            } catch (error: Exception) {
-                onFailure(error)
-            }
-        } finally {
-            synchronized(this) {
-                if (g === active && active != null) reloadAfterGhostUpdate(active)
-            }
-        }
-    }
-
-    private fun reloadAfterGhostUpdate(active: Ghost) {
-        try {
-            active.reloadAfterGhostUpdate()
-        } catch (error: Exception) {
-            deactivateAfterGhostUpdateReloadFailure(active, error)
-        } catch (error: LinkageError) {
-            deactivateAfterGhostUpdateReloadFailure(active, error)
-        }
-    }
-
-    private fun deactivateAfterGhostUpdateReloadFailure(active: Ghost, error: Throwable) {
-        try {
-            active.deactivateAfterGhostUpdateReloadFailure()
-        } catch (deactivationError: Throwable) {
-            LegacyPlatform.debug(TAG, "ghost reload deactivation failed: ${deactivationError.message}")
-        }
-        LegacyPlatform.debug(TAG, "ghost reload after update failed: ${error.message}")
-    }
+    ): T = sessionCoordinator.withMutation(
+        ghostId, ghostRoot, shouldStop, onStopped, onFailure, action,
+    )
 
     private fun <T> withCurrentGhost(action: (Ghost) -> T): T? {
         while (true) {
             val expected = synchronized(this) { g } ?: return null
-            val result = withGhostUpdateQuiesced(expected.getGhostId()) {
+            val result = sessionCoordinator.withGhostGate(expected) { live ->
                 synchronized(this) {
                     if (g !== expected) CurrentGhostCall<T>(false, null)
+                    else if (!live) CurrentGhostCall(true, null)
                     else CurrentGhostCall(true, action(expected))
                 }
             }

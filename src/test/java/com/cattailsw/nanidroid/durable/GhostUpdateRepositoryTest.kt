@@ -479,6 +479,47 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `user or system stop while awaiting commit gate removes pre-journal transaction`() {
+        listOf(
+            GhostUpdateStopReason.USER_CANCELLED to GhostUpdateResult.Cancelled,
+            GhostUpdateStopReason.SYSTEM_INTERRUPTED to GhostUpdateResult.Interrupted,
+        ).forEachIndexed { index, (requested, expected) ->
+            val fixture = fixture("commit-gate-wait-stop-$index")
+            fixture.writeLive("ghost/master.txt", "old")
+            fixture.network.manifest("ghost/master.txt" to bytes("new"))
+            var stop = GhostUpdateStopReason.NONE
+            val blockedGuard = object : GhostUpdateCommitGuard {
+                override fun commit(
+                    ghostId: String,
+                    ghostRoot: File,
+                    onFailure: (Throwable) -> GhostUpdateResult,
+                    action: () -> GhostUpdateResult,
+                ): GhostUpdateResult = error("stop-aware guard overload required")
+
+                override fun commit(
+                    ghostId: String,
+                    ghostRoot: File,
+                    onFailure: (Throwable) -> GhostUpdateResult,
+                    shouldStop: () -> Boolean,
+                    onStopped: () -> GhostUpdateResult,
+                    action: () -> GhostUpdateResult,
+                ): GhostUpdateResult {
+                    stop = requested
+                    assertTrue(shouldStop())
+                    return onStopped()
+                }
+            }
+
+            val result = fixture.repository(commitGuard = blockedGuard)
+                .runInterruptible(fixture.request()) { stop }
+
+            assertEquals(requested.name, expected, result)
+            assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+            assertFalse(requested.name, fixture.transactionRoot().exists())
+        }
+    }
+
+    @Test
     fun `failure after live rename finishes verified commit`() {
         val fixture = fixture("crash-backup")
         fixture.writeLive("ghost/master.txt", "old")
@@ -666,6 +707,100 @@ class GhostUpdateRepositoryTest {
 
         assertEquals(ListenableWorker.Result.retry().toString(), result.toString())
         assertEquals(OperationStatus.RUNNING, durableStore.read().single().status)
+    }
+
+    @Test
+    fun `worker retry runs when exact binding replays identical initial progress`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val handle = OperationHandle(OperationId("worker-identical-progress-retry"), AttemptId(1))
+        val binding = ExternalJobBinding.WorkManager("identical-progress-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        var runs = 0
+
+        val interrupted = GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
+            runs++
+            GhostUpdateResult.Interrupted
+        }
+        val completed = GhostUpdateWorker.execute(supervisor, handle, binding, { false }) {
+            runs++
+            GhostUpdateResult.Completed(listOf("ghost/master.txt"))
+        }
+
+        assertEquals(ListenableWorker.Result.retry().toString(), interrupted.toString())
+        assertEquals(ListenableWorker.Result.success().toString(), completed.toString())
+        assertEquals(2, runs)
+        assertEquals(OperationStatus.COMPLETED, durableStore.read().single().status)
+    }
+
+    @Test
+    fun `worker terminalizes exact cancellation when initial progress is unchanged`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val handle = OperationHandle(OperationId("worker-unchanged-cancelled"), AttemptId(1))
+        val binding = ExternalJobBinding.WorkManager("unchanged-cancelled-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Fetching update manifest", 0, binding))
+        assertTrue(supervisor.requestStop(handle))
+        var invoked = false
+
+        val result = GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
+            invoked = true
+            GhostUpdateResult.Interrupted
+        }
+
+        assertEquals(ListenableWorker.Result.success().toString(), result.toString())
+        assertFalse(invoked)
+        assertEquals(OperationStatus.CANCELLED, durableStore.read().single().status)
+    }
+
+    @Test
+    fun `worker terminalizes cancellation racing after unchanged progress rejection`() {
+        val delegate = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        var armed = false
+        var armedReads = 0
+        val racingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> {
+                val records = delegate.read()
+                if (armed && ++armedReads == 2) {
+                    val current = records.single()
+                    assertTrue(delegate.compareAndSet(
+                        current,
+                        current.copy(status = OperationStatus.CANCEL_REQUESTED),
+                    ))
+                    return delegate.read()
+                }
+                return records
+            }
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean = delegate.compareAndSet(expected, updated)
+        }
+        val supervisor = DurableOperationSupervisor(racingStore, MonotonicClock { 0L }) { _, _ -> }
+        val handle = OperationHandle(OperationId("worker-progress-cancel-race"), AttemptId(1))
+        val binding = ExternalJobBinding.WorkManager("progress-cancel-race-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Fetching update manifest", 0, binding))
+        armed = true
+        var invoked = false
+
+        val result = GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
+            invoked = true
+            GhostUpdateResult.Interrupted
+        }
+
+        assertEquals(ListenableWorker.Result.success().toString(), result.toString())
+        assertFalse(invoked)
+        assertEquals(OperationStatus.CANCELLED, delegate.read().single().status)
     }
 
     @Test
