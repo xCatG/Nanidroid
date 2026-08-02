@@ -19,8 +19,12 @@ import org.junit.Test
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.ByteArrayInputStream
+import java.io.FilterInputStream
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class NarDownloadRepositoryTest {
     private val store = NarDownloadStore(NarDownloadStore.MemoryStorage())
@@ -424,6 +428,87 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.RUNNING, operation.status)
         assertTrue(repository.stop(replacement.id))
         assertEquals(listOf(replacement.workManagerId), work.cancelledBindings)
+    }
+
+    @Test fun oneShotGrantIsAcquiredLiveAndCopiedOffMainIntoSupervisedDurableStorage() {
+        val callerThread = Thread.currentThread()
+        val grantLive = AtomicBoolean(true)
+        val openedOn = AtomicReference<Thread>()
+        val copiedOn = AtomicReference<Thread>()
+        val supervisedProgressObserved = AtomicBoolean(false)
+        val copyStarted = CountDownLatch(1)
+        val allowCopy = CountDownLatch(1)
+        val copyFinished = CountDownLatch(1)
+        val privateImports = File.createTempFile("nar-live-grant", "").also {
+            assertTrue(it.delete())
+            assertTrue(it.mkdir())
+        }
+        val executor = Executor { task ->
+            Thread({
+                copiedOn.set(Thread.currentThread())
+                copyStarted.countDown()
+                allowCopy.await(5, TimeUnit.SECONDS)
+                task.run()
+                copyFinished.countDown()
+            }, "nar-live-grant-copy").start()
+        }
+        val handoff = NarLiveGrantHandoff(
+            repository = repository,
+            executor = executor,
+            stage = { source, isCancelled, onProgress ->
+                NarLocalArchiveStager.stage(
+                    directory = privateImports,
+                    open = { source },
+                    isCancelled = isCancelled,
+                    onProgress = { completed ->
+                        onProgress("Copying archive", completed)
+                        val operation = operationStore.read().single()
+                        supervisedProgressObserved.set(
+                            operation.attemptId.value == 1L &&
+                                operation.status == OperationStatus.RUNNING &&
+                                operation.externalJob == ExternalJobBinding.WorkManager(
+                                    "stage-local-nar-${operation.id.value}-1",
+                                ) &&
+                                operation.progress.completed > 0L,
+                        )
+                    },
+                )
+            },
+        )
+
+        val item = handoff.enqueue("content://provider/one-shot.nar", replacementId = null) {
+            assertTrue("source opened after grant window", grantLive.get())
+            openedOn.set(Thread.currentThread())
+            object : FilterInputStream(ByteArrayInputStream(ByteArray(20 * 1024) { 6 })) {
+                override fun read(target: ByteArray, offset: Int, length: Int): Int {
+                    assertTrue("source copied after grant window", grantLive.get())
+                    return super.read(target, offset, length)
+                }
+            }
+        }!!
+
+        assertTrue(copyStarted.await(2, TimeUnit.SECONDS))
+        assertEquals(callerThread, openedOn.get())
+        assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+        var workerTriedToOpen = false
+        val workerAccepted = repository.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            workerTriedToOpen = true
+            NarLocalArchiveStager.Result.Failed("duplicate opener")
+        }
+        assertTrue(!workerAccepted)
+        assertTrue(!workerTriedToOpen)
+        assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+        allowCopy.countDown()
+        assertTrue(copyFinished.await(5, TimeUnit.SECONDS))
+        grantLive.set(false)
+
+        val staged = store.get(item.id)!!
+        assertTrue(copiedOn.get() !== callerThread)
+        assertEquals(NarDownloadState.Queued, staged.state)
+        assertTrue(staged.retainedUri!!.startsWith("file:"))
+        assertTrue(supervisedProgressObserved.get())
+        NarLocalArchiveStager.discard(staged.retainedUri!!)
+        privateImports.delete()
     }
 
     @Test fun failedCopyBecomesActionableAttention() {

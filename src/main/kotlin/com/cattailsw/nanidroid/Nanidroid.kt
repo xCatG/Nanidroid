@@ -35,13 +35,16 @@ import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.PrefUtil
 import com.cattailsw.nanidroid.install.NarContentUriImport
 import com.cattailsw.nanidroid.install.NarDownloadRepository
+import com.cattailsw.nanidroid.install.NarLiveGrantHandoff
 import com.cattailsw.nanidroid.install.NarDownloadState
+import com.cattailsw.nanidroid.install.StageLocalNarWorker
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStreamReader
 import java.util.Arrays
+import java.util.concurrent.Executors
 
 internal fun ownsGhostSwitchRequest(targetGhostId: String, pendingGhostId: String?): Boolean =
     targetGhostId == pendingGhostId
@@ -83,6 +86,20 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var replacingNarDownloadId: String? = null
     private var archiveIntentState = ArchiveIntentState()
     private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
+    private val narLiveGrantExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "nar-live-grant-copy")
+    }
+    private val narLiveGrantHandoff by lazy {
+        NarLiveGrantHandoff(narDownloads, narLiveGrantExecutor) { source, isCancelled, onProgress ->
+            StageLocalNarWorker.stageOpenedSource(
+                applicationContext,
+                source,
+                isCancelled,
+            ) { completed ->
+                onProgress("Copying archive", completed)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -223,7 +240,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         outState.putInt(NAR_PENDING_INTENT_FLAGS, archiveIntentState.pendingFlags)
         super.onSaveInstanceState(outState)
     }
-    override fun onDestroy() { super.onDestroy(); sendStopIntent() }
+    override fun onDestroy() {
+        narLiveGrantExecutor.shutdown()
+        super.onDestroy()
+        sendStopIntent()
+    }
     override fun onResume() { super.onResume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG) }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -408,10 +429,15 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             }
         }
 
-        if (replacementId == null) {
-            narDownloads.enqueueLocalCopy(uri.toString())
-        } else {
-            narDownloads.replaceLocalSourceForCopy(replacementId, uri.toString())
+        if (narLiveGrantHandoff.enqueue(uri.toString(), replacementId) {
+                contentResolver.openInputStream(uri)
+            } == null
+        ) {
+            Toast.makeText(
+                this,
+                "The selected document is no longer available.",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

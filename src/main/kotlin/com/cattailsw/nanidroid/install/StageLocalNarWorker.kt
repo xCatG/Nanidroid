@@ -6,7 +6,60 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
 import java.net.URI
+import java.util.concurrent.Executor
+
+/** Acquires a temporary-grant stream synchronously, then stages it on a background executor. */
+internal class NarLiveGrantHandoff(
+    private val repository: NarDownloadRepository,
+    private val executor: Executor,
+    private val stage: (
+        source: InputStream,
+        isCancelled: () -> Boolean,
+        onProgress: (phase: String, completed: Long) -> Unit,
+    ) -> NarLocalArchiveStager.Result,
+) {
+    fun enqueue(
+        uri: String,
+        replacementId: String?,
+        open: () -> InputStream?,
+    ): NarDownload? {
+        val source = try {
+            open()
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val item = if (replacementId == null) {
+            repository.enqueueLiveLocalCopy(uri)
+        } else {
+            repository.replaceLocalSourceForLiveCopy(replacementId, uri)
+        }
+        if (item == null) {
+            runCatching { source.close() }
+            return null
+        }
+        try {
+            executor.execute {
+                var sourceClaimed = false
+                repository.stageLiveLocal(
+                    item.id,
+                    item.attemptId,
+                    { Thread.currentThread().isInterrupted },
+                ) { _, isCancelled, onProgress ->
+                    sourceClaimed = true
+                    stage(source, isCancelled, onProgress)
+                }
+                if (!sourceClaimed) runCatching { source.close() }
+            }
+        } catch (_: RuntimeException) {
+            runCatching { source.close() }
+            repository.abandonLiveLocalCopy(item.id, item.attemptId)
+            repository.stop(item.id)
+        }
+        return item
+    }
+}
 
 /** Copies one retained document URI into app-owned storage before installation. */
 class StageLocalNarWorker(
@@ -18,7 +71,11 @@ class StageLocalNarWorker(
         val attemptId = inputData.getLong(INPUT_ATTEMPT_ID, NO_ATTEMPT)
         if (attemptId == NO_ATTEMPT) return Result.success()
         val repository = NarDownloadRepository.get(applicationContext)
-        repository.stageLocal(itemId, attemptId, { isStopped }) { download, isCancelled, onProgress ->
+        val accepted = repository.stageLocal(
+            itemId,
+            attemptId,
+            { isStopped },
+        ) { download, isCancelled, onProgress ->
             val location = download.retainedUri ?: (download.source as? NarDownloadSource.Local)?.uri
                 ?: return@stageLocal NarLocalArchiveStager.Result.Failed(
                     "The selected document is no longer available.",
@@ -27,7 +84,7 @@ class StageLocalNarWorker(
                 onProgress("Copying archive", completed)
             }
         }
-        return Result.success()
+        return if (accepted) Result.success() else Result.retry()
     }
 
     override fun onStopped() {
@@ -53,6 +110,18 @@ class StageLocalNarWorker(
         ): NarLocalArchiveStager.Result = NarLocalArchiveStager.stage(
             directory = File(context.filesDir, LOCAL_IMPORT_DIRECTORY),
             open = { open(context, location) },
+            isCancelled = isCancelled,
+            onProgress = onProgress,
+        )
+
+        internal fun stageOpenedSource(
+            context: Context,
+            source: InputStream,
+            isCancelled: () -> Boolean,
+            onProgress: (completed: Long) -> Unit,
+        ): NarLocalArchiveStager.Result = NarLocalArchiveStager.stage(
+            directory = File(context.filesDir, LOCAL_IMPORT_DIRECTORY),
+            open = { source },
             isCancelled = isCancelled,
             onProgress = onProgress,
         )

@@ -112,6 +112,7 @@ class NarDownloadRepository internal constructor(
     private val nextId: () -> String,
 ) {
     private val observedDownloads = MutableStateFlow(store.getAll())
+    private val liveCopyAttempts = mutableSetOf<OperationHandle>()
 
     fun observeDownloads(): StateFlow<List<NarDownload>> = observedDownloads.asStateFlow()
 
@@ -159,7 +160,13 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
-    fun enqueueLocalCopy(uri: String): NarDownload {
+    fun enqueueLocalCopy(uri: String): NarDownload = enqueueLocalCopy(uri, liveGrant = false)
+
+    @Synchronized
+    internal fun enqueueLiveLocalCopy(uri: String): NarDownload =
+        enqueueLocalCopy(uri, liveGrant = true)
+
+    private fun enqueueLocalCopy(uri: String, liveGrant: Boolean): NarDownload {
         val item = store.create(
             NarDownload(
                 id = nextId(),
@@ -168,7 +175,11 @@ class NarDownloadRepository internal constructor(
                 state = NarDownloadState.Copying,
             ),
         )
+        if (liveGrant) liveCopyAttempts += item.handle()
         scheduleLocalCopy(item)
+        if (store.get(item.id)?.state != NarDownloadState.Copying) {
+            liveCopyAttempts -= item.handle()
+        }
         publish()
         return store.get(item.id)!!
     }
@@ -213,60 +224,103 @@ class NarDownloadRepository internal constructor(
             isCancelled: () -> Boolean,
             onProgress: (phase: String, completed: Long) -> Unit,
         ) -> NarLocalArchiveStager.Result,
-    ) {
-        val item = store.get(itemId) ?: return
-        if (item.attemptId != attemptId || item.state != NarDownloadState.Copying) return
-        val handle = item.handle()
-        val result = stage(
-            item,
-            { isStopped() || cancellationRequested(handle) },
-            { phase, completed -> supervisor.reportProgress(handle, phase, completed) },
-        )
-        val current = store.get(itemId)
-        if (current?.attemptId != attemptId || current.state != NarDownloadState.Copying) {
-            if (result is NarLocalArchiveStager.Result.Staged) {
-                NarLocalArchiveStager.discard(result.location)
+    ) = stageLocalAttempt(itemId, attemptId, isStopped, liveGrant = false, stage)
+
+    internal fun stageLiveLocal(
+        itemId: String,
+        attemptId: Long,
+        isStopped: () -> Boolean,
+        stage: (
+            download: NarDownload,
+            isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
+        ) -> NarLocalArchiveStager.Result,
+    ) = stageLocalAttempt(itemId, attemptId, isStopped, liveGrant = true, stage)
+
+    private fun stageLocalAttempt(
+        itemId: String,
+        attemptId: Long,
+        isStopped: () -> Boolean,
+        liveGrant: Boolean,
+        stage: (
+            download: NarDownload,
+            isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
+        ) -> NarLocalArchiveStager.Result,
+    ): Boolean {
+        val handle = OperationHandle(OperationId(itemId), AttemptId(attemptId))
+        if (liveGrant) {
+            synchronized(this) {
+                if (handle !in liveCopyAttempts) return true
             }
-            return
+        } else {
+            synchronized(this) {
+                if (handle in liveCopyAttempts) return false
+            }
         }
-        when (result) {
-            is NarLocalArchiveStager.Result.Staged -> {
-                if (!supervisor.finish(handle, OperationStatus.COMPLETED)) {
+        try {
+            val item = store.get(itemId) ?: return true
+            if (item.attemptId != attemptId || item.state != NarDownloadState.Copying) return true
+            val result = stage(
+                item,
+                { isStopped() || cancellationRequested(handle) },
+                { phase, completed -> supervisor.reportProgress(handle, phase, completed) },
+            )
+            val current = store.get(itemId)
+            if (current?.attemptId != attemptId || current.state != NarDownloadState.Copying) {
+                if (result is NarLocalArchiveStager.Result.Staged) {
                     NarLocalArchiveStager.discard(result.location)
-                    return
                 }
-                store.update(itemId) { latest ->
-                    if (latest.attemptId == attemptId) {
-                        latest.copy(
-                            attemptId = latest.attemptId + 1L,
-                            retainedUri = result.location,
-                            workManagerId = null,
-                            state = NarDownloadState.Queued,
-                        )
-                    } else {
-                        latest
+                return true
+            }
+            when (result) {
+                is NarLocalArchiveStager.Result.Staged -> {
+                    if (!supervisor.finish(handle, OperationStatus.COMPLETED)) {
+                        NarLocalArchiveStager.discard(result.location)
+                        return true
                     }
-                }
-                scheduleInstall(itemId)
-            }
-            is NarLocalArchiveStager.Result.Failed -> {
-                if (supervisor.finish(handle, OperationStatus.FAILED, result.message)) {
-                    markNeedsAttention(itemId, result.message)
-                }
-            }
-            NarLocalArchiveStager.Result.Cancelled -> {
-                if (supervisor.finish(handle, OperationStatus.CANCELLED)) {
                     store.update(itemId) { latest ->
                         if (latest.attemptId == attemptId) {
-                            latest.copy(state = NarDownloadState.Cancelled)
+                            latest.copy(
+                                attemptId = latest.attemptId + 1L,
+                                retainedUri = result.location,
+                                workManagerId = null,
+                                state = NarDownloadState.Queued,
+                            )
                         } else {
                             latest
                         }
                     }
+                    scheduleInstall(itemId)
+                }
+                is NarLocalArchiveStager.Result.Failed -> {
+                    if (supervisor.finish(handle, OperationStatus.FAILED, result.message)) {
+                        markNeedsAttention(itemId, result.message)
+                    }
+                }
+                NarLocalArchiveStager.Result.Cancelled -> {
+                    if (supervisor.finish(handle, OperationStatus.CANCELLED)) {
+                        store.update(itemId) { latest ->
+                            if (latest.attemptId == attemptId) {
+                                latest.copy(state = NarDownloadState.Cancelled)
+                            } else {
+                                latest
+                            }
+                        }
+                    }
                 }
             }
+            publish()
+            return true
+        } finally {
+            if (liveGrant) synchronized(this) { liveCopyAttempts -= handle }
         }
-        publish()
+    }
+
+    internal fun abandonLiveLocalCopy(itemId: String, attemptId: Long) {
+        synchronized(this) {
+            liveCopyAttempts -= OperationHandle(OperationId(itemId), AttemptId(attemptId))
+        }
     }
 
     @Synchronized
@@ -343,6 +397,14 @@ class NarDownloadRepository internal constructor(
         if (item.source !is NarDownloadSource.Local) return null
         if (!delete(itemId)) return null
         return enqueueLocalCopy(uri)
+    }
+
+    @Synchronized
+    internal fun replaceLocalSourceForLiveCopy(itemId: String, uri: String): NarDownload? {
+        val item = store.get(itemId) ?: return null
+        if (item.source !is NarDownloadSource.Local) return null
+        if (!delete(itemId)) return null
+        return enqueueLiveLocalCopy(uri)
     }
 
     @Synchronized
