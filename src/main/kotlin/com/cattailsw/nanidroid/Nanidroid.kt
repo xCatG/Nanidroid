@@ -350,9 +350,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file,
         )
     }
-    private fun importPickedNar(uri: Uri) = enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+    private fun importPickedNar(uri: Uri, replacementId: String?) =
+        enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId)
 
-    private fun enqueueLocalArchive(uri: Uri, flags: Int) {
+    private fun enqueueLocalArchive(uri: Uri, flags: Int, replacementId: String? = null) {
         val pendingCopyId = if (flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) {
             narDownloads.retainLocalSourceForCopy(uri.toString()).id
         } else null
@@ -373,13 +374,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             override fun onPostExecute(result: NarLocalArchiveStager.Result) {
                 when (result) {
                     is NarLocalArchiveStager.Result.Staged -> {
-                        val replacing = replacingNarDownloadId ?: pendingCopyId
-                        replacingNarDownloadId = null
+                        val replacing = replacementId ?: pendingCopyId
                         if (replacing == null) narDownloads.enqueueLocal(result.location, result.location)
                         else narDownloads.replaceLocalSource(replacing, result.location)
                     }
                     is NarLocalArchiveStager.Result.Failed -> {
-                        replacingNarDownloadId = null
                         Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
                     }
                 }
@@ -390,10 +389,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != NAR_PICK_REQUEST || !awaitingNarDocument) return
         awaitingNarDocument = false
+        val replacementId = replacingNarDownloadId
+        replacingNarDownloadId = null
         if (resultCode == RESULT_OK) {
-            data?.data?.let(::importPickedNar)
+            data?.data?.let { importPickedNar(it, replacementId) }
                 ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
-        } else replacingNarDownloadId = null
+        }
     }
     private fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); simpleDialog = createUrlEntryDialog() }
     private fun showGhostTown() {
