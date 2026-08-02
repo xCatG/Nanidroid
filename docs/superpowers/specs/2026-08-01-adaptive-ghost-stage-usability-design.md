@@ -1,25 +1,32 @@
 # Adaptive Ghost Stage and Usability Design
 
-**Status:** Approved
+**Status:** Revised; awaiting product-decision approval
+
 **Date:** 2026-08-01
+
+**Revision:** 2026-08-01 adversarial and constructive review pass
 
 ## Summary
 
 Nanidroid's ghost stage currently renders Sakura and Kero close to their raw PNG
 pixel dimensions. That leaves them unusually small on high-density phones,
-landscape windows, and tablets. The same stage also couples a character tap to
-toolbar visibility, rejects valid collision files in some real ghosts, renders
-some SakuraScript control text literally, and exposes a second row of legacy
-debug buttons whose collision control is a no-op.
+landscape windows, and tablets. The same stage couples a character tap to toolbar
+visibility, rejects valid surface grammar used by real ghosts, discards authored
+collision names before SHIORI dispatch, renders some SakuraScript controls
+literally, and exposes a second row of legacy debug buttons whose collision
+control is a no-op.
 
-This design replaces raw-pixel placement with a bounded adaptive stage, gives
-portrait and tall windows two speaker lanes, gives compact-height landscape
-windows a three-column character/dialogue/character arrangement, and makes one
-render transform authoritative for drawing, input, and debug bounds. It also
-reorganizes the app chrome, hardens surface parsing, and adds a representative
-UI and interaction test matrix.
+This design replaces raw-pixel placement with a bounded adaptive stage. Portrait
+and tall windows use two speaker lanes. Compact-height landscape uses the agreed
+three-column character/dialogue/character arrangement. One measured transform is
+authoritative for rendering, input, collision overlays, and diagnostics.
 
-## Audit Evidence
+The review pass retains those layout decisions and strengthens the compatibility
+contract around stable window classification, shell parsing, collision geometry,
+SHIORI references, SakuraScript actions, pointer sources, accessibility, recovery,
+and deterministic verification.
+
+## Audit and Review Evidence
 
 The design is based on an API 37 emulator audit of the current `master` build
 across phone and tablet-sized portrait and landscape windows.
@@ -31,60 +38,92 @@ across phone and tablet-sized portrait and landscape windows.
 - The audited archives included the bundled ghost, 2elf, Yes Man, tewire-sen,
   Big Red Button, Bancho, Earthquake Rescue Duo, Nanika Atsume, Snake/Otacon,
   and other pcPets packages. Representative default surface pairs ranged from
-  1 x 1 placeholders through 772 x 535 artwork. A single fixed scale would not
-  preserve usability across this range.
+  1 x 1 placeholders through 772 x 535 artwork.
 - A face tap on 2elf produced dialogue, proving that the Compose pointer path
   can reach SHIORI when collision metadata loads.
-- Snake/Otacon's valid `surfaces.txt` places a comment between `surface0` and
-  `{`. The current parser expects `{` immediately, aborts the parse, and loses
-  every authored collision. The pointer still reaches YAYA, but it has no
-  collision name and appears inert.
+- Snake/Otacon uses comments before braces, comma selectors, ranges,
+  `surface.append`, anchors, passivemode, and structured input-box commands.
+- Nanika Atsume uses ranges and exclusions. Bancho declares its primary hit
+  regions through `surface.append` and polygon `collisionex` entries.
+- The current parser hardcodes Shift-JIS, maps unparsed selector tokens to
+  surface 0, stops after some brace errors, and cannot represent extended
+  collision shapes.
 - The current Compose interaction effect keeps only the numeric collision ID.
-  Real ghost scripts commonly compare SHIORI `Reference4` with authored names
-  such as `Head` and `Face`, so a successfully parsed collision can still be
-  unusable if its name is discarded before dispatch.
-- The current `draw CBox` button calls an empty callback. Other debug controls
-  retain legacy behavior that is disconnected from the Compose presentation
-  pipeline.
-- Some SakuraScript control content, including passivemode fragments, is
-  displayed as dialogue instead of being consumed.
+  Real scripts compare SHIORI `Reference4` with authored identifiers such as
+  `Head` and `Face`.
+- The current `draw CBox` callback is empty. Other debug controls retain legacy
+  behavior disconnected from the Compose presentation pipeline.
 - The existing JVM suite and all 18 connected tests pass, but they do not cover
-  an adaptive screenshot matrix, a real-world surface parser fixture, or an
-  end-to-end rendered-collision interaction.
+  adaptive screenshots, the audited selector/collision corpus, accessibility,
+  or end-to-end rendered-boundary interaction.
+
+The specification was then reviewed independently by Claude, agy, a Codex
+adversarial reviewer, and constructive Ghost/Nanika, Android adaptive UI, and
+usability/QA specialists. Cross-validated findings were checked against the
+code, downloaded corpus, and official UKADOC references before inclusion.
 
 ## Goals
 
-1. Make Sakura and Kero visually prominent without cropping or distorting
-   authored surfaces.
-2. Adapt to the current window rather than a device label, including rotation,
-   split screen, foldables, and desktop-sized Android windows.
+1. Make Sakura and Kero visually prominent within their assigned halves without
+   cropping or distorting authored surfaces.
+2. Adapt to the current safe window rather than a device label, including
+   rotation, split screen, flat foldables, and desktop-sized Android windows.
 3. Give compact-height landscape a stable three-column layout with both bubble
    regions in the center.
 4. Make drawing, hit-testing, pointer conversion, and collision diagnostics use
-   the exact same transform.
-5. Restore reliable touch and mouse-click interaction for real ghost packages.
-6. Replace the second debug toolbar row with organized, adaptive debug tools.
-7. Add automated coverage proportional to the real surface and viewport range.
+   the exact same measured transform.
+5. Restore reliable touch, mouse, pen, and eraser click interaction for real
+   ghost packages while retaining the input source in SHIORI `Reference6`.
+6. Replace the second debug toolbar row with organized adaptive debug tools.
+7. Preserve structured choices, anchors, and input boxes inside the new
+   presentation architecture.
+8. Add automated coverage proportional to the real surface, grammar, pointer,
+   accessibility, and viewport range.
 
 ## Non-Goals
 
-- Continuous mouse hover/petting (`OnMouseMove`), wheel, drag, right-click, and
-  other extended pointing-device events are deferred. This design preserves an
-  input-source-neutral boundary so they can be added without another layout
-  rewrite.
+- Continuous hover/petting (`OnMouseMove`), wheel, drag, right-click, long-press
+  menu emulation, and enter/leave events are deferred. The input effect is still
+  general enough to add them without changing layout or coordinate contracts.
 - Rendering third-party balloon skin packages is separate from making the
-  current dialogue surface adaptive and interactive.
+  current dialogue surface adaptive and interactive. Balloon selection commands
+  are consumed and retained diagnostically but do not change the Material bubble
+  skin in this slice.
+- Scopes beyond Sakura (`0`) and Kero (`1`) do not gain additional visible lanes
+  in this slice. Their handling is an explicit product decision below.
+- Image-mask `collisionex ... region` and animation-scoped collisions are not in
+  the proposed compatibility baseline. They are diagnosed rather than silently
+  treated as rectangles.
 - Archive download and installation queue behavior is outside this stage/UI
   change.
 - A project-wide Navigation 3 migration is not required because this work does
-  not introduce a new destination or a list-detail relationship.
-- Transparent margins are not cropped from surface images. Collision
-  coordinates are authored against the complete intrinsic canvas.
+  not introduce a new destination or list-detail relationship.
+- Transparent margins are not cropped. Collision coordinates are authored
+  against the complete intrinsic canvas.
+- Characters do not bleed into the other speaker's half to satisfy a visual
+  prominence target.
 
-## Window Classification
+## Stable Window Environment and Classification
 
-Classification uses the stage's available dp size after system insets and the
-single app bar have been removed.
+`StageEnvironment` contains:
+
+- safe window width and height in dp after persistent system bars, display
+  cutouts, and permanent occlusions;
+- density and font scale;
+- flat, book, or tabletop posture when available;
+- separating or occluding display-feature rectangles;
+- the canonical app-bar reservation; and
+- available pointer and keyboard capabilities.
+
+The classification size is stable: it reserves the canonical app-bar height
+whether the bar is visible or hidden, and it excludes transient debug surfaces
+and IME insets. Showing chrome, opening an input box, or opening debug tools must
+not change the stage mode. IME insets reduce only the bubble/input viewport and
+may make it scroll; they never trigger the tiny-window fallback.
+
+Pointer capability is not pointer-event source. Capability may tune affordances,
+but every dispatched event uses the source of that specific Compose pointer
+event.
 
 `isWide` is true when `width >= height * 1.2`.
 
@@ -96,31 +135,44 @@ Evaluation order:
    is below 320 dp.
 3. **Compact-height landscape:** `isWide`, width is at least 420 dp, and height
    is from 240 dp up to but not including 480 dp.
-4. **Standard/tall:** every remaining supported window, including phones in
-   portrait and tablets or foldables with at least 480 dp of stage height.
+4. **Standard/tall:** every remaining supported window.
 
-Tiny windows show this centered message instead of overlapping or clipping
-content:
+The 960 dp maximum content width applies to both standard/tall and very wide
+compact-height stages, avoiding a discontinuity at 480 dp height.
+
+Flat and non-occluding foldables follow the same rules. A separating hinge or
+occlusion is never crossed by a character, bubble, or pointer target. Until a
+dedicated two-pane foldable layout is designed, a separating book/tabletop
+feature uses the largest safe connected region; if it cannot meet the applicable
+lane minima, Nanidroid uses the tiny-window fallback. This intentionally narrows
+the earlier broad foldable promise.
+
+Tiny windows show this centered message:
 
 > This window is too small for Nanidroid. Make it a little bigger 💦
 
-The fallback remains inside the ordinary app shell so the user can resize,
-rotate, or leave the app normally.
+The ordinary app shell remains visible and accessible. The hidden ghost stage
+has no active semantics or pointer targets. Resizing above the boundary restores
+the exact prior runtime frame and dialogue without rebooting the ghost.
 
 ## Stage Layout
 
 ### Standard and Tall Windows
 
-The stage uses two equal speaker lanes, Kero on the start side and Sakura on the
-end side. On expanded windows the two-lane content is centered and capped at
-960 dp wide; outer space is intentional rather than stretching characters to
-tablet edges.
+The stage uses two equal physical speaker lanes: Kero remains on the left and
+Sakura on the right in both LTR and RTL locales. Surrounding text and chrome may
+mirror, but ghost positions and bubble pointers do not.
 
-Each speaker's dialogue is anchored within that speaker's lane. Characters are
-bottom-aligned and aspect-fit. Their normal visual region is capped at 64% of
-the available stage height so dialogue retains usable space. A dialogue cell
-may overlap unused transparent stage area but must not obscure the other
-speaker's interactive surface.
+On expanded windows the two-lane content is centered and capped at 960 dp wide;
+outer space is intentional. Each character is bottom-aligned, aspect-fit, and
+confined to its lane. Its canvas may use at most 64% of stage height during
+ordinary dialogue so its speaker's upper bubble region remains usable.
+
+Each speaker owns a stable bubble cell inside its lane. The cell is above or
+over the transparent part of its own canvas, never over the other speaker, an
+authored collision, or visible artwork. The bubble consumes all pointer input
+inside its frame, including plain text and padding. Interactive links and choices
+have higher priority within that frame.
 
 ### Compact-Height Landscape
 
@@ -132,263 +184,514 @@ The stage uses three columns:
 
 The outer character lanes have a 120 dp minimum, and the center dialogue lane
 has a 180 dp minimum. From 420 dp through 540 dp, the center remains 180 dp and
-the remaining width is divided equally between the outer lanes. At 540 dp and
-above, all three lanes receive equal weight. This yields the user's one-third
-layout on ordinary landscape phones while retaining minimum usability at the
-420 dp fallback boundary.
+the remainder is divided equally between the outer lanes. At 540 dp and above,
+all three lanes receive equal weight, subject to the 960 dp stage cap.
 
-The center column is split into two fixed half-height cells:
+The center is split into fixed half-height cells:
 
-- The upper Kero bubble points toward the start-side Kero lane.
-- The lower Sakura bubble points toward the end-side Sakura lane.
-- An absent bubble leaves its half reserved. The other bubble never expands,
-  so dialogue and characters do not jump when speakers alternate.
-- Long content scrolls inside its half while the bubble frame and pointer stay
-  fixed.
+- the upper Kero bubble points physically left;
+- the lower Sakura bubble points physically right;
+- an absent bubble leaves its half reserved but does not intercept input;
+- the other bubble never expands into the reserved half; and
+- long content scrolls inside its half while its frame and pointer stay fixed.
 
-Characters may use the full compact-landscape stage height, remain
-bottom-aligned, and never crop.
+During incremental text output, a cell follows the newest text until the user
+scrolls manually. Manual scrolling suspends auto-follow for that talk; the next
+talk re-enables it.
+
+Characters may use the full compact-height stage, remain bottom-aligned, never
+crop, and remain inside their outer lanes.
 
 ## Hybrid Surface Sizing
 
-The layout preserves authored relative size where it remains usable, but does
-not leave valid companions microscopic.
+Sizing preserves authored relative scale where usable while preventing visible
+characters from remaining microscopic.
 
-For each surface:
+For each selected scope:
 
-1. Calculate its maximum uniform aspect-fit scale inside its speaker lane and
-   height cap.
-2. Use the lower of Sakura's and Kero's maximum scales as the shared authored
-   scale.
-3. For a non-placeholder surface, independently increase that scale only when
-   its rendered shorter side would be below 96 dp. Never exceed its lane fit.
-4. Treat a surface with an intrinsic width or height of 8 px or less as an
-   intentional placeholder; do not apply the 96 dp prominence floor.
-5. Preserve the full intrinsic canvas, aspect ratio, and bottom alignment.
+1. Composite the selected surface into its stable authored canvas, including
+   elements and supported animation frames.
+2. Classify the scope as hidden/placeholder only when the runtime explicitly
+   selects a hidden surface, the speaker is absent, or the composed canvas has no
+   visible pixels and no active collisions. Intrinsic dimensions alone never
+   classify an opaque 8 x 8 sprite as a placeholder.
+3. Exclude hidden/placeholders from the shared-scale calculation so an elongated
+   or transparent sentinel cannot shrink the other character.
+4. Calculate each visible surface's maximum uniform aspect-fit scale inside its
+   lane and height cap, then start both at the lower maximum scale.
+5. Use the composed visible-content bounds to raise a visible surface toward a
+   96 dp shorter-side floor. The full canvas still determines fit and collision
+   coordinates. The floor is best-effort and never causes crop, distortion,
+   lane crossing, or more than a 2x independent boost over shared authored scale.
+6. Preserve the full intrinsic canvas, aspect ratio, and bottom alignment.
 
-The result preserves normal Sakura/Kero size differences, raises genuinely
-small visible companions to a usable minimum, and avoids turning 1 x 1 sentinel
-surfaces into giant blocks.
+Surface changes and animation frames do not make both characters pulse. Each
+scope has a stable authored collision canvas for the selected surface. Animation
+assets composite into it. A supported operation that genuinely changes that
+canvas swaps rendering, hit-testing, overlay, and diagnostics atomically to a
+single new transform.
 
-## Rendering and Coordinate Transform
+## Rendering and Coordinate Contract
 
-Layout produces a `SurfaceTransform` for each visible speaker. It contains the
-intrinsic surface size, rendered rectangle, uniform scale, and stage-relative
-origin.
+The pure policy returns logical dp lane and bubble placements. After Compose
+measurement, the presentation layer materializes one immutable
+`SurfaceTransformPx` per visible scope from the final rounded `IntRect`.
 
-The same instance is consumed by:
+`SurfaceTransformPx` contains:
 
-- surface compositing;
-- collision-region drawing;
-- viewport-to-surface pointer conversion;
-- collision hit-testing;
-- bubble-to-speaker anchoring; and
-- debug coordinate reporting.
+- intrinsic canvas width and height in authored integer pixels;
+- one half-open rendered `IntRect` in stage-local physical pixels;
+- the uniform dimensionless scale implied by those sizes; and
+- stage/root translation needed for diagnostics.
 
-No caller independently reconstructs scale or offset. This is the central
-invariant that prevents adaptive rendering and input from drifting apart.
+Rules:
+
+- dp-to-px rounding occurs exactly once during measure/layout;
+- drawing, pointer routing, bubble anchoring, overlays, labels, and diagnostics
+  consume the same transform instance and final `IntRect`;
+- inverse mapping rejects points outside the half-open rendered rectangle;
+- an accepted local point maps with `floor(local * intrinsic / rendered)` and is
+  clamped only to the valid intrinsic canvas;
+- no caller independently reconstructs scale or offset; and
+- pointer handlers observe the latest transform atomically after resize,
+  rotation, surface change, or recomposition.
+
+Authored `collision` rectangles use start and end coordinates. They normalize
+to an internal half-open rectangle that includes both authored endpoints:
+`[min(start,end), max(start,end) + 1)`. Overlay paths and hit tests derive from
+that normalized geometry. `collisionex` geometry retains its authored points.
+
+## Surface Parsing and Collision Semantics
+
+`SurfaceReader` becomes a line-oriented, recoverable parser rather than a set of
+single-surface regular expressions.
+
+### File and selector grammar
+
+- Read `surfaces.txt` and `surfaces*.txt` in filename order.
+- Honor a valid first-line `charset` declaration independently for each file.
+  Without one, use validated UTF-8, then Windows-31J/Shift-JIS fallback. An
+  undecodable file produces a per-file diagnostic without discarding other
+  files.
+- Permit indentation, blank lines, conventional `//` comment lines, and
+  selector-line trailing comments used by audited ghosts.
+- Support comma-separated IDs, inclusive ranges, `!` exclusions, and
+  `surface.append` selectors.
+- Replacement blocks replace each selected surface definition. Append blocks
+  merge their entries into every expanded target while preserving authored
+  declaration order.
+- An invalid token records its file, line, and text and is skipped. It never
+  aliases data into surface 0.
+- After a malformed selector or block, resynchronize at the next top-level
+  selector. A missing brace, EOF, or invalid entry cannot discard later files or
+  valid blocks.
+
+### Collision model
+
+The baseline supports:
+
+- legacy rectangular `collisionN`;
+- `collisionexN` rect, ellipse, circle, and polygon shapes; and
+- `collision-sort` values `ascend`, `descend`, and `none`, retaining authored
+  declaration order for `none`.
+
+Named collision geometry wins over generic canvas input regardless of pixel
+alpha. Overlap resolution follows the declared collision sort. Each region keeps
+its numeric parser ID for diagnostics and its exact case-preserved authored
+identifier for SHIORI.
+
+An entry with invalid coordinates or no valid authored identifier is omitted
+individually and diagnosed; valid sibling regions remain. Unsupported valid
+shapes such as image-mask `region`, and animation-scoped collision entries, are
+diagnosed explicitly rather than reclassified as malformed rectangles.
+
+If a surface has no usable collision data, generic canvas input continues. If a
+speaker has no usable visible surface, only that speaker is hidden/placeholder;
+the other speaker and both dialogue states remain intact.
 
 ## Input and Dialogue Interaction
 
-### Stage Input
+### Routing priority
 
-- A touch tap anywhere inside a rendered surface canvas dispatches one
-  `OnMouseDoubleClick`, preserving Nanidroid's existing mobile convention.
-  Named collision regions win over generic canvas hits, including over
-  transparent pixels.
-- A mouse primary click dispatches `OnMouseClick`; a physical double-click
-  dispatches `OnMouseDoubleClick`.
-- Events carry the source speaker, mapped intrinsic coordinates, button, input
-  source, numeric collision ID for diagnostics, and authored collision name.
-  The runtime sends the collision name as SHIORI `Reference4`; if the name is
-  absent, it falls back to the numeric ID string.
-- A surface tap does not alter app-bar visibility.
-- A tap or click on empty stage space toggles the app chrome.
-- A hit outside named collisions but inside the rendered canvas still
-  dispatches the generic surface event, including on transparent padding.
-- Bubble links, choices, and scrolling consume their own pointer events before
-  the stage can handle them.
+One stage-level router resolves each pointer sequence in this order:
 
-The internal input model distinguishes touch and mouse even though continuous
-mouse movement and wheel dispatch are deferred.
+1. open modal or debug surface;
+2. bubble choice, anchor, URL, input, or scrolling content;
+3. noninteractive bubble frame, text, and padding;
+4. authored surface collision;
+5. generic rendered surface canvas; and
+6. empty stage.
 
-### Surface Parsing
+Nested Compose gesture consumption does not define behavior. A surface action
+never toggles chrome. An empty-stage action toggles chrome without dispatching
+SHIORI. A labeled semantics action also shows/hides controls so TalkBack,
+Switch Access, keyboard, and D-pad users are not dependent on an unlabeled empty
+space gesture.
 
-`SurfaceReader` accepts blank lines and comment lines between a surface selector
-and its opening brace. Parsing is block-resilient: a malformed block records a
-diagnostic and is skipped without discarding later surfaces or collisions.
+The complete rendered canvas remains a generic surface target, including
+transparent padding, except when its composed content is classified as a fully
+hidden placeholder. A bubble may consume transparent canvas pixels behind its
+own frame, but it cannot cover visible artwork or an authored collision.
 
-If an affected surface has no usable collision data, generic surface input
-continues to work. If a speaker has no usable surface at all, only that speaker
-shows a placeholder.
+### Pointer effect and SHIORI references
 
-### SakuraScript and Bubbles
+The internal effect contains event kind, source scope, intrinsic point, button,
+event-local pointer source, collision target, wheel delta, and diagnostic IDs.
+It reserves event kinds for deferred move, enter/leave, wheel, drag, and hover.
 
-- Supported speaker, surface, balloon, choice, link, wait, newline, and clear
-  commands retain their current meaning.
-- Recognized but unsupported control commands are consumed and logged in debug
-  builds rather than rendered as visible text.
-- Unknown malformed commands cannot terminate presentation of later valid text.
-- Choices and links remain accessible and directly tappable inside the adaptive
-  dialogue cell.
+`OnMouseClick` and `OnMouseDoubleClick` use:
+
+| Reference | Value |
+| --- | --- |
+| `Reference0` | intrinsic x coordinate |
+| `Reference1` | intrinsic y coordinate |
+| `Reference2` | `0` for click events |
+| `Reference3` | scope `0` for Sakura or `1` for Kero |
+| `Reference4` | exact authored collision identifier, or empty for generic canvas |
+| `Reference5` | primary `0`; other buttons only when their events are supported |
+| `Reference6` | `touch`, `mouse`, `pen`, or `eraser` from the current event |
+
+Numeric parser IDs and the `NO_COLLISION` sentinel never cross the SHIORI
+boundary. A malformed collision without an authored identifier is not a valid
+named target.
+
+Pointer policy proposed for this slice:
+
+- one touch tap dispatches exactly one `OnMouseDoubleClick`, preserving current
+  Nanidroid behavior and the working 2elf path;
+- a mouse or pen/eraser primary single-click dispatches exactly one
+  `OnMouseClick` after the platform double-click window expires;
+- a recognized physical double-click dispatches exactly one
+  `OnMouseDoubleClick` and suppresses the pending single-click; and
+- cancellation, slop outside the original surface/scope, or unsupported buttons
+  dispatch nothing.
+
+This exact-one-event mouse policy avoids duplicate ghost responses but is listed
+for explicit user approval because desktop baseware sequencing may differ. The
+touch mapping likewise requires approval because click-only ghosts remain a
+known compatibility limitation.
+
+## SakuraScript and Bubble Actions
+
+Each visible scope owns an ordered `DialogueContent` stream rather than a plain
+string. Segments include text, newline, wait, clear, structured choice, anchor,
+external URL, and input-box action. Speaker association and authored order are
+never lost when choices are extracted.
+
+- `\q[label,id,args...]` renders inline in the current speaker's bubble. It
+  retains every argument and dispatches the documented extended choice event and
+  fallback behavior.
+- `\_a[id,args...]label\_a` renders only `label`, retains the authored ID and
+  arguments, and dispatches the documented extended anchor event and fallback.
+- External URLs remain distinct from ghost anchors and require an explicit user
+  activation before leaving the app.
+- `\![open,inputbox,id,timeout,text,options...]` parses ID, timeout, initial
+  text, and options separately. Submission, cancellation, and `On...` IDs follow
+  the documented input-box event behavior.
+- Balanced `enter,passivemode` and `leave,passivemode` update explicit runtime
+  state. While passive, Nanidroid suppresses its own random talk and surface
+  pointer dispatch, while allowing the authored bubble choices/anchors/input
+  needed to finish the sequence.
+- Recognized presentational commands that remain unsupported are consumed only
+  after complete tokenization and are logged in debuggable builds.
+- Unknown or truncated commands use a balanced-token recovery rule and cannot
+  terminate later valid text.
+- A scope selector above `1` never leaks control text or silently attributes
+  tertiary dialogue to Sakura/Kero. The proposed behavior is to consume that
+  scope's presentation with one bounded diagnostic until multi-scope UI is
+  designed.
+
+## Accessibility
+
+- Sakura and Kero each expose a localized semantic identity and generic activate
+  action.
+- Named collisions are exposed as logically ordered custom accessibility
+  actions where practical. Accessibility activation dispatches the same typed
+  effect as pointer input using the region's representative intrinsic point.
+- Exact collision geometry is not inflated or falsified in the debug overlay.
+- Choices, anchors, URLs, input controls, overflow items, bug icon, and debug
+  controls expose stable labels, roles, focus order, and keyboard/D-pad actions.
+- Material chrome and bubble actions meet a 48 dp minimum target. Authored
+  collision geometry remains exact; custom actions provide the accessible
+  alternative for tiny authored regions.
+- Dialogue uses a polite live region without announcing every typewriter
+  character separately.
+- Decorative collision overlays are excluded from the accessibility tree.
+- The tiny fallback and hidden stage expose no invisible ghost actions.
 
 ## App Chrome and Debug Tools
 
 The normal UI has one Material app-bar row:
 
-- `Ghosts` remains the primary labeled action.
-- A bug icon appears only in debuggable builds.
+- `Ghosts` remains the primary labeled action;
+- a labeled bug icon appears only in debuggable builds; and
 - Check updates, Readme, and Preferences move to the overflow menu.
 
-The bug icon opens an adaptive debug surface:
+Debug presentation uses deterministic predicates:
 
-- portrait: modal bottom sheet;
-- compact-height landscape: replaces the center dialogue column temporarily,
-  leaving both characters visible;
-- tablet/tall expanded window: side panel.
+- compact-height landscape: full-stage modal debug overlay, preserving live
+  ghost/bubble state behind it;
+- standard/tall width below 840 dp: modal bottom sheet;
+- standard/tall width at least 840 dp: capped side panel that does not alter the
+  stage classification.
 
-Debug controls are grouped by purpose:
+The compact overlay replaces the earlier proposed 180 dp center debug column;
+that column is too narrow for readable logs and controls. This material mock
+change is listed for user approval.
 
-1. **Surface:** selected speaker, current surface ID, previous/next surface, and
-   animation diagnostics.
-2. **Collision and input:** collision overlay switch, latest viewport and
-   intrinsic coordinates, speaker, collision name, button, and input source.
-3. **Runtime tools:** NAR test and a compact recent SHIORI event/response log.
+Debug content is grouped by purpose:
 
-The collision overlay outlines authored regions with labels and a subtle
-translucent fill. It uses `SurfaceTransform`; it is not a second placement
-implementation. Legacy callbacks that no longer affect the Compose renderer,
-including the current no-op collision control, are removed instead of being
-preserved behind new labels.
+1. **Surface:** selected scope, current surface ID, composed/intrinsic dimensions,
+   visible-content bounds, and animation diagnostics. Surface ID is read-only;
+   no previous/next override is exposed until override lifetime and SHIORI
+   behavior are separately designed.
+2. **Collision and input:** overlay switch, latest viewport/intrinsic coordinates,
+   scope, authored identifier, diagnostic numeric ID, button, source, and event.
+3. **Runtime tools:** NAR test plus a bounded recent SHIORI event/response log.
 
-## Component Boundaries
+The log retains at most 100 events, truncates any single displayed request or
+response to 64 KiB, and never stores it in saved-instance-state. Collision paths
+and labels are cached by surface definition and transform. Image decoding and
+compositing do not run on every dialogue-character recomposition.
+
+Every exposed debug control has a table-driven test for its specific observable
+state transition or runtime call. Release builds contain neither the bug action
+nor a hidden focusable debug panel.
+
+## Implementation Sequencing
+
+The feature remains one user-facing design, but implementation is divided into
+three dependency-ordered milestones with green tests and focused commits between
+them:
+
+1. **Compatibility foundation:** decoded surface files, selector expansion,
+   ordered collision shapes, structured SakuraScript actions, exact SHIORI
+   references, and pure parser/protocol fixtures.
+2. **Adaptive stage:** stable environment classification, lane and bubble policy,
+   optical sizing, measured pixel transforms, overlay/hit equality, pointer
+   routing, and layout/property tests.
+3. **Usability completion:** inline bubble actions, accessibility semantics,
+   adaptive debug surfaces, restoration/error behavior, screenshot goldens, and
+   connected end-to-end coverage.
+
+No milestone declares the feature complete independently. The foundation may be
+merged behind existing presentation, but the adaptive stage is not released
+without the usability-completion acceptance suite.
+
+## Component Boundaries and State
 
 ### `GhostStageLayoutPolicy`
 
-Pure Kotlin policy that classifies the window, calculates lanes and bubble
-cells, applies hybrid sizing, and returns placements plus `SurfaceTransform`s.
-It does not render Compose UI or dispatch runtime events.
+Pure Kotlin policy that classifies a stable `StageEnvironment`, calculates dp
+lanes and bubble cells, and applies sizing. It does not render Compose UI,
+materialize final pixel transforms, or dispatch runtime events.
 
 ### Presentation Stage
 
-Consumes the policy result to render surfaces, dialogue, the tiny-window
-fallback, and the debug overlay. It owns no independent coordinate math.
+Measures policy placements, materializes `SurfaceTransformPx`, and renders
+surfaces, structured dialogue, fallback, debug overlay, and semantics. It owns no
+second coordinate implementation.
 
 ### `SurfaceInputDispatcher`
 
-Accepts pointer-neutral actions and a `SurfaceTransform`, performs hit-testing,
-and emits a typed interaction effect. A runtime adapter translates that effect
-to the appropriate SHIORI event.
+Accepts source-neutral pointer/semantic actions and the latest measured
+transform, resolves collision geometry, and emits typed effects. A runtime
+adapter maps effects to exact SHIORI references.
 
 ### `SurfaceReader`
 
-Parses surface blocks and records recoverable diagnostics. It remains separate
-from viewport layout and Compose rendering.
+Decodes and parses surface files into ordered typed definitions plus recoverable
+diagnostics. It remains independent of window layout and Compose.
 
-### App Shell and Debug State
+### App shell and restoration
 
-Owns one-row chrome, overflow actions, debug-panel visibility, and diagnostic
-selection. Debug state observes the presentation/input pipeline rather than
-maintaining a parallel legacy surface state.
+The shell owns app-bar and debug visibility. Runtime/presentation state owns the
+latest surfaces and dialogue. Saveable state retains app-bar visibility, debug
+visibility, selected diagnostic scope, overlay switch, and each bubble's scroll
+position. The runtime retains bounded diagnostics and republishes its latest
+frame after recreation; bitmaps and logs are not serialized into a Bundle.
 
 ## Error Handling
 
-- Tiny windows render the resize message rather than a partially clipped stage.
-- A missing or unreadable surface affects only its speaker and reports a debug
-  diagnostic.
-- A malformed surface block is skipped; later blocks remain available.
-- Invalid collision regions are omitted individually and reported.
-- Unsupported SakuraScript controls are omitted from dialogue and reported in
-  debug builds.
-- Runtime event failures retain the current visible frame and appear in the
-  debug event log; they do not clear both bubbles or crash the stage.
+- Tiny windows render the fallback rather than a partially clipped stage.
+- A missing, unreadable, undecodable, or zero-sized surface affects only its
+  scope and records a bounded diagnostic.
+- A malformed file/block/selector/entry does not discard later valid data.
+- One invalid collision is omitted without losing valid siblings.
+- Unsupported collision shapes and SakuraScript commands are named in
+  diagnostics rather than misparsed as another supported construct.
+- A failed SHIORI interaction retains the current frame and both bubble states,
+  logs one bounded failure, and does not block the next successful event.
+- Opening/closing IME, debug, or chrome never changes stage classification.
 
 ## Verification Strategy
 
-### Pure JVM Tests
+### Pure JVM tests
 
-Parameterize layout and transform behavior over these representative stage
-sizes in dp:
+Run every audited surface pair through every representative viewport for pure
+classification/sizing invariants:
 
 - 360 x 720 phone portrait;
 - 720 x 360 compact landscape;
 - 400 x 1000 tall phone;
-- 610 x 500 short foldable or multi-window;
+- 610 x 500 short multi-window;
 - 800 x 1280 tablet portrait;
 - 1280 x 800 tablet landscape;
-- 480 x 230 tiny wide fallback; and
-- 230 x 400 tiny tall fallback.
+- 480 x 230 tiny wide; and
+- 230 x 400 tiny tall.
 
-Exercise representative surface pairs from the audit:
+Surface pairs:
 
 - 250 x 400 and 235 x 200;
 - 270 x 378 and 239 x 380;
 - 427 x 640 and 1 x 1;
 - 210 x 140 and 210 x 140;
 - 772 x 535 and 422 x 377;
-- 93 x 95 and 200 x 200;
+- 93 x 95 and 200 x 200, including Nanika's optical bounds;
 - 450 x 750 and 450 x 750; and
 - 300 x 501 and 210 x 420.
 
-Assertions cover classification, minimum lanes, max stage width, no crop,
-aspect ratio, bottom alignment, placeholder handling, fixed bubble halves,
-forward and inverse coordinate mapping, and debug-bound equality.
+Add direct boundary cases immediately below, at, and above:
 
-Parser fixtures include Snake/Otacon's comment-before-brace syntax, blank lines,
-one malformed block followed by a valid block, and invalid individual collision
-regions.
+- 420 dp width; 240, 320, and 480 dp height;
+- the `1.2` aspect ratio;
+- 540 dp compact-lane transition; and
+- 960 dp content cap.
 
-### Compose Screenshot Tests
+Sizing cases include absent, hidden, zero-sized, fully transparent, transparent
+with collisions, opaque 8 x 8, 8/9 px boundaries, elongated sentinels, extreme
+aspect ratios, optical bounds, 96 dp floor conflicts, and surface changes that
+must not move the other scope.
 
-Add Compose Preview Screenshot Testing for the major phone, foldable, tablet,
-and desktop-like windows. Cover:
+Transform/collision properties cover multiple densities, fractional logical
+origins, final pixel rounding, every authored boundary, just-inside/outside
+points, transparent canvas, overlapping regions, every supported shape,
+rotation/resize freshness, and root-coordinate equality between the actual
+drawn overlay and active hit target.
 
-- standard two-lane layout;
-- compact-landscape three-column layout;
-- tablet bounded stage;
-- one bubble, two bubbles, and long scrolling dialogue;
-- debug panel in each adaptive presentation;
-- collision overlay;
-- tiny-window fallback;
-- light and dark appearance; and
-- font scale 1.0 and 1.5.
+Parser fixtures cover:
 
-Reference images are reviewed rather than updated blindly.
+- Snake/Otacon comment-before-brace, inline comments, comma lists, ranges,
+  `surface.append`, anchors, passivemode, and input box;
+- Nanika Atsume ranges and exclusions;
+- Bancho polygon `collisionex` regions;
+- UTF-8 and Shift-JIS non-ASCII identifiers;
+- indented braces and entries;
+- duplicate/replacement/append ordering and `collision-sort`;
+- a malformed selector that must not mutate surface 0; and
+- malformed blocks/regions followed by multiple valid blocks.
 
-### Interaction and Instrumentation Tests
+### Screenshot tests
 
-Create a deterministic fixture ghost with known intrinsic sizes, collision
-regions, dialogue, link, and choice responses. Verify:
+Use Compose Preview Screenshot Testing with deterministic in-memory shell and
+bubble fixtures rather than installed user ghosts. The reviewed golden table
+contains named cases rather than a Cartesian explosion:
 
-1. a rendered collision tap produces the exact intrinsic coordinate, speaker,
-   collision ID, authored collision name in `Reference4`, source, and SHIORI
-   event;
-2. a generic surface tap works outside named collisions;
-3. an empty-stage tap toggles chrome without dispatching to the ghost;
-4. bubble links, choices, and scrolling do not leak to the stage;
-5. mouse single- and double-click actions remain distinct;
-6. rotation and adaptive scaling keep the debug overlay and hit target aligned;
-   and
-7. a choice response updates the correct fixed bubble cell.
+- standard phone portrait, one and two bubbles;
+- compact landscape, empty/one/two/long bubble states;
+- tall phone;
+- tablet portrait and landscape bounded stage;
+- flat foldable and separating-feature fallback;
+- tiny wide and tiny tall;
+- debug bottom sheet, full-stage compact overlay, and side panel;
+- collision overlay with rectangle, ellipse, and polygon; and
+- LTR/RTL, light/dark, and font scales 1.0, 1.5, and 2.0 on selected cases.
 
-The existing JVM suite, lint, debug build, and connected instrumentation suite
-must remain green.
+CI runs `gradlew.bat validateDebugScreenshotTest`; it never runs the update task.
+Baseline changes require reviewed image-diff artifacts. The repository's custom
+JVM/device characterization allowlists are updated whenever tests are added,
+removed, or moved. Because the screenshot plugin is experimental, its version is
+pinned in the version catalog and upgrades require a deliberate golden review.
+
+### Interaction, semantics, and instrumentation tests
+
+Use a deterministic fixture ghost to verify:
+
+1. exact SHIORI event and References 0–6 for touch, mouse, pen, and eraser;
+2. named hits use exact case-preserved `Reference4`, while generic canvas uses
+   empty `Reference4` and never exposes `-1`;
+3. rendered-edge taps agree with the actual overlay after scaling and rotation;
+4. bubble padding/text/scrolling/actions never leak to surface or stage;
+5. an absent reserved bubble half does not intercept input;
+6. empty-stage input toggles chrome without dispatching SHIORI;
+7. pointer cancellation, slop, single/double sequencing, and unsupported buttons;
+8. choices retain label, ID, and all extended references;
+9. anchors, external URLs, input submit/cancel, and passivemode behavior;
+10. semantics discovery and activation for surfaces, collisions, bubbles, chrome,
+    debug controls, and fallback, including keyboard/D-pad activation;
+11. every debug control's observable effect and release-build absence;
+12. IME/chrome/debug visibility, rotation, and recreation preserve mode/state;
+13. tiny fallback has no hidden interaction and restores the prior frame; and
+14. parser/surface/SHIORI failures preserve the unaffected scope and next event.
+
+Run JVM tests, `lint`, `assembleDebug`, `validateDebugScreenshotTest`, and the
+connected instrumentation suite before implementation is considered complete.
 
 ## Acceptance Criteria
 
-- Sakura and Kero use their allocated lanes prominently on portrait phones.
-- Compact-height landscape displays Kero, two fixed center bubble cells, and
-  Sakura without clipping at every supported size.
-- Tablet and tall landscape windows return to a centered two-lane stage no wider
-  than 960 dp.
-- Every rendered collision outline matches its active hit target after scaling
-  and rotation.
-- The Snake/Otacon parser fixture loads authored collisions and responds to its
-  expected interaction.
-- Surface taps never toggle the app bar; empty-stage taps do.
-- Bubble choices and links work and unsupported control text is not visible.
-- Debug tools occupy one adaptive panel rather than a second toolbar row, and
-  every exposed control affects the Compose presentation or diagnostics.
-- Tiny windows show the agreed resize message.
-- Automated layout, parser, screenshot, and end-to-end interaction coverage is
-  present for the representative matrix above.
+- Sakura and Kero prominently use their physical left/right halves on portrait
+  phones without crop, distortion, lane crossing, or placeholder inflation.
+- Compact-height landscape displays Kero, fixed upper/lower center bubbles, and
+  Sakura without clipping or speaker-change jumps.
+- Tablet and tall windows use a centered stage no wider than 960 dp.
+- Chrome, IME, and debug visibility never change stage classification.
+- Every supported collision overlay and active hit target share one measured
+  transform and agree at rendered boundaries after scaling and rotation.
+- Generic hits use an empty SHIORI `Reference4`; named hits use the exact authored
+  identifier; numeric parser IDs remain diagnostic-only.
+- Snake/Otacon, Nanika Atsume, and Bancho fixtures load the supported selector and
+  collision baseline without mutating unintended surfaces.
+- Surface actions never toggle chrome; bubble actions never leak; empty-stage
+  actions never dispatch to the ghost.
+- Inline choices/anchors and structured input boxes preserve all authored data,
+  and unsupported control text is not visible.
+- Accessibility services and keyboards can discover and activate the primary
+  stage interactions without falsifying authored collision geometry.
+- Debug tools occupy one adaptive surface, every exposed control works, and
+  release builds expose none of them.
+- Tiny windows show the agreed message, have no hidden ghost interaction, and
+  restore the existing frame when resized.
+- The named layout, grammar, screenshot, semantics, recovery, and end-to-end
+  suites are present and green.
+
+## Product Decisions Requiring User Approval
+
+The revised specification uses the following recommended defaults. They are
+fully specified rather than left as implementation placeholders, but
+implementation planning must wait for explicit approval or changes.
+
+1. **Touch compatibility:** retain one touch tap → exactly one
+   `OnMouseDoubleClick`. This preserves current behavior and 2elf, but ghosts that
+   implement only `OnMouseClick` remain unavailable from touch.
+2. **Physical pointing-device sequencing:** delay a mouse/pen single until the
+   double-click window closes, so a double-click produces only
+   `OnMouseDoubleClick`, not preceding click responses.
+3. **Transparent canvas:** keep the complete surface canvas tappable, including
+   transparent padding, except fully hidden placeholders. Bubble bounds consume
+   their overlap, and an explicit accessible control action restores chrome.
+4. **Compact debug presentation:** replace the proposed 180 dp center debug
+   column with a readable full-stage modal overlay; live stage state remains
+   behind it.
+5. **Additional scopes:** consume scopes `2+` with a bounded diagnostic rather
+   than misattribute their dialogue. Rendering more than Sakura/Kero remains a
+   later design.
+6. **Collision compatibility boundary:** implement legacy rectangles plus
+   `collisionex` rect/ellipse/circle/polygon now; defer image-mask `region` and
+   animation-scoped collision definitions with explicit diagnostics.
+7. **Bubble action architecture:** replace the current modal choice extraction
+   with ordered inline choices and anchors inside the speaker's bubble, retaining
+   every extended argument and exact event fallback.
+8. **Passivemode:** implement it as explicit state that suppresses Nanidroid
+   random talk and surface-pointer dispatch while retaining the bubble actions
+   required to exit the authored sequence; do not merely strip the command text.
+
+## Reference Contracts
+
+- UKADOC SHIORI mouse, choice, anchor, and input events:
+  <https://ssp.shillest.net/ukadoc/manual/list_shiori_event.html>
+- UKADOC `surfaces.txt` selectors, charset, collision sort, and collision shapes:
+  <https://ssp.shillest.net/ukadoc/manual/descript_shell_surfaces.html>
+- UKADOC SakuraScript choices, anchors, input boxes, and controls:
+  <https://ssp.shillest.net/ukadoc/manual/list_sakura_script.html>
+- Android Compose Preview Screenshot Testing:
+  <https://developer.android.com/studio/preview/compose-screenshot-testing>
