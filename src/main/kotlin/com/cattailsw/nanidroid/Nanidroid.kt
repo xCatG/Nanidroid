@@ -329,6 +329,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }.getOrNull()
         val uri = ArchiveIntentAdapter.contentUri(incoming, resolvedMimeType) ?: return
         if (consumedArchiveIntentUri == uri.toString()) return
+        if (pendingArchiveIntentUri != null) {
+            enqueueLocalArchive(uri, incoming?.flags ?: 0)
+            return
+        }
         consumedArchiveIntentUri = uri.toString()
         pendingArchiveIntentUri = uri.toString()
         pendingArchiveIntentFlags = incoming?.flags ?: 0
@@ -343,9 +347,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        consumedArchiveIntentUri = null
-        pendingArchiveIntentUri = null
-        pendingArchiveIntentFlags = 0
         handleIncomingIntent(intent)
         if (initComplete) enqueuePendingArchiveIntent()
     }

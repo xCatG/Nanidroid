@@ -150,7 +150,8 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                 if (item.source is com.cattailsw.nanidroid.install.NarDownloadSource.Local) {
                     TextButton(onClick = { dialog.onReselect(item.id) }, modifier = Modifier.testTag("archive-reselect-${item.id}")) { Text("Select again") }
                 }
-                if (item.source !is com.cattailsw.nanidroid.install.NarDownloadSource.Local) {
+                val reselectNeeded = item.state.failure.message.contains("Select the archive again")
+                if (item.source !is com.cattailsw.nanidroid.install.NarDownloadSource.Local || !reselectNeeded) {
                     TextButton(onClick = { dialog.onRetry(item.id) }, modifier = Modifier.testTag("archive-retry-${item.id}")) { Text("Retry") }
                 }
             }

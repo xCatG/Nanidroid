@@ -438,7 +438,7 @@ private class AndroidNarDownloadGateway(context: Context) : NarDownloadGateway {
     private val manager = appContext.getSystemService(DownloadManager::class.java)
         ?: throw IllegalStateException("DownloadManager unavailable")
 
-    override fun intendedRetainedUri(itemId: String): String = destination(itemId).toURI().toString()
+    override fun intendedRetainedUri(itemId: String): String = Uri.fromFile(destination(itemId)).toString()
 
     override fun enqueue(itemId: String, normalizedHttpsUrl: String): NarRemoteEnqueue {
         val destination = destination(itemId)
@@ -447,7 +447,7 @@ private class AndroidNarDownloadGateway(context: Context) : NarDownloadGateway {
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED,
             )
             .setDestinationUri(Uri.fromFile(destination))
-        return NarRemoteEnqueue(manager.enqueue(request), destination.toURI().toString())
+        return NarRemoteEnqueue(manager.enqueue(request), Uri.fromFile(destination).toString())
     }
 
     override fun findDownloadId(retainedUri: String): Long? {
