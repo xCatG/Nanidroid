@@ -9,6 +9,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import java.util.UUID
 
 class InstallNarWorker(
     appContext: Context,
@@ -105,15 +106,7 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         attemptId: Long,
         onPrepared: (workManagerId: String) -> Boolean,
     ): Boolean {
-        val request = OneTimeWorkRequestBuilder<StageLocalNarWorker>()
-            .setInputData(
-                Data.Builder()
-                    .putString(StageLocalNarWorker.INPUT_ITEM_ID, itemId)
-                    .putLong(StageLocalNarWorker.INPUT_ATTEMPT_ID, attemptId)
-                    .build(),
-            )
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .build()
+        val request = stageRequest(itemId, attemptId)
         if (!onPrepared(request.id.toString())) return false
         workManager.enqueueUniqueWork(
             NarDownloadRepository.stageWorkName(itemId),
@@ -122,6 +115,36 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         )
         return true
     }
+
+    override fun ensureStageEnqueued(
+        itemId: String,
+        attemptId: Long,
+        workManagerId: String,
+    ): Boolean {
+        val requestId = runCatching { UUID.fromString(workManagerId) }.getOrNull() ?: return false
+        if (workManager.getWorkInfoById(requestId).get() != null) return true
+        workManager.enqueueUniqueWork(
+            NarDownloadRepository.stageWorkName(itemId),
+            ExistingWorkPolicy.KEEP,
+            stageRequest(itemId, attemptId, requestId),
+        )
+        return true
+    }
+
+    private fun stageRequest(
+        itemId: String,
+        attemptId: Long,
+        requestId: UUID? = null,
+    ) = OneTimeWorkRequestBuilder<StageLocalNarWorker>()
+        .setInputData(
+            Data.Builder()
+                .putString(StageLocalNarWorker.INPUT_ITEM_ID, itemId)
+                .putLong(StageLocalNarWorker.INPUT_ATTEMPT_ID, attemptId)
+                .build(),
+        )
+        .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        .also { builder -> requestId?.let(builder::setId) }
+        .build()
 
     override fun cancel(itemId: String) {
         workManager.cancelUniqueWork(NarDownloadRepository.workName(itemId))

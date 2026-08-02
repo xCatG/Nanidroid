@@ -221,6 +221,50 @@ class NarDownloadRepositoryTest {
         privateImports.delete()
     }
 
+    @Test fun recreatedStageWorkerCommitsHandoffWhenCopySupervisorAlreadyCompleted() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        assertTrue(supervisor.finish(item.handle(), OperationStatus.COMPLETED))
+        val recreated = recreatedRepository()
+
+        recreated.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            NarLocalArchiveStager.Result.Staged("file:///owned/replayed-copy.nar")
+        }
+
+        val installAttempt = store.get(item.id)!!
+        assertEquals(item.attemptId + 1L, installAttempt.attemptId)
+        assertEquals(NarDownloadState.Queued, installAttempt.state)
+        assertEquals("file:///owned/replayed-copy.nar", installAttempt.retainedUri)
+        var staleCallbackRan = false
+        recreated.stageLocal(item.id, item.attemptId, { false }) { _, _, _ ->
+            staleCallbackRan = true
+            NarLocalArchiveStager.Result.Staged("file:///owned/stale-copy.nar")
+        }
+        assertTrue(!staleCallbackRan)
+        assertEquals(installAttempt, store.get(item.id))
+    }
+
+    @Test fun reconciliationFinishesCopyPredecessorAfterQueuedHandoffWasPersisted() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        store.update(item.id) {
+            it.copy(
+                attemptId = item.attemptId + 1L,
+                retainedUri = "file:///owned/staged-copy.nar",
+                workManagerId = null,
+                state = NarDownloadState.Queued,
+            )
+        }
+
+        recreatedRepository().reconcile()
+
+        val installAttempt = store.get(item.id)!!
+        assertEquals(item.attemptId + 1L, installAttempt.attemptId)
+        assertEquals("install-nar-${item.id}-${installAttempt.attemptId}", installAttempt.workManagerId)
+        val operation = operationStore.read().single()
+        assertEquals(installAttempt.attemptId, operation.attemptId.value)
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+    }
+
     @Test fun cancelledLocalCopyDeletesPartialPrivateArchive() {
         val directory = File.createTempFile("nar-local-stage", "").also {
             assertTrue(it.delete())
@@ -369,6 +413,17 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(item.id), ownedData.deletedItemIds)
     }
 
+    @Test fun reconciliationFinishesInstallSupervisorAfterCompleteWasPersisted() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar", "file:///owned/archive.nar")
+        store.update(item.id) { it.copy(state = NarDownloadState.Complete) }
+
+        recreatedRepository().reconcile()
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.COMPLETED, operationStore.read().single().status)
+        assertEquals(listOf(item.id), ownedData.deletedItemIds)
+    }
+
     @Test fun deletingOneOfTwoSharedDocumentSourcesRetainsItsGrant() {
         val source = "content://provider/shared.nar"
         val first = repository.enqueueLocal(source, source)
@@ -407,6 +462,18 @@ class NarDownloadRepositoryTest {
         repository.reconcile()
 
         assertEquals(bound, store.get(item.id))
+        assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+    }
+
+    @Test fun reconciliationRecreatesStageWorkMissingAfterPreparedUuidWasPersisted() {
+        work.loseNextStageAfterPreparation = true
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        val preparedWorkId = store.get(item.id)!!.workManagerId!!
+        assertTrue(preparedWorkId !in work.stageEnqueuedIds)
+
+        recreatedRepository().reconcile()
+
+        assertEquals(setOf(preparedWorkId), work.stageEnqueuedIds)
         assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
     }
 
@@ -673,6 +740,24 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
     }
 
+    @Test fun recreatedInstallRecoversTargetConflictWhenSupervisorAlreadyCompleted() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar", "file:///owned/archive.nar")
+        store.update(item.id) { it.copy(state = NarDownloadState.Installing) }
+        assertTrue(supervisor.finish(item.handle(), OperationStatus.COMPLETED))
+        installer.result = ArchiveInstallResult.Failed(
+            "target exists",
+            ArchiveInstallFailure.TargetExists,
+        )
+        val recreated = recreatedRepository()
+
+        recreated.install(item.id, item.attemptId) { false }
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        val nextAttempt = recreated.retry(item.id)!!
+        recreated.install(item.id, item.attemptId) { false }
+        assertEquals(nextAttempt, store.get(item.id))
+    }
+
     @Test fun freshInstallTargetConflictStillNeedsAttention() {
         val item = repository.enqueueLocal("file:///owned/archive.nar", "file:///owned/archive.nar")
         installer.result = ArchiveInstallResult.Failed(
@@ -758,6 +843,26 @@ class NarDownloadRepositoryTest {
 
         assertEquals(listOf("install-nar-${item.id}"), work.enqueuedNames)
         assertEquals("file:///owned/${item.id}.nar", store.get(item.id)!!.retainedUri)
+    }
+
+    @Test fun recreatedReconciliationCommitsDownloadHandoffWhenSupervisorAlreadyCompleted() {
+        downloads.nextDownloadId = 75L
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        assertTrue(supervisor.finish(item.handle(), OperationStatus.COMPLETED))
+        downloads.statuses[75L] = NarRemoteDownloadStatus.Successful(
+            "file:///owned/${item.id}.nar",
+        )
+        val recreated = recreatedRepository()
+
+        recreated.reconcile()
+
+        val installAttempt = store.get(item.id)!!
+        assertEquals(item.attemptId + 1L, installAttempt.attemptId)
+        assertEquals(NarDownloadState.Queued, installAttempt.state)
+        assertEquals("file:///owned/${item.id}.nar", installAttempt.retainedUri)
+        assertEquals("install-nar-${item.id}-${installAttempt.attemptId}", installAttempt.workManagerId)
+        recreated.onDownloadComplete(75L)
+        assertEquals(installAttempt, store.get(item.id))
     }
 
     @Test fun reconciliationReattachesDownloadWhoseIdWasNotPersisted() {
@@ -892,6 +997,8 @@ class NarDownloadRepositoryTest {
         val enqueuedNames = mutableListOf<String>()
         val cancelledNames = mutableListOf<String>()
         val cancelledBindings = mutableListOf<String>()
+        val stageEnqueuedIds = mutableSetOf<String>()
+        var loseNextStageAfterPreparation = false
 
         override fun enqueue(itemId: String) {
             enqueuedNames += NarDownloadRepository.workName(itemId)
@@ -899,6 +1006,30 @@ class NarDownloadRepositoryTest {
 
         override fun cancel(itemId: String) {
             cancelledNames += NarDownloadRepository.workName(itemId)
+        }
+
+        override fun enqueueStage(
+            itemId: String,
+            attemptId: Long,
+            onPrepared: (workManagerId: String) -> Boolean,
+        ): Boolean {
+            val workManagerId = "stage-local-nar-$itemId-$attemptId"
+            if (!onPrepared(workManagerId)) return false
+            if (loseNextStageAfterPreparation) {
+                loseNextStageAfterPreparation = false
+            } else {
+                stageEnqueuedIds += workManagerId
+            }
+            return true
+        }
+
+        override fun ensureStageEnqueued(
+            itemId: String,
+            attemptId: Long,
+            workManagerId: String,
+        ): Boolean {
+            stageEnqueuedIds += workManagerId
+            return true
         }
     }
 
@@ -953,6 +1084,25 @@ class NarDownloadRepositoryTest {
 
         override fun create(itemId: String): File =
             File("staging/$itemId/attempt-${attempt++}")
+    }
+
+    private fun recreatedRepository(): NarDownloadRepository {
+        val recreatedSupervisor = DurableOperationSupervisor(
+            operationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        return NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = recreatedSupervisor,
+            remoteProgress = FakeRemoteProgressObserver(downloads, recreatedSupervisor),
+            nextId = { ids.removeFirst() },
+        )
     }
 
     private class RecordingOperationCancellation(
