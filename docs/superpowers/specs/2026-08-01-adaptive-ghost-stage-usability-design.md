@@ -1,10 +1,10 @@
 # Adaptive Ghost Stage and Usability Design
 
-**Status:** Revised; awaiting final user review
+**Status:** Approved for implementation planning
 
 **Date:** 2026-08-01
 
-**Revision:** 2026-08-01 adversarial and constructive review pass
+**Revision:** 2026-08-02 Japanese protocol correction after plan review
 
 ## Summary
 
@@ -84,9 +84,11 @@ code, downloaded corpus, and official UKADOC references before inclusion.
 
 ## Non-Goals
 
-- Continuous hover/petting (`OnMouseMove`), wheel, drag, right-click, long-press
-  menu emulation, and enter/leave events are deferred. The input effect is still
-  general enough to add them without changing layout or coordinate contracts.
+- Continuous ghost hover/petting (`OnMouseMove`), SHIORI `OnMouseWheel`, drag,
+  right-click, long-press menu emulation, and enter/leave events are deferred.
+  Standard Compose wheel/trackpad scrolling remains enabled in scrollable UI.
+  The input effect is still general enough to add ghost events without changing
+  layout or coordinate contracts.
 - Rendering third-party balloon skin packages is separate from making the
   current dialogue surface adaptive and interactive. Balloon selection commands
   are consumed and retained diagnostically but do not change the Material bubble
@@ -279,13 +281,18 @@ single-surface regular expressions.
   files.
 - Permit indentation, blank lines, conventional `//` comment lines, and
   selector-line trailing comments used by audited ghosts.
+- Accept audited inline opening-brace forms such as `surface30{` as a bounded
+  compatibility extension and diagnose their noncanonical syntax.
 - Support comma-separated IDs, inclusive ranges, `!` exclusions, and
   `surface.append` selectors.
-- Replacement blocks replace each selected surface definition. Append blocks
-  merge their entries into every expanded target while preserving authored
-  declaration order.
+- A normal `surface` block creates a missing target and adds its ordered entries
+  to an existing target; repeated normal blocks do not discard unrelated prior
+  entries. `surface.append` adds only to targets already established by a prior
+  normal block or a `surface*.png`, never creates a target, and is not retroactive.
 - An invalid token records its file, line, and text and is skipped. It never
   aliases data into surface 0.
+- An exclusion remains excluded for that selector even if a later token names
+  the same ID; filename ordering uses case-insensitive then ordinal tie-breaking.
 - After a malformed selector or block, resynchronize at the next top-level
   selector. A missing brace, EOF, or invalid entry cannot discard later files or
   valid blocks.
@@ -296,8 +303,9 @@ The baseline supports:
 
 - legacy rectangular `collisionN`;
 - `collisionexN` rect, ellipse, circle, and polygon shapes; and
-- `collision-sort` values `ascend`, `descend`, and `none`, retaining authored
-  declaration order for `none`.
+- per-file `descript` directives with `collision-sort` values `ascend`,
+  `descend`, and `none`, retaining source-file boundaries and authored order for
+  the default `none` behavior.
 
 Named collision geometry wins over generic canvas input regardless of pixel
 alpha. Overlap resolution follows the declared collision sort. Each region keeps
@@ -432,21 +440,27 @@ never lost when choices are extracted.
   `Reference0`. `Script` executes its SakuraScript locally and sends no choice
   event. Closing or recreating the host cannot silently discard a pending
   authored choice.
-- `\_a[id,args...]label\_a` renders only `label`, retains the authored ID and
-  arguments, and dispatches the documented extended anchor event and fallback.
+- `\_a[id,args...]label\_a` renders only `label` and retains quoted/empty
+  arguments. A normal anchor sends `OnAnchorSelectEx(label,id,args...)` and
+  falls back to `OnAnchorSelect(id)` only when no talk is returned; an `On...`
+  ID sends only that direct event with authored arguments.
 - External URLs remain distinct from ghost anchors and require an explicit user
   activation before leaving the app.
-- `\![open,inputbox,id,timeout,text,options...]` parses ID, timeout, initial
-  text, and options separately. Submission, cancellation, and `On...` IDs follow
-  the documented input-box event behavior.
+- `\![open,inputbox,...]` parses positional and named timeout/text/options,
+  supplement, and repeated extra references. A normal submit sends
+  `OnUserInput(id,value,supplement,extras...)`; an `On...` ID sends that event
+  with `(value,supplement,extras...)`. Close/timeout sends
+  `OnUserInputCancel(id,"close"|"timeout",supplement,extras...)`; only an
+  unanswered timeout falls back to `OnUserInput(id,"timeout",supplement,extras...)`.
 - Balanced `enter,passivemode` and `leave,passivemode` update explicit runtime
   state until leave or ghost termination. One runtime `canTalk` decision applies
   generally, not only to passive mode: idle sends `OnSecondChange` and
   `OnMinuteChange` with `GET` and `Reference3 = 1`; normal talk playback,
   pending-choice/input states, and passive mode send them with `NOTIFY` and
   `Reference3 = 0`, and ignore returned scripts. For both methods, `Reference0`
-  is OS continuous uptime in whole hours, not elapsed time since this runner or
-  Activity started; References 1–3 retain the documented offscreen, overlap,
+  is sleep-inclusive OS continuous uptime in whole hours (Android
+  `SystemClock.elapsedRealtime()`), not process uptime or elapsed time since this
+  runner or Activity started; References 1–3 retain the documented offscreen, overlap,
   and can-talk meanings. Passive choices do not time out, displayed dialogue
   does not disappear, and a surface response cannot break or replace the active
   passive sequence.
@@ -710,7 +724,7 @@ Parser fixtures cover:
 - Bancho polygon `collisionex` regions;
 - UTF-8 and Shift-JIS non-ASCII identifiers;
 - indented braces and entries;
-- duplicate/replacement/append ordering and `collision-sort`;
+- duplicate/accumulating/append-existing ordering and per-file `collision-sort`;
 - a malformed selector that must not mutate surface 0; and
 - malformed blocks/regions followed by multiple valid blocks.
 
