@@ -41,6 +41,13 @@ coverage threshold. Keep tests in Android's standard source-set layout:
 `src/test/java/` for local JVM tests and `src/androidTest/java/` for device and
 Compose instrumentation tests.
 
+## Durable and Background Workflows
+
+For workflows that survive an Activity or process (downloads, workers,
+content-URI imports, installation, or long copies), follow the
+[durable workflow review checklist](docs/modernization/durable-workflow-review-checklist.md)
+before implementation and before requesting review.
+
 ## Commit & Pull Request Guidelines
 
 Use concise imperative subjects, optionally scoped (for example,
