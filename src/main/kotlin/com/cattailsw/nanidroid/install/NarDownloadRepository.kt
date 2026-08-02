@@ -177,7 +177,6 @@ class NarDownloadRepository internal constructor(
         if (item.source !is NarDownloadSource.Local) return null
         runCatching { work.cancel(itemId) }
         runCatching { ownedData.delete(item) }
-        runCatching { ownedData.releasePersistedGrant(item) }
         store.update(itemId) {
             it.copy(
                 source = NarDownloadSource.Local(uri),
@@ -185,6 +184,7 @@ class NarDownloadRepository internal constructor(
                 state = NarDownloadState.Queued,
             )
         }
+        releasePersistedGrantIfUnused(item)
         try {
             work.enqueue(itemId)
         } catch (_: Exception) {
@@ -200,8 +200,8 @@ class NarDownloadRepository internal constructor(
         runCatching { work.cancel(itemId) }
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
-        runCatching { ownedData.releasePersistedGrant(item) }
         store.delete(itemId)
+        releasePersistedGrantIfUnused(item)
         publish()
         return true
     }
@@ -286,7 +286,7 @@ class NarDownloadRepository internal constructor(
                 store.update(itemId) { it.copy(state = NarDownloadState.Complete) }
                 item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
                 runCatching { ownedData.delete(item) }
-                runCatching { ownedData.releasePersistedGrant(item) }
+                releasePersistedGrantIfUnused(item)
             }
             is ArchiveInstallResult.Failed -> {
                 val message = if (
@@ -317,6 +317,17 @@ class NarDownloadRepository internal constructor(
                 ),
             )
         }
+    }
+
+    private fun releasePersistedGrantIfUnused(item: NarDownload) {
+        val location = item.retainedUri ?: return
+        val isStillReferenced = store.getAll().any { other ->
+            other.id != item.id && (
+                other.retainedUri == location ||
+                    (other.source as? NarDownloadSource.Local)?.uri == location
+                )
+        }
+        if (!isStillReferenced) runCatching { ownedData.releasePersistedGrant(item) }
     }
 
     private fun publish() {

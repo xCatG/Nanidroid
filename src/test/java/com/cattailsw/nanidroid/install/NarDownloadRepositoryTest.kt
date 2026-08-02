@@ -83,6 +83,18 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(61L), downloads.removedIds)
     }
 
+    @Test fun deletingOneOfTwoSharedDocumentSourcesRetainsItsGrant() {
+        val source = "content://provider/shared.nar"
+        val first = repository.enqueueLocal(source, source)
+        val second = repository.enqueueLocal(source, source)
+
+        repository.delete(first.id)
+
+        assertTrue(ownedData.releasedItemIds.isEmpty())
+        repository.delete(second.id)
+        assertEquals(listOf(second.id), ownedData.releasedItemIds)
+    }
+
     @Test fun deleteCancelsUniqueWorkRemovesDownloadAndDeletesOwnedData() {
         downloads.nextDownloadId = 41L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -251,9 +263,14 @@ class NarDownloadRepositoryTest {
 
     private class FakeOwnedData : NarOwnedDownloadData {
         val deletedItemIds = mutableListOf<String>()
+        val releasedItemIds = mutableListOf<String>()
 
         override fun delete(download: NarDownload) {
             deletedItemIds += download.id
+        }
+
+        override fun releasePersistedGrant(download: NarDownload) {
+            releasedItemIds += download.id
         }
     }
 
