@@ -8,6 +8,7 @@ import com.cattailsw.nanidroid.durable.ExternalJobBinding
 import com.cattailsw.nanidroid.durable.OperationCancellation
 import com.cattailsw.nanidroid.durable.OperationHandle
 import com.cattailsw.nanidroid.durable.OperationId
+import com.cattailsw.nanidroid.durable.OperationKind
 import com.cattailsw.nanidroid.durable.OperationStatus
 import com.cattailsw.nanidroid.durable.SharedPreferencesDurableOperationStore
 import org.junit.Assert.assertEquals
@@ -37,6 +38,7 @@ class NarDownloadRepositoryTest {
         MonotonicClock { 0L },
         cancellations,
     )
+    private val remoteProgress = FakeRemoteProgressObserver(downloads, supervisor)
     private val ids = ArrayDeque(listOf("old-item", "new-item", "third-item"))
     private val repository = NarDownloadRepository(
         store = store,
@@ -46,8 +48,17 @@ class NarDownloadRepositoryTest {
         ownedData = ownedData,
         attemptPaths = attempts,
         supervisor = supervisor,
+        remoteProgress = remoteProgress,
         nextId = { ids.removeFirst() },
     )
+
+    @Test fun remoteEnqueueStartsProgressObservationForExactAttemptAndRow() {
+        downloads.nextDownloadId = 30L
+
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(listOf(item.handle() to 30L), remoteProgress.started)
+    }
 
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
         downloads.nextDownloadId = 31L
@@ -61,6 +72,25 @@ class NarDownloadRepositoryTest {
         downloads.downloadedBytes[31L] = 9L
         assertTrue(repository.observeRemoteProgress(item.id))
         assertEquals(9L, operationStore.read().single().progress.completed)
+    }
+
+    @Test fun remoteProgressPollingContinuesAcrossRepeatedByteCountsUntilTerminalRow() {
+        downloads.nextDownloadId = 32L
+        downloads.downloadedBytes[32L] = 0L
+        downloads.statuses[32L] = NarRemoteDownloadStatus.InProgress
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        val scheduler = FakeProgressScheduler()
+        val observer = DownloadManagerProgressObserver(downloads, supervisor, scheduler)
+
+        observer.start(item.handle(), 32L)
+        scheduler.runNext()
+        assertEquals(1, scheduler.pendingCount)
+        scheduler.runNext()
+        assertEquals(1, scheduler.pendingCount)
+
+        downloads.statuses[32L] = NarRemoteDownloadStatus.Successful(item.retainedUri)
+        scheduler.runNext()
+        assertEquals(0, scheduler.pendingCount)
     }
 
     @Test fun cancelThenRetryUsesNewAttemptAndRejectsLateDownloadCompletion() {
@@ -81,6 +111,32 @@ class NarDownloadRepositoryTest {
 
         assertTrue(work.enqueuedNames.isEmpty())
         assertEquals(retry, store.get(item.id))
+    }
+
+    @Test fun duplicateCompletionAfterInstallHandoffCannotAdvanceAttemptAgain() {
+        downloads.nextDownloadId = 43L
+        val remote = repository.enqueueRemote("https://example.invalid/archive.nar")
+        repository.onDownloadComplete(43L)
+        val install = store.get(remote.id)!!
+
+        repository.onDownloadComplete(43L)
+
+        assertEquals(install, store.get(remote.id))
+        assertEquals(listOf("install-nar-${remote.id}"), work.enqueuedNames)
+    }
+
+    @Test fun reconciliationDoesNotTreatInstallAttemptAsRemoteDownload() {
+        downloads.nextDownloadId = 44L
+        val remote = repository.enqueueRemote("https://example.invalid/archive.nar")
+        repository.onDownloadComplete(44L)
+        val install = store.get(remote.id)!!
+        work.enqueuedNames.clear()
+        downloads.statuses[44L] = NarRemoteDownloadStatus.Successful(install.retainedUri)
+
+        repository.reconcile()
+
+        assertEquals(install, store.get(remote.id))
+        assertEquals(listOf("install-nar-${remote.id}"), work.enqueuedNames)
     }
 
     @Test fun staleInstallWorkerCannotMutateNewAttempt() {
@@ -110,6 +166,20 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.COMPLETED, terminal.status)
         assertEquals(8L, terminal.progress.completed)
         assertTrue(!supervisor.reportProgress(item.handle(), "Late", 9L))
+    }
+
+    @Test fun stopAfterAtomicPublicationStillCompletesQueueAndCleanup() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+        installer.onInstall = { download, _, isStopped, _ ->
+            assertTrue(repository.stop(download.id))
+            assertTrue(isStopped())
+            ArchiveInstallResult.Installed("installed")
+        }
+
+        repository.install(item.id, item.attemptId) { false }
+
+        assertEquals(NarDownloadState.Complete, store.get(item.id)!!.state)
+        assertEquals(listOf(item.id), ownedData.deletedItemIds)
     }
 
     @Test fun retainedUriCopyReportsBytesAndHandsOffToANewInstallAttempt() {
@@ -321,6 +391,41 @@ class NarDownloadRepositoryTest {
         assertTrue(work.enqueuedNames.isEmpty())
     }
 
+    @Test fun reconciliationLeavesBoundLocalCopyForItsWorkerToResume() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        val bound = store.get(item.id)!!
+
+        repository.reconcile()
+
+        assertEquals(bound, store.get(item.id))
+        assertEquals(NarDownloadState.Copying, store.get(item.id)!!.state)
+    }
+
+    @Test fun temporaryReplacementUsesSupervisedCancellableCopyAttempt() {
+        val item = repository.enqueueLocal("content://provider/unavailable.nar")
+        installer.failure = SecurityException("grant revoked")
+        repository.install(item.id, item.attemptId) { false }
+        installer.failure = null
+
+        val replacement = repository.replaceLocalSourceForCopy(
+            item.id,
+            "content://provider/temporary.nar",
+        )!!
+
+        assertNotEquals(item.id, replacement.id)
+        assertEquals(1L, replacement.attemptId)
+        assertEquals(NarDownloadState.Copying, replacement.state)
+        assertEquals(
+            "stage-local-nar-${replacement.id}-${replacement.attemptId}",
+            replacement.workManagerId,
+        )
+        val operation = operationStore.read().single { it.id.value == replacement.id }
+        assertEquals(OperationKind.LOCAL_NAR, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertTrue(repository.stop(replacement.id))
+        assertEquals(listOf(replacement.workManagerId), work.cancelledBindings)
+    }
+
     @Test fun failedCopyBecomesActionableAttention() {
         val item = repository.retainLocalSourceForCopy("content://provider/archive.nar")
 
@@ -528,6 +633,7 @@ class NarDownloadRepositoryTest {
             ownedData = ownedData,
             attemptPaths = attempts,
             supervisor = supervisor,
+            remoteProgress = remoteProgress,
             nextId = { ids.removeFirst() },
         )
         val item = cancellableRepository.enqueueLocal("content://provider/archive.nar")
@@ -653,6 +759,43 @@ class NarDownloadRepositoryTest {
                 is ExternalJobBinding.DownloadManager -> downloads.remove(binding.id)
                 is ExternalJobBinding.WorkManager -> work.cancelledBindings += binding.uuid
             }
+        }
+    }
+
+    private class FakeRemoteProgressObserver(
+        downloads: NarDownloadGateway,
+        supervisor: DurableOperationSupervisor,
+    ) : NarRemoteProgressObserver {
+        private val delegate = DownloadManagerProgressObserver(downloads, supervisor)
+        val started = mutableListOf<Pair<OperationHandle, Long>>()
+        val stopped = mutableListOf<OperationHandle>()
+
+        override fun start(handle: OperationHandle, downloadManagerId: Long) {
+            started += handle to downloadManagerId
+        }
+
+        override fun stop(handle: OperationHandle) {
+            stopped += handle
+        }
+
+        override fun observeOnce(handle: OperationHandle, downloadManagerId: Long) =
+            delegate.observeOnce(handle, downloadManagerId)
+    }
+
+    private class FakeProgressScheduler : NarProgressScheduler {
+        private val pending = ArrayDeque<Runnable>()
+        val pendingCount get() = pending.size
+
+        override fun post(task: Runnable, delayMillis: Long) {
+            pending += task
+        }
+
+        override fun cancel(task: Runnable) {
+            pending.remove(task)
+        }
+
+        fun runNext() {
+            pending.removeFirst().run()
         }
     }
 

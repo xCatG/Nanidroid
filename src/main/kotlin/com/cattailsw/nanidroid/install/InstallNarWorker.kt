@@ -5,6 +5,7 @@ import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
@@ -111,6 +112,7 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
                     .putLong(StageLocalNarWorker.INPUT_ATTEMPT_ID, attemptId)
                     .build(),
             )
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
         if (!onPrepared(request.id.toString())) return false
         workManager.enqueueUniqueWork(

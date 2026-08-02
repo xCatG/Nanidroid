@@ -261,6 +261,54 @@ class NarTransactionalInstallerTest {
     }
 
     @Test
+    fun cancellationDuringCentralPreflightAfterProgressDoesNotPublish() {
+        val root = temporaryDirectory("transaction-preflight-cancel")
+        val archive = zip(
+            "install.txt", descriptor("preflight-cancel-id"),
+            "ghost/master.txt", ByteArray(64 * 1024) { 4 },
+        )
+        var stopRequested = false
+
+        val result = NarTransactionalInstaller.install(
+            archive = archive,
+            installRoot = root,
+            forcedId = null,
+            isCancelled = { stopRequested },
+            onProgress = { phase, completed ->
+                if (phase == "Preflighting archive" && completed > 0L) stopRequested = true
+            },
+        )
+
+        Assert.assertEquals(ArchiveInstallResult.Cancelled, result)
+        Assert.assertFalse(File(root, "preflight-cancel-id").exists())
+        Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+    }
+
+    @Test
+    fun cancellationDuringArchiveVerificationAfterProgressDoesNotPublish() {
+        val root = temporaryDirectory("transaction-verification-cancel")
+        val archive = zip(
+            "install.txt", descriptor("verification-cancel-id"),
+            "ghost/master.txt", ByteArray(64 * 1024) { 5 },
+        )
+        var stopRequested = false
+
+        val result = NarTransactionalInstaller.install(
+            archive = archive,
+            installRoot = root,
+            forcedId = null,
+            isCancelled = { stopRequested },
+            onProgress = { phase, completed ->
+                if (phase == "Verifying archive" && completed > 0L) stopRequested = true
+            },
+        )
+
+        Assert.assertEquals(ArchiveInstallResult.Cancelled, result)
+        Assert.assertFalse(File(root, "verification-cancel-id").exists())
+        Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+    }
+
+    @Test
     fun stop_install_removes_only_staging_and_preserves_live_ghost() {
         val root = temporaryDirectory("transaction-owned-cleanup")
         val installedGhost = File(root, "live-ghost")

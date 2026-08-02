@@ -35,8 +35,6 @@ import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.PrefUtil
 import com.cattailsw.nanidroid.install.NarContentUriImport
 import com.cattailsw.nanidroid.install.NarDownloadRepository
-import com.cattailsw.nanidroid.install.NarLocalArchiveStager
-import com.cattailsw.nanidroid.install.StageLocalNarWorker
 import com.cattailsw.nanidroid.install.NarDownloadState
 import java.io.BufferedReader
 import java.io.File
@@ -406,46 +404,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 }
                 return
             } catch (_: SecurityException) {
-                // A one-shot grant must be copied before this intent handler returns.
+                // Fall back to supervised staging while the temporary grant remains available.
             }
         }
 
-        val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id
-        Thread {
-            val result = StageLocalNarWorker.stageGrantedSource(this, uri.toString())
-            runOnUiThread { finishLocalArchiveCopy(retainedItemId, uri, result) }
-        }.start()
-    }
-
-    private fun finishLocalArchiveCopy(
-        retainedItemId: String,
-        sourceUri: Uri,
-        result: NarLocalArchiveStager.Result,
-    ) {
-        when (result) {
-            is NarLocalArchiveStager.Result.Staged -> {
-                if (narDownloads.replaceLocalSource(retainedItemId, result.location) == null) {
-                    discardUnclaimedArchive(sourceUri, result.location)
-                }
-            }
-            is NarLocalArchiveStager.Result.Failed -> {
-                narDownloads.copyFailed(retainedItemId)
-                Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
-            }
-            NarLocalArchiveStager.Result.Cancelled -> narDownloads.copyFailed(retainedItemId)
-        }
-    }
-
-    private fun discardUnclaimedArchive(sourceUri: Uri, location: String) {
-        if (location == sourceUri.toString() && !narDownloads.isSourceReferenced(location)) {
-            runCatching {
-                contentResolver.releasePersistableUriPermission(
-                    sourceUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
+        if (replacementId == null) {
+            narDownloads.enqueueLocalCopy(uri.toString())
         } else {
-            NarLocalArchiveStager.discard(location)
+            narDownloads.replaceLocalSourceForCopy(replacementId, uri.toString())
         }
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

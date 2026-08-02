@@ -105,6 +105,10 @@ class NarDownloadRepository internal constructor(
     private val ownedData: NarOwnedDownloadData,
     private val attemptPaths: NarInstallAttemptPaths,
     private val supervisor: DurableOperationSupervisor,
+    private val remoteProgress: NarRemoteProgressObserver = DownloadManagerProgressObserver(
+        downloads,
+        supervisor,
+    ),
     private val nextId: () -> String,
 ) {
     private val observedDownloads = MutableStateFlow(store.getAll())
@@ -164,11 +168,16 @@ class NarDownloadRepository internal constructor(
                 state = NarDownloadState.Copying,
             ),
         )
+        scheduleLocalCopy(item)
+        publish()
+        return store.get(item.id)!!
+    }
+
+    private fun scheduleLocalCopy(item: NarDownload) {
         val handle = item.handle()
         if (!supervisor.start(handle, OperationKind.LOCAL_NAR, "Copying archive", 0L)) {
             markNeedsAttention(item.id, COPY_INTERRUPTED)
-            publish()
-            return store.get(item.id)!!
+            return
         }
         try {
             val enqueued = work.enqueueStage(item.id, item.attemptId) { workManagerId ->
@@ -193,8 +202,6 @@ class NarDownloadRepository internal constructor(
             supervisor.finish(handle, OperationStatus.FAILED, COPY_INTERRUPTED)
             markNeedsAttention(item.id, COPY_INTERRUPTED)
         }
-        publish()
-        return store.get(item.id)!!
     }
 
     fun stageLocal(
@@ -331,6 +338,14 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
+    fun replaceLocalSourceForCopy(itemId: String, uri: String): NarDownload? {
+        val item = store.get(itemId) ?: return null
+        if (item.source !is NarDownloadSource.Local) return null
+        if (!delete(itemId)) return null
+        return enqueueLocalCopy(uri)
+    }
+
+    @Synchronized
     fun delete(itemId: String): Boolean {
         val item = store.get(itemId) ?: return false
         runCatching { work.cancel(itemId) }
@@ -348,7 +363,7 @@ class NarDownloadRepository internal constructor(
     @Synchronized
     fun onDownloadComplete(downloadManagerId: Long) {
         val item = store.getAll().firstOrNull {
-            it.downloadManagerId == downloadManagerId && it.state.isNonterminal()
+            it.downloadManagerId == downloadManagerId && it.state == NarDownloadState.Downloading
         } ?: return
         if (advanceToInstall(item) == null) return
         scheduleInstall(item.id)
@@ -360,7 +375,7 @@ class NarDownloadRepository internal constructor(
         val item = store.get(itemId) ?: return false
         val downloadManagerId = item.downloadManagerId ?: return false
         if (item.state != NarDownloadState.Downloading) return false
-        return DownloadManagerProgressObserver(downloads, supervisor).observe(
+        return remoteProgress.observeOnce(
             item.handle(),
             downloadManagerId,
         )
@@ -372,6 +387,7 @@ class NarDownloadRepository internal constructor(
         if (!item.state.isNonterminal() && item.state != NarDownloadState.Copying) return false
         val handle = item.handle()
         if (!supervisor.requestStop(handle)) return false
+        if (item.state == NarDownloadState.Downloading) remoteProgress.stop(handle)
         val updated = store.update(itemId) { current ->
             if (current.attemptId == item.attemptId) {
                 current.copy(state = NarDownloadState.Cancelled)
@@ -402,7 +418,7 @@ class NarDownloadRepository internal constructor(
     @Synchronized
     fun reconcile() {
         store.getAll()
-            .filter { it.state == NarDownloadState.Copying }
+            .filter { it.state == NarDownloadState.Copying && it.workManagerId == null }
             .forEach { markNeedsAttention(it.id, COPY_INTERRUPTED) }
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
@@ -414,7 +430,10 @@ class NarDownloadRepository internal constructor(
                 .toSet(),
         )
         store.getAll()
-            .filter { it.source is NarDownloadSource.Remote && it.state.isNonterminal() }
+            .filter {
+                it.source is NarDownloadSource.Remote &&
+                    it.state == NarDownloadState.Downloading
+            }
             .forEach { item ->
                 val downloadManagerId = item.downloadManagerId ?: item.retainedUri?.let { retainedUri ->
                     runCatching { downloads.findDownloadId(retainedUri) }.getOrNull()?.also { recoveredId ->
@@ -431,22 +450,24 @@ class NarDownloadRepository internal constructor(
                 when (status) {
                     NarRemoteDownloadStatus.InProgress -> {
                         store.update(item.id) { it.copy(state = NarDownloadState.Downloading) }
+                        remoteProgress.start(item.handle(), downloadManagerId)
                     }
                     is NarRemoteDownloadStatus.Successful -> {
                         store.update(item.id) {
                             it.copy(retainedUri = status.localUri ?: it.retainedUri)
                         }
                         val updated = store.get(item.id)
-                        if (updated != null && advanceToInstall(updated) != null) {
-                            scheduleInstall(item.id)
-                        }
+                        if (updated != null) advanceToInstall(updated)
                     }
                     NarRemoteDownloadStatus.Failed,
                     null -> markNeedsAttention(item.id, DOWNLOAD_RECOVERY_FAILURE)
                 }
             }
         store.getAll()
-            .filter { it.source is NarDownloadSource.Local && it.state.isNonterminal() }
+            .filter {
+                it.state == NarDownloadState.Queued ||
+                    it.state == NarDownloadState.Installing
+            }
             .forEach { item ->
                 scheduleInstall(item.id)
             }
@@ -499,7 +520,9 @@ class NarDownloadRepository internal constructor(
         }
         when (result) {
             is ArchiveInstallResult.Installed -> {
-                if (supervisor.finish(installing.handle(), OperationStatus.COMPLETED)) {
+                val current = store.get(itemId)
+                if (current?.attemptId == installing.attemptId) {
+                    supervisor.finish(installing.handle(), OperationStatus.COMPLETED)
                     completeInstall(itemId, item, installing.attemptId)
                 }
             }
@@ -543,6 +566,7 @@ class NarDownloadRepository internal constructor(
     )
 
     private fun advanceToInstall(item: NarDownload): NarDownload? {
+        remoteProgress.stop(item.handle())
         if (!supervisor.finish(item.handle(), OperationStatus.COMPLETED)) return null
         return store.update(item.id) { current ->
             if (current.attemptId == item.attemptId) {
@@ -643,6 +667,8 @@ class NarDownloadRepository internal constructor(
             ) {
                 downloads.remove(enqueued.downloadManagerId)
                 markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
+            } else {
+                remoteProgress.start(handle, enqueued.downloadManagerId)
             }
         } catch (_: Exception) {
             markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
@@ -673,7 +699,9 @@ class NarDownloadRepository internal constructor(
             it.id == handle.operationId &&
                 it.attemptId == handle.attemptId &&
                 it.status == OperationStatus.CANCEL_REQUESTED
-        }
+        } || store.get(handle.operationId.value)?.let {
+            it.attemptId == handle.attemptId.value && it.state == NarDownloadState.Cancelled
+        } == true
 
     private fun NarDownload.handle() = OperationHandle(OperationId(id), AttemptId(attemptId))
 
@@ -731,6 +759,7 @@ class NarDownloadRepository internal constructor(
                 ownedData = managedFiles,
                 attemptPaths = managedFiles,
                 supervisor = supervisor,
+                remoteProgress = DownloadManagerProgressObserver(downloadGateway, supervisor),
                 nextId = { UUID.randomUUID().toString() },
             )
         }

@@ -1,11 +1,16 @@
 package com.cattailsw.nanidroid.install
 
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.RandomAccessFile
 import java.security.SecureRandom
 import java.util.zip.CRC32
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 
 /** Fresh-install-only transactional NAR installer. */
 class NarTransactionalInstaller private constructor() {
@@ -176,12 +181,15 @@ class NarTransactionalInstaller private constructor() {
                 } else {
                     onProgress("Preflighting archive", 0L)
                     if (isCancelled()) return ArchiveInstallResult.Cancelled
-                    val validated = NarInstallPlanValidator().validateStaged(copied.getSource(), root, forcedId)
-                    if (!validated.isSuccess()) {
+                    val validationIo = CancellableArchiveIo(isCancelled, onProgress)
+                    val validated = NarInstallPlanValidator(validationIo)
+                        .validateStaged(copied.getSource(), root, forcedId)
+                    if (isCancelled()) {
+                        result = ArchiveInstallResult.Cancelled
+                    } else if (!validated.isSuccess()) {
                         result = failure(Error.ARCHIVE_REJECTED, archiveMessage(validated.error))
                     } else {
                         session = validated.getVerifiedSession()
-                        onProgress("Verifying archive", 0L)
                         if (isCancelled()) {
                             result = ArchiveInstallResult.Cancelled
                             return result
@@ -307,7 +315,7 @@ class NarTransactionalInstaller private constructor() {
                 if (complete && entry.crc >= 0) complete = crc.value == entry.crc
                 return if (complete) CopyEntryOutcome.COMPLETE else CopyEntryOutcome.FAILED
             } catch (_: IOException) {
-                return CopyEntryOutcome.FAILED
+                return if (isCancelled()) CopyEntryOutcome.CANCELLED else CopyEntryOutcome.FAILED
             } finally {
                 closeQuietly(input)
                 closeQuietly(target)
@@ -330,6 +338,142 @@ class NarTransactionalInstaller private constructor() {
             }
             val candidate = File(staging, name)
             return candidate.takeIf { it.mkdir() }
+        }
+
+        private class CancellableArchiveIo(
+            private val isCancelled: () -> Boolean,
+            onProgress: (phase: String, completed: Long) -> Unit,
+        ) : NarInstallPlanValidator.ArchiveIo {
+            private val preflightProgress = ProgressCounter("Preflighting archive", onProgress)
+            private val verificationProgress = ProgressCounter("Verifying archive", onProgress)
+
+            override fun length(file: File): Long {
+                checkCancellation()
+                return file.length()
+            }
+
+            override fun openSource(file: File): InputStream {
+                checkCancellation()
+                return CancellableInputStream(FileInputStream(file), verificationProgress)
+            }
+
+            override fun preflight(file: File): Int {
+                checkCancellation()
+                RandomAccessFile(file, "r").use { random ->
+                    val source = object : NarZipCentralPreflight.RandomAccessSource {
+                        override fun length(): Long {
+                            checkCancellation()
+                            return random.length()
+                        }
+
+                        override fun readFully(
+                            position: Long,
+                            target: ByteArray,
+                            offset: Int,
+                            length: Int,
+                        ) {
+                            checkCancellation()
+                            random.seek(position)
+                            random.readFully(target, offset, length)
+                            preflightProgress.advance(length.toLong())
+                            checkCancellation()
+                        }
+                    }
+                    return NarZipCentralPreflight.inspect(source).getEntryCount()
+                }
+            }
+
+            override fun openArchive(file: File): NarInstallPlanValidator.OpenArchive {
+                checkCancellation()
+                return CancellableZipArchive(file)
+            }
+
+            override fun canonical(file: File): File {
+                checkCancellation()
+                return file.canonicalFile
+            }
+
+            override fun delete(file: File): Boolean = file.delete()
+
+            private fun checkCancellation() {
+                if (isCancelled()) throw InstallCancelledException()
+            }
+
+            private inner class CancellableInputStream(
+                input: InputStream,
+                private val progress: ProgressCounter?,
+            ) : FilterInputStream(input) {
+                override fun read(): Int {
+                    checkCancellation()
+                    val value = super.read()
+                    if (value >= 0) progress?.advance(1L)
+                    checkCancellation()
+                    return value
+                }
+
+                override fun read(target: ByteArray, offset: Int, length: Int): Int {
+                    checkCancellation()
+                    val count = super.read(target, offset, length)
+                    if (count > 0) progress?.advance(count.toLong())
+                    checkCancellation()
+                    return count
+                }
+            }
+
+            private inner class CancellableZipArchive(file: File) :
+                NarInstallPlanValidator.OpenArchive {
+                private val zip = ZipFile(file)
+
+                override fun entries(limit: Int): List<NarInstallPlanValidator.ArchiveEntry> {
+                    val result = ArrayList<NarInstallPlanValidator.ArchiveEntry>()
+                    val source = zip.entries()
+                    var ordinal = 0
+                    while (source.hasMoreElements() && result.size < limit) {
+                        checkCancellation()
+                        result += CancellableZipEntry(this, ordinal++, source.nextElement())
+                    }
+                    checkCancellation()
+                    return result
+                }
+
+                override fun open(entry: NarInstallPlanValidator.ArchiveEntry): InputStream {
+                    if (entry !is CancellableZipEntry || entry.owner !== this) {
+                        throw IOException("foreign ZIP entry")
+                    }
+                    checkCancellation()
+                    return CancellableInputStream(zip.getInputStream(entry.entry), null)
+                }
+
+                override fun close() = zip.close()
+            }
+
+            private class CancellableZipEntry(
+                val owner: CancellableZipArchive,
+                private val ordinal: Int,
+                val entry: ZipEntry,
+            ) : NarInstallPlanValidator.ArchiveEntry {
+                override fun getOrdinal() = ordinal
+                override fun getRawName() = entry.name
+                override fun isDirectory() = entry.isDirectory
+                override fun getCrc() = entry.crc
+                override fun getMethod() = entry.method
+                override fun getDeclaredSize() = entry.size
+                override fun getCompressedSize() = entry.compressedSize
+            }
+
+            private class ProgressCounter(
+                private val phase: String,
+                private val onProgress: (phase: String, completed: Long) -> Unit,
+            ) {
+                private var completed = 0L
+
+                fun advance(amount: Long) {
+                    completed += amount
+                    onProgress(phase, completed)
+                }
+            }
+
+            private class InstallCancelledException : IOException("archive install cancelled")
         }
 
         private fun archiveMessage(error: NarInstallError?): String = when (error) {
