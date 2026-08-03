@@ -38,6 +38,7 @@ import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.MeasuredGhostStageLayout
 import com.cattailsw.nanidroid.compose.stage.StageEnvironmentProvider
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
+import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
 import com.cattailsw.nanidroid.compose.stage.StagePointerInput
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.runtime.GhostPresentationState
@@ -57,6 +58,9 @@ fun GhostPresentationStage(
     ghostKey: String,
     ghostIdentity: Any = ghostKey,
     blockingInput: Boolean = false,
+    ghostIdentityProvider: () -> Any = { ghostIdentity },
+    blockingInputProvider: () -> Boolean = { blockingInput },
+    routingEpochProvider: () -> Any = { Unit },
     onSurfaceEffect: (SurfaceInteractionEffect) -> Unit = {},
     onToggleChrome: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -67,20 +71,21 @@ fun GhostPresentationStage(
 ) {
     StageEnvironmentProvider { windowEnvironment ->
         var placement by remember { mutableStateOf<StagePlacement?>(null) }
-        val measured = measureState.latest
-        val inputSnapshot = remember(blockingInput, ghostKey, ghostIdentity, measured) {
-            val regions = measured?.bubbleRegions.orEmpty()
-            StageInputRouter.snapshot(
-                blocking = blockingInput,
-                bubbleRegistry = BubbleHitRegionRegistry.from(regions),
-                bubbleGeneration = measured?.bubbleGeneration ?: 0,
-                ghostKey = ghostKey,
-                surfaces = listOfNotNull(measured?.kero, measured?.sakura),
-                ghostIdentity = ghostIdentity,
-            )
-        }
+        // StagePointerInput evaluates this provider during composition for
+        // eager cancellation and again at event time for authoritative state.
         StagePointerInput(
-            snapshotProvider = { inputSnapshot },
+            snapshotProvider = {
+                currentStageInputSnapshot(
+                    measured = measureState.latest,
+                    blocking = blockingInputProvider(),
+                    ghostKey = ghostKey,
+                    ghostIdentity = ghostIdentityProvider(),
+                    routingEpoch = StagePresentationRoutingEpoch(
+                        external = routingEpochProvider(),
+                        measured = measureState.inputEpoch,
+                    ),
+                )
+            },
             onSurfaceEffect = onSurfaceEffect,
             onToggleChrome = onToggleChrome,
             modifier = modifier
@@ -129,6 +134,22 @@ fun GhostPresentationStage(
         }
     }
 }
+
+internal fun currentStageInputSnapshot(
+    measured: StageMeasuredSnapshot?,
+    blocking: Boolean,
+    ghostKey: String,
+    ghostIdentity: Any,
+    routingEpoch: Any = Unit,
+) = StageInputRouter.snapshot(
+    blocking = blocking,
+    bubbleRegistry = BubbleHitRegionRegistry.from(measured?.bubbleRegions.orEmpty()),
+    bubbleGeneration = measured?.bubbleGeneration ?: 0,
+    ghostKey = ghostKey,
+    surfaces = listOfNotNull(measured?.kero, measured?.sakura),
+    ghostIdentity = ghostIdentity,
+    routingEpoch = routingEpoch,
+)
 
 /**
  * Compatibility facade for characterization tests that inject their own
@@ -220,6 +241,7 @@ private fun layoutOnlySurface(id: Int, size: IntSize): ComposedSurface? {
 }
 
 private data class StagePlacement(val window: IntOffset, val root: IntOffset)
+private data class StagePresentationRoutingEpoch(val external: Any, val measured: Long)
 
 private fun Offset.roundedOffset() = IntOffset(x.roundToInt(), y.roundToInt())
 

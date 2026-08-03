@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.runtime.stage
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -125,6 +126,44 @@ class StageInputRouterTest {
     }
 
     @Test
+    fun `fractional stage coordinates remain continuous through inverse scaling`() {
+        val size = IntSize(200, 100)
+        val collision = SurfaceCollision(
+            7,
+            "FractionalEdge",
+            CollisionShape.Rectangle(IntRect(99, 0, 100, 100)),
+            0,
+        )
+        val composed = ComposedSurface(
+            image = SurfacePixelImage.of(size.width, size.height, IntArray(size.width * size.height)),
+            canvasSize = size,
+            visiblePixelBounds = null,
+            effectiveCollisions = listOf(collision),
+            surfaceKey = SurfaceKey(0, size),
+            revision = 1,
+            explicitlyHidden = false,
+        )
+        val surface = StageSurfaceSnapshot(
+            SurfaceSpeaker.SAKURA,
+            composed,
+            SurfaceTransformPx(size, IntRect(0, 0, 100, 50), 0.5f, IntOffset.Zero),
+        )
+
+        val resolution = StageInputRouter.resolve(
+            snapshot(surfaces = listOf(surface)),
+            Offset(49.75f, 10f),
+            PointerSource.MOUSE,
+            button = 0,
+        )
+
+        assertEquals(
+            StageInputTarget.Surface(SurfaceSpeaker.SAKURA, SurfaceHitTarget.Collision(7, "FractionalEdge")),
+            resolution.target,
+        )
+        assertEquals(IntOffset(99, 20), resolution.effect?.intrinsic)
+    }
+
+    @Test
     fun `geometry token ignores raster revision but invalidates identity transform collisions and bubbles`() {
         val baseSurface = surface(SurfaceSpeaker.SAKURA, IntRect(0, 0, 20, 20), revision = 1)
         val base = snapshot(ghostKey = "manager-a", bubbleGeneration = 7, surfaces = listOf(baseSurface))
@@ -171,14 +210,30 @@ class StageInputRouterTest {
                 ),
             ),
         )
+        assertNotEquals(
+            snapshot(
+                surfaces = listOf(
+                    baseSurface.copy(composedSurface = baseSurface.composedSurface.copy(inputAuthority = "base-a")),
+                ),
+            ).geometryToken,
+            snapshot(
+                surfaces = listOf(
+                    baseSurface.copy(composedSurface = baseSurface.composedSurface.copy(inputAuthority = "base-b")),
+                ),
+            ).geometryToken,
+        )
+        assertNotEquals(
+            snapshot(ghostKey = "manager-a", routingEpoch = 0, surfaces = listOf(baseSurface)).geometryToken,
+            snapshot(ghostKey = "manager-a", routingEpoch = 2, surfaces = listOf(baseSurface)).geometryToken,
+        )
     }
 
     @Test
     fun `primary button and event-local source are retained without inventing secondary dispatch`() {
         val snapshot = snapshot(surfaces = listOf(surface(SurfaceSpeaker.SAKURA, IntRect(0, 0, 20, 20))))
 
-        val primary = StageInputRouter.resolve(snapshot, IntOffset(2, 3), PointerSource.ERASER, button = 0)
-        val secondary = StageInputRouter.resolve(snapshot, IntOffset(2, 3), PointerSource.MOUSE, button = 1)
+        val primary = StageInputRouter.resolve(snapshot, Offset(2f, 3f), PointerSource.ERASER, button = 0)
+        val secondary = StageInputRouter.resolve(snapshot, Offset(2f, 3f), PointerSource.MOUSE, button = 1)
 
         assertEquals(PointerSource.ERASER, primary.effect?.source)
         assertEquals(0, primary.effect?.button)
@@ -191,18 +246,20 @@ class StageInputRouterTest {
         x: Int,
         y: Int,
         source: PointerSource = PointerSource.TOUCH,
-    ) = StageInputRouter.resolve(snapshot, IntOffset(x, y), source, button = 0)
+    ) = StageInputRouter.resolve(snapshot, Offset(x.toFloat(), y.toFloat()), source, button = 0)
 
     private fun snapshot(
         blocking: Boolean = false,
         bubbles: List<MeasuredBubbleHitRegion> = emptyList(),
         bubbleGeneration: Long = 0,
+        routingEpoch: Long = 0,
         ghostKey: String = "manager-a",
         surfaces: List<StageSurfaceSnapshot> = emptyList(),
     ) = StageInputRouter.snapshot(
         blocking = blocking,
         bubbleRegistry = BubbleHitRegionRegistry.from(bubbles),
         bubbleGeneration = bubbleGeneration,
+        routingEpoch = routingEpoch,
         ghostKey = ghostKey,
         surfaces = surfaces,
     )

@@ -10,6 +10,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.click
@@ -115,9 +118,28 @@ class StagePointerInputTest {
             moveTo(Offset(150f, 150f))
             up()
         }
+        composeRule.onNodeWithTag(TAG).performTouchInput {
+            down(Offset(20f, 20f))
+            cancel()
+        }
         composeRule.onNodeWithTag(TAG).performTouchInput { down(Offset(20f, 20f)) }
         composeRule.runOnIdle {
             state.value = snapshot(surfaces = listOf(surface(IntRect(100, 100, 200, 200))))
+        }
+        composeRule.onNodeWithTag(TAG).performTouchInput { up() }
+        composeRule.runOnIdle {
+            state.value = snapshot(surfaces = listOf(surface(IntRect(0, 0, 100, 100))))
+        }
+        composeRule.onNodeWithTag(TAG).performTouchInput { down(Offset(20f, 20f)) }
+        composeRule.runOnIdle {
+            val current = state.value.surfaces.single()
+            state.value = snapshot(
+                surfaces = listOf(
+                    current.copy(
+                        composedSurface = current.composedSurface.copy(inputAuthority = "replacement-base"),
+                    ),
+                ),
+            )
         }
         composeRule.onNodeWithTag(TAG).performTouchInput { up() }
         composeRule.runOnIdle { assertTrue(effects.isEmpty()) }
@@ -183,11 +205,17 @@ class StagePointerInputTest {
     @Test
     fun primaryStylusAndEraserEventsDispatchWhileSecondaryHoverAndWheelDoNot() {
         val effects = mutableListOf<SurfaceInteractionEffect>()
-        setStage({ snapshot(surfaces = listOf(surface(IntRect(0, 0, 300, 300)))) }, effects, toggle = {})
+        setStage(
+            { snapshot(surfaces = listOf(surface(IntRect(0, 0, 300, 300)))) },
+            effects,
+            toggle = {},
+            monotonicNowMillis = SystemClock::uptimeMillis,
+        )
 
-        injectToolClick(MotionEvent.TOOL_TYPE_STYLUS, InputDevice.SOURCE_STYLUS, 40f, 40f)
+        // Android does not set BUTTON_PRIMARY for an ordinary stylus-tip contact.
+        injectToolClick(MotionEvent.TOOL_TYPE_STYLUS, InputDevice.SOURCE_STYLUS, 40f, 40f, buttonState = 0)
         composeRule.mainClock.advanceTimeBy(600)
-        injectToolClick(MotionEvent.TOOL_TYPE_ERASER, InputDevice.SOURCE_STYLUS, 80f, 80f)
+        injectToolClick(MotionEvent.TOOL_TYPE_ERASER, InputDevice.SOURCE_STYLUS, 80f, 80f, buttonState = 0)
         composeRule.mainClock.advanceTimeBy(600)
         injectToolClick(
             MotionEvent.TOOL_TYPE_MOUSE,
@@ -196,11 +224,117 @@ class StagePointerInputTest {
             120f,
             buttonState = MotionEvent.BUTTON_SECONDARY,
         )
+        injectToolClick(
+            MotionEvent.TOOL_TYPE_STYLUS,
+            InputDevice.SOURCE_STYLUS,
+            160f,
+            160f,
+            buttonState = MotionEvent.BUTTON_STYLUS_SECONDARY,
+        )
         injectNonActivation(MotionEvent.ACTION_HOVER_MOVE, InputDevice.SOURCE_MOUSE, 100f, 100f)
         injectNonActivation(MotionEvent.ACTION_SCROLL, InputDevice.SOURCE_MOUSE, 100f, 100f)
         composeRule.waitForIdle()
 
         assertEquals(listOf(PointerSource.PEN, PointerSource.ERASER), effects.map { it.source })
+    }
+
+    @Test
+    fun hoverAndWheelReachChildWithoutConsumption() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        val observed = mutableListOf<Pair<PointerEventType, Boolean>>()
+        setStage(
+            { snapshot(surfaces = listOf(surface(IntRect(0, 0, 300, 300)))) },
+            effects,
+            toggle = {},
+            pointerObserver = { type, consumed -> observed += type to consumed },
+        )
+
+        composeRule.onNodeWithTag(TAG).performMouseInput {
+            enter(Offset(100f, 100f))
+            moveTo(Offset(101f, 101f))
+            scroll(12f)
+        }
+        composeRule.waitForIdle()
+
+        assertTrue(observed.any { it.first == PointerEventType.Enter || it.first == PointerEventType.Move })
+        assertTrue(observed.any { it.first == PointerEventType.Scroll })
+        assertTrue(observed.none { it.second })
+        assertTrue(effects.isEmpty())
+    }
+
+    @Test
+    fun fractionalCoordinatesRemainContinuousThroughDownscaledSurfaceEdges() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        setStage(
+            { snapshot(surfaces = listOf(downscaledSurface())) },
+            effects,
+            toggle = {},
+            monotonicNowMillis = SystemClock::uptimeMillis,
+        )
+
+        injectToolClick(
+            MotionEvent.TOOL_TYPE_STYLUS,
+            InputDevice.SOURCE_STYLUS,
+            49.75f,
+            10f,
+            buttonState = 0,
+        )
+        composeRule.mainClock.advanceTimeBy(600)
+        injectToolClick(
+            MotionEvent.TOOL_TYPE_STYLUS,
+            InputDevice.SOURCE_STYLUS,
+            -0.25f,
+            10f,
+            buttonState = 0,
+        )
+        composeRule.mainClock.advanceTimeBy(600)
+        composeRule.waitForIdle()
+
+        assertEquals(1, effects.size)
+        assertEquals(IntOffset(99, 20), effects.single().intrinsic)
+        assertEquals("FractionalEdge", effects.single().collisionIdentifier)
+    }
+
+    @Test
+    fun actualMouseStreamPairsOnSecondDownAndUsesReleaseCoordinates() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        setStage({ snapshot(surfaces = listOf(surface(IntRect(0, 0, 200, 200)))) }, effects, toggle = {})
+        composeRule.onNodeWithTag(TAG).performMouseInput {
+            moveTo(Offset(40f, 40f))
+            press()
+            release()
+            moveTo(Offset(42f, 42f), delayMillis = 100)
+            press()
+            moveTo(Offset(43f, 43f), delayMillis = 300)
+            release()
+        }
+
+        composeRule.runOnIdle {
+            assertEquals(listOf(PointerEventKind.DOUBLE_CLICK), effects.map { it.kind })
+            assertEquals(IntOffset(21, 21), effects.single().intrinsic)
+        }
+    }
+
+    @Test
+    fun disposingHostCancelsPendingPhysicalSingle() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        val mounted = mutableStateOf(true)
+        composeRule.setContent {
+            if (mounted.value) {
+                StagePointerInput(
+                    snapshotProvider = { snapshot(surfaces = listOf(surface(IntRect(0, 0, 200, 200)))) },
+                    onSurfaceEffect = effects::add,
+                    onToggleChrome = {},
+                    monotonicNowMillis = { composeRule.mainClock.currentTime },
+                    modifier = Modifier.fillMaxSize().testTag(TAG),
+                ) { }
+            }
+        }
+        composeRule.mainClock.autoAdvance = false
+        composeRule.onNodeWithTag(TAG).performMouseInput { click(Offset(40f, 40f)) }
+        composeRule.runOnIdle { mounted.value = false }
+        composeRule.mainClock.advanceTimeBy(1_000)
+        composeRule.runOnIdle { assertTrue(effects.isEmpty()) }
     }
 
     @Test
@@ -222,7 +356,10 @@ class StagePointerInputTest {
         composeRule.runOnIdle {
             assertEquals(1, effects.size)
             assertEquals(1, toggles)
+            state.value = snapshot(blocking = true)
         }
+        composeRule.onNodeWithTag(TAG).performClick()
+        composeRule.runOnIdle { assertEquals(1, toggles) }
     }
 
     private fun setStage(
@@ -230,6 +367,8 @@ class StagePointerInputTest {
         effects: MutableList<SurfaceInteractionEffect>,
         toggle: () -> Unit,
         includeSurfaceSemantic: Boolean = false,
+        pointerObserver: ((PointerEventType, Boolean) -> Unit)? = null,
+        monotonicNowMillis: () -> Long = { composeRule.mainClock.currentTime },
     ) {
         composeRule.mainClock.autoAdvance = true
         composeRule.setContent {
@@ -237,13 +376,39 @@ class StagePointerInputTest {
                 snapshotProvider = snapshot,
                 onSurfaceEffect = effects::add,
                 onToggleChrome = toggle,
+                monotonicNowMillis = monotonicNowMillis,
                 modifier = Modifier.fillMaxSize().testTag(TAG),
             ) { semanticActivate ->
                 if (includeSurfaceSemantic) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .stageSurfaceSemantics(SURFACE_TAG, SurfaceSpeaker.SAKURA, semanticActivate),
+                            .stageSurfaceSemantics(
+                                SURFACE_TAG,
+                                SurfaceSpeaker.SAKURA,
+                                "Sakura character",
+                                semanticActivate,
+                            ),
+                    )
+                }
+                if (pointerObserver != null) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(pointerObserver) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Final)
+                                        if (
+                                            event.type == PointerEventType.Enter ||
+                                            event.type == PointerEventType.Move ||
+                                            event.type == PointerEventType.Scroll
+                                        ) {
+                                            pointerObserver(event.type, event.changes.any { it.isConsumed })
+                                        }
+                                    }
+                                }
+                            },
                     )
                 }
             }
@@ -251,10 +416,11 @@ class StagePointerInputTest {
     }
 
     private fun snapshot(
+        blocking: Boolean = false,
         bubbles: List<MeasuredBubbleHitRegion> = emptyList(),
         surfaces: List<StageSurfaceSnapshot> = emptyList(),
     ) = StageInputRouter.snapshot(
-        blocking = false,
+        blocking = blocking,
         bubbleRegistry = BubbleHitRegionRegistry.from(bubbles),
         bubbleGeneration = bubbles.hashCode().toLong(),
         ghostKey = "device-fixture",
@@ -277,6 +443,30 @@ class StagePointerInputTest {
             SurfaceSpeaker.SAKURA,
             composed,
             SurfaceTransformPx(size, bounds, bounds.width / 100f, IntOffset.Zero),
+        )
+    }
+
+    private fun downscaledSurface(): StageSurfaceSnapshot {
+        val size = IntSize(200, 100)
+        val collision = SurfaceCollision(
+            7,
+            "FractionalEdge",
+            CollisionShape.Rectangle(IntRect(99, 0, 100, 100)),
+            0,
+        )
+        val composed = ComposedSurface(
+            SurfacePixelImage.of(size.width, size.height, IntArray(size.width * size.height) { 0xff102030.toInt() }),
+            size,
+            IntRect(0, 0, size.width, size.height),
+            listOf(collision),
+            SurfaceKey(0, size),
+            1,
+            false,
+        )
+        return StageSurfaceSnapshot(
+            SurfaceSpeaker.SAKURA,
+            composed,
+            SurfaceTransformPx(size, IntRect(0, 0, 100, 50), 0.5f, IntOffset.Zero),
         )
     }
 
@@ -315,7 +505,14 @@ class StagePointerInputTest {
             1f, 1f, 0, 0, source, 0,
         )
         try {
-            composeRule.runOnUiThread { composeRule.activity.dispatchTouchEvent(event) }
+            composeRule.runOnUiThread {
+                when (action) {
+                    MotionEvent.ACTION_HOVER_MOVE,
+                    MotionEvent.ACTION_SCROLL,
+                    -> composeRule.activity.dispatchGenericMotionEvent(event)
+                    else -> composeRule.activity.dispatchTouchEvent(event)
+                }
+            }
         } finally {
             event.recycle()
         }

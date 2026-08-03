@@ -61,6 +61,7 @@ class ComposeGhostStageHost private constructor(
     private val activeComposedSurfaces = mutableMapOf<SurfaceSpeaker, ActiveComposedSurface>()
     private var renderedFramePixels = 0L
     private var nextComposedRevision = 1L
+    private var surfaceManagerInputEpoch = 0L
     private val stageMeasureState = GhostStageMeasureState()
     internal val latestMeasuredSnapshot get() = stageMeasureState.latest
 
@@ -78,6 +79,7 @@ class ComposeGhostStageHost private constructor(
 
     fun setSurfaceManager(manager: SurfaceManager?) {
         if (activeSurfaceManager !== manager) {
+            surfaceManagerInputEpoch++
             sakuraScheduler = null
             keroScheduler = null
             sakuraFrame = null
@@ -94,7 +96,8 @@ class ComposeGhostStageHost private constructor(
     @Composable
     fun Stage(
         modifier: Modifier = Modifier,
-        blockingInput: Boolean = false,
+        blockingInput: () -> Boolean = { false },
+        blockingInputEpoch: () -> Long = { 0L },
         onSurfaceTap: () -> Unit = {},
     ) {
         val manager = activeSurfaceManager
@@ -143,7 +146,15 @@ class ComposeGhostStageHost private constructor(
             measureState = stageMeasureState,
             ghostKey = manager?.let { "manager-${System.identityHashCode(it)}" }.orEmpty(),
             ghostIdentity = manager ?: NoGhostIdentity,
-            blockingInput = blockingInput,
+            blockingInput = blockingInput(),
+            ghostIdentityProvider = { activeSurfaceManager ?: NoGhostIdentity },
+            blockingInputProvider = blockingInput,
+            routingEpochProvider = {
+                HostRoutingEpoch(
+                    surfaceManager = surfaceManagerInputEpoch,
+                    blocking = blockingInputEpoch(),
+                )
+            },
             onSurfaceEffect = interactionPort::dispatch,
             onToggleChrome = onSurfaceTap,
             modifier = modifier,
@@ -160,6 +171,7 @@ class ComposeGhostStageHost private constructor(
     private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
     private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
     private data class ActiveComposedSurface(val key: RenderedFrameKey, val surface: ComposedSurface)
+    private data class HostRoutingEpoch(val surfaceManager: Long, val blocking: Long)
 
     private fun composedSurface(
         compositor: SurfaceCompositor,

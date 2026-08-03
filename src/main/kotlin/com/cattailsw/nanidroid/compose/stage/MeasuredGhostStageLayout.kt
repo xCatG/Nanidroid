@@ -23,6 +23,7 @@ import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
 import com.cattailsw.nanidroid.runtime.stage.StageLayoutDp
 import com.cattailsw.nanidroid.runtime.stage.StageLayoutPx
 import com.cattailsw.nanidroid.runtime.stage.StageSizingBaseline
+import com.cattailsw.nanidroid.runtime.stage.StageSurfaceHitGeometryToken
 import com.cattailsw.nanidroid.runtime.stage.SurfaceScope
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 
@@ -57,7 +58,10 @@ class GhostStageMeasureState {
     internal var baseline: StageSizingBaseline? = null
         private set
     private var committedBubbleRegions: List<MeasuredBubbleHitRegion> = emptyList()
+    private var committedInputGeometry: StageMeasuredInputGeometry? = null
     private var bubbleGeneration = 0L
+    internal var inputEpoch = 0L
+        private set
 
     var latest: StageMeasuredSnapshot? by mutableStateOf(null)
         private set
@@ -69,10 +73,17 @@ class GhostStageMeasureState {
             latest = null
             committedBubbleRegions = emptyList()
             bubbleGeneration = 0L
+            committedInputGeometry = null
+            inputEpoch++
         }
     }
 
     internal fun commit(snapshot: StageMeasuredSnapshot) {
+        val inputGeometry = snapshot.inputGeometry()
+        if (committedInputGeometry != inputGeometry) {
+            committedInputGeometry = inputGeometry
+            inputEpoch++
+        }
         if (committedBubbleRegions != snapshot.bubbleRegions) {
             committedBubbleRegions = snapshot.bubbleRegions
             bubbleGeneration++
@@ -88,6 +99,25 @@ class GhostStageMeasureState {
 
     private data object UnsetOwner
 }
+
+private data class StageMeasuredInputGeometry(
+    val bubbles: List<MeasuredBubbleHitRegion>,
+    val surfaces: List<StageSurfaceHitGeometryToken>,
+)
+
+private fun StageMeasuredSnapshot.inputGeometry() = StageMeasuredInputGeometry(
+    bubbles = bubbleRegions.toList(),
+    surfaces = listOfNotNull(kero, sakura).map { surface ->
+        StageSurfaceHitGeometryToken(
+            speaker = surface.speaker,
+            surfaceKey = surface.composedSurface.surfaceKey,
+            inputAuthority = surface.composedSurface.inputAuthority,
+            visible = !surface.composedSurface.explicitlyHidden,
+            transform = surface.transform,
+            collisions = surface.composedSurface.effectiveCollisions.toList(),
+        )
+    },
+)
 
 /**
  * A measure-aware stage: policy, one-time rounding, transforms, subcomposition,

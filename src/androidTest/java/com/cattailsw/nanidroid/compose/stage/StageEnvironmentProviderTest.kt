@@ -276,11 +276,14 @@ class StageEnvironmentProviderTest {
         val observed = mutableStateOf<StageWindowEnvironment?>(null)
         val registry = FakeInputDeviceRegistry()
         val source = RegisteredInputCapabilitySource(registry)
+        val mounted = mutableStateOf(true)
         composeRule.setContent {
-            StageEnvironmentProvider(
-                windowLayoutInfoSource = WindowLayoutInfoSource { MutableStateFlow(WindowLayoutInfo(emptyList())) },
-                inputCapabilitySource = source,
-            ) { environment -> SideEffect { observed.value = environment } }
+            if (mounted.value) {
+                StageEnvironmentProvider(
+                    windowLayoutInfoSource = WindowLayoutInfoSource { MutableStateFlow(WindowLayoutInfo(emptyList())) },
+                    inputCapabilitySource = source,
+                ) { environment -> SideEffect { observed.value = environment } }
+            }
         }
         composeRule.waitUntil { registry.activeListeners == 1 && observed.value != null }
 
@@ -303,6 +306,9 @@ class StageEnvironmentProviderTest {
                 observed.value?.inputCapabilities?.stylus == true
         }
         assertEquals(2, registry.registrationStarts)
+
+        composeRule.runOnIdle { mounted.value = false }
+        composeRule.waitUntil { registry.activeListeners == 0 }
     }
 
     @Test

@@ -55,4 +55,6 @@
   <string name="unsupported_shiori_onclose">\\0\\s0感謝您使用Nanidroid！\\e</string>    
   <string name="err_no_ghost_available">目前沒有可用的偽人格。先前中斷的更新可能仍在復原中。請嘗試重新開啟 Nanidroid。</string>
   <string name="toggle_stage_chrome_action">顯示或隱藏控制項</string>
+  <string name="sakura_character_description">Sakura 角色</string>
+  <string name="kero_character_description">Kero 角色</string>
 </resources>

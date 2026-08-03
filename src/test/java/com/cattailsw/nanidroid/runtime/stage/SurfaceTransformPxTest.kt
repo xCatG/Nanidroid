@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.surface.CollisionShape
+import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
 import org.junit.Assert.assertEquals
@@ -469,15 +470,52 @@ class SurfaceTransformPxTest {
             sakura = null,
         )
 
+        val initialEpoch = state.inputEpoch
+        state.resetFor(firstOwner)
+        val firstOwnerEpoch = state.inputEpoch
+        assertTrue(firstOwnerEpoch > initialEpoch)
+        state.commit(snapshot)
+        val committedEpoch = state.inputEpoch
+        assertTrue(committedEpoch > firstOwnerEpoch)
         state.resetFor(firstOwner)
         state.commit(snapshot)
-        state.resetFor(firstOwner)
         assertSame(snapshot, state.latest)
         assertEquals(layoutDp.sizingBaseline, state.baseline)
+        assertEquals(committedEpoch, state.inputEpoch)
 
         state.resetFor(replacementOwner)
         assertNull(state.latest)
         assertNull(state.baseline)
+        assertTrue(state.inputEpoch > committedEpoch)
+    }
+
+    @Test
+    fun `measure input epoch remains monotonic across geometry ABA transitions`() {
+        val state = GhostStageMeasureState()
+        state.resetFor(Any())
+        val layoutA = layout(keroSurface = StageDpRect(0.dp, 10.dp, 20.dp, 40.dp))
+        val layoutB = layout(keroSurface = StageDpRect(1.dp, 10.dp, 21.dp, 40.dp))
+        fun snapshot(layout: StageLayoutDp, bubbleLeft: Int) = StageMeasuredSnapshot(
+            layoutDp = layout,
+            layoutPx = StageLayoutPx.from(layout, 1f),
+            kero = null,
+            sakura = null,
+            bubbleRegions = listOf(
+                MeasuredBubbleHitRegion(
+                    IntRect(bubbleLeft, 0, bubbleLeft + 10, 10),
+                    BubbleInteractionTarget.Frame(SurfaceSpeaker.KERO),
+                ),
+            ),
+        )
+
+        state.commit(snapshot(layoutA, bubbleLeft = 0))
+        val epochA = state.inputEpoch
+        state.commit(snapshot(layoutB, bubbleLeft = 1))
+        val epochB = state.inputEpoch
+        state.commit(snapshot(layoutA, bubbleLeft = 0))
+
+        assertTrue(epochB > epochA)
+        assertTrue(state.inputEpoch > epochB)
     }
 
     private fun layout(

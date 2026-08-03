@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.SurfaceCollision
+import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.GhostPresentationFrame
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.SurfaceHitTarget
@@ -247,6 +249,8 @@ class RenderedTransformContractTest {
 
         val snapshot = requireNotNull(measureState.latest?.sakura)
         val image = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true).captureToImage()
+        composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
+            .assertContentDescriptionEquals(composeRule.activity.getString(R.string.sakura_character_description))
         val pixels = image.toPixelMap()
         assertEquals(snapshot.transform.renderedBounds.width, image.width)
         assertEquals(snapshot.transform.renderedBounds.height, image.height)

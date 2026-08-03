@@ -7,6 +7,7 @@ import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
 import com.cattailsw.nanidroid.surface.CollisionShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
@@ -227,6 +228,32 @@ class SurfaceCompositorTest {
 
         assertEquals(TRANSPARENT, legacyImage.pixelAt(0, 0))
         assertEquals(GREEN, legacyImage.pixelAt(1, 0))
+    }
+
+    @Test
+    fun `same-size file-backed BASE frames retain distinct input authority`() {
+        val selected = plan(layers = listOf(layer("selected.png", 0, 0, 2, 1)))
+        val compositor = SurfaceCompositor(
+            assets(
+                "selected.png" to solid(BLUE),
+                "first.png" to solid(RED),
+                "second.png" to solid(GREEN),
+            ),
+        )
+
+        val first = compositor.composeFrame(
+            selected,
+            SurfaceRenderFrame.Base(null, "first.png", 2, 1, 100),
+            revision = 10,
+        )
+        val second = compositor.composeFrame(
+            selected,
+            SurfaceRenderFrame.Base(null, "second.png", 2, 1, 100),
+            revision = 11,
+        )
+
+        assertEquals(first.surfaceKey, second.surfaceKey)
+        assertNotEquals(first.inputAuthority, second.inputAuthority)
     }
 
     @Test

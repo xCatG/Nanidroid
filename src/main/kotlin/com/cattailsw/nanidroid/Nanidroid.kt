@@ -85,10 +85,25 @@ internal fun <T : Any> routeGhostSwitchResult(
 @AndroidEntryPoint
 class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
 
-    private var loading by mutableStateOf(true)
+    private var stageInputEpoch = 0L
+    private val loadingState = mutableStateOf(true)
+    private var loading: Boolean
+        get() = loadingState.value
+        set(value) {
+            if (loadingState.value != value) {
+                stageInputEpoch++
+                loadingState.value = value
+            }
+        }
     private var progressMessage by mutableStateOf("")
     private var toolbarVisible by mutableStateOf(false)
-    private var simpleDialog: NanidroidSimpleDialog? by mutableStateOf(null)
+    private val simpleDialogState = mutableStateOf<NanidroidSimpleDialog?>(null)
+    private var simpleDialog: NanidroidSimpleDialog?
+        get() = simpleDialogState.value
+        set(value) {
+            if ((simpleDialogState.value == null) != (value == null)) stageInputEpoch++
+            simpleDialogState.value = value
+        }
     private var anime: AnimationDrawable? = null
     private var runner: SScriptRunner? = null
     private val dialogueDialogBinding = DialogueDialogBinding { runner }
@@ -236,7 +251,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             NanidroidComposeShell(
                 ghostStage = {
                     composeStage.Stage(
-                        blockingInput = loading || simpleDialog != null,
+                        blockingInput = ::isStageInputBlocked,
+                        blockingInputEpoch = { stageInputEpoch },
                         onSurfaceTap = ::frameClick,
                     )
                 },
@@ -590,6 +606,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val dialog = simpleDialog as? NanidroidSimpleDialog.UserInput ?: return
         simpleDialog = dialog.copy(value = value)
     }
+    private fun isStageInputBlocked(): Boolean = loading || simpleDialog != null
     private fun createUserChoiceDialog(labels: List<String>, ids: List<String>, actions: List<DialogueAction> = emptyList()) =
         dialogueDialogBinding.userChoice(labels, ids, actions)
     private fun restoreUserChoiceDialog(

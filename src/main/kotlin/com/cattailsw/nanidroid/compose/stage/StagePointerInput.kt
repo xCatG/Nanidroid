@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.compose.stage
 
 import android.view.ViewConfiguration
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -17,15 +18,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.areAnyPressed
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
@@ -38,7 +40,6 @@ import com.cattailsw.nanidroid.runtime.stage.StageInputSnapshot
 import com.cattailsw.nanidroid.runtime.stage.StageInputTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 fun interface SemanticStageActivation {
     fun activate(speaker: SurfaceSpeaker): Boolean
@@ -55,11 +56,13 @@ internal fun StagePointerInput(
     onSurfaceEffect: (SurfaceInteractionEffect) -> Unit,
     onToggleChrome: () -> Unit,
     modifier: Modifier = Modifier,
+    monotonicNowMillis: () -> Long = SystemClock::uptimeMillis,
     content: @Composable (SemanticStageActivation) -> Unit,
 ) {
     val latestSnapshotProvider by rememberUpdatedState(snapshotProvider)
     val latestSurfaceEffect by rememberUpdatedState(onSurfaceEffect)
     val latestToggleChrome by rememberUpdatedState(onToggleChrome)
+    val latestMonotonicNowMillis by rememberUpdatedState(monotonicNowMillis)
     val scope = rememberCoroutineScope()
     val scheduler = remember(scope) {
         ClickDeadlineScheduler { delayMillis, action ->
@@ -70,7 +73,9 @@ internal fun StagePointerInput(
             IdempotentCancellationHandle(job::cancel)
         }
     }
-    val sequencer = remember(scheduler) { PhysicalClickSequencer(scheduler) { latestSurfaceEffect(it) } }
+    val sequencer = remember(scheduler) {
+        PhysicalClickSequencer(scheduler, { latestMonotonicNowMillis() }) { latestSurfaceEffect(it) }
+    }
     val currentGeometry = snapshotProvider().geometryToken
     SideEffect { sequencer.retainGeometry(currentGeometry) }
     DisposableEffect(sequencer) { onDispose { sequencer.cancelAll() } }
@@ -85,9 +90,9 @@ internal fun StagePointerInput(
             val surface = snapshot.surfaces.firstOrNull { it.speaker == speaker }
                 ?: return@SemanticStageActivation false
             val bounds = surface.transform.renderedBounds
-            val point = IntOffset(
-                bounds.left + bounds.width / 2,
-                bounds.top + bounds.height / 2,
+            val point = Offset(
+                bounds.left + bounds.width / 2f,
+                bounds.top + bounds.height / 2f,
             )
             val resolution = StageInputRouter.resolve(snapshot, point, PointerSource.TOUCH, PRIMARY_BUTTON)
             val target = resolution.target as? StageInputTarget.Surface
@@ -105,8 +110,12 @@ internal fun StagePointerInput(
         modifier = modifier
             .semantics {
                 onClick(label = toggleChromeLabel) {
-                    latestToggleChrome()
-                    true
+                    if (latestSnapshotProvider().blocking) {
+                        false
+                    } else {
+                        latestToggleChrome()
+                        true
+                    }
                 }
             }
             .pointerInput(sequencer, doubleClickTimeoutMillis, doubleClickSlopPx) {
@@ -115,54 +124,94 @@ internal fun StagePointerInput(
                     val downEvent = currentEvent
                     if (downEvent.changes.count { it.pressed } != 1) return@awaitEachGesture
                     val source = down.type.toPointerSource() ?: return@awaitEachGesture
-                    val primaryPressed = source == PointerSource.TOUCH || downEvent.buttons.isPrimaryPressed
+                    val primaryPressed = when (source) {
+                        PointerSource.TOUCH -> true
+                        PointerSource.MOUSE -> downEvent.buttons.isPrimaryPressed
+                        PointerSource.PEN,
+                        PointerSource.ERASER,
+                        -> !downEvent.buttons.areAnyPressed || downEvent.buttons.isPrimaryPressed
+                    }
                     val button = if (primaryPressed) PRIMARY_BUTTON else SECONDARY_BUTTON
                     val downSnapshot = latestSnapshotProvider()
-                    val downPoint = down.position.rounded()
+                    val downPoint = down.position
                     val downResolution = StageInputRouter.resolve(downSnapshot, downPoint, source, button)
                     if (!downResolution.activatable) return@awaitEachGesture
-
-                    var valid = true
-                    while (valid) {
-                        val event = awaitPointerEvent(PointerEventPass.Final)
-                        if (event.changes.count { it.pressed } > 1) break
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        val delta = change.position - down.position
-                        if (delta.getDistance() > viewConfiguration.touchSlop || change.isConsumed) break
-                        val currentSnapshot = latestSnapshotProvider()
-                        if (currentSnapshot.geometryToken != downSnapshot.geometryToken) break
-                        val currentResolution = StageInputRouter.resolve(
-                            currentSnapshot,
-                            change.position.rounded(),
-                            source,
-                            button,
-                        )
-                        if (!sameScope(downResolution.target, currentResolution.target)) break
-                        if (change.changedToUpIgnoreConsumed()) {
-                            when (val target = downResolution.target) {
-                                is StageInputTarget.Surface -> {
-                                    val effect = downResolution.effect ?: break
-                                    if (source == PointerSource.TOUCH) {
-                                        latestSurfaceEffect(effect)
-                                    } else {
-                                        sequencer.activate(
-                                            effect = effect,
-                                            stagePoint = downPoint,
-                                            eventTimeMillis = change.uptimeMillis,
-                                            doubleClickTimeoutMillis = doubleClickTimeoutMillis,
-                                            doubleClickSlopPx = doubleClickSlopPx,
-                                            geometryToken = downSnapshot.geometryToken,
-                                        )
-                                    }
-                                }
-                                StageInputTarget.EmptyStage -> latestToggleChrome()
-                                StageInputTarget.Modal,
-                                is StageInputTarget.Bubble,
-                                -> Unit
+                    val reservation = if (source != PointerSource.TOUCH && downResolution.target is StageInputTarget.Surface) {
+                        downResolution.effect?.let { effect ->
+                            sequencer.reserveSecond(
+                                effect = effect,
+                                stagePoint = downPoint,
+                                eventTimeMillis = down.uptimeMillis,
+                                doubleClickSlopPx = doubleClickSlopPx,
+                                geometryToken = downSnapshot.geometryToken,
+                            )
+                        }
+                    } else {
+                        null
+                    }
+                    var reservationHandled = false
+                    var restoreReservedSingle = true
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Final)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            val currentSnapshot = latestSnapshotProvider()
+                            if (currentSnapshot.geometryToken != downSnapshot.geometryToken) {
+                                restoreReservedSingle = false
+                                break
                             }
-                            valid = false
-                        } else if (!change.pressed) {
-                            valid = false
+                            if (event.changes.count { it.pressed } > 1) break
+                            val delta = change.position - down.position
+                            if (delta.getDistance() > viewConfiguration.touchSlop || change.isConsumed) break
+                            val currentResolution = StageInputRouter.resolve(
+                                currentSnapshot,
+                                change.position,
+                                source,
+                                button,
+                            )
+                            if (!sameScope(downResolution.target, currentResolution.target)) break
+                            if (change.changedToUpIgnoreConsumed()) {
+                                when (val target = downResolution.target) {
+                                    is StageInputTarget.Surface -> {
+                                        val effect = currentResolution.effect ?: break
+                                        if (source == PointerSource.TOUCH) {
+                                            latestSurfaceEffect(effect)
+                                        } else if (reservation != null) {
+                                            sequencer.completeSecond(
+                                                reservation = reservation,
+                                                effect = effect,
+                                                geometryToken = currentSnapshot.geometryToken,
+                                            )
+                                            reservationHandled = true
+                                        } else {
+                                            sequencer.activate(
+                                                effect = effect,
+                                                stagePoint = change.position,
+                                                eventTimeMillis = change.uptimeMillis,
+                                                doubleClickTimeoutMillis = doubleClickTimeoutMillis,
+                                                doubleClickSlopPx = doubleClickSlopPx,
+                                                geometryToken = currentSnapshot.geometryToken,
+                                                liveGeometryToken = { latestSnapshotProvider().geometryToken },
+                                            )
+                                        }
+                                    }
+                                    StageInputTarget.EmptyStage -> latestToggleChrome()
+                                    StageInputTarget.Modal,
+                                    is StageInputTarget.Bubble,
+                                    -> Unit
+                                }
+                                break
+                            } else if (!change.pressed) {
+                                break
+                            }
+                        }
+                        if (reservation != null && !reservationHandled) {
+                            sequencer.cancelSecond(reservation, restoreReservedSingle)
+                            reservationHandled = true
+                        }
+                    } finally {
+                        if (reservation != null && !reservationHandled) {
+                            sequencer.cancelSecond(reservation, restorePending = false)
                         }
                     }
                 }
@@ -177,8 +226,10 @@ internal fun StagePointerInput(
 internal fun Modifier.stageSurfaceSemantics(
     tag: String,
     speaker: SurfaceSpeaker,
+    label: String,
     semanticActivation: SemanticStageActivation,
 ): Modifier = testTag(tag).semantics {
+    contentDescription = label
     onClick { semanticActivation.activate(speaker) }
 }
 
@@ -189,8 +240,6 @@ internal fun PointerType.toPointerSource(): PointerSource? = when (this) {
     PointerType.Eraser -> PointerSource.ERASER
     else -> null
 }
-
-private fun Offset.rounded() = IntOffset(x.roundToInt(), y.roundToInt())
 
 private fun sameScope(first: StageInputTarget, second: StageInputTarget): Boolean = when {
     first is StageInputTarget.Surface && second is StageInputTarget.Surface ->

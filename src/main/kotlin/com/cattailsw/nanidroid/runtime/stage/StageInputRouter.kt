@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid.runtime.stage
 
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntRect
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.compose.SurfacePointerInteractionMapper
@@ -28,7 +28,7 @@ data class MeasuredBubbleHitRegion(
 )
 
 fun interface BubbleHitRegionRegistry {
-    fun resolve(stagePoint: IntOffset): BubbleInteractionTarget?
+    fun resolve(stagePoint: Offset): BubbleInteractionTarget?
 
     companion object {
         val Empty = BubbleHitRegionRegistry { null }
@@ -58,6 +58,7 @@ data class StageInputResolution(
 data class StageSurfaceHitGeometryToken(
     val speaker: SurfaceSpeaker,
     val surfaceKey: SurfaceKey,
+    val inputAuthority: Any,
     val visible: Boolean,
     val transform: SurfaceTransformPx,
     val collisions: List<com.cattailsw.nanidroid.SurfaceCollision>,
@@ -67,6 +68,7 @@ data class StageHitGeometryToken(
     val ghostIdentity: Any,
     val blocking: Boolean,
     val bubbleGeneration: Long,
+    val routingEpoch: Any,
     val surfaces: List<StageSurfaceHitGeometryToken>,
 )
 
@@ -85,6 +87,7 @@ object StageInputRouter {
         ghostKey: String,
         surfaces: List<StageSurfaceSnapshot>,
         ghostIdentity: Any = ghostKey,
+        routingEpoch: Any = Unit,
     ): StageInputSnapshot {
         val visibleSurfaces = surfaces.filterNot { it.composedSurface.explicitlyHidden }
         return StageInputSnapshot(
@@ -95,10 +98,12 @@ object StageInputRouter {
                 ghostIdentity = ghostIdentity,
                 blocking = blocking,
                 bubbleGeneration = bubbleGeneration,
+                routingEpoch = routingEpoch,
                 surfaces = visibleSurfaces.map { surface ->
                     StageSurfaceHitGeometryToken(
                         speaker = surface.speaker,
                         surfaceKey = surface.composedSurface.surfaceKey,
+                        inputAuthority = surface.composedSurface.inputAuthority,
                         visible = !surface.composedSurface.explicitlyHidden,
                         transform = surface.transform,
                         collisions = surface.composedSurface.effectiveCollisions.toList(),
@@ -110,7 +115,7 @@ object StageInputRouter {
 
     fun resolve(
         snapshot: StageInputSnapshot,
-        stagePoint: IntOffset,
+        stagePoint: Offset,
         source: PointerSource,
         button: Int,
     ): StageInputResolution {
@@ -127,7 +132,7 @@ object StageInputRouter {
                 speaker = surface.speaker,
                 surface = surface.composedSurface,
                 transform = surface.pointerTransform,
-                position = SurfacePointerPosition(stagePoint.x.toFloat(), stagePoint.y.toFloat()),
+                position = SurfacePointerPosition(stagePoint.x, stagePoint.y),
                 source = source,
                 button = button,
             ) as? SurfacePointerResolution.Hit
@@ -148,5 +153,5 @@ object StageInputRouter {
     private const val PRIMARY_BUTTON = 0
 }
 
-private fun IntRect.containsHalfOpen(point: IntOffset): Boolean =
+private fun IntRect.containsHalfOpen(point: Offset): Boolean =
     point.x >= left && point.x < right && point.y >= top && point.y < bottom
