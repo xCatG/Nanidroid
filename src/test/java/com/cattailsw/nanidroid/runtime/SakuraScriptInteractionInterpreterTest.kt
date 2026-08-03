@@ -39,15 +39,21 @@ class SakuraScriptInteractionInterpreterTest {
     }
 
     @Test
-    fun legacyObserved_inputBoxPatternUsesTheSameGreedyCaptureAsJavaRunner() {
+    fun inputBoxesAreParsedIndividuallyRatherThanUsingTheLegacyGreedyCapture() {
         val result = SakuraScriptInteractionInterpreter.extract(
             "\\![open,inputbox,first]X\\![open,inputbox,second]"
         )
 
-        Assert.assertEquals("", result.presentationScript)
-        Assert.assertEquals(1, result.effects.size)
-        val effect = result.effects[0] as SakuraScriptInteractionEffect.OpenInputBox
-        Assert.assertEquals("first]X\\![open,inputbox,second", effect.id)
+        Assert.assertEquals("X", result.presentationScript)
+        Assert.assertEquals(2, result.effects.size)
+        Assert.assertEquals(
+            "first",
+            (result.effects[0] as SakuraScriptInteractionEffect.OpenInputBox).id,
+        )
+        Assert.assertEquals(
+            "second",
+            (result.effects[1] as SakuraScriptInteractionEffect.OpenInputBox).id,
+        )
     }
 
     @Test

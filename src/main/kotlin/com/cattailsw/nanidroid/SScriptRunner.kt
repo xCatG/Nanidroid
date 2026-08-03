@@ -5,6 +5,14 @@ import android.os.Handler
 import android.os.Message
 import android.os.SystemClock
 import android.util.Log
+import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.io.File
 import java.io.IOException
@@ -14,6 +22,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 open class SScriptRunner internal constructor(
     ctx: Context?,
     private val sessionCoordinator: GhostSessionCoordinator,
+    private val monotonicClock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
 ) : Runnable {
     constructor(ctx: Context?) : this(ctx, productionSessionCoordinator)
     interface StatusCallback { fun stop(); fun canExit(); fun ghostSwitchScriptComplete() }
@@ -64,8 +73,12 @@ open class SScriptRunner internal constructor(
     private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"; private var sakuraAnimationId: String? = null; private var keroAnimationId: String? = null
     private var bSakuraId = "0"; private var bKeroId = "-1"; private var talkAnimeControl = 0
     private var lastSec = 0; private var lastMin = 0; private var lastHour = 0; private var restore = false; private var exitPending = false; private var changingPending = false; private var paused = false; private val bootDispatchState = BootDispatchState()
+    private var dialogueState = DialogueRuntimeState()
+    private var nextInputGeneration = 0L
+    @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
+    internal fun setDialogueClaimHookForTesting(hook: (() -> Unit)?) { dialogueClaimHookForTesting = hook }
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun dispatchComposeDoubleClick(x: Int, y: Int, sakura: Boolean, collisionId: Int, buttonId: Int) { if (!sakura) clearMsgQueue(); doMouseDblClick(x,y,sakura,collisionId,buttonId) }
     fun setGhost(newGhost: Ghost?) {
@@ -87,6 +100,7 @@ open class SScriptRunner internal constructor(
             synchronized(this) {
                 outgoingName = g?.getGhostName()
                 g = newGhost
+                if (outgoing !== newGhost) clearDialogueStateLocked()
                 if (outgoingName == null) bootDispatchState.resetForNoGhost()
             }
         }
@@ -132,7 +146,9 @@ open class SScriptRunner internal constructor(
         }
         if (shouldStop) stop() else if (noWaitMode) loopControl() else loopHandler.sendEmptyMessage(RUN)
     }
-    private fun getFromQueue()=rewriteMsg(msgQueue.poll())
+    private fun getFromQueue() = rewriteMsg(msgQueue.poll()).also { script ->
+        script?.let(::recordDialogueScript)
+    }
     private fun rewriteMsg(input:String?):String? { if(g==null||input==null)return input; return input.replace("%username",g!!.getUsername()).replace("%selfname2?",g!!.getSakuraName() ?: "null").replace("%keroname",g!!.getKeroName() ?: "null") }
     fun clearMsgQueue(){synchronized(this){msgQueue.clear();msg=null};stop()}
     fun stop() {
@@ -243,6 +259,205 @@ open class SScriptRunner internal constructor(
     }
 
     private data class CurrentGhostCall<T>(val matched: Boolean, val value: T?)
+    /** A UI host observes this immutable value; it never owns pending actions. */
+    internal fun dialogueStateSnapshot(): DialogueRuntimeState = synchronized(this) { dialogueState }
+
+    internal fun activateChoice(action: DialogueAction) {
+        when (action) {
+            is DialogueAction.Normal -> {
+                dispatchDialogueTransaction(
+                    claim = { action.takeIf { takePendingChoice(it) } },
+                    primary = {
+                        DialogueEvent("OnChoiceSelectEx", listOf(it.label, it.id) + it.extraReferences)
+                    },
+                    fallback = { DialogueEvent("OnChoiceSelect", listOf(it.id)) },
+                )
+            }
+            is DialogueAction.DirectEvent -> dispatchDialogueTransaction(
+                claim = { action.takeIf { takePendingChoice(it) } },
+                primary = { DialogueEvent(it.eventId, it.references) },
+            )
+            is DialogueAction.Script -> enqueueLocalDialogueScript(
+                claim = { takePendingChoice(action) },
+                script = action.sakuraScript,
+            )
+        }
+    }
+
+    internal fun activateAnchor(action: AnchorAction) {
+        when (action) {
+            is AnchorAction.Normal -> {
+                dispatchDialogueTransaction(
+                    claim = { action.takeIf { isCurrentAnchor(it) } },
+                    primary = {
+                        DialogueEvent("OnAnchorSelectEx", listOf(it.label, it.id) + it.extraReferences)
+                    },
+                    fallback = { DialogueEvent("OnAnchorSelect", listOf(it.id)) },
+                )
+            }
+            is AnchorAction.DirectEvent -> dispatchDialogueTransaction(
+                claim = { action.takeIf { isCurrentAnchor(it) } },
+                primary = { DialogueEvent(it.eventId, it.references) },
+            )
+        }
+    }
+
+    internal fun submitInput(generation: Long, value: String) {
+        dispatchDialogueTransaction(
+            claim = { takePendingInput(generation) },
+            primary = { pending ->
+                when (val dispatch = pending.spec.dispatch) {
+                    is InputDispatch.Normal -> DialogueEvent(
+                        "OnUserInput",
+                        listOf(dispatch.id, value, pending.spec.supplement) + pending.spec.extraReferences,
+                    )
+                    is InputDispatch.DirectEvent -> DialogueEvent(
+                        dispatch.eventId,
+                        listOf(value, pending.spec.supplement) + pending.spec.extraReferences,
+                    )
+                }
+            },
+        )
+    }
+
+    internal fun dismissInput(generation: Long) {
+        cancelInput({ takePendingInput(generation) }, "close", fallback = false)
+    }
+
+    internal fun processExpiredInput() {
+        cancelInput(::takeExpiredPendingInput, "timeout", fallback = true)
+    }
+
+    private fun cancelInput(claim: () -> PendingInputState?, reason: String, fallback: Boolean) {
+        dispatchDialogueTransaction(
+            claim = claim,
+            primary = { pending ->
+                DialogueEvent("OnUserInputCancel", cancelReferences(pending, reason))
+            },
+            fallback = if (fallback) {
+                { pending -> DialogueEvent("OnUserInput", cancelReferences(pending, "timeout")) }
+            } else null,
+        )
+    }
+
+    private fun cancelReferences(pending: PendingInputState, reason: String): List<String> {
+        val id = when (val dispatch = pending.spec.dispatch) {
+            is InputDispatch.Normal -> dispatch.id
+            is InputDispatch.DirectEvent -> dispatch.eventId
+        }
+        return listOf(id, reason, pending.spec.supplement) + pending.spec.extraReferences
+    }
+
+    private fun takePendingInput(generation: Long): PendingInputState? = synchronized(this) {
+        val pending = dialogueState.pendingInput ?: return@synchronized null
+        if (pending.generation != generation) return@synchronized null
+        dialogueState = dialogueState.copy(revision = dialogueState.revision + 1, pendingInput = null)
+        pending
+    }
+
+    private fun takePendingChoice(action: DialogueAction): Boolean = synchronized(this) {
+        if (dialogueState.pendingChoices.none { it === action }) return@synchronized false
+        dialogueState = dialogueState.copy(
+            revision = dialogueState.revision + 1,
+            pendingChoices = emptyList(),
+        )
+        true
+    }
+
+    /** Keeps primary, fallback, and response enqueue on the same live SHIORI generation. */
+    private fun <T> dispatchDialogueTransaction(
+        claim: () -> T?,
+        primary: (T) -> DialogueEvent,
+        fallback: ((T) -> DialogueEvent)? = null,
+    ): Boolean {
+        var shouldRun = false
+        val played = withCurrentGhost { target ->
+            val claimed = claim() ?: return@withCurrentGhost false
+            dialogueClaimHookForTesting?.invoke()
+            if (!isPinnedDialogueGhost(target)) return@withCurrentGhost false
+            fun enqueueIfPlayable(response: ShioriResponse?): Boolean {
+                val value = response?.takeIf { it.getStatusCode() == 200 }?.getKey("Value")
+                if (value.isNullOrEmpty() || !isPinnedDialogueGhost(target)) return false
+                addMsgToQueue(arrayOf(value))
+                shouldRun = true
+                return true
+            }
+
+            val primaryEvent = primary(claimed)
+            if (enqueueIfPlayable(target.doShioriEvent(primaryEvent.event, primaryEvent.references.toTypedArray()))) {
+                return@withCurrentGhost true
+            }
+            if (!isPinnedDialogueGhost(target) || fallback == null) return@withCurrentGhost false
+            val fallbackEvent = fallback(claimed)
+            enqueueIfPlayable(target.doShioriEvent(fallbackEvent.event, fallbackEvent.references.toTypedArray()))
+        } ?: false
+        if (shouldRun) run()
+        return played
+    }
+
+    private fun isPinnedDialogueGhost(target: Ghost): Boolean =
+        synchronized(this) { g === target } && sessionCoordinator.withGhostGate(target) { it }
+
+    private fun enqueueLocalDialogueScript(claim: () -> Boolean, script: String) {
+        var shouldRun = false
+        withCurrentGhost {
+            if (!claim()) return@withCurrentGhost false
+            addMsgToQueue(arrayOf(script))
+            shouldRun = true
+            true
+        }
+        if (shouldRun) run()
+    }
+
+    private fun isCurrentAnchor(action: AnchorAction): Boolean =
+        dialogueState.contents.asSequence()
+            .flatMap { it.segments.asSequence() }
+            .mapNotNull { (it as? DialogueSegment.Anchor)?.action }
+            .any { it === action }
+
+    private fun takeExpiredPendingInput(): PendingInputState? = synchronized(this) {
+        val pending = dialogueState.pendingInput ?: return@synchronized null
+        if (monotonicClock.nowMillis() < pending.deadlineElapsedMillis) return@synchronized null
+        takePendingInput(pending.generation)
+    }
+
+    private data class DialogueEvent(val event: String, val references: List<String>)
+
+    private fun recordDialogueScript(script: String) {
+        val contents = SakuraScriptTokenizer.tokenize(script) { LegacyPlatform.debug(TAG, it) }
+        val choices = contents.flatMap { content ->
+            content.segments.mapNotNull { (it as? DialogueSegment.Choice)?.action }
+        }
+        val input = contents.asSequence()
+            .flatMap { it.segments.asSequence() }
+            .mapNotNull { (it as? DialogueSegment.InputBox)?.spec }
+            .lastOrNull()
+        synchronized(this) {
+            val pendingInput = input?.let { spec ->
+                val deadline = inputDeadline(spec)
+                PendingInputState(++nextInputGeneration, spec, deadline)
+            } ?: dialogueState.pendingInput
+            dialogueState = DialogueRuntimeState(
+                revision = dialogueState.revision + 1,
+                contents = contents,
+                pendingChoices = choices,
+                pendingInput = pendingInput,
+            )
+        }
+    }
+
+    private fun inputDeadline(spec: com.cattailsw.nanidroid.runtime.dialogue.InputBoxSpec): Long {
+        val timeout = spec.timeoutMillis ?: return Long.MAX_VALUE
+        if (timeout <= 0L) return Long.MAX_VALUE
+        val now = monotonicClock.nowMillis()
+        return if (now > Long.MAX_VALUE - timeout) Long.MAX_VALUE else now + timeout
+    }
+
+    private fun clearDialogueStateLocked() {
+        dialogueState = DialogueRuntimeState(revision = dialogueState.revision + 1)
+        msgQueue.clear()
+        msg = null
+    }
     fun doBoot(){g?.let{val shell=it.getShellName();val count=it.getCreateCount();if(count>1){doShioriEvent("OnBoot",arrayOf(shell) as Array<String>);AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onboot",it.getGhostId(),count.toInt())}else{doShioriEvent("OnFirstBoot",arrayOf("0"));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",it.getGhostId(),0)}}}
     fun getStringValueFromShiori(id:String):String?=withCurrentGhost { it.getStringFromShiori(id) };fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
 }
