@@ -241,11 +241,12 @@ class CollisionGeometryTest {
 
     @Test
     fun identifiersPreserveCaseUnicodeAndInteriorTextAfterSyntaxWhitespaceIsTrimmed() {
+        val legacyCollision = "collision0,0,0,1,1,  Head Area${" ".repeat(2)}"
         val loaded = loadSurfaceFiles(
             "surfaces.txt" to """
                 surface0
                 {
-                collision0,0,0,1,1,  Head Area  
+                $legacyCollision
                 collisionex1,  顔・目  ,circle,4,4,2
                 }
             """.trimIndent(),
