@@ -27,9 +27,9 @@ class SakuraScriptInteractionResult(
 /** Pure extraction of legacy input-box and choice effects. */
 object SakuraScriptInteractionInterpreter {
     private val choice = Regex("\\\\q\\[([^,]*),([^,\\]]*),?([^\\]]*?)\\]")
-    // The legacy PatternHolders.open_input uses greedy (.*), so retain that
-    // unusual but observable behavior until a deliberate compatibility change.
-    private val input = Regex("\\\\!\\[open,inputbox,(.*)]")
+    // Interaction extraction is retained for legacy callers, but input controls
+    // must be independently consumable rather than greedily swallowing later tags.
+    private val input = Regex("\\\\!\\[open,inputbox,([^\\]]*)]")
 
     private data class PositionedEffect(
         val position: Int,
