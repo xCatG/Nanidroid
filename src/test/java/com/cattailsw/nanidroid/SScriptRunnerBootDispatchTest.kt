@@ -249,6 +249,119 @@ class SScriptRunnerBootDispatchTest {
         Assert.assertTrue(ghost.eventRequests.isEmpty())
     }
 
+    @Test
+    fun updateReloadWhileInputIsPausedLetsTheReloadedSessionPlayTimerTalk() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        var shownInputId: String? = null
+        runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) {
+                shownInputId = id
+            }
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hnew session timer talk\\e")
+        }
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9old tail\\e"))
+        runner.run()
+        val pending = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
+        val staleDialog = DialogueDialogBinding { runner }.userInput("answer", pending.generation)
+        Assert.assertEquals("answer", shownInputId)
+
+        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
+        staleDialog.onSubmit("answer", "stale")
+        staleDialog.onCancel()
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(1, ghost.unloadCount)
+        Assert.assertEquals(1, ghost.reloadCount)
+        Assert.assertTrue(ghost.eventRequests.isEmpty())
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("new session timer talk")))),
+            runner.dialogueStateSnapshot().contents,
+        )
+        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
+    }
+
+    @Test
+    fun updateReloadRejectsQueuedPlaybackCallbacksFromTheInvalidatedSession() {
+        val scheduler = RecordingPlaybackScheduler()
+        val runner = SScriptRunner(
+            null,
+            GhostSessionCoordinator(),
+            FakeClock(1_000L),
+            playbackSchedulerFactory = { scheduler },
+        )
+        var inputShown = false
+        val frames = mutableListOf<GhostPresentationFrame>()
+        runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) {
+                inputShown = true
+            }
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+        runner.setPresentationRendererForTesting(frames::add)
+        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hnew session talk\\e")
+        }
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9old tail\\e"))
+        runner.run()
+        scheduler.runUntil { inputShown }
+        Assert.assertTrue(scheduler.pendingCount > 0)
+
+        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
+        Assert.assertTrue(scheduler.cancelledCount > 0)
+        frames.clear()
+        runner.dispatchClockTickForTesting()
+
+        scheduler.runCancelled()
+        Assert.assertTrue(frames.isEmpty())
+        scheduler.runPending()
+        Assert.assertTrue(frames.any { it.sakura.text.contains("new session talk") })
+        Assert.assertTrue(frames.none { it.sakura.text.contains("old tail") })
+        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
+    }
+
+    @Test
+    fun ordinaryInputPauseAndResumeKeepsTheCurrentScriptPlayable() {
+        val scheduler = RecordingPlaybackScheduler()
+        val runner = SScriptRunner(
+            null,
+            GhostSessionCoordinator(),
+            FakeClock(1_000L),
+            playbackSchedulerFactory = { scheduler },
+        )
+        var inputShown = false
+        val frames = mutableListOf<GhostPresentationFrame>()
+        runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) {
+                inputShown = true
+            }
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+        runner.setPresentationRendererForTesting(frames::add)
+        runner.setGhost(RawRecordingGhost("ordinary", "Ordinary", 2, mutableListOf()))
+        runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9resumed tail\\e"))
+        runner.run()
+        scheduler.runUntil { inputShown }
+        val pending = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
+        val dialog = DialogueDialogBinding { runner }.userInput("answer", pending.generation)
+
+        scheduler.runPending()
+        Assert.assertTrue(frames.none { it.sakura.text.contains("resumed tail") })
+        dialog.onSubmit("answer", "value")
+        scheduler.runPending()
+
+        Assert.assertTrue(frames.any { it.sakura.text.contains("resumed tail") })
+        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
+    }
+
     private fun runner(): com.cattailsw.nanidroid.SScriptRunner {
         val runner: com.cattailsw.nanidroid.SScriptRunner =
             com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
@@ -264,6 +377,41 @@ class SScriptRunnerBootDispatchTest {
         "SHIORI/3.0 200 OK",
         Hashtable<String, String>().apply { put("Value", value) },
     )
+
+    private class RecordingPlaybackScheduler : SScriptPlaybackScheduler {
+        private val pending = ArrayDeque<() -> Unit>()
+        private val cancelled = ArrayDeque<() -> Unit>()
+        val pendingCount: Int get() = pending.size
+        val cancelledCount: Int get() = cancelled.size
+
+        override fun schedule(delayMillis: Long, action: () -> Unit) {
+            pending.addLast(action)
+        }
+
+        override fun cancelPending() {
+            while (pending.isNotEmpty()) cancelled.addLast(pending.removeFirst())
+        }
+
+        fun runUntil(condition: () -> Boolean) {
+            repeat(100) {
+                if (condition()) return
+                requireNotNull(pending.removeFirstOrNull()).invoke()
+            }
+            throw AssertionError("playback condition was not reached")
+        }
+
+        fun runPending() {
+            repeat(1_000) {
+                val action = pending.removeFirstOrNull() ?: return
+                action()
+            }
+            throw AssertionError("playback scheduler did not become idle")
+        }
+
+        fun runCancelled() {
+            while (cancelled.isNotEmpty()) cancelled.removeFirst().invoke()
+        }
+    }
 
     private open class RecordingGhost(
         ghostId: String,
@@ -327,6 +475,15 @@ class SScriptRunnerBootDispatchTest {
             return ShioriResponse("SHIORI/3.0 204 No Content")
         }
 
-        internal override fun reloadAfterGhostUpdate() = Unit
+        var unloadCount = 0
+        var reloadCount = 0
+
+        override fun unload() {
+            unloadCount++
+        }
+
+        internal override fun reloadAfterGhostUpdate() {
+            reloadCount++
+        }
     }
 }

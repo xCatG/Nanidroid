@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid
 
 import android.content.Context
 import android.os.Handler
+import android.os.Looper
 import android.os.Message
 import android.os.SystemClock
 import android.util.Log
@@ -23,11 +24,29 @@ import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.UUID
 
+internal interface SScriptPlaybackScheduler {
+    fun schedule(delayMillis: Long, action: () -> Unit)
+    fun cancelPending()
+}
+
+private class HandlerSScriptPlaybackScheduler : SScriptPlaybackScheduler {
+    private val handler = Handler(Looper.getMainLooper())
+
+    override fun schedule(delayMillis: Long, action: () -> Unit) {
+        if (delayMillis <= 0L) handler.post(action) else handler.postDelayed(action, delayMillis)
+    }
+
+    override fun cancelPending() {
+        handler.removeCallbacksAndMessages(null)
+    }
+}
+
 /** Executes Sakura Script while keeping the legacy Java-facing runner contract. */
 open class SScriptRunner internal constructor(
     ctx: Context?,
     private val sessionCoordinator: GhostSessionCoordinator,
     private val monotonicClock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
+    private val playbackSchedulerFactory: () -> SScriptPlaybackScheduler = { HandlerSScriptPlaybackScheduler() },
 ) : Runnable {
     constructor(ctx: Context?) : this(ctx, productionSessionCoordinator)
     interface StatusCallback { fun stop(); fun canExit(); fun ghostSwitchScriptComplete() }
@@ -88,6 +107,8 @@ open class SScriptRunner internal constructor(
     private var nextChoiceGeneration = 0L
     private var pendingChoiceGeneration: Long? = null
     private var passive = false
+    private var playbackGeneration = 0L
+    private val playbackScheduler = lazy(playbackSchedulerFactory)
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
@@ -158,10 +179,31 @@ open class SScriptRunner internal constructor(
     @Synchronized fun addMsgToQueue(inCol: Collection<String>) { msgQueue.addAll(inCol) }
     @Synchronized fun addMsgToQueue(msgs: Array<String>) { msgs.forEach { msgQueue.add(it) } }
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
-    fun resumeEvt() { if(isRunning&&paused){paused=false;loopHandler.sendEmptyMessage(RUN)} else {if(paused)paused=false;run()} }
-    private val loopHandler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==RUN) loopControl() else if(m.what==STOP) stop() } } }
     private val clockHandler: Handler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
-    private fun loopControl() { if(paused)return; val current=msg; if(current!=null&&charIndex<current.length){parseMsg();updateUI();if(noWaitMode)loopControl()else loopHandler.sendEmptyMessageDelayed(RUN,waitTime)}else{reset();msg=getFromQueue();if(msg==null){if(noWaitMode)stop()else loopHandler.sendEmptyMessageDelayed(STOP,waitTime)}else if(noWaitMode)loopControl()else loopHandler.sendEmptyMessageDelayed(RUN,waitTime)} }
+    fun resumeEvt() {
+        val generation = synchronized(this) {
+            if (paused) paused = false
+            playbackGeneration.takeIf { isRunning }
+        }
+        if (generation == null) run() else schedulePlayback(RUN, generation = generation)
+    }
+    private fun dispatchPlayback(command: Int, generation: Long) {
+        if (!isPlaybackCurrent(generation)) return
+        if (command == RUN) loopControl(generation) else if (command == STOP) stop()
+    }
+    private fun isPlaybackCurrent(generation: Long): Boolean = synchronized(this) {
+        generation == playbackGeneration && isRunning
+    }
+    private fun schedulePlayback(command: Int, delayMillis: Long = 0L, generation: Long) {
+        if (!isPlaybackCurrent(generation)) return
+        playbackScheduler.value.schedule(delayMillis) { dispatchPlayback(command, generation) }
+    }
+    private fun loopControl(generation: Long) {
+        if (!isPlaybackCurrent(generation) || synchronized(this) { paused }) return
+        val current=msg
+        if(current!=null&&charIndex<current.length){parseMsg();updateUI();if(noWaitMode)loopControl(generation)else schedulePlayback(RUN,waitTime,generation)}
+        else{reset();msg=getFromQueue();if(msg==null){if(noWaitMode)stop()else schedulePlayback(STOP,waitTime,generation)}else if(noWaitMode)loopControl(generation)else schedulePlayback(RUN,waitTime,generation)}
+    }
     fun startClock() { LegacyPlatform.debug(TAG,"startClock called"); val start = bootDispatchState.startClock(); if (!start.started) return;LegacyPlatform.scheduleDelayed(CLOCK_STEP) { clockHandler.sendEmptyMessageDelayed(INC_CLOCK,CLOCK_STEP) };if(restore)doShioriEvent("OnWindowStateRestore",null)else if(start.dispatchBoot){doBoot();bootDispatchState.markBootDispatched()};restore=false }
     fun stopClock() { LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }; bootDispatchState.stopClock() }
     override fun run() {
@@ -172,7 +214,8 @@ open class SScriptRunner internal constructor(
             msg = getFromQueue()
             msg == null
         }
-        if (shouldStop) stop() else if (noWaitMode) loopControl() else loopHandler.sendEmptyMessage(RUN)
+        val generation = synchronized(this) { playbackGeneration }
+        if (shouldStop) stop() else if (noWaitMode) loopControl(generation) else schedulePlayback(RUN, generation = generation)
     }
     private fun getFromQueue() = rewriteMsg(msgQueue.poll()).also { script ->
         script?.let(::recordDialogueScript)
@@ -193,7 +236,7 @@ open class SScriptRunner internal constructor(
         }
     }
     private fun finishStop(unloadTarget: Ghost?) {
-        isRunning=false
+        cancelPlaybackLocked()
         if (unloadTarget != null) passive = false
         bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { callback ->
             callback.stop()
@@ -545,7 +588,32 @@ open class SScriptRunner internal constructor(
         return if (now > Long.MAX_VALUE - timeout) Long.MAX_VALUE else now + timeout
     }
 
+    private fun cancelPlaybackLocked() {
+        playbackGeneration++
+        // Handler removal only deletes queued callbacks; it never invokes runner/UI callbacks.
+        if (playbackScheduler.isInitialized()) playbackScheduler.value.cancelPending()
+        isRunning = false
+        paused = false
+    }
+
+    private fun resetSessionPlaybackStateLocked() {
+        sync = false
+        wholeline = false
+        sakuraTalk = true
+        sakuraMsg.setLength(0)
+        keroMsg.setLength(0)
+        waitTime = WAIT_UNIT
+        charIndex = 0
+        bSakuraId = "-1"
+        bKeroId = "-1"
+        sakuraAnimationId = null
+        keroAnimationId = null
+        talkAnimeControl = 0
+    }
+
     private fun clearDialogueStateLocked() {
+        cancelPlaybackLocked()
+        resetSessionPlaybackStateLocked()
         dialogueDialogOwner = UUID.randomUUID().toString()
         pendingChoiceGeneration = null
         dialogueState = DialogueRuntimeState(revision = dialogueState.revision + 1)
