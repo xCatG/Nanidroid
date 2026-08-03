@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.compose.stage
 
 import android.view.ViewConfiguration
 import android.os.SystemClock
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,11 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.areAnyPressed
@@ -85,6 +91,16 @@ internal fun StagePointerInput(
     val toggleChromeLabel = stringResource(R.string.toggle_stage_chrome_action)
     val doubleClickTimeoutMillis = ViewConfiguration.getDoubleTapTimeout().toLong()
     val doubleClickSlopPx = platformConfiguration.scaledDoubleTapSlop.toFloat()
+    val chromeActivation = remember {
+        {
+            if (latestSnapshotProvider().blocking) {
+                false
+            } else {
+                latestToggleChrome()
+                true
+            }
+        }
+    }
     val semanticActivation = remember(sequencer) {
         SemanticStageActivation { speaker ->
             val snapshot = latestSnapshotProvider()
@@ -110,15 +126,17 @@ internal fun StagePointerInput(
     Box(
         modifier = modifier
             .semantics {
-                onClick(label = toggleChromeLabel) {
-                    if (latestSnapshotProvider().blocking) {
-                        false
-                    } else {
-                        latestToggleChrome()
-                        true
-                    }
+                onClick(label = toggleChromeLabel, action = chromeActivation)
+            }
+            .onKeyEvent { event ->
+                when {
+                    event.key != Key.Enter && event.key != Key.DirectionCenter -> false
+                    event.type == KeyEventType.KeyDown -> !latestSnapshotProvider().blocking
+                    event.type == KeyEventType.KeyUp -> chromeActivation()
+                    else -> false
                 }
             }
+            .focusable()
             .pointerInput(sequencer, doubleClickTimeoutMillis, doubleClickSlopPx) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)

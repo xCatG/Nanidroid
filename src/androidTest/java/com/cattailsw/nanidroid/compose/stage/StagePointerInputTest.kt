@@ -10,19 +10,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -413,6 +417,66 @@ class StagePointerInputTest {
         }
         composeRule.onNodeWithTag(TAG).performClick()
         composeRule.runOnIdle { assertEquals(1, toggles) }
+    }
+
+    @Test
+    fun focusedStageActivatesChromeOnceOnEnterReleaseAndDpadCenterWithoutSurfaceEffect() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        setStage(
+            { snapshot(surfaces = listOf(surface(IntRect(0, 0, 100, 100)))) },
+            effects,
+            toggle = { toggles++ },
+        )
+        val stage = composeRule.onNodeWithTag(TAG)
+
+        stage.performSemanticsAction(SemanticsActions.RequestFocus)
+        stage.assertIsFocused()
+        stage.performKeyInput {
+            keyDown(Key.Enter)
+            advanceEventTime(600)
+        }
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
+
+        stage.performKeyInput { keyUp(Key.Enter) }
+        composeRule.runOnIdle {
+            assertEquals(1, toggles)
+            assertTrue(effects.isEmpty())
+        }
+
+        stage.performKeyInput { pressKey(Key.DirectionCenter) }
+        composeRule.runOnIdle {
+            assertEquals(2, toggles)
+            assertTrue(effects.isEmpty())
+        }
+    }
+
+    @Test
+    fun focusedStageIgnoresUnsupportedKeysAndCannotActivateWhileBlocking() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        val surface = surface(IntRect(0, 0, 100, 100))
+        val state = mutableStateOf(snapshot(surfaces = listOf(surface)))
+        setStage({ state.value }, effects, toggle = { toggles++ })
+        val stage = composeRule.onNodeWithTag(TAG)
+
+        stage.performSemanticsAction(SemanticsActions.RequestFocus)
+        stage.assertIsFocused()
+        stage.performKeyInput { pressKey(Key.Spacebar) }
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+            state.value = snapshot(blocking = true, surfaces = listOf(surface))
+        }
+
+        stage.performKeyInput { pressKey(Key.Enter) }
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
     }
 
     private fun setStage(
