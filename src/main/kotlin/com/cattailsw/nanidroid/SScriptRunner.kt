@@ -29,10 +29,28 @@ internal interface SScriptPlaybackScheduler {
     fun cancelPending()
 }
 
+internal fun interface SScriptLifecycleDispatcher {
+    fun dispatch(action: () -> Unit)
+}
+
+internal class MainLooperSScriptLifecycleDispatcher(
+    private val handlerFactory: (Looper) -> Handler = { Handler(it) },
+) : SScriptLifecycleDispatcher {
+    private val handler by lazy { handlerFactory(Looper.getMainLooper()) }
+
+    override fun dispatch(action: () -> Unit) {
+        handler.post(action)
+    }
+}
+
 internal data class SScriptPlaybackHooks(
     val afterRunPrepared: () -> Unit = {},
     val afterRunClaimed: () -> Unit = {},
     val afterStopClaimed: () -> Unit = {},
+    val afterSurfaceChangeCaptured: () -> Unit = {},
+    val afterInputEffectCaptured: () -> Unit = {},
+    val afterSelectionEffectCaptured: () -> Unit = {},
+    val afterPresentationEffectCaptured: () -> Unit = {},
 )
 
 private class HandlerSScriptPlaybackScheduler : SScriptPlaybackScheduler {
@@ -54,6 +72,7 @@ open class SScriptRunner internal constructor(
     private val monotonicClock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
     private val playbackSchedulerFactory: () -> SScriptPlaybackScheduler = { HandlerSScriptPlaybackScheduler() },
     private val playbackHooks: SScriptPlaybackHooks = SScriptPlaybackHooks(),
+    private val lifecycleDispatcher: SScriptLifecycleDispatcher = MainLooperSScriptLifecycleDispatcher(),
 ) : Runnable {
     constructor(ctx: Context?) : this(ctx, productionSessionCoordinator)
     interface StatusCallback { fun stop(); fun canExit(); fun ghostSwitchScriptComplete() }
@@ -457,9 +476,13 @@ open class SScriptRunner internal constructor(
         if (id == null) return
         val callback = synchronized(this) {
             if (playback !== state || !state.running) return
-            ucb?.also { state.paused = true }
+            ucb
         }
-        callback?.showUserInputBox(id)
+        playbackHooks.afterInputEffectCaptured()
+        publishPlaybackEffect(state) {
+            if (ucb !== callback) return@publishPlaybackEffect
+            callback?.also { state.paused = true }?.showUserInputBox(id)
+        }
     }
 
     private fun handleSurface(state: PlaybackState): Boolean {
@@ -499,19 +522,63 @@ open class SScriptRunner internal constructor(
         }
         val callback = synchronized(this) {
             if (playback !== state || !state.running) return false
-            ucb?.also { state.wholeline = true }
+            ucb
         }
-        callback?.showUserSelection(labels.toTypedArray(), ids.toTypedArray())
+        playbackHooks.afterSelectionEffectCaptured()
+        publishPlaybackEffect(state) {
+            if (ucb !== callback) return@publishPlaybackEffect
+            callback?.also { state.wholeline = true }
+                ?.showUserSelection(labels.toTypedArray(), ids.toTypedArray())
+        }
         return false
     }
 
     private fun changeSurface(state: PlaybackState, id: String) {
-        val references = synchronized(this) {
-            if (playback !== state || !state.running) return
+        playbackHooks.afterSurfaceChangeCaptured()
+        doPlaybackShioriEvent(state, "OnSurfaceChange") {
             if (state.sakuraTalk) sakuraSurfaceId = id else keroSurfaceId = id
             arrayOf("Reference0: $sakuraSurfaceId", "Reference1: $keroSurfaceId")
         }
-        doShioriEvent("OnSurfaceChange", references)
+    }
+
+    private fun doPlaybackShioriEvent(
+        state: PlaybackState,
+        event: String,
+        prepareReferences: () -> Array<String>,
+    ): Boolean {
+        val target = synchronized(this) {
+            if (playback !== state || !state.running) return false
+            g ?: run {
+                // Host-only and pre-attachment playback still owns its visual surface state,
+                // but there is no SHIORI session to pin or notify.
+                prepareReferences()
+                return false
+            }
+        }
+        return sessionCoordinator.withGhostGate(target) { live ->
+            if (!live) return@withGhostGate false
+            val references = synchronized(this) {
+                if (g !== target || playback !== state || !state.running) return@withGhostGate false
+                prepareReferences()
+            }
+            val response = target.doShioriEvent(event, references)
+            parsePlaybackShioriResponseAndInsert(state, target, response)
+            true
+        }
+    }
+
+    private fun parsePlaybackShioriResponseAndInsert(
+        state: PlaybackState,
+        target: Ghost,
+        response: ShioriResponse?,
+    ) {
+        if (response == null || response.getStatusCode() != 200) return
+        val value = response.getKey("Value") ?: return
+        synchronized(this) {
+            if (g !== target || playback !== state || !state.running) return
+            state.msg = value
+            msgQueue.add(value)
+        }
     }
 
     private fun changeBalloon(state: PlaybackState, id: String) {
@@ -527,7 +594,24 @@ open class SScriptRunner internal constructor(
             if (playback !== state || !state.running) return
             presentationRenderer to takePresentationFrame(state)
         }
-        presentation.first?.render(presentation.second)
+        playbackHooks.afterPresentationEffectCaptured()
+        publishPlaybackEffect(state) {
+            if (presentationRenderer !== presentation.first) return@publishPlaybackEffect
+            presentation.first?.render(presentation.second)
+        }
+    }
+
+    /**
+     * Totally orders an external playback effect with session invalidation.
+     * Production UI callbacks only re-enter synchronized runner snapshots (the JVM monitor is
+     * reentrant), and the Compose renderer never acquires the session coordinator. Keep SHIORI
+     * and coordinator calls out of this block so the coordinator -> runner lock order is preserved.
+     */
+    private fun publishPlaybackEffect(state: PlaybackState, effect: () -> Unit) {
+        synchronized(this) {
+            if (playback !== state || !state.running) return
+            effect()
+        }
     }
 
     private fun takePresentationFrame(state: PlaybackState): GhostPresentationFrame {
@@ -672,7 +756,7 @@ open class SScriptRunner internal constructor(
         } finally {
             if (parent == null) {
                 invalidationCompletions.remove()
-                completions.forEach { it() }
+                completions.forEach(lifecycleDispatcher::dispatch)
             } else {
                 invalidationCompletions.set(parent)
                 parent.addAll(completions)

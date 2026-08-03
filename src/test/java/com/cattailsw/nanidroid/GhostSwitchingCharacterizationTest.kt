@@ -27,7 +27,11 @@ class GhostSwitchingCharacterizationTest {
 
     @Before
     fun setUp() {
-        runner = com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
+        runner = com.cattailsw.nanidroid.SScriptRunner(
+            null,
+            GhostSessionCoordinator(),
+            lifecycleDispatcher = SScriptLifecycleDispatcher { it() },
+        )
         runner.setPresentationRenderer(TraceRenderer(trace))
         resetRunnerWithPublicApi()
         trace.clear()
