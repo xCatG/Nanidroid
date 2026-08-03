@@ -88,8 +88,10 @@ class SurfaceSizingPropertyTest {
         assertNotNull(layout.sakuraSurface)
         val sakuraScale = requireNotNull(layout.sizingBaseline.sakuraAnchor).scale
         val keroScale = requireNotNull(layout.sizingBaseline.keroAnchor).scale
+        val sharedScale = layout.sizingBaseline.sharedAuthoredScale
         assertTrue(sakuraScale >= keroScale)
-        assertTrue(sakuraScale <= layout.sizingBaseline.sharedAuthoredScale * 2f + EPSILON)
+        assertTrue(sakuraScale > sharedScale + EPSILON)
+        assertEquals(sharedScale * 2f, sakuraScale, EPSILON)
     }
 
     @Test

@@ -108,12 +108,15 @@ object GhostStageLayoutPolicy {
                 }
             }
         }
-        return candidates.sortedWith(CANDIDATE_ORDER).firstOrNull() ?: StageDpRect(
-            available.left,
-            available.top,
-            available.left,
-            available.top,
-        )
+        val ranked = candidates.sortedWith(CANDIDATE_ORDER)
+        return ranked.firstOrNull { classify(it) != StageMode.TINY }
+            ?: ranked.firstOrNull()
+            ?: StageDpRect(
+                available.left,
+                available.top,
+                available.left,
+                available.top,
+            )
     }
 
     private fun classify(candidate: StageDpRect): StageMode {

@@ -81,6 +81,37 @@ class StageEnvironmentTest {
     }
 
     @Test
+    fun `smaller valid top pane wins over larger tiny left pane`() {
+        val layout = GhostStageLayoutPolicy.calculate(
+            environment(
+                700,
+                1000,
+                features = listOf(feature(rect(230, 300, 700, 1000), occluding = true)),
+            ),
+        )
+
+        assertEquals(StageMode.COMPACT_LANDSCAPE, layout.mode)
+        assertRect(0, 0, 700, 300, layout.content)
+    }
+
+    @Test
+    fun `cross split valid pane wins over higher area tiny pane`() {
+        val layout = GhostStageLayoutPolicy.calculate(
+            environment(
+                650,
+                1500,
+                features = listOf(
+                    feature(rect(0, 0, 230, 500), occluding = true),
+                    feature(rect(230, 500, 650, 1500), occluding = true),
+                ),
+            ),
+        )
+
+        assertEquals(StageMode.STANDARD, layout.mode)
+        assertRect(230, 0, 650, 500, layout.content)
+    }
+
+    @Test
     fun `equal area candidates choose topmost then leftmost`() {
         val cross = listOf(
             feature(rect(200, 0, 220, 420), separating = true),

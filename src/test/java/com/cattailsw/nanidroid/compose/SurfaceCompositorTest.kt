@@ -189,6 +189,47 @@ class SurfaceCompositorTest {
     }
 
     @Test
+    fun `compatibility frame keeps source-only BASE blank until atomic host cutover`() {
+        val selected = plan(
+            surfaceId = 0,
+            layers = listOf(layer("selected.png", 0, 0, 4, 4)),
+        )
+        val source = plan(
+            surfaceId = 3031,
+            layers = listOf(layer("source.png", 0, 0, 2, 1)),
+            width = 3,
+            height = 2,
+        )
+        val loader = assets("selected.png" to solid(BLUE), "source.png" to solid(GREEN))
+        val compositor = SurfaceCompositor(loader, SurfacePlanRegistry(listOf(selected, source)))
+
+        val legacyImage = compositor.frame(
+            selected,
+            SurfaceRenderFrame.Base("3031", null, 0, 0, 100),
+        )
+
+        assertSame(SurfacePixelImage.Empty, legacyImage)
+        assertFalse(loader.requests.contains("source.png"))
+    }
+
+    @Test
+    fun `compatibility image-path BASE keeps legacy color key under authored alpha plan`() {
+        val replacement = SurfacePixelImage.of(2, 1, intArrayOf(RED, GREEN))
+        val selected = plan(
+            layers = listOf(layer("selected.png", 0, 0, 2, 1)),
+            transparencyPolicy = SurfaceTransparencyPolicy.AUTHORED_ALPHA,
+        )
+
+        val legacyImage = SurfaceCompositor(assets("replacement.png" to replacement)).frame(
+            selected,
+            SurfaceRenderFrame.Base(null, "replacement.png", 2, 1, 100),
+        )
+
+        assertEquals(TRANSPARENT, legacyImage.pixelAt(0, 0))
+        assertEquals(GREEN, legacyImage.pixelAt(1, 0))
+    }
+
+    @Test
     fun `transparent composed canvas retains active collisions and explicit hidden identity`() {
         val active = List(7) { collision(it, "region$it") }
         val transparent = SurfacePixelImage.of(2, 2, IntArray(4))
