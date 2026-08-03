@@ -164,6 +164,64 @@ class DurableOperationSupervisorTest {
         assertFalse(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
     }
 
+    @Test fun activeBindingLookupRequiresExactActiveHandleAndKind() {
+        val handle = handle("copy-1", 2)
+        val binding = ExternalJobBinding.WorkManager("stage-worker")
+        assertTrue(supervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0, binding))
+
+        assertEquals(binding, supervisor.activeBindingForExactAttempt(handle, OperationKind.LOCAL_NAR))
+        assertEquals(
+            null,
+            supervisor.activeBindingForExactAttempt(handle("copy-1", 1), OperationKind.LOCAL_NAR),
+        )
+        assertEquals(null, supervisor.activeBindingForExactAttempt(handle, OperationKind.NAR_INSTALL))
+
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.CANCELLED))
+        assertEquals(null, supervisor.activeBindingForExactAttempt(handle, OperationKind.LOCAL_NAR))
+    }
+
+    @Test fun failedAttemptLookupRequiresExactFailedHandleAndKind() {
+        val failed = handle("failed-install", 2)
+        assertTrue(supervisor.start(failed, OperationKind.NAR_INSTALL, "Queued", 0))
+        assertTrue(supervisor.failUnboundAttempt(failed, "scheduler unavailable"))
+
+        assertTrue(supervisor.isFailedAttempt(failed, OperationKind.NAR_INSTALL))
+        assertFalse(supervisor.isFailedAttempt(handle("failed-install", 1), OperationKind.NAR_INSTALL))
+        assertFalse(supervisor.isFailedAttempt(failed, OperationKind.REMOTE_NAR))
+
+        val completed = handle("completed-install", 1)
+        val completedBinding = ExternalJobBinding.WorkManager("completed-worker")
+        assertTrue(
+            supervisor.start(
+                completed,
+                OperationKind.NAR_INSTALL,
+                "Installing",
+                0,
+                completedBinding,
+            ),
+        )
+        assertTrue(supervisor.finish(completed, completedBinding, OperationStatus.COMPLETED))
+        assertFalse(supervisor.isFailedAttempt(completed, OperationKind.NAR_INSTALL))
+
+        val cancelled = handle("cancelled-install", 1)
+        val cancelledBinding = ExternalJobBinding.WorkManager("cancelled-worker")
+        assertTrue(
+            supervisor.start(
+                cancelled,
+                OperationKind.NAR_INSTALL,
+                "Installing",
+                0,
+                cancelledBinding,
+            ),
+        )
+        assertTrue(supervisor.finish(cancelled, cancelledBinding, OperationStatus.CANCELLED))
+        assertFalse(supervisor.isFailedAttempt(cancelled, OperationKind.NAR_INSTALL))
+
+        val running = handle("running-install", 1)
+        assertTrue(supervisor.start(running, OperationKind.NAR_INSTALL, "Queued", 0))
+        assertFalse(supervisor.isFailedAttempt(running, OperationKind.NAR_INSTALL))
+    }
+
     @Test fun duplicateAcceptanceIsRejectedAndHigherAttemptReplacesOnlyTerminalWork() {
         val first = handle("nar-1", 1)
         val retry = handle("nar-1", 2)
@@ -487,6 +545,46 @@ class DurableOperationSupervisorTest {
         )
     }
 
+    @Test fun completedInstallCanUseOnlyExplicitRemoteReacquisitionTransition() {
+        val source = handle("remote-install", 2)
+        val installBinding = ExternalJobBinding.WorkManager("install-work")
+        assertTrue(
+            supervisor.start(
+                source,
+                OperationKind.NAR_INSTALL,
+                "Installing",
+                0,
+                installBinding,
+            ),
+        )
+        assertTrue(supervisor.finish(source, installBinding, OperationStatus.FAILED))
+        val reacquisition = handle("remote-install", 3)
+        val download = ExternalJobBinding.DownloadManager(81L)
+
+        assertFalse(
+            supervisor.start(
+                reacquisition,
+                OperationKind.REMOTE_NAR,
+                "Downloading",
+                0,
+                download,
+            ),
+        )
+        assertTrue(
+            supervisor.startRemoteNarReacquisition(
+                reacquisition,
+                "Downloading",
+                0,
+                download,
+            ),
+        )
+
+        val current = store.read().single()
+        assertEquals(OperationKind.REMOTE_NAR, current.kind)
+        assertEquals(AttemptId(3), current.attemptId)
+        assertEquals(download, current.externalJob)
+    }
+
     @Test fun archiveKindChangeStillRequiresTerminalStateAndGreaterAttempt() {
         val cases = listOf(
             ArchiveTransitionFenceCase(
@@ -588,6 +686,111 @@ class DurableOperationSupervisorTest {
         assertEquals(OperationStatus.RUNNING, store.read().single().status)
         assertTrue(supervisor.bindExternalJob(handle, binding))
         assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+    }
+
+    @Test fun exactActiveUnboundAttemptCanBeFailedDuringSchedulerRecovery() {
+        val handle = handle("install-1", 2)
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0))
+
+        assertFalse(
+            supervisor.failUnboundAttempt(
+                handle("install-1", 1),
+                "scheduler unavailable",
+            ),
+        )
+        assertTrue(supervisor.failUnboundAttempt(handle, "scheduler unavailable"))
+
+        val failed = store.read().single()
+        assertEquals(OperationStatus.FAILED, failed.status)
+        assertEquals("scheduler unavailable", failed.diagnostics)
+        assertFalse(supervisor.bindExternalJob(handle, ExternalJobBinding.WorkManager("late-worker")))
+    }
+
+    @Test fun exactBoundFailureTransitionIsReplayIdempotent() {
+        val handle = handle("install-1", 2)
+        val binding = ExternalJobBinding.WorkManager("worker-2")
+        val diagnostics = "scheduler unavailable"
+        assertTrue(
+            supervisor.start(
+                handle,
+                OperationKind.NAR_INSTALL,
+                "Queued",
+                0,
+                binding,
+            ),
+        )
+
+        assertTrue(
+            supervisor.failOrConfirmExactAttempt(
+                handle,
+                OperationKind.NAR_INSTALL,
+                binding,
+                diagnostics,
+            ),
+        )
+        assertTrue(
+            supervisor.failOrConfirmExactAttempt(
+                handle,
+                OperationKind.NAR_INSTALL,
+                binding,
+                diagnostics,
+            ),
+        )
+
+        val failed = store.read().single()
+        assertEquals(OperationStatus.FAILED, failed.status)
+        assertEquals(diagnostics, failed.diagnostics)
+    }
+
+    @Test fun exactBoundFailureReplayRejectsUnrelatedTerminalRecords() {
+        val expectedHandle = handle("install-1", 2)
+        val expectedBinding = ExternalJobBinding.WorkManager("worker-2")
+        val expectedDiagnostics = "scheduler unavailable"
+        val expected = DurableOperationRecord(
+            id = expectedHandle.operationId,
+            attemptId = expectedHandle.attemptId,
+            kind = OperationKind.NAR_INSTALL,
+            externalJob = expectedBinding,
+            progress = OperationProgress("Queued", 0),
+            status = OperationStatus.FAILED,
+            showStallPrompt = false,
+            diagnostics = expectedDiagnostics,
+            externalJobHistory = setOf(expectedBinding),
+        )
+        val cases = listOf(
+            expected.copy(status = OperationStatus.COMPLETED, diagnostics = null),
+            expected.copy(status = OperationStatus.CANCELLED, diagnostics = null),
+            expected.copy(kind = OperationKind.LOCAL_NAR),
+            expected.copy(externalJob = ExternalJobBinding.WorkManager("other-worker")),
+            expected.copy(diagnostics = "other failure"),
+            expected.copy(attemptId = AttemptId(3)),
+        )
+
+        val accepted = cases.map { persisted ->
+            val caseStore = MemoryDurableOperationStore()
+            assertTrue(caseStore.putIfAbsent(persisted))
+            DurableOperationSupervisor(caseStore, FakeMonotonicClock(), RecordingCancellation())
+                .failOrConfirmExactAttempt(
+                    expectedHandle,
+                    OperationKind.NAR_INSTALL,
+                    expectedBinding,
+                    expectedDiagnostics,
+                )
+        }
+
+        assertEquals(listOf(false, false, false, false, false, false), accepted)
+    }
+
+    @Test fun unboundFailureRecoveryRejectsBoundAttempt() {
+        val handle = handle("install-1", 2)
+        val binding = ExternalJobBinding.WorkManager("worker-2")
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0, binding))
+
+        assertFalse(supervisor.failUnboundAttempt(handle, "scheduler unavailable"))
+
+        val running = store.read().single()
+        assertEquals(OperationStatus.RUNNING, running.status)
+        assertEquals(binding, running.externalJob)
     }
 
     @Test fun bindingAfterStopReissuesCancellationForTheNewlyIdentifiedJob() {

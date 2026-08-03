@@ -34,6 +34,36 @@ class DurableOperationSupervisor(
         phase: String,
         completed: Long,
         externalJob: ExternalJobBinding? = null,
+    ): Boolean = start(
+        handle = handle,
+        kind = kind,
+        phase = phase,
+        completed = completed,
+        externalJob = externalJob,
+        allowRemoteNarReacquisition = false,
+    )
+
+    fun startRemoteNarReacquisition(
+        handle: OperationHandle,
+        phase: String,
+        completed: Long,
+        externalJob: ExternalJobBinding.DownloadManager,
+    ): Boolean = start(
+        handle = handle,
+        kind = OperationKind.REMOTE_NAR,
+        phase = phase,
+        completed = completed,
+        externalJob = externalJob,
+        allowRemoteNarReacquisition = true,
+    )
+
+    private fun start(
+        handle: OperationHandle,
+        kind: OperationKind,
+        phase: String,
+        completed: Long,
+        externalJob: ExternalJobBinding?,
+        allowRemoteNarReacquisition: Boolean,
     ): Boolean = synchronized(operationLock) {
         var accepted = DurableOperationRecord(
             id = handle.operationId,
@@ -51,7 +81,11 @@ class DurableOperationSupervisor(
                 ?: return@synchronized false
             if (
                 !previous.status.isTerminal() ||
-                !previous.kind.canRetryAs(kind) ||
+                !previous.kind.canRetryAs(kind) && !(
+                    allowRemoteNarReacquisition &&
+                        previous.kind == OperationKind.NAR_INSTALL &&
+                        kind == OperationKind.REMOTE_NAR
+                    ) ||
                 handle.attemptId.value <= previous.attemptId.value
             ) {
                 return@synchronized false
@@ -152,6 +186,88 @@ class DurableOperationSupervisor(
             !store.compareAndSet(
                 current,
                 current.copy(status = OperationStatus.CANCELLED, showStallPrompt = false),
+            )
+        ) {
+            return@synchronized false
+        }
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
+    internal fun activeBindingForExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): ExternalJobBinding? = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind &&
+                it.status.isActive()
+        }?.externalJob
+    }
+
+    internal fun isFailedAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): Boolean = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
+        }?.status == OperationStatus.FAILED
+    }
+
+    fun failUnboundAttempt(handle: OperationHandle, diagnostics: String): Boolean =
+        synchronized(operationLock) {
+            val current = activeRecord(handle) ?: return@synchronized false
+            if (current.status != OperationStatus.RUNNING || current.externalJob != null) {
+                return@synchronized false
+            }
+            if (
+                !store.compareAndSet(
+                    current,
+                    current.copy(
+                        status = OperationStatus.FAILED,
+                        showStallPrompt = false,
+                        diagnostics = diagnostics,
+                    ),
+                )
+            ) {
+                return@synchronized false
+            }
+            lastProgressAt.remove(handle)
+            cancellationIssued.removeAll { it.handle == handle }
+            true
+        }
+
+    fun failOrConfirmExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        binding: ExternalJobBinding,
+        diagnostics: String,
+    ): Boolean = synchronized(operationLock) {
+        val current = store.read().singleOrNull { it.id == handle.operationId }
+            ?: return@synchronized false
+        if (
+            current.attemptId != handle.attemptId ||
+            current.kind != kind ||
+            current.externalJob != binding
+        ) {
+            return@synchronized false
+        }
+        if (current.status == OperationStatus.FAILED) {
+            return@synchronized current.diagnostics == diagnostics
+        }
+        if (!current.status.isActive()) return@synchronized false
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    status = OperationStatus.FAILED,
+                    showStallPrompt = false,
+                    diagnostics = diagnostics,
+                ),
             )
         ) {
             return@synchronized false

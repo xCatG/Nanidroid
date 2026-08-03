@@ -35,14 +35,16 @@ import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.PrefUtil
 import com.cattailsw.nanidroid.install.NarContentUriImport
 import com.cattailsw.nanidroid.install.NarDownloadRepository
-import com.cattailsw.nanidroid.install.NarLocalArchiveStager
+import com.cattailsw.nanidroid.install.NarLiveGrantHandoff
 import com.cattailsw.nanidroid.install.NarDownloadState
+import com.cattailsw.nanidroid.install.StageLocalNarWorker
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStreamReader
 import java.util.Arrays
+import java.util.concurrent.Executors
 
 internal fun ownsGhostSwitchRequest(targetGhostId: String, pendingGhostId: String?): Boolean =
     targetGhostId == pendingGhostId
@@ -84,6 +86,13 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var replacingNarDownloadId: String? = null
     private var archiveIntentState = ArchiveIntentState()
     private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
+    private val narLiveGrantExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "nar-live-grant-copy")
+    }
+    private val narLiveGrantHandoff by lazy {
+        val privateDirectory = StageLocalNarWorker.localImportDirectory(applicationContext)
+        NarLiveGrantHandoff(narDownloads, narLiveGrantExecutor, privateDirectory)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -224,7 +233,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         outState.putInt(NAR_PENDING_INTENT_FLAGS, archiveIntentState.pendingFlags)
         super.onSaveInstanceState(outState)
     }
-    override fun onDestroy() { super.onDestroy(); sendStopIntent() }
+    override fun onDestroy() {
+        narLiveGrantExecutor.shutdown()
+        super.onDestroy()
+        sendStopIntent()
+    }
     override fun onResume() { super.onResume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG) }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -391,47 +404,33 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId)
 
     private fun enqueueLocalArchive(uri: Uri, flags: Int, replacementId: String? = null) {
-        val retainedItemId = replacementId ?: narDownloads.retainLocalSourceForCopy(uri.toString()).id
-        object : AsyncTask<Void, Void, NarLocalArchiveStager.Result>() {
-            override fun doInBackground(vararg params: Void?): NarLocalArchiveStager.Result {
-                val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
-                if (canPersist) {
-                    try {
-                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        return NarLocalArchiveStager.Result.Staged(uri.toString())
-                    } catch (_: SecurityException) { /* Copy the one-shot grant below. */ }
-                }
-                return NarLocalArchiveStager.stage(File(filesDir, "nar-local-imports")) {
-                    contentResolver.openInputStream(uri)
-                }
-            }
-
-            override fun onPostExecute(result: NarLocalArchiveStager.Result) {
-                when (result) {
-                    is NarLocalArchiveStager.Result.Staged -> {
-                        if (narDownloads.replaceLocalSource(retainedItemId, result.location) == null) {
-                            discardUnclaimedArchive(uri, result.location)
-                        }
-                    }
-                    is NarLocalArchiveStager.Result.Failed -> {
-                        narDownloads.copyFailed(retainedItemId)
-                        Toast.makeText(this@Nanidroid, result.message, Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-        }.execute()
-    }
-
-    private fun discardUnclaimedArchive(sourceUri: Uri, location: String) {
-        if (location == sourceUri.toString() && !narDownloads.isSourceReferenced(location)) {
-            runCatching {
-                contentResolver.releasePersistableUriPermission(
-                    sourceUri,
+        val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
+        if (canPersist) {
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION,
                 )
+                if (replacementId == null) {
+                    narDownloads.enqueueLocalCopy(uri.toString())
+                } else {
+                    narDownloads.replaceLocalSource(replacementId, uri.toString())
+                }
+                return
+            } catch (_: SecurityException) {
+                // Fall back to supervised staging while the temporary grant remains available.
             }
-        } else {
-            NarLocalArchiveStager.discard(location)
+        }
+
+        if (narLiveGrantHandoff.enqueue(uri.toString(), replacementId) {
+                contentResolver.openInputStream(uri)
+            } == null
+        ) {
+            Toast.makeText(
+                this,
+                "The selected document is no longer available.",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

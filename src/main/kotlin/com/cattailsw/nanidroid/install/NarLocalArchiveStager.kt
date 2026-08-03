@@ -11,14 +11,24 @@ object NarLocalArchiveStager {
     sealed class Result {
         data class Staged(val location: String) : Result()
         data class Failed(val message: String) : Result()
+        data object Cancelled : Result()
     }
 
-    fun stage(directory: File, open: () -> InputStream?): Result {
+    fun stage(directory: File, open: () -> InputStream?): Result =
+        stage(directory, open, { false }, { })
+
+    fun stage(
+        directory: File,
+        open: () -> InputStream?,
+        isCancelled: () -> Boolean,
+        onProgress: (completed: Long) -> Unit,
+    ): Result {
         if ((!directory.exists() && !directory.mkdirs()) || !directory.isDirectory) {
             return Result.Failed("Nanidroid cannot prepare private import storage.")
         }
         val file = File(directory, "nar-local-${randomName()}.nar")
         val result = try {
+            if (isCancelled()) return Result.Cancelled
             val input = open()
             if (input == null) Result.Failed("The selected document is no longer available.")
             else input.use { source ->
@@ -27,6 +37,7 @@ object NarLocalArchiveStager {
                     var copied = 0L
                     var exceededLimit = false
                     while (!exceededLimit) {
+                        if (isCancelled()) return@use Result.Cancelled
                         val count = source.read(buffer)
                         if (count < 0) break
                         if (count == 0) continue
@@ -35,9 +46,11 @@ object NarLocalArchiveStager {
                         } else {
                             target.write(buffer, 0, count)
                             copied += count
+                            onProgress(copied)
                         }
                     }
-                    if (exceededLimit) Result.Failed("The selected document exceeds Nanidroid's archive size limit.")
+                    if (isCancelled()) Result.Cancelled
+                    else if (exceededLimit) Result.Failed("The selected document exceeds Nanidroid's archive size limit.")
                     else Result.Staged(file.toURI().toString())
                 }
             }
