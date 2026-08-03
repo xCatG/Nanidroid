@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.unit.Constraints
@@ -14,6 +17,8 @@ import com.cattailsw.nanidroid.compose.ComposedSurface
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.GhostPresentationState
 import com.cattailsw.nanidroid.runtime.stage.GhostStageLayoutPolicy
+import com.cattailsw.nanidroid.runtime.stage.BubbleInteractionTarget
+import com.cattailsw.nanidroid.runtime.stage.MeasuredBubbleHitRegion
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
 import com.cattailsw.nanidroid.runtime.stage.StageLayoutDp
 import com.cattailsw.nanidroid.runtime.stage.StageLayoutPx
@@ -39,6 +44,8 @@ data class StageMeasuredSnapshot(
     val layoutPx: StageLayoutPx,
     val kero: StageSurfaceSnapshot?,
     val sakura: StageSurfaceSnapshot?,
+    val bubbleRegions: List<MeasuredBubbleHitRegion> = emptyList(),
+    val bubbleGeneration: Long = 0,
 )
 
 /**
@@ -49,9 +56,10 @@ class GhostStageMeasureState {
     private var owner: Any? = UnsetOwner
     internal var baseline: StageSizingBaseline? = null
         private set
+    private var committedBubbleRegions: List<MeasuredBubbleHitRegion> = emptyList()
+    private var bubbleGeneration = 0L
 
-    @Volatile
-    var latest: StageMeasuredSnapshot? = null
+    var latest: StageMeasuredSnapshot? by mutableStateOf(null)
         private set
 
     fun resetFor(newOwner: Any?) {
@@ -59,12 +67,23 @@ class GhostStageMeasureState {
             owner = newOwner
             baseline = null
             latest = null
+            committedBubbleRegions = emptyList()
+            bubbleGeneration = 0L
         }
     }
 
     internal fun commit(snapshot: StageMeasuredSnapshot) {
-        baseline = snapshot.layoutDp.sizingBaseline
-        latest = snapshot
+        if (committedBubbleRegions != snapshot.bubbleRegions) {
+            committedBubbleRegions = snapshot.bubbleRegions
+            bubbleGeneration++
+        }
+        val committed = if (snapshot.bubbleGeneration == bubbleGeneration) {
+            snapshot
+        } else {
+            snapshot.copy(bubbleGeneration = bubbleGeneration)
+        }
+        baseline = committed.layoutDp.sizingBaseline
+        latest = committed
     }
 
     private data object UnsetOwner
@@ -104,7 +123,15 @@ fun MeasuredGhostStageLayout(
         val layoutPx = StageLayoutPx.from(layoutDp, environment.density, stageToRoot)
         val keroSnapshot = kero.snapshot(SurfaceSpeaker.KERO, SurfaceScope.KERO, layoutPx)
         val sakuraSnapshot = sakura.snapshot(SurfaceSpeaker.SAKURA, SurfaceScope.SAKURA, layoutPx)
-        val snapshot = StageMeasuredSnapshot(layoutDp, layoutPx, keroSnapshot, sakuraSnapshot)
+        val bubbleRegions = buildList {
+            if (showKeroBalloon && presentation.kero.balloonVisible) {
+                layoutPx.keroBubble?.let { add(MeasuredBubbleHitRegion(it, BubbleInteractionTarget.Frame(SurfaceSpeaker.KERO))) }
+            }
+            if (showSakuraBalloon && presentation.sakura.balloonVisible) {
+                layoutPx.sakuraBubble?.let { add(MeasuredBubbleHitRegion(it, BubbleInteractionTarget.Frame(SurfaceSpeaker.SAKURA))) }
+            }
+        }
+        val snapshot = StageMeasuredSnapshot(layoutDp, layoutPx, keroSnapshot, sakuraSnapshot, bubbleRegions)
 
         // This zero-size slot publishes stable baseline/debug state after a
         // successful composition. Active children already consume [snapshot]

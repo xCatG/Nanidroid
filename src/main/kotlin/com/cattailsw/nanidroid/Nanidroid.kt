@@ -234,7 +234,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 if (downloads.any { it.state is NarDownloadState.Complete }) gm?.refreshGhost()
             }
             NanidroidComposeShell(
-                ghostStage = { composeStage.Stage(onSurfaceTap = ::frameClick) },
+                ghostStage = {
+                    composeStage.Stage(
+                        blockingInput = loading || simpleDialog != null,
+                        onSurfaceTap = ::frameClick,
+                    )
+                },
                 loading = loading,
                 progressMessage = progressMessage,
                 toolbarVisible = toolbarVisible,
@@ -256,7 +261,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 onNextGhost = ::onNextGhost,
                 onRun = ::runClick,
                 onNarTest = ::narTest,
-                onStageClick = ::frameClick,
                 simpleDialog = simpleDialog,
                 onDismissSimpleDialog = { simpleDialog = null },
             )

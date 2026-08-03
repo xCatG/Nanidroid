@@ -92,7 +92,11 @@ class ComposeGhostStageHost private constructor(
     }
 
     @Composable
-    fun Stage(modifier: Modifier = Modifier, onSurfaceTap: () -> Unit = {}) {
+    fun Stage(
+        modifier: Modifier = Modifier,
+        blockingInput: Boolean = false,
+        onSurfaceTap: () -> Unit = {},
+    ) {
         val manager = activeSurfaceManager
         val state = runtimeState
         val plans = remember(manager) { manager?.getSurfaceKeys()
@@ -138,12 +142,16 @@ class ComposeGhostStageHost private constructor(
             keroComposedSurface = keroComposed,
             measureState = stageMeasureState,
             ghostKey = manager?.let { "manager-${System.identityHashCode(it)}" }.orEmpty(),
+            ghostIdentity = manager ?: NoGhostIdentity,
+            blockingInput = blockingInput,
+            onSurfaceEffect = interactionPort::dispatch,
+            onToggleChrome = onSurfaceTap,
             modifier = modifier,
             sakuraSurface = { snapshot ->
-                RenderedSurfaceLayer(snapshot, interactionPort, onSurfaceTap, showCollisionOverlay = false)
+                RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
             },
             keroSurface = { snapshot ->
-                RenderedSurfaceLayer(snapshot, interactionPort, onSurfaceTap, showCollisionOverlay = false)
+                RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
             },
         )
     }
@@ -284,6 +292,7 @@ class ComposeGhostStageHost private constructor(
         width >= 0 && height >= 0 && width.toLong() * height.toLong() <= MAX_RENDERABLE_SURFACE_PIXELS
 
     private companion object {
+        private data object NoGhostIdentity
         /** 32 MiB of ARGB pixels; oversized frames remain usable but uncached. */
         const val MAX_CACHED_FRAME_PIXELS = 8L * 1024L * 1024L
         // Rendering creates several temporary ARGB copies; keep malicious or

@@ -50,6 +50,11 @@ data class StageInputCapabilities(
     val hardwareKeyboard: Boolean,
 )
 
+data class StagePointingDeviceCapabilities(
+    val mouse: Boolean,
+    val stylus: Boolean,
+)
+
 data class StageEnvironment(
     val safeBounds: StageDpRect,
     val density: Float,

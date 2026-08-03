@@ -119,6 +119,22 @@ class SurfacePointerInteractionTest {
         )
     }
 
+    @Test
+    fun `mapper retains event-local physical source and primary button`() {
+        val resolution = SurfacePointerInteractionMapper.map(
+            SurfaceSpeaker.KERO,
+            surface(image(0xff000000.toInt())),
+            SurfaceTransformPx(IntSize(2, 2), IntRect(0, 0, 2, 2), 1f, IntOffset.Zero),
+            SurfacePointerPosition(1f, 1f),
+            PointerSource.ERASER,
+            button = 0,
+        ) as SurfacePointerResolution.Hit
+
+        assertEquals(PointerSource.ERASER, resolution.effect.source)
+        assertEquals(0, resolution.effect.button)
+        assertEquals("", resolution.effect.collisionIdentifier.orEmpty())
+    }
+
     private fun map(
         image: SurfacePixelImage?,
         collisions: List<SurfaceCollision> = emptyList(),

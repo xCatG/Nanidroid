@@ -38,9 +38,13 @@ import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.MeasuredGhostStageLayout
 import com.cattailsw.nanidroid.compose.stage.StageEnvironmentProvider
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
+import com.cattailsw.nanidroid.compose.stage.StagePointerInput
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.runtime.GhostPresentationState
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
+import com.cattailsw.nanidroid.runtime.stage.BubbleHitRegionRegistry
+import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import kotlin.math.roundToInt
 
 /** Production adaptive stage consuming atomic composed surfaces. */
@@ -51,6 +55,10 @@ fun GhostPresentationStage(
     keroComposedSurface: ComposedSurface?,
     measureState: GhostStageMeasureState,
     ghostKey: String,
+    ghostIdentity: Any = ghostKey,
+    blockingInput: Boolean = false,
+    onSurfaceEffect: (SurfaceInteractionEffect) -> Unit = {},
+    onToggleChrome: () -> Unit = {},
     modifier: Modifier = Modifier,
     showSakuraBalloon: Boolean = true,
     showKeroBalloon: Boolean = true,
@@ -59,7 +67,22 @@ fun GhostPresentationStage(
 ) {
     StageEnvironmentProvider { windowEnvironment ->
         var placement by remember { mutableStateOf<StagePlacement?>(null) }
-        Box(
+        val measured = measureState.latest
+        val inputSnapshot = remember(blockingInput, ghostKey, ghostIdentity, measured) {
+            val regions = measured?.bubbleRegions.orEmpty()
+            StageInputRouter.snapshot(
+                blocking = blockingInput,
+                bubbleRegistry = BubbleHitRegionRegistry.from(regions),
+                bubbleGeneration = measured?.bubbleGeneration ?: 0,
+                ghostKey = ghostKey,
+                surfaces = listOfNotNull(measured?.kero, measured?.sakura),
+                ghostIdentity = ghostIdentity,
+            )
+        }
+        StagePointerInput(
+            snapshotProvider = { inputSnapshot },
+            onSurfaceEffect = onSurfaceEffect,
+            onToggleChrome = onToggleChrome,
             modifier = modifier
                 .fillMaxSize()
                 .onGloballyPositioned { coordinates ->
@@ -69,7 +92,7 @@ fun GhostPresentationStage(
                     )
                     if (placement != next) placement = next
                 },
-        ) {
+        ) { _ ->
             placement?.let { measuredPlacement ->
                 MeasuredGhostStageLayout(
                     presentation = presentation,

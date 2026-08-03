@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.compose.stage
 
 import android.graphics.Rect
+import android.view.InputDevice
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import com.cattailsw.nanidroid.runtime.stage.StagePointingDeviceCapabilities
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -224,6 +226,86 @@ class StageEnvironmentProviderTest {
     }
 
     @Test
+    fun inputDeviceAddChangeRemoveAndRestartPublishCurrentCapabilities() {
+        val observed = mutableStateOf<StageWindowEnvironment?>(null)
+        val latest = MutableStateFlow(StagePointingDeviceCapabilities(mouse = false, stylus = false))
+        val activeSubscriptions = AtomicInteger(0)
+        val subscriptionStarts = AtomicInteger(0)
+        val source = InputCapabilitySource {
+            flow {
+                subscriptionStarts.incrementAndGet()
+                activeSubscriptions.incrementAndGet()
+                try {
+                    emitAll(latest)
+                } finally {
+                    activeSubscriptions.decrementAndGet()
+                }
+            }
+        }
+        composeRule.setContent {
+            StageEnvironmentProvider(
+                windowLayoutInfoSource = WindowLayoutInfoSource { MutableStateFlow(WindowLayoutInfo(emptyList())) },
+                inputCapabilitySource = source,
+            ) { environment -> SideEffect { observed.value = environment } }
+        }
+        composeRule.waitUntil { activeSubscriptions.get() == 1 && observed.value != null }
+        assertFalse(observed.value!!.inputCapabilities.mouse)
+        assertFalse(observed.value!!.inputCapabilities.stylus)
+
+        // These three emissions model InputManager's add, change, and remove
+        // callbacks; each callback must trigger a complete fresh enumeration.
+        latest.value = StagePointingDeviceCapabilities(mouse = true, stylus = false)
+        composeRule.waitUntil { observed.value?.inputCapabilities?.mouse == true }
+        latest.value = StagePointingDeviceCapabilities(mouse = true, stylus = true)
+        composeRule.waitUntil { observed.value?.inputCapabilities?.stylus == true }
+        latest.value = StagePointingDeviceCapabilities(mouse = false, stylus = false)
+        composeRule.waitUntil { observed.value?.inputCapabilities?.mouse == false }
+
+        composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        composeRule.waitUntil { activeSubscriptions.get() == 0 }
+        latest.value = StagePointingDeviceCapabilities(mouse = false, stylus = true)
+        composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        composeRule.waitUntil {
+            subscriptionStarts.get() == 2 && activeSubscriptions.get() == 1 &&
+                observed.value?.inputCapabilities?.stylus == true
+        }
+    }
+
+    @Test
+    fun productionCapabilityAdapterEnumeratesEveryCallbackAndUnregistersBelowStarted() {
+        val observed = mutableStateOf<StageWindowEnvironment?>(null)
+        val registry = FakeInputDeviceRegistry()
+        val source = RegisteredInputCapabilitySource(registry)
+        composeRule.setContent {
+            StageEnvironmentProvider(
+                windowLayoutInfoSource = WindowLayoutInfoSource { MutableStateFlow(WindowLayoutInfo(emptyList())) },
+                inputCapabilitySource = source,
+            ) { environment -> SideEffect { observed.value = environment } }
+        }
+        composeRule.waitUntil { registry.activeListeners == 1 && observed.value != null }
+
+        registry.publishAdd(listOf(InputDevice.SOURCE_MOUSE))
+        composeRule.waitUntil { observed.value?.inputCapabilities?.mouse == true }
+        registry.publishChange(listOf(InputDevice.SOURCE_STYLUS))
+        composeRule.waitUntil {
+            observed.value?.inputCapabilities?.mouse == false && observed.value?.inputCapabilities?.stylus == true
+        }
+        registry.publishRemove(emptyList())
+        composeRule.waitUntil { observed.value?.inputCapabilities?.stylus == false }
+        assertEquals(4, registry.enumerations)
+
+        composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        composeRule.waitUntil { registry.activeListeners == 0 }
+        registry.sources = listOf(InputDevice.SOURCE_MOUSE, InputDevice.SOURCE_STYLUS)
+        composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        composeRule.waitUntil {
+            registry.activeListeners == 1 && observed.value?.inputCapabilities?.mouse == true &&
+                observed.value?.inputCapabilities?.stylus == true
+        }
+        assertEquals(2, registry.registrationStarts)
+    }
+
+    @Test
     fun publisherFoldWithNonzeroInsetsAndPartialOcclusionTriggersMeasuredRelayout() {
         val observed = mutableStateOf<StageWindowEnvironment?>(null)
         val measureState = GhostStageMeasureState()
@@ -319,5 +401,43 @@ class StageEnvironmentProviderTest {
         override val occlusionType: FoldingFeature.OcclusionType get() = FoldingFeature.OcclusionType.FULL
         override val orientation: FoldingFeature.Orientation get() = FoldingFeature.Orientation.VERTICAL
         override val state: FoldingFeature.State get() = FoldingFeature.State.FLAT
+    }
+
+    private class FakeInputDeviceRegistry : InputDeviceRegistry {
+        private var listener: InputDeviceRegistry.Listener? = null
+        var sources: List<Int> = emptyList()
+        var enumerations = 0
+        var registrationStarts = 0
+        val activeListeners get() = if (listener == null) 0 else 1
+
+        override fun currentSources(): List<Int> {
+            enumerations++
+            return sources
+        }
+
+        override fun register(listener: InputDeviceRegistry.Listener) {
+            check(this.listener == null)
+            this.listener = listener
+            registrationStarts++
+        }
+
+        override fun unregister(listener: InputDeviceRegistry.Listener) {
+            if (this.listener === listener) this.listener = null
+        }
+
+        fun publishAdd(current: List<Int>) {
+            sources = current
+            listener?.onAdded()
+        }
+
+        fun publishChange(current: List<Int>) {
+            sources = current
+            listener?.onChanged()
+        }
+
+        fun publishRemove(current: List<Int>) {
+            sources = current
+            listener?.onRemoved()
+        }
     }
 }
