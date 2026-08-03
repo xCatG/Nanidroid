@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.cattailsw.nanidroid.DialogueDialogRestoration
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadState
@@ -33,8 +34,20 @@ internal sealed interface NanidroidSimpleDialog {
     data class GeneralHelp(val onInstallHelp: () -> Unit, val onSupportedOperations: () -> Unit) : NanidroidSimpleDialog
     data class MoreGhost(val onEnterUrl: () -> Unit, val onInstallFromSdCard: () -> Unit, val onGhostTown: () -> Unit) : NanidroidSimpleDialog
     data class UrlEntry(val value: String, val validationError: Boolean, val onValueChanged: (String) -> Unit, val onSubmit: (String) -> Boolean, val onInvalid: () -> Unit) : NanidroidSimpleDialog
-    data class UserInput(val id: String, val value: String, val onValueChanged: (String) -> Unit, val onSubmit: (String, String) -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
-    data class UserChoice(val labels: List<String>, val ids: List<String>, val onChoice: (Int) -> Unit) : NanidroidSimpleDialog
+    data class UserInput(
+        val id: String,
+        val value: String,
+        val onValueChanged: (String) -> Unit,
+        val onSubmit: (String, String) -> Unit,
+        val onCancel: () -> Unit,
+        val restoration: DialogueDialogRestoration? = null,
+    ) : NanidroidSimpleDialog
+    data class UserChoice(
+        val labels: List<String>,
+        val ids: List<String>,
+        val restoration: DialogueDialogRestoration? = null,
+        val onChoice: (Int) -> Unit,
+    ) : NanidroidSimpleDialog
     data class GhostList(val names: List<String>, val ids: List<String>, val onSelect: (Int) -> Unit, val onMore: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
     data class TextDocument(val title: String, val text: String, val onOpenLink: (String) -> Unit, val sourceId: String? = null, val onSwitch: (() -> Unit)? = null) : NanidroidSimpleDialog
     data class SwitchConfirmation(val ghostId: String, val ghostName: String, val onSwitch: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog

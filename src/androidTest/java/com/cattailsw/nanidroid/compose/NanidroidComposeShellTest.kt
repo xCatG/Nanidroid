@@ -185,7 +185,7 @@ class NanidroidComposeShellTest {
     fun script_input_and_choice_callbacks_remain_at_the_runner_boundary() {
         val input = mutableStateOf("")
         var submittedInput = ""
-        var selected = ""
+        var selected = -1
         val showChoice = mutableStateOf(false)
         composeRule.setContent {
             NanidroidSimpleDialogHost(
@@ -208,7 +208,7 @@ class NanidroidComposeShellTest {
         composeRule.runOnIdle { assertEquals("name:Cat", submittedInput) }
         composeRule.runOnIdle { showChoice.value = true }
         composeRule.onNodeWithTag("script-choice-0").performClick()
-        composeRule.runOnIdle { assertEquals("choice-id", selected) }
+        composeRule.runOnIdle { assertEquals(0, selected) }
     }
 
     @Test

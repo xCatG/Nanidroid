@@ -21,6 +21,7 @@ import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.UUID
 
 /** Executes Sakura Script while keeping the legacy Java-facing runner contract. */
 open class SScriptRunner internal constructor(
@@ -83,6 +84,9 @@ open class SScriptRunner internal constructor(
     private var lastSec = 0; private var lastMin = 0; private var lastHour = 0L; private var restore = false; private var exitPending = false; private var changingPending = false; private var paused = false; private val bootDispatchState = BootDispatchState()
     private var dialogueState = DialogueRuntimeState()
     private var nextInputGeneration = 0L
+    private var dialogueDialogOwner = UUID.randomUUID().toString()
+    private var nextChoiceGeneration = 0L
+    private var pendingChoiceGeneration: Long? = null
     private var passive = false
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
@@ -329,6 +333,9 @@ open class SScriptRunner internal constructor(
     private data class CurrentGhostCall<T>(val matched: Boolean, val value: T?)
     /** A UI host observes this immutable value; it never owns pending actions. */
     internal fun dialogueStateSnapshot(): DialogueRuntimeState = synchronized(this) { dialogueState }
+    internal fun dialogueDialogRuntimeSnapshot(): DialogueDialogRuntimeSnapshot = synchronized(this) {
+        DialogueDialogRuntimeSnapshot(dialogueDialogOwner, pendingChoiceGeneration, dialogueState)
+    }
     internal fun runtimeModeSnapshot(): GhostRuntimeMode = synchronized(this) {
         GhostRuntimeMode(
             playingTalk = isRunning || msgQueue.isNotEmpty() || !msg.isNullOrEmpty(),
@@ -432,6 +439,7 @@ open class SScriptRunner internal constructor(
 
     private fun takePendingChoice(action: DialogueAction): Boolean = synchronized(this) {
         if (dialogueState.pendingChoices.none { it === action }) return@synchronized false
+        pendingChoiceGeneration = null
         dialogueState = dialogueState.copy(
             revision = dialogueState.revision + 1,
             pendingChoices = emptyList(),
@@ -518,6 +526,8 @@ open class SScriptRunner internal constructor(
                     val deadline = inputDeadline(spec)
                     PendingInputState(++nextInputGeneration, spec, deadline)
                 } ?: dialogueState.pendingInput
+                pendingChoiceGeneration = choices.takeIf { it.isNotEmpty() }
+                    ?.let { ++nextChoiceGeneration }
                 dialogueState = DialogueRuntimeState(
                     revision = dialogueState.revision + 1,
                     contents = contents,
@@ -536,6 +546,8 @@ open class SScriptRunner internal constructor(
     }
 
     private fun clearDialogueStateLocked() {
+        dialogueDialogOwner = UUID.randomUUID().toString()
+        pendingChoiceGeneration = null
         dialogueState = DialogueRuntimeState(revision = dialogueState.revision + 1)
         msgQueue.clear()
         msg = null
