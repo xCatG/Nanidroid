@@ -29,6 +29,7 @@ class SurfaceReader {
     private var descPath: String? = null
     private var manager: SurfaceManager? = null
     private var parseTime = 0L
+    private var transparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY
     private val mutableDiagnostics = mutableListOf<SurfaceParseDiagnostic>()
     private val diagnosedPngPaths = mutableSetOf<String>()
     private val parsedCollisionCache = IdentityHashMap<ParsedSurfaceEntry, ParsedCollision>()
@@ -40,10 +41,16 @@ class SurfaceReader {
 
     constructor()
 
-    constructor(manager: SurfaceManager, shellRoot: String, descriptorPath: String) {
+    constructor(
+        manager: SurfaceManager,
+        shellRoot: String,
+        descriptorPath: String,
+        transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
+    ) {
         rootPath = shellRoot
         descPath = descriptorPath
         this.manager = manager
+        this.transparencyPolicy = transparencyPolicy
         loadShell(File(shellRoot))
     }
 
@@ -194,6 +201,7 @@ class SurfaceReader {
         }
         if (png != null) surface.selfFilename = png.absolutePath
         surface.bp2 = File(root, "surface%04d.png".format(id)).absolutePath
+        surface.transparencyPolicy = transparencyPolicy
         return surface
     }
 

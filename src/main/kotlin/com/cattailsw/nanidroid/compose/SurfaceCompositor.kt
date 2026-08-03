@@ -7,6 +7,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import com.cattailsw.nanidroid.SurfaceCollision
+import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
+import com.cattailsw.nanidroid.runtime.stage.ComposedSurfaceMetrics
+import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 
 /** Immutable ARGB_8888 pixels, independent of Android drawables and Views. */
 class SurfacePixelImage private constructor(
@@ -86,6 +92,26 @@ class SurfacePlanRegistry(plans: Iterable<SurfaceRenderPlan>) {
     fun find(surfaceId: String): SurfaceRenderPlan? = plansById[surfaceId]
 }
 
+/** One immutable image/geometry/collision snapshot consumed by adaptive sizing. */
+data class ComposedSurface(
+    val image: SurfacePixelImage,
+    val canvasSize: IntSize,
+    val visiblePixelBounds: IntRect?,
+    val effectiveCollisions: List<SurfaceCollision>,
+    val surfaceKey: SurfaceKey,
+    val revision: Long,
+    val explicitlyHidden: Boolean,
+) {
+    fun metrics(): ComposedSurfaceMetrics = ComposedSurfaceMetrics(
+        canvasSize = canvasSize,
+        visiblePixelBounds = visiblePixelBounds,
+        collisions = effectiveCollisions,
+        explicitlyHidden = explicitlyHidden,
+        surfaceKey = surfaceKey,
+        revision = revision,
+    )
+}
+
 /**
  * Pixel compositor for [SurfaceRenderPlan]. It intentionally owns both legacy
  * color-keying and source-surface precedence so the eventual Compose stage
@@ -95,46 +121,112 @@ class SurfaceCompositor(
     private val assets: SurfacePixelAssets,
     private val plans: SurfacePlanRegistry = SurfacePlanRegistry(emptyList()),
 ) {
-    fun normal(plan: SurfaceRenderPlan): SurfacePixelImage {
+    /** Compatibility image facade retained until the Task 11 host cut-over. */
+    fun normal(plan: SurfaceRenderPlan): SurfacePixelImage = composeNormal(plan).image
+
+    fun composeNormal(
+        plan: SurfaceRenderPlan,
+        explicitlyHidden: Boolean = false,
+        revision: Long = 0,
+    ): ComposedSurface {
+        val image = renderNormal(plan)
+        return composed(
+            image = image,
+            surfaceId = plan.surfaceId,
+            collisions = plan.collisions,
+            explicitlyHidden = explicitlyHidden,
+            revision = revision,
+        )
+    }
+
+    private fun renderNormal(plan: SurfaceRenderPlan): SurfacePixelImage {
         if (!plan.hasPositiveCanvas()) return SurfacePixelImage.Empty
         return when (val base = plan.base) {
         SurfaceRenderBase.Missing -> SurfacePixelImage.Empty
         is SurfaceRenderBase.Layers -> canvas(plan.width, plan.height).apply {
             base.layers.forEach { layer ->
-                layer.imagePath?.let(assets::load)?.colorKeyed()?.let { image -> draw(image, layer.x, layer.y) }
+                layer.imagePath?.let(assets::load)?.withTransparency(plan.transparencyPolicy)?.let { image ->
+                    draw(image, layer.x, layer.y)
+                }
             }
         }.toImage()
         }
     }
 
-    fun frame(plan: SurfaceRenderPlan, frame: SurfaceRenderFrame): SurfacePixelImage {
+    /** Compatibility image facade retained until the Task 11 host cut-over. */
+    fun frame(plan: SurfaceRenderPlan, frame: SurfaceRenderFrame): SurfacePixelImage =
+        composeFrame(plan, frame).image
+
+    fun composeFrame(
+        plan: SurfaceRenderPlan,
+        frame: SurfaceRenderFrame,
+        explicitlyHidden: Boolean = false,
+        revision: Long = 0,
+    ): ComposedSurface {
         if (frame is SurfaceRenderFrame.Base) {
-            return frame.imagePath?.let(assets::load)?.colorKeyed()?.let { image ->
-                val width = frame.width.takeIf { it > 0 } ?: image.width
-                val height = frame.height.takeIf { it > 0 } ?: image.height
-                canvas(width, height).apply { draw(image, 0, 0) }.toImage()
+            frame.sourceSurfaceId?.let(plans::find)?.let { source ->
+                return composeNormal(source, explicitlyHidden, revision)
+            }
+            val replacement = frame.imagePath?.let(assets::load)?.withTransparency(plan.transparencyPolicy)
+            val image = replacement?.let { source ->
+                val width = frame.width.takeIf { it > 0 } ?: source.width
+                val height = frame.height.takeIf { it > 0 } ?: source.height
+                canvas(width, height).apply { draw(source, 0, 0) }.toImage()
             } ?: SurfacePixelImage.Empty
+            return composed(
+                image = image,
+                surfaceId = frame.sourceSurfaceId?.toIntOrNull(),
+                collisions = emptyList(),
+                explicitlyHidden = explicitlyHidden,
+                revision = revision,
+            )
         }
-        if (!plan.hasPositiveCanvas()) return SurfacePixelImage.Empty
-        return when (frame) {
+        if (!plan.hasPositiveCanvas()) return composed(
+            SurfacePixelImage.Empty,
+            plan.surfaceId,
+            plan.collisions,
+            explicitlyHidden,
+            revision,
+        )
+        val image = when (frame) {
         is SurfaceRenderFrame.Base -> error("base frames are handled before normal-plan rendering")
         is SurfaceRenderFrame.Overlay -> overlay(plan, frame)
-        is SurfaceRenderFrame.Reset -> normal(plan)
-        is SurfaceRenderFrame.Move -> normal(plan) // SurfaceRenderPlan preserves legacy fallback semantics.
-        is SurfaceRenderFrame.Unknown -> normal(plan) // Keep the stage visible until a future behavior policy supports it.
+        is SurfaceRenderFrame.Reset -> renderNormal(plan)
+        is SurfaceRenderFrame.Move -> renderNormal(plan) // SurfaceRenderPlan preserves legacy fallback semantics.
+        is SurfaceRenderFrame.Unknown -> renderNormal(plan) // Keep the stage visible until a future policy supports it.
         }
+        return composed(image, plan.surfaceId, plan.collisions, explicitlyHidden, revision)
     }
 
     private fun overlay(plan: SurfaceRenderPlan, frame: SurfaceRenderFrame.Overlay): SurfacePixelImage {
         val overlay = frame.sourceSurfaceId
             ?.let(plans::find)
-            ?.let(::normal)
-            ?: frame.fallbackImagePath?.let(assets::load)?.colorKeyed()
-            ?: return normal(plan)
+            ?.let(::renderNormal)
+            ?: frame.fallbackImagePath?.let(assets::load)?.withTransparency(plan.transparencyPolicy)
+            ?: return renderNormal(plan)
         return canvas(plan.width, plan.height).apply {
-            draw(normal(plan), 0, 0)
+            draw(renderNormal(plan), 0, 0)
             draw(overlay, frame.x, frame.y)
         }.toImage()
+    }
+
+    private fun composed(
+        image: SurfacePixelImage,
+        surfaceId: Int?,
+        collisions: List<SurfaceCollision>,
+        explicitlyHidden: Boolean,
+        revision: Long,
+    ): ComposedSurface {
+        val canvasSize = IntSize(image.width, image.height)
+        return ComposedSurface(
+            image = image,
+            canvasSize = canvasSize,
+            visiblePixelBounds = image.visibleBounds(),
+            effectiveCollisions = collisions.toList(),
+            surfaceKey = SurfaceKey(surfaceId, canvasSize),
+            revision = revision,
+            explicitlyHidden = explicitlyHidden,
+        )
     }
 }
 
@@ -149,6 +241,28 @@ fun SurfaceCompositorImage(image: SurfacePixelImage, modifier: Modifier = Modifi
 }
 
 private const val TRANSPARENT = 0x00000000
+
+private fun SurfacePixelImage.withTransparency(policy: SurfaceTransparencyPolicy): SurfacePixelImage =
+    when (policy) {
+        SurfaceTransparencyPolicy.LEGACY_COLOR_KEY -> colorKeyed()
+        SurfaceTransparencyPolicy.AUTHORED_ALPHA -> this
+    }
+
+private fun SurfacePixelImage.visibleBounds(): IntRect? {
+    if (width <= 0 || height <= 0) return null
+    var left = width
+    var top = height
+    var right = 0
+    var bottom = 0
+    for (y in 0 until height) for (x in 0 until width) {
+        if (pixelAt(x, y) ushr 24 == 0) continue
+        left = minOf(left, x)
+        top = minOf(top, y)
+        right = maxOf(right, x + 1)
+        bottom = maxOf(bottom, y + 1)
+    }
+    return if (left < right && top < bottom) IntRect(left, top, right, bottom) else null
+}
 
 // Compositing makes several simultaneous ARGB copies (decoded bitmap, keyed
 // pixels, canvas, and Compose bitmap), so source assets need the same

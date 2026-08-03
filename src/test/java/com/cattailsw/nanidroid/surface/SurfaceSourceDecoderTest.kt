@@ -79,6 +79,33 @@ class SurfaceSourceDecoderTest {
     }
 
     @Test
+    fun explicit_legacy_declaration_accepts_strict_utf8_only_after_cp932_fails() {
+        listOf("Shift_JIS", "Windows-31J").forEach { declaration ->
+            val source = "charset,$declaration\nsurface10\n{\n// Nanika ݒ collision map\n}\n"
+            val result = SurfaceSourceDecoder.decode(
+                listOf(SurfaceSourceInput("surfaces.txt", source.toByteArray(StandardCharsets.UTF_8))),
+            )
+
+            assertEquals(StandardCharsets.UTF_8, result.files.single().charset)
+            assertTrue(result.files.single().lines.any { it.contains("Nanika ݒ") })
+            assertEquals(1, result.diagnostics.size)
+            assertEquals(SurfaceDiagnosticReason.DECODE, result.diagnostics.single().reason)
+            assertEquals("charset,$declaration", result.diagnostics.single().source)
+        }
+    }
+
+    @Test
+    fun explicit_legacy_declaration_rejects_bytes_invalid_in_cp932_and_utf8() {
+        val source = "charset,Shift_JIS\n".toByteArray(StandardCharsets.US_ASCII) + byteArrayOf(0x81.toByte())
+
+        val result = SurfaceSourceDecoder.decode(listOf(SurfaceSourceInput("surfaces.txt", source)))
+
+        assertTrue(result.files.isEmpty())
+        assertEquals(1, result.diagnostics.size)
+        assertEquals(SurfaceDiagnosticReason.DECODE, result.diagnostics.single().reason)
+    }
+
+    @Test
     fun absent_declaration_tries_strict_utf8_then_windows_31j_and_skips_undecodable_files() {
         val cp932 = Charset.forName("Windows-31J")
         val result = SurfaceSourceDecoder.decode(

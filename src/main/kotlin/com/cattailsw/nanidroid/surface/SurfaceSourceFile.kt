@@ -157,11 +157,17 @@ object SurfaceSourceDecoder {
 
         val candidates = when {
             hasUtf8Bom -> listOf(utf8)
+            declared == windows31j -> listOf(windows31j, utf8)
             declared != null -> listOf(declared)
             else -> listOf(utf8, windows31j)
         }
         for (charset in candidates) {
             val decoded = strictDecode(bytes, charset) ?: continue
+            if (declared == windows31j && charset == utf8) {
+                diagnostics.addBounded(
+                    diagnostic(input.name, declarationText, "legacy declaration contains strict UTF-8"),
+                )
+            }
             return DecodedSource(charset, decoded)
         }
 

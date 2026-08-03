@@ -1,5 +1,10 @@
 package com.cattailsw.nanidroid.compose
 
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import com.cattailsw.nanidroid.SurfaceCollision
+import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
+import com.cattailsw.nanidroid.surface.CollisionShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -50,6 +55,36 @@ class SurfaceCompositorTest {
     }
 
     @Test
+    fun `self alpha preserves authored opaque top left pixel for Bancho style one pixel Kero`() {
+        val opaque = SurfacePixelImage.of(1, 1, intArrayOf(RED))
+        val renderPlan = plan(
+            layers = listOf(layer("bancho-kero.png", 0, 0, 1, 1)),
+            width = 1,
+            height = 1,
+            transparencyPolicy = SurfaceTransparencyPolicy.AUTHORED_ALPHA,
+        )
+
+        val composed = SurfaceCompositor(assets("bancho-kero.png" to opaque)).composeNormal(renderPlan)
+
+        assertEquals(RED, composed.image.pixelAt(0, 0))
+        assertEquals(IntSize(1, 1), composed.canvasSize)
+        assertEquals(IntRect(0, 0, 1, 1), composed.visiblePixelBounds)
+    }
+
+    @Test
+    fun `legacy transparency still keys every top left color match`() {
+        val image = SurfacePixelImage.of(2, 2, intArrayOf(RED, BLUE, RED, GREEN))
+
+        val composed = SurfaceCompositor(assets("legacy.png" to image)).composeNormal(
+            plan(layers = listOf(layer("legacy.png", 0, 0, 2, 2))),
+        )
+
+        assertEquals(TRANSPARENT, composed.image.pixelAt(0, 0))
+        assertEquals(TRANSPARENT, composed.image.pixelAt(0, 1))
+        assertEquals(IntRect(1, 0, 2, 2), composed.visiblePixelBounds)
+    }
+
+    @Test
     fun `canvas output owns its completed pixels without exposing a public alias`() {
         val output = SurfaceCompositor(assets("base.png" to solid(BLUE))).normal(
             plan(layers = listOf(layer("base.png", 0, 0, 2, 1))),
@@ -73,7 +108,7 @@ class SurfaceCompositorTest {
 
         val replacement = compositor.frame(
             missingDimensions,
-            SurfaceRenderFrame.Base("replacement.png", 2, 1, 1),
+            SurfaceRenderFrame.Base(null, "replacement.png", 2, 1, 1),
         )
         assertEquals(GREEN, replacement.pixelAt(1, 0))
         assertEquals(listOf("replacement.png"), loader.requests)
@@ -115,7 +150,63 @@ class SurfaceCompositorTest {
 
         assertEquals(BLUE, compositor.frame(renderPlan, SurfaceRenderFrame.Reset(1)).pixelAt(1, 0))
         assertEquals(BLUE, compositor.frame(renderPlan, SurfaceRenderFrame.Move(8, -2, 1)).pixelAt(1, 0))
-        assertEquals(TRANSPARENT, compositor.frame(renderPlan, SurfaceRenderFrame.Base("replacement.png", 2, 2, 1)).pixelAt(0, 0))
+        assertEquals(TRANSPARENT, compositor.frame(renderPlan, SurfaceRenderFrame.Base(null, "replacement.png", 2, 2, 1)).pixelAt(0, 0))
+    }
+
+    @Test
+    fun `BASE source atomically replaces image canvas collisions and surface identity`() {
+        val selectedCollision = collision(1, "selected")
+        val sourceCollision = collision(2, "source")
+        val selected = plan(
+            surfaceId = 0,
+            layers = listOf(layer("selected.png", 0, 0, 4, 4)),
+            collisions = listOf(selectedCollision),
+        )
+        val source = plan(
+            surfaceId = 3031,
+            layers = listOf(layer("source.png", 0, 0, 2, 1)),
+            width = 3,
+            height = 2,
+            collisions = listOf(sourceCollision),
+        )
+        val compositor = SurfaceCompositor(
+            assets("selected.png" to solid(BLUE), "source.png" to solid(GREEN)),
+            SurfacePlanRegistry(listOf(selected, source)),
+        )
+
+        val composed = compositor.composeFrame(
+            selected,
+            SurfaceRenderFrame.Base("3031", null, 0, 0, 100),
+            revision = 31,
+        )
+
+        assertEquals(GREEN, composed.image.pixelAt(1, 0))
+        assertEquals(IntSize(3, 2), composed.canvasSize)
+        assertEquals(IntRect(1, 0, 2, 1), composed.visiblePixelBounds)
+        assertEquals(listOf(sourceCollision), composed.effectiveCollisions)
+        assertEquals(3031, composed.surfaceKey.surfaceId)
+        assertEquals(31L, composed.revision)
+    }
+
+    @Test
+    fun `transparent composed canvas retains active collisions and explicit hidden identity`() {
+        val active = List(7) { collision(it, "region$it") }
+        val transparent = SurfacePixelImage.of(2, 2, IntArray(4))
+        val renderPlan = plan(
+            layers = listOf(layer("transparent.png", 0, 0, 2, 2)),
+            collisions = active,
+        )
+
+        val composed = SurfaceCompositor(assets("transparent.png" to transparent)).composeNormal(
+            renderPlan,
+            explicitlyHidden = true,
+            revision = 9,
+        )
+
+        assertEquals(null, composed.visiblePixelBounds)
+        assertEquals(active, composed.effectiveCollisions)
+        assertTrue(composed.explicitlyHidden)
+        assertEquals(9L, composed.revision)
     }
 
     @Test
@@ -148,18 +239,34 @@ class SurfaceCompositorTest {
         )
     }
 
-    private fun plan(surfaceId: Int? = 7, layers: List<SurfaceRenderLayer>) = SurfaceRenderPlan(
+    private fun plan(
+        surfaceId: Int? = 7,
+        layers: List<SurfaceRenderLayer>,
+        width: Int = 4,
+        height: Int = 4,
+        collisions: List<SurfaceCollision> = emptyList(),
+        transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
+    ) = SurfaceRenderPlan(
         surfaceId = surfaceId,
-        width = 4,
-        height = 4,
+        width = width,
+        height = height,
         base = SurfaceRenderBase.Layers(layers),
         animations = emptyList(),
+        collisions = collisions,
+        transparencyPolicy = transparencyPolicy,
     )
 
     private fun layer(path: String, x: Int, y: Int, width: Int, height: Int) =
         SurfaceRenderLayer(path, x, y, width, height)
 
     private fun solid(color: Int) = SurfacePixelImage.of(2, 1, intArrayOf(TRANSPARENT, color))
+
+    private fun collision(id: Int, name: String) = SurfaceCollision(
+        id = id,
+        identifier = name,
+        shape = CollisionShape.Rectangle.fromAuthored(0, 0, 0, 0),
+        authoredOrder = id,
+    )
 
     private fun argb(alpha: Int, red: Int, green: Int, blue: Int) =
         alpha shl 24 or (red shl 16) or (green shl 8) or blue

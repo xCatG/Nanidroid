@@ -2,8 +2,10 @@ package com.cattailsw.nanidroid.compose
 
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.SurfaceAnimationFrame
+import com.cattailsw.nanidroid.SurfaceCollision
 import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceElement
+import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
 
 /**
  * Platform-neutral, complete description of how the legacy surface compositor
@@ -22,6 +24,8 @@ data class SurfaceRenderPlan(
     val height: Int,
     val base: SurfaceRenderBase,
     val animations: List<SurfaceRenderAnimation>,
+    val collisions: List<SurfaceCollision> = emptyList(),
+    val transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
 ) {
     companion object {
         /** Total result for an absent surface, suitable for an empty stage. */
@@ -31,6 +35,8 @@ data class SurfaceRenderPlan(
             height = 0,
             base = SurfaceRenderBase.Missing,
             animations = emptyList(),
+            collisions = emptyList(),
+            transparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
         )
     }
 }
@@ -67,6 +73,7 @@ sealed interface SurfaceRenderFrame {
 
     /** Legacy TYPE_BASE replaces the normal surface with this image. */
     data class Base(
+        val sourceSurfaceId: String?,
         val imagePath: String?,
         val width: Int,
         val height: Int,
@@ -130,6 +137,8 @@ fun SurfaceDefinition?.toSurfaceRenderPlan(): SurfaceRenderPlan {
                 alternatives = animation.alternativeAnimationIds.toList(),
             )
         },
+        collisions = definition.collisions.toList(),
+        transparencyPolicy = definition.transparencyPolicy,
     )
 }
 
@@ -157,6 +166,7 @@ private fun toElementLayer(index: Int, element: SurfaceElement): SurfaceRenderLa
 private fun toRenderFrame(frame: SurfaceAnimationFrame): SurfaceRenderFrame = when (frame.type) {
     ShellSurface.TYPE_RESET -> SurfaceRenderFrame.Reset(frame.durationMillis)
     ShellSurface.TYPE_BASE -> SurfaceRenderFrame.Base(
+        sourceSurfaceId = frame.sourceSurfaceId,
         imagePath = frame.imagePath,
         width = frame.width,
         height = frame.height,

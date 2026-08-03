@@ -710,6 +710,35 @@ class SurfaceParserRecoveryTest {
     }
 
     @Test
+    fun reader_recovers_nanika_shaped_utf8_source_with_legacy_declaration_and_seven_collisions() {
+        val root = temporaryFolder.newFolder("nanika-legacy-declaration-shell")
+        File(root, "surfaces.txt").writeText(
+            buildString {
+                appendLine("charset,Shift_JIS")
+                appendLine("// Nanika ݒ transparent Kero")
+                appendLine("surface10")
+                appendLine("{")
+                repeat(7) { index ->
+                    appendLine("collision$index,$index,$index,${index + 1},${index + 1},Region$index")
+                }
+                appendLine("}")
+            },
+            StandardCharsets.UTF_8,
+        )
+        val manager = SurfaceManager("fixture")
+
+        val reader = SurfaceReader(manager, root.absolutePath, File(root, "surfaces.txt").absolutePath)
+
+        assertFalse(reader.error)
+        assertEquals(7, requireNotNull(manager.getSurface("10")).collisionAreas.size)
+        assertEquals(
+            7,
+            manager.getParsedSurfaceEntries("10").count { it.source.text.startsWith("collision") },
+        )
+        assertEquals(1, reader.diagnostics.count { it.reason == SurfaceDiagnosticReason.DECODE })
+    }
+
+    @Test
     fun reader_bounds_attempted_tiny_decode_failures_before_a_sorted_late_file() {
         val root = temporaryFolder.newFolder("many-decode-failures-shell")
         repeat(512) { index ->
