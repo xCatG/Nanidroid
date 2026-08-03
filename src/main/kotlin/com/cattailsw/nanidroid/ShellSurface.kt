@@ -37,6 +37,7 @@ open class ShellSurface {
     internal var canonicalCollisions: List<SurfaceCollision>? = null
         private set
     internal var parsedSurfaceEntries: List<ParsedSurfaceEntry> = emptyList()
+    internal var transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY
     private var directCollisionOrder = 0
     var dim: Rect? = null
 

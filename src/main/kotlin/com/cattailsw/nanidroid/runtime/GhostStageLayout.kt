@@ -1,11 +1,12 @@
 package com.cattailsw.nanidroid.runtime
 
 /**
- * Pure stage geometry retained from the View-era layout manager.
+ * Temporary pixel compatibility facade retained from the View-era layout manager.
  *
- * Compose and the legacy renderer can both consume this value model while the
- * renderer migration is in progress. Dimensions are pixels and all scaling
- * intentionally truncates toward zero, matching the historical View code.
+ * The adaptive DP policy lives in [com.cattailsw.nanidroid.runtime.stage]. This
+ * facade remains unchanged until the Task 11 host cutover. Dimensions are
+ * pixels and all scaling intentionally truncates toward zero, matching the
+ * historical View code.
  */
 data class GhostStageSize(
     @JvmField val width: Int,

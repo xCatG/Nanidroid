@@ -67,7 +67,12 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
             error.printStackTrace()
         }
 
-        val surfaceReader = SurfaceReader(mgr!!, masterShell, masterShell + "surfaces.txt")
+        val surfaceReader = SurfaceReader(
+            mgr!!,
+            masterShell,
+            masterShell + "surfaces.txt",
+            SurfaceTransparencyPolicy.fromShellDescriptor(shellDesc),
+        )
         if (!error) error = surfaceReader.error
         shiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
         refreshPointerEventCapabilities()

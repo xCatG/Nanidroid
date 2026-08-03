@@ -5,6 +5,7 @@ import com.cattailsw.nanidroid.SurfaceAnimation
 import com.cattailsw.nanidroid.SurfaceAnimationFrame
 import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceElement
+import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -67,7 +68,7 @@ class SurfaceRenderPlanTest {
             SurfaceRenderFrame.Overlay("12", "ignored-when-12-exists.png", -4, 7, 20, 30, 83),
             plan.frames[1],
         )
-        assertEquals(SurfaceRenderFrame.Base("replacement.png", 40, 50, 101), plan.frames[2])
+        assertEquals(SurfaceRenderFrame.Base(null, "replacement.png", 40, 50, 101), plan.frames[2])
         assertEquals(SurfaceRenderFrame.Move(11, -13, 149), plan.frames[3])
         assertTrue((plan.frames[3] as SurfaceRenderFrame.Move).legacyBaseFallback)
     }
@@ -95,12 +96,49 @@ class SurfaceRenderPlanTest {
         assertEquals(SurfaceRenderFrame.Unknown(88, null, null, 0, 0, 0, 0, 3), unknown.animations.single().frames.single())
     }
 
+    @Test
+    fun `Snake BASE frame retains source surface identity 3031`() {
+        val planned = surface(
+            animations = listOf(
+                SurfaceAnimation(
+                    "31",
+                    0,
+                    false,
+                    listOf(frame(type = ShellSurface.TYPE_BASE, duration = 100, sourceSurfaceId = "3031")),
+                ),
+            ),
+        ).toSurfaceRenderPlan().animations.single().frames.single()
+
+        assertEquals(SurfaceRenderFrame.Base("3031", null, 0, 0, 100), planned)
+    }
+
+    @Test
+    fun `surface render plan carries explicit shell transparency policy`() {
+        val planned = surface(
+            transparencyPolicy = SurfaceTransparencyPolicy.AUTHORED_ALPHA,
+        ).toSurfaceRenderPlan()
+
+        assertEquals(SurfaceTransparencyPolicy.AUTHORED_ALPHA, planned.transparencyPolicy)
+    }
+
     private fun surface(
         type: Int = ShellSurface.S_TYPE_BASE,
         imagePath: String? = "surface.png",
         elements: List<SurfaceElement> = emptyList(),
         animations: List<SurfaceAnimation> = emptyList(),
-    ) = SurfaceDefinition(7, type, imagePath, "surface0007.png", 100, 80, emptyList(), animations, elements)
+        transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
+    ) = SurfaceDefinition(
+        7,
+        type,
+        imagePath,
+        "surface0007.png",
+        100,
+        80,
+        emptyList(),
+        animations,
+        elements,
+        transparencyPolicy,
+    )
 
     private fun frame(
         type: Int,

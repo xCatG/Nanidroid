@@ -15,7 +15,23 @@ data class SurfaceDefinition(
     val collisions: List<SurfaceCollision>,
     val animations: List<SurfaceAnimation>,
     val elements: List<SurfaceElement>,
+    val transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
 )
+
+enum class SurfaceTransparencyPolicy {
+    LEGACY_COLOR_KEY,
+    AUTHORED_ALPHA;
+
+    companion object {
+        fun fromShellDescriptor(descriptor: Map<String, String>?): SurfaceTransparencyPolicy {
+            val selfAlpha = descriptor.orEmpty().entries
+                .firstOrNull { (key, _) -> key.trim().equals("seriko.use_self_alpha", ignoreCase = true) }
+                ?.value
+                ?.trim()
+            return if (selfAlpha == "1") AUTHORED_ALPHA else LEGACY_COLOR_KEY
+        }
+    }
+}
 
 data class SurfaceCollision(
     val id: Int,
@@ -122,6 +138,7 @@ fun ShellSurface.toSurfaceDefinition(): SurfaceDefinition = SurfaceDefinition(
             height = element.H,
         )
     },
+    transparencyPolicy = transparencyPolicy,
 )
 
 private fun inclusiveEndpoint(start: Int, size: Int): Int = Math.toIntExact(
