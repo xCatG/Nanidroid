@@ -242,6 +242,56 @@ class SurfaceInteractionProtocolTest {
         )
         assertTrue(requests.isEmpty())
     }
+
+    @Test
+    fun `switch pending kero interaction never requests an unloaded session`() {
+        var unloads = 0
+        var stops = 0
+        var handoffs = 0
+        val pointerRequests = mutableListOf<String>()
+        val ghost = object : Ghost("recording") {
+            override fun loadGhostInfo() = Unit
+            override fun getCreateCount(): Long = 1L
+            override fun incrementCreateCount() = Unit
+            override fun getSakuraName(): String = "Sakura"
+            override fun getKeroName(): String = "Kero"
+            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            override fun doShioriEvent(event: String, ref: Array<String>?) =
+                ShioriResponse("SHIORI/3.0 204 No Content")
+            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
+                pointerRequests += eventId
+                return ShioriResponse("SHIORI/3.0 204 No Content")
+            }
+            override fun unload() {
+                unloads++
+            }
+        }
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        runner.setNoWaitMode(true)
+        runner.setCallback(object : SScriptRunner.StatusCallback {
+            override fun stop() {
+                stops++
+            }
+            override fun canExit() = Unit
+            override fun ghostSwitchScriptComplete() {
+                handoffs++
+            }
+        })
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
+        runner.doGhostChanging("next", "ghost", "next-path")
+
+        assertTrue(!runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)))
+        assertEquals(1, unloads)
+        assertEquals(1, stops)
+        assertEquals(1, handoffs)
+        assertTrue(pointerRequests.isEmpty())
+
+        runner.run()
+
+        assertEquals(2, stops)
+        assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
+    }
 }
 
 private fun effect(

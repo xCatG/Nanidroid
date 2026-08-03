@@ -87,6 +87,7 @@ open class SScriptRunner internal constructor(
         val eventId = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
             ?: return@withCurrentGhost false
         if (effect.speaker.legacyReference == "1") clearMsgQueue()
+        if (!isPinnedDialogueGhost(target)) return@withCurrentGhost false
         parseShioriResponseAndInsert(
             target.requestRaw(ShioriMethod.GET, eventId, SurfaceInteractionProtocol.references(effect)),
         )
