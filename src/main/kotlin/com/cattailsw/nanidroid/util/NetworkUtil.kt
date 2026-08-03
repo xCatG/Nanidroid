@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.util
 import android.content.Context
 import android.content.pm.PackageManager
 import java.io.IOException
+import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.URL
 import java.util.zip.GZIPInputStream
@@ -35,11 +36,39 @@ object NetworkUtil {
             connection.disconnect()
             throw IOException("HTTPS request failed: $responseCode")
         }
-        val stream = connection.inputStream
-        return if (connection.contentEncoding.equals("gzip", ignoreCase = true)) {
-            GZIPInputStream(stream)
-        } else {
-            stream
+        return responseStream(connection)
+    }
+
+    @Throws(IOException::class)
+    internal fun responseStream(connection: HttpsURLConnection): InputStream {
+        val input = try {
+            connection.inputStream
+        } catch (e: Exception) {
+            connection.disconnect()
+            throw e
+        }
+        val owned = object : FilterInputStream(input) {
+            override fun close() {
+                try {
+                    super.close()
+                } finally {
+                    connection.disconnect()
+                }
+            }
+        }
+        return try {
+            if (connection.contentEncoding.equals("gzip", ignoreCase = true)) {
+                GZIPInputStream(owned)
+            } else {
+                owned
+            }
+        } catch (e: Exception) {
+            try {
+                owned.close()
+            } catch (_: Exception) {
+                connection.disconnect()
+            }
+            throw e
         }
     }
 

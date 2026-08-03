@@ -35,7 +35,10 @@ class SScriptRunnerBootDispatchTest {
         runner.stopClock()
         runner.startClock()
         runner.stopClock()
-        runner.setGhost(replacement)
+        runner.unloadGhostForSwitchForTesting(initial)
+        Assert.assertTrue(
+            runner.attachReservedGhost(runner.reserveGhostForAttachmentForTesting(replacement)),
+        )
         runner.startClock()
 
         Assert.assertEquals(
@@ -62,10 +65,18 @@ class SScriptRunnerBootDispatchTest {
     fun firstActivationReplacementSendsFirstBootWithoutAdditionalBoot() {
         val trace: MutableList<String?> = ArrayList<String?>()
         val runner: com.cattailsw.nanidroid.SScriptRunner = runner()
-        runner.setGhost(RecordingGhost("initial", "Initial Ghost", 2, trace))
+        val initial = RecordingGhost("initial", "Initial Ghost", 2, trace)
+        runner.setGhost(initial)
         runner.startClock()
         runner.stopClock()
-        runner.setGhost(RecordingGhost("replacement", "New Ghost", 0, trace))
+        runner.unloadGhostForSwitchForTesting(initial)
+        Assert.assertTrue(
+            runner.attachReservedGhost(
+                runner.reserveGhostForAttachmentForTesting(
+                    RecordingGhost("replacement", "New Ghost", 0, trace),
+                ),
+            ),
+        )
         runner.startClock()
 
         Assert.assertEquals(
@@ -79,7 +90,7 @@ class SScriptRunnerBootDispatchTest {
 
     private fun runner(): com.cattailsw.nanidroid.SScriptRunner {
         val runner: com.cattailsw.nanidroid.SScriptRunner =
-            com.cattailsw.nanidroid.SScriptRunner(null)
+            com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
         runners.add(runner)
         return runner
     }
@@ -106,6 +117,10 @@ class SScriptRunnerBootDispatchTest {
 
         override fun incrementCreateCount() {
             // Creation counts are fixed test fixtures, not persisted state.
+        }
+
+        override fun unload() {
+            // Test fake has no native SHIORI session.
         }
 
         public override fun doShioriEvent(

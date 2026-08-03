@@ -58,4 +58,5 @@
   <string name="unsupported_shiori">\\0\\s0Sorry, this Ghost is using a SHIORI that is not yet supported by Nanidroid!\\e</string>
   <string name="unsupported_shiori_ongchanging">\\0\\s0Changing Ghost to %1$s\\e</string>
   <string name="unsupported_shiori_onclose">\\0\\s0Thank you for using Nanidroid!\\e</string>
+  <string name="err_no_ghost_available">No ghost is currently available. An interrupted update may still be recovering. Try reopening Nanidroid.</string>
 </resources>

@@ -39,6 +39,30 @@ class GhostSwitchRequestTest {
         assertTrue(ownsGhostSwitchRequest("ghost-a", "ghost-a"))
     }
 
+    @Test
+    fun destroyedOrStaleSwitchResultIsAbandonedExactlyOnceAndNeverApplied() {
+        listOf(
+            Triple(true, "ghost-a", "ghost-a"),
+            Triple(false, "ghost-a", "ghost-b"),
+        ).forEach { (destroyed, target, pending) ->
+            var abandons = 0
+            var applies = 0
+
+            routeGhostSwitchResult(
+                Any(),
+                destroyed = destroyed,
+                finishing = false,
+                targetGhostId = target,
+                pendingGhostId = pending,
+                abandon = { abandons++ },
+                apply = { applies++ },
+            )
+
+            assertTrue(abandons == 1)
+            assertTrue(applies == 0)
+        }
+    }
+
     private class CountingGhost : Ghost("counting-ghost") {
         override fun loadGhostInfo() = Unit
 
