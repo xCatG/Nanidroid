@@ -40,10 +40,15 @@ class ShioriResponse {
                 null
             } ?: break
 
+            if (line.isEmpty()) break
+
             val separator = line.indexOf(":")
             if (separator == -1) continue
 
-            resp[line.substring(0, separator)] = line.substring(separator + 2)
+            val valueStart = (separator + 1).let { start ->
+                if (line.getOrNull(start) == ' ') start + 1 else start
+            }
+            resp[line.substring(0, separator)] = line.substring(valueStart)
         }
     }
 
@@ -72,6 +77,10 @@ class ShioriResponse {
     fun getResponse(): Hashtable<String, String> = resp
 
     fun getKey(key: String): String? = resp[key]
+
+    fun getKeyIgnoreCase(key: String): String? = resp.entries.firstOrNull {
+        it.key.equals(key, ignoreCase = true)
+    }?.value
 
     override fun toString(): String = buildString {
         append("Response:").append(_ver).append(' ').append(stat_code).append('\n')

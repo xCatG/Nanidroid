@@ -2,6 +2,9 @@ package com.cattailsw.nanidroid
 
 import android.content.Context
 import com.cattailsw.nanidroid.shiori.Shiori
+import com.cattailsw.nanidroid.runtime.dialogue.GhostEventCapabilityDiscovery
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
+import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.util.PrefUtil
 import java.io.BufferedReader
 import java.io.File
@@ -19,6 +22,7 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
     @JvmField protected var shellDesc: Map<String, String>? = null
     @JvmField protected var error: Boolean = false
     @JvmField protected var mCtx: Context? = ctx
+    private var eventCapabilities = PointerEventCapabilities()
 
     init {
         LegacyPlatform.debug(TAG, "gdname=$ghostDirName")
@@ -66,15 +70,21 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
         val surfaceReader = SurfaceReader(mgr!!, masterShell, masterShell + "surfaces.txt")
         if (!error) error = surfaceReader.error
         shiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
+        refreshPointerEventCapabilities()
     }
 
     open fun unload() {
-        shiori!!.unloadShiori()
+        try {
+            shiori!!.unloadShiori()
+        } finally {
+            eventCapabilities = PointerEventCapabilities()
+        }
     }
 
     internal open fun reloadAfterGhostUpdate() {
         error = false
         shiori = null
+        eventCapabilities = PointerEventCapabilities()
         mgr = SurfaceManager(ghostDirName)
         loadGhostInfo()
         if (shiori == null) throw IllegalStateException("ghost reload did not establish a SHIORI session")
@@ -83,6 +93,7 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
     internal open fun deactivateAfterGhostUpdateReloadFailure() {
         error = true
         shiori = null
+        eventCapabilities = PointerEventCapabilities()
     }
 
     open fun getGhostId(): String = ghostDirName
@@ -117,6 +128,27 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
             request.append("Reference").append(index).append(": ").append(value).append("\r\n")
         }
         request.append("\r\n")
+        return sendRequest(request)
+    }
+
+    open fun requestRaw(
+        method: ShioriMethod,
+        eventId: String,
+        references: List<String> = emptyList(),
+    ): ShioriResponse {
+        if (shiori == null) return ShioriResponse("SHIORI/2.0 500 Internal Server Error")
+        val request = StringBuilder()
+        request.append(method.name).append(" SHIORI/3.0\r\nSender: ").append(Setup.NANIDROID).append("\r\n")
+        request.append("SecurityLevel: local\r\n")
+        request.append("ID: ").append(eventId).append("\r\n")
+        references.forEachIndexed { index, value ->
+            request.append("Reference").append(index).append(": ").append(value).append("\r\n")
+        }
+        request.append("\r\n")
+        return sendRequest(request)
+    }
+
+    private fun sendRequest(request: StringBuilder): ShioriResponse {
         val reader = BufferedReader(StringReader(shiori!!.request(request.toString())))
         val response = ShioriResponse(reader)
         try {
@@ -125,6 +157,15 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
             // The parsed response remains authoritative.
         }
         return response
+    }
+
+    open fun pointerEventCapabilities(): PointerEventCapabilities = eventCapabilities
+
+    private fun refreshPointerEventCapabilities() {
+        eventCapabilities = PointerEventCapabilities()
+        eventCapabilities = runCatching {
+            GhostEventCapabilityDiscovery.discover(::requestRaw)
+        }.getOrDefault(PointerEventCapabilities())
     }
 
     private companion object {
