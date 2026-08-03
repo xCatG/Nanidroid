@@ -26,6 +26,67 @@ data class FloatRect(
     )
 }
 
+/** A platform-neutral half-open rectangle used by exact rendered collision regions. */
+data class DoubleRect(
+    val left: Double,
+    val top: Double,
+    val right: Double,
+    val bottom: Double,
+) {
+    init {
+        require(left.isFinite() && top.isFinite() && right.isFinite() && bottom.isFinite())
+        require(left <= right && top <= bottom)
+    }
+
+    fun contains(point: Offset): Boolean =
+        point.x.toDouble() >= left && point.x.toDouble() < right &&
+            point.y.toDouble() >= top && point.y.toDouble() < bottom
+
+    fun translated(offset: IntOffset) = DoubleRect(
+        left + offset.x.toDouble(),
+        top + offset.y.toDouble(),
+        right + offset.x.toDouble(),
+        bottom + offset.y.toDouble(),
+    )
+}
+
+/** One exact exterior grid edge of a rendered collision region. */
+data class CollisionBoundarySegmentPx(
+    val start: Offset,
+    val end: Offset,
+) {
+    fun translated(offset: IntOffset) = CollisionBoundarySegmentPx(
+        Offset(start.x + offset.x, start.y + offset.y),
+        Offset(end.x + offset.x, end.y + offset.y),
+    )
+}
+
+/**
+ * Exact rendered footprint of an authored collision.
+ *
+ * Each rectangle is the half-open preimage of one contiguous run of intrinsic
+ * pixels accepted by [CollisionShape.contains]. Rows intentionally remain
+ * separate, preserving holes and disconnected areas without approximating
+ * authored ellipse, circle, or polygon geometry. [boundarySegments] contains
+ * only exterior grid edges; shared edges between accepted cells are cancelled.
+ */
+data class CollisionRegionPx(
+    val rects: List<DoubleRect>,
+    val boundarySegments: List<CollisionBoundarySegmentPx>,
+) {
+    fun contains(point: Offset): Boolean =
+        point.x.isFinite() && point.y.isFinite() && rects.any { it.contains(point) }
+
+    fun translated(offset: IntOffset) = CollisionRegionPx(
+        rects = rects.map { it.translated(offset) },
+        boundarySegments = boundarySegments.map { it.translated(offset) },
+    )
+
+    companion object {
+        val Empty = CollisionRegionPx(emptyList(), emptyList())
+    }
+}
+
 /** Exact authored shape kind retained for overlay drawing and diagnostics. */
 sealed interface CollisionShapePx {
     val bounds: FloatRect
@@ -135,6 +196,85 @@ data class SurfaceTransformPx(
 
     fun toRoot(shape: CollisionShape): CollisionShapePx = toStage(shape).translated(stageToRoot)
 
+    /**
+     * Materializes the exact visible hit footprint used by [toIntrinsic]. The
+     * authored shape remains unchanged; only intrinsic pixels inside the
+     * surface canvas participate in this rendered diagnostic region.
+     */
+    fun toStageRegion(shape: CollisionShape): CollisionRegionPx {
+        if (!usable) return CollisionRegionPx.Empty
+        val clippedLeft = maxOf(0, shape.bounds.left)
+        val clippedTop = maxOf(0, shape.bounds.top)
+        val clippedRight = minOf(intrinsicSize.width, shape.bounds.right)
+        val clippedBottom = minOf(intrinsicSize.height, shape.bounds.bottom)
+        if (clippedLeft >= clippedRight || clippedTop >= clippedBottom) return CollisionRegionPx.Empty
+
+        fun boundaryX(x: Int): Double = renderedBounds.left.toDouble() +
+            x.toDouble() * renderedWidth.toDouble() / intrinsicSize.width.toDouble()
+        fun boundaryY(y: Int): Double = renderedBounds.top.toDouble() +
+            y.toDouble() * renderedHeight.toDouble() / intrinsicSize.height.toDouble()
+        fun rect(left: Int, top: Int, right: Int, bottom: Int) = DoubleRect(
+            boundaryX(left),
+            boundaryY(top),
+            boundaryX(right),
+            boundaryY(bottom),
+        )
+
+        if (shape is CollisionShape.Rectangle) {
+            return CollisionRegionPx(
+                rects = listOf(rect(clippedLeft, clippedTop, clippedRight, clippedBottom)),
+                boundarySegments = listOf(
+                    segment(clippedLeft, clippedTop, clippedRight, clippedTop, ::boundaryX, ::boundaryY),
+                    segment(clippedRight, clippedTop, clippedRight, clippedBottom, ::boundaryX, ::boundaryY),
+                    segment(clippedRight, clippedBottom, clippedLeft, clippedBottom, ::boundaryX, ::boundaryY),
+                    segment(clippedLeft, clippedBottom, clippedLeft, clippedTop, ::boundaryX, ::boundaryY),
+                ),
+            )
+        }
+
+        val exteriorEdges = linkedSetOf<IntrinsicEdge>()
+        fun toggle(firstX: Int, firstY: Int, secondX: Int, secondY: Int) {
+            val edge = IntrinsicEdge.normalized(firstX, firstY, secondX, secondY)
+            if (!exteriorEdges.remove(edge)) exteriorEdges.add(edge)
+        }
+        val runs = buildList {
+            for (y in clippedTop until clippedBottom) {
+                var runStart: Int? = null
+                for (x in clippedLeft until clippedRight) {
+                    val accepted = shape.contains(IntOffset(x, y))
+                    if (accepted) {
+                        if (runStart == null) runStart = x
+                        toggle(x, y, x + 1, y)
+                        toggle(x + 1, y, x + 1, y + 1)
+                        toggle(x + 1, y + 1, x, y + 1)
+                        toggle(x, y + 1, x, y)
+                    }
+                    if (!accepted && runStart != null) {
+                        add(rect(runStart, y, x, y + 1))
+                        runStart = null
+                    }
+                }
+                runStart?.let { add(rect(it, y, clippedRight, y + 1)) }
+            }
+        }
+        val segments = exteriorEdges
+            .sortedWith(compareBy(IntrinsicEdge::firstY, IntrinsicEdge::firstX, IntrinsicEdge::secondY, IntrinsicEdge::secondX))
+            .map { edge ->
+                segment(
+                    edge.firstX,
+                    edge.firstY,
+                    edge.secondX,
+                    edge.secondY,
+                    ::boundaryX,
+                    ::boundaryY,
+                )
+            }
+        return CollisionRegionPx(runs, segments)
+    }
+
+    fun toRootRegion(shape: CollisionShape): CollisionRegionPx =
+        toStageRegion(shape).translated(stageToRoot)
+
     private fun map(stageX: Double, stageY: Double): IntOffset? {
         if (!usable || !stageX.isFinite() || !stageY.isFinite()) return null
         val left = renderedBounds.left.toDouble()
@@ -152,6 +292,34 @@ data class SurfaceTransformPx(
         return IntOffset(intrinsicX.toInt(), intrinsicY.toInt())
     }
 }
+
+private data class IntrinsicEdge(
+    val firstX: Int,
+    val firstY: Int,
+    val secondX: Int,
+    val secondY: Int,
+) {
+    companion object {
+        fun normalized(firstX: Int, firstY: Int, secondX: Int, secondY: Int): IntrinsicEdge =
+            if (firstY < secondY || firstY == secondY && firstX <= secondX) {
+                IntrinsicEdge(firstX, firstY, secondX, secondY)
+            } else {
+                IntrinsicEdge(secondX, secondY, firstX, firstY)
+            }
+    }
+}
+
+private fun segment(
+    firstX: Int,
+    firstY: Int,
+    secondX: Int,
+    secondY: Int,
+    boundaryX: (Int) -> Double,
+    boundaryY: (Int) -> Double,
+) = CollisionBoundarySegmentPx(
+    start = Offset(boundaryX(firstX).toFloat(), boundaryY(firstY).toFloat()),
+    end = Offset(boundaryX(secondX).toFloat(), boundaryY(secondY).toFloat()),
+)
 
 enum class SurfaceScope { KERO, SAKURA }
 

@@ -116,10 +116,10 @@ fun MeasuredGhostStageLayout(
 
         val children = buildList {
             keroSnapshot?.let { surface ->
-                add(measureSurface(StageSlot.KERO_SURFACE, surface, layoutPx.keroSurface, surfaceContent))
+                add(measureSurface(StageSlot.KERO_SURFACE, surface, surfaceContent))
             }
             sakuraSnapshot?.let { surface ->
-                add(measureSurface(StageSlot.SAKURA_SURFACE, surface, layoutPx.sakuraSurface, surfaceContent))
+                add(measureSurface(StageSlot.SAKURA_SURFACE, surface, surfaceContent))
             }
             if (showKeroBalloon && presentation.kero.balloonVisible) {
                 layoutPx.keroBubble?.let { bounds -> add(measureSlot(StageSlot.KERO_BALLOON, bounds, keroBalloon)) }
@@ -156,10 +156,9 @@ private data class MeasuredChild(
 private fun androidx.compose.ui.layout.SubcomposeMeasureScope.measureSurface(
     slot: StageSlot,
     snapshot: StageSurfaceSnapshot,
-    bounds: IntRect?,
     content: @Composable BoxScope.(StageSurfaceSnapshot) -> Unit,
 ): MeasuredChild {
-    val required = requireNotNull(bounds)
+    val required = snapshot.transform.renderedBounds
     val placeables = subcompose(slot) {
         androidx.compose.foundation.layout.Box { content(snapshot) }
     }.map { measurable -> measurable.measure(required.fixedConstraints()) }

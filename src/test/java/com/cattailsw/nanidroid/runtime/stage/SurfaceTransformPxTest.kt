@@ -6,10 +6,13 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.surface.CollisionShape
+import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
+import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -169,6 +172,99 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `collision regions exactly match inverse hit membership for every shape`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(7, 5),
+            renderedBounds = IntRect(11, 17, 26, 28),
+            scale = 2.15f,
+            stageToRoot = IntOffset(101, 203),
+        )
+        val shapes = listOf(
+            CollisionShape.Rectangle(IntRect(-3, 1, 4, 7)),
+            CollisionShape.Ellipse.fromAuthored(-2, -1, 6, 4),
+            CollisionShape.Circle.fromAuthored(0, 0, 0),
+            CollisionShape.Circle.fromAuthored(3, 2, 3),
+            CollisionShape.Polygon(
+                listOf(
+                    IntOffset(-2, -1),
+                    IntOffset(8, 5),
+                    IntOffset(-2, 5),
+                    IntOffset(8, -1),
+                ),
+            ),
+        )
+
+        shapes.forEach { shape ->
+            val stageRegion = transform.toStageRegion(shape)
+            val rootRegion = transform.toRootRegion(shape)
+            probeCoordinates(transform).forEach { stagePoint ->
+                val expected = transform.toIntrinsic(stagePoint)?.let(shape::contains) == true
+                assertEquals("stage shape=$shape point=$stagePoint", expected, stageRegion.contains(stagePoint))
+                val rootPoint = Offset(
+                    stagePoint.x + transform.stageToRoot.x,
+                    stagePoint.y + transform.stageToRoot.y,
+                )
+                val expectedRoot = transform.rootToIntrinsic(rootPoint)?.let(shape::contains) == true
+                assertEquals("root shape=$shape point=$rootPoint", expectedRoot, rootRegion.contains(rootPoint))
+            }
+        }
+    }
+
+    @Test
+    fun `collision region retains holes and disjoint runs without filling its bounds`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(7, 7),
+            renderedBounds = IntRect(3, 5, 20, 24),
+            scale = 2.5f,
+            stageToRoot = IntOffset.Zero,
+        )
+        val crossing = CollisionShape.Polygon(
+            listOf(
+                IntOffset(0, 0),
+                IntOffset(6, 6),
+                IntOffset(0, 6),
+                IntOffset(6, 0),
+            ),
+        )
+        val region = transform.toStageRegion(crossing)
+
+        assertTrue(region.rects.size > 1)
+        probeCoordinates(transform).forEach { point ->
+            val expected = transform.toIntrinsic(point)?.let(crossing::contains) == true
+            assertEquals("point=$point", expected, region.contains(point))
+        }
+        assertFalse(region.contains(Offset(3.1f, 14.5f)))
+        assertFalse(region.contains(Offset(19.999f, 14.5f)))
+    }
+
+    @Test
+    fun `collision boundary cancels internal cell edges and outlines a radius zero circle`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(4, 3),
+            renderedBounds = IntRect(7, 11, 19, 17),
+            scale = 2f,
+            stageToRoot = IntOffset.Zero,
+        )
+        val twoCellEllipse = CollisionShape.Ellipse.fromAuthored(0, 0, 1, 0)
+        val twoCellRegion = transform.toStageRegion(twoCellEllipse)
+        val internalX = 10f
+
+        assertFalse(
+            twoCellRegion.boundarySegments.any { segment ->
+                segment.start.x == internalX && segment.end.x == internalX &&
+                    setOf(segment.start.y, segment.end.y) == setOf(11f, 13f)
+            },
+        )
+        assertEquals(6, twoCellRegion.boundarySegments.size)
+
+        val pointRegion = transform.toStageRegion(CollisionShape.Circle.fromAuthored(2, 1, 0))
+        assertEquals(1, pointRegion.rects.size)
+        assertEquals(4, pointRegion.boundarySegments.size)
+        assertTrue(pointRegion.contains(Offset(13.1f, 13.1f)))
+        assertFalse(pointRegion.contains(Offset(16f, 13.1f)))
+    }
+
+    @Test
     fun `root collision and hit coordinates share one translation`() {
         val transform = SurfaceTransformPx(
             IntSize(8, 8),
@@ -199,6 +295,30 @@ class SurfaceTransformPxTest {
         assertTrue(collision.left >= measured.keroBubble.right)
     }
 
+    @Test
+    fun `measure baseline survives the same owner and resets atomically for a replacement owner`() {
+        val state = GhostStageMeasureState()
+        val firstOwner = Any()
+        val replacementOwner = Any()
+        val layoutDp = layout(keroSurface = StageDpRect(0.dp, 10.dp, 20.dp, 40.dp))
+        val snapshot = StageMeasuredSnapshot(
+            layoutDp = layoutDp,
+            layoutPx = StageLayoutPx.from(layoutDp, 1f),
+            kero = null,
+            sakura = null,
+        )
+
+        state.resetFor(firstOwner)
+        state.commit(snapshot)
+        state.resetFor(firstOwner)
+        assertSame(snapshot, state.latest)
+        assertEquals(layoutDp.sizingBaseline, state.baseline)
+
+        state.resetFor(replacementOwner)
+        assertNull(state.latest)
+        assertNull(state.baseline)
+    }
+
     private fun layout(
         content: StageDpRect = StageDpRect(0.dp, 0.dp, 300.dp, 400.dp),
         keroBubble: StageDpRect? = null,
@@ -227,5 +347,35 @@ class SurfaceTransformPxTest {
             sizingBaseline = StageSizingBaseline(geometry, 1f, null, null),
             tinyFallback = false,
         )
+    }
+
+    private fun probeCoordinates(transform: SurfaceTransformPx): List<Offset> {
+        val xs = mutableSetOf<Float>()
+        val ys = mutableSetOf<Float>()
+        fun addBoundarySamples(target: MutableSet<Float>, value: Double) {
+            val boundary = value.toFloat()
+            target += boundary
+            target += Math.nextAfter(boundary, Double.NEGATIVE_INFINITY)
+            target += Math.nextAfter(boundary, Double.POSITIVE_INFINITY)
+        }
+        for (x in 0..transform.intrinsicSize.width) {
+            addBoundarySamples(
+                xs,
+                transform.renderedBounds.left.toDouble() +
+                    x.toDouble() * transform.renderedBounds.width.toDouble() / transform.intrinsicSize.width,
+            )
+        }
+        for (y in 0..transform.intrinsicSize.height) {
+            addBoundarySamples(
+                ys,
+                transform.renderedBounds.top.toDouble() +
+                    y.toDouble() * transform.renderedBounds.height.toDouble() / transform.intrinsicSize.height,
+            )
+        }
+        xs += transform.renderedBounds.left - 1f
+        xs += transform.renderedBounds.right + 1f
+        ys += transform.renderedBounds.top - 1f
+        ys += transform.renderedBounds.bottom + 1f
+        return xs.flatMap { x -> ys.map { y -> Offset(x, y) } }
     }
 }

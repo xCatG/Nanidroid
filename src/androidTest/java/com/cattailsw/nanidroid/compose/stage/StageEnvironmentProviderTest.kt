@@ -2,8 +2,10 @@ package com.cattailsw.nanidroid.compose.stage
 
 import android.graphics.Rect
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntRect
@@ -15,8 +17,10 @@ import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowLayoutInfo
 import androidx.window.testing.layout.WindowLayoutInfoPublisherRule
 import androidx.window.testing.layout.FoldingFeature as TestFoldingFeature
+import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -160,7 +164,7 @@ class StageEnvironmentProviderTest {
     }
 
     @Test
-    fun lifecycleStopCancelsCollectionAndRestartReceivesTheLatestLayout() {
+    fun lifecycleStopDefersPublicationAndRestartReceivesTheLatestLayout() {
         val observed = mutableStateOf<StageWindowEnvironment?>(null)
         composeRule.setContent {
             StageEnvironmentProvider { environment -> SideEffect { observed.value = environment } }
@@ -181,17 +185,105 @@ class StageEnvironmentProviderTest {
         composeRule.runOnIdle { assertEquals(before, observed.value) }
 
         composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-        composeRule.waitForIdle()
-        publish(listOf(feature))
-        composeRule.waitUntil { observed.value?.displayFeatures?.size == 1 }
+        composeRule.waitUntil(timeoutMillis = 5_000) { observed.value?.displayFeatures?.size == 1 }
         assertFalse(observed.value!!.displayFeatures.isEmpty())
+    }
+
+    @Test
+    fun publisherFoldWithNonzeroInsetsAndPartialOcclusionTriggersMeasuredRelayout() {
+        val observed = mutableStateOf<StageWindowEnvironment?>(null)
+        val measureState = GhostStageMeasureState()
+        composeRule.setContent {
+            StageEnvironmentProvider { raw ->
+                val inset = raw.copy(
+                    safeBoundsInWindowPx = IntRect(
+                        17,
+                        29,
+                        (raw.windowSizePx.width - 23).coerceAtLeast(17),
+                        (raw.windowSizePx.height - 31).coerceAtLeast(29),
+                    ),
+                )
+                SideEffect { observed.value = inset }
+                MeasuredGhostStageLayout(
+                    presentation = presentation(),
+                    environmentForSize = { size ->
+                        inset.toStageEnvironment(
+                            stageBoundsInWindowPx = IntRect(0, 0, size.width, size.height),
+                            canonicalAppBarHeight = 64.dp,
+                            ghostKey = "fixture",
+                        )
+                    },
+                    measureState = measureState,
+                    kero = null,
+                    sakura = null,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        publish(emptyList())
+        composeRule.waitUntil { measureState.latest != null && observed.value?.displayFeatures?.isEmpty() == true }
+        val before = requireNotNull(measureState.latest)
+        val window = requireNotNull(observed.value)
+        assertEquals(17, window.safeBoundsInWindowPx.left)
+        assertEquals(29, window.safeBoundsInWindowPx.top)
+
+        val fold = PartialFoldingFeature(
+            rect = Rect(
+                window.windowSizePx.width / 2 - 18,
+                140,
+                window.windowSizePx.width / 2 + 18,
+                (window.windowSizePx.height - 160).coerceAtLeast(141),
+            ),
+        )
+        publish(listOf(fold))
+        composeRule.waitUntil {
+            observed.value?.displayFeatures?.singleOrNull()?.occluding == true &&
+                measureState.latest?.layoutDp?.content != before.layoutDp.content
+        }
+
+        val after = requireNotNull(measureState.latest)
+        val foldedWindow = requireNotNull(observed.value)
+        val feature = foldedWindow.displayFeatures.single()
+        assertTrue(feature.occluding)
+        assertFalse(feature.separating)
+        assertEquals(FeatureOrientation.VERTICAL, feature.orientation)
+        val converted = foldedWindow.toStageEnvironment(
+            IntRect(0, 0, foldedWindow.windowSizePx.width, foldedWindow.windowSizePx.height),
+            64.dp,
+            "fixture",
+        )
+        assertEquals((17f / foldedWindow.density).dp, converted.safeBounds.left)
+        assertEquals((29f / foldedWindow.density).dp, converted.safeBounds.top)
+        assertEquals((fold.bounds.left / foldedWindow.density).dp, converted.displayFeatures.single().bounds.left)
+        assertEquals((fold.bounds.top / foldedWindow.density).dp, converted.displayFeatures.single().bounds.top)
+        assertNotEquals(before.layoutDp.content, after.layoutDp.content)
+        assertNotEquals(before.layoutPx.content, after.layoutPx.content)
     }
 
     private fun publish(features: List<DisplayFeature>) {
         publisher.overrideWindowLayoutInfo(WindowLayoutInfo(features))
     }
 
+    private fun presentation() = GhostPresentationReducer.snapshot(
+        sakuraText = "Sakura",
+        sakuraSurfaceId = "0",
+        sakuraAnimationId = null,
+        sakuraBalloonId = "0",
+        keroText = "Kero",
+        keroSurfaceId = "10",
+        keroAnimationId = null,
+        keroBalloonId = "0",
+    )
+
     private data class FixedFeature(private val rect: Rect) : DisplayFeature {
         override val bounds: Rect get() = Rect(rect)
+    }
+
+    private data class PartialFoldingFeature(private val rect: Rect) : FoldingFeature {
+        override val bounds: Rect get() = Rect(rect)
+        override val isSeparating: Boolean get() = false
+        override val occlusionType: FoldingFeature.OcclusionType get() = FoldingFeature.OcclusionType.FULL
+        override val orientation: FoldingFeature.Orientation get() = FoldingFeature.Orientation.VERTICAL
+        override val state: FoldingFeature.State get() = FoldingFeature.State.FLAT
     }
 }

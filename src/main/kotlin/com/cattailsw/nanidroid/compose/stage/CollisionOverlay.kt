@@ -9,13 +9,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.graphics.withSave
 import com.cattailsw.nanidroid.SurfaceCollision
-import com.cattailsw.nanidroid.runtime.stage.CollisionShapePx
+import com.cattailsw.nanidroid.runtime.stage.CollisionRegionPx
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 
 /** Decorative collision diagnostics built from the same transform as hit testing. */
@@ -25,24 +24,20 @@ fun CollisionOverlay(
     transform: SurfaceTransformPx,
     visible: Boolean,
     modifier: Modifier = Modifier,
+    showLabels: Boolean = true,
 ) {
-    val localShapes = remember(collisions, transform) {
-        val localOffset = androidx.compose.ui.unit.IntOffset(
-            -transform.renderedBounds.left,
-            -transform.renderedBounds.top,
-        )
-        collisions.map { collision ->
-            val shape = transform.toStage(collision.shape).translated(localOffset)
-            val polygonPath = (shape as? CollisionShapePx.Polygon)?.let { polygon ->
-                Path().apply {
-                    polygon.points.firstOrNull()?.let { first ->
-                        moveTo(first.x, first.y)
-                        polygon.points.drop(1).forEach { point -> lineTo(point.x, point.y) }
-                        close()
-                    }
-                }
+    val localShapes = remember(collisions, transform, visible) {
+        if (!visible) {
+            emptyList()
+        } else {
+            val localOffset = androidx.compose.ui.unit.IntOffset(
+                -transform.renderedBounds.left,
+                -transform.renderedBounds.top,
+            )
+            collisions.map { collision ->
+                val region = transform.toStageRegion(collision.shape).translated(localOffset)
+                TransformedCollision(collision.id, collision.identifier, region)
             }
-            TransformedCollision(collision.id, collision.identifier, shape, polygonPath)
         }
     }
     val labelPaint = remember {
@@ -55,40 +50,34 @@ fun CollisionOverlay(
     Canvas(
         modifier = modifier
             .fillMaxSize()
+            .testTag("collision-overlay")
             .clearAndSetSemantics { },
     ) {
         if (!visible) return@Canvas
         localShapes.forEach { collision ->
-            when (val shape = collision.shape) {
-                is CollisionShapePx.Rectangle -> drawRect(
-                    color = Color.Magenta,
-                    topLeft = Offset(shape.bounds.left, shape.bounds.top),
-                    size = Size(shape.bounds.width, shape.bounds.height),
-                    style = Stroke(width = 1f),
+            collision.region.rects.forEach { rect ->
+                drawRect(
+                    color = Color.Magenta.copy(alpha = 0.35f),
+                    topLeft = Offset(rect.left.toFloat(), rect.top.toFloat()),
+                    size = Size((rect.right - rect.left).toFloat(), (rect.bottom - rect.top).toFloat()),
                 )
-                is CollisionShapePx.Ellipse -> drawOval(
-                    color = Color.Magenta,
-                    topLeft = Offset(shape.bounds.left, shape.bounds.top),
-                    size = Size(shape.bounds.width, shape.bounds.height),
-                    style = Stroke(width = 1f),
-                )
-                is CollisionShapePx.Circle -> drawOval(
-                    color = Color.Magenta,
-                    topLeft = Offset(shape.bounds.left, shape.bounds.top),
-                    size = Size(shape.bounds.width, shape.bounds.height),
-                    style = Stroke(width = 1f),
-                )
-                is CollisionShapePx.Polygon -> {
-                    drawPath(requireNotNull(collision.polygonPath), Color.Magenta, style = Stroke(width = 1f))
-                }
             }
-            drawContext.canvas.nativeCanvas.withSave {
+            collision.region.boundarySegments.forEach { segment ->
+                drawLine(
+                    color = Color.Magenta,
+                    start = segment.start,
+                    end = segment.end,
+                    strokeWidth = 1f,
+                )
+            }
+            val anchor = collision.region.rects.firstOrNull()
+            if (showLabels && anchor != null) drawContext.canvas.nativeCanvas.withSave {
                 clipRect(0f, 0f, size.width, size.height)
                 val label = "${collision.id}:${collision.identifier}"
                 drawText(
                     label,
-                    collision.shape.bounds.left.coerceIn(0f, size.width),
-                    (collision.shape.bounds.top + labelPaint.textSize).coerceIn(labelPaint.textSize, size.height),
+                    anchor.left.toFloat().coerceIn(0f, size.width),
+                    collisionLabelBaselinePx(anchor.top.toFloat(), labelPaint.textSize, size.height),
                     labelPaint,
                 )
             }
@@ -96,9 +85,14 @@ fun CollisionOverlay(
     }
 }
 
+internal fun collisionLabelBaselinePx(anchorTop: Float, textSize: Float, canvasHeight: Float): Float {
+    val height = canvasHeight.takeIf { it.isFinite() && it > 0f } ?: 0f
+    val preferred = (anchorTop + textSize).takeIf { it.isFinite() } ?: 0f
+    return preferred.coerceIn(0f, height)
+}
+
 private data class TransformedCollision(
     val id: Int,
     val identifier: String,
-    val shape: CollisionShapePx,
-    val polygonPath: Path?,
+    val region: CollisionRegionPx,
 )

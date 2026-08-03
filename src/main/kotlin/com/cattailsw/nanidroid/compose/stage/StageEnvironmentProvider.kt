@@ -160,17 +160,29 @@ fun StageEnvironmentProvider(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var started by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
     var layoutInfo by remember(tracker, activity) { mutableStateOf<WindowLayoutInfo?>(null) }
+    var pendingLayoutInfo by remember(tracker, activity) { mutableStateOf<WindowLayoutInfo?>(null) }
 
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, _ ->
-            started = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            val nowStarted = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            if (nowStarted && !started) {
+                pendingLayoutInfo?.let { layoutInfo = it }
+                pendingLayoutInfo = null
+            }
+            started = nowStarted
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(tracker, activity, started) {
-        if (!started || activity == null) return@LaunchedEffect
-        tracker.windowLayoutInfo(activity).collect { layoutInfo = it }
+    LaunchedEffect(tracker, activity) {
+        if (activity == null) return@LaunchedEffect
+        // WindowInfoTracker has no synchronous "current" query and some
+        // implementations do not replay changes to a new collector. Keep the
+        // one composition-scoped source warm, but defer publication while the
+        // lifecycle is stopped so resume applies the latest posture exactly once.
+        tracker.windowLayoutInfo(activity).collect { info ->
+            if (started) layoutInfo = info else pendingLayoutInfo = info
+        }
     }
 
     val environment = remember(
