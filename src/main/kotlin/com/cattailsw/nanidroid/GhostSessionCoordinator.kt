@@ -282,12 +282,15 @@ internal class GhostSessionCoordinator {
         }
     }
 
-    fun markActiveUnloaded(ghost: Ghost): Boolean {
+    fun markActiveUnloaded(ghost: Ghost): Boolean = markActiveUnloadedIf(ghost) { true }
+
+    fun markActiveUnloadedIf(ghost: Ghost, shouldUnload: () -> Boolean): Boolean {
         val root = rootOf(ghost)
         val state = state(root)
         synchronized(state.monitor) {
             synchronized(globalMonitor) {
                 globalPoison?.let { throw IllegalStateException("process SHIORI session is poisoned", it) }
+                if (!shouldUnload()) return false
                 if (state.active == null && globalOwner == null) return true
                 if (state.active !== ghost || globalOwner?.ghost !== ghost) {
                     throw IllegalStateException("runner ghost does not own the process SHIORI session")

@@ -29,6 +29,12 @@ internal interface SScriptPlaybackScheduler {
     fun cancelPending()
 }
 
+internal data class SScriptPlaybackHooks(
+    val afterRunPrepared: () -> Unit = {},
+    val afterRunClaimed: () -> Unit = {},
+    val afterStopClaimed: () -> Unit = {},
+)
+
 private class HandlerSScriptPlaybackScheduler : SScriptPlaybackScheduler {
     private val handler = Handler(Looper.getMainLooper())
 
@@ -47,6 +53,7 @@ open class SScriptRunner internal constructor(
     private val sessionCoordinator: GhostSessionCoordinator,
     private val monotonicClock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
     private val playbackSchedulerFactory: () -> SScriptPlaybackScheduler = { HandlerSScriptPlaybackScheduler() },
+    private val playbackHooks: SScriptPlaybackHooks = SScriptPlaybackHooks(),
 ) : Runnable {
     constructor(ctx: Context?) : this(ctx, productionSessionCoordinator)
     interface StatusCallback { fun stop(); fun canExit(); fun ghostSwitchScriptComplete() }
@@ -76,14 +83,18 @@ open class SScriptRunner internal constructor(
             onFailure: (Throwable) -> T,
             action: () -> T,
         ): T {
-            return productionSessionCoordinator.withMutation(
-                ghostId,
-                ghostRoot,
-                onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
-                onFailure = onFailure,
-                onActiveSessionInvalidated = { self?.invalidateForSessionUnload(it) },
-                action = action,
-            )
+            val runner = self
+            val mutation = {
+                productionSessionCoordinator.withMutation(
+                    ghostId,
+                    ghostRoot,
+                    onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
+                    onFailure = onFailure,
+                    onActiveSessionInvalidated = { runner?.invalidateForSessionUnload(it) },
+                    action = action,
+                )
+            }
+            return runner?.withInvalidationCompletions(mutation) ?: mutation()
         }
         internal fun resetInstanceForTesting() = synchronized(this) {
             productionSessionCoordinator.clearForTesting()
@@ -91,24 +102,41 @@ open class SScriptRunner internal constructor(
         }
     }
 
+    private class PlaybackState(
+        var talkAnimeControl: Int = 0,
+    ) {
+        var running = false
+        var paused = false
+        var msg: String? = null
+        var sync = false
+        var wholeline = false
+        var sakuraTalk = true
+        val sakuraMsg = StringBuilder()
+        val keroMsg = StringBuilder()
+        var waitTime = WAIT_UNIT
+        var charIndex = 0
+        var bSakuraId = "0"
+        var bKeroId = "-1"
+        var sakuraAnimationId: String? = null
+        var keroAnimationId: String? = null
+    }
+
     private var presentationRenderer: GhostPresentationRenderer? = null
     private var g: Ghost? = null
     private val mCtx = ctx?.applicationContext
     private var ucb: UICallback? = null; private var cb: StatusCallback? = null
-    private var isRunning = false; private var msg: String? = null; private var noWaitMode = false
-    private var sync = false; private var wholeline = false; private var sakuraTalk = false
-    private val sakuraMsg = StringBuilder(); private val keroMsg = StringBuilder(); private var waitTime = WAIT_UNIT; private var charIndex = 0
-    private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"; private var sakuraAnimationId: String? = null; private var keroAnimationId: String? = null
-    private var bSakuraId = "0"; private var bKeroId = "-1"; private var talkAnimeControl = 0
-    private var lastSec = 0; private var lastMin = 0; private var lastHour = 0L; private var restore = false; private var exitPending = false; private var changingPending = false; private var paused = false; private val bootDispatchState = BootDispatchState()
+    private var noWaitMode = false
+    private var playback = PlaybackState()
+    private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"
+    private var lastSec = 0; private var lastMin = 0; private var lastHour = 0L; private var restore = false; private var exitPending = false; private var changingPending = false; private val bootDispatchState = BootDispatchState()
     private var dialogueState = DialogueRuntimeState()
     private var nextInputGeneration = 0L
     private var dialogueDialogOwner = UUID.randomUUID().toString()
     private var nextChoiceGeneration = 0L
     private var pendingChoiceGeneration: Long? = null
     private var passive = false
-    private var playbackGeneration = 0L
     private val playbackScheduler = lazy(playbackSchedulerFactory)
+    private val invalidationCompletions = ThreadLocal<MutableList<() -> Unit>?>()
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
@@ -181,93 +209,351 @@ open class SScriptRunner internal constructor(
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
     private val clockHandler: Handler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
     fun resumeEvt() {
-        val generation = synchronized(this) {
-            if (paused) paused = false
-            playbackGeneration.takeIf { isRunning }
+        val resumed = synchronized(this) {
+            val state = playback
+            val wasPaused = state.paused
+            if (wasPaused) state.paused = false
+            state.takeIf { wasPaused && state.running }
         }
-        if (generation == null) run() else schedulePlayback(RUN, generation = generation)
+        if (resumed == null) run() else schedulePlayback(RUN, state = resumed)
     }
-    private fun dispatchPlayback(command: Int, generation: Long) {
-        if (!isPlaybackCurrent(generation)) return
-        if (command == RUN) loopControl(generation) else if (command == STOP) stop()
+    private fun dispatchPlayback(command: Int, state: PlaybackState) {
+        if (command == RUN) {
+            loopControl(state)
+        } else if (command == STOP && isPlaybackCurrent(state)) {
+            playbackHooks.afterStopClaimed()
+            stop(state)
+        }
     }
-    private fun isPlaybackCurrent(generation: Long): Boolean = synchronized(this) {
-        generation == playbackGeneration && isRunning
+    private fun isPlaybackCurrent(state: PlaybackState): Boolean = synchronized(this) {
+        playback === state && state.running
     }
-    private fun schedulePlayback(command: Int, delayMillis: Long = 0L, generation: Long) {
-        if (!isPlaybackCurrent(generation)) return
-        playbackScheduler.value.schedule(delayMillis) { dispatchPlayback(command, generation) }
+    private fun schedulePlayback(command: Int, delayMillis: Long = 0L, state: PlaybackState) {
+        synchronized(this) {
+            if (playback !== state || !state.running) return
+            playbackScheduler.value.schedule(delayMillis) { dispatchPlayback(command, state) }
+        }
     }
-    private fun loopControl(generation: Long) {
-        if (!isPlaybackCurrent(generation) || synchronized(this) { paused }) return
-        val current=msg
-        if(current!=null&&charIndex<current.length){parseMsg();updateUI();if(noWaitMode)loopControl(generation)else schedulePlayback(RUN,waitTime,generation)}
-        else{reset();msg=getFromQueue();if(msg==null){if(noWaitMode)stop()else schedulePlayback(STOP,waitTime,generation)}else if(noWaitMode)loopControl(generation)else schedulePlayback(RUN,waitTime,generation)}
+    private fun loopControl(state: PlaybackState) {
+        val claimed = synchronized(this) { playback === state && state.running && !state.paused }
+        if (!claimed) return
+        playbackHooks.afterRunClaimed()
+        val current = synchronized(this) {
+            if (playback !== state || !state.running || state.paused) return
+            state.msg?.takeIf { state.charIndex < it.length }
+        }
+        if (current != null) {
+            parseMsg(state)
+            updateUI(state)
+            if (noWaitMode) loopControl(state) else schedulePlayback(RUN, state.waitTime, state)
+            return
+        }
+        val next = synchronized(this) {
+            if (playback !== state || !state.running || state.paused) return
+            reset(state)
+            state.msg = getFromQueue()
+            state.msg
+        }
+        if (next == null) {
+            if (noWaitMode) stop(state) else schedulePlayback(STOP, state.waitTime, state)
+        } else if (noWaitMode) {
+            loopControl(state)
+        } else {
+            schedulePlayback(RUN, state.waitTime, state)
+        }
     }
     fun startClock() { LegacyPlatform.debug(TAG,"startClock called"); val start = bootDispatchState.startClock(); if (!start.started) return;LegacyPlatform.scheduleDelayed(CLOCK_STEP) { clockHandler.sendEmptyMessageDelayed(INC_CLOCK,CLOCK_STEP) };if(restore)doShioriEvent("OnWindowStateRestore",null)else if(start.dispatchBoot){doBoot();bootDispatchState.markBootDispatched()};restore=false }
     fun stopClock() { LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }; bootDispatchState.stopClock() }
     override fun run() {
-        val shouldStop = synchronized(this) {
-            if (isRunning) return
-            isRunning = true
-            reset()
-            msg = getFromQueue()
-            msg == null
+        val prepared = synchronized(this) {
+            val state = playback
+            if (state.running) return
+            state.running = true
+            reset(state)
+            state.msg = getFromQueue()
+            state to (state.msg == null)
         }
-        val generation = synchronized(this) { playbackGeneration }
-        if (shouldStop) stop() else if (noWaitMode) loopControl(generation) else schedulePlayback(RUN, generation = generation)
+        playbackHooks.afterRunPrepared()
+        val (state, shouldStop) = prepared
+        if (shouldStop) stop(state) else if (noWaitMode) loopControl(state) else schedulePlayback(RUN, state = state)
     }
     private fun getFromQueue() = rewriteMsg(msgQueue.poll()).also { script ->
         script?.let(::recordDialogueScript)
     }
     private fun rewriteMsg(input:String?):String? { if(g==null||input==null)return input; return input.replace("%username",g!!.getUsername()).replace("%selfname2?",g!!.getSakuraName() ?: "null").replace("%keroname",g!!.getKeroName() ?: "null") }
-    fun clearMsgQueue(){synchronized(this){msgQueue.clear();msg=null};stop()}
-    fun stop() {
+    fun clearMsgQueue(){val state=synchronized(this){msgQueue.clear();playback.msg=null;playback};stop(state)}
+    fun stop() = stop(synchronized(this) { playback })
+    private fun stop(state: PlaybackState) {
         while (true) {
-            val unloadTarget = synchronized(this) { if (changingPending && cb != null) g else null }
+            val unloadTarget = synchronized(this) {
+                if (playback !== state) return
+                if (changingPending && cb != null) g else null
+            }
             if (unloadTarget == null) {
-                synchronized(this) { finishStop(null) }
+                finishStop(state, null)
                 return
             }
-            if (sessionCoordinator.markActiveUnloaded(unloadTarget)) {
-                synchronized(this) { finishStop(unloadTarget) }
+            if (sessionCoordinator.markActiveUnloadedIf(unloadTarget) {
+                    synchronized(this) {
+                        playback === state && changingPending && cb != null && g === unloadTarget
+                    }
+                }
+            ) {
+                finishStop(state, unloadTarget)
                 return
             }
+            if (synchronized(this) { playback !== state }) return
         }
     }
-    private fun finishStop(unloadTarget: Ghost?) {
-        cancelPlaybackLocked()
-        if (unloadTarget != null) passive = false
-        bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { callback ->
-            callback.stop()
-            if(exitPending){callback.canExit();exitPending=false}
-            if(changingPending && unloadTarget != null){changingPending=false;callback.ghostSwitchScriptComplete()}
+    private fun finishStop(state: PlaybackState, unloadTarget: Ghost?) {
+        val effects = synchronized(this) {
+            if (playback !== state) return
+            if (playbackScheduler.isInitialized()) playbackScheduler.value.cancelPending()
+            state.running = false
+            state.paused = false
+            if (unloadTarget != null) passive = false
+            state.bSakuraId = "-1"
+            state.bKeroId = "-1"
+            val frame = takePresentationFrame(state)
+            val renderer = presentationRenderer
+            val callback = cb
+            val exit = callback != null && exitPending
+            val handoff = callback != null && changingPending && unloadTarget != null
+            if (exit) exitPending = false
+            if (handoff) changingPending = false
+            playback = PlaybackState(state.talkAnimeControl)
+            StopEffects(renderer, frame, callback, exit, handoff)
+        }
+        effects.renderer?.render(effects.frame)
+        effects.callback?.stop()
+        if (effects.exit) effects.callback?.canExit()
+        if (effects.handoff) effects.callback?.ghostSwitchScriptComplete()
+    }
+    private data class StopEffects(
+        val renderer: GhostPresentationRenderer?,
+        val frame: GhostPresentationFrame,
+        val callback: StatusCallback?,
+        val exit: Boolean,
+        val handoff: Boolean,
+    )
+    private fun reset(state: PlaybackState){state.sync=false;state.wholeline=false;state.sakuraTalk=true;state.sakuraMsg.setLength(0);state.keroMsg.setLength(0);state.msg="";state.charIndex=0;state.bSakuraId="-1";state.bKeroId="-1";state.sakuraAnimationId=null;state.keroAnimationId=null}
+    private fun appendChar(state: PlaybackState, c: Char) {
+        if (state.sync) {
+            state.sakuraMsg.append(c)
+            state.keroMsg.append(c)
+        } else if (state.sakuraTalk) {
+            state.sakuraMsg.append(c)
+        } else {
+            state.keroMsg.append(c)
+        }
+        if (state.keroMsg.isNotEmpty()) state.bKeroId = "0"
+    }
+
+    private fun clearMsg(state: PlaybackState) {
+        if (state.sakuraTalk) state.sakuraMsg.setLength(0) else state.keroMsg.setLength(0)
+    }
+
+    private fun parseMsg(state: PlaybackState) {
+        state.waitTime = WAIT_UNIT
+        while (true) try {
+            val text = state.msg!!
+            val c1 = text[state.charIndex++]
+            if (c1 != '\\') {
+                appendChar(state, c1)
+                if (state.wholeline) continue else break
+            }
+            when (val c2 = text[state.charIndex++]) {
+                '0', 'h' -> if (!state.sakuraTalk) {
+                    state.sakuraTalk = true
+                    state.sakuraMsg.setLength(0)
+                }
+                '1', 'u' -> {
+                    state.sakuraTalk = false
+                    state.keroMsg.setLength(0)
+                }
+                's' -> if (handleSurface(state)) break
+                'i' -> if (handleAnimation(state)) break
+                'e' -> {
+                    state.charIndex = text.length
+                    state.waitTime = WAIT_YEN_E
+                    break
+                }
+                'n' -> {
+                    appendChar(state, '\n')
+                    val matcher = PatternHolders.sqbracket_half_number.matcher(text.substring(state.charIndex))
+                    if (matcher.find()) state.charIndex += matcher.group().length
+                    break
+                }
+                'c' -> clearMsg(state)
+                '_' -> if (handleUnderscore(state)) break
+                '!' -> handleExclaim(state)
+                'w' -> {
+                    val wait = text[state.charIndex++]
+                    if (wait.isDigit()) {
+                        state.waitTime = (wait - '0') * WAIT_UNIT
+                        break
+                    }
+                }
+                'b' -> if (handleBalloon(state)) break
+                'q' -> handleSelection(state)
+                '-', '4', '5', '6', 'v' -> Log.d(TAG, "ignore unsupported $c2 tag")
+                else -> AnalyticsUtils.getInstance(null).trackEvent(
+                    Setup.ANA_SSC,
+                    "tag_unsupport_other",
+                    "$c2",
+                    -1,
+                )
+            }
+        } catch (_: Exception) {
+            break
         }
     }
-    private fun reset(){sync=false;wholeline=false;sakuraTalk=true;sakuraMsg.setLength(0);keroMsg.setLength(0);msg="";charIndex=0;bSakuraId="-1";bKeroId="-1";sakuraAnimationId=null;keroAnimationId=null}
-    private fun appendChar(c:Char){if(sync){sakuraMsg.append(c);keroMsg.append(c)}else if(sakuraTalk)sakuraMsg.append(c)else keroMsg.append(c);if(keroMsg.isNotEmpty())bKeroId="0"}
-    private fun clearMsg(){if(sakuraTalk)sakuraMsg.setLength(0)else keroMsg.setLength(0)}
-    private fun parseMsg(){waitTime=WAIT_UNIT;while(true)try{val text=msg!!;val c1=text[charIndex++];if(c1!='\\'){appendChar(c1);if(wholeline)continue else break};when(val c2=text[charIndex++]){'0','h'->{if(!sakuraTalk){sakuraTalk=true;sakuraMsg.setLength(0)}};'1','u'->{sakuraTalk=false;keroMsg.setLength(0)};'s'->if(handleSurface())break;'i'->if(handleAnimation())break;'e'->{charIndex=text.length;waitTime=WAIT_YEN_E;break};'n'->{appendChar('\n');val m=PatternHolders.sqbracket_half_number.matcher(text.substring(charIndex));if(m.find())charIndex+=m.group().length;break};'c'->clearMsg();'_'->if(handleUnderscore())break;'!'->handleExclaim();'w'->{val c=text[charIndex++];if(c.isDigit()){waitTime=(c-'0')*WAIT_UNIT;break}};'b'->if(handleBalloon())break;'q'->handleSelection();'-','4','5','6','v'->Log.d(TAG,"ignore unsupported $c2 tag");else->AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC,"tag_unsupport_other","$c2",-1)}}catch(_:Exception){break}}
-    private fun handleUnderscore():Boolean{val text=msg!!;when(val c=text[charIndex++]){'s'->sync=!sync;'q'->wholeline=!wholeline;'l','a','v'->{val m=PatternHolders.sqbracket_half_number.matcher(text.substring(charIndex));if(m.find())charIndex+=m.group().length};'b'->return handleBalloon();'w'->{val m=PatternHolders.sqbracket_half_number.matcher(text.substring(charIndex));if(m.find()){charIndex+=m.group().length;try{waitTime=m.group(1).toLong();return true}catch(_:Exception){}}}};return false}
-    private fun handleExclaim(){
-        val remaining = msg!!.substring(charIndex)
-        val passive = PASSIVE_MODE.find(remaining)
-        if (passive != null) {
-            charIndex += passive.value.length
-            this.passive = passive.groupValues[1] == "enter"
+
+    private fun handleUnderscore(state: PlaybackState): Boolean {
+        val text = state.msg!!
+        when (val c = text[state.charIndex++]) {
+            's' -> state.sync = !state.sync
+            'q' -> state.wholeline = !state.wholeline
+            'l', 'a', 'v' -> {
+                val matcher = PatternHolders.sqbracket_half_number.matcher(text.substring(state.charIndex))
+                if (matcher.find()) state.charIndex += matcher.group().length
+            }
+            'b' -> return handleBalloon(state)
+            'w' -> {
+                val matcher = PatternHolders.sqbracket_half_number.matcher(text.substring(state.charIndex))
+                if (matcher.find()) {
+                    state.charIndex += matcher.group().length
+                    try {
+                        state.waitTime = matcher.group(1).toLong()
+                        return true
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    private fun handleExclaim(state: PlaybackState) {
+        val remaining = state.msg!!.substring(state.charIndex)
+        val passiveMatch = PASSIVE_MODE.find(remaining)
+        if (passiveMatch != null) {
+            state.charIndex += passiveMatch.value.length
+            synchronized(this) {
+                if (playback === state && state.running) {
+                    passive = passiveMatch.groupValues[1] == "enter"
+                }
+            }
             return
         }
-        val m=PatternHolders.open_input.matcher(remaining)
-        if(m.find()){charIndex+=m.group().length;openUserInputBox(m.group(1))}
+        val matcher = PatternHolders.open_input.matcher(remaining)
+        if (matcher.find()) {
+            state.charIndex += matcher.group().length
+            openUserInputBox(state, matcher.group(1))
+        }
     }
-    private fun openUserInputBox(id:String?){if(id==null)return;ucb?.let{paused=true;it.showUserInputBox(id)}}
-    private fun handleSurface():Boolean{val left=msg!!.substring(charIndex);val m=PatternHolders.surface_ptrn.matcher(left);if(!m.find())return false;changeSurface(m.group(2)?:m.group(1));charIndex+=m.group().length;return true}
-    private fun handleBalloon():Boolean{val m=PatternHolders.balloon_ptrn.matcher(msg!!.substring(charIndex));if(!m.find())return false;changeBalloon(m.group(2)?:m.group(1));charIndex+=m.group().length;return true}
-    private fun handleAnimation():Boolean{val m=PatternHolders.ani_ptrn.matcher(msg!!.substring(charIndex));if(!m.find())return false;queueAnimation(m.group(1));charIndex+=m.group().length;return true}
-    private fun handleSelection():Boolean{charIndex-=2;var matcher=PatternHolders.q_choice_ptrn.matcher(msg!!);val labels=ArrayList<String>();val ids=ArrayList<String>();while(matcher.find()){msg=matcher.replaceFirst(matcher.group(1));labels.add(matcher.group(1));ids.add(matcher.group(2));matcher=PatternHolders.q_choice_ptrn.matcher(msg!!)};ucb?.let{wholeline=true;it.showUserSelection(labels.toTypedArray(),ids.toTypedArray())};return false}
-    private fun changeSurface(id:String){if(sakuraTalk)sakuraSurfaceId=id else keroSurfaceId=id;doShioriEvent("OnSurfaceChange",arrayOf("Reference0: $sakuraSurfaceId","Reference1: $keroSurfaceId"))}
-    private fun changeBalloon(id:String){if(sakuraTalk)bSakuraId=id else bKeroId=id}; private fun queueAnimation(id:String){if(sakuraTalk)sakuraAnimationId=id else keroAnimationId=id}
-    private fun updateUI(){val sa=sakuraAnimationId!=null;val ka=keroAnimationId!=null;presentationRenderer?.render(GhostPresentationFrame(GhostPresentationFrame.Speaker(sakuraMsg.toString(),sakuraSurfaceId,sakuraAnimationId,bSakuraId),GhostPresentationFrame.Speaker(keroMsg.toString(),keroSurfaceId,keroAnimationId,bKeroId),talkAnimeControl==0));if(sa)sakuraAnimationId=null;if(ka)keroAnimationId=null;talkAnimeControl++;if(talkAnimeControl==10)talkAnimeControl=0}
+
+    private fun openUserInputBox(state: PlaybackState, id: String?) {
+        if (id == null) return
+        val callback = synchronized(this) {
+            if (playback !== state || !state.running) return
+            ucb?.also { state.paused = true }
+        }
+        callback?.showUserInputBox(id)
+    }
+
+    private fun handleSurface(state: PlaybackState): Boolean {
+        val matcher = PatternHolders.surface_ptrn.matcher(state.msg!!.substring(state.charIndex))
+        if (!matcher.find()) return false
+        changeSurface(state, matcher.group(2) ?: matcher.group(1))
+        state.charIndex += matcher.group().length
+        return true
+    }
+
+    private fun handleBalloon(state: PlaybackState): Boolean {
+        val matcher = PatternHolders.balloon_ptrn.matcher(state.msg!!.substring(state.charIndex))
+        if (!matcher.find()) return false
+        changeBalloon(state, matcher.group(2) ?: matcher.group(1))
+        state.charIndex += matcher.group().length
+        return true
+    }
+
+    private fun handleAnimation(state: PlaybackState): Boolean {
+        val matcher = PatternHolders.ani_ptrn.matcher(state.msg!!.substring(state.charIndex))
+        if (!matcher.find()) return false
+        queueAnimation(state, matcher.group(1))
+        state.charIndex += matcher.group().length
+        return true
+    }
+
+    private fun handleSelection(state: PlaybackState): Boolean {
+        state.charIndex -= 2
+        var matcher = PatternHolders.q_choice_ptrn.matcher(state.msg!!)
+        val labels = ArrayList<String>()
+        val ids = ArrayList<String>()
+        while (matcher.find()) {
+            state.msg = matcher.replaceFirst(matcher.group(1))
+            labels.add(matcher.group(1))
+            ids.add(matcher.group(2))
+            matcher = PatternHolders.q_choice_ptrn.matcher(state.msg!!)
+        }
+        val callback = synchronized(this) {
+            if (playback !== state || !state.running) return false
+            ucb?.also { state.wholeline = true }
+        }
+        callback?.showUserSelection(labels.toTypedArray(), ids.toTypedArray())
+        return false
+    }
+
+    private fun changeSurface(state: PlaybackState, id: String) {
+        val references = synchronized(this) {
+            if (playback !== state || !state.running) return
+            if (state.sakuraTalk) sakuraSurfaceId = id else keroSurfaceId = id
+            arrayOf("Reference0: $sakuraSurfaceId", "Reference1: $keroSurfaceId")
+        }
+        doShioriEvent("OnSurfaceChange", references)
+    }
+
+    private fun changeBalloon(state: PlaybackState, id: String) {
+        if (state.sakuraTalk) state.bSakuraId = id else state.bKeroId = id
+    }
+
+    private fun queueAnimation(state: PlaybackState, id: String) {
+        if (state.sakuraTalk) state.sakuraAnimationId = id else state.keroAnimationId = id
+    }
+
+    private fun updateUI(state: PlaybackState) {
+        val presentation = synchronized(this) {
+            if (playback !== state || !state.running) return
+            presentationRenderer to takePresentationFrame(state)
+        }
+        presentation.first?.render(presentation.second)
+    }
+
+    private fun takePresentationFrame(state: PlaybackState): GhostPresentationFrame {
+        val sakuraAnimated = state.sakuraAnimationId != null
+        val keroAnimated = state.keroAnimationId != null
+        val frame = GhostPresentationFrame(
+            GhostPresentationFrame.Speaker(
+                state.sakuraMsg.toString(),
+                sakuraSurfaceId,
+                state.sakuraAnimationId,
+                state.bSakuraId,
+            ),
+            GhostPresentationFrame.Speaker(
+                state.keroMsg.toString(),
+                keroSurfaceId,
+                state.keroAnimationId,
+                state.bKeroId,
+            ),
+            state.talkAnimeControl == 0,
+        )
+        if (sakuraAnimated) state.sakuraAnimationId = null
+        if (keroAnimated) state.keroAnimationId = null
+        state.talkAnimeControl++
+        if (state.talkAnimeControl == 10) state.talkAnimeControl = 0
+        return frame
+    }
     private fun doPerSecondEvent(hr: Long) { dispatchTimerEvent("OnSecondChange", hr) }
     private fun doPerMinuteEvent(hr: Long) { dispatchTimerEvent("OnMinuteChange", hr) }
     private fun dispatchTimerEvent(event: String, uptimeHours: Long) {
@@ -291,10 +577,20 @@ open class SScriptRunner internal constructor(
         if (hour - lastHour >= 1) lastHour = hour
     }
     internal fun dispatchClockTickForTesting() = perClockEvent()
-    private fun parseShioriResponseAndInsert(res:ShioriResponse?){if(res==null||res.getStatusCode()!=200)return;msg=res.getKey("Value");addMsgToQueue(arrayOf(msg!!));if(!isRunning)run()}
+    private fun parseShioriResponseAndInsert(res: ShioriResponse?) {
+        if (res == null || res.getStatusCode() != 200) return
+        val value = res.getKey("Value") ?: return
+        val shouldRun = synchronized(this) {
+            val state = playback
+            state.msg = value
+            msgQueue.add(value)
+            !state.running
+        }
+        if (shouldRun) run()
+    }
     private fun doMouseWheel(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseWheel",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
     private fun doMouseMove(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseMove",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
-    fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){doShioriEvent("OnClose",null);exitPending=true};fun doGhostChanging(nextName:String,type:String,nextPath:String){changingPending=true;doShioriEvent("OnGhostChanging",arrayOf(nextName,type,null,nextPath))}
+    fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){synchronized(this){exitPending=true};doShioriEvent("OnClose",null)};fun doGhostChanging(nextName:String,type:String,nextPath:String){synchronized(this){changingPending=true};doShioriEvent("OnGhostChanging",arrayOf(nextName,type,null,nextPath))}
     fun doInstallBegin(id:String){doShioriEvent("OnInstallBegin",arrayOf("ghost",id,id))};fun doInstallComplete(id:String){doShioriEvent("OnInstallComplete",arrayOf("ghost",id,id))}
     @Suppress("UNCHECKED_CAST")
     fun doShioriEvent(evt: String, ref: Array<out String?>?): Boolean {
@@ -343,30 +639,57 @@ open class SScriptRunner internal constructor(
         onStopped: () -> T = { onFailure(IOException("ghost update stopped while awaiting attachment")) },
         action: () -> T,
     ): T {
-        return sessionCoordinator.withMutation(
-            ghostId,
-            ghostRoot,
-            shouldStop,
-            onStopped,
-            onFailure,
-            onActiveSessionInvalidated = ::invalidateForSessionUnload,
-            action = action,
-        )
+        return withInvalidationCompletions {
+            sessionCoordinator.withMutation(
+                ghostId,
+                ghostRoot,
+                shouldStop,
+                onStopped,
+                onFailure,
+                onActiveSessionInvalidated = ::invalidateForSessionUnload,
+                action = action,
+            )
+        }
     }
 
     /** Removes state that cannot survive a true unload/reload of the live SHIORI session. */
-    private fun invalidateForSessionUnload(target: Ghost) = synchronized(this) {
-        if (g === target) clearDialogueStateLocked()
+    private fun invalidateForSessionUnload(target: Ghost) {
+        val completion = synchronized(this) {
+            if (g !== target) null else clearDialogueStateLocked(completeLifecycle = true)
+        } ?: return
+        val pending = checkNotNull(invalidationCompletions.get()) {
+            "session invalidation must defer callbacks until the coordinator gate is released"
+        }
+        pending += completion
+    }
+
+    private fun <T> withInvalidationCompletions(action: () -> T): T {
+        val parent = invalidationCompletions.get()
+        val completions = mutableListOf<() -> Unit>()
+        invalidationCompletions.set(completions)
+        try {
+            return action()
+        } finally {
+            if (parent == null) {
+                invalidationCompletions.remove()
+                completions.forEach { it() }
+            } else {
+                invalidationCompletions.set(parent)
+                parent.addAll(completions)
+            }
+        }
     }
 
     private fun <T> withCurrentGhost(action: (Ghost) -> T): T? {
         while (true) {
             val expected = synchronized(this) { g } ?: return null
             val result = sessionCoordinator.withGhostGate(expected) { live ->
-                synchronized(this) {
-                    if (g !== expected) CurrentGhostCall<T>(false, null)
-                    else if (!live) CurrentGhostCall(true, null)
-                    else CurrentGhostCall(true, action(expected))
+                if (!synchronized(this) { g === expected }) {
+                    CurrentGhostCall<T>(false, null)
+                } else if (!live) {
+                    CurrentGhostCall(true, null)
+                } else {
+                    CurrentGhostCall(true, action(expected))
                 }
             }
             if (result.matched) return result.value
@@ -380,8 +703,9 @@ open class SScriptRunner internal constructor(
         DialogueDialogRuntimeSnapshot(dialogueDialogOwner, pendingChoiceGeneration, dialogueState)
     }
     internal fun runtimeModeSnapshot(): GhostRuntimeMode = synchronized(this) {
+        val state = playback
         GhostRuntimeMode(
-            playingTalk = isRunning || msgQueue.isNotEmpty() || !msg.isNullOrEmpty(),
+            playingTalk = state.running || msgQueue.isNotEmpty() || !state.msg.isNullOrEmpty(),
             pendingUserAction = dialogueState.pendingChoices.isNotEmpty() || dialogueState.pendingInput != null,
             passive = passive,
         )
@@ -588,38 +912,26 @@ open class SScriptRunner internal constructor(
         return if (now > Long.MAX_VALUE - timeout) Long.MAX_VALUE else now + timeout
     }
 
-    private fun cancelPlaybackLocked() {
-        playbackGeneration++
-        // Handler removal only deletes queued callbacks; it never invokes runner/UI callbacks.
+    private fun clearDialogueStateLocked(completeLifecycle: Boolean = false): (() -> Unit)? {
         if (playbackScheduler.isInitialized()) playbackScheduler.value.cancelPending()
-        isRunning = false
-        paused = false
-    }
-
-    private fun resetSessionPlaybackStateLocked() {
-        sync = false
-        wholeline = false
-        sakuraTalk = true
-        sakuraMsg.setLength(0)
-        keroMsg.setLength(0)
-        waitTime = WAIT_UNIT
-        charIndex = 0
-        bSakuraId = "-1"
-        bKeroId = "-1"
-        sakuraAnimationId = null
-        keroAnimationId = null
-        talkAnimeControl = 0
-    }
-
-    private fun clearDialogueStateLocked() {
-        cancelPlaybackLocked()
-        resetSessionPlaybackStateLocked()
+        playback = PlaybackState()
         dialogueDialogOwner = UUID.randomUUID().toString()
         pendingChoiceGeneration = null
         dialogueState = DialogueRuntimeState(revision = dialogueState.revision + 1)
         msgQueue.clear()
-        msg = null
         passive = false
+        if (!completeLifecycle) return null
+        val callback = cb ?: return null
+        val exit = exitPending
+        val handoff = changingPending
+        if (!exit && !handoff) return null
+        if (exit) exitPending = false
+        if (handoff) changingPending = false
+        return {
+            callback.stop()
+            if (exit) callback.canExit()
+            if (handoff) callback.ghostSwitchScriptComplete()
+        }
     }
     fun doBoot(){g?.let{val shell=it.getShellName();val count=it.getCreateCount();if(count>1){doShioriEvent("OnBoot",arrayOf(shell) as Array<String>);AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onboot",it.getGhostId(),count.toInt())}else{doShioriEvent("OnFirstBoot",arrayOf("0"));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",it.getGhostId(),0)}}}
     fun getStringValueFromShiori(id:String):String?=withCurrentGhost { it.getStringFromShiori(id) };fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
