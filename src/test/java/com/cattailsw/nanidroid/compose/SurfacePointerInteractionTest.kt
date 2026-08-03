@@ -3,6 +3,8 @@ package com.cattailsw.nanidroid.compose
 import com.cattailsw.nanidroid.SurfaceCollision
 import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceHitTarget
+import com.cattailsw.nanidroid.surface.CollisionShape
+import androidx.compose.ui.unit.IntRect
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -17,7 +19,7 @@ class SurfacePointerInteractionTest {
             position = SurfacePointerPosition(1f, 1f),
         ) as SurfacePointerResolution.Hit
 
-        assertEquals(SurfaceHitTarget.Collision(41), resolution.target)
+        assertEquals(SurfaceHitTarget.Collision(41, "Collision41"), resolution.target)
         assertEquals(SurfaceInteractionEffect.MouseDoubleClick(SurfaceSpeaker.SAKURA, 1, 1, 41), resolution.effect)
     }
 
@@ -82,7 +84,12 @@ class SurfacePointerInteractionTest {
         width = 2, height = 2, collisions = collisions, animations = emptyList(), elements = emptyList(),
     )
 
-    private fun collision(id: Int, x: Int, y: Int) = SurfaceCollision(id, null, x, y, 1, 1)
+    private fun collision(id: Int, x: Int, y: Int) = SurfaceCollision(
+        id = id,
+        identifier = "Collision$id",
+        shape = CollisionShape.Rectangle(IntRect(x, y, x + 1, y + 1)),
+        authoredOrder = 0,
+    )
     private fun image(color: Int, width: Int = 2, height: Int = 2) =
         SurfacePixelImage.of(width, height, IntArray(width * height) { color })
 }

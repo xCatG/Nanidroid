@@ -6,8 +6,7 @@ package com.cattailsw.nanidroid
 fun findCollisionId(definition: SurfaceDefinition?, x: Int, y: Int): Int =
     definition?.collisions
         ?.firstOrNull { collision ->
-            x >= collision.x && x < collision.x + collision.width &&
-                y >= collision.y && y < collision.y + collision.height
+            collision.shape.contains(androidx.compose.ui.unit.IntOffset(x, y))
         }
         ?.id
         ?: NO_COLLISION
@@ -26,8 +25,10 @@ fun findSurfaceHit(
     y: Int,
     isOpaque: (x: Int, y: Int) -> Boolean?,
 ): SurfaceHitTarget {
-    val collisionId = findCollisionId(definition, x, y)
-    if (collisionId != NO_COLLISION) return SurfaceHitTarget.Collision(collisionId)
+    val collision = definition?.collisions?.firstOrNull {
+        it.shape.contains(androidx.compose.ui.unit.IntOffset(x, y))
+    }
+    if (collision != null) return SurfaceHitTarget.Collision(collision.id, collision.identifier)
     return when (isOpaque(x, y)) {
         true -> SurfaceHitTarget.OpaquePixel
         false -> SurfaceHitTarget.TransparentPixel
@@ -37,7 +38,7 @@ fun findSurfaceHit(
 
 /** No Android/Compose types cross this boundary. */
 sealed interface SurfaceHitTarget {
-    data class Collision(val id: Int) : SurfaceHitTarget
+    data class Collision(val id: Int, val identifier: String) : SurfaceHitTarget
     data object OpaquePixel : SurfaceHitTarget
     data object TransparentPixel : SurfaceHitTarget
     data object PixelUnavailable : SurfaceHitTarget

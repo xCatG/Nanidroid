@@ -43,7 +43,7 @@ class SurfaceDefinitionCharacterizationTest {
         Assert.assertNotSame(surface0, surface10)
 
         val expectedModel = mutableListOf<String>(
-            "collision:0:Head:start=1,2:size=10x20",
+            "collision:0:Head:start=1,2:size=11x21",
             "animation-type:2=0",
             "animation:0:interval=2:exclusive=false",
             "frame:0:sid=null:type=-1:wait=50",
@@ -239,7 +239,8 @@ class SurfaceDefinitionCharacterizationTest {
 
         Assert.assertEquals(0, findCollisionId(definition, 1, 2).toLong())
         Assert.assertEquals(0, findCollisionId(definition, 10, 21).toLong())
-        Assert.assertEquals(-1, findCollisionId(definition, 11, 22).toLong())
+        Assert.assertEquals(0, findCollisionId(definition, 11, 22).toLong())
+        Assert.assertEquals(-1, findCollisionId(definition, 12, 23).toLong())
         Assert.assertEquals(-1, findCollisionId(null, 1, 2).toLong())
     }
 

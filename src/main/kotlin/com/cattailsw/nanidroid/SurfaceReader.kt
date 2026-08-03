@@ -6,12 +6,16 @@ import com.cattailsw.nanidroid.surface.SurfaceParseSeed
 import com.cattailsw.nanidroid.surface.SurfaceParser
 import com.cattailsw.nanidroid.surface.SurfaceSourceDecoder
 import com.cattailsw.nanidroid.surface.SurfaceSourceInput
+import com.cattailsw.nanidroid.surface.CollisionGeometryParser
+import com.cattailsw.nanidroid.surface.ParsedCollision
+import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.util.Locale
+import java.util.IdentityHashMap
 
 /** Reads every surface source through the typed parser and publishes one materialized catalog. */
 class SurfaceReader {
@@ -27,6 +31,8 @@ class SurfaceReader {
     private var parseTime = 0L
     private val mutableDiagnostics = mutableListOf<SurfaceParseDiagnostic>()
     private val diagnosedPngPaths = mutableSetOf<String>()
+    private val parsedCollisionCache = IdentityHashMap<ParsedSurfaceEntry, ParsedCollision>()
+    private val diagnosedCollisionEntries = java.util.Collections.newSetFromMap(IdentityHashMap<ParsedSurfaceEntry, Boolean>())
 
     constructor(manager: SurfaceManager) {
         this.manager = manager
@@ -103,7 +109,7 @@ class SurfaceReader {
         parsed.diagnostics.forEach(::addDiagnostic)
 
         parsed.surfaces.forEach { (id, entries) ->
-            val surface = parsedSurface(rootDirectory, pngById[id], id, entries.map { it.source.text })
+            val surface = parsedSurface(rootDirectory, pngById[id], id, entries)
             catalog.addParsedSurface(id.toString(), surface, entries)
         }
 
@@ -159,28 +165,32 @@ class SurfaceReader {
         root: File,
         png: File?,
         id: Int,
-        entries: List<String>,
+        entries: List<ParsedSurfaceEntry>,
     ): ShellSurface {
-        return materializeSurface(root, png, id, entries)
+        return materializeSurface(root, png, id, entries).also { surface ->
+            surface.setCanonicalCollisions(materializeCollisions(entries))
+        }
     }
 
     private fun materializeSurface(
         root: File,
         png: File?,
         id: Int,
-        entries: List<String>?,
+        entries: List<ParsedSurfaceEntry>?,
     ): ShellSurface {
         val path = withSeparator(root)
         val selfName = png?.name
         val surface = try {
-            ShellSurface(path, selfName, id, entries).also { loaded ->
-                if (png != null && (loaded.origW <= 0 || loaded.origH <= 0)) {
-                    addPngDiagnostic(png)
-                }
+            val loaded = if (entries == null) ShellSurface(path, selfName, id, null)
+            else ShellSurface(path, selfName, id, entries, probeBitmap = true, preserveProvenance = Unit)
+            if (png != null && (loaded.origW <= 0 || loaded.origH <= 0)) {
+                addPngDiagnostic(png)
             }
-        } catch (_: RuntimeException) {
+            loaded
+        } catch (_: Exception) {
             if (png != null) addPngDiagnostic(png)
-            ShellSurface(path, selfName, id, entries, probeBitmap = false)
+            if (entries == null) ShellSurface(path, selfName, id, null, probeBitmap = false)
+            else ShellSurface(path, selfName, id, entries, probeBitmap = false, preserveProvenance = Unit)
         }
         if (png != null) surface.selfFilename = png.absolutePath
         surface.bp2 = File(root, "surface%04d.png".format(id)).absolutePath
@@ -199,12 +209,58 @@ class SurfaceReader {
         )
     }
 
+    private fun materializeCollisions(entries: List<ParsedSurfaceEntry>): List<SurfaceCollision> {
+        val firstById = linkedMapOf<Int, SurfaceCollision>()
+        entries.forEach { entry ->
+            when (val parsed = parsedCollisionCache.getOrPut(entry) {
+                CollisionGeometryParser.parse(entry.source.text, entry.authoredOrder.toInt())
+            }) {
+                ParsedCollision.NotCollision -> Unit
+                is ParsedCollision.Invalid -> diagnoseCollision(entry, parsed.reason)
+                is ParsedCollision.Valid -> {
+                    if (firstById.containsKey(parsed.collision.id) || firstById.size >= MAX_COLLISIONS_PER_SURFACE) {
+                        diagnoseCollision(entry, SurfaceDiagnosticReason.ENTRY)
+                    } else {
+                        firstById[parsed.collision.id] = parsed.collision
+                    }
+                }
+            }
+        }
+        return orderCollisions(entries, firstById.values)
+    }
+
+    private fun orderCollisions(
+        entries: List<ParsedSurfaceEntry>,
+        accepted: Collection<SurfaceCollision>,
+    ): List<SurfaceCollision> {
+        val collisions = accepted.associateBy { it.authoredOrder }
+        return entries
+            .groupBy { it.source.file }
+            .values
+            .flatMap { fileEntries ->
+                val fileCollisions = fileEntries.mapNotNull { collisions[it.authoredOrder.toInt()] }
+                when (fileEntries.first().fileDirectives.collisionSort) {
+                    com.cattailsw.nanidroid.surface.CollisionSort.ASCEND -> fileCollisions.sortedBy { it.id }
+                    com.cattailsw.nanidroid.surface.CollisionSort.DESCEND -> fileCollisions.sortedByDescending { it.id }
+                    com.cattailsw.nanidroid.surface.CollisionSort.NONE -> fileCollisions
+                }
+            }
+    }
+
+    private fun diagnoseCollision(entry: ParsedSurfaceEntry, reason: SurfaceDiagnosticReason) {
+        if (!diagnosedCollisionEntries.add(entry)) return
+        addDiagnostic(
+            SurfaceParseDiagnostic(entry.source.file, entry.source.number, entry.source.text, reason),
+        )
+    }
+
     private fun withSeparator(root: File): String = root.absolutePath + File.separator
 
     private companion object {
         const val TAG = "SurfaceReader"
         const val MAX_DIAGNOSTICS = 256
         const val MAX_PNG_SURFACES = 4_096
+        const val MAX_COLLISIONS_PER_SURFACE = 256
         const val READ_BUFFER_SIZE = 8_192
         val SOURCE_NAME = Regex("^surfaces.*\\.txt$", RegexOption.IGNORE_CASE)
         val PNG_NAME = Regex("^surface(\\d+)\\.png$", RegexOption.IGNORE_CASE)

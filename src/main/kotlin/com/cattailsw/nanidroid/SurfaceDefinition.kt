@@ -2,6 +2,8 @@
 
 package com.cattailsw.nanidroid
 
+import com.cattailsw.nanidroid.surface.CollisionShape
+
 /** Platform-neutral shell surface semantics, suitable for a Compose renderer. */
 data class SurfaceDefinition(
     val id: Int,
@@ -17,12 +19,17 @@ data class SurfaceDefinition(
 
 data class SurfaceCollision(
     val id: Int,
-    val name: String?,
-    val x: Int,
-    val y: Int,
-    val width: Int,
-    val height: Int,
-)
+    val identifier: String,
+    val shape: CollisionShape,
+    val authoredOrder: Int,
+) {
+    /** Legacy observation fields retained for compatibility callers. */
+    val name: String get() = identifier
+    val x: Int get() = shape.bounds.left
+    val y: Int get() = shape.bounds.top
+    val width: Int get() = shape.bounds.width
+    val height: Int get() = shape.bounds.height
+}
 
 data class SurfaceAnimation(
     val id: String,
@@ -65,16 +72,18 @@ fun ShellSurface.toSurfaceDefinition(): SurfaceDefinition = SurfaceDefinition(
     fallbackImagePath = bp2,
     width = origW,
     height = origH,
-    collisions = (collisionAreas ?: emptyMap()).values
-        .sortedBy { it.id }
+    collisions = canonicalCollisions ?: collisionAreas.values
         .map { collision ->
             SurfaceCollision(
                 id = collision.id,
-                name = collision.name,
-                x = collision.startX,
-                y = collision.startY,
-                width = collision.W,
-                height = collision.H,
+                identifier = collision.name.orEmpty(),
+                shape = CollisionShape.Rectangle.fromAuthored(
+                    collision.startX,
+                    collision.startY,
+                    inclusiveEndpoint(collision.startX, collision.W),
+                    inclusiveEndpoint(collision.startY, collision.H),
+                ),
+                authoredOrder = collision.id,
             )
         },
     animations = (animationTable ?: emptyMap()).values
@@ -113,4 +122,8 @@ fun ShellSurface.toSurfaceDefinition(): SurfaceDefinition = SurfaceDefinition(
             height = element.H,
         )
     },
+)
+
+private fun inclusiveEndpoint(start: Int, size: Int): Int = Math.toIntExact(
+    Math.addExact(start.toLong(), size.toLong() - 1L),
 )
