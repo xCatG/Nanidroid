@@ -79,4 +79,22 @@ class SurfaceSelectorTest {
         assertEquals(SurfaceBlockMode.APPEND_EXISTING, result.mode)
         assertEquals(linkedSetOf(1, 3, 4), result.selection.included)
     }
+
+    @Test
+    fun shared_budget_exhaustion_is_explicit_even_after_a_partial_selection() {
+        var positiveCharges = 0
+        val result = selector.parse(
+            SourceLine("surfaces.txt", 17, "surface1,2"),
+            SurfaceSelectorWorkBudget { amount ->
+                if (amount == 0L || positiveCharges++ == 0) {
+                    SurfaceBudgetCharge(accepted = true)
+                } else {
+                    SurfaceBudgetCharge(accepted = false, report = true)
+                }
+            },
+        )
+
+        assertEquals(linkedSetOf(1), result.selection.included)
+        assertTrue(result.exhausted)
+    }
 }

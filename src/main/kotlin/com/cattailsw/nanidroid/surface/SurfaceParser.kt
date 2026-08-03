@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.surface
 
+import com.cattailsw.nanidroid.ShellSurface
 import java.util.Locale
 
 data class SurfaceParseSeed(val pngSurfaceIds: Set<Int>)
@@ -123,7 +124,19 @@ class SurfaceParser(
                             ),
                         )
                         else -> {
-                            entrySources += entrySource.copy(text = entry)
+                            val normalized = entrySource.copy(text = entry)
+                            if (hasInvalidAnimationPatternId(entry)) {
+                                diagnostics.add(
+                                    SurfaceParseDiagnostic(
+                                        file.name,
+                                        cursor + 1,
+                                        entrySource.text,
+                                        SurfaceDiagnosticReason.ENTRY,
+                                    ),
+                                )
+                            } else {
+                                entrySources += normalized
+                            }
                         }
                     }
                     cursor++
@@ -138,6 +151,11 @@ class SurfaceParser(
                             SurfaceDiagnosticReason.MISSING_BRACE,
                         ),
                     )
+                    index = cursor
+                    continue
+                }
+
+                if (selectorResult.exhausted) {
                     index = cursor
                     continue
                 }
@@ -298,6 +316,14 @@ class SurfaceParser(
         fun addAll(values: List<SurfaceParseDiagnostic>) = values.forEach(::add)
     }
 
+    private fun hasInvalidAnimationPatternId(line: String): Boolean {
+        val token = LEGACY_PATTERN_ID.find(line)?.groupValues?.get(1)
+            ?: MODERN_PATTERN_ID.find(line)?.groupValues?.get(1)
+            ?: return false
+        val id = token.toIntOrNull() ?: return true
+        return id !in 0..ShellSurface.MAX_ANIMATION_PATTERN_ID
+    }
+
     private class ParseBudget(seedTargets: Long) : SurfaceSelectorWorkBudget {
         private var fileBlocks = 0L
         private var wholeBlocks = 0L
@@ -376,5 +402,7 @@ class SurfaceParser(
         const val MAX_TARGETS_TOTAL = 8_192L
         const val MAX_ASSOCIATIONS_PER_FILE = 50_000L
         const val MAX_ASSOCIATIONS_TOTAL = 100_000L
+        val LEGACY_PATTERN_ID = Regex("^\\d+pattern([+-]?\\d+),", RegexOption.IGNORE_CASE)
+        val MODERN_PATTERN_ID = Regex("^animation\\d+\\.pattern([+-]?\\d+),", RegexOption.IGNORE_CASE)
     }
 }

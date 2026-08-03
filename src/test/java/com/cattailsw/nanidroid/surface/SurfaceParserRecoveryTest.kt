@@ -241,6 +241,56 @@ class SurfaceParserRecoveryTest {
     }
 
     @Test
+    fun shared_selector_exhaustion_after_a_valid_define_token_rejects_the_whole_block() {
+        val tenThousand = List(10_000) { "0" }.joinToString(",")
+        val nineThousandNineHundredNinetyNine = List(9_999) { "1" }.joinToString(",")
+        val result = parser.parse(
+            listOf(
+                source(
+                    "surface$tenThousand\n{\n}\n" +
+                        "surface$nineThousandNineHundredNinetyNine\n{\n}\n" +
+                        "surface2000,2001\n{\ncollision0,0,0,1,1,Rejected\n}\n",
+                    "surfaces1.txt",
+                ),
+                source(
+                    "surface3\n{\ncollision0,0,0,1,1,Recovered\n}\n",
+                    "surfaces2.txt",
+                ),
+            ),
+            SurfaceParseSeed(emptySet()),
+        )
+
+        assertEquals(setOf(0, 1, 3), result.surfaces.keys)
+        assertTrue(2000 !in result.surfaces)
+        assertEquals(listOf("Recovered"), names(result, 3))
+        assertEquals(1, result.diagnostics.count { it.reason == SurfaceDiagnosticReason.SELECTOR })
+    }
+
+    @Test
+    fun shared_selector_exhaustion_after_a_valid_append_token_rejects_the_whole_block() {
+        val tenThousand = List(10_000) { "0" }.joinToString(",")
+        val nineThousandNineHundredNinetyNine = List(9_999) { "0" }.joinToString(",")
+        val result = parser.parse(
+            listOf(
+                source(
+                    "surface.append$tenThousand\n{\n}\n" +
+                        "surface.append$nineThousandNineHundredNinetyNine\n{\n}\n" +
+                        "surface.append0,1\n{\ncollision0,0,0,1,1,Rejected\n}\n",
+                    "surfaces1.txt",
+                ),
+                source(
+                    "surface.append0\n{\ncollision1,0,0,1,1,Recovered\n}\n",
+                    "surfaces2.txt",
+                ),
+            ),
+            SurfaceParseSeed(setOf(0)),
+        )
+
+        assertEquals(listOf("Recovered"), names(result, 0))
+        assertEquals(1, result.diagnostics.count { it.reason == SurfaceDiagnosticReason.SELECTOR })
+    }
+
+    @Test
     fun many_small_selectors_share_one_file_work_budget_and_later_file_recovers() {
         val repeated = buildString {
             repeat(21) {
@@ -691,6 +741,71 @@ class SurfaceParserRecoveryTest {
             listOf("surfaces5.txt", "surfaces6.txt", "surfaces7.txt", "surfaces8.txt", "surfaces9.txt"),
             reader.diagnostics.map { it.file },
         )
+    }
+
+    @Test
+    fun reader_rejects_invalid_animation_pattern_ids_before_materialization_and_recovers() {
+        val root = temporaryFolder.newFolder("bounded-animation-pattern-shell")
+        File(root, "surfaces1.txt").writeText(
+            """
+            surface0
+            {
+            0pattern4095,-1,10,overlay,0,0
+            animation1.pattern18,overlay,-1,20
+            2pattern4096,-1,10,overlay,0,0
+            animation3.pattern-1,overlay,-1,10
+            animation4.pattern999999999999999999999999,overlay,-1,10
+            5pattern100000,-1,10,overlay,0,0
+            animation6.pattern2147483647,overlay,-1,10
+            animation7.pattern2147483647,alternativestart,(1.2)
+            collision0,0,0,1,1,Sibling
+            }
+            surface1
+            {
+            animation0.pattern0,overlay,-1,10
+            }
+            """.trimIndent(),
+            StandardCharsets.UTF_8,
+        )
+        File(root, "surfaces2.txt").writeText(
+            "surface2\n{\n0pattern0,-1,10,overlay,0,0\n}\n",
+            StandardCharsets.UTF_8,
+        )
+        val manager = SurfaceManager("fixture")
+
+        val reader = SurfaceReader(manager, root.absolutePath, File(root, "surfaces1.txt").absolutePath)
+
+        assertEquals(1, manager.getSurface("0")!!.getAnimationFrameCount(0))
+        assertEquals(1, manager.getSurface("0")!!.getAnimationFrameCount(1))
+        assertEquals(0, manager.getSurface("0")!!.getAnimationFrameCount(2))
+        assertEquals(0, manager.getSurface("0")!!.getAnimationFrameCount(3))
+        assertEquals(0, manager.getSurface("0")!!.getAnimationFrameCount(4))
+        assertEquals(0, manager.getSurface("0")!!.getAnimationFrameCount(5))
+        assertEquals(0, manager.getSurface("0")!!.getAnimationFrameCount(6))
+        assertEquals(0, manager.getSurface("0")!!.getAnimationFrameCount(7))
+        assertEquals(1, manager.getSurface("0")!!.collisionCount)
+        assertEquals(1, manager.getSurface("1")!!.getAnimationFrameCount(0))
+        assertEquals(1, manager.getSurface("2")!!.getAnimationFrameCount(0))
+        assertEquals(6, reader.diagnostics.count { it.reason == SurfaceDiagnosticReason.ENTRY })
+        assertTrue(reader.diagnostics.size <= 256)
+    }
+
+    @Test
+    fun reader_bounds_invalid_animation_pattern_diagnostics() {
+        val root = temporaryFolder.newFolder("many-invalid-animation-patterns-shell")
+        val entries = (0 until 300).joinToString("\n") { animation ->
+            "animation$animation.pattern4096,overlay,-1,10"
+        }
+        File(root, "surfaces.txt").writeText(
+            "surface0\n{\n$entries\n0pattern0,-1,10,overlay,0,0\n}\n",
+            StandardCharsets.UTF_8,
+        )
+        val manager = SurfaceManager("fixture")
+
+        val reader = SurfaceReader(manager, root.absolutePath, File(root, "surfaces.txt").absolutePath)
+
+        assertEquals(1, manager.getSurface("0")!!.getAnimationFrameCount(0))
+        assertEquals(256, reader.diagnostics.count { it.reason == SurfaceDiagnosticReason.ENTRY })
     }
 
     private fun source(text: String, name: String = "surfaces.txt") =

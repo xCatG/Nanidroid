@@ -13,6 +13,7 @@ data class SurfaceSelectorResult(
     val selection: SurfaceSelection,
     val mode: SurfaceBlockMode,
     val diagnostics: List<SurfaceParseDiagnostic>,
+    val exhausted: Boolean = false,
 )
 
 class SurfaceSelector {
@@ -43,6 +44,7 @@ class SurfaceSelector {
         val included = linkedSetOf<Int>()
         val excluded = linkedSetOf<Int>()
         var work = 0L
+        var exhausted = false
         var localExhaustionReported = false
         fun charge(amount: Long): SurfaceBudgetCharge {
             if (amount < 0L || work + amount > MAX_SELECTOR_WORK) {
@@ -58,6 +60,7 @@ class SurfaceSelector {
         for (rawToken in body.splitToSequence(',')) {
             val tokenCharge = charge(1L)
             if (!tokenCharge.accepted) {
+                exhausted = true
                 if (tokenCharge.report) diagnostics.addBounded(source.diagnostic(rawToken.trim()))
                 break
             }
@@ -76,6 +79,7 @@ class SurfaceSelector {
             val expansionWork = size - 1L
             val expansionCharge = charge(expansionWork)
             if (size <= 0L || !expansionCharge.accepted) {
+                if (!expansionCharge.accepted) exhausted = true
                 if (size <= 0L || expansionCharge.report) {
                     diagnostics.addBounded(source.diagnostic(rawToken.trim()))
                 }
@@ -94,6 +98,7 @@ class SurfaceSelector {
             SurfaceSelection(included, excluded),
             mode,
             diagnostics,
+            exhausted,
         )
     }
 
