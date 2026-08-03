@@ -4,6 +4,16 @@ import org.junit.After
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
+import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
+import com.cattailsw.nanidroid.runtime.dialogue.Support
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
+import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
+import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import androidx.compose.ui.unit.IntOffset
+import java.util.Hashtable
 
 /** Characterizes boot delivery across runner clock and ghost lifecycles.  */
 class SScriptRunnerBootDispatchTest {
@@ -88,6 +98,104 @@ class SScriptRunnerBootDispatchTest {
         )
     }
 
+    @Test
+    fun timerUsesSleepInclusiveClockHoursAndPlaysOnlyIdleGetResponses() {
+        val trace = mutableListOf<String?>()
+        val clock = FakeClock(7 * 3_600_000L + 1_000L)
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, trace).apply {
+            rawResponses += talk("\\hawake\\e")
+        }
+        runner.setGhost(ghost)
+
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(
+            listOf("GET:OnSecondChange:[7, 0, 0, 1]"),
+            ghost.rawRequests,
+        )
+        Assert.assertTrue(runner.dialogueStateSnapshot().contents.any { it.segments.toString().contains("awake") })
+    }
+
+    @Test
+    fun passiveTimerSendsNotifyAndDoesNotReplaceItsDialogueOrPendingActions() {
+        val clock = FakeClock(3_600_000L + 1_000L)
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hignored\\e")
+        }
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hbefore\\q[Keep,keep]\\![enter,passivemode]\\e"))
+        runner.run()
+        val before = runner.dialogueStateSnapshot()
+
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(
+            listOf("NOTIFY:OnSecondChange:[1, 0, 0, 0]"),
+            ghost.rawRequests,
+        )
+        Assert.assertEquals(before.contents, runner.dialogueStateSnapshot().contents)
+        Assert.assertEquals(before.pendingChoices, runner.dialogueStateSnapshot().pendingChoices)
+    }
+
+    @Test
+    fun passiveSurfaceTapIsIgnoredBeforeItCanClearKeroDialogue() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("surface", "Surface", 2, mutableListOf())
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hbefore\\q[Keep,keep]\\![enter,passivemode]\\e"))
+        runner.run()
+        val before = runner.dialogueStateSnapshot()
+
+        val dispatched = runner.dispatchSurfaceInteraction(
+            SurfaceInteractionEffect(
+                PointerEventKind.CLICK,
+                SurfaceSpeaker.KERO,
+                IntOffset.Zero,
+                0,
+                PointerSource.TOUCH,
+                null,
+                null,
+            ),
+        )
+
+        Assert.assertTrue(dispatched)
+        Assert.assertEquals(
+            listOf("GET:OnMouseClick:[0, 0, 0, 1, , 0, touch]"),
+            ghost.rawRequests,
+        )
+        Assert.assertEquals(before, runner.dialogueStateSnapshot())
+    }
+
+    @Test
+    fun passiveCommandsAreIdempotentAndUnloadClearsOnlyTheMode() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("passive", "Passive", 2, mutableListOf())
+        runner.setGhost(ghost)
+
+        runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\![enter,passivemode]\\![enter,passivemode]\\e"))
+        runner.run()
+        val shown = runner.dialogueStateSnapshot()
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+
+        runner.addMsgToQueue(arrayOf("\\![leave,passivemode]\\![leave,passivemode]\\e"))
+        runner.run()
+        Assert.assertFalse(runner.runtimeModeSnapshot().passive)
+        Assert.assertEquals(shown.pendingChoices, runner.dialogueStateSnapshot().pendingChoices)
+
+        runner.addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
+        runner.run()
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+        Assert.assertTrue(runner.unloadGhostForSwitchForTesting(ghost))
+        Assert.assertFalse(runner.runtimeModeSnapshot().passive)
+        Assert.assertEquals(shown.pendingChoices, runner.dialogueStateSnapshot().pendingChoices)
+    }
+
     private fun runner(): com.cattailsw.nanidroid.SScriptRunner {
         val runner: com.cattailsw.nanidroid.SScriptRunner =
             com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
@@ -95,7 +203,16 @@ class SScriptRunnerBootDispatchTest {
         return runner
     }
 
-    private class RecordingGhost(
+    private class FakeClock(var millis: Long) : MonotonicClock {
+        override fun nowMillis(): Long = millis
+    }
+
+    private fun talk(value: String): ShioriResponse = ShioriResponse(
+        "SHIORI/3.0 200 OK",
+        Hashtable<String, String>().apply { put("Value", value) },
+    )
+
+    private open class RecordingGhost(
         ghostId: String,
         ghostName: String?,
         createCount: Long,
@@ -130,5 +247,25 @@ class SScriptRunnerBootDispatchTest {
             trace.add(fakeGhostId + ":" + event + ":" + references.contentToString())
             return com.cattailsw.nanidroid.ShioriResponse("SHIORI/3.0 204 No Content")
         }
+    }
+
+    private class RawRecordingGhost(
+        ghostId: String,
+        ghostName: String?,
+        createCount: Long,
+        trace: MutableList<String?>,
+    ) : RecordingGhost(ghostId, ghostName, createCount, trace) {
+        val rawRequests = mutableListOf<String>()
+        val rawResponses = ArrayDeque<ShioriResponse>()
+
+        override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
+            rawRequests += "$method:$eventId:$references"
+            return rawResponses.removeFirstOrNull() ?: ShioriResponse("SHIORI/3.0 204 No Content")
+        }
+
+        override fun getSakuraName(): String = "Sakura"
+        override fun getKeroName(): String = "Kero"
+        override fun pointerEventCapabilities(): PointerEventCapabilities =
+            PointerEventCapabilities(click = Support.SUPPORTED)
     }
 }

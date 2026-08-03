@@ -38,6 +38,11 @@ import com.cattailsw.nanidroid.install.NarDownloadRepository
 import com.cattailsw.nanidroid.install.NarLiveGrantHandoff
 import com.cattailsw.nanidroid.install.NarDownloadState
 import com.cattailsw.nanidroid.install.StageLocalNarWorker
+import com.cattailsw.nanidroid.runtime.dialogue.ActionOrigin
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
+import com.cattailsw.nanidroid.runtime.dialogue.GhostActionGuard
+import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
+import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
@@ -238,9 +243,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 onHelp = ::onHelp,
                 onArchiveQueue = {
                     simpleDialog = NanidroidSimpleDialog.ArchiveQueue(
-                        onRetry = { narDownloads.retry(it) },
+                        onRetry = { if (allows(GuardedAction.IMPORT_INSTALL)) narDownloads.retry(it) },
                         onReselect = { startInstallFromSDCard(it) },
-                        onDelete = { narDownloads.delete(it) },
+                        onDelete = { if (allows(GuardedAction.UNINSTALL)) narDownloads.delete(it) },
                     )
                 },
                 archiveDownloads = downloads,
@@ -296,6 +301,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onResume() { super.onResume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG) }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
+            if (!allows(GuardedAction.EXIT)) return
             val activeRunner = runner
             if (activeRunner != null) {
                 activeRunner.stopClock()
@@ -332,6 +338,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun runClick() { runner!!.addMsgToQueue(arrayOf("\\![open,inputbox,lalala]")); runner!!.run() }
     private fun sendStopIntent() { stopService(Intent(this, NanidroidService::class.java)) }
     private fun addNarToDownload(target: Uri) {
+        if (!allows(GuardedAction.IMPORT_INSTALL)) return
         val value = target.toString()
         if (!isApprovedArchiveUrl(value)) {
             Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show()
@@ -342,7 +349,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
     private fun extractNar(targetPath: String) = extractNar(targetPath, false)
-    private fun extractNar(targetPath: String, force: Boolean) { val ghostId = NarUtil.readNarGhostId(targetPath); if (ghostId == null) { runner?.doShioriEvent("OnInstallFailure", null); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_install", "cannot read $targetPath", -1); return }; if (!gm!!.hasSameGhostId(ghostId) || force) { runner?.doInstallBegin(ghostId); InstallTask(targetPath, ghostId).execute(targetPath) } else { runner?.doShioriEvent("OnInstallRefuse", null); AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -2) } }
+    private fun extractNar(targetPath: String, force: Boolean) { if (!allows(GuardedAction.IMPORT_INSTALL)) return; val ghostId = NarUtil.readNarGhostId(targetPath); if (ghostId == null) { runner?.doShioriEvent("OnInstallFailure", null); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_install", "cannot read $targetPath", -1); return }; if (!gm!!.hasSameGhostId(ghostId) || force) { runner?.doInstallBegin(ghostId); InstallTask(targetPath, ghostId).execute(targetPath) } else { runner?.doShioriEvent("OnInstallRefuse", null); AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -2) } }
     private fun onSuccessGhostInstall(ghostId: String, path: String) { runner?.doInstallComplete(ghostId); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_install", ghostId, 1); val readme = File(path, "readme.txt"); if (readme.exists()) showReadme(readme, ghostId) else showGhostInstalledDlg(ghostId) }
     @Suppress("DEPRECATION") private inner class InstallTask(private val targetPath: String, private val ghostId: String) : AsyncTask<String, Int, String>() { override fun doInBackground(vararg params: String): String? = gm!!.installGhost(ghostId, targetPath); override fun onPostExecute(path: String?) { if (path != null) onSuccessGhostInstall(ghostId, path) else { runner?.doShioriEvent("OnInstallFailure", null); gm!!.getLastInstallError()?.takeIf { it.isNotEmpty() }?.let { Toast.makeText(this@Nanidroid, it, Toast.LENGTH_LONG).show() }; AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -1) } } }
     private fun installFirstGhost() { try { assets.open("nanidroid.zip").use { input -> val target = File(externalCacheDir, "nanidroid.nar"); NarUtil.copyFile(input, FileOutputStream(target)); gm!!.installFirstGhost("nanidroid", target.path) } } catch (e: IOException) { e.printStackTrace() } }
@@ -357,7 +364,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun onNextGhost() {
         simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
     }
-    fun switchGhost(nextId: String) { val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
+    fun switchGhost(nextId: String) { if (!allows(GuardedAction.SWITCH_GHOST)) return; val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
     @Suppress("DEPRECATION") fun ghostSwitchStep2() {
         val targetGhostId = nextGhostId ?: run {
             Log.w(TAG, "ghost switch completed without a target ghost")
@@ -409,6 +416,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }.execute()
     }
     private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
+        if (!allows(GuardedAction.IMPORT_INSTALL)) return
         val resolvedMimeType = incoming?.type ?: runCatching {
             incoming?.data?.let(contentResolver::getType)
         }.getOrNull()
@@ -440,8 +448,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         handleIncomingIntent(intent, isNewIntent = true)
         if (initComplete) enqueuePendingArchiveIntent()
     }
-    fun onUpdate() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
-    fun onListGhost() { AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
+    fun onUpdate() { if (!allows(GuardedAction.UPDATE)) return; AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
+    fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
     fun onHelp() {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "help", "", 0)
         AnalyticsUtils.getInstance(this).trackPageView("/Help_menu")
@@ -452,7 +460,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
         simpleDialog = createMoreGhostDialog()
     }
-    private fun startInstallFromSDCard(replaceId: String? = null) {
+    private fun startInstallFromSDCard(replaceId: String? = null, origin: ActionOrigin = ActionOrigin.USER) {
+        if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
         AnalyticsUtils.getInstance(applicationContext).trackEvent(
             Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0,
         )
@@ -470,10 +479,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file,
         )
     }
-    private fun importPickedNar(uri: Uri, replacementId: String?) =
-        enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId)
+    private fun importPickedNar(uri: Uri, replacementId: String?, origin: ActionOrigin) =
+        enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId, origin)
 
-    private fun enqueueLocalArchive(uri: Uri, flags: Int, replacementId: String? = null) {
+    private fun enqueueLocalArchive(
+        uri: Uri,
+        flags: Int,
+        replacementId: String? = null,
+        origin: ActionOrigin = ActionOrigin.USER,
+    ) {
+        if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
         val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
         if (canPersist) {
             try {
@@ -510,7 +525,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val replacementId = replacingNarDownloadId
         replacingNarDownloadId = null
         if (resultCode == RESULT_OK) {
-            data?.data?.let { importPickedNar(it, replacementId) }
+            data?.data?.let { importPickedNar(it, replacementId, ActionOrigin.USER) }
                 ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
         }
     }
@@ -556,6 +571,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val parsed = java.net.URI(value)
         parsed.scheme.equals("https", ignoreCase = true) && !parsed.host.isNullOrBlank()
     } catch (_: Exception) { false }
+    private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
+        GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
     private fun createUserInputDialog(id: String, value: String = ""): NanidroidSimpleDialog.UserInput = NanidroidSimpleDialog.UserInput(
         id, value,
         onValueChanged = { simpleDialog = createUserInputDialog(id, it) },
@@ -686,10 +703,29 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (!toolbarVisible) AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar")
         toolbarVisible = !toolbarVisible
     }
-    private fun onFinishUserInput(id: String, userinput: String) { Log.d(TAG, "got user input:$userinput"); runner!!.resumeEvt(); runner!!.doUserInput(id, userinput) }
-    private fun onCancelInput() { Log.d(TAG, "user cancel"); runner!!.resumeEvt() }
+    private fun onFinishUserInput(id: String, userinput: String) {
+        Log.d(TAG, "got user input:$userinput")
+        val activeRunner = runner ?: return
+        val pending = activeRunner.dialogueStateSnapshot().pendingInput
+            ?.takeIf { (it.spec.dispatch as? InputDispatch.Normal)?.id == id }
+            ?: return
+        activeRunner.resumeEvt()
+        activeRunner.submitInput(pending.generation, userinput)
+    }
+    private fun onCancelInput() {
+        Log.d(TAG, "user cancel")
+        val activeRunner = runner ?: return
+        val pending = activeRunner.dialogueStateSnapshot().pendingInput ?: return
+        activeRunner.resumeEvt()
+        activeRunner.dismissInput(pending.generation)
+    }
     override fun showUserInputBox(id: String) { simpleDialog = createUserInputDialog(id) }
-    private fun onChoiceSelect(id: String) { runner!!.doOnChoiceSelect(id) }
+    private fun onChoiceSelect(id: String) {
+        val action = runner?.dialogueStateSnapshot()?.pendingChoices
+            ?.singleOrNull { (it as? DialogueAction.Normal)?.id == id }
+            ?: return
+        runner?.activateChoice(action)
+    }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList()) }
 
     companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }

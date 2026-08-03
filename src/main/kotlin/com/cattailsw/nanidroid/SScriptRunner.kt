@@ -10,6 +10,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
@@ -36,6 +37,7 @@ open class SScriptRunner internal constructor(
         @JvmField val WAIT_UNIT: Long = 50
         @JvmField val WAIT_YEN_E: Long = 1000
         private const val RUN = 42; private const val STOP = 43; private const val INC_CLOCK = 44; private const val CLOCK_STEP = 1000L
+        private val PASSIVE_MODE = Regex("""^\[(enter|leave),passivemode]""")
         @Volatile private var self: SScriptRunner? = null
         private val productionSessionCoordinator = GhostSessionCoordinator()
         private val msgQueue = ConcurrentLinkedQueue<String>()
@@ -71,13 +73,14 @@ open class SScriptRunner internal constructor(
     private val mCtx = ctx?.applicationContext
     private var ucb: UICallback? = null; private var cb: StatusCallback? = null
     private var isRunning = false; private var msg: String? = null; private var noWaitMode = false
-    private var startTime = 0L; private var sync = false; private var wholeline = false; private var sakuraTalk = false
+    private var sync = false; private var wholeline = false; private var sakuraTalk = false
     private val sakuraMsg = StringBuilder(); private val keroMsg = StringBuilder(); private var waitTime = WAIT_UNIT; private var charIndex = 0
     private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"; private var sakuraAnimationId: String? = null; private var keroAnimationId: String? = null
     private var bSakuraId = "0"; private var bKeroId = "-1"; private var talkAnimeControl = 0
-    private var lastSec = 0; private var lastMin = 0; private var lastHour = 0; private var restore = false; private var exitPending = false; private var changingPending = false; private var paused = false; private val bootDispatchState = BootDispatchState()
+    private var lastSec = 0; private var lastMin = 0; private var lastHour = 0L; private var restore = false; private var exitPending = false; private var changingPending = false; private var paused = false; private val bootDispatchState = BootDispatchState()
     private var dialogueState = DialogueRuntimeState()
     private var nextInputGeneration = 0L
+    private var passive = false
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
@@ -86,11 +89,13 @@ open class SScriptRunner internal constructor(
     fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean = withCurrentGhost { target ->
         val eventId = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
             ?: return@withCurrentGhost false
-        if (effect.speaker.legacyReference == "1") clearMsgQueue()
+        val canTalk = runtimeModeSnapshot().canTalk
+        if (canTalk && effect.speaker.legacyReference == "1") clearMsgQueue()
         if (!isPinnedDialogueGhost(target)) return@withCurrentGhost false
-        parseShioriResponseAndInsert(
-            target.requestRaw(ShioriMethod.GET, eventId, SurfaceInteractionProtocol.references(effect)),
-        )
+        val response = target.requestRaw(ShioriMethod.GET, eventId, SurfaceInteractionProtocol.references(effect))
+        if (canTalk && runtimeModeSnapshot().canTalk && isPinnedDialogueGhost(target)) {
+            parseShioriResponseAndInsert(response)
+        }
         true
     } ?: false
     fun setGhost(newGhost: Ghost?) {
@@ -103,7 +108,11 @@ open class SScriptRunner internal constructor(
     internal fun reserveGhostForAttachmentForTesting(ghost: Ghost): ReservedGhost =
         sessionCoordinator.reserveLoadedGhostForTesting(ghost)
     internal fun unloadGhostForSwitchForTesting(ghost: Ghost): Boolean =
-        sessionCoordinator.markActiveUnloaded(ghost)
+        sessionCoordinator.markActiveUnloaded(ghost).also { unloaded ->
+            if (unloaded) synchronized(this) {
+                if (g === ghost) passive = false
+            }
+        }
     private fun setGhostInternal(newGhost: Ghost?, reservation: ReservedGhost?): Boolean {
         val outgoing = synchronized(this) { g }
         val firstActivation = newGhost?.getCreateCount() == 0L
@@ -146,7 +155,7 @@ open class SScriptRunner internal constructor(
     private val loopHandler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==RUN) loopControl() else if(m.what==STOP) stop() } } }
     private val clockHandler: Handler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
     private fun loopControl() { if(paused)return; val current=msg; if(current!=null&&charIndex<current.length){parseMsg();updateUI();if(noWaitMode)loopControl()else loopHandler.sendEmptyMessageDelayed(RUN,waitTime)}else{reset();msg=getFromQueue();if(msg==null){if(noWaitMode)stop()else loopHandler.sendEmptyMessageDelayed(STOP,waitTime)}else if(noWaitMode)loopControl()else loopHandler.sendEmptyMessageDelayed(RUN,waitTime)} }
-    fun startClock() { LegacyPlatform.debug(TAG,"startClock called"); val start = bootDispatchState.startClock(); if (!start.started) return; startTime=LegacyPlatform.uptimeMillis();LegacyPlatform.scheduleDelayed(CLOCK_STEP) { clockHandler.sendEmptyMessageDelayed(INC_CLOCK,CLOCK_STEP) };if(restore)doShioriEvent("OnWindowStateRestore",null)else if(start.dispatchBoot){doBoot();bootDispatchState.markBootDispatched()};restore=false }
+    fun startClock() { LegacyPlatform.debug(TAG,"startClock called"); val start = bootDispatchState.startClock(); if (!start.started) return;LegacyPlatform.scheduleDelayed(CLOCK_STEP) { clockHandler.sendEmptyMessageDelayed(INC_CLOCK,CLOCK_STEP) };if(restore)doShioriEvent("OnWindowStateRestore",null)else if(start.dispatchBoot){doBoot();bootDispatchState.markBootDispatched()};restore=false }
     fun stopClock() { LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }; bootDispatchState.stopClock() }
     override fun run() {
         val shouldStop = synchronized(this) {
@@ -177,7 +186,9 @@ open class SScriptRunner internal constructor(
         }
     }
     private fun finishStop(unloadTarget: Ghost?) {
-        isRunning=false;bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { callback ->
+        isRunning=false
+        if (unloadTarget != null) passive = false
+        bSakuraId="-1";bKeroId="-1";updateUI();cb?.let { callback ->
             callback.stop()
             if(exitPending){callback.canExit();exitPending=false}
             if(changingPending && unloadTarget != null){changingPending=false;callback.ghostSwitchScriptComplete()}
@@ -188,7 +199,17 @@ open class SScriptRunner internal constructor(
     private fun clearMsg(){if(sakuraTalk)sakuraMsg.setLength(0)else keroMsg.setLength(0)}
     private fun parseMsg(){waitTime=WAIT_UNIT;while(true)try{val text=msg!!;val c1=text[charIndex++];if(c1!='\\'){appendChar(c1);if(wholeline)continue else break};when(val c2=text[charIndex++]){'0','h'->{if(!sakuraTalk){sakuraTalk=true;sakuraMsg.setLength(0)}};'1','u'->{sakuraTalk=false;keroMsg.setLength(0)};'s'->if(handleSurface())break;'i'->if(handleAnimation())break;'e'->{charIndex=text.length;waitTime=WAIT_YEN_E;break};'n'->{appendChar('\n');val m=PatternHolders.sqbracket_half_number.matcher(text.substring(charIndex));if(m.find())charIndex+=m.group().length;break};'c'->clearMsg();'_'->if(handleUnderscore())break;'!'->handleExclaim();'w'->{val c=text[charIndex++];if(c.isDigit()){waitTime=(c-'0')*WAIT_UNIT;break}};'b'->if(handleBalloon())break;'q'->handleSelection();'-','4','5','6','v'->Log.d(TAG,"ignore unsupported $c2 tag");else->AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_SSC,"tag_unsupport_other","$c2",-1)}}catch(_:Exception){break}}
     private fun handleUnderscore():Boolean{val text=msg!!;when(val c=text[charIndex++]){'s'->sync=!sync;'q'->wholeline=!wholeline;'l','a','v'->{val m=PatternHolders.sqbracket_half_number.matcher(text.substring(charIndex));if(m.find())charIndex+=m.group().length};'b'->return handleBalloon();'w'->{val m=PatternHolders.sqbracket_half_number.matcher(text.substring(charIndex));if(m.find()){charIndex+=m.group().length;try{waitTime=m.group(1).toLong();return true}catch(_:Exception){}}}};return false}
-    private fun handleExclaim(){val m=PatternHolders.open_input.matcher(msg!!.substring(charIndex));if(m.find()){charIndex+=m.group().length;openUserInputBox(m.group(1))}}
+    private fun handleExclaim(){
+        val remaining = msg!!.substring(charIndex)
+        val passive = PASSIVE_MODE.find(remaining)
+        if (passive != null) {
+            charIndex += passive.value.length
+            this.passive = passive.groupValues[1] == "enter"
+            return
+        }
+        val m=PatternHolders.open_input.matcher(remaining)
+        if(m.find()){charIndex+=m.group().length;openUserInputBox(m.group(1))}
+    }
     private fun openUserInputBox(id:String?){if(id==null)return;ucb?.let{paused=true;it.showUserInputBox(id)}}
     private fun handleSurface():Boolean{val left=msg!!.substring(charIndex);val m=PatternHolders.surface_ptrn.matcher(left);if(!m.find())return false;changeSurface(m.group(2)?:m.group(1));charIndex+=m.group().length;return true}
     private fun handleBalloon():Boolean{val m=PatternHolders.balloon_ptrn.matcher(msg!!.substring(charIndex));if(!m.find())return false;changeBalloon(m.group(2)?:m.group(1));charIndex+=m.group().length;return true}
@@ -197,8 +218,29 @@ open class SScriptRunner internal constructor(
     private fun changeSurface(id:String){if(sakuraTalk)sakuraSurfaceId=id else keroSurfaceId=id;doShioriEvent("OnSurfaceChange",arrayOf("Reference0: $sakuraSurfaceId","Reference1: $keroSurfaceId"))}
     private fun changeBalloon(id:String){if(sakuraTalk)bSakuraId=id else bKeroId=id}; private fun queueAnimation(id:String){if(sakuraTalk)sakuraAnimationId=id else keroAnimationId=id}
     private fun updateUI(){val sa=sakuraAnimationId!=null;val ka=keroAnimationId!=null;presentationRenderer?.render(GhostPresentationFrame(GhostPresentationFrame.Speaker(sakuraMsg.toString(),sakuraSurfaceId,sakuraAnimationId,bSakuraId),GhostPresentationFrame.Speaker(keroMsg.toString(),keroSurfaceId,keroAnimationId,bKeroId),talkAnimeControl==0));if(sa)sakuraAnimationId=null;if(ka)keroAnimationId=null;talkAnimeControl++;if(talkAnimeControl==10)talkAnimeControl=0}
-    private fun doPerSecondEvent(hr:Int){doShioriEvent("OnSecondChange",arrayOf("$hr","0","0","1"))}; private fun doPerMinuteEvent(hr:Int){doShioriEvent("OnMinuteChange",arrayOf("$hr","0","0","1"))}
-    private fun perClockEvent(){val secondsAll=((SystemClock.uptimeMillis()-startTime)/1000).toInt();var minute=secondsAll/60;val hour=minute/60;val seconds=secondsAll%60;minute%=60;if(seconds-lastSec>=1||seconds==0){doPerSecondEvent(hour);lastSec=seconds};if(minute-lastMin>=1||(lastMin==59&&minute==0)){doPerMinuteEvent(hour);lastMin=minute};if(hour-lastHour>=1){lastHour=hour}}
+    private fun doPerSecondEvent(hr: Long) { dispatchTimerEvent("OnSecondChange", hr) }
+    private fun doPerMinuteEvent(hr: Long) { dispatchTimerEvent("OnMinuteChange", hr) }
+    private fun dispatchTimerEvent(event: String, uptimeHours: Long) {
+        withCurrentGhost { target ->
+            val canTalk = runtimeModeSnapshot().canTalk
+            val method = if (canTalk) ShioriMethod.GET else ShioriMethod.NOTIFY
+            val response = target.requestRaw(method, event, listOf(uptimeHours.toString(), "0", "0", if (canTalk) "1" else "0"))
+            if (canTalk && runtimeModeSnapshot().canTalk && isPinnedDialogueGhost(target)) {
+                parseShioriResponseAndInsert(response)
+            }
+        }
+    }
+    private fun perClockEvent() {
+        val secondsAll = monotonicClock.nowMillis() / 1_000L
+        var minute = secondsAll / 60L
+        val hour = minute / 60L
+        val seconds = (secondsAll % 60L).toInt()
+        minute %= 60L
+        if (seconds - lastSec >= 1 || seconds == 0) { doPerSecondEvent(hour); lastSec = seconds }
+        if (minute - lastMin >= 1 || lastMin == 59 && minute == 0L) { doPerMinuteEvent(hour); lastMin = minute.toInt() }
+        if (hour - lastHour >= 1) lastHour = hour
+    }
+    internal fun dispatchClockTickForTesting() = perClockEvent()
     private fun parseShioriResponseAndInsert(res:ShioriResponse?){if(res==null||res.getStatusCode()!=200)return;msg=res.getKey("Value");addMsgToQueue(arrayOf(msg!!));if(!isRunning)run()}
     private fun doMouseWheel(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseWheel",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
     private fun doMouseMove(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseMove",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
@@ -271,6 +313,13 @@ open class SScriptRunner internal constructor(
     private data class CurrentGhostCall<T>(val matched: Boolean, val value: T?)
     /** A UI host observes this immutable value; it never owns pending actions. */
     internal fun dialogueStateSnapshot(): DialogueRuntimeState = synchronized(this) { dialogueState }
+    internal fun runtimeModeSnapshot(): GhostRuntimeMode = synchronized(this) {
+        GhostRuntimeMode(
+            playingTalk = isRunning || msgQueue.isNotEmpty() || !msg.isNullOrEmpty(),
+            pendingUserAction = dialogueState.pendingChoices.isNotEmpty() || dialogueState.pendingInput != null,
+            passive = passive,
+        )
+    }
 
     internal fun activateChoice(action: DialogueAction) {
         when (action) {
@@ -442,17 +491,24 @@ open class SScriptRunner internal constructor(
             .flatMap { it.segments.asSequence() }
             .mapNotNull { (it as? DialogueSegment.InputBox)?.spec }
             .lastOrNull()
+        val passiveOnly = contents.asSequence()
+            .flatMap { it.segments.asSequence() }
+            .let { segments -> segments.any { it is DialogueSegment.PassiveMode } && segments.all { it is DialogueSegment.PassiveMode } }
         synchronized(this) {
-            val pendingInput = input?.let { spec ->
-                val deadline = inputDeadline(spec)
-                PendingInputState(++nextInputGeneration, spec, deadline)
-            } ?: dialogueState.pendingInput
-            dialogueState = DialogueRuntimeState(
-                revision = dialogueState.revision + 1,
-                contents = contents,
-                pendingChoices = choices,
-                pendingInput = pendingInput,
-            )
+            if (passiveOnly) {
+                dialogueState = dialogueState.copy(revision = dialogueState.revision + 1)
+            } else {
+                val pendingInput = input?.let { spec ->
+                    val deadline = inputDeadline(spec)
+                    PendingInputState(++nextInputGeneration, spec, deadline)
+                } ?: dialogueState.pendingInput
+                dialogueState = DialogueRuntimeState(
+                    revision = dialogueState.revision + 1,
+                    contents = contents,
+                    pendingChoices = choices,
+                    pendingInput = pendingInput,
+                )
+            }
         }
     }
 
@@ -467,6 +523,7 @@ open class SScriptRunner internal constructor(
         dialogueState = DialogueRuntimeState(revision = dialogueState.revision + 1)
         msgQueue.clear()
         msg = null
+        passive = false
     }
     fun doBoot(){g?.let{val shell=it.getShellName();val count=it.getCreateCount();if(count>1){doShioriEvent("OnBoot",arrayOf(shell) as Array<String>);AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onboot",it.getGhostId(),count.toInt())}else{doShioriEvent("OnFirstBoot",arrayOf("0"));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",it.getGhostId(),0)}}}
     fun getStringValueFromShiori(id:String):String?=withCurrentGhost { it.getStringFromShiori(id) };fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
