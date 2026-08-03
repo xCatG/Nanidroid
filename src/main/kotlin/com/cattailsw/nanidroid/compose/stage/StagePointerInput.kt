@@ -83,9 +83,18 @@ internal fun StagePointerInput(
     val sequencer = remember(scheduler) {
         PhysicalClickSequencer(scheduler, { latestMonotonicNowMillis() }) { latestSurfaceEffect(it) }
     }
+    val keyActivationSequence = remember { StageKeyActivationSequence() }
     val currentGeometry = snapshotProvider().geometryToken
-    SideEffect { sequencer.retainGeometry(currentGeometry) }
-    DisposableEffect(sequencer) { onDispose { sequencer.cancelAll() } }
+    SideEffect {
+        sequencer.retainGeometry(currentGeometry)
+        keyActivationSequence.retainGeometry(currentGeometry)
+    }
+    DisposableEffect(sequencer, keyActivationSequence) {
+        onDispose {
+            sequencer.cancelAll()
+            keyActivationSequence.cancel()
+        }
+    }
 
     val platformConfiguration = ViewConfiguration.get(LocalContext.current)
     val toggleChromeLabel = stringResource(R.string.toggle_stage_chrome_action)
@@ -129,10 +138,16 @@ internal fun StagePointerInput(
                 onClick(label = toggleChromeLabel, action = chromeActivation)
             }
             .onKeyEvent { event ->
-                when {
-                    event.key != Key.Enter && event.key != Key.DirectionCenter -> false
-                    event.type == KeyEventType.KeyDown -> !latestSnapshotProvider().blocking
-                    event.type == KeyEventType.KeyUp -> chromeActivation()
+                val snapshot = latestSnapshotProvider()
+                when (event.type) {
+                    KeyEventType.KeyDown -> keyActivationSequence.onKeyDown(event.key, snapshot)
+                    KeyEventType.KeyUp -> {
+                        when {
+                            !event.key.isStageActivationKey() -> false
+                            keyActivationSequence.onKeyUp(event.key, snapshot) -> chromeActivation()
+                            else -> true
+                        }
+                    }
                     else -> false
                 }
             }
@@ -271,6 +286,54 @@ private fun sameScope(first: StageInputTarget, second: StageInputTarget): Boolea
 
 private fun IntSize.containsHalfOpen(point: Offset): Boolean =
     point.x >= 0f && point.x < width && point.y >= 0f && point.y < height
+
+private class StageKeyActivationSequence {
+    private var heldKey: Key? = null
+    private var acceptedGeometryToken: Any? = null
+
+    fun onKeyDown(key: Key, snapshot: StageInputSnapshot): Boolean {
+        if (!key.isStageActivationKey()) return false
+        if (heldKey == key) {
+            if (snapshot.blocking || acceptedGeometryToken != snapshot.geometryToken) {
+                acceptedGeometryToken = null
+            }
+            return acceptedGeometryToken != null
+        }
+        if (heldKey != null) {
+            acceptedGeometryToken = null
+            return false
+        }
+        heldKey = key
+        acceptedGeometryToken = snapshot.geometryToken.takeUnless { snapshot.blocking }
+        return acceptedGeometryToken != null
+    }
+
+    fun onKeyUp(key: Key, snapshot: StageInputSnapshot): Boolean {
+        if (!key.isStageActivationKey()) return false
+        if (heldKey != key) {
+            acceptedGeometryToken = null
+            return false
+        }
+        val accepted =
+            !snapshot.blocking && acceptedGeometryToken == snapshot.geometryToken
+        heldKey = null
+        acceptedGeometryToken = null
+        return accepted
+    }
+
+    fun retainGeometry(geometryToken: Any) {
+        if (acceptedGeometryToken != null && acceptedGeometryToken != geometryToken) {
+            acceptedGeometryToken = null
+        }
+    }
+
+    fun cancel() {
+        heldKey = null
+        acceptedGeometryToken = null
+    }
+}
+
+private fun Key.isStageActivationKey(): Boolean = this == Key.Enter || this == Key.DirectionCenter
 
 private const val PRIMARY_BUTTON = 0
 private const val SECONDARY_BUTTON = 1

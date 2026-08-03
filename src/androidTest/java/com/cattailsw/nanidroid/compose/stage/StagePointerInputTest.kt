@@ -479,6 +479,114 @@ class StagePointerInputTest {
         }
     }
 
+    @Test
+    fun overlappingActivationKeysDoNotPairMismatchedKeyUps() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        setStage({ snapshot() }, effects, toggle = { toggles++ })
+        val stage = composeRule.onNodeWithTag(TAG)
+        stage.performSemanticsAction(SemanticsActions.RequestFocus)
+
+        stage.performKeyInput {
+            keyDown(Key.Enter)
+            keyDown(Key.DirectionCenter)
+            keyUp(Key.DirectionCenter)
+            keyUp(Key.Enter)
+        }
+
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
+    }
+
+    @Test
+    fun blockedActivationKeyDownCannotPairWithUnblockedKeyUp() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        val state = mutableStateOf(snapshot(blocking = true))
+        setStage({ state.value }, effects, toggle = { toggles++ })
+        val stage = composeRule.onNodeWithTag(TAG)
+        stage.performSemanticsAction(SemanticsActions.RequestFocus)
+
+        stage.performKeyInput { keyDown(Key.Enter) }
+        composeRule.runOnIdle { state.value = snapshot() }
+        stage.performKeyInput { keyUp(Key.Enter) }
+
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
+    }
+
+    @Test
+    fun acceptedActivationKeyDownIsCancelledByTransientBlocking() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        val state = mutableStateOf(snapshot())
+        setStage({ state.value }, effects, toggle = { toggles++ })
+        val stage = composeRule.onNodeWithTag(TAG)
+        stage.performSemanticsAction(SemanticsActions.RequestFocus)
+
+        stage.performKeyInput { keyDown(Key.Enter) }
+        composeRule.runOnIdle { state.value = snapshot(blocking = true) }
+        composeRule.runOnIdle { state.value = snapshot() }
+        stage.performKeyInput { keyUp(Key.Enter) }
+
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
+    }
+
+    @Test
+    fun acceptedDpadCenterDownIsCancelledByGhostIdentityChange() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        val state = mutableStateOf(snapshot(ghostKey = "first-ghost"))
+        setStage({ state.value }, effects, toggle = { toggles++ })
+        val stage = composeRule.onNodeWithTag(TAG)
+        stage.performSemanticsAction(SemanticsActions.RequestFocus)
+
+        stage.performKeyInput { keyDown(Key.DirectionCenter) }
+        composeRule.runOnIdle { state.value = snapshot(ghostKey = "replacement-ghost") }
+        stage.performKeyInput { keyUp(Key.DirectionCenter) }
+
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
+    }
+
+    @Test
+    fun replacementStageRejectsUnpairedKeyUpFromDisposedStage() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        val mounted = mutableStateOf(true)
+        composeRule.setContent {
+            if (mounted.value) {
+                StagePointerInput(
+                    snapshotProvider = { snapshot() },
+                    onSurfaceEffect = effects::add,
+                    onToggleChrome = { toggles++ },
+                    modifier = Modifier.fillMaxSize().testTag(TAG),
+                ) { }
+            }
+        }
+        composeRule.onNodeWithTag(TAG).performSemanticsAction(SemanticsActions.RequestFocus)
+        composeRule.onNodeWithTag(TAG).performKeyInput { keyDown(Key.Enter) }
+
+        composeRule.runOnIdle { mounted.value = false }
+        composeRule.runOnIdle { mounted.value = true }
+        composeRule.onNodeWithTag(TAG).performSemanticsAction(SemanticsActions.RequestFocus)
+        composeRule.onNodeWithTag(TAG).performKeyInput { keyUp(Key.Enter) }
+
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
+    }
+
     private fun setStage(
         snapshot: () -> StageInputSnapshot,
         effects: MutableList<SurfaceInteractionEffect>,
@@ -536,11 +644,12 @@ class StagePointerInputTest {
         blocking: Boolean = false,
         bubbles: List<MeasuredBubbleHitRegion> = emptyList(),
         surfaces: List<StageSurfaceSnapshot> = emptyList(),
+        ghostKey: String = "device-fixture",
     ) = StageInputRouter.snapshot(
         blocking = blocking,
         bubbleRegistry = BubbleHitRegionRegistry.from(bubbles),
         bubbleGeneration = bubbles.hashCode().toLong(),
-        ghostKey = "device-fixture",
+        ghostKey = ghostKey,
         surfaces = surfaces,
     )
 
