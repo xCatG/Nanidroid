@@ -18,6 +18,10 @@ import androidx.window.layout.WindowLayoutInfo
 import androidx.window.testing.layout.WindowLayoutInfoPublisherRule
 import androidx.window.testing.layout.FoldingFeature as TestFoldingFeature
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -164,29 +168,59 @@ class StageEnvironmentProviderTest {
     }
 
     @Test
-    fun lifecycleStopDefersPublicationAndRestartReceivesTheLatestLayout() {
+    fun lifecycleCancelsSubscriptionAndReplayingSourceSuppliesLatestLayoutOnRestart() {
         val observed = mutableStateOf<StageWindowEnvironment?>(null)
-        composeRule.setContent {
-            StageEnvironmentProvider { environment -> SideEffect { observed.value = environment } }
+        val latest = MutableStateFlow(WindowLayoutInfo(emptyList()))
+        val activeSubscriptions = AtomicInteger(0)
+        val subscriptionStarts = AtomicInteger(0)
+        val mounted = mutableStateOf(true)
+        val source = WindowLayoutInfoSource {
+            flow {
+                subscriptionStarts.incrementAndGet()
+                activeSubscriptions.incrementAndGet()
+                try {
+                    emitAll(latest)
+                } finally {
+                    activeSubscriptions.decrementAndGet()
+                }
+            }
         }
-        publish(emptyList())
-        composeRule.waitUntil { observed.value != null }
+        composeRule.setContent {
+            if (mounted.value) {
+                StageEnvironmentProvider(windowLayoutInfoSource = source) { environment ->
+                    SideEffect { observed.value = environment }
+                }
+            }
+        }
+        composeRule.waitUntil {
+            observed.value != null && activeSubscriptions.get() == 1 && subscriptionStarts.get() == 1
+        }
         val before = observed.value
 
         composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
-        composeRule.waitForIdle()
+        composeRule.waitUntil { activeSubscriptions.get() == 0 }
         val width = before!!.windowSizePx.width
         val height = before.windowSizePx.height
         val feature = TestFoldingFeature(
             Rect(0, 0, width, height), width / 2, 10,
             FoldingFeature.State.FLAT, FoldingFeature.Orientation.VERTICAL,
         )
-        publish(listOf(feature))
+        // WindowLayoutInfoPublisherRule deliberately uses a non-replaying test
+        // flow, so it cannot prove restart-with-current without lying via a
+        // second publish. The replaying seam models WindowManager's current
+        // state contract while PublisherRule remains used by all raw-feature tests.
+        latest.value = WindowLayoutInfo(listOf(feature))
         composeRule.runOnIdle { assertEquals(before, observed.value) }
 
         composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-        composeRule.waitUntil(timeoutMillis = 5_000) { observed.value?.displayFeatures?.size == 1 }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            activeSubscriptions.get() == 1 && subscriptionStarts.get() == 2 &&
+                observed.value?.displayFeatures?.size == 1
+        }
         assertFalse(observed.value!!.displayFeatures.isEmpty())
+
+        composeRule.runOnIdle { mounted.value = false }
+        composeRule.waitUntil { activeSubscriptions.get() == 0 }
     }
 
     @Test

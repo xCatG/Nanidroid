@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
@@ -17,17 +18,24 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.SurfaceCollision
+import com.cattailsw.nanidroid.GhostPresentationFrame
+import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.SurfaceHitTarget
+import com.cattailsw.nanidroid.SurfaceManager
+import com.cattailsw.nanidroid.NO_COLLISION
 import com.cattailsw.nanidroid.compose.ComposedSurface
+import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
 import com.cattailsw.nanidroid.compose.SurfaceInteractionPort
 import com.cattailsw.nanidroid.compose.SurfacePixelImage
 import com.cattailsw.nanidroid.compose.SurfacePointerInteractionMapper
@@ -36,6 +44,7 @@ import com.cattailsw.nanidroid.compose.SurfacePointerResolution
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.stagePositionFromLocal
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
+import com.cattailsw.nanidroid.compose.GhostPresentationStage
 import com.cattailsw.nanidroid.compose.SurfaceCompositor
 import com.cattailsw.nanidroid.compose.SurfacePixelAssets
 import com.cattailsw.nanidroid.compose.SurfacePlanRegistry
@@ -53,6 +62,7 @@ import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
 import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
+import com.cattailsw.nanidroid.runtime.stage.positiveIntersection
 import com.cattailsw.nanidroid.surface.CollisionShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -62,6 +72,8 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 class RenderedTransformContractTest {
     @get:Rule
@@ -274,6 +286,9 @@ class RenderedTransformContractTest {
             ),
         )
 
+        var observedCyanGuide = false
+        fun isMagentaFootprint(color: Color): Boolean =
+            color.red > 0.9f && color.blue > 0.9f && color.green < 0.85f
         shapes.forEach { shape ->
             composeRule.runOnIdle { currentShape.value = shape }
             composeRule.waitForIdle()
@@ -283,10 +298,16 @@ class RenderedTransformContractTest {
                 for (intrinsicX in 0 until transform.intrinsicSize.width) {
                     val stage = Offset(intrinsicX * 10f + 5f, intrinsicY * 10f + 5f)
                     val expected = shape.contains(IntOffset(intrinsicX, intrinsicY))
+                    val magentaFootprintPixels = (1..8).sumOf { dx ->
+                        (1..8).count { dy ->
+                            val color = pixels[intrinsicX * 10 + dx, intrinsicY * 10 + dy]
+                            isMagentaFootprint(color)
+                        }
+                    }
                     assertEquals(
                         "overlay shape=$shape intrinsic=($intrinsicX,$intrinsicY)",
                         expected,
-                        pixels[stage.x.toInt(), stage.y.toInt()] != Color.White,
+                        magentaFootprintPixels > 20,
                     )
                     val surface = surfaceWithCollision(shape)
                     val resolution = SurfacePointerInteractionMapper.map(
@@ -326,7 +347,9 @@ class RenderedTransformContractTest {
                 assertEquals(
                     "overlay edge shape=$shape pixel=$pixel",
                     expected,
-                    pixels[pixel.x, pixel.y] != Color.White,
+                    (-1..1).sumOf { dx ->
+                        (-1..1).count { dy -> isMagentaFootprint(pixels[pixel.x + dx, pixel.y + dy]) }
+                    } > 2,
                 )
             }
             edgeProbes(transform).forEach { stage ->
@@ -345,7 +368,14 @@ class RenderedTransformContractTest {
                         resolution.target is SurfaceHitTarget.Collision,
                 )
             }
+            observedCyanGuide = observedCyanGuide || (0 until image.width).any { x ->
+                (0 until image.height).any { y ->
+                    val color = pixels[x, y]
+                    color.blue > 0.9f && color.green > 0.75f && color.red < 0.9f
+                }
+            }
         }
+        assertTrue("authored cyan guide should be independently visible", observedCyanGuide)
     }
 
     @Test
@@ -375,6 +405,254 @@ class RenderedTransformContractTest {
             .assert(hasNoClickAction())
             .captureToImage()
         composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun realRootCanvasPlacementAndTouchResolveTheSameCollisionCell() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        val state = GhostStageMeasureState()
+        val shape = CollisionShape.Rectangle(IntRect(1, 1, 3, 3))
+        val composed = coloredSurface(7, 5, Color.White, shape)
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(Modifier.requiredSize(500.dp, 820.dp).background(Color.White)) {
+                    Box(Modifier.offset(37.dp, 41.dp).requiredSize(360.dp, 720.dp)) {
+                        GhostPresentationStage(
+                            presentation = presentation(),
+                            sakuraComposedSurface = composed,
+                            keroComposedSurface = null,
+                            measureState = state,
+                            ghostKey = "root-fixture",
+                            modifier = Modifier.fillMaxSize(),
+                            sakuraSurface = { snapshot ->
+                                RenderedSurfaceLayer(
+                                    snapshot,
+                                    SurfaceInteractionPort(effects::add),
+                                    {},
+                                    showCollisionOverlay = true,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) { state.latest?.sakura != null }
+        val snapshot = requireNotNull(state.latest?.sakura)
+        val node = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
+        val nodeBounds = node.fetchSemanticsNode().boundsInRoot
+        assertEquals(snapshot.transform.rootBounds.left.toFloat(), nodeBounds.left, 0.01f)
+        assertEquals(snapshot.transform.rootBounds.top.toFloat(), nodeBounds.top, 0.01f)
+        assertEquals(snapshot.transform.rootBounds.right.toFloat(), nodeBounds.right, 0.01f)
+        assertEquals(snapshot.transform.rootBounds.bottom.toFloat(), nodeBounds.bottom, 0.01f)
+
+        val rootBounds = snapshot.transform.rootBounds
+        val rootPoint = Offset(
+            rootBounds.left + 1.5f * rootBounds.width / snapshot.transform.intrinsicSize.width,
+            rootBounds.top + 1.5f * rootBounds.height / snapshot.transform.intrinsicSize.height,
+        )
+        val expectedIntrinsic = requireNotNull(snapshot.transform.rootToIntrinsic(rootPoint))
+        assertTrue(shape.contains(expectedIntrinsic))
+        val rootImage = composeRule.onRoot(useUnmergedTree = true).captureToImage().toPixelMap()
+        assertTrue(rootImage[rootPoint.x.toInt(), rootPoint.y.toInt()] != Color.White)
+
+        node.performTouchInput {
+            down(Offset(rootPoint.x - nodeBounds.left, rootPoint.y - nodeBounds.top))
+            up()
+        }
+        composeRule.runOnIdle {
+            assertEquals(1, effects.size)
+            assertEquals(expectedIntrinsic, effects.single().intrinsic)
+            assertEquals(1, effects.single().diagnosticCollisionId)
+        }
+
+        val outsideRootPoint = Offset(
+            rootBounds.left + 6.5f * rootBounds.width / snapshot.transform.intrinsicSize.width,
+            rootBounds.top + 0.5f * rootBounds.height / snapshot.transform.intrinsicSize.height,
+        )
+        val expectedOutsideIntrinsic = requireNotNull(snapshot.transform.rootToIntrinsic(outsideRootPoint))
+        assertFalse(shape.contains(expectedOutsideIntrinsic))
+        assertEquals(Color.White, rootImage[outsideRootPoint.x.toInt(), outsideRootPoint.y.toInt()])
+
+        node.performTouchInput {
+            down(Offset(outsideRootPoint.x - nodeBounds.left, outsideRootPoint.y - nodeBounds.top))
+            up()
+        }
+        composeRule.runOnIdle {
+            assertEquals(2, effects.size)
+            assertEquals(expectedOutsideIntrinsic, effects.last().intrinsic)
+            assertEquals(NO_COLLISION, effects.last().diagnosticCollisionId)
+            assertEquals(null, effects.last().collisionIdentifier)
+        }
+    }
+
+    @Test
+    fun measuredBubbleIsVisibleAndSeparatedFromPeerSurfaceAndCollisionFootprint() {
+        val state = GhostStageMeasureState()
+        val peer = coloredSurface(
+            width = 7,
+            height = 5,
+            color = Color.Red,
+            shape = CollisionShape.Rectangle(IntRect(0, 0, 7, 5)),
+        )
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(Modifier.offset(19.dp, 23.dp).requiredSize(360.dp, 720.dp)) {
+                    MeasuredGhostStageLayout(
+                        presentation = presentation(),
+                        environmentForSize = { environment(it) },
+                        measureState = state,
+                        kero = null,
+                        sakura = peer,
+                        stageToRoot = IntOffset(19, 23),
+                        showKeroBalloon = true,
+                        keroBalloon = {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Green)
+                                    .testTag("measured-kero-balloon"),
+                            )
+                        },
+                        surfaceContent = { snapshot ->
+                            RenderedSurfaceLayer(snapshot, SurfaceInteractionPort {}, {}, false)
+                        },
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+        val bubble = composeRule.onNodeWithTag("measured-kero-balloon", useUnmergedTree = true)
+        val surfaceNode = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
+        val bubbleBounds = bubble.fetchSemanticsNode().boundsInRoot
+        val surfaceBounds = surfaceNode.fetchSemanticsNode().boundsInRoot
+        assertFalse(bubbleBounds.overlaps(surfaceBounds))
+        assertEquals(Color.Green, bubble.captureToImage().toPixelMap()[1, 1])
+        assertEquals(Color.Red, surfaceNode.captureToImage().toPixelMap()[1, 1])
+
+        val snapshot = requireNotNull(state.latest?.sakura)
+        val bubblePx = IntRect(
+            bubbleBounds.left.toInt(),
+            bubbleBounds.top.toInt(),
+            bubbleBounds.right.toInt(),
+            bubbleBounds.bottom.toInt(),
+        )
+        snapshot.transform.toRootRegion(peer.effectiveCollisions.single().shape).rects.forEach { collision ->
+            val collisionPx = IntRect(
+                collision.left.toInt(),
+                collision.top.toInt(),
+                collision.right.toInt(),
+                collision.bottom.toInt(),
+            )
+            assertFalse(bubblePx.positiveIntersection(collisionPx))
+        }
+    }
+
+    @Test
+    fun productionHostSourceOnlyBaseFrameChangesCanvasAndCollisionAndReusesDecodedPixels() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        val loads = ConcurrentHashMap<String, AtomicInteger>()
+        val assets = SurfacePixelAssets { path ->
+            loads.computeIfAbsent(path) { AtomicInteger() }.incrementAndGet()
+            when (path) {
+                "selected" -> SurfacePixelImage.of(7, 5, IntArray(35) { Color.Red.toArgb() })
+                "source" -> SurfacePixelImage.of(9, 6, IntArray(54) { Color.Green.toArgb() })
+                "kero" -> SurfacePixelImage.of(1, 1, intArrayOf(Color.Blue.toArgb()))
+                else -> null
+            }
+        }
+        val selected = shellSurface(0, 7, 5, "selected", collisionId = 1)
+        val source = shellSurface(22, 9, 6, "source", collisionId = 22)
+        val kero = shellSurface(10, 1, 1, "kero", collisionId = 10)
+        val frame = selected.AnimationFrame().apply {
+            sid = "22"
+            frameType = ShellSurface.TYPE_BASE
+            time = 10_000
+            W = 9
+            H = 6
+        }
+        selected.animationTable = mutableMapOf(
+            "7" to selected.Animation("7", ShellSurface.A_TYPE_RUNONCE).apply {
+                frames = mutableListOf(frame)
+            },
+        )
+        val manager = SurfaceManager("host-fixture").apply {
+            addSurface("0", selected)
+            addSurface("10", kero)
+            addSurface("22", source)
+        }
+        val host = ComposeGhostStageHost(SurfaceInteractionPort(effects::add), assets).apply {
+            setSurfaceManager(manager)
+        }
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(Modifier.requiredSize(360.dp, 720.dp)) {
+                    host.Stage(Modifier.fillMaxSize())
+                }
+            }
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            host.latestMeasuredSnapshot?.sakura?.composedSurface?.canvasSize == IntSize(7, 5)
+        }
+        val selectedSnapshot = requireNotNull(host.latestMeasuredSnapshot?.sakura)
+        val selectedSurface = selectedSnapshot.composedSurface
+        assertEquals(Color.Red.toArgb(), selectedSurface.image.pixelAt(3, 2))
+        composeRule.runOnIdle {
+            assertEquals(1, loads.getValue("selected").get())
+            assertEquals(1, loads.getValue("kero").get())
+        }
+
+        fun render(text: String) {
+            host.renderer.render(
+                GhostPresentationFrame(
+                    GhostPresentationFrame.Speaker(text, "0", "7", "-1"),
+                    GhostPresentationFrame.Speaker("", "10", null, "-1"),
+                    false,
+                ),
+            )
+        }
+        composeRule.runOnIdle { render("first") }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            host.latestMeasuredSnapshot?.sakura?.composedSurface?.canvasSize == IntSize(9, 6)
+        }
+        val sourceSnapshot = requireNotNull(host.latestMeasuredSnapshot?.sakura)
+        val sourceSurface = sourceSnapshot.composedSurface
+        val sourceImage = sourceSurface.image
+        assertNotSame(selectedSurface, sourceSurface)
+        assertEquals(Color.Green.toArgb(), sourceImage.pixelAt(4, 3))
+        assertEquals(IntSize(9, 6), IntSize(sourceImage.width, sourceImage.height))
+        assertEquals(IntSize(9, 6), sourceSurface.canvasSize)
+        assertEquals(IntSize(9, 6), sourceSnapshot.transform.intrinsicSize)
+        assertEquals(22, sourceSurface.surfaceKey.surfaceId)
+        assertEquals(IntSize(9, 6), sourceSurface.surfaceKey.canvasSize)
+        assertEquals(listOf(22), sourceSurface.effectiveCollisions.map { it.id })
+        assertTrue(sourceSurface.revision > selectedSurface.revision)
+        composeRule.runOnIdle { assertEquals(1, loads.getValue("source").get()) }
+
+        val node = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
+        val nodeBounds = node.fetchSemanticsNode().boundsInRoot
+        val collision = sourceSnapshot.transform.toRootRegion(
+            sourceSnapshot.composedSurface.effectiveCollisions.single().shape,
+        ).rects.single()
+        val collisionRootPoint = Offset(
+            ((collision.left + collision.right) / 2.0).toFloat(),
+            ((collision.top + collision.bottom) / 2.0).toFloat(),
+        )
+        node.performTouchInput {
+            down(Offset(collisionRootPoint.x - nodeBounds.left, collisionRootPoint.y - nodeBounds.top))
+            up()
+        }
+        composeRule.runOnIdle {
+            assertEquals(22, effects.single().diagnosticCollisionId)
+            render("dialogue changed")
+        }
+        composeRule.waitForIdle()
+        composeRule.runOnIdle {
+            val afterDialogue = requireNotNull(host.latestMeasuredSnapshot?.sakura?.composedSurface)
+            assertSame(sourceSurface, afterDialogue)
+            assertSame(sourceImage, afterDialogue.image)
+            assertEquals(1, loads.getValue("source").get())
+        }
     }
 
     @Test
@@ -581,6 +859,21 @@ class RenderedTransformContractTest {
         explicitlyHidden = false,
     )
 
+    private fun coloredSurface(
+        width: Int,
+        height: Int,
+        color: Color,
+        shape: CollisionShape,
+    ): ComposedSurface = ComposedSurface(
+        image = SurfacePixelImage.of(width, height, IntArray(width * height) { color.toArgb() }),
+        canvasSize = IntSize(width, height),
+        visiblePixelBounds = IntRect(0, 0, width, height),
+        effectiveCollisions = listOf(SurfaceCollision(1, "shape", shape, 0)),
+        surfaceKey = SurfaceKey(1, IntSize(width, height)),
+        revision = 1,
+        explicitlyHidden = false,
+    )
+
     private fun edgeProbes(
         transform: com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx,
     ): List<Offset> {
@@ -605,6 +898,33 @@ class RenderedTransformContractTest {
         ys += transform.renderedBounds.top - 1f
         ys += transform.renderedBounds.bottom + 1f
         return xs.flatMap { x -> ys.map { y -> Offset(x, y) } }
+    }
+
+    private fun shellSurface(
+        id: Int,
+        width: Int,
+        height: Int,
+        path: String,
+        collisionId: Int,
+    ) = ShellSurface().apply {
+        surfaceId = id
+        surfaceType = ShellSurface.S_TYPE_BASE
+        origW = width
+        origH = height
+        targetW = width
+        targetH = height
+        selfFilename = path
+        transparencyPolicy = SurfaceTransparencyPolicy.AUTHORED_ALPHA
+        setCanonicalCollisions(
+            listOf(
+                SurfaceCollision(
+                    collisionId,
+                    "collision-$collisionId",
+                    CollisionShape.Rectangle(IntRect(0, 0, minOf(2, width), minOf(2, height))),
+                    0,
+                ),
+            ),
+        )
     }
 
     private fun assertExactSurfaceEdges(snapshot: StageSurfaceSnapshot) {

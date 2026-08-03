@@ -27,9 +27,22 @@ import kotlinx.coroutines.delay
  * from the script runner to the visual stage: it owns immutable surface plans
  * and never creates a SakuraView, KeroView, Balloon, or FrameLayout.
  */
-class ComposeGhostStageHost(
+class ComposeGhostStageHost private constructor(
     private val interactionPort: SurfaceInteractionPort,
+    private val pixelAssets: SurfacePixelAssets,
+    @Suppress("UNUSED_PARAMETER") constructorMarker: Unit,
 ) {
+    constructor(interactionPort: SurfaceInteractionPort) : this(
+        interactionPort,
+        AndroidSurfacePixelAssets,
+        Unit,
+    )
+
+    internal constructor(
+        interactionPort: SurfaceInteractionPort,
+        pixelAssets: SurfacePixelAssets,
+    ) : this(interactionPort, pixelAssets, Unit)
+
     var runtimeState: GhostPresentationRuntimeState by mutableStateOf(GhostPresentationRuntimeState.Initial)
         private set
     private var activeSurfaceManager: SurfaceManager? by mutableStateOf(null)
@@ -49,6 +62,7 @@ class ComposeGhostStageHost(
     private var renderedFramePixels = 0L
     private var nextComposedRevision = 1L
     private val stageMeasureState = GhostStageMeasureState()
+    internal val latestMeasuredSnapshot get() = stageMeasureState.latest
 
     val renderer = KotlinGhostPresentationRuntime { transition ->
         runtimeState = transition.state
@@ -85,7 +99,7 @@ class ComposeGhostStageHost(
             ?.mapNotNull { id -> manager.getSurface(id)?.toSurfaceDefinition()?.toSurfaceRenderPlan() }
             ?.filter { it.isRenderableSurface() }
             .orEmpty() }
-        val compositor = remember(manager) { SurfaceCompositor(AndroidSurfacePixelAssets, SurfacePlanRegistry(plans)) }
+        val compositor = remember(manager, pixelAssets) { SurfaceCompositor(pixelAssets, SurfacePlanRegistry(plans)) }
         val sakura = manager.speakerSurface(state.presentation.sakura.surfaceId, true)
         val kero = manager.speakerSurface(state.presentation.kero.surfaceId, false)
         val sakuraComposed = safeComposedSurface(

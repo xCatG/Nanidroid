@@ -15,6 +15,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.system.measureTimeMillis
 
 class SurfaceTransformPxTest {
     @Test
@@ -238,6 +239,65 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `polygon scanline exactly matches canonical membership across degenerate and extreme fixtures`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(9, 9),
+            renderedBounds = IntRect(0, 0, 9, 9),
+            scale = 1f,
+            stageToRoot = IntOffset.Zero,
+        )
+        val fixtures = linkedMapOf(
+            "axis-aligned-with-vertex-scanlines" to listOf(
+                IntOffset(1, 1), IntOffset(7, 1), IntOffset(7, 7), IntOffset(1, 7),
+            ),
+            "repeated-and-collinear" to listOf(
+                IntOffset(1, 1), IntOffset(4, 1), IntOffset(4, 1), IntOffset(7, 1),
+                IntOffset(7, 7), IntOffset(4, 7), IntOffset(1, 7), IntOffset(1, 4),
+            ),
+            "concave" to listOf(
+                IntOffset(0, 0), IntOffset(8, 0), IntOffset(8, 3), IntOffset(4, 3),
+                IntOffset(4, 8), IntOffset(0, 8),
+            ),
+            "self-crossing" to listOf(
+                IntOffset(0, 0), IntOffset(8, 8), IntOffset(0, 8), IntOffset(8, 0),
+            ),
+            "off-canvas" to listOf(
+                IntOffset(-8, 2), IntOffset(4, -6), IntOffset(14, 4), IntOffset(3, 14),
+            ),
+            "extreme-authored-coordinates" to listOf(
+                IntOffset(Int.MIN_VALUE, Int.MIN_VALUE),
+                IntOffset(Int.MAX_VALUE - 1, 4),
+                IntOffset(Int.MIN_VALUE, Int.MAX_VALUE - 1),
+            ),
+        )
+        val polygons = buildList {
+            fixtures.forEach { (name, points) ->
+                add(name to CollisionShape.Polygon(points))
+                add("$name-reversed" to CollisionShape.Polygon(points.reversed()))
+            }
+        }
+
+        polygons.forEach { (name, polygon) ->
+            val region = transform.toStageRegion(polygon)
+            assertTrue("fixture=$name fallback=${region.fallbackReason}", region.isExact)
+            for (y in 0 until transform.intrinsicSize.height) {
+                for (x in 0 until transform.intrinsicSize.width) {
+                    val expected = polygon.contains(IntOffset(x, y))
+                    listOf(0.01f, 0.5f, 0.99f).forEach { dx ->
+                        listOf(0.01f, 0.5f, 0.99f).forEach { dy ->
+                            assertEquals(
+                                "fixture=$name cell=($x,$y) probe=($dx,$dy)",
+                                expected,
+                                region.contains(Offset(x + dx, y + dy)),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `collision boundary cancels internal cell edges and outlines a radius zero circle`() {
         val transform = SurfaceTransformPx(
             intrinsicSize = IntSize(4, 3),
@@ -255,13 +315,109 @@ class SurfaceTransformPxTest {
                     setOf(segment.start.y, segment.end.y) == setOf(11f, 13f)
             },
         )
-        assertEquals(6, twoCellRegion.boundarySegments.size)
+        assertEquals(4, twoCellRegion.boundarySegments.size)
 
         val pointRegion = transform.toStageRegion(CollisionShape.Circle.fromAuthored(2, 1, 0))
         assertEquals(1, pointRegion.rects.size)
         assertEquals(4, pointRegion.boundarySegments.size)
         assertTrue(pointRegion.contains(Offset(13.1f, 13.1f)))
         assertFalse(pointRegion.contains(Offset(16f, 13.1f)))
+    }
+
+    @Test
+    fun `exact collision geometry stays compact for a full 1024 pixel circle`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(1024, 1024),
+            renderedBounds = IntRect(3, 5, 2051, 2053),
+            scale = 2f,
+            stageToRoot = IntOffset.Zero,
+        )
+        val budget = CollisionGeometryBudget(
+            maxWork = 100_000,
+            maxRects = 2_048,
+            maxBoundarySegments = 8_192,
+        )
+        val region = transform.toStageRegion(
+            CollisionShape.Circle.fromAuthored(512, 512, 511),
+            budget,
+        )
+
+        assertTrue(region.isExact)
+        assertTrue(region.rects.size <= 1_024)
+        assertTrue(region.boundarySegments.size <= 4_096)
+        assertTrue(budget.consumedWork <= budget.maxWork)
+        assertTrue(budget.consumedRects <= budget.maxRects)
+        assertTrue(budget.consumedBoundarySegments <= budget.maxBoundarySegments)
+    }
+
+    @Test
+    fun `shared overlay budget bounds legal worst case fixtures and reports truthful fallback`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(1024, 1024),
+            renderedBounds = IntRect(0, 0, 1024, 1024),
+            scale = 1f,
+            stageToRoot = IntOffset.Zero,
+        )
+        val points = List(CollisionShape.MAX_POLYGON_VERTICES) { index ->
+            val x = index * 1023 / (CollisionShape.MAX_POLYGON_VERTICES - 1)
+            IntOffset(x, if (index % 2 == 0) 0 else 1023)
+        }
+        val fixture = CollisionShape.Polygon(points)
+        val budget = CollisionGeometryBudget.overlayDefault()
+        lateinit var regions: List<CollisionRegionPx>
+        val elapsed = measureTimeMillis {
+            regions = List(256) { transform.toStageRegion(fixture, budget) }
+        }
+
+        assertTrue(regions.any { !it.isExact })
+        assertTrue(regions.filterNot { it.isExact }.all { it.fallbackReason != null })
+        assertTrue(regions.sumOf { it.rects.size } <= budget.maxRects)
+        assertTrue(regions.sumOf { it.boundarySegments.size } <= budget.maxBoundarySegments)
+        assertTrue(budget.consumedWork <= budget.maxWork)
+        assertTrue("elapsed=${elapsed}ms", elapsed < 5_000)
+    }
+
+    @Test
+    fun `ordinary polygon reserves actual compact output and hostile peer cannot starve cheap rectangles`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(1024, 1024),
+            renderedBounds = IntRect(0, 0, 1024, 1024),
+            scale = 1f,
+            stageToRoot = IntOffset.Zero,
+        )
+        val ordinary = CollisionShape.Polygon(
+            listOf(IntOffset(10, 10), IntOffset(109, 10), IntOffset(109, 109), IntOffset(10, 109)),
+        )
+        val ordinaryBudget = CollisionGeometryBudget.perCollisionDefault()
+        val ordinaryRegion = transform.toStageRegion(ordinary, ordinaryBudget)
+        assertTrue(ordinaryRegion.isExact)
+        assertEquals(1, ordinaryRegion.rects.size)
+        assertEquals(4, ordinaryRegion.boundarySegments.size)
+        assertEquals(1, ordinaryBudget.consumedRects)
+        assertEquals(4, ordinaryBudget.consumedBoundarySegments)
+
+        val hostile = CollisionShape.Polygon(
+            List(CollisionShape.MAX_POLYGON_VERTICES) { index ->
+                IntOffset(index * 1023 / (CollisionShape.MAX_POLYGON_VERTICES - 1), index % 2 * 1023)
+            },
+        )
+        val collisionCount = 256
+        val hostileRegion = transform.toStageRegion(
+            hostile,
+            CollisionGeometryBudget.overlayShare(collisionCount),
+        )
+        assertFalse(hostileRegion.isExact)
+        repeat(collisionCount - 1) { index ->
+            val rectangle = CollisionShape.Rectangle(IntRect(index, index, index + 1, index + 1))
+            assertTrue(
+                "rectangle=$index",
+                transform.toStageRegion(
+                    rectangle,
+                    CollisionGeometryBudget.overlayShare(collisionCount),
+                ).isExact,
+            )
+        }
+        assertTrue(CollisionGeometryBudget.overlayDefault().maxWork <= 16_384)
     }
 
     @Test

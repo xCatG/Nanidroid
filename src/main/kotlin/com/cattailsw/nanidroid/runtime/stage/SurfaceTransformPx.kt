@@ -5,6 +5,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import com.cattailsw.nanidroid.surface.CollisionShape
+import java.math.BigInteger
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -73,6 +74,8 @@ data class CollisionBoundarySegmentPx(
 data class CollisionRegionPx(
     val rects: List<DoubleRect>,
     val boundarySegments: List<CollisionBoundarySegmentPx>,
+    val isExact: Boolean = true,
+    val fallbackReason: String? = null,
 ) {
     fun contains(point: Offset): Boolean =
         point.x.isFinite() && point.y.isFinite() && rects.any { it.contains(point) }
@@ -80,10 +83,81 @@ data class CollisionRegionPx(
     fun translated(offset: IntOffset) = CollisionRegionPx(
         rects = rects.map { it.translated(offset) },
         boundarySegments = boundarySegments.map { it.translated(offset) },
+        isExact = isExact,
+        fallbackReason = fallbackReason,
     )
 
     companion object {
         val Empty = CollisionRegionPx(emptyList(), emptyList())
+
+        fun complexityFallback() = CollisionRegionPx(
+            rects = emptyList(),
+            boundarySegments = emptyList(),
+            isExact = false,
+            fallbackReason = "exact-footprint-complexity-budget",
+        )
+    }
+}
+
+/**
+ * Shared hard budget for one visible overlay. Reservation happens before any
+ * expensive scan, so legal but adversarial ghost data cannot cause an ANR or
+ * unbounded path allocation. A rejected shape receives a truthful authored
+ * guide instead of a falsely exact footprint.
+ */
+class CollisionGeometryBudget(
+    val maxWork: Int,
+    val maxRects: Int,
+    val maxBoundarySegments: Int,
+) {
+    init {
+        require(maxWork >= 0 && maxRects >= 0 && maxBoundarySegments >= 0)
+    }
+
+    var consumedWork: Int = 0
+        private set
+    var consumedRects: Int = 0
+        private set
+    var consumedBoundarySegments: Int = 0
+        private set
+
+    internal fun reserve(work: Long, rects: Long, boundarySegments: Long): Boolean {
+        if (work < 0L || rects < 0L || boundarySegments < 0L) return false
+        if (consumedWork.toLong() + work > maxWork.toLong()) return false
+        if (consumedRects.toLong() + rects > maxRects.toLong()) return false
+        if (consumedBoundarySegments.toLong() + boundarySegments > maxBoundarySegments.toLong()) return false
+        consumedWork += work.toInt()
+        consumedRects += rects.toInt()
+        consumedBoundarySegments += boundarySegments.toInt()
+        return true
+    }
+
+    companion object {
+        fun perCollisionDefault() = CollisionGeometryBudget(
+            maxWork = 100_000,
+            maxRects = 2_048,
+            maxBoundarySegments = 8_192,
+        )
+
+        fun overlayDefault() = CollisionGeometryBudget(
+            maxWork = OVERLAY_MAX_WORK,
+            maxRects = OVERLAY_MAX_RECTS,
+            maxBoundarySegments = OVERLAY_MAX_BOUNDARY_SEGMENTS,
+        )
+
+        /** Fair partition: one hostile collision cannot consume a later cheap collision's quota. */
+        fun overlayShare(collisionCount: Int): CollisionGeometryBudget {
+            val count = collisionCount.coerceAtLeast(1)
+            return CollisionGeometryBudget(
+                maxWork = maxOf(1, OVERLAY_MAX_WORK / count),
+                maxRects = maxOf(1, OVERLAY_MAX_RECTS / count),
+                maxBoundarySegments = maxOf(4, OVERLAY_MAX_BOUNDARY_SEGMENTS / count),
+            )
+        }
+
+        const val OVERLAY_MAX_WORK = 16_384
+        const val OVERLAY_MAX_RECTS = 4_096
+        const val OVERLAY_MAX_BOUNDARY_SEGMENTS = 16_384
     }
 }
 
@@ -201,7 +275,10 @@ data class SurfaceTransformPx(
      * authored shape remains unchanged; only intrinsic pixels inside the
      * surface canvas participate in this rendered diagnostic region.
      */
-    fun toStageRegion(shape: CollisionShape): CollisionRegionPx {
+    fun toStageRegion(
+        shape: CollisionShape,
+        budget: CollisionGeometryBudget = CollisionGeometryBudget.perCollisionDefault(),
+    ): CollisionRegionPx {
         if (!usable) return CollisionRegionPx.Empty
         val clippedLeft = maxOf(0, shape.bounds.left)
         val clippedTop = maxOf(0, shape.bounds.top)
@@ -221,6 +298,9 @@ data class SurfaceTransformPx(
         )
 
         if (shape is CollisionShape.Rectangle) {
+            if (!budget.reserve(work = 1L, rects = 1L, boundarySegments = 4L)) {
+                return CollisionRegionPx.complexityFallback()
+            }
             return CollisionRegionPx(
                 rects = listOf(rect(clippedLeft, clippedTop, clippedRight, clippedBottom)),
                 boundarySegments = listOf(
@@ -232,48 +312,65 @@ data class SurfaceTransformPx(
             )
         }
 
-        val exteriorEdges = linkedSetOf<IntrinsicEdge>()
-        fun toggle(firstX: Int, firstY: Int, secondX: Int, secondY: Int) {
-            val edge = IntrinsicEdge.normalized(firstX, firstY, secondX, secondY)
-            if (!exteriorEdges.remove(edge)) exteriorEdges.add(edge)
-        }
-        val runs = buildList {
-            for (y in clippedTop until clippedBottom) {
-                var runStart: Int? = null
-                for (x in clippedLeft until clippedRight) {
-                    val accepted = shape.contains(IntOffset(x, y))
-                    if (accepted) {
-                        if (runStart == null) runStart = x
-                        toggle(x, y, x + 1, y)
-                        toggle(x + 1, y, x + 1, y + 1)
-                        toggle(x + 1, y + 1, x, y + 1)
-                        toggle(x, y + 1, x, y)
-                    }
-                    if (!accepted && runStart != null) {
-                        add(rect(runStart, y, x, y + 1))
-                        runStart = null
-                    }
-                }
-                runStart?.let { add(rect(it, y, clippedRight, y + 1)) }
+        val width = clippedRight.toLong() - clippedLeft.toLong()
+        val height = clippedBottom.toLong() - clippedTop.toLong()
+        val workEstimate: Long
+        when (shape) {
+            is CollisionShape.Ellipse,
+            is CollisionShape.Circle,
+            -> {
+                workEstimate = height * (2L * ceilLog2(width.coerceAtLeast(1L)) + 3L)
             }
+            is CollisionShape.Polygon -> {
+                val vertices = shape.points.size.toLong()
+                workEstimate = height * (6L * vertices * vertices + 8L * vertices)
+            }
+            is CollisionShape.Rectangle -> error("rectangle handled above")
         }
-        val segments = exteriorEdges
-            .sortedWith(compareBy(IntrinsicEdge::firstY, IntrinsicEdge::firstX, IntrinsicEdge::secondY, IntrinsicEdge::secondX))
-            .map { edge ->
+        if (!budget.reserve(workEstimate, rects = 0L, boundarySegments = 0L)) {
+            return CollisionRegionPx.complexityFallback()
+        }
+
+        val compact = CompactCollisionBuilder()
+        for (y in clippedTop until clippedBottom) {
+            val row = when (shape) {
+                is CollisionShape.Ellipse -> convexRowRuns(shape, y, clippedLeft, clippedRight)
+                is CollisionShape.Circle -> convexRowRuns(shape, y, clippedLeft, clippedRight)
+                is CollisionShape.Polygon -> polygonRowRuns(shape, y, clippedLeft, clippedRight)
+                is CollisionShape.Rectangle -> error("rectangle handled above")
+            }
+            compact.appendRow(y, row)
+        }
+        val geometry = compact.finish(clippedBottom)
+        if (!budget.reserve(
+                work = 0L,
+                rects = geometry.rects.size.toLong(),
+                boundarySegments = geometry.segments.size.toLong(),
+            )
+        ) {
+            return CollisionRegionPx.complexityFallback()
+        }
+        return CollisionRegionPx(
+            rects = geometry.rects.map { source ->
+                rect(source.left, source.top, source.right, source.bottom)
+            },
+            boundarySegments = geometry.segments.map { source ->
                 segment(
-                    edge.firstX,
-                    edge.firstY,
-                    edge.secondX,
-                    edge.secondY,
+                    source.firstX,
+                    source.firstY,
+                    source.secondX,
+                    source.secondY,
                     ::boundaryX,
                     ::boundaryY,
                 )
-            }
-        return CollisionRegionPx(runs, segments)
+            },
+        )
     }
 
-    fun toRootRegion(shape: CollisionShape): CollisionRegionPx =
-        toStageRegion(shape).translated(stageToRoot)
+    fun toRootRegion(
+        shape: CollisionShape,
+        budget: CollisionGeometryBudget = CollisionGeometryBudget.perCollisionDefault(),
+    ): CollisionRegionPx = toStageRegion(shape, budget).translated(stageToRoot)
 
     private fun map(stageX: Double, stageY: Double): IntOffset? {
         if (!usable || !stageX.isFinite() || !stageY.isFinite()) return null
@@ -293,20 +390,203 @@ data class SurfaceTransformPx(
     }
 }
 
-private data class IntrinsicEdge(
+private data class IntrinsicRun(val left: Int, val right: Int)
+
+private data class IntrinsicRect(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+)
+
+private data class IntrinsicSegment(
     val firstX: Int,
     val firstY: Int,
     val secondX: Int,
     val secondY: Int,
-) {
-    companion object {
-        fun normalized(firstX: Int, firstY: Int, secondX: Int, secondY: Int): IntrinsicEdge =
-            if (firstY < secondY || firstY == secondY && firstX <= secondX) {
-                IntrinsicEdge(firstX, firstY, secondX, secondY)
-            } else {
-                IntrinsicEdge(secondX, secondY, firstX, firstY)
-            }
+)
+
+private data class CompactCollisionGeometry(
+    val rects: List<IntrinsicRect>,
+    val segments: List<IntrinsicSegment>,
+)
+
+/** Streaming run compactor: no pixel-edge hash and no per-cell allocation. */
+private class CompactCollisionBuilder {
+    private var previousRuns: List<IntrinsicRun> = emptyList()
+    private val activeRects = linkedMapOf<IntrinsicRun, Int>()
+    private val activeVerticalSegments = linkedMapOf<Int, Int>()
+    private val rects = mutableListOf<IntrinsicRect>()
+    private val segments = mutableListOf<IntrinsicSegment>()
+
+    fun appendRow(y: Int, runs: List<IntrinsicRun>) {
+        appendHorizontalDifference(y, previousRuns, runs)
+
+        val currentRunSet = runs.toSet()
+        activeRects.keys.filterNot(currentRunSet::contains).forEach { run ->
+            val start = activeRects.remove(run) ?: return@forEach
+            rects += IntrinsicRect(run.left, start, run.right, y)
+        }
+        runs.forEach { run -> activeRects.putIfAbsent(run, y) }
+
+        val currentSides = runs.flatMapTo(linkedSetOf()) { run -> listOf(run.left, run.right) }
+        activeVerticalSegments.keys.filterNot(currentSides::contains).forEach { x ->
+            val start = activeVerticalSegments.remove(x) ?: return@forEach
+            segments += IntrinsicSegment(x, start, x, y)
+        }
+        currentSides.forEach { x -> activeVerticalSegments.putIfAbsent(x, y) }
+        previousRuns = runs
     }
+
+    fun finish(bottom: Int): CompactCollisionGeometry {
+        appendHorizontalDifference(bottom, previousRuns, emptyList())
+        activeRects.forEach { (run, top) ->
+            rects += IntrinsicRect(run.left, top, run.right, bottom)
+        }
+        activeVerticalSegments.forEach { (x, top) ->
+            segments += IntrinsicSegment(x, top, x, bottom)
+        }
+        return CompactCollisionGeometry(rects.toList(), segments.toList())
+    }
+
+    private fun appendHorizontalDifference(
+        y: Int,
+        previous: List<IntrinsicRun>,
+        current: List<IntrinsicRun>,
+    ) {
+        val events = sortedMapOf<Int, Int>()
+        fun toggle(x: Int, bit: Int) {
+            events[x] = (events[x] ?: 0) xor bit
+        }
+        previous.forEach { run -> toggle(run.left, 1); toggle(run.right, 1) }
+        current.forEach { run -> toggle(run.left, 2); toggle(run.right, 2) }
+        var mask = 0
+        var priorX: Int? = null
+        events.forEach { (x, toggles) ->
+            priorX?.let { left ->
+                if (left < x && (mask == 1 || mask == 2)) {
+                    segments += IntrinsicSegment(left, y, x, y)
+                }
+            }
+            mask = mask xor toggles
+            priorX = x
+        }
+    }
+}
+
+private fun convexRowRuns(
+    shape: CollisionShape,
+    y: Int,
+    left: Int,
+    right: Int,
+): List<IntrinsicRun> {
+    if (left >= right) return emptyList()
+    val center = ((shape.bounds.left.toLong() + shape.bounds.right.toLong() - 1L).floorDiv(2L))
+        .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+        .toInt()
+        .coerceIn(left, right - 1)
+    if (!shape.contains(IntOffset(center, y))) return emptyList()
+
+    var low = left
+    var high = center
+    while (low < high) {
+        val middle = low + (high - low) / 2
+        if (shape.contains(IntOffset(middle, y))) high = middle else low = middle + 1
+    }
+    val first = low
+
+    low = center
+    high = right - 1
+    while (low < high) {
+        val middle = low + (high - low + 1) / 2
+        if (shape.contains(IntOffset(middle, y))) low = middle else high = middle - 1
+    }
+    return listOf(IntrinsicRun(first, low + 1))
+}
+
+/**
+ * Exact polygon scanline using rational edge thresholds. Membership is sampled
+ * only between points where even-odd parity or inclusive lattice boundaries
+ * can change; it never walks the full canvas width.
+ */
+private fun polygonRowRuns(
+    shape: CollisionShape.Polygon,
+    y: Int,
+    left: Int,
+    right: Int,
+): List<IntrinsicRun> {
+    if (left >= right) return emptyList()
+    val cuts = sortedSetOf(left, right)
+    fun addCut(value: BigInteger) {
+        val low = BigInteger.valueOf(left.toLong())
+        val high = BigInteger.valueOf(right.toLong())
+        if (value < low || value > high) return
+        cuts += value.toInt()
+    }
+    fun addNeighborhood(value: BigInteger) {
+        addCut(value.subtract(BigInteger.ONE))
+        addCut(value)
+        addCut(value.add(BigInteger.ONE))
+        addCut(value.add(BigInteger.TWO))
+    }
+
+    shape.points.indices.forEach { index ->
+        val first = shape.points[index]
+        val second = shape.points[(index + 1) % shape.points.size]
+        addNeighborhood(BigInteger.valueOf(first.x.toLong()))
+        val minY = minOf(first.y, second.y)
+        val maxY = maxOf(first.y, second.y)
+        if (y !in minY..maxY) return@forEach
+        if (first.y == second.y) {
+            if (y == first.y) {
+                addNeighborhood(BigInteger.valueOf(minOf(first.x, second.x).toLong()))
+                addNeighborhood(BigInteger.valueOf(maxOf(first.x, second.x).toLong()))
+            }
+            return@forEach
+        }
+        var denominator = BigInteger.valueOf(second.y.toLong() - first.y.toLong())
+        var numerator = BigInteger.valueOf(first.x.toLong()).multiply(denominator)
+            .add(
+                BigInteger.valueOf(y.toLong() - first.y.toLong())
+                    .multiply(BigInteger.valueOf(second.x.toLong() - first.x.toLong())),
+            )
+        if (denominator.signum() < 0) {
+            denominator = denominator.negate()
+            numerator = numerator.negate()
+        }
+        addNeighborhood(floorDivide(numerator, denominator))
+    }
+
+    return buildList {
+        var activeStart: Int? = null
+        cuts.zipWithNext().forEach { (start, end) ->
+            if (start >= end) return@forEach
+            val accepted = shape.contains(IntOffset(start, y))
+            if (accepted && activeStart == null) activeStart = start
+            if (!accepted && activeStart != null) {
+                add(IntrinsicRun(activeStart, start))
+                activeStart = null
+            }
+            if (accepted && end == right) {
+                add(IntrinsicRun(requireNotNull(activeStart), end))
+                activeStart = null
+            }
+        }
+    }
+}
+
+private fun floorDivide(numerator: BigInteger, positiveDenominator: BigInteger): BigInteger {
+    val division = numerator.divideAndRemainder(positiveDenominator)
+    return if (numerator.signum() < 0 && division[1] != BigInteger.ZERO) {
+        division[0].subtract(BigInteger.ONE)
+    } else {
+        division[0]
+    }
+}
+
+private fun ceilLog2(value: Long): Long {
+    if (value <= 1L) return 0L
+    return 64L - java.lang.Long.numberOfLeadingZeros(value - 1L).toLong()
 }
 
 private fun segment(

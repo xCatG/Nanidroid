@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,8 +24,8 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.window.core.layout.WindowSizeClass
 import androidx.window.layout.DisplayFeature
 import androidx.window.layout.FoldingFeature
@@ -38,6 +37,7 @@ import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
 import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
 import com.cattailsw.nanidroid.runtime.stage.StageLayoutDirection
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
+import kotlinx.coroutines.flow.Flow
 
 data class IntInsetsPx(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
@@ -50,6 +50,11 @@ data class StageWindowFeature(
 )
 
 enum class FeatureOrientation { VERTICAL, HORIZONTAL, UNKNOWN }
+
+/** Injectable lifecycle-safe source; production delegates directly to WindowInfoTracker. */
+internal fun interface WindowLayoutInfoSource {
+    fun layoutInfo(activity: Activity): Flow<WindowLayoutInfo>
+}
 
 /** Window-local adaptive facts. IME is retained only for diagnostics and never classification. */
 data class StageWindowEnvironment(
@@ -135,6 +140,24 @@ data class StageWindowEnvironment(
 @Composable
 fun StageEnvironmentProvider(
     content: @Composable (StageWindowEnvironment) -> Unit,
+) = StageEnvironmentProviderImpl(
+    windowLayoutInfoSource = null,
+    content = content,
+)
+
+@Composable
+internal fun StageEnvironmentProvider(
+    windowLayoutInfoSource: WindowLayoutInfoSource,
+    content: @Composable (StageWindowEnvironment) -> Unit,
+) = StageEnvironmentProviderImpl(
+    windowLayoutInfoSource = windowLayoutInfoSource,
+    content = content,
+)
+
+@Composable
+private fun StageEnvironmentProviderImpl(
+    windowLayoutInfoSource: WindowLayoutInfoSource?,
+    content: @Composable (StageWindowEnvironment) -> Unit,
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
@@ -156,32 +179,21 @@ fun StageEnvironmentProvider(
         ime.getRight(density, layoutDirection),
         ime.getBottom(density),
     )
-    val tracker = remember(context) { WindowInfoTracker.getOrCreate(context) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var started by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
-    var layoutInfo by remember(tracker, activity) { mutableStateOf<WindowLayoutInfo?>(null) }
-    var pendingLayoutInfo by remember(tracker, activity) { mutableStateOf<WindowLayoutInfo?>(null) }
-
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, _ ->
-            val nowStarted = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-            if (nowStarted && !started) {
-                pendingLayoutInfo?.let { layoutInfo = it }
-                pendingLayoutInfo = null
-            }
-            started = nowStarted
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+    val applicationContext = context.applicationContext
+    val tracker = remember(applicationContext) { WindowInfoTracker.getOrCreate(applicationContext) }
+    val defaultLayoutInfoSource = remember(tracker) {
+        WindowLayoutInfoSource { owner -> tracker.windowLayoutInfo(owner) }
     }
-    LaunchedEffect(tracker, activity) {
+    val layoutInfoSource = windowLayoutInfoSource ?: defaultLayoutInfoSource
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var layoutInfo by remember(layoutInfoSource, activity) { mutableStateOf<WindowLayoutInfo?>(null) }
+
+    LaunchedEffect(layoutInfoSource, activity, lifecycle) {
         if (activity == null) return@LaunchedEffect
-        // WindowInfoTracker has no synchronous "current" query and some
-        // implementations do not replay changes to a new collector. Keep the
-        // one composition-scoped source warm, but defer publication while the
-        // lifecycle is stopped so resume applies the latest posture exactly once.
-        tracker.windowLayoutInfo(activity).collect { info ->
-            if (started) layoutInfo = info else pendingLayoutInfo = info
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            layoutInfoSource.layoutInfo(activity).collect { info ->
+                layoutInfo = info
+            }
         }
     }
 
