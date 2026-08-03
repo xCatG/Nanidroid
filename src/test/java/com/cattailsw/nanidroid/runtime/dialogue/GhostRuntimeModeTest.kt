@@ -18,12 +18,16 @@ class GhostRuntimeModeTest {
     }
 
     @Test
-    fun passiveModeBlocksEveryUserOwnedActionButPermitsScriptAndRecoveryOrigins() {
+    fun passiveModePermitsRecoveryOnlyForKeepWaitingAndStopOperation() {
         for (action in GuardedAction.entries) {
             assertTrue(GhostActionGuard(GhostRuntimeMode(false, false, false)).allows(action, ActionOrigin.USER))
             assertFalse(GhostActionGuard(GhostRuntimeMode(false, false, true)).allows(action, ActionOrigin.USER))
             assertTrue(GhostActionGuard(GhostRuntimeMode(false, false, true)).allows(action, ActionOrigin.SAKURA_SCRIPT))
-            assertTrue(GhostActionGuard(GhostRuntimeMode(false, false, true)).allows(action, ActionOrigin.RECOVERY))
+            if (action !in setOf(GuardedAction.KEEP_WAITING, GuardedAction.STOP_OPERATION)) {
+                assertFalse(GhostActionGuard(GhostRuntimeMode(false, false, true)).allows(action, ActionOrigin.RECOVERY))
+            }
         }
+        assertTrue(GhostActionGuard(GhostRuntimeMode(false, false, true)).allows(GuardedAction.KEEP_WAITING, ActionOrigin.RECOVERY))
+        assertTrue(GhostActionGuard(GhostRuntimeMode(false, false, true)).allows(GuardedAction.STOP_OPERATION, ActionOrigin.RECOVERY))
     }
 }

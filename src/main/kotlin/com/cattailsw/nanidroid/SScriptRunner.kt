@@ -55,13 +55,16 @@ open class SScriptRunner internal constructor(
             ghostRoot: File,
             onFailure: (Throwable) -> T,
             action: () -> T,
-        ): T = productionSessionCoordinator.withMutation(
-            ghostId,
-            ghostRoot,
-            onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
-            onFailure = onFailure,
-            action = action,
-        )
+        ): T {
+            self?.invalidateForActiveGhostMutation(ghostId, ghostRoot)
+            return productionSessionCoordinator.withMutation(
+                ghostId,
+                ghostRoot,
+                onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
+                onFailure = onFailure,
+                action = action,
+            )
+        }
         internal fun resetInstanceForTesting() = synchronized(this) {
             productionSessionCoordinator.clearForTesting()
             self = null
@@ -292,9 +295,24 @@ open class SScriptRunner internal constructor(
         shouldStop: () -> Boolean = { false },
         onStopped: () -> T = { onFailure(IOException("ghost update stopped while awaiting attachment")) },
         action: () -> T,
-    ): T = sessionCoordinator.withMutation(
-        ghostId, ghostRoot, shouldStop, onStopped, onFailure, action,
-    )
+    ): T {
+        invalidateForActiveGhostMutation(ghostId, ghostRoot)
+        return sessionCoordinator.withMutation(
+            ghostId, ghostRoot, shouldStop, onStopped, onFailure, action,
+        )
+    }
+
+    /** Removes state that cannot survive a true unload/reload of the live SHIORI session. */
+    private fun invalidateForActiveGhostMutation(ghostId: String, ghostRoot: File) {
+        val target = synchronized(this) {
+            g?.takeIf {
+                it.getGhostId() == ghostId && File(it.getGhostPath()).canonicalFile == ghostRoot.canonicalFile
+            }
+        } ?: return
+        if (sessionCoordinator.withGhostGate(target) { it }) {
+            synchronized(this) { if (g === target) clearDialogueStateLocked() }
+        }
+    }
 
     private fun <T> withCurrentGhost(action: (Ghost) -> T): T? {
         while (true) {

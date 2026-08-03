@@ -196,6 +196,25 @@ class SScriptRunnerBootDispatchTest {
         Assert.assertEquals(shown.pendingChoices, runner.dialogueStateSnapshot().pendingChoices)
     }
 
+    @Test
+    fun updateReloadInvalidatesPassiveDialogueAndStaleActionsFromTheOldSession() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hshown\\q[Old,old]\\![enter,passivemode]\\e"))
+        runner.run()
+        val oldAction = runner.dialogueStateSnapshot().pendingChoices.single()
+
+        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
+        runner.activateChoice(oldAction)
+
+        Assert.assertFalse(runner.runtimeModeSnapshot().passive)
+        Assert.assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
+        Assert.assertTrue(runner.dialogueStateSnapshot().pendingChoices.isEmpty())
+        Assert.assertTrue(ghost.eventRequests.isEmpty())
+    }
+
     private fun runner(): com.cattailsw.nanidroid.SScriptRunner {
         val runner: com.cattailsw.nanidroid.SScriptRunner =
             com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
@@ -257,6 +276,7 @@ class SScriptRunnerBootDispatchTest {
     ) : RecordingGhost(ghostId, ghostName, createCount, trace) {
         val rawRequests = mutableListOf<String>()
         val rawResponses = ArrayDeque<ShioriResponse>()
+        val eventRequests = mutableListOf<String>()
 
         override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
             rawRequests += "$method:$eventId:$references"
@@ -267,5 +287,12 @@ class SScriptRunnerBootDispatchTest {
         override fun getKeroName(): String = "Kero"
         override fun pointerEventCapabilities(): PointerEventCapabilities =
             PointerEventCapabilities(click = Support.SUPPORTED)
+
+        override fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse {
+            eventRequests += "$event:${ref.contentToString()}"
+            return ShioriResponse("SHIORI/3.0 204 No Content")
+        }
+
+        internal override fun reloadAfterGhostUpdate() = Unit
     }
 }
