@@ -11,6 +11,9 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
 import java.io.File
 import com.cattailsw.nanidroid.util.AnalyticsUtils
+import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
+import com.cattailsw.nanidroid.surface.CollisionGeometryParser
+import com.cattailsw.nanidroid.surface.ParsedCollision
 import java.util.TreeMap
 
 /** Kotlin transcription staging source for the legacy shell-surface parser. */
@@ -30,11 +33,32 @@ open class ShellSurface {
     @JvmField var animationTypeTable: MutableMap<Int, String>? = null
     var elementList: MutableList<AnimationFrame>? = null
     @JvmField var collisionAreas: MutableMap<Int, CollisionArea> = TreeMap()
+    /** Immutable collision objects supplied by the typed reader boundary. */
+    internal var canonicalCollisions: List<SurfaceCollision>? = null
+        private set
+    internal var parsedSurfaceEntries: List<ParsedSurfaceEntry> = emptyList()
+    private var directCollisionOrder = 0
     var dim: Rect? = null
 
     constructor()
     constructor(path: String, selfName: String?, id: Int, elements: List<String?>?) { surfaceType = S_TYPE_BASE; basePath = path; surfaceId = id; selfFilename = selfName?.let { path + it } ?: "${path}surface$id.png"; bp2 = "%ssurface%04d.png".format(path, id); loadSurface(elements) }
     internal constructor(path: String, selfName: String?, id: Int, elements: List<String?>?, probeBitmap: Boolean) { surfaceType = S_TYPE_BASE; basePath = path; surfaceId = id; selfFilename = selfName?.let { path + it } ?: "${path}surface$id.png"; bp2 = "%ssurface%04d.png".format(path, id); loadSurface(elements, probeBitmap) }
+    internal constructor(
+        path: String,
+        selfName: String?,
+        id: Int,
+        entries: List<ParsedSurfaceEntry>,
+        probeBitmap: Boolean,
+        @Suppress("UNUSED_PARAMETER") preserveProvenance: Unit,
+    ) {
+        surfaceType = S_TYPE_BASE
+        basePath = path
+        surfaceId = id
+        selfFilename = selfName?.let { path + it } ?: "${path}surface$id.png"
+        bp2 = "%ssurface%04d.png".format(path, id)
+        loadSurface(entries.map { it.source.text }, probeBitmap, parseCollisions = false, parseElements = probeBitmap)
+        parsedSurfaceEntries = entries.toList()
+    }
     constructor(path: String, id: Int, elements: List<String?>?) : this(path, null, id, elements)
     constructor(path: String, id: Int?, elements: List<String?>?) : this(path, id ?: 0, elements)
     constructor(path: String, id: Int) : this(path, id, null)
@@ -54,7 +78,7 @@ open class ShellSurface {
     inner class AnimationFrame { @JvmField var sid: String?=null; @JvmField var filePath:String?=null; @JvmField var time=0; @JvmField var frameType=TYPE_BASE; @JvmField var startX=0; @JvmField var startY=0; @JvmField var W=0; @JvmField var H=0; @JvmField var d:Drawable?=null; @JvmField var hasError=false
         fun getDrawable(res:Resources,mgr:SurfaceManager?=null):Drawable? { d?.let{return it};if(hasError)return null;return when(frameType){TYPE_RESET->getSurfaceDrawable(res);TYPE_BASE->filePath?.let{loadTransparentBitmapFromFile(it,res,BitmapFactory.Options()).also{drawable->d=drawable}};TYPE_MOVE->getSurfaceDrawable(res);TYPE_OVERLAY->{val base=getSurfaceDrawable(res) ?: return null;val overlay=if(mgr!=null&&sid!=null&&mgr.containsSurface(sid!!)){mgr.getSurfaceRect(sid!!,res)?.let { W=it.width(); H=it.height() } ?: run { W=origW; H=origH };mgr.getSurfaceDrawable(sid!!,res)} else filePath?.let{loadTransparentBitmapFromFile(it,res,BitmapFactory.Options())};if(overlay==null){hasError=true;null}else LayerDrawable(arrayOf(base,overlay)).also{it.setLayerInset(1,startX,startY,origW-startX-W,origH-startY-H);d=it}};else->null} }
     }
-    inner class CollisionArea(id:Int, sx:Int, sy:Int, ex:Int, ey:Int, name:String?) { @JvmField var id=id; @JvmField var name=name; @JvmField var startX=sx; @JvmField var startY=sy; @JvmField var W=ex-sx; @JvmField var H=ey-sy; @JvmField var rect=LegacyPlatform.rectangle(sx,sy,ex,ey) }
+    inner class CollisionArea(id:Int, sx:Int, sy:Int, ex:Int, ey:Int, name:String?) { @JvmField var id=id; @JvmField var name=name; @JvmField var startX=sx; @JvmField var startY=sy; @JvmField var W=Math.toIntExact(Math.addExact(ex.toLong(), -sx.toLong() + 1L)); @JvmField var H=Math.toIntExact(Math.addExact(ey.toLong(), -sy.toLong() + 1L)); @JvmField var rect=LegacyPlatform.rectangle(sx,sy,Math.addExact(ex, 1),Math.addExact(ey, 1)) }
 
     private fun prepareAnimationTable() { if(animationTable==null) animationTable=TreeMap(); if(animationTypeTable==null) animationTypeTable=TreeMap() }
     private fun prepareCollisionAreas() { }
@@ -62,11 +86,37 @@ open class ShellSurface {
     private fun lookupInterval(value:String) = when { value.equals("sometimes",true)->A_TYPE_SOMETIMES; value.equals("rarely",true)->A_TYPE_RARELY; value.equals("random",true)->A_TYPE_RANDOM; value.equals("always",true)->A_TYPE_LOOP; value.equals("yen-e",true)->A_TYPE_YEN_E; value.equals("talk",true)->A_TYPE_TALK; value.equals("runonce",true)->A_TYPE_RUNONCE; value.equals("never",true)->A_TYPE_NEVER; value.equals("bind",true)->A_TYPE_BIND; else->A_TYPE_SOMETIMES }
     private fun lookupPatternType(value:String) = when { value.equals("base",true)->TYPE_BASE; value.equals("overlay",true)||value.equals("overlayfast",true)->TYPE_OVERLAY; value.equals("move",true)->TYPE_MOVE; else->TYPE_BASE }
     private fun handleInterval(id: String, interval: String) { prepareAnimationTable(); val type=lookupInterval(interval); val table=animationTable!!; val animation=table[id] ?: Animation(id,type).also { table[id]=it }; animation.interval=type; animationTypeTable!![type]=(animationTypeTable!![type]?.plus(",") ?: "")+id }
-    private fun handleCollision(id:String, sx:String, sy:String, ex:String, ey:String, name:String?) { try { val key=id.toInt(); val area=CollisionArea(key,sx.toInt(),sy.toInt(),ex.toInt(),ey.toInt(),name); collisionAreas[key]=area } catch (_: Exception) {} }
+    private fun handleCollision(id:String, sx:String, sy:String, ex:String, ey:String, name:String?) { try { val key=id.toInt(); val area=CollisionArea(key,sx.toInt(),sy.toInt(),ex.toInt(),ey.toInt(),name); collisionAreas[key]=area; recordCollision("collision$id,$sx,$sy,$ex,$ey,${name.orEmpty()}") } catch (_: Exception) {} }
+    private fun recordCollision(line: String) {
+        when (val parsed = CollisionGeometryParser.parse(line, directCollisionOrder++)) {
+            is ParsedCollision.Valid -> if (canonicalCollisions.orEmpty().none { it.id == parsed.collision.id }) {
+                canonicalCollisions = canonicalCollisions.orEmpty() + parsed.collision
+            }
+            else -> Unit
+        }
+    }
     private fun addFrameToAnimation(id:String, index:Int, frame:AnimationFrame) { prepareAnimationTable(); val animation=animationTable!![id] ?: Animation().also { it.id=id; animationTable!![id]=it }; animation.addFrame(index,frame) }
     private fun handlePattern(id:String, sequence:String, filename:String, wait:String, type:String, x:String?, y:String?) { try { val frame=AnimationFrame(); frame.time=wait.toInt(); if(filename.equals("-1",true)) frame.frameType=TYPE_RESET else { frame.startX=x?.toInt() ?: 0; frame.startY=y?.toInt() ?: 0; frame.sid=filename.toInt().toString(); frame.frameType=lookupPatternType(type) }; addFrameToAnimation(id,sequence.toInt(),frame) } catch (_: Exception) {} }
     private fun addAltAnimation(id:String, ids:Array<String>) { prepareAnimationTable(); val animation=AltAnimation(id,ids); animation.interval=animationTable!![id]?.interval ?: 0; animationTable!![id]=animation }
-    val collisionCount: Int get() = collisionAreas.size
+    val collisionCount: Int get() = canonicalCollisions?.size ?: collisionAreas.size
+    internal fun setCanonicalCollisions(collisions: List<SurfaceCollision>) {
+        canonicalCollisions = collisions
+        collisionAreas = TreeMap<Int, CollisionArea>().also { areas ->
+            collisions.forEach { collision ->
+                val bounds = collision.shape.bounds
+                runCatching {
+                    CollisionArea(
+                        collision.id,
+                        bounds.left,
+                        bounds.top,
+                        bounds.right - 1,
+                        bounds.bottom - 1,
+                        collision.identifier,
+                    )
+                }.getOrNull()?.let { area -> areas[collision.id] = area }
+            }
+        }
+    }
     val animationCount: Int get() { prepareAnimationTable(); return animationTable!!.size }
     val firstAnimationIndex: Int get() = animationTable?.keys?.minByOrNull { it.toIntOrNull() ?: 0 }?.toIntOrNull() ?: -1
     fun getAnimationFrequency(patternId:Int): Int = animationTable?.get(patternId.toString())?.interval ?: -1
@@ -81,8 +131,8 @@ open class ShellSurface {
     fun getSurfaceDrawable(res:Resources): Drawable? { surfaceDrawable?.let{return it}; val result=when(surfaceType){S_TYPE_BASE->selfFilename?.let { loadTransparentBitmapFromFile(it,res,BitmapFactory.Options()) }; S_TYPE_ELEMENT->{val elements=elementList ?: return null; if(elements.isEmpty()) return null; val layers=Array<Drawable?>(elements.size){ elements[it].d ?: elements[it].filePath?.let { path->loadTransparentBitmapFromFile(path,res,BitmapFactory.Options()).also { drawable->elements[it].d=drawable } } }; if(layers.any{it==null}) null else LayerDrawable(layers.requireNoNulls()).also { layer-> val ow=elements[0].W; val oh=elements[0].H; for(index in 1 until elements.size){val f=elements[index];layer.setLayerInset(index,f.startX,f.startY,ow-f.startX-f.W,oh-f.startY-f.H)} } }; else->null}; surfaceDrawable=result;return result }
     private fun loadTransparentBitmapFromFile(filename:String,res:Resources,opt:BitmapFactory.Options):Drawable? { val bitmap=BitmapFactory.decodeFile(filename,opt) ?: return null; return BitmapDrawable(res,createTransparentBmp(bitmap,bitmap.getPixel(0,0))) }
     private fun createTransparentBmp(bitmap:Bitmap?, replace:Int):Bitmap? { bitmap ?: return null; val width=bitmap.width;val height=bitmap.height;val pixels=IntArray(width*height);bitmap.getPixels(pixels,0,width,0,0,width,height); for(index in pixels.indices)if(pixels[index]==replace)pixels[index]=Color.TRANSPARENT;return Bitmap.createBitmap(pixels,width,height,Bitmap.Config.ARGB_8888) }
-    private fun loadSurface(elements:List<String?>?, probeBitmap:Boolean = true) { if(elements!=null)loadElements(elements); if(surfaceType==S_TYPE_ELEMENT&&(elementList?.isNotEmpty()==true)){origW=elementList!![0].W;origH=elementList!![0].H;targetW=origW;targetH=origH;return}; val primary=selfFilename?.let(::File); if(primary?.exists()!=true){val fallback=bp2?.let(::File) ?: return;if(!fallback.exists())return;selfFilename=bp2};if(probeBitmap)updateOrigWH() }
-    private fun loadElements(elements:List<String?>) { for(raw in elements){val line=raw ?: continue;if(PatternHolders.comment_ptrn.matcher(line).find())continue; var m=PatternHolders.collision.matcher(line);if(m.find()){handleCollision(m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),m.group(6));continue};m=PatternHolders.element.matcher(line);if(m.find()){surfaceType=S_TYPE_ELEMENT;handleElement(m.group(1),m.group(3),m.group(4),m.group(5));continue};m=PatternHolders.interval.matcher(line);if(m.find()){handleInterval(m.group(1),m.group(2));continue};m=PatternHolders.animation_interval.matcher(line);if(m.find()){handleInterval(m.group(1),m.group(2));continue};m=PatternHolders.pattern.matcher(line);if(m.find()){handlePattern(m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),m.group(6),m.group(7));continue};m=PatternHolders.animation.matcher(line);if(m.find()){if(m.group(4)==null)handlePattern(m.group(1),m.group(2),m.group(6),m.group(7),m.group(5),m.group(8),m.group(9))else addAltAnimation(m.group(1),m.group(4));continue};m=PatternHolders.animation_base.matcher(line);if(m.find()){handlePattern(m.group(1),m.group(2),m.group(6) ?: m.group(4),m.group(7),m.group(3),null,null);continue};m=PatternHolders.pattern_base.matcher(line);if(m.find()){handlePattern(m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),null,null);continue};m=PatternHolders.option.matcher(line);if(m.find()){handleOptions(m.group());continue};m=PatternHolders.pattern_alt.matcher(line);if(m.find())addAltAnimation(m.group(1),m.group(3),"\\.") };animationTable?.values?.forEach { it.materializeFrames() } }
+    private fun loadSurface(elements:List<String?>?, probeBitmap:Boolean = true, parseCollisions:Boolean = true, parseElements:Boolean = true) { if(elements!=null)loadElements(elements, parseCollisions, parseElements); if(surfaceType==S_TYPE_ELEMENT&&(elementList?.isNotEmpty()==true)){origW=elementList!![0].W;origH=elementList!![0].H;targetW=origW;targetH=origH;return}; val primary=selfFilename?.let(::File); if(primary?.exists()!=true){val fallback=bp2?.let(::File) ?: return;if(!fallback.exists())return;selfFilename=bp2};if(probeBitmap)updateOrigWH() }
+    private fun loadElements(elements:List<String?>, parseCollisions:Boolean = true, parseElements:Boolean = true) { for(raw in elements){val line=raw ?: continue;if(PatternHolders.comment_ptrn.matcher(line).find())continue;if(line.trim().startsWith("collisionex", true)){if(parseCollisions)recordCollision(line);continue}; var m=PatternHolders.collision.matcher(line);if(m.find()){if(parseCollisions)handleCollision(m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),m.group(6));continue};m=PatternHolders.element.matcher(line);if(m.find()){if(parseElements){surfaceType=S_TYPE_ELEMENT;handleElement(m.group(1),m.group(3),m.group(4),m.group(5))};continue};m=PatternHolders.interval.matcher(line);if(m.find()){handleInterval(m.group(1),m.group(2));continue};m=PatternHolders.animation_interval.matcher(line);if(m.find()){handleInterval(m.group(1),m.group(2));continue};m=PatternHolders.pattern.matcher(line);if(m.find()){handlePattern(m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),m.group(6),m.group(7));continue};m=PatternHolders.animation.matcher(line);if(m.find()){if(m.group(4)==null)handlePattern(m.group(1),m.group(2),m.group(6),m.group(7),m.group(5),m.group(8),m.group(9))else addAltAnimation(m.group(1),m.group(4));continue};m=PatternHolders.animation_base.matcher(line);if(m.find()){handlePattern(m.group(1),m.group(2),m.group(6) ?: m.group(4),m.group(7),m.group(3),null,null);continue};m=PatternHolders.pattern_base.matcher(line);if(m.find()){handlePattern(m.group(1),m.group(2),m.group(3),m.group(4),m.group(5),null,null);continue};m=PatternHolders.option.matcher(line);if(m.find()){handleOptions(m.group());continue};m=PatternHolders.pattern_alt.matcher(line);if(m.find())addAltAnimation(m.group(1),m.group(3),"\\.") };animationTable?.values?.forEach { it.materializeFrames() } }
     private fun handleElement(index:String, filename:String, x:String, y:String) { try { val path=(basePath ?: "")+filename;val file=File(path);if(!file.exists())return;val opt=BitmapFactory.Options().apply{inJustDecodeBounds=true};BitmapFactory.decodeFile(path,opt);val frame=AnimationFrame().apply{filePath=path;frameType=TYPE_BASE;startX=x.toInt();startY=y.toInt();W=opt.outWidth;H=opt.outHeight};prepareElementList();elementList!!.add(index.toInt(),frame)}catch(_:Exception){} }
     private fun handleOption(id:String, option:String) { prepareAnimationTable();val animation=animationTable!![id] ?: Animation().also{it.id=id;animationTable!![id]=it};animation.exclusive=option.equals("exclusive",true) }
     fun dumpSurfaceStat():String = StringBuilder("==================\n").let{dumpAnimation(dumpElementList(dumpStat(it))).append("==================\n").toString()}

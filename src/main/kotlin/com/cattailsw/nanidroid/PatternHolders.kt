@@ -5,7 +5,7 @@ import java.util.regex.Pattern
 /** Shared, Java-callable regular expressions for ghost descriptors and Sakura Script. */
 object PatternHolders {
     @JvmField val element = Pattern.compile("element(\\d+),(\\w*),(\\S*),(-?\\d+),(-?\\d+)$")
-    @JvmField val collision = Pattern.compile("collision(\\d+),\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),([\\w|-]*)$")
+    @JvmField val collision = Pattern.compile("collision([+-]?\\d+),\\s*([+-]?\\d+),\\s*([+-]?\\d+),\\s*([+-]?\\d+),\\s*([+-]?\\d+),(.*)$", Pattern.CASE_INSENSITIVE)
     @JvmField val point = Pattern.compile("point.(\\w*\\.*)center([xXyY]{1}),(\\d+$)")
     @JvmField val interval = Pattern.compile("(\\d+)interval\\d*,(\\S*)$")
     @JvmField val animation_interval = Pattern.compile("animation(\\d+).interval.(\\S*)$")

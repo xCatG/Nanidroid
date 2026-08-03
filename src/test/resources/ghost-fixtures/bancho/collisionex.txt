@@ -1,0 +1,9 @@
+charset,UTF-8
+descript
+{
+collision-sort,none
+}
+surface0
+{
+collisionex3,BanchoCoat,polygon,1,1,8,1,10,5,6,9,2,8,0,4
+}
