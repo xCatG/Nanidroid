@@ -3,16 +3,19 @@ package com.cattailsw.nanidroid.compose
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import com.cattailsw.nanidroid.SurfaceCollision
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
 import com.cattailsw.nanidroid.runtime.stage.ComposedSurfaceMetrics
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
+import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 
 /** Immutable ARGB_8888 pixels, independent of Android drawables and Views. */
 class SurfacePixelImage private constructor(
@@ -242,14 +245,27 @@ class SurfaceCompositor(
     }
 }
 
-/** Compose bridge for the pure compositor output. Production wiring is intentionally deferred. */
+/** Draws the exact atomic canvas into the final measured destination rectangle. */
 @Composable
-fun SurfaceCompositorImage(image: SurfacePixelImage, modifier: Modifier = Modifier) {
+fun SurfaceCompositorImage(
+    surface: ComposedSurface,
+    transform: SurfaceTransformPx,
+    modifier: Modifier = Modifier,
+) {
+    val image = surface.image
     if (image.width == 0 || image.height == 0) return
-    val bitmap = remember(image) {
+    require(surface.canvasSize == transform.intrinsicSize)
+    require(image.width == surface.canvasSize.width && image.height == surface.canvasSize.height)
+    val bitmap = remember(surface) {
         Bitmap.createBitmap(image.copyPixels(), image.width, image.height, Bitmap.Config.ARGB_8888).asImageBitmap()
     }
-    Image(bitmap = bitmap, contentDescription = null, modifier = modifier)
+    Image(
+        bitmap = bitmap,
+        contentDescription = null,
+        modifier = modifier,
+        alignment = Alignment.TopStart,
+        contentScale = ContentScale.FillBounds,
+    )
 }
 
 private const val TRANSPARENT = 0x00000000
