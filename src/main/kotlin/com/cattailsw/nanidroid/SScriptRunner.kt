@@ -56,12 +56,12 @@ open class SScriptRunner internal constructor(
             onFailure: (Throwable) -> T,
             action: () -> T,
         ): T {
-            self?.invalidateForActiveGhostMutation(ghostId, ghostRoot)
             return productionSessionCoordinator.withMutation(
                 ghostId,
                 ghostRoot,
                 onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
                 onFailure = onFailure,
+                onActiveSessionInvalidated = { self?.invalidateForSessionUnload(it) },
                 action = action,
             )
         }
@@ -296,22 +296,20 @@ open class SScriptRunner internal constructor(
         onStopped: () -> T = { onFailure(IOException("ghost update stopped while awaiting attachment")) },
         action: () -> T,
     ): T {
-        invalidateForActiveGhostMutation(ghostId, ghostRoot)
         return sessionCoordinator.withMutation(
-            ghostId, ghostRoot, shouldStop, onStopped, onFailure, action,
+            ghostId,
+            ghostRoot,
+            shouldStop,
+            onStopped,
+            onFailure,
+            onActiveSessionInvalidated = ::invalidateForSessionUnload,
+            action = action,
         )
     }
 
     /** Removes state that cannot survive a true unload/reload of the live SHIORI session. */
-    private fun invalidateForActiveGhostMutation(ghostId: String, ghostRoot: File) {
-        val target = synchronized(this) {
-            g?.takeIf {
-                it.getGhostId() == ghostId && File(it.getGhostPath()).canonicalFile == ghostRoot.canonicalFile
-            }
-        } ?: return
-        if (sessionCoordinator.withGhostGate(target) { it }) {
-            synchronized(this) { if (g === target) clearDialogueStateLocked() }
-        }
+    private fun invalidateForSessionUnload(target: Ghost) = synchronized(this) {
+        if (g === target) clearDialogueStateLocked()
     }
 
     private fun <T> withCurrentGhost(action: (Ghost) -> T): T? {

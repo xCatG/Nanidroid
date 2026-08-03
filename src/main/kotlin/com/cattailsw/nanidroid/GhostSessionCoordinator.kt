@@ -331,6 +331,7 @@ internal class GhostSessionCoordinator {
         shouldStop: () -> Boolean = { false },
         onStopped: () -> T,
         onFailure: (Throwable) -> T,
+        onActiveSessionInvalidated: (Ghost) -> Unit = {},
         action: () -> T,
     ): T {
         val root = ghostRoot.canonicalFile
@@ -358,6 +359,15 @@ internal class GhostSessionCoordinator {
                 globalPoison?.let { return onFailure(it) }
                 val owner = globalOwner
                 val liveActive = active?.takeIf { owner?.ghost === it && owner.phase == Phase.ACTIVE }
+                val invalidationFailure = try {
+                    liveActive?.let(onActiveSessionInvalidated)
+                    null
+                } catch (error: Exception) {
+                    error
+                } catch (error: LinkageError) {
+                    error
+                }
+                if (invalidationFailure != null) return onFailure(invalidationFailure)
                 val unloadFailure = try {
                     liveActive?.unload()
                     null

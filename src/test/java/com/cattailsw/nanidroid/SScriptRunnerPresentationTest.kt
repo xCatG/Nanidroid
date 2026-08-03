@@ -367,6 +367,80 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun dialogBindingStaleInputCallbacksCannotConsumeRepeatedInputIds() {
+        val fixture = fixture(responses = listOf(noContent(), noContent()))
+        val binding = DialogueDialogBinding { fixture.runner }
+        val first = fixture.openPendingInput("same-id", timeoutMillis = 1_000L)
+        var editedValue: String? = null
+        val firstDialog = binding.userInput("same-id", first.generation) { editedValue = it }
+
+        firstDialog.onValueChanged("edited")
+        Assert.assertEquals("edited", editedValue)
+
+        fixture.runner.dismissInput(first.generation)
+        val current = fixture.openPendingInput("same-id", timeoutMillis = 1_000L)
+        val requestsBeforeStaleCallback = fixture.shiori.requests.toList()
+
+        firstDialog.onSubmit("same-id", "stale")
+        firstDialog.onCancel()
+
+        Assert.assertEquals(requestsBeforeStaleCallback, fixture.shiori.requests)
+        Assert.assertEquals(current, fixture.runner.dialogueStateSnapshot().pendingInput)
+    }
+
+    @Test
+    fun dialogBindingChoiceCallbacksKeepExactRowIdentityForDuplicatesDirectAndScript() {
+        val duplicate = fixture(responses = listOf(noContent()))
+        val duplicateBinding = DialogueDialogBinding { duplicate.runner }
+        val duplicateActions = duplicate.openChoices("\\q[First,same]\\q[Second,same]\\e")
+        val duplicateDialog = duplicateBinding.userChoice(
+            listOf("First", "Second"), listOf("same", "same"), duplicateActions,
+        )
+
+        duplicateDialog.onChoice(1)
+
+        Assert.assertEquals(
+            listOf(
+                request("OnChoiceSelectEx", "Second", "same"),
+                request("OnChoiceSelect", "same"),
+            ),
+            duplicate.shiori.requests,
+        )
+
+        val direct = fixture(responses = listOf(noContent()))
+        val directActions = direct.openChoices("\\q[Direct,OnDirect,\"\",tail]\\e")
+        DialogueDialogBinding { direct.runner }.userChoice(
+            listOf("Direct"), listOf("OnDirect"), directActions,
+        ).onChoice(0)
+        Assert.assertEquals(listOf(request("OnDirect", "", "tail")), direct.shiori.requests)
+
+        val script = fixture(responses = emptyList())
+        val scriptActions = script.openChoices("\\q[Script,\"script:\\hlocal\\e\"]\\e")
+        DialogueDialogBinding { script.runner }.userChoice(
+            listOf("Script"), listOf("script"), scriptActions,
+        ).onChoice(0)
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("local")))),
+            script.runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
+    fun restoredDialogBindingsHaveNoLiveIdentityAndAreNoOps() {
+        val fixture = fixture(responses = emptyList())
+        val pending = fixture.openPendingInput("answer", timeoutMillis = 1_000L)
+        val binding = DialogueDialogBinding { fixture.runner }
+        val restored = binding.userInput("answer", null, "typed")
+
+        restored.onSubmit("answer", "stale")
+        restored.onCancel()
+        binding.userChoice(listOf("Choice"), listOf("choice"), emptyList()).onChoice(0)
+
+        Assert.assertEquals(pending, fixture.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertTrue(fixture.shiori.requests.isEmpty())
+    }
+
+    @Test
     fun transitionDuringPrimaryResponsePreventsFallbackAndStaleTalkEnqueue() {
         val fixture = fixture(responses = listOf(noContent()))
         val action = fixture.openChoice("Choice", "choice-id")

@@ -91,6 +91,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var simpleDialog: NanidroidSimpleDialog? by mutableStateOf(null)
     private var anime: AnimationDrawable? = null
     private var runner: SScriptRunner? = null
+    private val dialogueDialogBinding = DialogueDialogBinding { runner }
     private val composeStage = ComposeGhostStageHost(
         SurfaceInteractionPort { effect ->
             runner?.dispatchSurfaceInteraction(effect)
@@ -573,15 +574,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     } catch (_: Exception) { false }
     private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
         GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
-    private fun createUserInputDialog(id: String, value: String = ""): NanidroidSimpleDialog.UserInput = NanidroidSimpleDialog.UserInput(
-        id, value,
-        onValueChanged = { simpleDialog = createUserInputDialog(id, it) },
-        onSubmit = { inputId, input -> onFinishUserInput(inputId, input) },
-        onCancel = { onCancelInput() },
-    )
-    private fun createUserChoiceDialog(labels: List<String>, ids: List<String>) = NanidroidSimpleDialog.UserChoice(
-        labels, ids, onChoice = { onChoiceSelect(it) },
-    )
+    private fun createUserInputDialog(id: String, generation: Long?, value: String = ""): NanidroidSimpleDialog.UserInput =
+        dialogueDialogBinding.userInput(id, generation, value) { updated ->
+            simpleDialog = createUserInputDialog(id, generation, updated)
+        }
+    private fun createUserChoiceDialog(labels: List<String>, ids: List<String>, actions: List<DialogueAction> = emptyList()) =
+        dialogueDialogBinding.userChoice(labels, ids, actions)
     private fun createGhostListDialog(names: List<String>, ids: List<String>) = NanidroidSimpleDialog.GhostList(
         names, ids,
         onSelect = { index -> selectGhostFromList(ids.getOrNull(index), names.getOrNull(index) ?: "", index) },
@@ -676,7 +674,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             DIALOG_GENERAL_HELP -> createGeneralHelpDialog()
             DIALOG_MORE_GHOST -> createMoreGhostDialog()
             DIALOG_URL_ENTRY -> createUrlEntryDialog(state.getString(SIMPLE_DIALOG_VALUE) ?: "", state.getBoolean(SIMPLE_DIALOG_ERROR, false))
-            DIALOG_USER_INPUT -> createUserInputDialog(state.getString(SIMPLE_DIALOG_ID) ?: "", state.getString(SIMPLE_DIALOG_VALUE) ?: "")
+            DIALOG_USER_INPUT -> createUserInputDialog(state.getString(SIMPLE_DIALOG_ID) ?: "", null, state.getString(SIMPLE_DIALOG_VALUE) ?: "")
             DIALOG_USER_CHOICE -> createUserChoiceDialog(state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(), state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty())
             DIALOG_GHOST_LIST -> createGhostListDialog(state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(), state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty())
             DIALOG_ABOUT -> createAboutDialog()
@@ -703,30 +701,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (!toolbarVisible) AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar")
         toolbarVisible = !toolbarVisible
     }
-    private fun onFinishUserInput(id: String, userinput: String) {
-        Log.d(TAG, "got user input:$userinput")
-        val activeRunner = runner ?: return
-        val pending = activeRunner.dialogueStateSnapshot().pendingInput
+    override fun showUserInputBox(id: String) {
+        val pending = runner?.dialogueStateSnapshot()?.pendingInput
             ?.takeIf { (it.spec.dispatch as? InputDispatch.Normal)?.id == id }
-            ?: return
-        activeRunner.resumeEvt()
-        activeRunner.submitInput(pending.generation, userinput)
+        simpleDialog = createUserInputDialog(id, pending?.generation)
     }
-    private fun onCancelInput() {
-        Log.d(TAG, "user cancel")
-        val activeRunner = runner ?: return
-        val pending = activeRunner.dialogueStateSnapshot().pendingInput ?: return
-        activeRunner.resumeEvt()
-        activeRunner.dismissInput(pending.generation)
+    override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
+        val actions = runner?.dialogueStateSnapshot()?.pendingChoices.orEmpty()
+            .takeIf { it.size == ids.size } ?: emptyList()
+        simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList(), actions)
     }
-    override fun showUserInputBox(id: String) { simpleDialog = createUserInputDialog(id) }
-    private fun onChoiceSelect(id: String) {
-        val action = runner?.dialogueStateSnapshot()?.pendingChoices
-            ?.singleOrNull { (it as? DialogueAction.Normal)?.id == id }
-            ?: return
-        runner?.activateChoice(action)
-    }
-    override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) { simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList()) }
 
     companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
 }

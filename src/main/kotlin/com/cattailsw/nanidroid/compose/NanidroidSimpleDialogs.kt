@@ -34,7 +34,7 @@ internal sealed interface NanidroidSimpleDialog {
     data class MoreGhost(val onEnterUrl: () -> Unit, val onInstallFromSdCard: () -> Unit, val onGhostTown: () -> Unit) : NanidroidSimpleDialog
     data class UrlEntry(val value: String, val validationError: Boolean, val onValueChanged: (String) -> Unit, val onSubmit: (String) -> Boolean, val onInvalid: () -> Unit) : NanidroidSimpleDialog
     data class UserInput(val id: String, val value: String, val onValueChanged: (String) -> Unit, val onSubmit: (String, String) -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
-    data class UserChoice(val labels: List<String>, val ids: List<String>, val onChoice: (String) -> Unit) : NanidroidSimpleDialog
+    data class UserChoice(val labels: List<String>, val ids: List<String>, val onChoice: (Int) -> Unit) : NanidroidSimpleDialog
     data class GhostList(val names: List<String>, val ids: List<String>, val onSelect: (Int) -> Unit, val onMore: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
     data class TextDocument(val title: String, val text: String, val onOpenLink: (String) -> Unit, val sourceId: String? = null, val onSwitch: (() -> Unit)? = null) : NanidroidSimpleDialog
     data class SwitchConfirmation(val ghostId: String, val ghostName: String, val onSwitch: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
@@ -100,7 +100,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 @Composable private fun UserChoiceDialog(dialog: NanidroidSimpleDialog.UserChoice, onDismiss: () -> Unit) = AlertDialog(
     onDismissRequest = {},
     title = { Text(stringResource(R.string.user_sel_dlg_title)) },
-    text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) { dialog.labels.forEachIndexed { index, label -> TextButton(modifier = Modifier.fillMaxWidth().testTag("script-choice-$index"), onClick = { dialog.ids.getOrNull(index)?.let { onDismiss(); dialog.onChoice(it) } }) { Text(label) } } } },
+    text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) { dialog.labels.forEachIndexed { index, label -> TextButton(modifier = Modifier.fillMaxWidth().testTag("script-choice-$index"), onClick = { onDismiss(); dialog.onChoice(index) }) { Text(label) } } } },
     confirmButton = {},
 )
 

@@ -280,6 +280,30 @@ class GhostSwitchingCharacterizationTest {
     }
 
     @Test
+    fun mutationInvalidatesTheLiveSessionInTheSameCoordinatorCriticalSectionAsUnload() {
+        val coordinator = GhostSessionCoordinator()
+        val lifecycle = Trace()
+        val active = RecordingGhost(
+            "atomic-invalidation", null, null, 2, null, trace, lifecycle = lifecycle,
+        )
+        val reservation = coordinator.reserveLoadedGhostForTesting(active)
+        Assert.assertTrue(coordinator.attach(reservation, null) {})
+
+        coordinator.withMutation(
+            active.getGhostId(),
+            File(active.getGhostPath()),
+            onStopped = { Assert.fail("mutation must not stop") },
+            onFailure = { error -> throw AssertionError(error) },
+            onActiveSessionInvalidated = { lifecycle.add("invalidate") },
+        ) { lifecycle.add("commit") }
+
+        Assert.assertEquals(
+            Arrays.asList<String?>("invalidate", "unload", "commit", "reload"),
+            lifecycle.events(),
+        )
+    }
+
+    @Test
     fun unloadFailureRunsRecoveryAndReloadBeforeReleasingCommitGate() {
         val lifecycle = Trace()
         val active = RecordingGhost(
