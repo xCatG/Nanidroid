@@ -100,7 +100,7 @@ open class SScriptRunner internal constructor(
             synchronized(this) {
                 outgoingName = g?.getGhostName()
                 g = newGhost
-                if (outgoing !== newGhost) clearDialogueStateLocked()
+                if (outgoing != null && outgoing !== newGhost) clearDialogueStateLocked()
                 if (outgoingName == null) bootDispatchState.resetForNoGhost()
             }
         }

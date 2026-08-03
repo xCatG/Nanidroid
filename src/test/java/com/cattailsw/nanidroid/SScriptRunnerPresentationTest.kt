@@ -57,6 +57,27 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun firstAttachmentRetainsScriptsQueuedBeforeTheGhostIsReady() {
+        val clock = FakeClock(10_000L)
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
+        runner.setNoWaitMode(true)
+        runner.addMsgToQueue(arrayOf("\\hfirst queued talk\\e"))
+
+        runner.setGhost(RecordingGhost(RecordingShiori(emptyList())))
+        runner.run()
+
+        Assert.assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(DialogueSegment.Text("first queued talk")),
+                ),
+            ),
+            runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
     fun normalChoiceUsesExactRawHeadersAndFallsBackOnlyAfterNoTalk() {
         val fixture = fixture(responses = listOf(noContent(), noContent()))
 
