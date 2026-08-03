@@ -366,7 +366,7 @@ class SurfaceTransformPxTest {
         val budget = CollisionGeometryBudget.overlayDefault()
         lateinit var regions: List<CollisionRegionPx>
         val elapsed = measureTimeMillis {
-            regions = List(256) { transform.toStageRegion(fixture, budget) }
+            regions = transform.toStageRegions(List(256) { fixture }, budget)
         }
 
         assertTrue(regions.any { !it.isExact })
@@ -378,46 +378,51 @@ class SurfaceTransformPxTest {
     }
 
     @Test
-    fun `ordinary polygon reserves actual compact output and hostile peer cannot starve cheap rectangles`() {
+    fun `adaptive overlay budget keeps routine shapes exact and hostile peer cannot starve cheap rectangles`() {
         val transform = SurfaceTransformPx(
             intrinsicSize = IntSize(1024, 1024),
             renderedBounds = IntRect(0, 0, 1024, 1024),
             scale = 1f,
             stageToRoot = IntOffset.Zero,
         )
-        val ordinary = CollisionShape.Polygon(
-            listOf(IntOffset(10, 10), IntOffset(109, 10), IntOffset(109, 109), IntOffset(10, 109)),
-        )
-        val ordinaryBudget = CollisionGeometryBudget.perCollisionDefault()
-        val ordinaryRegion = transform.toStageRegion(ordinary, ordinaryBudget)
-        assertTrue(ordinaryRegion.isExact)
-        assertEquals(1, ordinaryRegion.rects.size)
-        assertEquals(4, ordinaryRegion.boundarySegments.size)
-        assertEquals(1, ordinaryBudget.consumedRects)
-        assertEquals(4, ordinaryBudget.consumedBoundarySegments)
-
         val hostile = CollisionShape.Polygon(
             List(CollisionShape.MAX_POLYGON_VERTICES) { index ->
                 IntOffset(index * 1023 / (CollisionShape.MAX_POLYGON_VERTICES - 1), index % 2 * 1023)
             },
         )
-        val collisionCount = 256
-        val hostileRegion = transform.toStageRegion(
-            hostile,
-            CollisionGeometryBudget.overlayShare(collisionCount),
-        )
-        assertFalse(hostileRegion.isExact)
-        repeat(collisionCount - 1) { index ->
-            val rectangle = CollisionShape.Rectangle(IntRect(index, index, index + 1, index + 1))
-            assertTrue(
-                "rectangle=$index",
-                transform.toStageRegion(
-                    rectangle,
-                    CollisionGeometryBudget.overlayShare(collisionCount),
-                ).isExact,
+        val fullCanvasCircle = CollisionShape.Circle.fromAuthored(512, 512, 511)
+        val routineCircles = List(7) { index ->
+            val offset = index * 100
+            CollisionShape.Circle.fromAuthored(110 + offset, 110, 100)
+        }
+        val routinePolygons = List(10) { index ->
+            val left = 10 + index * 90
+            CollisionShape.Polygon(
+                listOf(
+                    IntOffset(left, 200),
+                    IntOffset(left + 79, 200),
+                    IntOffset(left + 79, 299),
+                    IntOffset(left, 299),
+                ),
             )
         }
-        assertTrue(CollisionGeometryBudget.overlayDefault().maxWork <= 16_384)
+        val fullCanvasPolygon = CollisionShape.Polygon(
+            listOf(IntOffset(0, 0), IntOffset(1023, 0), IntOffset(1023, 1023), IntOffset(0, 1023)),
+        )
+        val rectangles = List(255) { index ->
+            CollisionShape.Rectangle(IntRect(index, index, index + 1, index + 1))
+        }
+        val shapes = listOf(hostile, fullCanvasCircle) + routineCircles + routinePolygons +
+            fullCanvasPolygon + rectangles
+        val budget = CollisionGeometryBudget.overlayDefault()
+        val regions = transform.toStageRegions(shapes, budget)
+
+        assertFalse(regions.first().isExact)
+        assertTrue(regions.drop(1).all(CollisionRegionPx::isExact))
+        assertTrue(budget.consumedWork <= budget.maxWork)
+        assertTrue(budget.consumedRects <= budget.maxRects)
+        assertTrue(budget.consumedBoundarySegments <= budget.maxBoundarySegments)
+        assertEquals(2_097_152, budget.maxWork)
     }
 
     @Test

@@ -16,7 +16,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.graphics.withSave
 import com.cattailsw.nanidroid.SurfaceCollision
-import com.cattailsw.nanidroid.runtime.stage.CollisionGeometryBudget
 import com.cattailsw.nanidroid.runtime.stage.CollisionRegionPx
 import com.cattailsw.nanidroid.runtime.stage.CollisionShapePx
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
@@ -36,11 +35,9 @@ fun CollisionOverlay(
                 -transform.renderedBounds.left,
                 -transform.renderedBounds.top,
             )
-            collisions.map { collision ->
-                val region = transform.toStageRegion(
-                    collision.shape,
-                    CollisionGeometryBudget.overlayShare(collisions.size),
-                ).translated(localOffset)
+            val regions = transform.toStageRegions(collisions.map(SurfaceCollision::shape))
+            collisions.zip(regions).map { (collision, stageRegion) ->
+                val region = stageRegion.translated(localOffset)
                 val authored = transform.toStage(collision.shape).translated(localOffset)
                 TransformedCollision(
                     id = collision.id,

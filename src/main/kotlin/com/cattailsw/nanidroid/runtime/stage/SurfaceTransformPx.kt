@@ -145,19 +145,11 @@ class CollisionGeometryBudget(
             maxBoundarySegments = OVERLAY_MAX_BOUNDARY_SEGMENTS,
         )
 
-        /** Fair partition: one hostile collision cannot consume a later cheap collision's quota. */
-        fun overlayShare(collisionCount: Int): CollisionGeometryBudget {
-            val count = collisionCount.coerceAtLeast(1)
-            return CollisionGeometryBudget(
-                maxWork = maxOf(1, OVERLAY_MAX_WORK / count),
-                maxRects = maxOf(1, OVERLAY_MAX_RECTS / count),
-                maxBoundarySegments = maxOf(4, OVERLAY_MAX_BOUNDARY_SEGMENTS / count),
-            )
-        }
-
-        const val OVERLAY_MAX_WORK = 16_384
-        const val OVERLAY_MAX_RECTS = 4_096
-        const val OVERLAY_MAX_BOUNDARY_SEGMENTS = 16_384
+        // Large enough for a normal collection of maximum-canvas convex shapes,
+        // while still rejecting adversarial high-vertex scanlines before work starts.
+        const val OVERLAY_MAX_WORK = 2_097_152
+        const val OVERLAY_MAX_RECTS = 32_768
+        const val OVERLAY_MAX_BOUNDARY_SEGMENTS = 131_072
     }
 }
 
@@ -271,6 +263,25 @@ data class SurfaceTransformPx(
     fun toRoot(shape: CollisionShape): CollisionShapePx = toStage(shape).translated(stageToRoot)
 
     /**
+     * Builds one visible overlay under a shared hard cap. Cheaper definitions
+     * are attempted first so a hostile early entry cannot starve later routine
+     * collisions, and unused capacity is automatically available to its peers.
+     * Results retain authored order for labels and drawing.
+     */
+    internal fun toStageRegions(
+        shapes: List<CollisionShape>,
+        budget: CollisionGeometryBudget = CollisionGeometryBudget.overlayDefault(),
+    ): List<CollisionRegionPx> {
+        val results = arrayOfNulls<CollisionRegionPx>(shapes.size)
+        shapes.indices
+            .sortedWith(compareBy<Int>({ estimatedRegionWork(shapes[it]) }, { it }))
+            .forEach { index ->
+                results[index] = toStageRegion(shapes[index], budget)
+            }
+        return results.map { requireNotNull(it) }
+    }
+
+    /**
      * Materializes the exact visible hit footprint used by [toIntrinsic]. The
      * authored shape remains unchanged; only intrinsic pixels inside the
      * surface canvas participate in this rendered diagnostic region.
@@ -314,19 +325,7 @@ data class SurfaceTransformPx(
 
         val width = clippedRight.toLong() - clippedLeft.toLong()
         val height = clippedBottom.toLong() - clippedTop.toLong()
-        val workEstimate: Long
-        when (shape) {
-            is CollisionShape.Ellipse,
-            is CollisionShape.Circle,
-            -> {
-                workEstimate = height * (2L * ceilLog2(width.coerceAtLeast(1L)) + 3L)
-            }
-            is CollisionShape.Polygon -> {
-                val vertices = shape.points.size.toLong()
-                workEstimate = height * (6L * vertices * vertices + 8L * vertices)
-            }
-            is CollisionShape.Rectangle -> error("rectangle handled above")
-        }
+        val workEstimate = collisionWorkEstimate(shape, width, height)
         if (!budget.reserve(workEstimate, rects = 0L, boundarySegments = 0L)) {
             return CollisionRegionPx.complexityFallback()
         }
@@ -366,6 +365,35 @@ data class SurfaceTransformPx(
             },
         )
     }
+
+    private fun estimatedRegionWork(shape: CollisionShape): Long {
+        if (!usable) return 0L
+        val clippedLeft = maxOf(0, shape.bounds.left)
+        val clippedTop = maxOf(0, shape.bounds.top)
+        val clippedRight = minOf(intrinsicSize.width, shape.bounds.right)
+        val clippedBottom = minOf(intrinsicSize.height, shape.bounds.bottom)
+        if (clippedLeft >= clippedRight || clippedTop >= clippedBottom) return 0L
+        return collisionWorkEstimate(
+            shape = shape,
+            width = clippedRight.toLong() - clippedLeft.toLong(),
+            height = clippedBottom.toLong() - clippedTop.toLong(),
+        )
+    }
+
+    private fun collisionWorkEstimate(
+        shape: CollisionShape,
+        width: Long,
+        height: Long,
+    ): Long = when (shape) {
+            is CollisionShape.Ellipse,
+            is CollisionShape.Circle,
+            -> height * (2L * ceilLog2(width.coerceAtLeast(1L)) + 3L)
+            is CollisionShape.Polygon -> {
+                val vertices = shape.points.size.toLong()
+                height * (6L * vertices * vertices + 8L * vertices)
+            }
+            is CollisionShape.Rectangle -> 1L
+        }
 
     fun toRootRegion(
         shape: CollisionShape,
@@ -527,7 +555,7 @@ private fun polygonRowRuns(
         addCut(value.subtract(BigInteger.ONE))
         addCut(value)
         addCut(value.add(BigInteger.ONE))
-        addCut(value.add(BigInteger.TWO))
+        addCut(value.add(BigInteger.valueOf(2L)))
     }
 
     shape.points.indices.forEach { index ->
