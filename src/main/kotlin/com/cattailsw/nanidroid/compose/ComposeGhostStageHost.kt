@@ -1,31 +1,25 @@
 package com.cattailsw.nanidroid.compose
 
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.IntSize
-import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.os.SystemClock
-import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.toSurfaceDefinition
 import com.cattailsw.nanidroid.runtime.GhostPresentationRuntimeState
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.KotlinGhostPresentationRuntime
+import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
+import com.cattailsw.nanidroid.compose.stage.RenderedSurfaceLayer
+import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import kotlinx.coroutines.delay
 
 /**
@@ -47,12 +41,14 @@ class ComposeGhostStageHost(
        plans and their rasterized frames for that manager; recomposition must
        never reopen/decode assets merely because an animation clock ticked. */
     private val speakerSurfaces = mutableMapOf<SpeakerSurfaceKey, SpeakerSurface>()
-    private val renderedFrames = LinkedHashMap<RenderedFrameKey, SurfacePixelImage>(16, 0.75f, true)
+    private val renderedFrames = LinkedHashMap<RenderedFrameKey, ComposedSurface>(16, 0.75f, true)
     // The two visible speakers are not historical cache entries. Keeping them
     // independently avoids re-decoding a valid large surface on every script
     // character while the bounded LRU protects the rest of the app heap.
-    private val activeRenderedImages = mutableMapOf<SurfaceSpeaker, ActiveRenderedImage>()
+    private val activeComposedSurfaces = mutableMapOf<SurfaceSpeaker, ActiveComposedSurface>()
     private var renderedFramePixels = 0L
+    private var nextComposedRevision = 1L
+    private val stageMeasureState = GhostStageMeasureState()
 
     val renderer = KotlinGhostPresentationRuntime { transition ->
         runtimeState = transition.state
@@ -76,6 +72,7 @@ class ComposeGhostStageHost(
             nextPeriodicTicks.clear()
             speakerSurfaces.clear()
             clearRenderedFrames()
+            stageMeasureState.resetFor(manager)
         }
         activeSurfaceManager = manager
     }
@@ -91,8 +88,22 @@ class ComposeGhostStageHost(
         val compositor = remember(manager) { SurfaceCompositor(AndroidSurfacePixelAssets, SurfacePlanRegistry(plans)) }
         val sakura = manager.speakerSurface(state.presentation.sakura.surfaceId, true)
         val kero = manager.speakerSurface(state.presentation.kero.surfaceId, false)
-        val sakuraImage = safeRenderedImage(compositor, SurfaceSpeaker.SAKURA, state.presentation.sakura.surfaceId, sakura.plan, sakuraFrame)
-        val keroImage = safeRenderedImage(compositor, SurfaceSpeaker.KERO, state.presentation.kero.surfaceId, kero.plan, keroFrame)
+        val sakuraComposed = safeComposedSurface(
+            compositor,
+            SurfaceSpeaker.SAKURA,
+            state.presentation.sakura.surfaceId,
+            sakura.plan,
+            sakuraFrame,
+            explicitlyHidden = !sakura.visible,
+        )
+        val keroComposed = safeComposedSurface(
+            compositor,
+            SurfaceSpeaker.KERO,
+            state.presentation.kero.surfaceId,
+            kero.plan,
+            keroFrame,
+            explicitlyHidden = !kero.visible,
+        )
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         var stageStarted by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
         DisposableEffect(lifecycle) {
@@ -109,114 +120,83 @@ class ComposeGhostStageHost(
         }
         GhostPresentationStage(
             presentation = state.presentation,
-            // Legacy placement derives from the selected surface, not an
-            // animation frame whose base image happens to have other bounds.
-            sakuraSurfaceSize = IntSize(sakura.plan.width, sakura.plan.height),
-            keroSurfaceSize = IntSize(kero.plan.width, kero.plan.height),
+            sakuraComposedSurface = sakuraComposed,
+            keroComposedSurface = keroComposed,
+            measureState = stageMeasureState,
+            ghostKey = manager?.let { "manager-${System.identityHashCode(it)}" }.orEmpty(),
             modifier = modifier,
-            sakuraSurface = { if (sakura.visible) SurfaceNode(SurfaceSpeaker.SAKURA, sakura.definition, sakuraImage, sakura.plan, onSurfaceTap) },
-            keroSurface = { if (kero.visible) SurfaceNode(SurfaceSpeaker.KERO, kero.definition, keroImage, kero.plan, onSurfaceTap) },
+            sakuraSurface = { snapshot ->
+                RenderedSurfaceLayer(snapshot, interactionPort, onSurfaceTap, showCollisionOverlay = false)
+            },
+            keroSurface = { snapshot ->
+                RenderedSurfaceLayer(snapshot, interactionPort, onSurfaceTap, showCollisionOverlay = false)
+            },
         )
     }
 
-    @Composable
-    private fun BoxScope.SurfaceNode(
-        speaker: SurfaceSpeaker,
-        definition: SurfaceDefinition?,
-        image: SurfacePixelImage,
-        plan: SurfaceRenderPlan,
-        onSurfaceTap: () -> Unit,
-    ) {
-        var renderedSize by remember { mutableStateOf(IntSize.Zero) }
-        val latestImage by rememberUpdatedState(image)
-        val latestDefinition by rememberUpdatedState(definition)
-        val latestPlan by rememberUpdatedState(plan)
-        SurfaceCompositorImage(
-            image = image,
-            modifier = Modifier
-                .fillMaxSize()
-                .onSizeChanged { renderedSize = it }
-                // Frame changes must not cancel an in-progress tap. The
-                // handler is keyed to the selected surface and reads the
-                // latest frame/state through rememberUpdatedState instead.
-                .pointerInput(speaker, plan.surfaceId) {
-                    detectTapGestures(
-                        onTap = { position ->
-                            val resolution = SurfacePointerInteractionMapper.map(
-                                speaker = speaker,
-                                definition = latestDefinition,
-                                image = latestImage,
-                                transform = SurfacePointerTransform(
-                                    left = 0f,
-                                    top = 0f,
-                                    renderedWidth = renderedSize.width.toFloat(),
-                                    renderedHeight = renderedSize.height.toFloat(),
-                                    sourceWidth = latestPlan.width,
-                                    sourceHeight = latestPlan.height,
-                                ),
-                                position = SurfacePointerPosition(position.x, position.y),
-                                source = PointerSource.TOUCH,
-                            )
-                            SurfacePointerInteractionDispatcher(interactionPort).dispatch(resolution)
-                            // SakuraView/KeroView returned the touch to their
-                            // clickable FrameLayout; preserve that simultaneous
-                            // toolbar-toggle behavior for Compose surfaces.
-                            onSurfaceTap()
-                        },
-                    )
-                },
-        )
-    }
-
-    private data class SpeakerSurface(val definition: SurfaceDefinition?, val plan: SurfaceRenderPlan, val visible: Boolean)
+    private data class SpeakerSurface(val plan: SurfaceRenderPlan, val visible: Boolean)
     private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
     private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
-    private data class ActiveRenderedImage(val key: RenderedFrameKey, val image: SurfacePixelImage)
+    private data class ActiveComposedSurface(val key: RenderedFrameKey, val surface: ComposedSurface)
 
-    private fun renderedImage(
+    private fun composedSurface(
         compositor: SurfaceCompositor,
         speaker: SurfaceSpeaker,
         surfaceId: String,
         plan: SurfaceRenderPlan,
         frame: SurfaceRenderFrame?,
-    ): SurfacePixelImage {
+        explicitlyHidden: Boolean,
+    ): ComposedSurface {
         val key = RenderedFrameKey(speaker, surfaceId, frame)
-        activeRenderedImages[speaker]?.takeIf { it.key == key }?.let { return it.image }
+        activeComposedSurfaces[speaker]?.takeIf { it.key == key && it.surface.explicitlyHidden == explicitlyHidden }
+            ?.let { return it.surface }
         renderedFrames[key]?.let {
-            activeRenderedImages[speaker] = ActiveRenderedImage(key, it)
-            return it
+            val cached = if (it.explicitlyHidden == explicitlyHidden) it else it.copy(explicitlyHidden = explicitlyHidden)
+            activeComposedSurfaces[speaker] = ActiveComposedSurface(key, cached)
+            return cached
         }
-        val image = frame?.let { compositor.frame(plan, it) } ?: compositor.normal(plan)
-        activeRenderedImages[speaker] = ActiveRenderedImage(key, image)
-        val pixels = image.width.toLong() * image.height.toLong()
-        if (pixels > MAX_CACHED_FRAME_PIXELS) return image
+        val revision = nextComposedRevision++
+        val composed = frame?.let { compositor.composeFrame(plan, it, explicitlyHidden, revision) }
+            ?: compositor.composeNormal(plan, explicitlyHidden, revision)
+        activeComposedSurfaces[speaker] = ActiveComposedSurface(key, composed)
+        val pixels = composed.image.width.toLong() * composed.image.height.toLong()
+        if (pixels > MAX_CACHED_FRAME_PIXELS) return composed
         while (renderedFramePixels + pixels > MAX_CACHED_FRAME_PIXELS && renderedFrames.isNotEmpty()) {
             val eldest = renderedFrames.entries.iterator().next()
-            renderedFramePixels -= eldest.value.width.toLong() * eldest.value.height.toLong()
+            renderedFramePixels -= eldest.value.image.width.toLong() * eldest.value.image.height.toLong()
             renderedFrames.remove(eldest.key)
         }
-        renderedFrames[key] = image
+        renderedFrames[key] = composed
         renderedFramePixels += pixels
-        return image
+        return composed
     }
 
-    private fun safeRenderedImage(
+    private fun safeComposedSurface(
         compositor: SurfaceCompositor,
         speaker: SurfaceSpeaker,
         surfaceId: String,
         plan: SurfaceRenderPlan,
         frame: SurfaceRenderFrame?,
-    ): SurfacePixelImage = try {
-        renderedImage(compositor, speaker, surfaceId, plan, frame)
+        explicitlyHidden: Boolean,
+    ): ComposedSurface = try {
+        composedSurface(compositor, speaker, surfaceId, plan, frame, explicitlyHidden)
     } catch (_: IllegalArgumentException) {
         // Installed ghosts are data, not trusted program input. A pathological
         // bitmap/canvas must hide that surface instead of crashing the stage.
-        SurfacePixelImage.Empty
+        ComposedSurface(
+            image = SurfacePixelImage.Empty,
+            canvasSize = androidx.compose.ui.unit.IntSize.Zero,
+            visiblePixelBounds = null,
+            effectiveCollisions = emptyList(),
+            surfaceKey = SurfaceKey(plan.surfaceId, androidx.compose.ui.unit.IntSize.Zero),
+            revision = nextComposedRevision++,
+            explicitlyHidden = true,
+        )
     }
 
     private fun clearRenderedFrames() {
         renderedFrames.clear()
-        activeRenderedImages.clear()
+        activeComposedSurfaces.clear()
         renderedFramePixels = 0L
     }
 
@@ -272,16 +252,16 @@ class ComposeGhostStageHost(
     }
 
     private fun SurfaceManager?.speakerSurface(id: String, sakura: Boolean): SpeakerSurface {
-        if (id == "-1") return SpeakerSurface(null, SurfaceRenderPlan.Missing, false)
+        if (id == "-1") return SpeakerSurface(SurfaceRenderPlan.Missing, false)
         val key = SpeakerSurfaceKey(sakura, id)
         return speakerSurfaces.getOrPut(key) {
             val shell = if (sakura) this?.getSakuraSurface(id) else this?.getKeroSurface(id)
             val definition = shell?.toSurfaceDefinition()
             val plan = definition.toSurfaceRenderPlan()
             if (!plan.isRenderableSurface()) {
-                SpeakerSurface(definition, SurfaceRenderPlan.Missing, false)
+                SpeakerSurface(SurfaceRenderPlan.Missing, false)
             } else {
-                SpeakerSurface(definition, plan, true)
+                SpeakerSurface(plan, true)
             }
         }
     }

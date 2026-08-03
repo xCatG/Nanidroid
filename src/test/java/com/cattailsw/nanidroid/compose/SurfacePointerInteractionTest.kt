@@ -1,14 +1,16 @@
 package com.cattailsw.nanidroid.compose
 
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import com.cattailsw.nanidroid.SurfaceCollision
-import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
+import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
+import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 import com.cattailsw.nanidroid.surface.CollisionShape
-import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -39,7 +41,7 @@ class SurfacePointerInteractionTest {
     }
 
     @Test
-    fun `opaque and transparent noncollision pixels both retain legacy generic double click`() {
+    fun `opaque transparent and unavailable noncollision pixels retain legacy generic click`() {
         val opaque = map(image = image(0xff001122.toInt()), position = SurfacePointerPosition(0f, 0f)) as SurfacePointerResolution.Hit
         val transparent = map(image = image(0x00000000), position = SurfacePointerPosition(0f, 0f)) as SurfacePointerResolution.Hit
         val unavailable = map(image = null, position = SurfacePointerPosition(0f, 0f)) as SurfacePointerResolution.Hit
@@ -56,12 +58,11 @@ class SurfacePointerInteractionTest {
     }
 
     @Test
-    fun `transform uses stage origin scale and half open bounds`() {
-        val transform = SurfacePointerTransform(10f, 30f, 20f, 10f, 10, 5)
+    fun `shared transform uses stage origin exact scale and half open bounds`() {
+        val transform = SurfaceTransformPx(IntSize(10, 5), IntRect(10, 30, 30, 40), 2f, IntOffset.Zero)
         val resolution = SurfacePointerInteractionMapper.map(
             SurfaceSpeaker.KERO,
-            definition(),
-            image(0xff000000.toInt(), width = 10, height = 5),
+            surface(image(0xff000000.toInt(), width = 10, height = 5)),
             transform,
             SurfacePointerPosition(16.9f, 34.1f),
             PointerSource.TOUCH,
@@ -79,9 +80,16 @@ class SurfacePointerInteractionTest {
             ),
             resolution.effect,
         )
-        assertSame(SurfacePointerResolution.OutsideSurface, SurfacePointerInteractionMapper.map(
-            SurfaceSpeaker.KERO, definition(), null, transform, SurfacePointerPosition(30f, 35f), PointerSource.TOUCH,
-        ))
+        assertSame(
+            SurfacePointerResolution.OutsideSurface,
+            SurfacePointerInteractionMapper.map(
+                SurfaceSpeaker.KERO,
+                surface(null),
+                transform,
+                SurfacePointerPosition(30f, 35f),
+                PointerSource.TOUCH,
+            ),
+        )
     }
 
     @Test
@@ -103,9 +111,8 @@ class SurfacePointerInteractionTest {
             SurfacePointerResolution.UnsupportedPointerSource,
             SurfacePointerInteractionMapper.map(
                 SurfaceSpeaker.SAKURA,
-                definition(),
-                image(0xff000000.toInt()),
-                SurfacePointerTransform(0f, 0f, 2f, 2f, 2, 2),
+                surface(image(0xff000000.toInt())),
+                SurfaceTransformPx(IntSize(2, 2), IntRect(0, 0, 2, 2), 1f, IntOffset.Zero),
                 SurfacePointerPosition(0f, 0f),
                 null,
             ),
@@ -118,17 +125,27 @@ class SurfacePointerInteractionTest {
         position: SurfacePointerPosition,
     ) = SurfacePointerInteractionMapper.map(
         SurfaceSpeaker.SAKURA,
-        definition(collisions),
-        image,
-        SurfacePointerTransform(0f, 0f, 2f, 2f, 2, 2),
+        surface(image, collisions),
+        SurfaceTransformPx(IntSize(2, 2), IntRect(0, 0, 2, 2), 1f, IntOffset.Zero),
         position,
         PointerSource.TOUCH,
     )
 
-    private fun definition(collisions: List<SurfaceCollision> = emptyList()) = SurfaceDefinition(
-        id = 0, type = 0, imagePath = null, fallbackImagePath = null,
-        width = 2, height = 2, collisions = collisions, animations = emptyList(), elements = emptyList(),
-    )
+    private fun surface(
+        image: SurfacePixelImage?,
+        collisions: List<SurfaceCollision> = emptyList(),
+    ): ComposedSurface {
+        val canvas = image?.let { IntSize(it.width, it.height) } ?: IntSize(2, 2)
+        return ComposedSurface(
+            image = image ?: SurfacePixelImage.Empty,
+            canvasSize = canvas,
+            visiblePixelBounds = image?.let { IntRect(0, 0, it.width, it.height) },
+            effectiveCollisions = collisions,
+            surfaceKey = SurfaceKey(0, canvas),
+            revision = 0,
+            explicitlyHidden = false,
+        )
+    }
 
     private fun collision(id: Int, x: Int, y: Int) = SurfaceCollision(
         id = id,
@@ -136,6 +153,7 @@ class SurfacePointerInteractionTest {
         shape = CollisionShape.Rectangle(IntRect(x, y, x + 1, y + 1)),
         authoredOrder = 0,
     )
+
     private fun image(color: Int, width: Int = 2, height: Int = 2) =
         SurfacePixelImage.of(width, height, IntArray(width * height) { color })
 }

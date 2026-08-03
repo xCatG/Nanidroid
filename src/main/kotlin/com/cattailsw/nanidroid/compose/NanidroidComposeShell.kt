@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -68,30 +70,36 @@ internal fun NanidroidComposeShell(
             },
             color = Color.Transparent,
         ) {
-            Column(modifier = Modifier.statusBarsPadding()) {
+            // The stage owns one stable full-window viewport and receives
+            // safe-drawing bounds from its provider. Chrome alone applies the
+            // physical inset padding while policy reserves the app-bar band;
+            // toolbar/debug visibility therefore cannot reclassify the stage.
+            Box(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize().testTag("ghost-stage").clickable(onClick = onStageClick)) {
+                    ghostStage()
+                }
                 if (toolbarVisible) {
-                    NanidroidToolbar(
-                        onListGhost = onListGhost,
-                        onUpdate = onUpdate,
-                        onPreferences = onPreferences,
-                        onHelp = onHelp,
-                        onArchiveQueue = onArchiveQueue,
-                    )
-                    if (showDebugControls) {
-                        DebugToolbar(onNextSurface, onAnimate, onNextGhost, onRun, onNarTest)
+                    Column(modifier = Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
+                        NanidroidToolbar(
+                            onListGhost = onListGhost,
+                            onUpdate = onUpdate,
+                            onPreferences = onPreferences,
+                            onHelp = onHelp,
+                            onArchiveQueue = onArchiveQueue,
+                        )
+                        if (showDebugControls) {
+                            DebugToolbar(onNextSurface, onAnimate, onNextGhost, onRun, onNarTest)
+                        }
                     }
                 }
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize().testTag("ghost-stage").clickable(onClick = onStageClick)) { ghostStage() }
-                    if (loading) {
-                        LoadingOverlay(progressMessage)
-                    }
-                    NanidroidSimpleDialogHost(
-                        dialog = simpleDialog,
-                        onDismiss = onDismissSimpleDialog,
-                        archiveDownloads = archiveDownloads,
-                    )
+                if (loading) {
+                    LoadingOverlay(progressMessage)
                 }
+                NanidroidSimpleDialogHost(
+                    dialog = simpleDialog,
+                    onDismiss = onDismissSimpleDialog,
+                    archiveDownloads = archiveDownloads,
+                )
             }
         }
     }

@@ -1,45 +1,20 @@
 package com.cattailsw.nanidroid.compose
 
 import com.cattailsw.nanidroid.NO_COLLISION
-import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceHitTarget
-import com.cattailsw.nanidroid.findSurfaceHit
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
-import kotlin.math.floor
+import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 
 /** Raw local coordinates accepted by a future Compose pointer modifier. */
 data class SurfacePointerPosition(val x: Float, val y: Float)
 
-/**
- * Maps a Compose-stage rectangle to intrinsic surface pixels. Bounds are
- * half-open, matching both Compose layout coordinates and Android Rect.
- */
-data class SurfacePointerTransform(
-    val left: Float,
-    val top: Float,
-    val renderedWidth: Float,
-    val renderedHeight: Float,
-    val sourceWidth: Int,
-    val sourceHeight: Int,
-) {
-    fun sourcePosition(position: SurfacePointerPosition): SurfaceSourcePosition? {
-        if (!position.x.isFinite() || !position.y.isFinite() ||
-            !left.isFinite() || !top.isFinite() ||
-            !renderedWidth.isFinite() || !renderedHeight.isFinite() ||
-            renderedWidth <= 0f || renderedHeight <= 0f || sourceWidth <= 0 || sourceHeight <= 0
-        ) return null
-        val localX = position.x - left
-        val localY = position.y - top
-        if (localX < 0f || localY < 0f || localX >= renderedWidth || localY >= renderedHeight) return null
-        val x = floor(localX * sourceWidth / renderedWidth).toInt()
-        val y = floor(localY * sourceHeight / renderedHeight).toInt()
-        return SurfaceSourcePosition(x, y).takeIf { it.x in 0 until sourceWidth && it.y in 0 until sourceHeight }
-    }
-}
-
-data class SurfaceSourcePosition(val x: Int, val y: Int)
+/** Adds a surface node's stage origin exactly once to its local pointer point. */
+fun SurfaceTransformPx.stagePositionFromLocal(local: androidx.compose.ui.geometry.Offset) = SurfacePointerPosition(
+    renderedBounds.left + local.x,
+    renderedBounds.top + local.y,
+)
 
 enum class SurfaceSpeaker(val legacyReference: String) {
     SAKURA("0"),
@@ -69,19 +44,30 @@ sealed interface SurfacePointerResolution {
 object SurfacePointerInteractionMapper {
     fun map(
         speaker: SurfaceSpeaker,
-        definition: SurfaceDefinition?,
-        image: SurfacePixelImage?,
-        transform: SurfacePointerTransform,
+        surface: ComposedSurface?,
+        transform: SurfaceTransformPx,
         position: SurfacePointerPosition,
         source: PointerSource?,
     ): SurfacePointerResolution {
         source ?: return SurfacePointerResolution.UnsupportedPointerSource
-        val intrinsic = transform.sourcePosition(position) ?: return SurfacePointerResolution.OutsideSurface
-        val target = findSurfaceHit(definition, intrinsic.x, intrinsic.y) { x, y ->
-            image?.takeIf { x in 0 until it.width && y in 0 until it.height }
-                ?.pixelAt(x, y)
+        val intrinsic = transform.toIntrinsic(androidx.compose.ui.geometry.Offset(position.x, position.y))
+            ?: return SurfacePointerResolution.OutsideSurface
+        val collisionHit = surface?.effectiveCollisions?.firstOrNull { collision ->
+            collision.shape.contains(intrinsic)
+        }
+        val target = collisionHit?.let { collision ->
+            SurfaceHitTarget.Collision(collision.id, collision.identifier)
+        } ?: when (
+            surface?.image?.takeIf {
+                intrinsic.x in 0 until it.width && intrinsic.y in 0 until it.height
+            }
+                ?.pixelAt(intrinsic.x, intrinsic.y)
                 ?.ushr(24)
                 ?.let { alpha -> alpha != 0 }
+        ) {
+            true -> SurfaceHitTarget.OpaquePixel
+            false -> SurfaceHitTarget.TransparentPixel
+            null -> SurfaceHitTarget.PixelUnavailable
         }
         val collision = target as? SurfaceHitTarget.Collision
         return SurfacePointerResolution.Hit(
