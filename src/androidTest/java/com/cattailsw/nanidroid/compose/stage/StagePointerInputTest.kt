@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.compose.stage
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -312,6 +313,58 @@ class StagePointerInputTest {
         composeRule.runOnIdle {
             assertEquals(listOf(PointerEventKind.DOUBLE_CLICK), effects.map { it.kind })
             assertEquals(IntOffset(21, 21), effects.single().intrinsic)
+        }
+    }
+
+    @Test
+    fun physicalPairUsesDownPointsForSlopWhenFirstReleaseMovesWithinGestureSlop() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        val configuration = ViewConfiguration.get(composeRule.activity)
+        val movement = minOf(
+            configuration.scaledTouchSlop / 2f,
+            configuration.scaledDoubleTapSlop / 4f,
+        ).coerceAtLeast(1f)
+        val firstDown = Offset(250f, 250f)
+        val firstUp = Offset(firstDown.x - movement, firstDown.y)
+        val secondDown = Offset(
+            firstDown.x + configuration.scaledDoubleTapSlop - movement / 2f,
+            firstDown.y,
+        )
+        setStage({ snapshot(surfaces = listOf(surface(IntRect(0, 0, 600, 600)))) }, effects, toggle = {})
+
+        composeRule.onNodeWithTag(TAG).performMouseInput {
+            moveTo(firstDown)
+            press()
+            moveTo(firstUp, delayMillis = 10)
+            release()
+            moveTo(secondDown, delayMillis = 100)
+            press()
+            release()
+        }
+        composeRule.mainClock.advanceTimeBy(600)
+
+        composeRule.runOnIdle {
+            assertEquals(listOf(PointerEventKind.DOUBLE_CLICK), effects.map { it.kind })
+        }
+    }
+
+    @Test
+    fun emptyStageReleaseOutsideRootWithinSlopDoesNotToggleChrome() {
+        var toggles = 0
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        setStage({ snapshot() }, effects, toggle = { toggles++ })
+        val stageBounds = composeRule.onNodeWithTag(TAG).fetchSemanticsNode().boundsInRoot
+
+        composeRule.onNodeWithTag(TAG).performTouchInput {
+            val y = stageBounds.height / 2f
+            down(Offset(stageBounds.width - 1f, y))
+            moveTo(Offset(stageBounds.width + 1f, y))
+            up()
+        }
+
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
         }
     }
 

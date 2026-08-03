@@ -182,7 +182,15 @@ class StageInputRouterTest {
         assertNotEquals(base.geometryToken, snapshot(ghostKey = "manager-a", bubbleGeneration = 8, surfaces = listOf(baseSurface)).geometryToken)
         assertNotEquals(
             base.geometryToken,
-            snapshot(surfaces = listOf(surface(SurfaceSpeaker.SAKURA, IntRect(1, 0, 21, 20)))),
+            snapshot(
+                ghostKey = "manager-a",
+                bubbleGeneration = 7,
+                surfaces = listOf(
+                    baseSurface.copy(
+                        transform = baseSurface.transform.copy(renderedBounds = IntRect(1, 0, 21, 20)),
+                    ),
+                ),
+            ).geometryToken,
         )
         assertNotEquals(
             base.geometryToken,
@@ -201,14 +209,18 @@ class StageInputRouterTest {
         assertNotEquals(
             base.geometryToken,
             snapshot(
+                ghostKey = "manager-a",
+                bubbleGeneration = 7,
                 surfaces = listOf(
-                    surface(
-                        SurfaceSpeaker.SAKURA,
-                        IntRect(0, 0, 20, 20),
-                        collision = SurfaceCollision(1, "Head", CollisionShape.Rectangle(IntRect(0, 0, 2, 2)), 0),
+                    baseSurface.copy(
+                        composedSurface = baseSurface.composedSurface.copy(
+                            effectiveCollisions = listOf(
+                                SurfaceCollision(1, "Head", CollisionShape.Rectangle(IntRect(0, 0, 2, 2)), 0),
+                            ),
+                        ),
                     ),
                 ),
-            ),
+            ).geometryToken,
         )
         assertNotEquals(
             snapshot(

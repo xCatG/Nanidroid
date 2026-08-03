@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntSize
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
@@ -163,6 +164,7 @@ internal fun StagePointerInput(
                             if (event.changes.count { it.pressed } > 1) break
                             val delta = change.position - down.position
                             if (delta.getDistance() > viewConfiguration.touchSlop || change.isConsumed) break
+                            if (!size.containsHalfOpen(change.position)) break
                             val currentResolution = StageInputRouter.resolve(
                                 currentSnapshot,
                                 change.position,
@@ -186,7 +188,7 @@ internal fun StagePointerInput(
                                         } else {
                                             sequencer.activate(
                                                 effect = effect,
-                                                stagePoint = change.position,
+                                                stagePoint = downPoint,
                                                 eventTimeMillis = change.uptimeMillis,
                                                 doubleClickTimeoutMillis = doubleClickTimeoutMillis,
                                                 doubleClickSlopPx = doubleClickSlopPx,
@@ -248,6 +250,9 @@ private fun sameScope(first: StageInputTarget, second: StageInputTarget): Boolea
             (second.hit as? com.cattailsw.nanidroid.SurfaceHitTarget.Collision)?.identifier
     else -> first == second
 }
+
+private fun IntSize.containsHalfOpen(point: Offset): Boolean =
+    point.x >= 0f && point.x < width && point.y >= 0f && point.y < height
 
 private const val PRIMARY_BUTTON = 0
 private const val SECONDARY_BUTTON = 1
