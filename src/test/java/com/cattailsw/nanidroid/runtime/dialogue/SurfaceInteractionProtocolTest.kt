@@ -36,6 +36,24 @@ class SurfaceInteractionProtocolTest {
             )
         }
     }
+
+    @Test
+    fun `deferred touch kinds are not dispatched`() {
+        listOf(
+            PointerEventKind.MOVE,
+            PointerEventKind.ENTER,
+            PointerEventKind.LEAVE,
+            PointerEventKind.WHEEL,
+            PointerEventKind.DRAG,
+        ).forEach { kind ->
+            assertNull(
+                SurfaceInteractionProtocol.eventFor(
+                    effect(PointerSource.TOUCH, kind = kind),
+                    PointerEventCapabilities(Support.SUPPORTED, Support.SUPPORTED),
+                ),
+            )
+        }
+    }
     @Test
     fun `explicitly unsupported physical pointer effects are not dispatched`() {
         val capabilities = PointerEventCapabilities(Support.UNSUPPORTED, Support.UNSUPPORTED)
@@ -171,16 +189,40 @@ class SurfaceInteractionProtocolTest {
             runner.dialogueStateSnapshot().contents,
         )
     }
+
+    @Test
+    fun `kero interaction clears queued dialogue before dispatch`() {
+        val ghost = object : Ghost("recording") {
+            override fun loadGhostInfo() = Unit
+            override fun getCreateCount(): Long = 1L
+            override fun incrementCreateCount() = Unit
+            override fun getSakuraName(): String = "Sakura"
+            override fun getKeroName(): String = "Kero"
+            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>) =
+                ShioriResponse("SHIORI/3.0 204 No Content")
+        }
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        runner.setNoWaitMode(true)
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
+
+        runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO))
+        runner.run()
+
+        assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
+    }
 }
 
 private fun effect(
     source: PointerSource,
     kind: PointerEventKind = PointerEventKind.CLICK,
+    speaker: SurfaceSpeaker = SurfaceSpeaker.SAKURA,
     collisionIdentifier: String? = "Face",
     diagnosticCollisionId: Int? = 42,
 ) = SurfaceInteractionEffect(
     kind = kind,
-    speaker = SurfaceSpeaker.SAKURA,
+    speaker = speaker,
     intrinsic = IntOffset(12, 34),
     button = 0,
     source = source,

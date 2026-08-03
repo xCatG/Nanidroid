@@ -29,7 +29,7 @@ object SurfaceInteractionProtocol {
     fun eventFor(effect: SurfaceInteractionEffect, capabilities: PointerEventCapabilities): String? {
         if (effect.button != 0) return null
         return when (effect.source) {
-            PointerSource.TOUCH -> touchEvent(capabilities)
+            PointerSource.TOUCH -> if (effect.kind == PointerEventKind.CLICK) touchEvent(capabilities) else null
             PointerSource.MOUSE, PointerSource.PEN, PointerSource.ERASER -> physicalEvent(effect.kind, capabilities)
         }
     }

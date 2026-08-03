@@ -17,15 +17,24 @@ object GhostEventCapabilityDiscovery {
     private const val HAS_EVENT = "Has_Event"
     private const val LOCAL_SUPPORTED_EVENTS_HEADER = "X-SSTP-PassThru-local"
     private const val HAS_EVENT_RESULT_HEADER = "X-SSTP-PassThru-Result"
-    private val supportedEventName = Regex("""[A-Za-z_][A-Za-z0-9_]*""")
+    private val supportedEventName = Regex("""[A-Za-z_][A-Za-z0-9_.-]*""")
 
     fun discover(request: (ShioriMethod, String, List<String>) -> ShioriResponse): PointerEventCapabilities {
-        fromSupportedEvents(request(ShioriMethod.GET, GET_SUPPORTED_EVENTS, emptyList()))?.let { return it }
+        runCatching {
+            request(ShioriMethod.GET, GET_SUPPORTED_EVENTS, emptyList())
+        }.getOrNull()?.let(::fromSupportedEvents)?.let { return it }
         return PointerEventCapabilities(
-            click = fromHasEvent(request(ShioriMethod.GET, HAS_EVENT, listOf("OnMouseClick"))),
-            doubleClick = fromHasEvent(request(ShioriMethod.GET, HAS_EVENT, listOf("OnMouseDoubleClick"))),
+            click = probeHasEvent(request, "OnMouseClick"),
+            doubleClick = probeHasEvent(request, "OnMouseDoubleClick"),
         )
     }
+
+    private fun probeHasEvent(
+        request: (ShioriMethod, String, List<String>) -> ShioriResponse,
+        eventId: String,
+    ): Support = runCatching {
+        fromHasEvent(request(ShioriMethod.GET, HAS_EVENT, listOf(eventId)))
+    }.getOrDefault(Support.UNKNOWN)
 
     /** Returns null when the resource is unavailable or malformed, so callers can use Has_Event. */
     fun fromSupportedEvents(response: ShioriResponse): PointerEventCapabilities? {

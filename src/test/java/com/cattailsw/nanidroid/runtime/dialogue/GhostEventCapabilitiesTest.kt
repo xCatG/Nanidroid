@@ -24,6 +24,16 @@ class GhostEventCapabilitiesTest {
     }
 
     @Test
+    fun `supported-events accepts heterogeneous resource identifiers while matching pointer events`() {
+        assertEquals(
+            PointerEventCapabilities(Support.SUPPORTED, Support.SUPPORTED),
+            GhostEventCapabilityDiscovery.fromSupportedEvents(
+                rawResponse("X-SSTP-PassThru-local: sakura.defaultx,OnMouseClick,OnMouseDoubleClick"),
+            ),
+        )
+    }
+
+    @Test
     fun `supported-events absent or malformed pass-through remains unknown`() {
         assertNull(GhostEventCapabilityDiscovery.fromSupportedEvents(response()))
         assertNull(
@@ -96,6 +106,44 @@ class GhostEventCapabilitiesTest {
             ),
             queries,
         )
+    }
+
+    @Test
+    fun `a failed click probe does not prevent double click discovery`() {
+        val probedEvents = mutableListOf<String>()
+        val capabilities = GhostEventCapabilityDiscovery.discover { _, eventId, references ->
+            when (eventId) {
+                "Get_Supported_Events" -> response()
+                "Has_Event" -> when (references.single().also(probedEvents::add)) {
+                    "OnMouseClick" -> throw IllegalStateException("click probe failed")
+                    "OnMouseDoubleClick" -> response("X-SSTP-PassThru-Result" to "1")
+                    else -> error("unexpected probe")
+                }
+                else -> error("unexpected event")
+            }
+        }
+
+        assertEquals(PointerEventCapabilities(Support.UNKNOWN, Support.SUPPORTED), capabilities)
+        assertEquals(listOf("OnMouseClick", "OnMouseDoubleClick"), probedEvents)
+    }
+
+    @Test
+    fun `a failed double click probe does not prevent click discovery`() {
+        val probedEvents = mutableListOf<String>()
+        val capabilities = GhostEventCapabilityDiscovery.discover { _, eventId, references ->
+            when (eventId) {
+                "Get_Supported_Events" -> response()
+                "Has_Event" -> when (references.single().also(probedEvents::add)) {
+                    "OnMouseClick" -> response("X-SSTP-PassThru-Result" to "1")
+                    "OnMouseDoubleClick" -> throw IllegalStateException("double click probe failed")
+                    else -> error("unexpected probe")
+                }
+                else -> error("unexpected event")
+            }
+        }
+
+        assertEquals(PointerEventCapabilities(Support.SUPPORTED, Support.UNKNOWN), capabilities)
+        assertEquals(listOf("OnMouseClick", "OnMouseDoubleClick"), probedEvents)
     }
 
     @Test
