@@ -4,6 +4,9 @@ import com.cattailsw.nanidroid.NO_COLLISION
 import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.findSurfaceHit
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
+import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import kotlin.math.floor
 
 /** Raw local coordinates accepted by a future Compose pointer modifier. */
@@ -43,17 +46,6 @@ enum class SurfaceSpeaker(val legacyReference: String) {
     KERO("1"),
 }
 
-/** Typed equivalent of the legacy UIEventCallback double-click callback. */
-sealed interface SurfaceInteractionEffect {
-    data class MouseDoubleClick(
-        val speaker: SurfaceSpeaker,
-        val x: Int,
-        val y: Int,
-        val collisionId: Int,
-        val buttonId: Int = 0,
-    ) : SurfaceInteractionEffect
-}
-
 /** Host boundary; the future runtime maps typed effects to SHIORI events. */
 fun interface SurfaceInteractionPort {
     fun dispatch(effect: SurfaceInteractionEffect)
@@ -61,10 +53,11 @@ fun interface SurfaceInteractionPort {
 
 sealed interface SurfacePointerResolution {
     data object OutsideSurface : SurfacePointerResolution
+    data object UnsupportedPointerSource : SurfacePointerResolution
 
     data class Hit(
         val target: SurfaceHitTarget,
-        val effect: SurfaceInteractionEffect.MouseDoubleClick,
+        val effect: SurfaceInteractionEffect,
     ) : SurfacePointerResolution
 }
 
@@ -80,18 +73,28 @@ object SurfacePointerInteractionMapper {
         image: SurfacePixelImage?,
         transform: SurfacePointerTransform,
         position: SurfacePointerPosition,
+        source: PointerSource?,
     ): SurfacePointerResolution {
-        val source = transform.sourcePosition(position) ?: return SurfacePointerResolution.OutsideSurface
-        val target = findSurfaceHit(definition, source.x, source.y) { x, y ->
+        source ?: return SurfacePointerResolution.UnsupportedPointerSource
+        val intrinsic = transform.sourcePosition(position) ?: return SurfacePointerResolution.OutsideSurface
+        val target = findSurfaceHit(definition, intrinsic.x, intrinsic.y) { x, y ->
             image?.takeIf { x in 0 until it.width && y in 0 until it.height }
                 ?.pixelAt(x, y)
                 ?.ushr(24)
                 ?.let { alpha -> alpha != 0 }
         }
-        val collisionId = (target as? SurfaceHitTarget.Collision)?.id ?: NO_COLLISION
+        val collision = target as? SurfaceHitTarget.Collision
         return SurfacePointerResolution.Hit(
             target,
-            SurfaceInteractionEffect.MouseDoubleClick(speaker, source.x, source.y, collisionId),
+            SurfaceInteractionEffect(
+                kind = PointerEventKind.CLICK,
+                speaker = speaker,
+                intrinsic = androidx.compose.ui.unit.IntOffset(intrinsic.x, intrinsic.y),
+                button = 0,
+                source = source,
+                collisionIdentifier = collision?.identifier,
+                diagnosticCollisionId = collision?.id ?: NO_COLLISION,
+            ),
         )
     }
 }

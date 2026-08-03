@@ -16,6 +16,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.IntSize
+import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import android.os.SystemClock
@@ -154,6 +155,7 @@ class ComposeGhostStageHost(
                                     sourceHeight = latestPlan.height,
                                 ),
                                 position = SurfacePointerPosition(position.x, position.y),
+                                source = PointerSource.TOUCH,
                             )
                             SurfacePointerInteractionDispatcher(interactionPort).dispatch(resolution)
                             // SakuraView/KeroView returned the touch to their

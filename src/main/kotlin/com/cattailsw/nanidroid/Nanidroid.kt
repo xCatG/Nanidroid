@@ -27,8 +27,8 @@ import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
 import com.cattailsw.nanidroid.compose.PlainTextDocument
-import com.cattailsw.nanidroid.compose.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.compose.SurfaceInteractionPort
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
@@ -88,11 +88,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var runner: SScriptRunner? = null
     private val composeStage = ComposeGhostStageHost(
         SurfaceInteractionPort { effect ->
-            if (effect is SurfaceInteractionEffect.MouseDoubleClick) {
-                runner?.dispatchComposeDoubleClick(
-                    effect.x, effect.y, effect.speaker.legacyReference == "0", effect.collisionId, effect.buttonId,
-                )
-            }
+            runner?.dispatchSurfaceInteraction(effect)
         },
     )
     private var gm: GhostMgr? = null

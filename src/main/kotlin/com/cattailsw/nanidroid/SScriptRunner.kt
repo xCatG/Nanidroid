@@ -13,6 +13,9 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
+import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.io.File
 import java.io.IOException
@@ -80,7 +83,14 @@ open class SScriptRunner internal constructor(
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     internal fun setDialogueClaimHookForTesting(hook: (() -> Unit)?) { dialogueClaimHookForTesting = hook }
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
-    fun dispatchComposeDoubleClick(x: Int, y: Int, sakura: Boolean, collisionId: Int, buttonId: Int) { if (!sakura) clearMsgQueue(); doMouseDblClick(x,y,sakura,collisionId,buttonId) }
+    fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean = withCurrentGhost { target ->
+        val eventId = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
+            ?: return@withCurrentGhost false
+        parseShioriResponseAndInsert(
+            target.requestRaw(ShioriMethod.GET, eventId, SurfaceInteractionProtocol.references(effect)),
+        )
+        true
+    } ?: false
     fun setGhost(newGhost: Ghost?) {
         if (!setGhostInternal(newGhost, null)) throw IllegalStateException("ghost assignment was rejected")
     }
@@ -188,8 +198,6 @@ open class SScriptRunner internal constructor(
     private fun doPerSecondEvent(hr:Int){doShioriEvent("OnSecondChange",arrayOf("$hr","0","0","1"))}; private fun doPerMinuteEvent(hr:Int){doShioriEvent("OnMinuteChange",arrayOf("$hr","0","0","1"))}
     private fun perClockEvent(){val secondsAll=((SystemClock.uptimeMillis()-startTime)/1000).toInt();var minute=secondsAll/60;val hour=minute/60;val seconds=secondsAll%60;minute%=60;if(seconds-lastSec>=1||seconds==0){doPerSecondEvent(hour);lastSec=seconds};if(minute-lastMin>=1||(lastMin==59&&minute==0)){doPerMinuteEvent(hour);lastMin=minute};if(hour-lastHour>=1){lastHour=hour}}
     private fun parseShioriResponseAndInsert(res:ShioriResponse?){if(res==null||res.getStatusCode()!=200)return;msg=res.getKey("Value");addMsgToQueue(arrayOf(msg!!));if(!isRunning)run()}
-    private fun doMouseClick(x:Int,y:Int,s:Boolean,c:Int,b:Int)=doShioriEvent("OnMouseClick",arrayOf("$x","$y","0",if(s)"0" else "1",if(c>-1)"$c" else "","$b","touch"))
-    private fun doMouseDblClick(x:Int,y:Int,s:Boolean,c:Int,b:Int)=doShioriEvent("OnMouseDoubleClick",arrayOf("$x","$y","0",if(s)"0" else "1",if(c>-1)"$c" else "","$b","touch"))
     private fun doMouseWheel(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseWheel",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
     private fun doMouseMove(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseMove",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
     fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){doShioriEvent("OnClose",null);exitPending=true};fun doGhostChanging(nextName:String,type:String,nextPath:String){changingPending=true;doShioriEvent("OnGhostChanging",arrayOf(nextName,type,null,nextPath))}
