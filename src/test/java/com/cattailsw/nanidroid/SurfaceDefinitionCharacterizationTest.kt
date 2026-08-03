@@ -158,6 +158,40 @@ class SurfaceDefinitionCharacterizationTest {
     }
 
     @Test
+    fun animationPatternIdsAreBoundedSortedAndNeverMaterializeSparsePadding() {
+        val entries = mutableListOf<String?>(
+            "0pattern5,-1,50,overlay,0,0",
+            "animation0.pattern2,overlay,-1,20",
+            "0pattern2,-1,21,overlay,0,0",
+            "animation0.pattern3,overlay,-1,30",
+            "1pattern4095,-1,10,overlay,0,0",
+            "2pattern4096,-1,10,overlay,0,0",
+            "3pattern-1,-1,10,overlay,0,0",
+            "animation4.pattern999999999999999999999999,overlay,-1,10",
+            "animation5.pattern100000,overlay,-1,10",
+            "animation6.pattern2147483647,overlay,-1,10",
+        )
+        repeat(100) { animation ->
+            entries += "animation${animation + 10}.pattern4095,overlay,-1,10"
+        }
+
+        val surface = ShellSurface("", null, 0, entries, probeBitmap = false)
+
+        Assert.assertEquals(listOf(20, 21, 30, 50), surface.animationTable!!["0"]!!.frames!!.map { it.time })
+        Assert.assertEquals(1, surface.getAnimationFrameCount(1))
+        Assert.assertEquals(0, surface.getAnimationFrameCount(2))
+        Assert.assertEquals(0, surface.getAnimationFrameCount(3))
+        Assert.assertEquals(0, surface.getAnimationFrameCount(4))
+        Assert.assertEquals(0, surface.getAnimationFrameCount(5))
+        Assert.assertEquals(0, surface.getAnimationFrameCount(6))
+        Assert.assertEquals(100, (10 until 110).sumOf(surface::getAnimationFrameCount))
+        Assert.assertEquals(
+            listOf(20, 21, 30, 50),
+            surface.toSurfaceDefinition().animations.single { it.id == "0" }.frames.map { it.durationMillis },
+        )
+    }
+
+    @Test
     @Throws(Exception::class)
     fun composeImageLayer_onlyAcceptsStaticBaseSurfaceStates() {
         val base: com.cattailsw.nanidroid.SurfaceDefinition =

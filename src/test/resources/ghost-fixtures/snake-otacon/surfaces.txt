@@ -1,0 +1,10 @@
+// Synthetic compatibility fixture based on selector forms documented by UKADOC; no ghost file copied.
+surface0,1-2,!2 // grouped Sakura forms
+// comment before brace
+{
+collision0,0,0,10,10,Head
+}
+surface.append1
+{
+collision1,1,1,5,5,Face
+}

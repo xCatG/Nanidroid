@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid
 import android.content.res.Resources
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
 
 /**
  * Kotlin domain catalog for the shell surfaces installed for one ghost.
@@ -17,11 +18,26 @@ class SurfaceManager(@Suppress("UNUSED_PARAMETER") ghostid: String) {
     var ghostId: String? = null
 
     private val surfaces = linkedMapOf<String, ShellSurface>()
+    private val parsedEntries = linkedMapOf<String, List<ParsedSurfaceEntry>>()
 
     fun addSurface(id: String, surface: ShellSurface): Int {
         surfaces[id] = surface
+        parsedEntries.remove(id)
         return surfaces.size
     }
+
+    fun addParsedSurface(
+        id: String,
+        surface: ShellSurface,
+        entries: List<ParsedSurfaceEntry>,
+    ): Int {
+        surfaces[id] = surface
+        parsedEntries[id] = entries.toList()
+        return surfaces.size
+    }
+
+    fun getParsedSurfaceEntries(id: String): List<ParsedSurfaceEntry> =
+        parsedEntries[id].orEmpty()
 
     fun containsSurface(id: String): Boolean = id in surfaces
 
