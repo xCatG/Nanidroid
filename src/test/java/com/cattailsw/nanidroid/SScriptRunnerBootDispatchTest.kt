@@ -11,6 +11,9 @@ import com.cattailsw.nanidroid.runtime.dialogue.Support
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import androidx.compose.ui.unit.IntOffset
 import java.util.Hashtable
@@ -169,6 +172,37 @@ class SScriptRunnerBootDispatchTest {
             ghost.rawRequests,
         )
         Assert.assertEquals(before, runner.dialogueStateSnapshot())
+    }
+
+    @Test
+    fun ordinaryPendingChoiceStillAcceptsAndPlaysAPointerResponse() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("surface", "Surface", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hpointer reply\\e")
+        }
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hchoice\\q[Choose,choice]\\e"))
+        runner.run()
+
+        Assert.assertTrue(
+            runner.dispatchSurfaceInteraction(
+                SurfaceInteractionEffect(
+                    PointerEventKind.CLICK,
+                    SurfaceSpeaker.SAKURA,
+                    IntOffset.Zero,
+                    0,
+                    PointerSource.TOUCH,
+                    null,
+                    null,
+                ),
+            ),
+        )
+
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("pointer reply")))),
+            runner.dialogueStateSnapshot().contents,
+        )
     }
 
     @Test

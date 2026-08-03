@@ -92,11 +92,11 @@ open class SScriptRunner internal constructor(
     fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean = withCurrentGhost { target ->
         val eventId = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
             ?: return@withCurrentGhost false
-        val canTalk = runtimeModeSnapshot().canTalk
-        if (canTalk && effect.speaker.legacyReference == "1") clearMsgQueue()
+        val passiveSequence = runtimeModeSnapshot().passive
+        if (!passiveSequence && effect.speaker.legacyReference == "1") clearMsgQueue()
         if (!isPinnedDialogueGhost(target)) return@withCurrentGhost false
         val response = target.requestRaw(ShioriMethod.GET, eventId, SurfaceInteractionProtocol.references(effect))
-        if (canTalk && runtimeModeSnapshot().canTalk && isPinnedDialogueGhost(target)) {
+        if (!passiveSequence && !runtimeModeSnapshot().passive && isPinnedDialogueGhost(target)) {
             parseShioriResponseAndInsert(response)
         }
         true
