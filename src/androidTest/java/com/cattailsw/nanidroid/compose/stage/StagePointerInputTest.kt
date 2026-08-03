@@ -480,7 +480,7 @@ class StagePointerInputTest {
     }
 
     @Test
-    fun overlappingActivationKeysDoNotPairMismatchedKeyUps() {
+    fun overlappingActivationKeysRemainInvalidWhenCenterReleasesBeforeEnterRepeat() {
         val effects = mutableListOf<SurfaceInteractionEffect>()
         var toggles = 0
         setStage({ snapshot() }, effects, toggle = { toggles++ })
@@ -491,7 +491,30 @@ class StagePointerInputTest {
             keyDown(Key.Enter)
             keyDown(Key.DirectionCenter)
             keyUp(Key.DirectionCenter)
+            advanceEventTime(600)
             keyUp(Key.Enter)
+        }
+
+        composeRule.runOnIdle {
+            assertEquals(0, toggles)
+            assertTrue(effects.isEmpty())
+        }
+    }
+
+    @Test
+    fun overlappingActivationKeysRemainInvalidWhenEnterReleasesBeforeCenterRepeat() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        var toggles = 0
+        setStage({ snapshot() }, effects, toggle = { toggles++ })
+        val stage = composeRule.onNodeWithTag(TAG)
+        stage.performSemanticsAction(SemanticsActions.RequestFocus)
+
+        stage.performKeyInput {
+            keyDown(Key.Enter)
+            keyDown(Key.DirectionCenter)
+            keyUp(Key.Enter)
+            advanceEventTime(600)
+            keyUp(Key.DirectionCenter)
         }
 
         composeRule.runOnIdle {

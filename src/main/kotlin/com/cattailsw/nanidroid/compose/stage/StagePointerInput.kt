@@ -288,35 +288,35 @@ private fun IntSize.containsHalfOpen(point: Offset): Boolean =
     point.x >= 0f && point.x < width && point.y >= 0f && point.y < height
 
 private class StageKeyActivationSequence {
-    private var heldKey: Key? = null
+    private val heldKeys = mutableSetOf<Key>()
     private var acceptedGeometryToken: Any? = null
 
     fun onKeyDown(key: Key, snapshot: StageInputSnapshot): Boolean {
         if (!key.isStageActivationKey()) return false
-        if (heldKey == key) {
+        if (!heldKeys.add(key)) {
             if (snapshot.blocking || acceptedGeometryToken != snapshot.geometryToken) {
                 acceptedGeometryToken = null
             }
             return acceptedGeometryToken != null
         }
-        if (heldKey != null) {
+        if (heldKeys.size > 1) {
             acceptedGeometryToken = null
             return false
         }
-        heldKey = key
         acceptedGeometryToken = snapshot.geometryToken.takeUnless { snapshot.blocking }
         return acceptedGeometryToken != null
     }
 
     fun onKeyUp(key: Key, snapshot: StageInputSnapshot): Boolean {
         if (!key.isStageActivationKey()) return false
-        if (heldKey != key) {
+        if (!heldKeys.remove(key)) {
             acceptedGeometryToken = null
             return false
         }
         val accepted =
-            !snapshot.blocking && acceptedGeometryToken == snapshot.geometryToken
-        heldKey = null
+            heldKeys.isEmpty() &&
+                !snapshot.blocking &&
+                acceptedGeometryToken == snapshot.geometryToken
         acceptedGeometryToken = null
         return accepted
     }
@@ -328,7 +328,7 @@ private class StageKeyActivationSequence {
     }
 
     fun cancel() {
-        heldKey = null
+        heldKeys.clear()
         acceptedGeometryToken = null
     }
 }
