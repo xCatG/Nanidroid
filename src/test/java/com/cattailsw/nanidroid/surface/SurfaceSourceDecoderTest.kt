@@ -152,6 +152,63 @@ class SurfaceSourceDecoderTest {
         assertTrue(result.files.any { it.name == "surfaces-valid.txt" })
     }
 
+    @Test
+    fun oversized_physical_line_is_omitted_without_hiding_a_later_file() {
+        val result = SurfaceSourceDecoder.decode(
+            listOf(
+                SurfaceSourceInput(
+                    "surfaces1.txt",
+                    ("//" + "x".repeat(65_536)).toByteArray(StandardCharsets.UTF_8),
+                ),
+                SurfaceSourceInput(
+                    "surfaces2.txt",
+                    "surface2\n{\n}\n".toByteArray(StandardCharsets.UTF_8),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("surfaces2.txt"), result.files.map { it.name })
+        assertEquals(listOf("surfaces1.txt"), result.diagnostics.map { it.file })
+    }
+
+    @Test
+    fun excessive_physical_line_count_is_omitted_without_hiding_a_later_file() {
+        val excessiveLines = buildString {
+            repeat(20_001) { append("//\n") }
+        }.toByteArray(StandardCharsets.UTF_8)
+        val result = SurfaceSourceDecoder.decode(
+            listOf(
+                SurfaceSourceInput("surfaces1.txt", excessiveLines),
+                SurfaceSourceInput(
+                    "surfaces2.txt",
+                    "surface2\n{\n}\n".toByteArray(StandardCharsets.UTF_8),
+                ),
+            ),
+        )
+
+        assertEquals(listOf("surfaces2.txt"), result.files.map { it.name })
+        assertEquals(listOf("surfaces1.txt"), result.diagnostics.map { it.file })
+    }
+
+    @Test
+    fun exact_physical_line_and_line_count_limits_are_accepted() {
+        val exactLine = ("//" + "x".repeat(65_534)).toByteArray(StandardCharsets.UTF_8)
+        val exactCount = buildString {
+            repeat(19_999) { append("//\n") }
+            append("//")
+        }.toByteArray(StandardCharsets.UTF_8)
+
+        val result = SurfaceSourceDecoder.decode(
+            listOf(
+                SurfaceSourceInput("surfaces1.txt", exactLine),
+                SurfaceSourceInput("surfaces2.txt", exactCount),
+            ),
+        )
+
+        assertEquals(listOf("surfaces1.txt", "surfaces2.txt"), result.files.map { it.name })
+        assertTrue(result.diagnostics.isEmpty())
+    }
+
     private companion object {
         val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
     }

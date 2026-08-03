@@ -7,7 +7,10 @@ import com.cattailsw.nanidroid.surface.SurfaceParser
 import com.cattailsw.nanidroid.surface.SurfaceSourceDecoder
 import com.cattailsw.nanidroid.surface.SurfaceSourceInput
 import com.cattailsw.nanidroid.util.AnalyticsUtils
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
+import java.io.IOException
 import java.util.Locale
 
 /** Reads every surface source through the typed parser and publishes one materialized catalog. */
@@ -55,35 +58,46 @@ class SurfaceReader {
             }
         }
 
-        val pngFiles = discoverPngFiles(rootDirectory)
         val pngIds = linkedSetOf<Int>()
         val pngById = linkedMapOf<Int, File>()
-        pngFiles.forEach { file ->
+        discoverPngFiles(rootDirectory).forEach { file ->
             val id = PNG_NAME.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull() ?: return@forEach
+            if (id !in pngById && pngById.size >= MAX_PNG_SURFACES) {
+                addDiagnostic(
+                    SurfaceParseDiagnostic(
+                        file.name,
+                        1,
+                        file.absolutePath,
+                        SurfaceDiagnosticReason.DECODE,
+                    ),
+                )
+                return@forEach
+            }
             pngIds += id
             pngById[id] = file
+        }
+        pngById.forEach { (id, file) ->
             catalog.addSurface(
                 id.toString(),
                 pngSurface(rootDirectory, file, id),
             )
         }
 
-        val sourceInputs = discoverSourceFiles(rootDirectory).mapNotNull { file ->
-            try {
-                SurfaceSourceInput(file.name, file.readBytes())
-            } catch (_: Exception) {
-                addDiagnostic(
-                    SurfaceParseDiagnostic(
-                        file.name,
-                        1,
-                        file.name,
-                        SurfaceDiagnosticReason.DECODE,
-                    ),
-                )
-                null
+        val decodeSession = SurfaceSourceDecoder.newSession()
+        discoverSourceFiles(rootDirectory).forEach { file ->
+            if (!decodeSession.begin(file.name)) return@forEach
+            if (file.length() > SurfaceSourceDecoder.MAX_SOURCE_BYTES) {
+                decodeSession.rejectOversizedUnopened(file.name)
+                return@forEach
+            }
+            val read = readBounded(file, decodeSession.maxReadBytes())
+            if (read.failed) {
+                decodeSession.rejectStarted(file.name, read.bytes.size)
+            } else {
+                decodeSession.decodeStarted(SurfaceSourceInput(file.name, read.bytes))
             }
         }
-        val decoded = SurfaceSourceDecoder.decode(sourceInputs)
+        val decoded = decodeSession.result()
         decoded.diagnostics.forEach(::addDiagnostic)
         val parsed = SurfaceParser().parse(decoded.files, SurfaceParseSeed(pngIds))
         parsed.diagnostics.forEach(::addDiagnostic)
@@ -110,7 +124,7 @@ class SurfaceReader {
     private fun discoverSourceFiles(root: File): List<File> =
         root.listFiles().orEmpty().filter { file ->
             file.isFile && SOURCE_NAME.matches(file.name)
-        }
+        }.sortedWith(compareBy<File> { it.name.lowercase(Locale.ROOT) }.thenBy { it.name })
 
     private fun discoverPngFiles(root: File): List<File> =
         root.listFiles().orEmpty().filter { file ->
@@ -119,6 +133,23 @@ class SurfaceReader {
 
     private fun addDiagnostic(diagnostic: SurfaceParseDiagnostic) {
         if (mutableDiagnostics.size < MAX_DIAGNOSTICS) mutableDiagnostics += diagnostic
+    }
+
+    private fun readBounded(file: File, limit: Int): BoundedRead {
+        val output = ByteArrayOutputStream(minOf(READ_BUFFER_SIZE, limit))
+        val buffer = ByteArray(READ_BUFFER_SIZE)
+        return try {
+            FileInputStream(file).use { input ->
+                while (output.size() < limit) {
+                    val count = input.read(buffer, 0, minOf(buffer.size, limit - output.size()))
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+            }
+            BoundedRead(output.toByteArray(), failed = false)
+        } catch (_: IOException) {
+            BoundedRead(output.toByteArray(), failed = true)
+        }
     }
 
     private fun pngSurface(root: File, file: File, id: Int): ShellSurface =
@@ -173,7 +204,11 @@ class SurfaceReader {
     private companion object {
         const val TAG = "SurfaceReader"
         const val MAX_DIAGNOSTICS = 256
+        const val MAX_PNG_SURFACES = 4_096
+        const val READ_BUFFER_SIZE = 8_192
         val SOURCE_NAME = Regex("^surfaces.*\\.txt$", RegexOption.IGNORE_CASE)
         val PNG_NAME = Regex("^surface(\\d+)\\.png$", RegexOption.IGNORE_CASE)
     }
+
+    private data class BoundedRead(val bytes: ByteArray, val failed: Boolean)
 }

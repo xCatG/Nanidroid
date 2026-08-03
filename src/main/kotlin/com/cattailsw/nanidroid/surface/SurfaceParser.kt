@@ -32,9 +32,12 @@ class SurfaceParser(
         val diagnostics = BoundedDiagnostics()
         val surfaces = linkedMapOf<Int, MutableList<ParsedSurfaceEntry>>()
         val existing = seed.pngSurfaceIds.toMutableSet()
+        val materialized = seed.pngSurfaceIds.toMutableSet()
+        val budget = ParseBudget(seed.pngSurfaceIds.size.toLong())
         var authoredOrder = 0L
 
         files.forEach { file ->
+            budget.beginFile()
             val directives = scanDirectives(file, diagnostics)
             var index = 0
             while (index < file.lines.size) {
@@ -53,8 +56,18 @@ class SurfaceParser(
                     continue
                 }
 
+                val blockCharge = budget.chargeBlock()
+                if (!blockCharge.accepted) {
+                    if (blockCharge.report) diagnostics.add(source.unsupported())
+                    index = skipBlock(file, index)
+                    continue
+                }
+
                 val compactBrace = cleaned.contains('{')
-                val selectorResult = selector.parse(source.copy(text = cleaned.substringBefore('{').trim()))
+                val selectorResult = selector.parse(
+                    source.copy(text = cleaned.substringBefore('{').trim()),
+                    budget,
+                )
                 diagnostics.addAll(selectorResult.diagnostics)
                 var bodyIndex = index + 1
                 if (compactBrace) {
@@ -87,7 +100,7 @@ class SurfaceParser(
                     bodyIndex++
                 }
 
-                val entries = mutableListOf<ParsedSurfaceEntry>()
+                val entrySources = mutableListOf<SourceLine>()
                 var closed = false
                 var cursor = bodyIndex
                 while (cursor < file.lines.size) {
@@ -110,11 +123,7 @@ class SurfaceParser(
                             ),
                         )
                         else -> {
-                            entries += ParsedSurfaceEntry(
-                                entrySource.copy(text = entry),
-                                directives,
-                                authoredOrder++,
-                            )
+                            entrySources += entrySource.copy(text = entry)
                         }
                     }
                     cursor++
@@ -133,11 +142,27 @@ class SurfaceParser(
                     continue
                 }
 
-                applyBlock(
-                    ParsedSurfaceBlock(selectorResult.selection, selectorResult.mode, entries),
-                    existing,
-                    surfaces,
-                )
+                val applicableIds = when (selectorResult.mode) {
+                    SurfaceBlockMode.DEFINE -> selectorResult.selection.included
+                    SurfaceBlockMode.APPEND_EXISTING ->
+                        selectorResult.selection.included.filterTo(linkedSetOf()) { it in existing }
+                }
+                val newTargets = applicableIds.count { it !in materialized }.toLong()
+                val associations = applicableIds.size.toLong() * entrySources.size.toLong()
+                val applyCharge = budget.chargeApplication(newTargets, associations)
+                if (!applyCharge.accepted) {
+                    if (applyCharge.report) diagnostics.add(source.unsupported())
+                    index = cursor
+                    continue
+                }
+                val entries = entrySources.map { entrySource ->
+                    ParsedSurfaceEntry(entrySource, directives, authoredOrder++)
+                }
+                if (selectorResult.mode == SurfaceBlockMode.DEFINE) existing += applicableIds
+                materialized += applicableIds
+                applicableIds.forEach { id ->
+                    surfaces.getOrPut(id) { mutableListOf() }.addAll(entries)
+                }
                 index = cursor
             }
         }
@@ -146,24 +171,6 @@ class SurfaceParser(
             surfaces.mapValues { (_, entries) -> entries.toList() },
             diagnostics.values,
         )
-    }
-
-    private fun applyBlock(
-        block: ParsedSurfaceBlock,
-        existing: MutableSet<Int>,
-        surfaces: MutableMap<Int, MutableList<ParsedSurfaceEntry>>,
-    ) {
-        block.selection.included.forEach { id ->
-            when (block.mode) {
-                SurfaceBlockMode.DEFINE -> {
-                    existing += id
-                    surfaces.getOrPut(id) { mutableListOf() }.addAll(block.entries)
-                }
-                SurfaceBlockMode.APPEND_EXISTING -> if (id in existing) {
-                    surfaces.getOrPut(id) { mutableListOf() }.addAll(block.entries)
-                }
-            }
-        }
     }
 
     private fun scanDirectives(
@@ -267,6 +274,9 @@ class SurfaceParser(
 
     private fun SurfaceSourceFile.source(index: Int) = SourceLine(name, index + 1, lines[index])
 
+    private fun SourceLine.unsupported() =
+        SurfaceParseDiagnostic(file, number, text, SurfaceDiagnosticReason.UNSUPPORTED)
+
     private fun cleanTopLevel(line: String): String = line.substringBefore("//").trim()
 
     private fun isDescript(line: String): Boolean =
@@ -288,7 +298,83 @@ class SurfaceParser(
         fun addAll(values: List<SurfaceParseDiagnostic>) = values.forEach(::add)
     }
 
+    private class ParseBudget(seedTargets: Long) : SurfaceSelectorWorkBudget {
+        private var fileBlocks = 0L
+        private var wholeBlocks = 0L
+        private var fileSelectorWork = 0L
+        private var wholeSelectorWork = 0L
+        private var fileTargets = 0L
+        private var wholeTargets = seedTargets
+        private var fileAssociations = 0L
+        private var wholeAssociations = 0L
+        private var blockReported = false
+        private var selectorReported = false
+        private var targetReported = false
+        private var associationReported = false
+
+        fun beginFile() {
+            fileBlocks = 0L
+            fileSelectorWork = 0L
+            fileTargets = 0L
+            fileAssociations = 0L
+        }
+
+        fun chargeBlock(): SurfaceBudgetCharge {
+            if (fileBlocks + 1L > MAX_BLOCKS_PER_FILE || wholeBlocks + 1L > MAX_BLOCKS_TOTAL) {
+                val report = !blockReported
+                blockReported = true
+                return SurfaceBudgetCharge(accepted = false, report = report)
+            }
+            fileBlocks++
+            wholeBlocks++
+            return SurfaceBudgetCharge(accepted = true)
+        }
+
+        override fun charge(amount: Long): SurfaceBudgetCharge {
+            if (amount < 0L ||
+                fileSelectorWork + amount > MAX_SELECTOR_WORK_PER_FILE ||
+                wholeSelectorWork + amount > MAX_SELECTOR_WORK_TOTAL
+            ) {
+                val report = !selectorReported
+                selectorReported = true
+                return SurfaceBudgetCharge(accepted = false, report = report)
+            }
+            fileSelectorWork += amount
+            wholeSelectorWork += amount
+            return SurfaceBudgetCharge(accepted = true)
+        }
+
+        fun chargeApplication(targets: Long, associations: Long): SurfaceBudgetCharge {
+            val targetRejected = targets < 0L ||
+                fileTargets + targets > MAX_TARGETS_PER_FILE ||
+                wholeTargets + targets > MAX_TARGETS_TOTAL
+            val associationRejected = associations < 0L ||
+                fileAssociations + associations > MAX_ASSOCIATIONS_PER_FILE ||
+                wholeAssociations + associations > MAX_ASSOCIATIONS_TOTAL
+            if (targetRejected || associationRejected) {
+                val report = (targetRejected && !targetReported) ||
+                    (associationRejected && !associationReported)
+                if (targetRejected) targetReported = true
+                if (associationRejected) associationReported = true
+                return SurfaceBudgetCharge(accepted = false, report = report)
+            }
+            fileTargets += targets
+            wholeTargets += targets
+            fileAssociations += associations
+            wholeAssociations += associations
+            return SurfaceBudgetCharge(accepted = true)
+        }
+    }
+
     private companion object {
         const val MAX_DIAGNOSTICS = 256
+        const val MAX_BLOCKS_PER_FILE = 2_048L
+        const val MAX_BLOCKS_TOTAL = 4_096L
+        const val MAX_SELECTOR_WORK_PER_FILE = 20_000L
+        const val MAX_SELECTOR_WORK_TOTAL = 50_000L
+        const val MAX_TARGETS_PER_FILE = 4_096L
+        const val MAX_TARGETS_TOTAL = 8_192L
+        const val MAX_ASSOCIATIONS_PER_FILE = 50_000L
+        const val MAX_ASSOCIATIONS_TOTAL = 100_000L
     }
 }

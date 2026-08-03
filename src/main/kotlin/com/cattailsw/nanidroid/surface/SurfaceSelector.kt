@@ -16,7 +16,12 @@ data class SurfaceSelectorResult(
 )
 
 class SurfaceSelector {
-    fun parse(source: SourceLine): SurfaceSelectorResult {
+    fun parse(source: SourceLine): SurfaceSelectorResult = parse(source, null)
+
+    internal fun parse(
+        source: SourceLine,
+        sharedBudget: SurfaceSelectorWorkBudget?,
+    ): SurfaceSelectorResult {
         val diagnostics = mutableListOf<SurfaceParseDiagnostic>()
         val declaration = source.text.substringBefore('{').substringBefore("//").trim()
         val lower = declaration.lowercase(Locale.ROOT)
@@ -38,12 +43,24 @@ class SurfaceSelector {
         val included = linkedSetOf<Int>()
         val excluded = linkedSetOf<Int>()
         var work = 0L
+        var localExhaustionReported = false
+        fun charge(amount: Long): SurfaceBudgetCharge {
+            if (amount < 0L || work + amount > MAX_SELECTOR_WORK) {
+                val report = !localExhaustionReported
+                localExhaustionReported = true
+                return SurfaceBudgetCharge(accepted = false, report = report)
+            }
+            val sharedCharge = sharedBudget?.charge(amount)
+            if (sharedCharge != null && !sharedCharge.accepted) return sharedCharge
+            work += amount
+            return SurfaceBudgetCharge(accepted = true)
+        }
         for (rawToken in body.splitToSequence(',')) {
-            if (work >= MAX_SELECTOR_WORK) {
-                diagnostics.addBounded(source.diagnostic(rawToken.trim()))
+            val tokenCharge = charge(1L)
+            if (!tokenCharge.accepted) {
+                if (tokenCharge.report) diagnostics.addBounded(source.diagnostic(rawToken.trim()))
                 break
             }
-            work++
             var token = rawToken.trim()
             val isExclusion = token.startsWith('!')
             if (isExclusion) token = token.substring(1).trim()
@@ -57,11 +74,13 @@ class SurfaceSelector {
             }
             val size = range.last.toLong() - range.first.toLong() + 1L
             val expansionWork = size - 1L
-            if (size <= 0L || work + expansionWork > MAX_SELECTOR_WORK) {
-                diagnostics.addBounded(source.diagnostic(rawToken.trim()))
+            val expansionCharge = charge(expansionWork)
+            if (size <= 0L || !expansionCharge.accepted) {
+                if (size <= 0L || expansionCharge.report) {
+                    diagnostics.addBounded(source.diagnostic(rawToken.trim()))
+                }
                 continue
             }
-            work += expansionWork
             range.forEach { id ->
                 if (isExclusion) {
                     excluded += id
@@ -100,3 +119,12 @@ class SurfaceSelector {
         val RANGE = Regex("^(\\d+)(?:-(\\d+))?$")
     }
 }
+
+internal fun interface SurfaceSelectorWorkBudget {
+    fun charge(amount: Long): SurfaceBudgetCharge
+}
+
+internal data class SurfaceBudgetCharge(
+    val accepted: Boolean,
+    val report: Boolean = false,
+)
