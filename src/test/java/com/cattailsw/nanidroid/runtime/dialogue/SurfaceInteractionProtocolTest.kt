@@ -212,6 +212,36 @@ class SurfaceInteractionProtocolTest {
 
         assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
     }
+
+    @Test
+    fun `rejected kero interaction preserves queued dialogue`() {
+        val requests = mutableListOf<String>()
+        val ghost = object : Ghost("recording") {
+            override fun loadGhostInfo() = Unit
+            override fun getCreateCount(): Long = 1L
+            override fun incrementCreateCount() = Unit
+            override fun getSakuraName(): String = "Sakura"
+            override fun getKeroName(): String = "Kero"
+            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.UNSUPPORTED, Support.UNSUPPORTED)
+            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
+                requests += eventId
+                return ShioriResponse("SHIORI/3.0 204 No Content")
+            }
+        }
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        runner.setNoWaitMode(true)
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
+
+        assertTrue(!runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)))
+        runner.run()
+
+        assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("queued talk")))),
+            runner.dialogueStateSnapshot().contents,
+        )
+        assertTrue(requests.isEmpty())
+    }
 }
 
 private fun effect(

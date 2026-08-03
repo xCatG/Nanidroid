@@ -84,9 +84,9 @@ open class SScriptRunner internal constructor(
     internal fun setDialogueClaimHookForTesting(hook: (() -> Unit)?) { dialogueClaimHookForTesting = hook }
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean = withCurrentGhost { target ->
-        if (effect.speaker.legacyReference == "1") clearMsgQueue()
         val eventId = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
             ?: return@withCurrentGhost false
+        if (effect.speaker.legacyReference == "1") clearMsgQueue()
         parseShioriResponseAndInsert(
             target.requestRaw(ShioriMethod.GET, eventId, SurfaceInteractionProtocol.references(effect)),
         )
