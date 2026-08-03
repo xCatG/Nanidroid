@@ -27,7 +27,11 @@ class GhostSwitchingCharacterizationTest {
 
     @Before
     fun setUp() {
-        runner = com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
+        runner = com.cattailsw.nanidroid.SScriptRunner(
+            null,
+            GhostSessionCoordinator(),
+            lifecycleDispatcher = SScriptLifecycleDispatcher { it() },
+        )
         runner.setPresentationRenderer(TraceRenderer(trace))
         resetRunnerWithPublicApi()
         trace.clear()
@@ -277,6 +281,30 @@ class GhostSwitchingCharacterizationTest {
             )
             runner.setGhost(null)
         }
+    }
+
+    @Test
+    fun mutationInvalidatesTheLiveSessionInTheSameCoordinatorCriticalSectionAsUnload() {
+        val coordinator = GhostSessionCoordinator()
+        val lifecycle = Trace()
+        val active = RecordingGhost(
+            "atomic-invalidation", null, null, 2, null, trace, lifecycle = lifecycle,
+        )
+        val reservation = coordinator.reserveLoadedGhostForTesting(active)
+        Assert.assertTrue(coordinator.attach(reservation, null) {})
+
+        coordinator.withMutation(
+            active.getGhostId(),
+            File(active.getGhostPath()),
+            onStopped = { Assert.fail("mutation must not stop") },
+            onFailure = { error -> throw AssertionError(error) },
+            onActiveSessionInvalidated = { lifecycle.add("invalidate") },
+        ) { lifecycle.add("commit") }
+
+        Assert.assertEquals(
+            Arrays.asList<String?>("invalidate", "unload", "commit", "reload"),
+            lifecycle.events(),
+        )
     }
 
     @Test

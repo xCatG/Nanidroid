@@ -367,6 +367,223 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun dialogBindingStaleInputCallbacksCannotConsumeRepeatedInputIds() {
+        val fixture = fixture(responses = listOf(noContent(), noContent()))
+        val binding = DialogueDialogBinding { fixture.runner }
+        val first = fixture.openPendingInput("same-id", timeoutMillis = 1_000L)
+        var editedValue: String? = null
+        val firstDialog = binding.userInput("same-id", first.generation) { editedValue = it }
+
+        firstDialog.onValueChanged("edited")
+        Assert.assertEquals("edited", editedValue)
+
+        fixture.runner.dismissInput(first.generation)
+        val current = fixture.openPendingInput("same-id", timeoutMillis = 1_000L)
+        val requestsBeforeStaleCallback = fixture.shiori.requests.toList()
+
+        firstDialog.onSubmit("same-id", "stale")
+        firstDialog.onCancel()
+
+        Assert.assertEquals(requestsBeforeStaleCallback, fixture.shiori.requests)
+        Assert.assertEquals(current, fixture.runner.dialogueStateSnapshot().pendingInput)
+    }
+
+    @Test
+    fun dialogBindingChoiceCallbacksKeepExactRowIdentityForDuplicatesDirectAndScript() {
+        val duplicate = fixture(responses = listOf(noContent()))
+        val duplicateBinding = DialogueDialogBinding { duplicate.runner }
+        val duplicateActions = duplicate.openChoices("\\q[First,same]\\q[Second,same]\\e")
+        val duplicateDialog = duplicateBinding.userChoice(
+            listOf("First", "Second"), listOf("same", "same"), duplicateActions,
+        )
+
+        duplicateDialog.onChoice(1)
+
+        Assert.assertEquals(
+            listOf(
+                request("OnChoiceSelectEx", "Second", "same"),
+                request("OnChoiceSelect", "same"),
+            ),
+            duplicate.shiori.requests,
+        )
+
+        val direct = fixture(responses = listOf(noContent()))
+        val directActions = direct.openChoices("\\q[Direct,OnDirect,\"\",tail]\\e")
+        DialogueDialogBinding { direct.runner }.userChoice(
+            listOf("Direct"), listOf("OnDirect"), directActions,
+        ).onChoice(0)
+        Assert.assertEquals(listOf(request("OnDirect", "", "tail")), direct.shiori.requests)
+
+        val script = fixture(responses = emptyList())
+        val scriptActions = script.openChoices("\\q[Script,\"script:\\hlocal\\e\"]\\e")
+        DialogueDialogBinding { script.runner }.userChoice(
+            listOf("Script"), listOf("script"), scriptActions,
+        ).onChoice(0)
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("local")))),
+            script.runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
+    fun restoredInputDialogRebindsSubmissionAndCancelToTheSameRunnerGeneration() {
+        val fixture = fixture(responses = listOf(noContent()))
+        val pending = fixture.openPendingInput("answer", timeoutMillis = 1_000L)
+        val binding = DialogueDialogBinding { fixture.runner }
+        val presented = binding.userInput("answer", pending.generation)
+        val restored = DialogueDialogBinding { fixture.runner }.restoreUserInput(
+            "answer",
+            requireNotNull(presented.restoration),
+            "typed",
+        )
+
+        restored.onSubmit("answer", "typed")
+
+        Assert.assertEquals(
+            listOf(request("OnUserInput", "answer", "typed", "", "", "tail")),
+            fixture.shiori.requests,
+        )
+        Assert.assertEquals(null, fixture.runner.dialogueStateSnapshot().pendingInput)
+
+        val cancel = fixture(responses = listOf(noContent()))
+        val cancelPending = cancel.openPendingInput("answer", timeoutMillis = 1_000L)
+        val cancelPresented = DialogueDialogBinding { cancel.runner }
+            .userInput("answer", cancelPending.generation)
+        DialogueDialogBinding { cancel.runner }.restoreUserInput(
+            "answer",
+            requireNotNull(cancelPresented.restoration),
+        ).onCancel()
+
+        Assert.assertEquals(
+            listOf(request("OnUserInputCancel", "answer", "close", "", "", "tail")),
+            cancel.shiori.requests,
+        )
+        Assert.assertEquals(null, cancel.runner.dialogueStateSnapshot().pendingInput)
+    }
+
+    @Test
+    fun restoredChoiceDialogRebindsToTheSameRunnersExactPendingActions() {
+        val fixture = fixture(responses = listOf(noContent()))
+        val actions = fixture.openChoices("\\q[First,same]\\q[Second,same]\\e")
+        val binding = DialogueDialogBinding { fixture.runner }
+        val presented = binding.userChoice(
+            listOf("First", "Second"),
+            listOf("same", "same"),
+            actions,
+        )
+        val restored = DialogueDialogBinding { fixture.runner }.restoreUserChoice(
+            listOf("First", "Second"),
+            listOf("same", "same"),
+            requireNotNull(presented.restoration),
+        )
+
+        restored.onChoice(1)
+
+        Assert.assertEquals(
+            listOf(request("OnChoiceSelectEx", "Second", "same"), request("OnChoiceSelect", "same")),
+            fixture.shiori.requests,
+        )
+        Assert.assertTrue(fixture.runner.dialogueStateSnapshot().pendingChoices.isEmpty())
+
+        val direct = fixture(responses = listOf(noContent()))
+        val directActions = direct.openChoices("\\q[Direct,OnDirect,\"\",tail]\\e")
+        val directPresented = DialogueDialogBinding { direct.runner }.userChoice(
+            listOf("Direct"),
+            listOf("OnDirect"),
+            directActions,
+        )
+        DialogueDialogBinding { direct.runner }.restoreUserChoice(
+            listOf("Direct"),
+            listOf("OnDirect"),
+            requireNotNull(directPresented.restoration),
+        ).onChoice(0)
+        Assert.assertEquals(listOf(request("OnDirect", "", "tail")), direct.shiori.requests)
+
+        val script = fixture(responses = emptyList())
+        val scriptActions = script.openChoices("\\q[Script,\"script:\\hlocal\\e\"]\\e")
+        val scriptPresented = DialogueDialogBinding { script.runner }.userChoice(
+            listOf("Script"),
+            listOf("script"),
+            scriptActions,
+        )
+        DialogueDialogBinding { script.runner }.restoreUserChoice(
+            listOf("Script"),
+            listOf("script"),
+            requireNotNull(scriptPresented.restoration),
+        ).onChoice(0)
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("local")))),
+            script.runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
+    fun restoredInputNeverBindsToAReplacementRunnerWhenGenerationAndIdRepeat() {
+        val original = fixture(responses = emptyList())
+        val originalPending = original.openPendingInput("same-id", timeoutMillis = 1_000L)
+        val presented = DialogueDialogBinding { original.runner }
+            .userInput("same-id", originalPending.generation)
+        val restoration = requireNotNull(presented.restoration)
+
+        val replacement = fixture(responses = emptyList())
+        val replacementPending = replacement.openPendingInput("same-id", timeoutMillis = 1_000L)
+        Assert.assertEquals(originalPending.generation, replacementPending.generation)
+        val restoredAgainstReplacement = DialogueDialogBinding { replacement.runner }
+            .restoreUserInput("same-id", restoration, "stale")
+
+        var lateRunner: SScriptRunner? = null
+        val restoredWithoutRunner = DialogueDialogBinding { lateRunner }
+            .restoreUserInput("same-id", restoration, "stale")
+        lateRunner = replacement.runner
+
+        restoredAgainstReplacement.onSubmit("same-id", "stale")
+        restoredAgainstReplacement.onCancel()
+        restoredWithoutRunner.onSubmit("same-id", "stale")
+        restoredWithoutRunner.onCancel()
+
+        Assert.assertEquals(replacementPending, replacement.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertTrue(replacement.shiori.requests.isEmpty())
+    }
+
+    @Test
+    fun restoredChoiceNeverBindsToAReplacementOrLaterRepeatedPrompt() {
+        val original = fixture(responses = listOf(noContent()))
+        val originalActions = original.openChoices("\\q[First,same]\\q[Second,same]\\e")
+        val presented = DialogueDialogBinding { original.runner }.userChoice(
+            listOf("First", "Second"),
+            listOf("same", "same"),
+            originalActions,
+        )
+        val restoration = requireNotNull(presented.restoration)
+
+        val replacement = fixture(responses = emptyList())
+        val replacementActions = replacement.openChoices("\\q[First,same]\\q[Second,same]\\e")
+        val restoredAgainstReplacement = DialogueDialogBinding { replacement.runner }.restoreUserChoice(
+            listOf("First", "Second"),
+            listOf("same", "same"),
+            restoration,
+        )
+        restoredAgainstReplacement.onChoice(1)
+        Assert.assertEquals(replacementActions, replacement.runner.dialogueStateSnapshot().pendingChoices)
+        Assert.assertTrue(replacement.shiori.requests.isEmpty())
+
+        original.runner.activateChoice(originalActions[0])
+        val restoredWithoutMatch = DialogueDialogBinding { original.runner }.restoreUserChoice(
+            listOf("First", "Second"),
+            listOf("same", "same"),
+            restoration,
+        )
+        val laterActions = original.openChoices("\\q[First,same]\\q[Second,same]\\e")
+        restoredWithoutMatch.onChoice(1)
+
+        Assert.assertEquals(laterActions, original.runner.dialogueStateSnapshot().pendingChoices)
+        Assert.assertEquals(
+            listOf(request("OnChoiceSelectEx", "First", "same"), request("OnChoiceSelect", "same")),
+            original.shiori.requests,
+        )
+    }
+
+    @Test
     fun transitionDuringPrimaryResponsePreventsFallbackAndStaleTalkEnqueue() {
         val fixture = fixture(responses = listOf(noContent()))
         val action = fixture.openChoice("Choice", "choice-id")

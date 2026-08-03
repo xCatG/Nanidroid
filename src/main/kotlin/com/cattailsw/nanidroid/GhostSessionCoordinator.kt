@@ -282,12 +282,15 @@ internal class GhostSessionCoordinator {
         }
     }
 
-    fun markActiveUnloaded(ghost: Ghost): Boolean {
+    fun markActiveUnloaded(ghost: Ghost): Boolean = markActiveUnloadedIf(ghost) { true }
+
+    fun markActiveUnloadedIf(ghost: Ghost, shouldUnload: () -> Boolean): Boolean {
         val root = rootOf(ghost)
         val state = state(root)
         synchronized(state.monitor) {
             synchronized(globalMonitor) {
                 globalPoison?.let { throw IllegalStateException("process SHIORI session is poisoned", it) }
+                if (!shouldUnload()) return false
                 if (state.active == null && globalOwner == null) return true
                 if (state.active !== ghost || globalOwner?.ghost !== ghost) {
                     throw IllegalStateException("runner ghost does not own the process SHIORI session")
@@ -331,6 +334,7 @@ internal class GhostSessionCoordinator {
         shouldStop: () -> Boolean = { false },
         onStopped: () -> T,
         onFailure: (Throwable) -> T,
+        onActiveSessionInvalidated: (Ghost) -> Unit = {},
         action: () -> T,
     ): T {
         val root = ghostRoot.canonicalFile
@@ -358,6 +362,15 @@ internal class GhostSessionCoordinator {
                 globalPoison?.let { return onFailure(it) }
                 val owner = globalOwner
                 val liveActive = active?.takeIf { owner?.ghost === it && owner.phase == Phase.ACTIVE }
+                val invalidationFailure = try {
+                    liveActive?.let(onActiveSessionInvalidated)
+                    null
+                } catch (error: Exception) {
+                    error
+                } catch (error: LinkageError) {
+                    error
+                }
+                if (invalidationFailure != null) return onFailure(invalidationFailure)
                 val unloadFailure = try {
                     liveActive?.unload()
                     null
