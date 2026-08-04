@@ -17,8 +17,17 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         ),
     )
 
+    private var isCorrupted = false
+
     override fun read(): List<DurableOperationRecord> = synchronized(operationLock) {
-        readRecords().values.sortedBy { it.id.value }
+        if (isCorrupted) return@synchronized emptyList()
+        try {
+            readRecords().values.sortedBy { it.id.value }
+        } catch (error: DurableOperationStoreCorruptionException) {
+            isCorrupted = true
+            runCatching { quarantineAndReset() }
+            emptyList()
+        }
     }
 
     override fun putIfAbsent(record: DurableOperationRecord): Boolean = synchronized(operationLock) {
@@ -45,22 +54,46 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
     internal interface Storage {
         fun read(): String?
         fun write(value: String)
+        fun readQuarantine(): String? = null
+        fun writeQuarantine(value: String)
+        fun writeQuarantineAndReset(value: String) {
+            writeQuarantine(value)
+            write(encode(emptyList()))
+        }
     }
 
     internal class MemoryStorage : Storage {
         private var value: String? = null
+        private var quarantinedValue: String? = null
 
         @Synchronized override fun read() = value
+
+        @Synchronized override fun readQuarantine() = quarantinedValue
 
         @Synchronized override fun write(value: String) {
             this.value = value
         }
+
+        @Synchronized override fun writeQuarantine(value: String) {
+            quarantinedValue = value
+        }
+
+        @Synchronized override fun writeQuarantineAndReset(value: String) {
+            quarantinedValue = value
+            write(encode(emptyList()))
+        }
     }
 
-    private fun readRecords(): MutableMap<OperationId, DurableOperationRecord> = decode(storage.read())
+    private fun readRecords(): MutableMap<OperationId, DurableOperationRecord> =
+        if (isCorrupted) {
+            linkedMapOf()
+        } else {
+            decode(storage.read())
+        }
 
     private fun writeRecords(records: Map<OperationId, DurableOperationRecord>) {
         storage.write(encode(records.values))
+        isCorrupted = false
     }
 
     private class SharedPreferencesStorage(private val preferences: SharedPreferences) : Storage {
@@ -71,11 +104,37 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 "could not persist durable operations"
             }
         }
+
+        override fun readQuarantine() = preferences.getString(QUARANTINE, null)
+
+        override fun writeQuarantine(value: String) {
+            check(preferences.edit().putString(QUARANTINE, value).commit()) {
+                "could not persist durable operation quarantine"
+            }
+        }
+
+        override fun writeQuarantineAndReset(value: String) {
+            check(preferences.edit()
+                .putString(QUARANTINE, value)
+                .putString(RECORDS, encode(emptyList()))
+                .commit()) {
+                "could not persist durable operation quarantine"
+            }
+        }
     }
+
+    private fun quarantineAndReset() {
+        val rawValue = storage.read()?.let(::boundedQuarantine) ?: return
+        storage.writeQuarantineAndReset(rawValue)
+    }
+
+    private fun boundedQuarantine(value: String): String = value.take(MAX_QUARANTINE_CHARS)
 
     private companion object {
         const val PREFERENCES = "durable_operations_v1"
         const val RECORDS = "records"
+        const val QUARANTINE = "records_corruption_quarantine"
+        const val MAX_QUARANTINE_CHARS = 16_384
         const val VERSION = "v2"
         const val LEGACY_VERSION = "v1"
         val operationLock = Any()
@@ -116,14 +175,14 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 )
             }
             return linkedMapOf<OperationId, DurableOperationRecord>().apply {
-                lines.drop(1).forEachIndexed { index, line ->
+                lines.drop(1).forEach { line ->
                     val record = when (version) {
                         VERSION -> decodeRecord(line)
                         LEGACY_VERSION -> decodeLegacyRecord(line)
-                        else -> null
-                    } ?: throw DurableOperationStoreCorruptionException(
-                        "malformed durable operation row ${index + 1}",
-                    )
+                        else -> throw DurableOperationStoreCorruptionException(
+                            "unsupported durable operation version: ${version ?: "missing"}",
+                        )
+                    }
                     if (record.id in this) {
                         throw DurableOperationStoreCorruptionException(
                             "duplicate durable operation id: ${record.id.value}",
@@ -134,79 +193,84 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
         }
 
-        fun decodeRecord(line: String): DurableOperationRecord? = try {
+        fun decodeRecord(line: String): DurableOperationRecord = try {
             val fields = line.split('\t')
-            if (fields.size != 11) return null
+            if (fields.size != 11) throw IllegalArgumentException()
+            val id = decoded(fields[0]) ?: throw IllegalArgumentException()
             val binding = when (fields[3]) {
-                "-" -> if (fields[4] == "-") null else return null
+                "-" -> if (fields[4] == "-") null else throw IllegalArgumentException()
                 "dm" -> ExternalJobBinding.DownloadManager(fields[4].toLong())
-                "wm" -> ExternalJobBinding.WorkManager(decoded(fields[4]) ?: return null)
-                else -> return null
+                "wm" -> decoded(fields[4])?.let(::decodeWorkManagerBinding)
+                    ?: throw IllegalArgumentException()
+                else -> throw IllegalArgumentException()
             }
-            val history = decodedHistory(fields[5]) ?: return null
+            val history = decodedHistory(fields[5]) ?: throw IllegalArgumentException()
             DurableOperationRecord(
-                id = OperationId(decoded(fields[0]) ?: return null),
+                id = OperationId(id),
                 attemptId = AttemptId(fields[1].toLong()),
                 kind = OperationKind.valueOf(fields[2]),
                 externalJob = binding,
                 progress = OperationProgress(
-                    phase = decoded(fields[6]) ?: return null,
+                    phase = decoded(fields[6]) ?: throw IllegalArgumentException(),
                     completed = fields[7].toLong(),
                 ),
                 status = OperationStatus.valueOf(fields[8]),
                 showStallPrompt = when (fields[9]) {
                     "0" -> false
                     "1" -> true
-                    else -> return null
+                    else -> throw IllegalArgumentException()
                 },
                 diagnostics = decodedDiagnostics(fields[10]),
                 externalJobHistory = history,
             )
         } catch (_: IllegalArgumentException) {
-            null
+            throw DurableOperationStoreCorruptionException("malformed durable operation row")
         }
 
-        fun decodeLegacyRecord(line: String): DurableOperationRecord? = try {
+        fun decodeLegacyRecord(line: String): DurableOperationRecord = try {
             val fields = line.split('\t')
-            if (fields.size != 10 && fields.size != 12) return null
+            if (fields.size != 10 && fields.size != 12) throw IllegalArgumentException()
+            val id = decoded(fields[0]) ?: throw IllegalArgumentException()
             val binding = when (fields[3]) {
-                "-" -> if (fields[4] == "-") null else return null
+                "-" -> if (fields[4] == "-") null else throw IllegalArgumentException()
                 "dm" -> ExternalJobBinding.DownloadManager(fields[4].toLong())
-                "wm" -> ExternalJobBinding.WorkManager(decoded(fields[4]) ?: return null)
-                else -> return null
+                "wm" -> decoded(fields[4])?.let(::decodeWorkManagerBinding)
+                    ?: throw IllegalArgumentException()
+                else -> throw IllegalArgumentException()
             }
             val hasPreviousBinding = fields.size == 12
             val previousBinding = if (hasPreviousBinding) {
                 when (fields[5]) {
-                    "-" -> if (fields[6] == "-") null else return null
+                    "-" -> if (fields[6] == "-") null else throw IllegalArgumentException()
                     "dm" -> ExternalJobBinding.DownloadManager(fields[6].toLong())
-                    "wm" -> ExternalJobBinding.WorkManager(decoded(fields[6]) ?: return null)
-                    else -> return null
+                    "wm" -> decoded(fields[6])?.let(::decodeWorkManagerBinding)
+                        ?: throw IllegalArgumentException()
+                    else -> throw IllegalArgumentException()
                 }
             } else {
                 null
             }
             val phaseIndex = if (hasPreviousBinding) 7 else 5
             DurableOperationRecord(
-                id = OperationId(decoded(fields[0]) ?: return null),
+                id = OperationId(id),
                 attemptId = AttemptId(fields[1].toLong()),
                 kind = OperationKind.valueOf(fields[2]),
                 externalJob = binding,
                 progress = OperationProgress(
-                    phase = decoded(fields[phaseIndex]) ?: return null,
+                    phase = decoded(fields[phaseIndex]) ?: throw IllegalArgumentException(),
                     completed = fields[phaseIndex + 1].toLong(),
                 ),
                 status = OperationStatus.valueOf(fields[phaseIndex + 2]),
                 showStallPrompt = when (fields[phaseIndex + 3]) {
                     "0" -> false
                     "1" -> true
-                    else -> return null
+                    else -> throw IllegalArgumentException()
                 },
                 diagnostics = decodedDiagnostics(fields[phaseIndex + 4]),
                 externalJobHistory = listOfNotNull(binding, previousBinding).toSet(),
             )
         } catch (_: IllegalArgumentException) {
-            null
+            throw DurableOperationStoreCorruptionException("malformed durable operation row")
         }
 
         fun encodedHistory(history: Set<ExternalJobBinding>): String {
@@ -230,9 +294,8 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                     item.startsWith("d:") -> ExternalJobBinding.DownloadManager(
                         item.substring(2).toLongOrNull() ?: return null,
                     )
-                    item.startsWith("w:") -> ExternalJobBinding.WorkManager(
-                        decoded(item.substring(2)) ?: return null,
-                    )
+                    item.startsWith("w:") -> decoded(item.substring(2))
+                        ?.let(::decodeWorkManagerBinding) ?: return null
                     else -> return null
                 }
                 if (!history.add(binding)) {
@@ -269,5 +332,8 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 null
             }
         }
+
+        fun decodeWorkManagerBinding(value: String): ExternalJobBinding.WorkManager =
+            ExternalJobBinding.WorkManager(value)
     }
 }

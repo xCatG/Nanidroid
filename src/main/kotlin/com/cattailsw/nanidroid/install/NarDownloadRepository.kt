@@ -14,6 +14,7 @@ import com.cattailsw.nanidroid.durable.OperationHandle
 import com.cattailsw.nanidroid.durable.OperationId
 import com.cattailsw.nanidroid.durable.OperationKind
 import com.cattailsw.nanidroid.durable.OperationStatus
+import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
 import com.cattailsw.nanidroid.durable.SharedPreferencesDurableOperationStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -1119,11 +1120,7 @@ class NarDownloadRepository internal constructor(
             val workScheduler = AndroidNarInstallWorkScheduler(context)
             val downloadGateway = AndroidNarDownloadGateway(context)
             val clock = MonotonicClock { android.os.SystemClock.elapsedRealtime() }
-            val supervisor = DurableOperationSupervisor(
-                SharedPreferencesDurableOperationStore(context),
-                clock,
-                AndroidNarOperationCancellation(context),
-            )
+            val supervisor = SharedDurableOperationSupervisor.get(context)
             return NarDownloadRepository(
                 store = NarDownloadStore(context),
                 downloads = downloadGateway,
@@ -1215,21 +1212,6 @@ private class AndroidNarDownloadGateway(context: Context) : NarDownloadGateway {
 
     private companion object {
         const val DOWNLOAD_DIRECTORY = "nar-downloads"
-    }
-}
-
-private class AndroidNarOperationCancellation(context: Context) : OperationCancellation {
-    private val appContext = context.applicationContext
-    private val downloadManager = appContext.getSystemService(DownloadManager::class.java)
-    private val workManager by lazy { androidx.work.WorkManager.getInstance(appContext) }
-
-    override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
-        when (binding) {
-            is ExternalJobBinding.DownloadManager -> downloadManager?.remove(binding.id)
-            is ExternalJobBinding.WorkManager -> runCatching {
-                workManager.cancelWorkById(UUID.fromString(binding.uuid))
-            }
-        }
     }
 }
 

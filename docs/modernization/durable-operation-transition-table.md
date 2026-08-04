@@ -20,7 +20,7 @@ again because cancellation is idempotent.
 | Report real progress | Exact handle is bound and `RUNNING`; phase changes or completed count increases | CAS new progress and hide the prompt | Unbound callbacks are rejected. Reset the in-memory 30-second window only after CAS succeeds. Repeated phase/count and regressing counts are not heartbeats. |
 | Observe 30-second stall | Exact handle remains `RUNNING` or `CANCEL_REQUESTED` | CAS prompt visible; cancellation stalls also retain a diagnostic | Never cancel or restart automatically. |
 | Keep waiting | Exact handle is active | CAS prompt hidden | Start a fresh observation window; do not touch the external job. |
-| Request stop | Exact handle is `RUNNING` | CAS `CANCEL_REQUESTED`, phase `Stopping...`, prompt hidden | Only after persistence, cancel the exact `(handle, binding)`. If binding is pending, its later persistence immediately triggers cancellation. Duplicate requests are no-ops. |
+| Request stop | Exact handle is `RUNNING` | CAS `CANCEL_REQUESTED`, phase `Stopping...`, prompt hidden | Only after persistence, cancel the exact `(handle, binding)`. If binding is pending, its later persistence immediately triggers cancellation. Failure to issue cancellation records a bounded sanitized diagnostic and keeps `CANCEL_REQUESTED`; duplicate requests are no-ops and successful retries clear that diagnostic. |
 | Confirm no external job | Exact handle is unbound `CANCEL_REQUESTED`; adapter confirms no job was created | CAS `CANCELLED`, prompt hidden | Do not invent a cancellation side effect. Reject bound, running, terminal, and stale attempts. |
 | Restore running work | Persisted state is `RUNNING` | No immediate write | Start a fresh observation window and keep observing the bound job. |
 | Restore stop request | Persisted state is `CANCEL_REQUESTED` | No immediate write | Immediately repeat cancellation for the exact bound job, or wait for the pending binding and cancel it then; start a fresh `Stopping...` observation window. |
@@ -36,3 +36,28 @@ The transition rules apply to every operation kind as follows:
 | `LOCAL_NAR` | `NarDownload.id`; bind the exact copy Work UUID | Cancel only that copy worker | Preserve or release the URI grant according to archive ownership; stale workers cannot replace a retry. |
 | `NAR_INSTALL` | `NarDownload.id`; bind the exact install Work UUID | Cancel only that staged install | Publication is transactional; terminal state precedes bounded staging/archive cleanup. |
 | `GHOST_UPDATE` | Stable ghost update ID; bind the exact Work UUID | Cancel only that updater | Recovery journal rolls publication forward/back before boot; terminal state precedes staging cleanup. |
+
+| Surface | Ownership | Transition rule |
+| --- | --- | --- |
+| Queue UI (`observeDownloads` cards, prompt text, Keep waiting / Stop buttons) | UI state is derived from `NarDownload` and durable records; actions call repository methods and are not source-of-truth | Queue surfaces are **A2-owned** and send exact-handle, idempotent stop/keep-waiting requests into the durable supervisor only; no adapter-specific binding is mutated directly by UI |
+| Remote download notification (`DownloadManager`) | `DownloadManager` owns the system notification while a `DownloadManager` row is active | `requestStop` cancels durable work and `downloads.remove(downloadManagerId)` is used by repository lifecycle paths when cancelling/retrying/deleting or terminal cleanup decides the transfer no longer owns the row |
+| Work notification / worker lifecycle (`WorkManager`) | WorkManager owns any worker-owned notification or progress channel | Only the durable external identity (Work UUID) is retained for cancellation; repository side effects are always driven from durable transition outcomes, and the platform notification channel is not a source of truth |
+
+## A2 notification transition/effect table
+
+The A2 stalled-attention notification is keyed to the **exact operation handle**:
+its tag is `OperationId::AttemptId`, its ID is one fixed attention-specific value,
+and each action uses an explicit immutable `PendingIntent` whose action and data URI
+encode that same handle. Extras alone never define action identity.
+
+| Trigger | Durable state | Published attention | System notification / action validity |
+| --- | --- | --- | --- |
+| `RUNNING` heartbeat | `RUNNING`, `showStallPrompt=false` | No stalled-operation prompt | Cancel any stale attention notification for this exact handle; publish no recovery actions. |
+| First stalled `RUNNING` | `RUNNING`, `showStallPrompt=true` | Show the in-app prompt in stable exact-handle order | Post/update this handle's attention notification with **Keep waiting**, operation-specific **Stop**, and diagnostics. |
+| **Keep waiting** | Active record changes `showStallPrompt=true -> false` | Hide this prompt and advance deterministically to the next stalled handle | Cancel this handle's attention notification and start a fresh 30-second window; do not touch the external job. |
+| **Stop** -> `CANCEL_REQUESTED` | Exact `RUNNING` handle changes to `CANCEL_REQUESTED`, phase `Stopping...` | Show `Stopping...` for the selected operation while the transition remains visible | Issue cancellation only for the exact binding. If an attention notification already exists, update it to omit **Stop**; a stop requested before any stall does not create attention by itself. |
+| Second stalled stopping | `CANCEL_REQUESTED`, `showStallPrompt=true` | Show `Stopping...` plus bounded diagnostics | Post/update this handle's notification with **Keep waiting** and diagnostics only; there is no second Stop or force-kill action. |
+| Terminal (`COMPLETED`/`FAILED`/`CANCELLED`) | Exact active record becomes terminal | Remove this handle from published attention and advance to the next stalled handle | Cancel only this handle's tag plus the fixed attention ID; all older actions become no-ops. |
+| Process restart reconciliation | Persisted active records load with a fresh observation window | Publish the deterministic active snapshot after reconciliation | Cancel surviving notifications that do not match currently attentive exact handles; reuse canonical tag/action identities for matches. |
+| Attempt rollover or missing record | A newer attempt replaces the old handle, or no durable record exists | Drop the old handle and advance without disturbing other prompts | Cancel only the old handle's tag plus fixed attention ID; never use `cancelAll`. |
+| Stale exact-handle action | URI handle is malformed, terminal, missing, or no longer the active attempt | No visible or durable change | Reject as a no-op. Reconciliation may cancel that exact leftover notification, but must not act on a newer attempt. |

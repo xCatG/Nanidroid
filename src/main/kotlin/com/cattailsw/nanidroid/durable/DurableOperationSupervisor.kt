@@ -355,10 +355,47 @@ class DurableOperationSupervisor(
 
     private fun issueCancellation(handle: OperationHandle, binding: ExternalJobBinding) {
         val request = BoundCancellation(handle, binding)
-        if (request in cancellationIssued) return
-        cancellation.cancel(handle, binding)
-        cancellationIssued.add(request)
+        if (!cancellationIssued.add(request)) return
+        try {
+            cancellation.cancel(handle, binding)
+            clearCancellationFailureDiagnostic(handle, binding)
+            lastProgressAt[handle] = clock.nowMillis()
+        } catch (error: Exception) {
+            storeCancellationFailure(handle, binding)
+            cancellationIssued.remove(request)
+        }
     }
+
+    private fun storeCancellationFailure(
+        handle: OperationHandle,
+        binding: ExternalJobBinding,
+    ) {
+        val current = activeRecord(handle) ?: return
+        if (current.status != OperationStatus.CANCEL_REQUESTED || current.externalJob != binding) return
+        val failure = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
+        if (current.diagnostics == failure) return
+        store.compareAndSet(
+            current,
+            current.copy(showStallPrompt = true, diagnostics = failure),
+        )
+    }
+
+    private fun clearCancellationFailureDiagnostic(handle: OperationHandle, binding: ExternalJobBinding) {
+        val current = activeRecord(handle) ?: return
+        if (
+            current.status != OperationStatus.CANCEL_REQUESTED ||
+            current.externalJob != binding ||
+            current.diagnostics == null ||
+            !isCancellationFailureDiagnostic(current.diagnostics)
+        ) return
+        store.compareAndSet(
+            current,
+            current.copy(showStallPrompt = false, diagnostics = null),
+        )
+    }
+
+    private fun isCancellationFailureDiagnostic(diagnostic: String): Boolean =
+        diagnostic.startsWith(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX)
 
     private fun OperationStatus.isActive() =
         this == OperationStatus.RUNNING || this == OperationStatus.CANCEL_REQUESTED
@@ -374,6 +411,7 @@ class DurableOperationSupervisor(
             (this == OperationKind.REMOTE_NAR || this == OperationKind.LOCAL_NAR)
 
     private companion object {
+        const val CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX = "Cancellation request failed"
         const val STALL_MILLIS = 30_000L
         const val STOPPING_PHASE = "Stopping..."
         const val STOPPING_DIAGNOSTIC = "Cancellation has not completed after 30 seconds."

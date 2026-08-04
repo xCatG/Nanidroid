@@ -11,7 +11,6 @@ import androidx.work.WorkInfo
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.cattailsw.nanidroid.SScriptRunner
-import com.cattailsw.nanidroid.di.MonotonicClock
 import com.cattailsw.nanidroid.util.NetworkUtil
 import java.io.File
 import java.io.IOException
@@ -979,21 +978,8 @@ class GhostUpdateWorker(
 
         private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
 
-        private fun supervisor(context: Context): DurableOperationSupervisor =
-            synchronized(supervisorLock) {
-                appSupervisor ?: DurableOperationSupervisor(
-                    SharedPreferencesDurableOperationStore(context.applicationContext),
-                    MonotonicClock { android.os.SystemClock.elapsedRealtime() },
-                ) { _, binding ->
-                    if (binding is ExternalJobBinding.WorkManager) {
-                        WorkManager.getInstance(context.applicationContext)
-                            .cancelWorkById(UUID.fromString(binding.uuid))
-                    }
-                }.also { appSupervisor = it }
-            }
-
         private val enqueueLock = Any()
-        private val supervisorLock = Any()
-        @Volatile private var appSupervisor: DurableOperationSupervisor? = null
+        private fun supervisor(context: Context): DurableOperationSupervisor =
+            SharedDurableOperationSupervisor.get(context)
     }
 }
