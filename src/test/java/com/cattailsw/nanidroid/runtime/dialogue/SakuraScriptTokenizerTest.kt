@@ -27,6 +27,7 @@ class SakuraScriptTokenizerTest {
                 DialogueContent(
                     GhostSpeaker.KERO,
                     listOf(
+                        DialogueSegment.SpeakerChangeClear,
                         DialogueSegment.Text("Kero: "),
                         DialogueSegment.Choice(
                             DialogueAction.Normal("Second", "second-id", emptyList()),
@@ -180,10 +181,103 @@ class SakuraScriptTokenizerTest {
     fun speakerAliasesAtomicallySelectTheirMatchingScope() {
         assertEquals(
             listOf(
-                DialogueContent(GhostSpeaker.KERO, listOf(DialogueSegment.Text("KKK"))),
-                DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("SSvisible"))),
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("K"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("K"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("K"),
+                    ),
+                ),
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("SS"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("visible"),
+                    ),
+                ),
             ),
-            tokenize("\\uK\\p0S\\hS\\p1K\\p2drop\\hvisible\\0\\p1K\\1\\p0"),
+            tokenize("\\uK\\p0S\\hS\\p1K\\p2drop\\hvisible\\p1K\\1"),
+        )
+    }
+
+    @Test
+    fun speakerReentryClearsPreviousSegmentsFromReenteredSpeaker() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.Text("First"),
+                        DialogueSegment.Anchor(
+                            AnchorAction.Normal("old", "anchor-id", listOf()),
+                        ),
+                        DialogueSegment.Choice(
+                            DialogueAction.Normal("Old", "old-choice", emptyList()),
+                        ),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("Second"),
+                    ),
+                ),
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("Reply"),
+                    ),
+                ),
+            ),
+            tokenize("\\hFirst\\_a[anchor-id]old\\_a\\q[Old,old-choice]\\uReply\\hSecond\\e"),
+        )
+    }
+
+    @Test
+    fun repeatedSameSpeakerSelectionAccumulatesVisibleSegments() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.Text("First"),
+                        DialogueSegment.Choice(DialogueAction.Normal("Keep", "keep", emptyList())),
+                        DialogueSegment.Text("Again"),
+                    ),
+                ),
+            ),
+            tokenize("\\hFirst\\q[Keep,keep]\\hAgain\\e"),
+        )
+    }
+
+    @Test
+    fun speakerAliasesMirrorPrimaryAndSecondarySelectionWithPerSpeakerProjection() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.Text("first"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("second"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("fourth"),
+                    ),
+                ),
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("reply"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("third"),
+                    ),
+                ),
+            ),
+            tokenize("\\0first\\1reply\\p0second\\p1third\\p0fourth\\e"),
         )
     }
 

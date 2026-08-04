@@ -29,6 +29,11 @@ object SakuraScriptTokenizer {
         var index = 0
 
         fun activeSegments(): MutableList<DialogueSegment> = segments.getOrPut(speaker) { mutableListOf() }
+        fun selectSpeaker(newSpeaker: GhostSpeaker) {
+            if (speaker == newSpeaker) return
+            speaker = newSpeaker
+            activeSegments() += DialogueSegment.SpeakerChangeClear
+        }
         fun emit(segment: DialogueSegment) {
             if (scope < 2) activeSegments() += segment
         }
@@ -57,12 +62,12 @@ object SakuraScriptTokenizer {
             when (val command = script[index++]) {
                 '\\' -> text("\\")
                 'h', '0' -> {
-                    speaker = GhostSpeaker.SAKURA
                     scope = 0
+                    selectSpeaker(GhostSpeaker.SAKURA)
                 }
                 'u', '1' -> {
-                    speaker = GhostSpeaker.KERO
                     scope = 1
+                    selectSpeaker(GhostSpeaker.KERO)
                 }
                 'p' -> {
                     val scopeResult = parseScope(script, index)
@@ -70,8 +75,8 @@ object SakuraScriptTokenizer {
                         scope = scopeResult.first
                         index = scopeResult.second
                         when (scope) {
-                            0 -> speaker = GhostSpeaker.SAKURA
-                            1 -> speaker = GhostSpeaker.KERO
+                            0 -> selectSpeaker(GhostSpeaker.SAKURA)
+                            1 -> selectSpeaker(GhostSpeaker.KERO)
                         }
                         if (scope >= 2 && !scopeDiagnosticEmitted) {
                             diagnostic("unsupported-scope:$scope")

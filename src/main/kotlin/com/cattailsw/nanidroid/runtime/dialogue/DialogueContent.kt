@@ -54,6 +54,8 @@ sealed interface DialogueSegment {
     data object NewLine : DialogueSegment
     data class Wait(val millis: Long) : DialogueSegment
     data object Clear : DialogueSegment
+    /** Clears a re-entered speaker visually without erasing authored control inventory. */
+    data object SpeakerChangeClear : DialogueSegment
     data class Choice(val action: DialogueAction) : DialogueSegment
     data class Anchor(val action: AnchorAction) : DialogueSegment
     data class ExternalUrl(val label: String, val uri: String) : DialogueSegment

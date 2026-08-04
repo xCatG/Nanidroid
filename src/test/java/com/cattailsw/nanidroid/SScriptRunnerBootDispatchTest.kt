@@ -241,6 +241,41 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
+    fun speakerChangeBeforePassiveOnlyCommandPreservesExistingDialogueAndChoices() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        runner.setGhost(RawRecordingGhost("passive-clear", "Passive clear", 2, mutableListOf()))
+        runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\e"))
+        runner.run()
+        val before = runner.dialogueStateSnapshot()
+
+        runner.addMsgToQueue(arrayOf("\\u\\![enter,passivemode]\\e"))
+        runner.run()
+
+        val after = runner.dialogueStateSnapshot()
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+        Assert.assertEquals(before.contents, after.contents)
+        Assert.assertEquals(before.pendingChoices, after.pendingChoices)
+    }
+
+    @Test
+    fun authoredClearBeforePassiveCommandRetiresExistingDialogueAndChoices() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        runner.setGhost(RawRecordingGhost("passive-authored-clear", "Passive authored clear", 2, mutableListOf()))
+        runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\e"))
+        runner.run()
+
+        runner.addMsgToQueue(arrayOf("\\c\\![enter,passivemode]\\e"))
+        runner.run()
+
+        val after = runner.dialogueStateSnapshot()
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+        Assert.assertTrue(after.contents.flatMap { it.segments }.none { it is DialogueSegment.Text })
+        Assert.assertTrue(after.pendingChoices.isEmpty())
+    }
+
+    @Test
     fun updateReloadInvalidatesPassiveDialogueAndStaleActionsFromTheOldSession() {
         val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
         runner.setNoWaitMode(true)

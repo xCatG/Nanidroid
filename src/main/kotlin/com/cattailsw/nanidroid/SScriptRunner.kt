@@ -1090,7 +1090,12 @@ open class SScriptRunner internal constructor(
             .toList()
         val passiveOnly = contents.asSequence()
             .flatMap { it.segments.asSequence() }
-            .let { segments -> segments.any { it is DialogueSegment.PassiveMode } && segments.all { it is DialogueSegment.PassiveMode } }
+            .let { segments ->
+                segments.any { it is DialogueSegment.PassiveMode } &&
+                    segments.all {
+                        it is DialogueSegment.PassiveMode || it is DialogueSegment.SpeakerChangeClear
+                    }
+            }
         var authored: AuthoredDialogueScript? = null
         val published = synchronized(this) {
             if (passiveOnly) {
@@ -1161,7 +1166,11 @@ open class SScriptRunner internal constructor(
             .filter { it.speaker == speaker }
             .flatMap { it.segments.asSequence() }
             .fold(mutableListOf<DialogueSegment>()) { visible, segment ->
-                if (segment is DialogueSegment.Clear) visible.clear() else visible += segment
+                if (segment is DialogueSegment.Clear || segment is DialogueSegment.SpeakerChangeClear) {
+                    visible.clear()
+                } else {
+                    visible += segment
+                }
                 visible
             }
     }

@@ -37,7 +37,11 @@ class DialogueSpeakerOwnership private constructor(
                         .filter { it.speaker == speaker }
                         .flatMap { it.segments.asSequence() }
                         .fold(mutableListOf<DialogueSegment>()) { visible, segment ->
-                            if (segment is DialogueSegment.Clear) visible.clear() else visible += segment
+                            if (segment is DialogueSegment.Clear || segment is DialogueSegment.SpeakerChangeClear) {
+                                visible.clear()
+                            } else {
+                                visible += segment
+                            }
                             visible
                         },
                 )

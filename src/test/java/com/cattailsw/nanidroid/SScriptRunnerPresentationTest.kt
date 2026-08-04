@@ -7,6 +7,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
+import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert
@@ -117,6 +118,41 @@ class SScriptRunnerPresentationTest {
                 ),
             ),
             fixture.runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
+    fun speakerReentryProjectsLatestContentForPreviouslyActiveGhost() {
+        val fixture = fixture(responses = listOf(noContent()))
+
+        fixture.runner.addMsgToQueue(arrayOf("\\hFirst\\uReply\\hSecond\\e"))
+        fixture.runner.run()
+        val ownership = DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+        val sakura = ownership.content(GhostSpeaker.SAKURA).segments
+        val kero = ownership.content(GhostSpeaker.KERO).segments
+
+        Assert.assertEquals(listOf(DialogueSegment.Text("Second")), sakura)
+        Assert.assertEquals(listOf(DialogueSegment.Text("Reply")), kero)
+    }
+
+    @Test
+    fun inputBeforeLaterSpeakerReentryRemainsCanonicalWhenPlaybackPauses() {
+        val fixture = fixture(responses = emptyList())
+        fixture.runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) = Unit
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+
+        fixture.runner.addMsgToQueue(arrayOf("\\h\\![open,inputbox,answer]\\uReply\\hSecond\\e"))
+        fixture.runner.run()
+
+        val pending = requireNotNull(fixture.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertEquals(GhostSpeaker.SAKURA, pending.owner)
+        Assert.assertEquals("answer", (pending.spec.dispatch as InputDispatch.Normal).id)
+        Assert.assertSame(
+            pending,
+            DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+                .pendingInput(GhostSpeaker.SAKURA),
         )
     }
 
