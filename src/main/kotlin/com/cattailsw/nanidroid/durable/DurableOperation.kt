@@ -30,5 +30,5 @@ data class DurableOperationRecord(
 )
 
 fun interface OperationCancellation {
-    fun cancel(handle: OperationHandle, binding: ExternalJobBinding)
+    fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding)
 }

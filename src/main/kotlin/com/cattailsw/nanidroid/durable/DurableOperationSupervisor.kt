@@ -2,6 +2,8 @@ package com.cattailsw.nanidroid.durable
 
 import com.cattailsw.nanidroid.di.MonotonicClock
 
+internal const val CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX = "Cancellation request failed"
+
 class DurableOperationSupervisor(
     private val store: DurableOperationStore,
     private val clock: MonotonicClock,
@@ -23,7 +25,7 @@ class DurableOperationSupervisor(
                 )
             }
             if (restored.status == OperationStatus.CANCEL_REQUESTED && restored.externalJob != null) {
-                issueCancellation(handle, restored.externalJob)
+                issueCancellation(handle, restored.kind, restored.externalJob)
             }
         }
     }
@@ -144,7 +146,7 @@ class DurableOperationSupervisor(
                 return@synchronized false
             }
             if (current.status == OperationStatus.CANCEL_REQUESTED) {
-                issueCancellation(handle, binding)
+                issueCancellation(handle, current.kind, binding)
             }
             true
         }
@@ -161,7 +163,7 @@ class DurableOperationSupervisor(
     fun requestStop(handle: OperationHandle): Boolean = synchronized(operationLock) {
         val current = activeRecord(handle) ?: return@synchronized false
         if (current.status == OperationStatus.CANCEL_REQUESTED) {
-            current.externalJob?.let { issueCancellation(handle, it) }
+            current.externalJob?.let { issueCancellation(handle, current.kind, it) }
             return@synchronized true
         }
         val updated = current.copy(
@@ -173,7 +175,7 @@ class DurableOperationSupervisor(
             return@synchronized false
         }
         lastProgressAt[handle] = clock.nowMillis()
-        current.externalJob?.let { issueCancellation(handle, it) }
+        current.externalJob?.let { issueCancellation(handle, current.kind, it) }
         true
     }
 
@@ -330,7 +332,8 @@ class DurableOperationSupervisor(
             val observedAt = lastProgressAt.getOrPut(handle) { now }
             if (!record.showStallPrompt && now - observedAt >= STALL_MILLIS) {
                 val diagnostics = if (
-                    record.status == OperationStatus.CANCEL_REQUESTED && record.diagnostics == null
+                    record.status == OperationStatus.CANCEL_REQUESTED &&
+                        !record.isCancellationDispatchFailure()
                 ) {
                     STOPPING_DIAGNOSTIC
                 } else {
@@ -353,11 +356,15 @@ class DurableOperationSupervisor(
 
     private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
 
-    private fun issueCancellation(handle: OperationHandle, binding: ExternalJobBinding) {
+    private fun issueCancellation(
+        handle: OperationHandle,
+        kind: OperationKind,
+        binding: ExternalJobBinding,
+    ) {
         val request = BoundCancellation(handle, binding)
         if (!cancellationIssued.add(request)) return
         try {
-            cancellation.cancel(handle, binding)
+            cancellation.cancel(handle, kind, binding)
             clearCancellationFailureDiagnostic(handle, binding)
             lastProgressAt[handle] = clock.nowMillis()
         } catch (error: Exception) {
@@ -374,10 +381,13 @@ class DurableOperationSupervisor(
         if (current.status != OperationStatus.CANCEL_REQUESTED || current.externalJob != binding) return
         val failure = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
         if (current.diagnostics == failure) return
-        store.compareAndSet(
-            current,
-            current.copy(showStallPrompt = true, diagnostics = failure),
-        )
+        try {
+            store.compareAndSet(
+                current,
+                current.copy(showStallPrompt = false, diagnostics = failure),
+            )
+        } catch (_: Exception) {
+        }
     }
 
     private fun clearCancellationFailureDiagnostic(handle: OperationHandle, binding: ExternalJobBinding) {
@@ -386,16 +396,13 @@ class DurableOperationSupervisor(
             current.status != OperationStatus.CANCEL_REQUESTED ||
             current.externalJob != binding ||
             current.diagnostics == null ||
-            !isCancellationFailureDiagnostic(current.diagnostics)
+            !current.isCancellationDispatchFailure()
         ) return
         store.compareAndSet(
             current,
             current.copy(showStallPrompt = false, diagnostics = null),
         )
     }
-
-    private fun isCancellationFailureDiagnostic(diagnostic: String): Boolean =
-        diagnostic.startsWith(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX)
 
     private fun OperationStatus.isActive() =
         this == OperationStatus.RUNNING || this == OperationStatus.CANCEL_REQUESTED
@@ -411,7 +418,6 @@ class DurableOperationSupervisor(
             (this == OperationKind.REMOTE_NAR || this == OperationKind.LOCAL_NAR)
 
     private companion object {
-        const val CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX = "Cancellation request failed"
         const val STALL_MILLIS = 30_000L
         const val STOPPING_PHASE = "Stopping..."
         const val STOPPING_DIAGNOSTIC = "Cancellation has not completed after 30 seconds."
@@ -422,3 +428,7 @@ class DurableOperationSupervisor(
         val binding: ExternalJobBinding,
     )
 }
+
+internal fun DurableOperationRecord.isCancellationDispatchFailure(): Boolean =
+    status == OperationStatus.CANCEL_REQUESTED &&
+        diagnostics == CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX

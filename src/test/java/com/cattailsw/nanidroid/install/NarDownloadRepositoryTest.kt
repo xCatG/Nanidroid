@@ -2183,7 +2183,7 @@ class NarDownloadRepositoryTest {
         private val downloads: FakeDownloadGateway,
         private val work: FakeWorkScheduler,
     ) : OperationCancellation {
-        override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
             when (binding) {
                 is ExternalJobBinding.DownloadManager -> downloads.remove(binding.id)
                 is ExternalJobBinding.WorkManager -> work.cancelledBindings += binding.uuid

@@ -466,6 +466,14 @@ class GhostUpdateWorker(
             return "ghost-update-recovery-${canonicalDigest(identity).take(32)}"
         }
 
+        internal fun recoveryWorkName(operationId: OperationId): String {
+            if (!GHOST_UPDATE_OPERATION_ID.matches(operationId.value)) {
+                throw IllegalArgumentException("unsupported ghost update operation id")
+            }
+            val suffix = operationId.value.removePrefix(GHOST_UPDATE_OPERATION_ID_PREFIX)
+            return "$GHOST_UPDATE_OPERATION_ID_PREFIX${suffix.take(32)}"
+        }
+
         internal fun pendingAttemptRecoveryTargets(
             ghostStorageRoot: File,
             records: List<DurableOperationRecord>,
@@ -955,6 +963,8 @@ class GhostUpdateWorker(
         private fun canonicalDigest(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+        private val GHOST_UPDATE_OPERATION_ID_PREFIX = "ghost-update-"
+        private val GHOST_UPDATE_OPERATION_ID = Regex("^${GHOST_UPDATE_OPERATION_ID_PREFIX}[0-9a-f]{64}$")
 
         private fun request(
             id: UUID,

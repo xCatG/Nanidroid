@@ -144,6 +144,7 @@ class DurableOperationSupervisorTest {
 
         clock.value = 29_999
         assertTrue(stopSupervisor.requestStop(stopHandle))
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
         val stalled = store.read().single()
         val cleared = store.compareAndSet(
             stalled,
@@ -191,9 +192,15 @@ class DurableOperationSupervisorTest {
         assertTrue(stopSupervisor.requestStop(stopHandle))
         val record = store.read().single()
         assertEquals(OperationStatus.CANCEL_REQUESTED, record.status)
-        assertTrue(record.showStallPrompt)
+        assertFalse(record.showStallPrompt)
         assertNotNull(record.diagnostics)
         assertEquals("Cancellation request failed", record.diagnostics)
+
+        clock.value = 29_999
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 30_000
+        assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
     }
 
     @Test fun requestStopClearsFailureDiagnosticAfterSuccessfulPlatformRetry() {
@@ -205,7 +212,10 @@ class DurableOperationSupervisorTest {
 
         assertTrue(stopSupervisor.requestStop(stopHandle))
         assertEquals("Cancellation request failed", store.read().single().diagnostics)
-        assertTrue(store.read().single().showStallPrompt)
+        assertFalse(store.read().single().showStallPrompt)
+
+        clock.value = 29_999
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
 
         clock.value = 30_000
         assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
@@ -216,12 +226,131 @@ class DurableOperationSupervisorTest {
         assertNull(store.read().single().diagnostics)
         assertFalse(store.read().single().showStallPrompt)
         assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_001
+        assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
         assertEquals(
             listOf(
                 CancellationRequest(stopHandle, binding),
                 CancellationRequest(stopHandle, binding),
             ),
             failing.requests,
+        )
+    }
+
+    @Test fun failedCancellationRetryDoesNotCrashWhenDiagnosticPersistenceFails() {
+        val failingCancellation = ThrowingCancellation()
+        val throwingStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean {
+                return delegate.putIfAbsent(record)
+            }
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (
+                    expected.status == OperationStatus.CANCEL_REQUESTED &&
+                    updated.diagnostics == "Cancellation request failed"
+                ) {
+                    throw IllegalStateException("diagnostic persistence failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val restored = handle("update-5", 1)
+        val restoredBinding = workManager("worker-5")
+        assertTrue(
+            throwingStore.putIfAbsent(
+                DurableOperationRecord(
+                    id = restored.operationId,
+                    attemptId = restored.attemptId,
+                    kind = OperationKind.GHOST_UPDATE,
+                    externalJob = restoredBinding,
+                    progress = OperationProgress("Committing", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = false,
+                    diagnostics = null,
+                    externalJobHistory = setOf(restoredBinding),
+                ),
+            ),
+        )
+
+        DurableOperationSupervisor(throwingStore, clock, failingCancellation)
+
+        assertEquals(
+            listOf(
+                CancellationRequest(restored, restoredBinding),
+            ),
+            failingCancellation.requests,
+        )
+        assertEquals(OperationStatus.CANCEL_REQUESTED, throwingStore.read().single().status)
+    }
+
+    @Test fun successfulCancellationRetryCanBeRetriedWhenDiagnosticClearFails() {
+        val clearingFailureStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean {
+                return delegate.putIfAbsent(record)
+            }
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (
+                    expected.status == OperationStatus.CANCEL_REQUESTED &&
+                    expected.diagnostics == CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX &&
+                    updated.diagnostics == null
+                ) {
+                    throw IllegalStateException("clear failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val cancellation = RecordingCancellation()
+        val staleStopHandle = handle("update-6", 1)
+        val staleBinding = workManager("worker-6")
+        assertTrue(
+            clearingFailureStore.putIfAbsent(
+                DurableOperationRecord(
+                    id = staleStopHandle.operationId,
+                    attemptId = staleStopHandle.attemptId,
+                    kind = OperationKind.GHOST_UPDATE,
+                    externalJob = staleBinding,
+                    progress = OperationProgress("Committing", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = false,
+                    diagnostics = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
+                    externalJobHistory = setOf(staleBinding),
+                ),
+            ),
+        )
+
+        val stopSupervisor = DurableOperationSupervisor(clearingFailureStore, clock, cancellation)
+
+        assertEquals(
+            listOf(
+                CancellationRequest(staleStopHandle, staleBinding),
+            ),
+            cancellation.requests,
+        )
+
+        assertTrue(stopSupervisor.requestStop(staleStopHandle))
+        assertEquals(
+            listOf(
+                CancellationRequest(staleStopHandle, staleBinding),
+                CancellationRequest(staleStopHandle, staleBinding),
+            ),
+            cancellation.requests,
         )
     }
 
@@ -312,6 +441,32 @@ class DurableOperationSupervisorTest {
 
         assertEquals(listOf(CancellationRequest(handle, binding)), cancellation.requests)
         assertEquals(OperationStatus.CANCEL_REQUESTED, store.read().single().status)
+    }
+
+    @Test fun recreationCancelsMalformedWorkManagerBindingWithoutFailureDiagnostic() {
+        val handle = handle("install-1", 1)
+        val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
+        assertTrue(
+            store.putIfAbsent(
+                DurableOperationRecord(
+                    id = handle.operationId,
+                    attemptId = handle.attemptId,
+                    kind = OperationKind.NAR_INSTALL,
+                    externalJob = malformedBinding,
+                    progress = OperationProgress("Preparing", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = false,
+                    externalJobHistory = setOf(malformedBinding),
+                ),
+            ),
+        )
+
+        val first = DurableOperationSupervisor(store, clock, cancellation)
+        assertEquals(OperationKind.NAR_INSTALL, cancellation.lastKind)
+        assertNull(first.snapshot().single().diagnostics)
+
+        val second = DurableOperationSupervisor(store, clock, cancellation)
+        assertNull(second.snapshot().single().diagnostics)
     }
 
     @Test fun stoppingGetsASecondObservationWindowAndDiagnostics() {
@@ -1221,8 +1376,10 @@ class DurableOperationSupervisorTest {
     ) : OperationCancellation {
         var requests = mutableListOf<CancellationRequest>()
         var requestCount = 0
+        var lastKind: OperationKind? = null
 
-        override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
+            lastKind = kind
             requestCount++
             if (failing) throw IllegalStateException("platform cancellation failed")
             requests.add(CancellationRequest(handle, binding))
@@ -1233,7 +1390,7 @@ class DurableOperationSupervisorTest {
         var requestCount = 0
         val requests = mutableListOf<CancellationRequest>()
 
-        override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
             requestCount++
             requests.add(CancellationRequest(handle, binding))
             if (requestCount == 1) throw IllegalStateException("platform cancellation failed")
@@ -1245,7 +1402,7 @@ class DurableOperationSupervisorTest {
     ) : OperationCancellation {
         val requests = mutableListOf<CancellationRequest>()
 
-        override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
             requests.add(CancellationRequest(handle, binding))
             throw IllegalStateException(message)
         }

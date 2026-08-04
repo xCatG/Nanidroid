@@ -1,51 +1,158 @@
 package com.cattailsw.nanidroid.durable
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.util.UUID
 
 class SharedPreferencesDurableOperationStoreTest {
-    @Test fun emptyPresentValueCorruptionIsQuarantinedAndStoreResets() {
-        assertCorruptionIsRecovered("", "missing durable operation version")
+    @Test fun emptyPresentValueCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
+        assertCorruptionRequiresRecovery("", "missing durable operation version")
     }
 
-    @Test fun unknownVersionCorruptionIsQuarantinedAndStoreResets() {
-        assertCorruptionIsRecovered("v99", "unsupported durable operation version")
+    @Test fun unknownVersionCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
+        assertCorruptionRequiresRecovery("v99", "unsupported durable operation version")
     }
 
-    @Test fun malformedRowCorruptionIsQuarantinedAndStoreResets() {
-        assertCorruptionIsRecovered("v1\nnot-a-record", "malformed durable operation row")
+    @Test fun malformedRowCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
+        assertCorruptionRequiresRecovery("v1\nnot-a-record", "malformed durable operation row")
     }
 
-    @Test fun malformedTerminalRowCorruptionIsQuarantinedAndStoreResets() {
+    @Test fun malformedTerminalRowIsCapturedAndNotDropped() {
         val malformedTerminal = "wyg\t1\tGHOST_UPDATE\t-\t-\t-\tUXVldWVk\t0\tCANCELLED\t0\t-"
-        assertCorruptionIsRecovered("v1\n$malformedTerminal", "malformed durable operation row")
+        val fixture = assertCorruptionRequiresRecovery(
+            "v1\n$malformedTerminal",
+            "malformed durable operation row",
+        )
+        assertEquals("v1\n$malformedTerminal", fixture.storage.quarantine)
     }
 
-    @Test fun duplicateIdCorruptionIsQuarantinedAndStoreResets() {
+    @Test fun duplicateIdCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
         val first = "YQ\t1\tGHOST_UPDATE\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
         val second = "YQ\t2\tGHOST_UPDATE\twm\tMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIy\tUXVldWVk\t0\tRUNNING\t0\t-"
-        assertCorruptionIsRecovered("v1\n$first\n$second", "duplicate durable operation id")
+        assertCorruptionRequiresRecovery("v1\n$first\n$second", "duplicate durable operation id")
     }
 
-    @Test fun malformedUtf8CorruptionIsQuarantinedAndStoreResets() {
+    @Test fun malformedUtf8CorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
         val invalidUtf8Id = "wyg"
         val row = "$invalidUtf8Id\t1\tGHOST_UPDATE\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
-        assertCorruptionIsRecovered("v1\n$row", "malformed durable operation row")
+        assertCorruptionRequiresRecovery("v1\n$row", "malformed durable operation row")
     }
 
-    @Test fun malformedUtf8DiagnosticsCorruptionIsQuarantinedAndStoreResets() {
+    @Test fun malformedUtf8DiagnosticsCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
         val invalidUtf8Diagnostics = "wyg"
         val row = "YQ\t3\tGHOST_UPDATE\tdm\t101\tZDoxMDE\tUXVldWVk\t0\tRUNNING\t0\t$invalidUtf8Diagnostics"
-        assertCorruptionIsRecovered("v2\n$row", "malformed durable operation row")
+        assertCorruptionRequiresRecovery("v2\n$row", "malformed durable operation row")
     }
 
-    @Test fun truncatedRecordCorruptionIsQuarantinedAndStoreResets() {
-        assertCorruptionIsRecovered("v2\nYQ\t1", "malformed durable operation row")
+    @Test fun truncatedRecordCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
+        assertCorruptionRequiresRecovery("v2\nYQ\t1", "malformed durable operation row")
+    }
+
+    @Test fun duplicateBindingHistoryCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
+        val duplicateHistory = "ZDoxMDEsZDoxMDE"
+        val row = "YQ\t3\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$duplicateHistory\tUXVldWVk\t0\tRUNNING\t0\t-"
+        assertCorruptionRequiresRecovery("v2\n$row", "duplicate external job history")
+    }
+
+    @Test fun bindingHistoryTagsAreCaseSensitive() {
+        val uppercaseHistoryTag = "RDoxMDE"
+        val row = "YQ\t3\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$uppercaseHistoryTag\tUXVldWVk\t0\tRUNNING\t0\t-"
+        assertCorruptionRequiresRecovery("v2\n$row", "malformed durable operation row")
+    }
+
+    @Test fun malformedPayloadIsStoredInBoundedQuarantineSlot() {
+        val raw = "v2\n${"x".repeat(40_000)}"
+        val fixture = assertCorruptionRequiresRecovery(raw, "malformed durable operation row")
+        assertEquals(16_384, fixture.storage.quarantine!!.length)
+        assertEquals(raw.take(16_384), fixture.storage.quarantine)
+        assertEquals("v2", fixture.storage.value)
+    }
+
+    @Test fun atomicRecoveryCanBeResolvedAndWritesReenabled() {
+        val fixture = assertCorruptionRequiresRecovery("v1\nwyg\n", "malformed durable operation row")
+
+        assertTrue(fixture.store.resolveRecovery())
+        assertFalse(fixture.store.isRecoveryRequired())
+        assertEquals("v2", fixture.storage.value)
+        assertNull(fixture.storage.quarantine)
+
+        val restored = record("new", 1)
+        assertTrue(fixture.store.putIfAbsent(restored))
+        assertTrue(fixture.store.compareAndSet(restored, restored.copy(status = OperationStatus.COMPLETED)))
+    }
+
+    @Test fun atomicFailureLeavesPrimaryExactAndKeepsWritesBlocked() {
+        val storage = ThrowingWriteQuarantineAndResetStorage("v1\nwyg\n")
+        val store = SharedPreferencesDurableOperationStore(storage)
+
+        val error = assertThrows(DurableOperationStoreCorruptionException::class.java) {
+            store.read()
+        }
+        assertEquals("malformed durable operation row", error.message)
+        assertEquals("v1\nwyg\n", storage.value)
+        assertNull(storage.quarantine)
+
+        assertFalse(store.resolveRecovery())
+        assertTrue(store.isRecoveryRequired())
+        assertWritesAreBlocked(store)
+    }
+
+    @Test fun resolvedRecoveryReopensWritesAndClearsMarker() {
+        val storage = RecordingStorage("v1\nwyg\n")
+        val store = SharedPreferencesDurableOperationStore(storage)
+
+        assertThrows(DurableOperationStoreCorruptionException::class.java) { store.read() }
+        assertTrue(store.acknowledgeRecoverySignalForTest())
+        assertTrue(store.isRecoveryRequired())
+        assertTrue(store.resolveRecovery())
+
+        assertFalse(store.isRecoveryRequired())
+        val restored = record("new", 1)
+        assertTrue(store.putIfAbsent(restored))
+        assertTrue(store.compareAndSet(restored, restored.copy(status = OperationStatus.COMPLETED)))
+    }
+
+    @Test fun resolveRecoveryRequiresWriteAndClearsOnlyOnAtomicResetSuccess() {
+        val storage = ThrowingWriteQuarantineAndResetStorage("v1\nwyg\n")
+        val store = SharedPreferencesDurableOperationStore(storage)
+
+        assertThrows(DurableOperationStoreCorruptionException::class.java) { store.read() }
+        assertTrue(store.acknowledgeRecoverySignalForTest())
+        assertFalse(store.resolveRecovery())
+        assertTrue(store.isRecoveryRequired())
+    }
+
+    @Test fun newStoreReadsPersistedRecoveryMarkerAndBlocksWrites() {
+        val storage = RecordingStorage("v1\nwyg\n")
+        storage.quarantine = "v1\nwyg\n".take(16_384)
+
+        val firstStore = SharedPreferencesDurableOperationStore(storage)
+        assertThrows(DurableOperationStoreCorruptionException::class.java) { firstStore.read() }
+        assertWritesAreBlocked(firstStore)
+
+        val secondStore = SharedPreferencesDurableOperationStore(storage)
+        assertThrows(DurableOperationStoreCorruptionException::class.java) { secondStore.read() }
+        assertWritesAreBlocked(secondStore)
+        assertTrue(secondStore.isRecoveryRequired())
+    }
+
+    @Test fun explicitAcknowledgeReturnsEmptyReadButBlocksWritesUntilResolve() {
+        val fixture = assertCorruptionRequiresRecovery("v1\nwyg\n", "malformed durable operation row")
+        fixture.store.acknowledgeRecoverySignal()
+        assertTrue(fixture.store.read().isEmpty())
+
+        val record = record("recovered", 3)
+        assertThrows(DurableOperationStoreCorruptionException::class.java) {
+            fixture.store.putIfAbsent(record)
+        }
+        assertThrows(DurableOperationStoreCorruptionException::class.java) {
+            fixture.store.compareAndSet(record, record.copy(status = OperationStatus.COMPLETED))
+        }
     }
 
     @Test fun malformedWorkManagerUuidInCurrentRecordIsPreserved() {
@@ -90,42 +197,6 @@ class SharedPreferencesDurableOperationStoreTest {
         )
         assertEquals("v2\n$row", storage.value)
         assertNull(storage.quarantine)
-    }
-
-    @Test fun duplicateBindingHistoryCorruptionIsQuarantinedAndStoreResets() {
-        val duplicateHistory = "ZDoxMDEsZDoxMDE"
-        val row = "YQ\t3\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$duplicateHistory\tUXVldWVk\t0\tRUNNING\t0\t-"
-        assertCorruptionIsRecovered("v2\n$row", "duplicate external job history")
-    }
-
-    @Test fun bindingHistoryTagsAreCaseSensitive() {
-        val uppercaseHistoryTag = "RDoxMDE"
-        val row = "YQ\t3\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$uppercaseHistoryTag\tUXVldWVk\t0\tRUNNING\t0\t-"
-        assertCorruptionIsRecovered("v2\n$row", "malformed durable operation row")
-    }
-
-    @Test fun malformedPayloadIsStoredInBoundedQuarantineSlot() {
-        val raw = "v2\n${"x".repeat(40_000)}"
-        val storage = RecordingStorage(raw)
-        val store = SharedPreferencesDurableOperationStore(storage)
-
-        assertTrue(store.read().isEmpty())
-        assertEquals("v2", storage.value)
-        assertNotNull(storage.quarantine)
-        assertTrue(storage.quarantine!!.length < raw.length)
-    }
-
-    @Test fun fallbackIsStickyWhenQuarantineResetFails() {
-        val storage = ThrowingWriteQuarantineStorage("v1\nwyg\n")
-        val store = SharedPreferencesDurableOperationStore(storage)
-
-        assertTrue(store.read().isEmpty())
-        assertTrue(store.read().isEmpty())
-        assertTrue(storage.quarantineAndResetAttempted)
-
-        val restored = record("new", 1)
-        assertTrue(store.putIfAbsent(restored))
-        assertTrue(store.compareAndSet(restored, restored.copy(status = OperationStatus.COMPLETED)))
     }
 
     @Test fun legacyPreviousBindingMigratesIntoCompleteHistory() {
@@ -179,28 +250,84 @@ class SharedPreferencesDurableOperationStoreTest {
         val winner = firstExpected.copy(progress = OperationProgress("Downloading", 10))
         val loser = secondExpected.copy(progress = OperationProgress("Downloading", 5))
 
-        assertTrue(
-            firstStore.compareAndSet(firstExpected, winner),
-        )
-        assertFalse(
-            secondStore.compareAndSet(secondExpected, loser),
-        )
+        assertTrue(firstStore.compareAndSet(firstExpected, winner))
+        assertFalse(secondStore.compareAndSet(secondExpected, loser))
 
         assertEquals(winner, firstStore.read().single())
     }
 
-    private fun assertCorruptionIsRecovered(raw: String, expectedDiagnostic: String) {
+    @Test fun sharedPreferencesAdapterRoundTripsAndEnforcesHandleCas() {
+        val storage = SharedPreferencesDurableOperationStore.MemoryStorage()
+        val firstStore = SharedPreferencesDurableOperationStore(storage)
+        val record = DurableOperationRecord(
+            id = OperationId("update-1"),
+            attemptId = AttemptId(4),
+            kind = OperationKind.GHOST_UPDATE,
+            externalJob = workManager("worker-4"),
+            progress = OperationProgress("Verifying", 12),
+            status = OperationStatus.CANCEL_REQUESTED,
+            showStallPrompt = true,
+            diagnostics = "still stopping",
+            externalJobHistory = setOf(
+                workManager("worker-4"),
+                ExternalJobBinding.DownloadManager(12),
+            ),
+        )
+        assertTrue(firstStore.putIfAbsent(record))
+        assertFalse(firstStore.putIfAbsent(record))
+
+        val restoredStore = SharedPreferencesDurableOperationStore(storage)
+        assertEquals(record, restoredStore.read().single())
+        assertFalse(
+            restoredStore.compareAndSet(
+                record.copy(attemptId = AttemptId(3)),
+                record.copy(status = OperationStatus.CANCELLED),
+            ),
+        )
+        assertFalse(
+            restoredStore.compareAndSet(
+                record.copy(status = OperationStatus.RUNNING),
+                record.copy(status = OperationStatus.CANCELLED),
+            ),
+        )
+        assertTrue(
+            restoredStore.compareAndSet(
+                record,
+                record.copy(status = OperationStatus.CANCELLED),
+            ),
+        )
+        assertEquals(OperationStatus.CANCELLED, firstStore.read().single().status)
+    }
+
+    private fun assertCorruptionRequiresRecovery(
+        raw: String,
+        expectedDiagnostic: String,
+    ): CorruptionFixture {
         val storage = RecordingStorage(raw)
         val store = SharedPreferencesDurableOperationStore(storage)
 
-        assertTrue(store.read().isEmpty())
+        val error = assertThrows(DurableOperationStoreCorruptionException::class.java) {
+            store.read()
+        }
+        assertTrue(error.message.orEmpty().contains(expectedDiagnostic))
         assertEquals("v2", storage.value)
         assertNotNull(storage.quarantine)
-        assertEquals(storage.quarantine, raw)
+        assertEquals(storage.quarantine, raw.take(16_384))
+        assertTrue(store.isRecoveryRequired())
+        assertWritesAreBlocked(store)
 
-        val original = record("new", 1)
-        assertTrue(store.putIfAbsent(original))
-        assertTrue(store.compareAndSet(original, original.copy(status = OperationStatus.COMPLETED)))
+        return CorruptionFixture(storage, store)
+    }
+
+    private fun assertWritesAreBlocked(store: SharedPreferencesDurableOperationStore) {
+        val record = record("new", 1)
+        assertThrows(DurableOperationStoreCorruptionException::class.java) {
+            store.putIfAbsent(record)
+        }
+        assertThrows(DurableOperationStoreCorruptionException::class.java) {
+            store.compareAndSet(record, record.copy(status = OperationStatus.COMPLETED))
+        }
+        assertThrows(DurableOperationStoreCorruptionException::class.java) { store.read() }
     }
 
     private fun record(id: String, attempt: Long) = DurableOperationRecord(
@@ -215,6 +342,18 @@ class SharedPreferencesDurableOperationStoreTest {
 
     private fun workManager(label: String) = ExternalJobBinding.WorkManager(
         UUID.nameUUIDFromBytes(label.toByteArray()).toString(),
+    )
+
+    private val invalidUuid = "non-uuid"
+
+    private fun SharedPreferencesDurableOperationStore.acknowledgeRecoverySignalForTest() = run {
+        acknowledgeRecoverySignal()
+        isRecoveryRequired()
+    }
+
+    private data class CorruptionFixture(
+        val storage: RecordingStorage,
+        val store: SharedPreferencesDurableOperationStore,
     )
 
     private class RecordingStorage(initialValue: String?) : SharedPreferencesDurableOperationStore.Storage {
@@ -236,26 +375,46 @@ class SharedPreferencesDurableOperationStoreTest {
             quarantine = value
             quarantineWriteCount += 1
         }
+
+        override fun writeQuarantineAndReset(value: String) {
+            quarantine = value.take(16_384)
+            quarantineWriteCount += 1
+            this.value = "v2"
+        }
+
+        override fun clearQuarantine() {
+            quarantine = null
+        }
     }
 
-    private class ThrowingWriteQuarantineStorage(initialValue: String?) :
+    private class ThrowingWriteQuarantineAndResetStorage(initialValue: String?) :
         SharedPreferencesDurableOperationStore.Storage {
+        var value = initialValue
+        var quarantine: String? = null
+        var writeCount = 0
         var quarantineAndResetAttempted = false
-        private var value = initialValue
 
         override fun read() = value
 
         override fun write(value: String) {
             this.value = value
+            writeCount += 1
         }
 
         override fun writeQuarantine(value: String) {
-            quarantineAndResetAttempted = true
+            quarantine = value
+            throw RuntimeException("atomic-only path should not call separate quarantine write")
         }
+
+        override fun readQuarantine() = quarantine
 
         override fun writeQuarantineAndReset(value: String) {
             quarantineAndResetAttempted = true
-            throw RuntimeException("cannot quarantine")
+            throw RuntimeException("cannot write quarantine and reset")
+        }
+
+        override fun clearQuarantine() {
+            quarantine = null
         }
     }
 }

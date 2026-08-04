@@ -17,20 +17,23 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         ),
     )
 
-    private var isCorrupted = false
+    private var recoveryState = RecoveryState.HEALTHY
+    private var recoveryMode = false
 
     override fun read(): List<DurableOperationRecord> = synchronized(operationLock) {
-        if (isCorrupted) return@synchronized emptyList()
+        if (recoveryMode) return@synchronized emptyList()
+        if (isRecoverySignalRequired()) {
+            throw DurableOperationStoreCorruptionException("durable operation recovery required")
+        }
         try {
             readRecords().values.sortedBy { it.id.value }
         } catch (error: DurableOperationStoreCorruptionException) {
-            isCorrupted = true
-            runCatching { quarantineAndReset() }
-            emptyList()
+            handleCorruption(error)
         }
     }
 
     override fun putIfAbsent(record: DurableOperationRecord): Boolean = synchronized(operationLock) {
+        ensureWritable()
         val records = readRecords()
         if (record.id in records) return@synchronized false
         records[record.id] = record
@@ -42,6 +45,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         expected: DurableOperationRecord,
         updated: DurableOperationRecord,
     ): Boolean = synchronized(operationLock) {
+        ensureWritable()
         require(updated.id == expected.id) { "operation id cannot change" }
         val records = readRecords()
         val current = records[expected.id] ?: return@synchronized false
@@ -56,14 +60,12 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         fun write(value: String)
         fun readQuarantine(): String? = null
         fun writeQuarantine(value: String)
-        fun writeQuarantineAndReset(value: String) {
-            writeQuarantine(value)
-            write(encode(emptyList()))
-        }
+        fun writeQuarantineAndReset(value: String)
+        fun clearQuarantine()
     }
 
-    internal class MemoryStorage : Storage {
-        private var value: String? = null
+    internal class MemoryStorage(initialValue: String? = null) : Storage {
+        private var value: String? = initialValue
         private var quarantinedValue: String? = null
 
         @Synchronized override fun read() = value
@@ -79,21 +81,24 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         }
 
         @Synchronized override fun writeQuarantineAndReset(value: String) {
-            quarantinedValue = value
-            write(encode(emptyList()))
+            quarantinedValue = value.take(MAX_QUARANTINE_CHARS)
+            write("v2")
+        }
+
+        @Synchronized override fun clearQuarantine() {
+            quarantinedValue = null
         }
     }
 
-    private fun readRecords(): MutableMap<OperationId, DurableOperationRecord> =
-        if (isCorrupted) {
-            linkedMapOf()
-        } else {
-            decode(storage.read())
+    private fun readRecords(): MutableMap<OperationId, DurableOperationRecord> {
+        if (recoveryMode) {
+            return linkedMapOf()
         }
+        return decode(storage.read())
+    }
 
     private fun writeRecords(records: Map<OperationId, DurableOperationRecord>) {
         storage.write(encode(records.values))
-        isCorrupted = false
     }
 
     private class SharedPreferencesStorage(private val preferences: SharedPreferences) : Storage {
@@ -114,18 +119,76 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         }
 
         override fun writeQuarantineAndReset(value: String) {
+            val bounded = value.take(MAX_QUARANTINE_CHARS)
             check(preferences.edit()
-                .putString(QUARANTINE, value)
+                .putString(QUARANTINE, bounded)
                 .putString(RECORDS, encode(emptyList()))
                 .commit()) {
                 "could not persist durable operation quarantine"
             }
         }
+
+        override fun clearQuarantine() {
+            check(preferences.edit().putString(QUARANTINE, "").commit()) {
+                "could not clear durable operation quarantine"
+            }
+        }
     }
 
-    private fun quarantineAndReset() {
-        val rawValue = storage.read()?.let(::boundedQuarantine) ?: return
-        storage.writeQuarantineAndReset(rawValue)
+    internal fun acknowledgeRecoverySignal() = synchronized(operationLock) {
+        if (isRecoverySignalRequired()) recoveryMode = true
+    }
+
+    internal fun isRecoveryRequired(): Boolean = synchronized(operationLock) {
+        isRecoverySignalRequired()
+    }
+
+    internal fun resolveRecovery(): Boolean = synchronized(operationLock) {
+        if (!isRecoverySignalRequired() || recoveryState != RecoveryState.PRIMARY_RESET_SUCCESS) {
+            return@synchronized false
+        }
+        return@synchronized try {
+            storage.clearQuarantine()
+            recoveryState = RecoveryState.HEALTHY
+            recoveryMode = false
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun hasPersistedRecoveryMarker(): Boolean = !storage.readQuarantine().isNullOrEmpty()
+
+    private fun isRecoverySignalRequired(): Boolean {
+        if (hasPersistedRecoveryMarker() && recoveryState == RecoveryState.HEALTHY) {
+            // The production Storage contract makes marker + primary reset one atomic write.
+            recoveryState = RecoveryState.PRIMARY_RESET_SUCCESS
+        }
+        return recoveryState != RecoveryState.HEALTHY
+    }
+
+    private fun handleCorruption(error: DurableOperationStoreCorruptionException): Nothing {
+        quarantineAndReset(storage.read())
+        throw error
+    }
+
+    private fun quarantineAndReset(rawValue: String?) {
+        require(rawValue != null) { "missing durable operation primary payload for corruption recovery" }
+        val bounded = boundedQuarantine(rawValue)
+        recoveryState = try {
+            storage.writeQuarantineAndReset(bounded)
+            RecoveryState.PRIMARY_RESET_SUCCESS
+        } catch (_: Exception) {
+            RecoveryState.PRIMARY_RESET_PENDING
+        }
+    }
+
+    private fun ensureWritable() {
+        if (isRecoverySignalRequired()) {
+            throw DurableOperationStoreCorruptionException(
+                "durable operation data is blocked for recovery",
+            )
+        }
     }
 
     private fun boundedQuarantine(value: String): String = value.take(MAX_QUARANTINE_CHARS)
@@ -180,7 +243,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                         VERSION -> decodeRecord(line)
                         LEGACY_VERSION -> decodeLegacyRecord(line)
                         else -> throw DurableOperationStoreCorruptionException(
-                            "unsupported durable operation version: ${version ?: "missing"}",
+                            "unsupported durable operation version: $version",
                         )
                     }
                     if (record.id in this) {
@@ -294,6 +357,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                     item.startsWith("d:") -> ExternalJobBinding.DownloadManager(
                         item.substring(2).toLongOrNull() ?: return null,
                     )
+
                     item.startsWith("w:") -> decoded(item.substring(2))
                         ?.let(::decodeWorkManagerBinding) ?: return null
                     else -> return null
@@ -335,5 +399,11 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
 
         fun decodeWorkManagerBinding(value: String): ExternalJobBinding.WorkManager =
             ExternalJobBinding.WorkManager(value)
+    }
+
+    private enum class RecoveryState {
+        HEALTHY,
+        PRIMARY_RESET_PENDING,
+        PRIMARY_RESET_SUCCESS,
     }
 }
