@@ -136,6 +136,39 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun repeatedKeroSelectorClearsProjectedTextLikePlayback() {
+        val fixture = fixture(responses = listOf(noContent()))
+
+        fixture.runner.addMsgToQueue(arrayOf("\\uFirst\\uSecond\\e"))
+        fixture.runner.run()
+
+        val ownership = DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+        Assert.assertEquals(
+            listOf(DialogueSegment.Text("Second")),
+            ownership.content(GhostSpeaker.KERO).segments,
+        )
+        Assert.assertTrue(ownership.content(GhostSpeaker.SAKURA).segments.isEmpty())
+    }
+
+    @Test
+    fun synchronizedTextProjectsToBothSpeakersLikePlayback() {
+        val fixture = fixture(responses = listOf(noContent()))
+
+        fixture.runner.addMsgToQueue(arrayOf("\\uOld\\h\\_sBoth\\e"))
+        fixture.runner.run()
+
+        val ownership = DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+        Assert.assertEquals(
+            listOf(DialogueSegment.Text("Both")),
+            ownership.content(GhostSpeaker.SAKURA).segments,
+        )
+        Assert.assertEquals(
+            listOf(DialogueSegment.Text("OldBoth")),
+            ownership.content(GhostSpeaker.KERO).segments,
+        )
+    }
+
+    @Test
     fun inputBeforeLaterSpeakerReentryRemainsCanonicalWhenPlaybackPauses() {
         val fixture = fixture(responses = emptyList())
         fixture.runner.setUICallback(object : SScriptRunner.UICallback {

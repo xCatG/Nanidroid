@@ -190,6 +190,7 @@ class SakuraScriptTokenizerTest {
                         DialogueSegment.Text("K"),
                         DialogueSegment.SpeakerChangeClear,
                         DialogueSegment.Text("K"),
+                        DialogueSegment.SpeakerChangeClear,
                     ),
                 ),
                 DialogueContent(
@@ -250,6 +251,132 @@ class SakuraScriptTokenizerTest {
                 ),
             ),
             tokenize("\\hFirst\\q[Keep,keep]\\hAgain\\e"),
+        )
+    }
+
+    @Test
+    fun reselectingCurrentKeroSelectionClearsItsText() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("First"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("Again"),
+                    ),
+                ),
+            ),
+            tokenize("\\uFirst\\uAgain\\e"),
+        )
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("First"),
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("Again"),
+                    ),
+                ),
+            ),
+            tokenize("\\1First\\1Again\\e"),
+        )
+    }
+
+    @Test
+    fun synchronizedOutputIsDuplicatedUntilToggledOff() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.Text("ABC"),
+                    ),
+                ),
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(
+                        DialogueSegment.Text("B"),
+                    ),
+                ),
+            ),
+            tokenize("\\hA\\_sB\\_sC\\e"),
+        )
+    }
+
+    @Test
+    fun synchronizedNewlineIsVisibleToBothSpeakers() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.Text("A"),
+                        DialogueSegment.NewLine,
+                        DialogueSegment.Text("BC"),
+                    ),
+                ),
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(DialogueSegment.NewLine, DialogueSegment.Text("B")),
+                ),
+            ),
+            tokenize("\\hA\\_s\\nB\\_sC\\e"),
+        )
+    }
+
+    @Test
+    fun completedSynchronizedAnchorKeepsOtherSpeakerLabelWithoutDuplicatingCapability() {
+        val revealed = SakuraScriptTokenizer.tokenizeRevealed("\\h\\_s\\_a[id]Link")
+        val complete = tokenize("\\h\\_s\\_a[id]Link\\_a\\_s\\e")
+
+        assertEquals(
+            listOf(
+                DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Link"))),
+                DialogueContent(GhostSpeaker.KERO, listOf(DialogueSegment.Text("Link"))),
+            ),
+            revealed,
+        )
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(DialogueSegment.Anchor(AnchorAction.Normal("Link", "id", emptyList()))),
+                ),
+                DialogueContent(GhostSpeaker.KERO, listOf(DialogueSegment.Text("Link"))),
+            ),
+            complete,
+        )
+        assertEquals(
+            1,
+            complete.sumOf { content -> content.segments.count { it is DialogueSegment.Anchor } },
+        )
+    }
+
+    @Test
+    fun synchronizedChoiceKeepsCapabilityOnOwnerAndMirrorsOnlyItsLabel() {
+        val contents = tokenize("\\h\\_s\\q[Pick,choice-id]\\_s\\e")
+
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.Choice(
+                            DialogueAction.Normal("Pick", "choice-id", emptyList()),
+                        ),
+                    ),
+                ),
+                DialogueContent(GhostSpeaker.KERO, listOf(DialogueSegment.Text("Pick"))),
+            ),
+            contents,
+        )
+        assertEquals(
+            1,
+            contents.sumOf { content -> content.segments.count { it is DialogueSegment.Choice } },
         )
     }
 
