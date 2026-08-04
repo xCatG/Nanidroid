@@ -335,12 +335,30 @@ fun GhostPresentationStage(
     val measureState = remember { GhostStageMeasureState().also { it.resetFor(LegacyPreviewOwner) } }
     val sakura = remember(sakuraSurfaceSize) { layoutOnlySurface(0, sakuraSurfaceSize) }
     val kero = remember(keroSurfaceSize) { layoutOnlySurface(10, keroSurfaceSize) }
+    val sakuraDialogue = remember(presentation.sakura.text) {
+        DialogueContent(
+            GhostSpeaker.SAKURA,
+            if (presentation.sakura.text.isEmpty()) emptyList() else listOf(
+                DialogueSegment.Text(presentation.sakura.text),
+            ),
+        )
+    }
+    val keroDialogue = remember(presentation.kero.text) {
+        DialogueContent(
+            GhostSpeaker.KERO,
+            if (presentation.kero.text.isEmpty()) emptyList() else listOf(
+                DialogueSegment.Text(presentation.kero.text),
+            ),
+        )
+    }
     GhostPresentationStage(
         presentation = presentation,
         sakuraComposedSurface = sakura,
         keroComposedSurface = kero,
         measureState = measureState,
         ghostKey = "legacy-preview",
+        sakuraDialogue = sakuraDialogue,
+        keroDialogue = keroDialogue,
         showSakuraBalloon = showSakuraBalloon,
         showKeroBalloon = showKeroBalloon,
         modifier = modifier,

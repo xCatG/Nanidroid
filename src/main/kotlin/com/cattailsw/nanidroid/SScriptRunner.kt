@@ -132,6 +132,7 @@ open class SScriptRunner internal constructor(
         var sync = false
         var wholeline = false
         var sakuraTalk = true
+        var scope = 0
         val sakuraMsg = StringBuilder()
         val keroMsg = StringBuilder()
         var waitTime = WAIT_UNIT
@@ -398,8 +399,23 @@ open class SScriptRunner internal constructor(
         val exit: Boolean,
         val handoff: Boolean,
     )
-    private fun reset(state: PlaybackState){state.sync=false;state.wholeline=false;state.sakuraTalk=true;state.sakuraMsg.setLength(0);state.keroMsg.setLength(0);state.msg="";state.charIndex=0;state.bSakuraId="-1";state.bKeroId="-1";state.sakuraAnimationId=null;state.keroAnimationId=null;state.legacyChoiceCallbackPublished=false}
+    private fun reset(state: PlaybackState){
+        state.sync = false
+        state.wholeline = false
+        state.scope = 0
+        state.sakuraTalk = true
+        state.sakuraMsg.setLength(0)
+        state.keroMsg.setLength(0)
+        state.msg = ""
+        state.charIndex = 0
+        state.bSakuraId = "-1"
+        state.bKeroId = "-1"
+        state.sakuraAnimationId = null
+        state.keroAnimationId = null
+        state.legacyChoiceCallbackPublished = false
+    }
     private fun appendChar(state: PlaybackState, c: Char) {
+        if (state.scope >= 2) return
         if (state.sync) {
             state.sakuraMsg.append(c)
             state.keroMsg.append(c)
@@ -425,30 +441,36 @@ open class SScriptRunner internal constructor(
                 if (state.wholeline) continue else break
             }
             when (val c2 = text[state.charIndex++]) {
-                '0', 'h' -> if (!state.sakuraTalk) {
+                '0', 'h' -> {
+                    val wasKero = !state.sakuraTalk
                     state.sakuraTalk = true
-                    state.sakuraMsg.setLength(0)
+                    state.scope = 0
+                    if (wasKero) {
+                        state.sakuraMsg.setLength(0)
+                    }
                 }
                 '1', 'u' -> {
+                    state.scope = 1
                     state.sakuraTalk = false
                     state.keroMsg.setLength(0)
                 }
-                's' -> if (handleSurface(state)) break
-                'i' -> if (handleAnimation(state)) break
+                'p' -> parseScope(state)
+                's' -> if (handleSurface(state, state.scope < 2)) break
+                'i' -> if (handleAnimation(state, state.scope < 2)) break
                 'e' -> {
                     state.charIndex = text.length
                     state.waitTime = WAIT_YEN_E
                     break
                 }
                 'n' -> {
-                    appendChar(state, '\n')
+                    if (state.scope < 2) appendChar(state, '\n')
                     val matcher = PatternHolders.sqbracket_half_number.matcher(text.substring(state.charIndex))
                     if (matcher.find()) state.charIndex += matcher.group().length
                     break
                 }
-                'c' -> clearMsg(state)
+                'c' -> if (state.scope < 2) clearMsg(state)
                 '_' -> if (handleUnderscore(state)) break
-                '!' -> if (handleExclaim(state)) break
+                '!' -> if (handleExclaim(state, state.scope < 2)) break
                 'w' -> {
                     val wait = text[state.charIndex++]
                     if (wait.isDigit()) {
@@ -456,8 +478,8 @@ open class SScriptRunner internal constructor(
                         break
                     }
                 }
-                'b' -> if (handleBalloon(state)) break
-                'q' -> handleSelection(state)
+                'b' -> if (handleBalloon(state, state.scope < 2)) break
+                'q' -> if (state.scope < 2) handleSelection(state) else if (handleSelection(state, false)) Unit
                 '-', '4', '5', '6', 'v' -> Log.d(TAG, "ignore unsupported $c2 tag")
                 else -> AnalyticsUtils.getInstance(null).trackEvent(
                     Setup.ANA_SSC,
@@ -471,6 +493,75 @@ open class SScriptRunner internal constructor(
         }
     }
 
+    private fun parseScope(state: PlaybackState) {
+        val text = state.msg ?: return
+        if (state.charIndex >= text.length) return
+        val previouslySakura = state.sakuraTalk
+        val directScope = text[state.charIndex].digitToIntOrNull()
+        if (directScope != null) {
+            if (directScope == 0 && !previouslySakura) state.sakuraMsg.setLength(0)
+            if (directScope == 1 && previouslySakura) state.keroMsg.setLength(0)
+            state.scope = directScope
+            when (directScope) {
+                0 -> state.sakuraTalk = true
+                1 -> state.sakuraTalk = false
+            }
+            state.charIndex++
+            return
+        }
+        if (text[state.charIndex] != '[') return
+        val bracket = parseBracketScope(text, state.charIndex)
+        if (bracket == null) {
+            state.charIndex = text.indexOf('\\', state.charIndex).takeIf { it >= 0 } ?: text.length
+            return
+        }
+        state.charIndex = bracket.nextIndex
+        val resolvedScope = bracket.value.toIntOrNull() ?: return
+        if (resolvedScope == 0 && !state.sakuraTalk) state.sakuraMsg.setLength(0)
+        if (resolvedScope == 1 && state.sakuraTalk) state.keroMsg.setLength(0)
+        state.scope = resolvedScope
+        when (state.scope) {
+            0 -> state.sakuraTalk = true
+            1 -> state.sakuraTalk = false
+        }
+    }
+
+    private data class ScopeBracket(val value: String, val nextIndex: Int)
+    private fun parseBracketScope(text: String, start: Int): ScopeBracket? {
+        if (text.getOrNull(start) != '[') return null
+        val body = StringBuilder()
+        var index = start + 1
+        var depth = 1
+        var quoted = false
+        while (index < text.length) {
+            val character = text[index++]
+            if (character == '\\' && index < text.length) {
+                val escaped = text[index++]
+                body.append('\\').append(escaped)
+                continue
+            }
+            if (character == '"') {
+                if (quoted && text.getOrNull(index) == '"') {
+                    body.append("\"\"")
+                    index++
+                } else {
+                    quoted = !quoted
+                    body.append(character)
+                }
+                continue
+            }
+            if (!quoted && character == '[') {
+                depth++
+            }
+            if (!quoted && character == ']') {
+                depth--
+                if (depth == 0) return ScopeBracket(body.toString(), index)
+            }
+            body.append(character)
+        }
+        return null
+    }
+
     private fun handleUnderscore(state: PlaybackState): Boolean {
         val text = state.msg!!
         when (val c = text[state.charIndex++]) {
@@ -480,7 +571,7 @@ open class SScriptRunner internal constructor(
                 val matcher = PatternHolders.sqbracket_half_number.matcher(text.substring(state.charIndex))
                 if (matcher.find()) state.charIndex += matcher.group().length
             }
-            'b' -> return handleBalloon(state)
+            'b' -> return handleBalloon(state, state.scope < 2)
             'w' -> {
                 val matcher = PatternHolders.sqbracket_half_number.matcher(text.substring(state.charIndex))
                 if (matcher.find()) {
@@ -496,7 +587,7 @@ open class SScriptRunner internal constructor(
         return false
     }
 
-    private fun handleExclaim(state: PlaybackState): Boolean {
+    private fun handleExclaim(state: PlaybackState, publishSelection: Boolean): Boolean {
         val remaining = state.msg!!.substring(state.charIndex)
         val passiveMatch = PASSIVE_MODE.find(remaining)
         if (passiveMatch != null) {
@@ -510,6 +601,7 @@ open class SScriptRunner internal constructor(
         }
         val input = consumeOpenInputCommand(remaining) ?: return false
         state.charIndex += input.consumedCharacters
+        if (!publishSelection) return false
         openUserInputBox(state, input.id)
         return true
     }
@@ -581,42 +673,42 @@ open class SScriptRunner internal constructor(
         }
     }
 
-    private fun handleSurface(state: PlaybackState): Boolean {
+    private fun handleSurface(state: PlaybackState, apply: Boolean): Boolean {
         val matcher = PatternHolders.surface_ptrn.matcher(state.msg!!.substring(state.charIndex))
         if (!matcher.find()) return false
-        changeSurface(state, matcher.group(2) ?: matcher.group(1))
+        if (apply) changeSurface(state, matcher.group(2) ?: matcher.group(1))
         state.charIndex += matcher.group().length
         return true
     }
 
-    private fun handleBalloon(state: PlaybackState): Boolean {
+    private fun handleBalloon(state: PlaybackState, apply: Boolean): Boolean {
         val matcher = PatternHolders.balloon_ptrn.matcher(state.msg!!.substring(state.charIndex))
         if (!matcher.find()) return false
-        changeBalloon(state, matcher.group(2) ?: matcher.group(1))
+        if (apply) changeBalloon(state, matcher.group(2) ?: matcher.group(1))
         state.charIndex += matcher.group().length
         return true
     }
 
-    private fun handleAnimation(state: PlaybackState): Boolean {
+    private fun handleAnimation(state: PlaybackState, apply: Boolean): Boolean {
         val matcher = PatternHolders.ani_ptrn.matcher(state.msg!!.substring(state.charIndex))
         if (!matcher.find()) return false
-        queueAnimation(state, matcher.group(1))
+        if (apply) queueAnimation(state, matcher.group(1))
         state.charIndex += matcher.group().length
         return true
     }
 
-    private fun handleSelection(state: PlaybackState): Boolean {
+    private fun handleSelection(state: PlaybackState, publishSelection: Boolean = true): Boolean {
         val text = state.msg ?: return false
         val matcher = PatternHolders.q_choice_ptrn.matcher(text)
         val commandStart = state.charIndex - 2
         if (!matcher.find(commandStart) || matcher.start() != commandStart) return false
         state.charIndex = matcher.end()
-        appendChoiceLabel(state, matcher.group(1))
+        if (publishSelection) appendChoiceLabel(state, matcher.group(1))
         val callback = synchronized(this) {
             if (playback !== state || !state.running) return false
             ucb
         }
-        if (callback == null || state.legacyChoiceCallbackPublished) return false
+        if (callback == null || state.legacyChoiceCallbackPublished || !publishSelection) return false
         val labels = arrayListOf<String>()
         val ids = arrayListOf<String>()
         val remainingChoices = PatternHolders.q_choice_ptrn.matcher(text)
@@ -1167,12 +1259,22 @@ open class SScriptRunner internal constructor(
             .flatMap { it.segments.asSequence() }
             .fold(mutableListOf<DialogueSegment>()) { visible, segment ->
                 if (segment is DialogueSegment.Clear || segment is DialogueSegment.SpeakerChangeClear) {
-                    visible.clear()
+                    if (segment is DialogueSegment.Clear) {
+                        visible.clear()
+                    } else {
+                        visible.removeAll { it.shouldPreserveAcrossSpeakerChange().not() }
+                    }
                 } else {
                     visible += segment
                 }
                 visible
             }
+    }
+
+    private fun DialogueSegment.shouldPreserveAcrossSpeakerChange(): Boolean = when (this) {
+        is DialogueSegment.Choice,
+        is DialogueSegment.InputBox -> true
+        else -> false
     }
 
     private fun projectDialogue(

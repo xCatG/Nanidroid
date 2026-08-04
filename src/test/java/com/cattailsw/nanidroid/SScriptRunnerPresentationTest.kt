@@ -719,6 +719,80 @@ class SScriptRunnerPresentationTest {
         Assert.assertFalse(state.contents.flatMap { it.segments }.any { it.toString().contains("ignored") })
     }
 
+    @Test
+    fun speakerChangeClearDoesNotDropPriorVisibleChoice() {
+        val fixture = fixture(responses = emptyList())
+
+        val choices = fixture.openChoices("\\h\\q[Pick,id]\\uReply\\hSecond\\e")
+
+        Assert.assertEquals(listOf(DialogueAction.Normal("Pick", "id", emptyList())), choices)
+        fixture.runner.activateChoice(choices.single())
+
+        Assert.assertEquals(
+            listOf(request("OnChoiceSelectEx", "Pick", "id"), request("OnChoiceSelect", "id")),
+            fixture.shiori.requests,
+        )
+    }
+
+    @Test
+    fun directScopeCommandsSwitchSpeakersLikeLegacyAliases() {
+        val fixture = fixture(responses = emptyList())
+
+        fixture.runner.addMsgToQueue(arrayOf("\\p1Reply\\p0Second\\e"))
+        fixture.runner.run()
+
+        val ownership = DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+        Assert.assertEquals(listOf(DialogueSegment.Text("Second")), ownership.content(GhostSpeaker.SAKURA).segments)
+        Assert.assertEquals(listOf(DialogueSegment.Text("Reply")), ownership.content(GhostSpeaker.KERO).segments)
+    }
+
+    @Test
+    fun hiddenScopeDoesNotChangeTheActiveVisibleSpeaker() {
+        val fixture = fixture(responses = emptyList())
+
+        fixture.runner.addMsgToQueue(arrayOf("\\hA\\p2hidden\\p0B\\e"))
+        fixture.runner.run()
+
+        val ownership = DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+        Assert.assertEquals(listOf(DialogueSegment.Text("AB")), ownership.content(GhostSpeaker.SAKURA).segments)
+        Assert.assertTrue(ownership.content(GhostSpeaker.KERO).segments.isEmpty())
+    }
+
+    @Test
+    fun hiddenScopeConsumesSurfaceAnimationAndBalloonCommands() {
+        val frames = mutableListOf<GhostPresentationFrame>()
+        val runner = SScriptRunner(null)
+        runner.setNoWaitMode(true)
+        runner.setPresentationRenderer { frames += it }
+
+        runner.addMsgToQueue(arrayOf("\\h\\s[0]\\i[3]\\b[-1]\\p2\\s[99]\\i[7]\\b[0]\\_b[0]\\p0\\e"))
+        runner.run()
+
+        Assert.assertFalse(frames.any { it.sakura.surfaceId == "99" })
+        Assert.assertFalse(frames.any { it.sakura.animationId == "7" })
+        Assert.assertFalse(frames.last().sakura.balloonVisible)
+    }
+
+    @Test
+    fun speakerChangeClearRetiresAnInlineAnchorCapability() {
+        val fixture = fixture(responses = emptyList())
+        var captured: AnchorAction? = null
+        fixture.runner.setDialogueStateObserver { state ->
+            if (captured == null) {
+                captured = state.contents.asSequence()
+                    .flatMap { it.segments.asSequence() }
+                    .mapNotNull { (it as? DialogueSegment.Anchor)?.action }
+                    .firstOrNull()
+            }
+        }
+
+        fixture.runner.addMsgToQueue(arrayOf("\\h\\_a[id]Old\\_a\\uReply\\hSecond\\e"))
+        fixture.runner.run()
+        fixture.runner.activateAnchor(captured ?: throw AssertionError("anchor was never revealed"))
+
+        Assert.assertTrue(fixture.shiori.requests.isEmpty())
+    }
+
     private fun fixture(responses: List<String>): Fixture {
         val clock = FakeClock(10_000L)
         val shiori = RecordingShiori(responses)
