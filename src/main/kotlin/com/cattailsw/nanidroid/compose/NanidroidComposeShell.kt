@@ -83,7 +83,7 @@ internal fun NanidroidComposeShell(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
                     topBar = {
-                        if (toolbarVisible) {
+                        if (toolbarVisible && !loading) {
                             NanidroidToolbar(
                                 onListGhost = onListGhost,
                                 onUpdate = onUpdate,
@@ -106,17 +106,17 @@ internal fun NanidroidComposeShell(
                         Box(modifier = Modifier.fillMaxSize().testTag("ghost-stage")) {
                             ghostStage()
                         }
-                        NanidroidSimpleDialogHost(
-                            dialog = simpleDialog,
-                            onDismiss = onDismissSimpleDialog,
-                            archiveDownloads = archiveDownloads,
-                        )
                     }
                 }
 
                 if (loading) {
                     LoadingOverlay(progressMessage)
                 }
+                NanidroidSimpleDialogHost(
+                    dialog = simpleDialog,
+                    onDismiss = onDismissSimpleDialog,
+                    archiveDownloads = archiveDownloads,
+                )
             }
         }
     }

@@ -61,4 +61,36 @@ class NanidroidDebugSurfaceInstrumentationTest {
             .performScrollTo()
             .performClick()
     }
+
+    @Test
+    fun loadingTransitionDismissesOpenDebugSurface() {
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            composeRule.onAllNodesWithTag("debug").fetchSemanticsNodes().size == 1
+        }
+        composeRule.onNodeWithTag("debug").performClick()
+        composeRule.waitForIdle()
+
+        val beforeLoading = listOf(
+            GHOST_DEBUG_SURFACE_BOTTOM_SHEET_TAG,
+            GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG,
+            GHOST_DEBUG_SURFACE_SIDE_PANEL_TAG,
+        ).sumOf { tag -> composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().size }
+        assertEquals(1, beforeLoading)
+
+        composeRule.activity.runOnUiThread {
+            Nanidroid::class.java.getDeclaredMethod("showProgress").apply {
+                isAccessible = true
+            }.invoke(composeRule.activity)
+        }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            listOf(
+                GHOST_DEBUG_SURFACE_BOTTOM_SHEET_TAG,
+                GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG,
+                GHOST_DEBUG_SURFACE_SIDE_PANEL_TAG,
+            ).sumOf { tag -> composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().size } == 0
+        }
+
+        assertEquals(0, composeRule.onAllNodesWithTag("debug").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithTag(GHOST_DEBUG_SURFACE_NAR_TEST_TAG).fetchSemanticsNodes().size)
+    }
 }

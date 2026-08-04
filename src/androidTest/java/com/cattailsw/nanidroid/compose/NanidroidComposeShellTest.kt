@@ -83,11 +83,12 @@ class NanidroidComposeShellTest {
 
     @Test
     fun shell_loading_overlay_blocks_top_app_bar_pointer_actions() {
+        val loading = mutableStateOf(false)
         var selected = ""
         composeRule.setContent {
             NanidroidComposeShell(
                 ghostStage = {},
-                loading = true,
+                loading = loading.value,
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = { selected = "list" },
@@ -103,10 +104,11 @@ class NanidroidComposeShellTest {
             )
         }
 
-        composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
-
         val listButtonCenter = composeRule.onNodeWithTag("list-ghost").fetchSemanticsNode().boundsInRoot.center
         val debugButtonCenter = composeRule.onNodeWithTag("debug").fetchSemanticsNode().boundsInRoot.center
+
+        composeRule.runOnIdle { loading.value = true }
+        composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
 
         composeRule.onRoot().performTouchInput {
             click(listButtonCenter)
@@ -117,6 +119,76 @@ class NanidroidComposeShellTest {
         }
         composeRule.waitForIdle()
 
+        assertEquals("", selected)
+    }
+
+    @Test
+    fun shell_loading_overlay_allows_notice_dialog_tap_while_blocking_appbar() {
+        var dismissed = false
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = true,
+                progressMessage = "Loading ghost",
+                toolbarVisible = true,
+                onListGhost = {},
+                onUpdate = {},
+                onReadme = {},
+                onPreferences = {},
+                onHelp = {},
+                showDebugControls = false,
+                onDebug = {},
+                simpleDialog = NanidroidSimpleDialog.Notice(
+                    title = android.R.string.dialog_alert_title,
+                    message = android.R.string.ok,
+                    onConfirm = { dismissed = true },
+                ),
+                onDismissSimpleDialog = { dismissed = true },
+            )
+        }
+
+        composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
+        composeRule.onNodeWithTag("notice-confirm").performTouchInput { click() }
+        composeRule.waitForIdle()
+
+        assertEquals(true, dismissed)
+    }
+
+    @Test
+    fun shell_top_app_bar_and_overflow_popup_dont_persist_when_loading_becomes_true() {
+        val loading = mutableStateOf(false)
+        var selected = ""
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = loading.value,
+                progressMessage = "Loading ghost",
+                toolbarVisible = true,
+                onListGhost = { selected = "list" },
+                onUpdate = { selected = "update" },
+                onReadme = { selected = "readme" },
+                onPreferences = { selected = "preferences" },
+                onHelp = { selected = "help" },
+                onArchiveQueue = { selected = "queue" },
+                showDebugControls = false,
+                onDebug = {},
+                simpleDialog = null,
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("appbar-overflow").performClick()
+        composeRule.onNodeWithTag("update").assertIsDisplayed()
+        val updateCenter = composeRule.onNodeWithTag("update").fetchSemanticsNode().boundsInRoot.center
+
+        composeRule.runOnIdle { loading.value = true }
+        composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
+
+        assertNoNodeWithTag("appbar-overflow", true)
+        assertNoNodeWithTag("update", true)
+        assertNoNodeWithTag("list-ghost")
+        composeRule.onRoot().performTouchInput { click(updateCenter) }
+        composeRule.waitForIdle()
         assertEquals("", selected)
     }
 

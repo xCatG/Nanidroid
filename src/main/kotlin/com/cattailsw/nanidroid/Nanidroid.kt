@@ -294,7 +294,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                             onDialogueExternalUrl = ::openDialogueExternalUrl,
                             onDialogueInput = ::openDialogueInput,
                             collisionOverlaySpeaker = debugPanelState.selectedSpeaker.takeIf {
-                                dbgBuild && debugPanelState.visible && debugPanelState.showCollisionOverlay
+                                !loading && dbgBuild && debugPanelState.visible && debugPanelState.showCollisionOverlay
                             },
                         )
                     },
@@ -324,7 +324,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     simpleDialog = simpleDialog,
                     onDismissSimpleDialog = { simpleDialog = null },
                 )
-                if (dbgBuild) {
+                if (dbgBuild && !loading) {
                     GhostDebugSurface(
                         presentation = resolveDebugPresentation(
                             width = maxWidth,
@@ -386,7 +386,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             ) ?: "Not dispatched",
             source = source.shioriReference,
         )
-    private fun showProgress() { loading = true }
+    private fun showProgress() {
+        debugPanelState = debugPanelState.copy(
+            visible = false,
+            showCollisionOverlay = false,
+            sampleQueued = false,
+        )
+        loading = true
+    }
     private fun hideProgress() { loading = false; toolbarVisible = true }
     private fun checkIsRestore(state: Bundle?): Boolean {
         if (state != null) { Log.d(TAG, "was minimized"); restoreFromMinimize = state.getBoolean(MIN_TAG, false); return restoreFromMinimize }; return false
