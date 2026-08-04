@@ -78,41 +78,44 @@ internal fun NanidroidComposeShell(
         ) {
             val isDebuggable = DebugAvailabilityPolicy(isDebuggable = showDebugControls).showDebugIcon
 
-            Scaffold(
-                modifier = Modifier.fillMaxSize(),
-                containerColor = Color.Transparent,
-                topBar = {
-                    if (toolbarVisible) {
-                        NanidroidToolbar(
-                            onListGhost = onListGhost,
-                            onUpdate = onUpdate,
-                            onReadme = onReadme,
-                            onPreferences = onPreferences,
-                            onHelp = onHelp,
-                            onArchiveQueue = onArchiveQueue,
-                            isDebuggable = isDebuggable,
+            Box(modifier = Modifier.fillMaxSize()) {
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    containerColor = Color.Transparent,
+                    topBar = {
+                        if (toolbarVisible) {
+                            NanidroidToolbar(
+                                onListGhost = onListGhost,
+                                onUpdate = onUpdate,
+                                onReadme = onReadme,
+                                onPreferences = onPreferences,
+                                onHelp = onHelp,
+                                onArchiveQueue = onArchiveQueue,
+                                isDebuggable = isDebuggable,
+                                archiveDownloads = archiveDownloads,
+                                onDebugOpen = onDebug,
+                            )
+                        }
+                    },
+                    // Keep composition padding explicit because stage layout policy
+                    // already reserves CANONICAL_APP_BAR_HEIGHT (64.dp) for the
+                    // stage's adaptive candidate, which prevents double top-space
+                    // reservation and preserves stable stage reclassification.
+                ) { _ ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.fillMaxSize().testTag("ghost-stage")) {
+                            ghostStage()
+                        }
+                        NanidroidSimpleDialogHost(
+                            dialog = simpleDialog,
+                            onDismiss = onDismissSimpleDialog,
                             archiveDownloads = archiveDownloads,
-                            onDebugOpen = onDebug,
                         )
                     }
-                },
-                // Keep composition padding explicit because stage layout policy
-                // already reserves CANONICAL_APP_BAR_HEIGHT (64.dp) for the
-                // stage's adaptive candidate, which prevents double top-space
-                // reservation and preserves stable stage reclassification.
-            ) { _ ->
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxSize().testTag("ghost-stage")) {
-                        ghostStage()
-                    }
-                    if (loading) {
-                        LoadingOverlay(progressMessage)
-                    }
-                    NanidroidSimpleDialogHost(
-                        dialog = simpleDialog,
-                        onDismiss = onDismissSimpleDialog,
-                        archiveDownloads = archiveDownloads,
-                    )
+                }
+
+                if (loading) {
+                    LoadingOverlay(progressMessage)
                 }
             }
         }

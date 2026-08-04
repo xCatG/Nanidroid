@@ -6,12 +6,15 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextReplacement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -76,6 +79,45 @@ class NanidroidComposeShellTest {
         composeRule.runOnIdle { assertEquals("help", selected) }
         composeRule.runOnIdle { loading.value = true }
         composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
+    }
+
+    @Test
+    fun shell_loading_overlay_blocks_top_app_bar_pointer_actions() {
+        var selected = ""
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = true,
+                progressMessage = "Loading ghost",
+                toolbarVisible = true,
+                onListGhost = { selected = "list" },
+                onUpdate = { selected = "update" },
+                onReadme = { selected = "readme" },
+                onPreferences = { selected = "preferences" },
+                onHelp = { selected = "help" },
+                onArchiveQueue = { selected = "queue" },
+                showDebugControls = true,
+                onDebug = { selected = "debug" },
+                simpleDialog = null,
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
+
+        val listButtonCenter = composeRule.onNodeWithTag("list-ghost").fetchSemanticsNode().boundsInRoot.center
+        val debugButtonCenter = composeRule.onNodeWithTag("debug").fetchSemanticsNode().boundsInRoot.center
+
+        composeRule.onRoot().performTouchInput {
+            click(listButtonCenter)
+        }
+        composeRule.waitForIdle()
+        composeRule.onRoot().performTouchInput {
+            click(debugButtonCenter)
+        }
+        composeRule.waitForIdle()
+
+        assertEquals("", selected)
     }
 
     @Test
