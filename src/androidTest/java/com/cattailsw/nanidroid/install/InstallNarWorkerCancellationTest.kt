@@ -122,12 +122,14 @@ class InstallNarWorkerCancellationTest {
                 itemId: String,
                 attemptId: Long,
                 workManagerId: String,
-            ) = NarInstallWorkRecovery.RESUMABLE
+                recreateIfMissing: Boolean,
+            ) = NarInstallWorkRecovery.ACTIVE
             override fun ensureStageEnqueued(
                 itemId: String,
                 attemptId: Long,
                 workManagerId: String,
-            ) = NarStageWorkRecovery.RESUMABLE
+                recreateIfMissing: Boolean,
+            ) = NarStageWorkRecovery.ACTIVE
         },
         installer = object : NarArchiveInstaller {
             override fun install(

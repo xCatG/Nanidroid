@@ -81,7 +81,6 @@ internal class NarLiveGrantHandoff(
         } catch (_: RuntimeException) {
             runCatching { source.close() }
             repository.stop(item.id)
-            repository.abandonLiveLocalCopy(item.id, item.attemptId)
         }
         return item
     }

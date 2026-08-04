@@ -225,6 +225,17 @@ class DurableOperationSupervisor(
         }?.status
     }
 
+    internal fun exactStatusForAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): OperationStatus? = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
+        }?.status
+    }
+
     internal fun cancellationRequestedForExactAttempt(
         handle: OperationHandle,
         kind: OperationKind,
