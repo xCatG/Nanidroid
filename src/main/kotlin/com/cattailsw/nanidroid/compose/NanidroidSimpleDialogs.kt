@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.compose
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -102,7 +103,9 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 @Composable private fun UserInputDialog(dialog: NanidroidSimpleDialog.UserInput, onDismiss: () -> Unit) {
     fun cancel() { onDismiss(); dialog.onCancel() }
     AlertDialog(
-        onDismissRequest = ::cancel,
+        // Back/outside dismissal hides presentation only. The runtime-owned
+        // pending input remains reopenable until explicit Cancel or submit.
+        onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.user_input_dlg_title)) },
         text = { OutlinedTextField(value = dialog.value, onValueChange = dialog.onValueChanged, modifier = Modifier.fillMaxWidth().testTag("script-user-input"), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onDismiss(); dialog.onSubmit(dialog.id, dialog.value) })) },
         confirmButton = { TextButton(onClick = { onDismiss(); dialog.onSubmit(dialog.id, dialog.value) }, modifier = Modifier.testTag("script-user-input-confirm")) { Text(stringResource(android.R.string.ok)) } },
@@ -111,9 +114,11 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 }
 
 @Composable private fun UserChoiceDialog(dialog: NanidroidSimpleDialog.UserChoice, onDismiss: () -> Unit) = AlertDialog(
-    onDismissRequest = {},
+    // Dismissal hides only this legacy host presentation. The runner retains
+    // its exact pending actions, allowing the stage's Choose control to reopen.
+    onDismissRequest = onDismiss,
     title = { Text(stringResource(R.string.user_sel_dlg_title)) },
-    text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) { dialog.labels.forEachIndexed { index, label -> TextButton(modifier = Modifier.fillMaxWidth().testTag("script-choice-$index"), onClick = { onDismiss(); dialog.onChoice(index) }) { Text(label) } } } },
+    text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) { dialog.labels.forEachIndexed { index, label -> TextButton(modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("script-choice-$index"), onClick = { onDismiss(); dialog.onChoice(index) }) { Text(label) } } } },
     confirmButton = {},
 )
 

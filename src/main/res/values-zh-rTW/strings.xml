@@ -43,6 +43,7 @@
   <string name="help_supported_ops">目前本體支援的功能</string>
 
   <string name="user_input_dlg_title">輸入</string>
+  <string name="dialogue_choose_action">選擇…</string>
   <string name="user_sel_dlg_title">請選擇一項</string>
   <string name="err_title">錯誤</string>
   <string name="err_no_sdcard">找不到 SD 卡，正在中止。</string>

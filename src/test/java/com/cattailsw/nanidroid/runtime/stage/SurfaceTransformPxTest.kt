@@ -495,24 +495,31 @@ class SurfaceTransformPxTest {
         state.resetFor(Any())
         val layoutA = layout(keroSurface = StageDpRect(0.dp, 10.dp, 20.dp, 40.dp))
         val layoutB = layout(keroSurface = StageDpRect(1.dp, 10.dp, 21.dp, 40.dp))
-        fun snapshot(layout: StageLayoutDp, bubbleLeft: Int) = StageMeasuredSnapshot(
-            layoutDp = layout,
-            layoutPx = StageLayoutPx.from(layout, 1f),
-            kero = null,
-            sakura = null,
-            bubbleRegions = listOf(
-                MeasuredBubbleHitRegion(
-                    IntRect(bubbleLeft, 0, bubbleLeft + 10, 10),
-                    BubbleInteractionTarget.Frame(SurfaceSpeaker.KERO),
+        fun commit(layout: StageLayoutDp, bubbleLeft: Int) {
+            val frame = IntRect(bubbleLeft, 0, bubbleLeft + 10, 10)
+            val fence = BubbleRegionFence(
+                speaker = SurfaceSpeaker.KERO,
+                talkId = 1L,
+                contentRevision = bubbleLeft.toLong(),
+                frame = frame,
+            )
+            state.commit(
+                StageMeasuredSnapshot(
+                    layoutDp = layout,
+                    layoutPx = StageLayoutPx.from(layout, 1f),
+                    kero = null,
+                    sakura = null,
+                    activeBubbleFences = mapOf(SurfaceSpeaker.KERO to fence),
                 ),
-            ),
-        )
+            )
+            state.publishBubbleRegions(BubbleRegionSet(fence, emptyList(), frame))
+        }
 
-        state.commit(snapshot(layoutA, bubbleLeft = 0))
+        commit(layoutA, bubbleLeft = 0)
         val epochA = state.inputEpoch
-        state.commit(snapshot(layoutB, bubbleLeft = 1))
+        commit(layoutB, bubbleLeft = 1)
         val epochB = state.inputEpoch
-        state.commit(snapshot(layoutA, bubbleLeft = 0))
+        commit(layoutA, bubbleLeft = 0)
 
         assertTrue(epochB > epochA)
         assertTrue(state.inputEpoch > epochB)

@@ -1,33 +1,25 @@
 package com.cattailsw.nanidroid.compose
 
-import android.text.SpannableString
-import android.text.style.URLSpan
-import android.text.util.Linkify
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.colorResource
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -35,6 +27,10 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
+import com.cattailsw.nanidroid.compose.stage.BubbleUiState
+import com.cattailsw.nanidroid.compose.stage.DialogueActionSurface
+import com.cattailsw.nanidroid.compose.stage.useCompactDialogueActionSurface
+import com.cattailsw.nanidroid.compose.stage.GhostBubble
 import com.cattailsw.nanidroid.compose.stage.MeasuredGhostStageLayout
 import com.cattailsw.nanidroid.compose.stage.StageEnvironmentProvider
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
@@ -46,6 +42,14 @@ import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import com.cattailsw.nanidroid.runtime.stage.BubbleHitRegionRegistry
 import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
+import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.stage.BubbleScrollKey
+import com.cattailsw.nanidroid.runtime.stage.BubbleScrollMemory
+import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import kotlin.math.roundToInt
 
 /** Production adaptive stage consuming atomic composed surfaces. */
@@ -66,23 +70,106 @@ fun GhostPresentationStage(
     modifier: Modifier = Modifier,
     showSakuraBalloon: Boolean = true,
     showKeroBalloon: Boolean = true,
+    sakuraDialogue: DialogueContent = DialogueContent(GhostSpeaker.SAKURA, emptyList()),
+    keroDialogue: DialogueContent = DialogueContent(GhostSpeaker.KERO, emptyList()),
+    sakuraPendingChoices: List<DialogueAction> = emptyList(),
+    keroPendingChoices: List<DialogueAction> = emptyList(),
+    sakuraPendingInput: PendingInputState? = null,
+    keroPendingInput: PendingInputState? = null,
+    dialogueTalkId: Long = 0L,
+    dialogueRevision: Long = 0L,
+    onDialogueChoice: (DialogueAction) -> Unit = {},
+    onDialogueAnchor: (AnchorAction) -> Unit = {},
+    onDialogueExternalUrl: (String) -> Unit = {},
+    onDialogueInput: (DialogueSegment.InputBox) -> Unit = {},
     sakuraSurface: @Composable BoxScope.(StageSurfaceSnapshot) -> Unit = {},
     keroSurface: @Composable BoxScope.(StageSurfaceSnapshot) -> Unit = {},
 ) {
     StageEnvironmentProvider { windowEnvironment ->
         var placement by remember { mutableStateOf<StagePlacement?>(null) }
+        // Presentation-open state is intentionally not saveable: a recreated
+        // Activity must re-open from the runner's still-pending exact actions.
+        var actionSurfaceSpeakerName by remember { mutableStateOf<String?>(null) }
+        val actionSurfaceSpeaker = actionSurfaceSpeakerName?.let(SurfaceSpeaker::valueOf)
+        var actionSurfaceActionIdentities by remember { mutableStateOf<List<DialogueAction>?>(null) }
+        var restoreChooseFocus by remember { mutableStateOf<SurfaceSpeaker?>(null) }
+        val keroChooseFocusRequester = remember { FocusRequester() }
+        val sakuraChooseFocusRequester = remember { FocusRequester() }
+        val stageView = LocalView.current
+        val inputModeManager = LocalInputModeManager.current
+        DisposableEffect(stageView, restoreChooseFocus) {
+            val requestFocus = Runnable {
+                val speaker = restoreChooseFocus ?: return@Runnable
+                if (!stageView.hasWindowFocus()) return@Runnable
+                inputModeManager.requestInputMode(InputMode.Keyboard)
+                val requester = when (speaker) {
+                    SurfaceSpeaker.KERO -> keroChooseFocusRequester
+                    SurfaceSpeaker.SAKURA -> sakuraChooseFocusRequester
+                }
+                if (runCatching { requester.requestFocus() }.getOrDefault(false)) {
+                    restoreChooseFocus = null
+                }
+            }
+            val listener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->
+                if (focused && restoreChooseFocus != null) stageView.post(requestFocus)
+            }
+            stageView.viewTreeObserver.addOnWindowFocusChangeListener(listener)
+            if (restoreChooseFocus != null && stageView.hasWindowFocus()) stageView.post(requestFocus)
+            onDispose {
+                stageView.removeCallbacks(requestFocus)
+                if (stageView.viewTreeObserver.isAlive) {
+                    stageView.viewTreeObserver.removeOnWindowFocusChangeListener(listener)
+                }
+            }
+        }
+        val bubbleScrollMemory = remember { BubbleScrollMemory() }
+        val keroScrollKey = BubbleScrollKey(SurfaceSpeaker.KERO, dialogueTalkId)
+        val sakuraScrollKey = BubbleScrollKey(SurfaceSpeaker.SAKURA, dialogueTalkId)
+        val keroScroll = remember(keroScrollKey) { bubbleScrollMemory.snapshot(keroScrollKey) }
+        val sakuraScroll = remember(sakuraScrollKey) { bubbleScrollMemory.snapshot(sakuraScrollKey) }
+        val actionSurfaceActions = when (actionSurfaceSpeaker) {
+            SurfaceSpeaker.KERO -> keroPendingChoices
+            SurfaceSpeaker.SAKURA -> sakuraPendingChoices
+            null -> emptyList()
+        }
+        val actionSurfaceStale = actionSurfaceSpeaker != null && (
+            actionSurfaceActions.isEmpty() ||
+                actionSurfaceActionIdentities?.hasSameRuntimeIdentities(actionSurfaceActions) == false
+            )
+        val activeActionSurfaceSpeaker = actionSurfaceSpeaker.takeUnless { actionSurfaceStale }
+        if (actionSurfaceStale) {
+            SideEffect {
+                actionSurfaceSpeakerName = null
+                actionSurfaceActionIdentities = null
+                restoreChooseFocus = null
+            }
+        }
+        LaunchedEffect(
+            actionSurfaceSpeaker,
+            actionSurfaceActions,
+            dialogueTalkId,
+            dialogueRevision,
+        ) {
+            if (actionSurfaceSpeaker == null) {
+                actionSurfaceActionIdentities = null
+            } else if (!actionSurfaceStale && actionSurfaceActionIdentities == null) {
+                // A restored open surface adopts the runner's current exact objects.
+                actionSurfaceActionIdentities = actionSurfaceActions.toList()
+            }
+        }
         // StagePointerInput evaluates this provider during composition for
         // eager cancellation and again at event time for authoritative state.
         StagePointerInput(
             snapshotProvider = {
                 currentStageInputSnapshot(
                     measured = measureState.latest,
-                    blocking = blockingInputProvider(),
+                    blocking = blockingInputProvider() || activeActionSurfaceSpeaker != null,
                     ghostKey = ghostKey,
                     ghostIdentity = ghostIdentityProvider(),
                     routingEpoch = StagePresentationRoutingEpoch(
                         external = routingEpochProvider(),
                         measured = measureState.inputEpoch,
+                        modalSpeaker = activeActionSurfaceSpeaker,
                     ),
                 )
             },
@@ -121,8 +208,62 @@ fun GhostPresentationStage(
                     stageToRoot = measuredPlacement.root,
                     showKeroBalloon = showKeroBalloon,
                     showSakuraBalloon = showSakuraBalloon,
-                    keroBalloon = { GhostBalloon(text = presentation.kero.text) },
-                    sakuraBalloon = { GhostBalloon(text = presentation.sakura.text) },
+                    forceKeroBalloon = keroPendingChoices.isNotEmpty() || keroPendingInput != null,
+                    forceSakuraBalloon = sakuraPendingChoices.isNotEmpty() || sakuraPendingInput != null,
+                    dialogueTalkId = dialogueTalkId,
+                    dialogueRevision = dialogueRevision,
+                    keroBalloon = {
+                        GhostBubble(
+                            state = BubbleUiState(
+                                speaker = SurfaceSpeaker.KERO,
+                                content = keroDialogue,
+                                pendingChoices = keroPendingChoices,
+                                pendingInput = keroPendingInput,
+                                scrollPosition = keroScroll.position,
+                                userScrolledThisTalk = keroScroll.userScrolled,
+                                talkId = dialogueTalkId,
+                                contentRevision = dialogueRevision,
+                            ),
+                            onRegionSet = { measureState.publishBubbleRegions(it) },
+                            onAnchor = onDialogueAnchor,
+                            onExternalUrl = onDialogueExternalUrl,
+                            onInput = onDialogueInput,
+                            onChoose = {
+                                actionSurfaceActionIdentities = keroPendingChoices.toList()
+                                actionSurfaceSpeakerName = SurfaceSpeaker.KERO.name
+                            },
+                            chooseFocusRequester = keroChooseFocusRequester,
+                            onScrollPositionChanged = { position, origin ->
+                                bubbleScrollMemory.update(keroScrollKey, position, origin)
+                            },
+                        )
+                    },
+                    sakuraBalloon = {
+                        GhostBubble(
+                            state = BubbleUiState(
+                                speaker = SurfaceSpeaker.SAKURA,
+                                content = sakuraDialogue,
+                                pendingChoices = sakuraPendingChoices,
+                                pendingInput = sakuraPendingInput,
+                                scrollPosition = sakuraScroll.position,
+                                userScrolledThisTalk = sakuraScroll.userScrolled,
+                                talkId = dialogueTalkId,
+                                contentRevision = dialogueRevision,
+                            ),
+                            onRegionSet = { measureState.publishBubbleRegions(it) },
+                            onAnchor = onDialogueAnchor,
+                            onExternalUrl = onDialogueExternalUrl,
+                            onInput = onDialogueInput,
+                            onChoose = {
+                                actionSurfaceActionIdentities = sakuraPendingChoices.toList()
+                                actionSurfaceSpeakerName = SurfaceSpeaker.SAKURA.name
+                            },
+                            chooseFocusRequester = sakuraChooseFocusRequester,
+                            onScrollPositionChanged = { position, origin ->
+                                bubbleScrollMemory.update(sakuraScrollKey, position, origin)
+                            },
+                        )
+                    },
                     surfaceContent = { snapshot ->
                         when (snapshot.speaker) {
                             SurfaceSpeaker.KERO -> keroSurface(snapshot)
@@ -130,10 +271,35 @@ fun GhostPresentationStage(
                         }
                     },
                 )
+                activeActionSurfaceSpeaker?.let { speaker ->
+                    DialogueActionSurface(
+                        actions = actionSurfaceActions,
+                        speaker = speaker,
+                        open = true,
+                        compact = useCompactDialogueActionSurface(
+                            widthPx = windowEnvironment.windowSizePx.width,
+                            density = windowEnvironment.density,
+                            touch = windowEnvironment.inputCapabilities.touch,
+                        ),
+                        onDismiss = {
+                            restoreChooseFocus = speaker
+                            actionSurfaceSpeakerName = null
+                            actionSurfaceActionIdentities = null
+                        },
+                        onAction = { action ->
+                            actionSurfaceSpeakerName = null
+                            actionSurfaceActionIdentities = null
+                            onDialogueChoice(action)
+                        },
+                    )
+                }
             }
         }
     }
 }
+
+private fun List<DialogueAction>.hasSameRuntimeIdentities(other: List<DialogueAction>): Boolean =
+    size == other.size && indices.all { this[it] === other[it] }
 
 internal fun currentStageInputSnapshot(
     measured: StageMeasuredSnapshot?,
@@ -183,48 +349,6 @@ fun GhostPresentationStage(
     )
 }
 
-@Composable
-internal fun GhostBalloon(text: String, modifier: Modifier = Modifier) {
-    val annotatedText = remember(text) { linkifyForCompose(text) }
-    val scrollState = rememberScrollState()
-    val uriHandler = LocalUriHandler.current
-    LaunchedEffect(text, scrollState.maxValue) {
-        scrollState.scrollTo(scrollState.maxValue)
-    }
-    ClickableText(
-        text = annotatedText,
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(colorResource(R.color.ghost_list_bg))
-            .padding(8.dp)
-            .verticalScroll(scrollState),
-        style = TextStyle(color = colorResource(R.color.ghost_list_text)),
-        onClick = { offset ->
-            annotatedText.getStringAnnotations(URL_ANNOTATION, offset, offset)
-                .firstOrNull()
-                ?.item
-                ?.let { url -> runCatching { uriHandler.openUri(url) } }
-        },
-    )
-}
-
-private fun linkifyForCompose(text: String) = buildAnnotatedString {
-    val spanned = SpannableString(text).also { Linkify.addLinks(it, Linkify.ALL) }
-    val links = spanned.getSpans(0, spanned.length, URLSpan::class.java)
-        .sortedBy { spanned.getSpanStart(it) }
-    var cursor = 0
-    links.forEach { link ->
-        val start = spanned.getSpanStart(link).coerceAtLeast(cursor)
-        val end = spanned.getSpanEnd(link).coerceAtMost(spanned.length)
-        if (start >= end) return@forEach
-        append(spanned.subSequence(cursor, start).toString())
-        pushStringAnnotation(URL_ANNOTATION, link.url)
-        append(spanned.subSequence(start, end).toString())
-        pop()
-        cursor = end
-    }
-    append(spanned.subSequence(cursor, spanned.length).toString())
-}
 
 private fun layoutOnlySurface(id: Int, size: IntSize): ComposedSurface? {
     if (size.width <= 0 || size.height <= 0) return null
@@ -241,7 +365,11 @@ private fun layoutOnlySurface(id: Int, size: IntSize): ComposedSurface? {
 }
 
 private data class StagePlacement(val window: IntOffset, val root: IntOffset)
-private data class StagePresentationRoutingEpoch(val external: Any, val measured: Long)
+private data class StagePresentationRoutingEpoch(
+    val external: Any,
+    val measured: Long,
+    val modalSpeaker: SurfaceSpeaker?,
+)
 
 private fun Offset.roundedOffset() = IntOffset(x.roundToInt(), y.roundToInt())
 
@@ -251,7 +379,6 @@ private fun saturatingAdd(first: Int, second: Int): Int =
 private data object LegacyPreviewOwner
 
 private val CANONICAL_APP_BAR_HEIGHT = 64.dp
-private const val URL_ANNOTATION = "nanidroid-balloon-url"
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 640)
 @Composable

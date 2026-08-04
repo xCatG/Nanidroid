@@ -8,6 +8,19 @@ object SakuraScriptTokenizer {
     fun tokenize(
         script: String,
         onDiagnostic: (String) -> Unit = {},
+    ): List<DialogueContent> = tokenize(script, false, onDiagnostic)
+
+    /**
+     * Projects a source prefix consumed by playback. Incomplete anchors remain
+     * plain, progressively revealed text until their closing token is reached.
+     */
+    @JvmStatic
+    fun tokenizeRevealed(script: String): List<DialogueContent> = tokenize(script, true) {}
+
+    private fun tokenize(
+        script: String,
+        allowIncompleteAnchorText: Boolean,
+        onDiagnostic: (String) -> Unit,
     ): List<DialogueContent> {
         val segments = linkedMapOf<GhostSpeaker, MutableList<DialogueSegment>>()
         var speaker = GhostSpeaker.SAKURA
@@ -98,8 +111,13 @@ object SakuraScriptTokenizer {
                                 index = bracket.nextIndex
                                 val closing = findAnchorClosing(script, index)
                                 if (closing < 0) {
-                                    diagnostic("truncated-anchor")
-                                    index = resumeAfterMalformedCommand(script, index)
+                                    if (allowIncompleteAnchorText) {
+                                        text(flattenAnchorLabel(script.substring(index)))
+                                        index = script.length
+                                    } else {
+                                        diagnostic("truncated-anchor")
+                                        index = resumeAfterMalformedCommand(script, index)
+                                    }
                                 } else {
                                     val label = flattenAnchorLabel(script.substring(index, closing))
                                     index = closing + 3

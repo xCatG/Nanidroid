@@ -4,6 +4,7 @@ import androidx.compose.ui.unit.IntOffset
 import com.cattailsw.nanidroid.Ghost
 import com.cattailsw.nanidroid.GhostSessionCoordinator
 import com.cattailsw.nanidroid.SScriptRunner
+import com.cattailsw.nanidroid.SScriptPlaybackScheduler
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
@@ -191,6 +192,81 @@ class SurfaceInteractionProtocolTest {
     }
 
     @Test
+    fun `pointer response waits behind active playback without replacing its source`() {
+        val scheduler = RecordingScheduler()
+        val ghost = object : Ghost("recording") {
+            override fun loadGhostInfo() = Unit
+            override fun getCreateCount(): Long = 1L
+            override fun incrementCreateCount() = Unit
+            override fun getSakuraName(): String = "Sakura"
+            override fun getKeroName(): String = "Kero"
+            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>) =
+                ShioriResponse("SHIORI/3.0 200 OK", java.util.Hashtable<String, String>().apply {
+                    put("Value", "\\hReply\\e")
+                })
+        }
+        val runner = SScriptRunner(
+            ctx = null,
+            sessionCoordinator = GhostSessionCoordinator(),
+            playbackSchedulerFactory = { scheduler },
+        )
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hABCDEFGHIJ\\_w[5000]\\e"))
+        runner.run()
+        scheduler.runNext()
+        assertEquals("A", runner.dialogueStateSnapshot().contents.single().segments.text())
+
+        runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH))
+        scheduler.runUntil {
+            runner.dialogueStateSnapshot().contents.singleOrNull()?.segments?.text() == "ABCDEFGHIJ"
+        }
+        scheduler.runUntil {
+            runner.dialogueStateSnapshot().contents.singleOrNull()?.segments?.text() == "Reply"
+        }
+
+        assertEquals(2L, runner.dialogueStateSnapshot().talkId)
+    }
+
+    @Test
+    fun `pointer response arriving during terminal stop delay is not stranded`() {
+        val scheduler = RecordingScheduler()
+        val ghost = object : Ghost("recording") {
+            override fun loadGhostInfo() = Unit
+            override fun getCreateCount(): Long = 1L
+            override fun incrementCreateCount() = Unit
+            override fun getSakuraName(): String = "Sakura"
+            override fun getKeroName(): String = "Kero"
+            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>) =
+                ShioriResponse("SHIORI/3.0 200 OK", java.util.Hashtable<String, String>().apply {
+                    put("Value", "\\hReply\\e")
+                })
+        }
+        val runner = SScriptRunner(
+            ctx = null,
+            sessionCoordinator = GhostSessionCoordinator(),
+            playbackSchedulerFactory = { scheduler },
+        )
+        runner.setGhost(ghost)
+        runner.addMsgToQueue(arrayOf("\\hDone\\e"))
+        runner.run()
+        scheduler.runUntil {
+            runner.dialogueStateSnapshot().contents.singleOrNull()?.segments?.text() == "Done"
+        }
+        scheduler.runNext() // consume \e
+        scheduler.runNext() // poll empty and schedule delayed STOP
+
+        runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH))
+        scheduler.runNext() // delayed STOP must hand off to the newly queued response
+        scheduler.runUntil {
+            runner.dialogueStateSnapshot().contents.singleOrNull()?.segments?.text() == "Reply"
+        }
+
+        assertEquals(2L, runner.dialogueStateSnapshot().talkId)
+    }
+
+    @Test
     fun `kero interaction clears queued dialogue before dispatch`() {
         val ghost = object : Ghost("recording") {
             override fun loadGhostInfo() = Unit
@@ -292,6 +368,32 @@ class SurfaceInteractionProtocolTest {
         assertEquals(2, stops)
         assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
     }
+}
+
+private class RecordingScheduler : SScriptPlaybackScheduler {
+    private val pending = ArrayDeque<() -> Unit>()
+
+    override fun schedule(delayMillis: Long, action: () -> Unit) {
+        pending.addLast(action)
+    }
+
+    override fun cancelPending() {
+        pending.clear()
+    }
+
+    fun runNext() = requireNotNull(pending.removeFirstOrNull()).invoke()
+
+    fun runUntil(predicate: () -> Boolean) {
+        repeat(100) {
+            if (predicate()) return
+            runNext()
+        }
+        throw AssertionError("playback condition was not reached")
+    }
+}
+
+private fun List<DialogueSegment>.text(): String = buildString {
+    this@text.forEach { segment -> if (segment is DialogueSegment.Text) append(segment.value) }
 }
 
 private fun effect(

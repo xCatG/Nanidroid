@@ -5,6 +5,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -20,6 +21,12 @@ import com.cattailsw.nanidroid.runtime.KotlinGhostPresentationRuntime
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.RenderedSurfaceLayer
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
+import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
 import kotlinx.coroutines.delay
 
 /**
@@ -45,6 +52,18 @@ class ComposeGhostStageHost private constructor(
 
     var runtimeState: GhostPresentationRuntimeState by mutableStateOf(GhostPresentationRuntimeState.Initial)
         private set
+    var dialogueState: DialogueRuntimeState by mutableStateOf(DialogueRuntimeState(), neverEqualPolicy())
+        private set
+
+    fun updateDialogueState(state: DialogueRuntimeState) {
+        val current = dialogueState
+        if (
+            state.incarnation > current.incarnation ||
+            (state.incarnation == current.incarnation && state.revision >= current.revision)
+        ) {
+            dialogueState = state
+        }
+    }
     private var activeSurfaceManager: SurfaceManager? by mutableStateOf(null)
     private var sakuraFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var keroFrame: SurfaceRenderFrame? by mutableStateOf(null)
@@ -99,6 +118,10 @@ class ComposeGhostStageHost private constructor(
         blockingInput: () -> Boolean = { false },
         blockingInputEpoch: () -> Long = { 0L },
         onSurfaceTap: () -> Unit = {},
+        onDialogueChoice: (DialogueAction) -> Unit = {},
+        onDialogueAnchor: (AnchorAction) -> Unit = {},
+        onDialogueExternalUrl: (String) -> Unit = {},
+        onDialogueInput: (DialogueSegment.InputBox) -> Unit = {},
     ) {
         val manager = activeSurfaceManager
         val state = runtimeState
@@ -124,6 +147,16 @@ class ComposeGhostStageHost private constructor(
             kero.plan,
             keroFrame,
             explicitlyHidden = !kero.visible,
+        )
+        val dialogue = dialogueState
+        val dialogueOwnership = remember(dialogue) { DialogueSpeakerOwnership.from(dialogue) }
+        val sakuraDialogue = dialogueOwnership.content(GhostSpeaker.SAKURA).withFallback(
+            fallbackText = state.presentation.sakura.text,
+            authored = dialogue.contents.any { it.speaker == GhostSpeaker.SAKURA },
+        )
+        val keroDialogue = dialogueOwnership.content(GhostSpeaker.KERO).withFallback(
+            fallbackText = state.presentation.kero.text,
+            authored = dialogue.contents.any { it.speaker == GhostSpeaker.KERO },
         )
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         var stageStarted by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
@@ -158,6 +191,18 @@ class ComposeGhostStageHost private constructor(
             onSurfaceEffect = interactionPort::dispatch,
             onToggleChrome = onSurfaceTap,
             modifier = modifier,
+            sakuraDialogue = sakuraDialogue,
+            keroDialogue = keroDialogue,
+            sakuraPendingChoices = dialogueOwnership.pendingChoices(GhostSpeaker.SAKURA),
+            keroPendingChoices = dialogueOwnership.pendingChoices(GhostSpeaker.KERO),
+            sakuraPendingInput = dialogueOwnership.pendingInput(GhostSpeaker.SAKURA),
+            keroPendingInput = dialogueOwnership.pendingInput(GhostSpeaker.KERO),
+            dialogueTalkId = dialogue.talkId,
+            dialogueRevision = dialogue.revision,
+            onDialogueChoice = onDialogueChoice,
+            onDialogueAnchor = onDialogueAnchor,
+            onDialogueExternalUrl = onDialogueExternalUrl,
+            onDialogueInput = onDialogueInput,
             sakuraSurface = { snapshot ->
                 RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
             },
@@ -302,6 +347,9 @@ class ComposeGhostStageHost private constructor(
 
     private fun SurfaceRenderPlan.isRenderableSurface(): Boolean =
         width >= 0 && height >= 0 && width.toLong() * height.toLong() <= MAX_RENDERABLE_SURFACE_PIXELS
+
+    private fun DialogueContent.withFallback(fallbackText: String, authored: Boolean): DialogueContent =
+        if (authored) this else copy(segments = listOf(DialogueSegment.Text(fallbackText)))
 
     private companion object {
         private data object NoGhostIdentity

@@ -6,6 +6,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert
@@ -297,10 +298,20 @@ class SScriptRunnerPresentationTest {
         fixture.runner.addMsgToQueue(arrayOf("\\hinterruption\\e"))
         fixture.runner.run()
         Assert.assertEquals(pending, fixture.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertSame(
+            pending,
+            DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+                .pendingInput(GhostSpeaker.SAKURA),
+        )
 
         fixture.runner.addMsgToQueue(arrayOf("\\q[Choice,choice-id]\\e"))
         fixture.runner.run()
         Assert.assertEquals(pending, fixture.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertSame(
+            pending,
+            DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+                .pendingInput(GhostSpeaker.SAKURA),
+        )
     }
 
     @Test
