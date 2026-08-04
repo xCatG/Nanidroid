@@ -14,6 +14,7 @@ class DurableOperationSupervisor(
     private val lastProgressAt = mutableMapOf<OperationHandle, Long>()
     private val cancellationIssued = mutableSetOf<BoundCancellation>()
     private val revealedStoppingAttention = mutableSetOf<OperationHandle>()
+    private val restartSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
     @Volatile private var mutationListener: (() -> Unit)? = null
 
     init {
@@ -21,19 +22,13 @@ class DurableOperationSupervisor(
         store.read().filter { it.status.isActive() }.forEach { restored ->
             val handle = restored.handle()
             lastProgressAt[handle] = now
-            if (restored.showStallPrompt) {
-                try {
-                    store.compareAndSet(
-                        restored,
-                        restored.copy(showStallPrompt = false),
-                    )
-                } catch (_: Exception) {
-                }
-            }
             if (restored.status == OperationStatus.CANCEL_REQUESTED && restored.externalJob != null) {
                 issueCancellation(handle, restored.kind, restored.externalJob)
             }
         }
+        store.read()
+            .filter { it.status.isActive() && it.showStallPrompt }
+            .forEach { restored -> restartSuppressedAttention[restored.handle()] = restored }
     }
 
     internal fun setMutationListener(listener: (() -> Unit)?) {
@@ -201,6 +196,7 @@ class DurableOperationSupervisor(
                 if (!store.compareAndSet(current, current.copy(showStallPrompt = false))) {
                     return@mutate false
                 }
+                restartSuppressedAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
             }
             DurableAttentionAction.STOP -> {
@@ -211,6 +207,7 @@ class DurableOperationSupervisor(
                     showStallPrompt = true,
                 )
                 if (!store.compareAndSet(current, updated)) return@mutate false
+                restartSuppressedAttention.remove(handle)
                 revealedStoppingAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
                 current.externalJob?.let {
@@ -224,6 +221,7 @@ class DurableOperationSupervisor(
                 ) {
                     return@mutate false
                 }
+                restartSuppressedAttention.remove(handle)
                 revealedStoppingAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
                 current.externalJob?.let {
@@ -399,6 +397,12 @@ class DurableOperationSupervisor(
         store.read().filter { it.status.isActive() }.forEach { record ->
             val handle = record.handle()
             val observedAt = lastProgressAt.getOrPut(handle) { now }
+            if (
+                record.isRestartSuppressed() &&
+                now - observedAt >= STALL_MILLIS
+            ) {
+                restartSuppressedAttention.remove(handle)
+            }
             if (record.attentionEscalationDue(now - observedAt, handle)) {
                 if (record.showStallPrompt && record.isCancellationDispatchFailure()) {
                     revealedStoppingAttention += handle
@@ -428,8 +432,15 @@ class DurableOperationSupervisor(
             .filter { it.status.isActive() }
             .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
         revealedStoppingAttention.retainAll(storedRecords.mapTo(mutableSetOf()) { it.handle() })
+        restartSuppressedAttention.keys.retainAll(
+            storedRecords.mapTo(mutableSetOf()) { it.handle() },
+        )
         val nextDelay = storedRecords
-            .filter { !it.showStallPrompt || it.awaitingStoppingEscalation(it.handle()) }
+            .filter {
+                it.isRestartSuppressed() ||
+                    !it.showStallPrompt ||
+                    it.awaitingStoppingEscalation(it.handle())
+            }
             .minOfOrNull { record ->
                 val observedAt = lastProgressAt.getOrPut(record.handle()) { now }
                 (STALL_MILLIS - (now - observedAt).coerceAtLeast(0L)).coerceAtLeast(0L)
@@ -438,7 +449,9 @@ class DurableOperationSupervisor(
                 if (promptWriteFailed && delay == 0L) PROMPT_WRITE_RETRY_MILLIS else delay
             }
         val presentedRecords = storedRecords.map { record ->
-            if (
+            if (record.isRestartSuppressed()) {
+                record.copy(showStallPrompt = false)
+            } else if (
                 record.showStallPrompt &&
                 record.isCancellationDispatchFailure() &&
                 record.handle() !in revealedStoppingAttention
@@ -450,6 +463,9 @@ class DurableOperationSupervisor(
         }
         DurableAttentionSnapshot(presentedRecords, nextDelay)
     }
+
+    private fun DurableOperationRecord.isRestartSuppressed(): Boolean =
+        restartSuppressedAttention[handle()] == this
 
     private fun DurableOperationRecord.attentionEscalationDue(
         elapsedMillis: Long,

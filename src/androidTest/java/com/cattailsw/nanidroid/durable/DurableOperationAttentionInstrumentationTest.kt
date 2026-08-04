@@ -76,7 +76,9 @@ class DurableOperationAttentionInstrumentationTest {
         )
         clock.value = 30_000L
         assertTrue(supervisor.snapshot().single().showStallPrompt)
-        SharedDurableOperationSupervisor.replaceForTesting(supervisor)
+        val restored = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        assertFalse(restored.snapshot().single().showStallPrompt)
+        SharedDurableOperationSupervisor.replaceForTesting(restored)
 
         DurableOperationAttentionReceiver().onReceive(
             context,

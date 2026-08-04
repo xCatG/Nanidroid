@@ -22,6 +22,7 @@ import androidx.activity.compose.setContent
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -367,6 +368,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 .attention(applicationContext)
                 .observeStalledOperations()
                 .collectAsState()
+            var durableRecoveryRequired by remember {
+                mutableStateOf(SharedDurableOperationSupervisor.isRecoveryRequired())
+            }
             LaunchedEffect(downloads) {
                 if (downloads.any { it.state is NarDownloadState.Complete }) gm?.refreshGhost()
             }
@@ -417,6 +421,13 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     onDurableAttentionAction = { handle, action ->
                         SharedDurableOperationSupervisor.get(applicationContext)
                             .performAttentionAction(handle, action)
+                    },
+                    durableRecoveryRequired = durableRecoveryRequired,
+                    onResolveDurableRecovery = {
+                        val resolved = SharedDurableOperationSupervisor.resolveRecovery()
+                        durableRecoveryRequired =
+                            SharedDurableOperationSupervisor.isRecoveryRequired()
+                        resolved
                     },
                     transientOverlay = {
                         if (dbgBuild && !loading) {

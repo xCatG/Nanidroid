@@ -430,38 +430,76 @@ class DurableOperationSupervisorTest {
         assertTrue(restored.snapshot().single().showStallPrompt)
     }
 
-    @Test fun recreationDoesNotCrashWhenPersistedPromptClearFails() {
-        val delegate = MemoryDurableOperationStore()
-        val stalled = DurableOperationRecord(
-            id = OperationId("stalled-restore"),
-            attemptId = AttemptId(1),
-            kind = OperationKind.GHOST_UPDATE,
-            externalJob = null,
-            progress = OperationProgress("Queued", 0),
-            status = OperationStatus.RUNNING,
-            showStallPrompt = true,
+    @Test fun recreationSuppressesPersistedPromptWithoutRevokingNotificationAction() {
+        val handle = handle("stalled-restore", 1)
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        val restored = DurableOperationSupervisor(store, clock, cancellation)
+
+        assertTrue(store.read().single().showStallPrompt)
+        assertFalse(restored.snapshot().single().showStallPrompt)
+        assertFalse(
+            restored.performAttentionAction(
+                handle.copy(attemptId = AttemptId(2)),
+                DurableAttentionAction.KEEP_WAITING,
+            ),
         )
-        assertTrue(delegate.putIfAbsent(stalled))
-        val throwingStore = object : DurableOperationStore {
-            override fun read(): List<DurableOperationRecord> = delegate.read()
+        assertTrue(restored.performAttentionAction(handle, DurableAttentionAction.KEEP_WAITING))
+        assertFalse(store.read().single().showStallPrompt)
+    }
 
-            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
-                delegate.putIfAbsent(record)
+    @Test fun recreationKeepsExactNotificationActionValidAcrossRepeatedProcessDeaths() {
+        val handle = handle("stalled-twice", 1)
+        val binding = workManager("stalled-twice-worker")
+        assertTrue(
+            supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding),
+        )
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
 
-            override fun compareAndSet(
-                expected: DurableOperationRecord,
-                updated: DurableOperationRecord,
-            ): Boolean {
-                if (expected.showStallPrompt && !updated.showStallPrompt) {
-                    throw IllegalStateException("prompt clear persistence failed")
-                }
-                return delegate.compareAndSet(expected, updated)
-            }
-        }
+        DurableOperationSupervisor(store, clock, cancellation)
+        val restoredAgain = DurableOperationSupervisor(store, clock, cancellation)
 
-        DurableOperationSupervisor(throwingStore, clock, cancellation)
+        assertFalse(restoredAgain.snapshot().single().showStallPrompt)
+        assertTrue(restoredAgain.performAttentionAction(handle, DurableAttentionAction.STOP))
+        assertEquals(OperationStatus.CANCEL_REQUESTED, store.read().single().status)
+        assertEquals(listOf(CancellationRequest(handle, binding)), cancellation.requests)
+    }
 
-        assertEquals(stalled, throwingStore.read().single())
+    @Test fun realProgressRevokesSuppressedRestoredNotificationAction() {
+        val handle = handle("stalled-progress", 1)
+        val binding = workManager("stalled-progress-worker")
+        assertTrue(
+            supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding),
+        )
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        val restored = DurableOperationSupervisor(store, clock, cancellation)
+
+        assertTrue(restored.reportProgress(handle, binding, "Downloading", 1))
+
+        assertFalse(restored.performAttentionAction(handle, DurableAttentionAction.STOP))
+        assertEquals(OperationStatus.RUNNING, store.read().single().status)
+        assertTrue(cancellation.requests.isEmpty())
+    }
+
+    @Test fun restoredPromptRepublishesAfterFreshObservationWindow() {
+        val handle = handle("stalled-republish", 1)
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        val restored = DurableOperationSupervisor(store, clock, cancellation)
+
+        clock.value = 59_999
+        val beforeDeadline = restored.attentionSnapshot()
+        assertFalse(beforeDeadline.records.single().showStallPrompt)
+        assertEquals(1L, beforeDeadline.nextCheckDelayMillis)
+
+        clock.value = 60_000
+        val atDeadline = restored.attentionSnapshot()
+        assertTrue(atDeadline.records.single().showStallPrompt)
     }
 
     @Test fun recreationImmediatelyResumesPersistedCancellation() {

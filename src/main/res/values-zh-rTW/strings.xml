@@ -135,4 +135,8 @@
   <string name="durable_diagnostics_label">診斷資訊</string>
   <string name="durable_diagnostic_cancel_dispatch_failed">無法送出停止要求。你可以重試。</string>
   <string name="durable_diagnostic_stopping_delayed">停止要求已超過30秒仍未完成。</string>
+  <string name="durable_store_recovery_title">操作復原需要處理</string>
+  <string name="durable_store_recovery_message">Nanidroid 無法讀取已儲存的下載、安裝與更新狀態。新的操作已暫停。已交由 Android 執行的工作可能仍在進行。請捨棄無法讀取的記錄以繼續。Nanidroid 不會自動停止工作。</string>
+  <string name="durable_store_recovery_confirm">捨棄無法讀取的記錄並繼續</string>
+  <string name="durable_store_recovery_failed">Nanidroid 無法完成復原。操作仍維持暫停，請再試一次。</string>
 </resources>

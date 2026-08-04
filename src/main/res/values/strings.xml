@@ -140,4 +140,8 @@
   <string name="durable_diagnostics_label">Diagnostics</string>
   <string name="durable_diagnostic_cancel_dispatch_failed">Nanidroid could not send the stop request. You can retry it.</string>
   <string name="durable_diagnostic_stopping_delayed">The stop request has not finished after 30 seconds.</string>
+  <string name="durable_store_recovery_title">Operation recovery needs attention</string>
+  <string name="durable_store_recovery_message">Nanidroid couldn’t read its saved download, install, and update status. New operations are paused. Work already handed to Android may still be running. Discard the unreadable history to resume. Nanidroid will not stop work automatically.</string>
+  <string name="durable_store_recovery_confirm">Discard unreadable history and resume</string>
+  <string name="durable_store_recovery_failed">Nanidroid couldn’t finish recovery. Operations remain paused. Try again.</string>
 </resources>

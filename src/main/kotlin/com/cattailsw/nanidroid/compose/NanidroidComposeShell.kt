@@ -38,6 +38,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.compose.debug.DebugAvailabilityPolicy
 import com.cattailsw.nanidroid.compose.durable.StalledOperationPrompt
+import com.cattailsw.nanidroid.compose.durable.DurableStoreRecoveryPrompt
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.durable.DurableAttentionAction
 import com.cattailsw.nanidroid.durable.DurableOperationRecord
@@ -70,6 +71,8 @@ internal fun NanidroidComposeShell(
     onDismissSimpleDialog: () -> Unit,
     stalledOperations: List<DurableOperationRecord> = emptyList(),
     onDurableAttentionAction: (OperationHandle, DurableAttentionAction) -> Unit = { _, _ -> },
+    durableRecoveryRequired: Boolean = false,
+    onResolveDurableRecovery: () -> Boolean = { false },
     transientOverlay: @Composable () -> Unit = {},
     wallpaper: Drawable? = null,
     modifier: Modifier = Modifier,
@@ -89,6 +92,7 @@ internal fun NanidroidComposeShell(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 val durableAttentionVisible = stalledOperations.any { it.showStallPrompt }
+                val durableModalVisible = durableRecoveryRequired || durableAttentionVisible
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
@@ -122,7 +126,7 @@ internal fun NanidroidComposeShell(
                 if (loading) {
                     LoadingOverlay(progressMessage)
                 }
-                if (!durableAttentionVisible) {
+                if (!durableModalVisible) {
                     lowerModalStateHolder.SaveableStateProvider("simple-dialog") {
                         NanidroidSimpleDialogHost(
                             dialog = simpleDialog,
@@ -134,9 +138,15 @@ internal fun NanidroidComposeShell(
                         transientOverlay()
                     }
                 }
-                StalledOperationPrompt(
-                    records = stalledOperations,
-                    onAction = onDurableAttentionAction,
+                if (!durableRecoveryRequired) {
+                    StalledOperationPrompt(
+                        records = stalledOperations,
+                        onAction = onDurableAttentionAction,
+                    )
+                }
+                DurableStoreRecoveryPrompt(
+                    required = durableRecoveryRequired,
+                    onResolve = onResolveDurableRecovery,
                 )
             }
         }

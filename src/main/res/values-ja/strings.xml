@@ -135,5 +135,9 @@
   <string name="durable_diagnostics_label">診断情報</string>
   <string name="durable_diagnostic_cancel_dispatch_failed">停止依頼を送信できませんでした。再試行できます。</string>
   <string name="durable_diagnostic_stopping_delayed">停止依頼から30秒以上経過しています。</string>
+  <string name="durable_store_recovery_title">処理の復旧に対応が必要です</string>
+  <string name="durable_store_recovery_message">保存されていたダウンロード、インストール、更新の状態を読み取れませんでした。新しい処理は一時停止しています。Android に引き渡された処理は、まだ実行中の可能性があります。再開するには、読み取れない履歴を破棄してください。Nanidroid が処理を自動的に停止することはありません。</string>
+  <string name="durable_store_recovery_confirm">読み取れない履歴を破棄して再開</string>
+  <string name="durable_store_recovery_failed">復旧を完了できませんでした。処理は一時停止したままです。もう一度お試しください。</string>
 
 </resources>

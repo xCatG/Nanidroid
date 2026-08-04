@@ -594,6 +594,56 @@ class NanidroidComposeShellTest {
     }
 
     @Test
+    fun durable_store_recovery_requires_explicit_acknowledgement_and_restores_lower_modals() {
+        val recoveryRequired = mutableStateOf(true)
+        val resolutionSucceeds = mutableStateOf(false)
+        var resolutionAttempts = 0
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "",
+                toolbarVisible = false,
+                onListGhost = {},
+                onUpdate = {},
+                onPreferences = {},
+                onHelp = {},
+                simpleDialog = NanidroidSimpleDialog.Notice(
+                    title = android.R.string.dialog_alert_title,
+                    message = android.R.string.ok,
+                ),
+                onDismissSimpleDialog = {},
+                durableRecoveryRequired = recoveryRequired.value,
+                onResolveDurableRecovery = {
+                    resolutionAttempts += 1
+                    resolutionSucceeds.value.also { resolved ->
+                        if (resolved) recoveryRequired.value = false
+                    }
+                },
+                transientOverlay = {
+                    Text("Debug tools", Modifier.testTag("test-debug-tools"))
+                },
+            )
+        }
+
+        composeRule.onNodeWithTag("durable-store-recovery-prompt").assertIsDisplayed()
+        composeRule.onNodeWithText("Request stop").assertDoesNotExist()
+        composeRule.onNodeWithText("Keep waiting").assertDoesNotExist()
+        assertNoNodeWithTag("notice-confirm", useUnmergedTree = true)
+        assertNoNodeWithTag("test-debug-tools", useUnmergedTree = true)
+
+        composeRule.onNodeWithTag("durable-store-recovery-confirm").performClick()
+        composeRule.onNodeWithTag("durable-store-recovery-error").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(1, resolutionAttempts) }
+
+        composeRule.runOnIdle { resolutionSucceeds.value = true }
+        composeRule.onNodeWithTag("durable-store-recovery-confirm").performClick()
+        composeRule.onNodeWithTag("notice-confirm").assertIsDisplayed()
+        composeRule.onNodeWithText("Debug tools").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(2, resolutionAttempts) }
+    }
+
+    @Test
     fun long_diagnostic_body_scrolls_while_actions_remain_reachable() {
         val diagnostic = buildString {
             repeat(80) { index -> append("Diagnostic line $index\n") }

@@ -68,6 +68,37 @@ class DurableOperationAttentionCoordinatorTest {
         assertEquals(30_000L, scheduler.delayMillis)
     }
 
+    @Test fun restoredAttentionIsVisuallySuppressedThenRepublishedAtThirtySeconds() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        val restoredSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        val restoredScheduler = FakeAttentionScheduler()
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredCoordinator = DurableOperationAttentionCoordinator(
+            restoredSupervisor,
+            restoredScheduler,
+            restoredNotifier,
+        )
+
+        restoredCoordinator.start()
+        restoredScheduler.runPending()
+
+        assertTrue(restoredCoordinator.observeStalledOperations().value.isEmpty())
+        assertTrue(restoredNotifier.last.isEmpty())
+        assertEquals(30_000L, restoredScheduler.delayMillis)
+
+        clock.value = 59_999L
+        restoredScheduler.runPending()
+        assertEquals(1L, restoredScheduler.delayMillis)
+        assertTrue(restoredNotifier.last.isEmpty())
+
+        clock.value = 60_000L
+        restoredScheduler.runPending()
+        assertEquals(listOf(handle), restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) })
+        assertTrue(restoredCoordinator.observeStalledOperations().value.single().showStallPrompt)
+    }
+
     @Test fun terminalMutationClearsAttentionAndReturnsToSleep() {
         coordinator.start()
         scheduler.runPending()
