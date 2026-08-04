@@ -67,8 +67,14 @@
   <string name="unsupported_shiori_onclose">\\0\\s0感謝您使用Nanidroid！\\e</string>    
   <string name="err_no_ghost_available">目前沒有可用的偽人格。先前中斷的更新可能仍在復原中。請嘗試重新開啟 Nanidroid。</string>
   <string name="toggle_stage_chrome_action">顯示或隱藏控制項</string>
-  <string name="sakura_character_description">Sakura 角色</string>
-  <string name="kero_character_description">Kero 角色</string>
+  <string name="sakura_character_description">本體側</string>
+  <string name="kero_character_description">搭檔側</string>
+  <string name="stage_tiny_window_message">這個視窗太小，無法顯示 Nanidroid。請把它放大一點 💦</string>
+  <string name="stage_surface_activate_action">操作%1$s</string>
+  <string name="stage_collision_activate_action">操作%1$s的「%2$s」</string>
+  <string name="stage_collision_activate_repeated_action">操作%1$s的「%2$s」（第%3$d項）</string>
+  <string name="stage_collision_unnamed_region">未命名區域</string>
+  <string name="stage_collision_disambiguated_identifier">%1$s [%2$d]</string>
   <string name="debug_surface_title">偽人格除錯</string>
   <string name="debug_surface_selected_speaker_label">已選擇角色: %1$s</string>
   <string name="debug_surface_speaker_label">角色</string>

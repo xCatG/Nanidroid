@@ -590,7 +590,7 @@ class RenderedTransformContractTest {
             addSurface("22", source)
         }
         val host = ComposeGhostStageHost(SurfaceInteractionPort(effects::add), assets).apply {
-            setSurfaceManager(manager)
+            setSurfaceManager(manager, "rendered-transform-fixture")
         }
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {

@@ -146,6 +146,7 @@ open class SScriptRunner internal constructor(
     }
 
     private var presentationRenderer: GhostPresentationRenderer? = null
+    private var currentPresentationFrame: GhostPresentationFrame? = null
     private var g: Ghost? = null
     private val mCtx = ctx?.applicationContext
     private var ucb: UICallback? = null; private var cb: StatusCallback? = null
@@ -179,7 +180,10 @@ open class SScriptRunner internal constructor(
         dialogueStateObserver = observer
         observer?.invoke(dialogueState)
     }
-    fun setPresentationRenderer(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
+    fun setPresentationRenderer(renderer: GhostPresentationRenderer?) = synchronized(this) {
+        presentationRenderer = renderer
+        if (renderer != null) currentPresentationFrame?.let(renderer::render)
+    }
     fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean = withCurrentGhost { target ->
         val eventId = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
             ?: return@withCurrentGhost false
@@ -372,6 +376,7 @@ open class SScriptRunner internal constructor(
                 state.bSakuraId = "-1"
                 state.bKeroId = "-1"
                 val frame = takePresentationFrame(state)
+                currentPresentationFrame = frame
                 val renderer = presentationRenderer
                 val callback = cb
                 val exit = callback != null && exitPending
@@ -789,14 +794,14 @@ open class SScriptRunner internal constructor(
     }
 
     private fun updateUI(state: PlaybackState) {
-        val presentation = synchronized(this) {
+        val frame = synchronized(this) {
             if (playback !== state || !state.running) return
-            presentationRenderer to takePresentationFrame(state)
+            takePresentationFrame(state)
         }
         playbackHooks.afterPresentationEffectCaptured()
         publishPlaybackEffect(state) {
-            if (presentationRenderer !== presentation.first) return@publishPlaybackEffect
-            presentation.first?.render(presentation.second)
+            currentPresentationFrame = frame
+            presentationRenderer?.render(frame)
         }
     }
 

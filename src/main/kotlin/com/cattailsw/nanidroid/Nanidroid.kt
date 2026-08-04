@@ -111,6 +111,71 @@ internal fun <T : Any> routeGhostSwitchResult(
     apply(result)
 }
 
+internal data class TransientUiSnapshot(
+    val toolbarVisible: Boolean,
+    val debugPanelState: DebugPanelState,
+)
+
+internal fun restoredTransientUiSnapshot(
+    toolbarVisible: Boolean,
+    debugVisible: Boolean,
+    debugSpeakerName: String?,
+    collisionOverlayVisible: Boolean,
+    isDebuggable: Boolean,
+): TransientUiSnapshot {
+    val debug = if (isDebuggable) {
+        DebugPanelState(
+            visible = debugVisible,
+            selectedSpeaker = SurfaceSpeaker.entries.firstOrNull { it.name == debugSpeakerName }
+                ?: SurfaceSpeaker.SAKURA,
+            showCollisionOverlay = collisionOverlayVisible,
+            sampleQueued = false,
+        )
+    } else {
+        DebugPanelState()
+    }
+    return TransientUiSnapshot(toolbarVisible, debug)
+}
+
+internal fun transientUiSnapshotToSave(
+    pending: TransientUiSnapshot?,
+    initialized: Boolean,
+    toolbarVisible: Boolean,
+    debugPanelState: DebugPanelState,
+): TransientUiSnapshot? = pending ?: if (initialized) {
+    TransientUiSnapshot(
+        toolbarVisible = toolbarVisible,
+        debugPanelState = debugPanelState.copy(sampleQueued = false),
+    )
+} else {
+    null
+}
+
+internal fun Bundle.readTransientUiSnapshot(isDebuggable: Boolean): TransientUiSnapshot? =
+    takeIf { getBoolean(TRANSIENT_UI_PRESENT, false) }?.let { state ->
+        restoredTransientUiSnapshot(
+            toolbarVisible = state.getBoolean(TRANSIENT_TOOLBAR_VISIBLE, true),
+            debugVisible = state.getBoolean(TRANSIENT_DEBUG_VISIBLE, false),
+            debugSpeakerName = state.getString(TRANSIENT_DEBUG_SPEAKER),
+            collisionOverlayVisible = state.getBoolean(TRANSIENT_COLLISION_OVERLAY, false),
+            isDebuggable = isDebuggable,
+        )
+    }
+
+internal fun Bundle.writeTransientUiSnapshot(snapshot: TransientUiSnapshot) {
+    putBoolean(TRANSIENT_UI_PRESENT, true)
+    putBoolean(TRANSIENT_TOOLBAR_VISIBLE, snapshot.toolbarVisible)
+    putBoolean(TRANSIENT_DEBUG_VISIBLE, snapshot.debugPanelState.visible)
+    putString(TRANSIENT_DEBUG_SPEAKER, snapshot.debugPanelState.selectedSpeaker.name)
+    putBoolean(TRANSIENT_COLLISION_OVERLAY, snapshot.debugPanelState.showCollisionOverlay)
+}
+
+private const val TRANSIENT_UI_PRESENT = "transient_ui_present"
+private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
+private const val TRANSIENT_DEBUG_VISIBLE = "transient_debug_visible"
+private const val TRANSIENT_DEBUG_SPEAKER = "transient_debug_speaker"
+private const val TRANSIENT_COLLISION_OVERLAY = "transient_collision_overlay"
+
 /**
  * The production activity. Compose owns both chrome and ghost presentation;
  * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
@@ -130,6 +195,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     private var progressMessage by mutableStateOf("")
     private var toolbarVisible by mutableStateOf(false)
+    private var transientUiInitialized = false
+    private var pendingRestoredTransientUi: TransientUiSnapshot? = null
     private val simpleDialogState = mutableStateOf<NanidroidSimpleDialog?>(null)
     private var simpleDialog: NanidroidSimpleDialog?
         get() = simpleDialogState.value
@@ -206,6 +273,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             return
         }
         checkIsRestore(savedInstanceState)
+        pendingRestoredTransientUi = savedInstanceState?.readTransientUiSnapshot(dbgBuild)
         runner = SScriptRunner.getInstance(this)
         restoreSimpleDialog(savedInstanceState)
         initOnSeparateThread()
@@ -280,7 +348,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
 
     private fun setGhostToRunner(reservation: ReservedGhost): Boolean {
         val ghost = reservation.ghost
-        composeStage.setSurfaceManager(ghost.mgr)
+        composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
         runner!!.setPresentationRenderer(composeStage.renderer)
         runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
         // The runner remains attached precisely once, on the initialized UI thread.
@@ -420,7 +488,18 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )
         loading = true
     }
-    private fun hideProgress() { loading = false; toolbarVisible = true }
+    private fun hideProgress() {
+        val restored = pendingRestoredTransientUi
+        if (restored != null) {
+            toolbarVisible = restored.toolbarVisible
+            debugPanelState = restored.debugPanelState
+        } else {
+            toolbarVisible = true
+        }
+        pendingRestoredTransientUi = null
+        transientUiInitialized = true
+        loading = false
+    }
     private fun checkIsRestore(state: Bundle?): Boolean {
         if (state != null) { Log.d(TAG, "was minimized"); restoreFromMinimize = state.getBoolean(MIN_TAG, false); return restoreFromMinimize }; return false
     }
@@ -441,6 +520,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onPause() { super.onPause(); runner?.stopClock(); sendStopIntent() }
     override fun onSaveInstanceState(outState: Bundle) {
         saveSimpleDialog(outState)
+        transientUiSnapshotToSave(
+            pending = pendingRestoredTransientUi,
+            initialized = transientUiInitialized,
+            toolbarVisible = toolbarVisible,
+            debugPanelState = debugPanelState,
+        )?.let(outState::writeTransientUiSnapshot)
         outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
         outState.putString(NAR_PICK_REPLACEMENT_ID, replacingNarDownloadId)
         outState.putString(NAR_CONSUMED_INTENT_URI, archiveIntentState.consumedUri)
@@ -583,7 +668,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
                 // Keep the Compose stage and runner on the UI thread; its frame
                 // cache and scheduler state are intentionally not synchronized.
-                composeStage.setSurfaceManager(ghost.mgr)
+                composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
                 updateSurfaceKeys(ghost)
                 keyindex = 0
                 currentSurfaceKey = surfaceKeys!![keyindex]

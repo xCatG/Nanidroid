@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
@@ -28,11 +29,16 @@ import androidx.compose.ui.input.pointer.areAnyPressed
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
@@ -49,11 +55,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 fun interface SemanticStageActivation {
-    fun activate(speaker: SurfaceSpeaker): Boolean
+    fun activate(token: GhostStageSemanticToken, effect: SurfaceInteractionEffect): Boolean
 }
 
 internal val LocalSemanticStageActivation = staticCompositionLocalOf {
-    SemanticStageActivation { false }
+    SemanticStageActivation { _, _ -> false }
 }
 
 /** The one full-stage pointer owner. Children retain visual and semantic roles only. */
@@ -63,9 +69,20 @@ internal fun StagePointerInput(
     onSurfaceEffect: (SurfaceInteractionEffect) -> Unit,
     onToggleChrome: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     monotonicNowMillis: () -> Long = SystemClock::uptimeMillis,
     content: @Composable (SemanticStageActivation) -> Unit,
 ) {
+    if (!enabled) {
+        Box(modifier = modifier) {
+            CompositionLocalProvider(
+                LocalSemanticStageActivation provides SemanticStageActivation { _, _ -> false },
+            ) {
+                content(SemanticStageActivation { _, _ -> false })
+            }
+        }
+        return
+    }
     val latestSnapshotProvider by rememberUpdatedState(snapshotProvider)
     val latestSurfaceEffect by rememberUpdatedState(onSurfaceEffect)
     val latestToggleChrome by rememberUpdatedState(onToggleChrome)
@@ -110,25 +127,16 @@ internal fun StagePointerInput(
             }
         }
     }
-    val semanticActivation = remember(sequencer) {
-        SemanticStageActivation { speaker ->
-            val snapshot = latestSnapshotProvider()
-            val surface = snapshot.surfaces.firstOrNull { it.speaker == speaker }
-                ?: return@SemanticStageActivation false
-            val bounds = surface.transform.renderedBounds
-            val point = Offset(
-                bounds.left + bounds.width / 2f,
-                bounds.top + bounds.height / 2f,
-            )
-            val resolution = StageInputRouter.resolve(snapshot, point, PointerSource.TOUCH, PRIMARY_BUTTON)
-            val target = resolution.target as? StageInputTarget.Surface
-            val effect = resolution.effect
-            if (!resolution.activatable || target?.speaker != speaker || effect == null) {
-                false
-            } else {
+    val semanticActivation = remember {
+        SemanticStageActivation { token, proposed ->
+            GhostStageSemantics.resolveActivation(
+                current = latestSnapshotProvider(),
+                token = token,
+                proposed = proposed,
+            )?.let { effect ->
                 latestSurfaceEffect(effect)
                 true
-            }
+            } ?: false
         }
     }
 
@@ -260,13 +268,28 @@ internal fun StagePointerInput(
 
 internal fun Modifier.stageSurfaceSemantics(
     tag: String,
-    speaker: SurfaceSpeaker,
     label: String,
+    semantics: GhostSurfaceSemantics,
+    genericActionLabel: String,
+    collisionActionLabels: List<String>,
     semanticActivation: SemanticStageActivation,
+    onSurfaceKeyEvent: (KeyEvent) -> Boolean = { false },
+    onSurfaceFocusLost: () -> Unit = {},
 ): Modifier = testTag(tag).semantics {
+    require(collisionActionLabels.size == semantics.collisionActions.size)
     contentDescription = label
-    onClick { semanticActivation.activate(speaker) }
-}
+    role = Role.Image
+    onClick(label = genericActionLabel) {
+        semanticActivation.activate(semantics.token, semantics.genericAction.effect)
+    }
+    customActions = semantics.collisionActions.zip(collisionActionLabels) { action, actionLabel ->
+        CustomAccessibilityAction(actionLabel) {
+            semanticActivation.activate(semantics.token, action.effect)
+        }
+    }
+}.onKeyEvent(onSurfaceKeyEvent)
+    .onFocusChanged { state -> if (!state.isFocused) onSurfaceFocusLost() }
+    .focusable()
 
 internal fun PointerType.toPointerSource(): PointerSource? = when (this) {
     PointerType.Touch -> PointerSource.TOUCH

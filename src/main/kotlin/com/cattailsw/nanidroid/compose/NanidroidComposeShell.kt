@@ -19,8 +19,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -155,7 +155,7 @@ private fun NanidroidToolbar(
     archiveDownloads: List<NarDownload> = emptyList(),
     onDebugOpen: () -> Unit,
 ) {
-    var showMenu by rememberSaveable { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
     val debugButtonDescription = stringResource(R.string.debug_button_description)
     TopAppBar(
         modifier = Modifier.testTag("appbar"),

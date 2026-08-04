@@ -3,6 +3,8 @@ package com.cattailsw.nanidroid.compose
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -10,8 +12,11 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.InputMode
@@ -20,6 +25,8 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -41,6 +48,7 @@ import com.cattailsw.nanidroid.runtime.GhostPresentationState
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import com.cattailsw.nanidroid.runtime.stage.BubbleHitRegionRegistry
 import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
+import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
@@ -48,7 +56,8 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.runtime.stage.BubbleScrollKey
-import com.cattailsw.nanidroid.runtime.stage.BubbleScrollMemory
+import com.cattailsw.nanidroid.runtime.stage.GhostBubbleScrollMemory
+import com.cattailsw.nanidroid.runtime.stage.BubbleScrollProcessSession
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import kotlin.math.roundToInt
 
@@ -60,6 +69,7 @@ fun GhostPresentationStage(
     keroComposedSurface: ComposedSurface?,
     measureState: GhostStageMeasureState,
     ghostKey: String,
+    bubbleScrollSessionKey: String = BubbleScrollProcessSession.key,
     ghostIdentity: Any = ghostKey,
     blockingInput: Boolean = false,
     ghostIdentityProvider: () -> Any = { ghostIdentity },
@@ -122,11 +132,18 @@ fun GhostPresentationStage(
                 }
             }
         }
-        val bubbleScrollMemory = remember { BubbleScrollMemory() }
+        val bubbleScrollOwner = rememberSaveable(
+            saver = listSaver(
+                save = { owner -> owner.saveValues() },
+                restore = { values -> GhostBubbleScrollMemory.restoreValues(values) },
+            ),
+        ) { GhostBubbleScrollMemory.forContext(bubbleScrollSessionKey, ghostKey) }
+        val bubbleScrollMemory = bubbleScrollOwner.memoryFor(bubbleScrollSessionKey, ghostKey)
+        val bubbleScrollOwnerKey = "$bubbleScrollSessionKey:$ghostKey"
         val keroScrollKey = BubbleScrollKey(SurfaceSpeaker.KERO, dialogueTalkId)
         val sakuraScrollKey = BubbleScrollKey(SurfaceSpeaker.SAKURA, dialogueTalkId)
-        val keroScroll = remember(keroScrollKey) { bubbleScrollMemory.snapshot(keroScrollKey) }
-        val sakuraScroll = remember(sakuraScrollKey) { bubbleScrollMemory.snapshot(sakuraScrollKey) }
+        val keroScroll = bubbleScrollMemory.snapshot(keroScrollKey)
+        val sakuraScroll = bubbleScrollMemory.snapshot(sakuraScrollKey)
         val actionSurfaceActions = when (actionSurfaceSpeaker) {
             SurfaceSpeaker.KERO -> keroPendingChoices
             SurfaceSpeaker.SAKURA -> sakuraPendingChoices
@@ -137,7 +154,15 @@ fun GhostPresentationStage(
                 actionSurfaceActionIdentities?.hasSameRuntimeIdentities(actionSurfaceActions) == false
             )
         val activeActionSurfaceSpeaker = actionSurfaceSpeaker.takeUnless { actionSurfaceStale }
+        val tinyFallback = measureState.latest?.layoutDp?.mode == StageMode.TINY
         if (actionSurfaceStale) {
+            SideEffect {
+                actionSurfaceSpeakerName = null
+                actionSurfaceActionIdentities = null
+                restoreChooseFocus = null
+            }
+        }
+        if (tinyFallback && actionSurfaceSpeakerName != null) {
             SideEffect {
                 actionSurfaceSpeakerName = null
                 actionSurfaceActionIdentities = null
@@ -175,6 +200,7 @@ fun GhostPresentationStage(
             },
             onSurfaceEffect = onSurfaceEffect,
             onToggleChrome = onToggleChrome,
+            enabled = !tinyFallback,
             modifier = modifier
                 .fillMaxSize()
                 .onGloballyPositioned { coordinates ->
@@ -221,6 +247,7 @@ fun GhostPresentationStage(
                                 pendingInput = keroPendingInput,
                                 scrollPosition = keroScroll.position,
                                 userScrolledThisTalk = keroScroll.userScrolled,
+                                scrollOwnerKey = bubbleScrollOwnerKey,
                                 talkId = dialogueTalkId,
                                 contentRevision = dialogueRevision,
                             ),
@@ -247,6 +274,7 @@ fun GhostPresentationStage(
                                 pendingInput = sakuraPendingInput,
                                 scrollPosition = sakuraScroll.position,
                                 userScrolledThisTalk = sakuraScroll.userScrolled,
+                                scrollOwnerKey = bubbleScrollOwnerKey,
                                 talkId = dialogueTalkId,
                                 contentRevision = dialogueRevision,
                             ),
@@ -271,7 +299,19 @@ fun GhostPresentationStage(
                         }
                     },
                 )
-                activeActionSurfaceSpeaker?.let { speaker ->
+                if (tinyFallback) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.stage_tiny_window_message),
+                            modifier = Modifier.padding(24.dp),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                activeActionSurfaceSpeaker?.takeUnless { tinyFallback }?.let { speaker ->
                     DialogueActionSurface(
                         actions = actionSurfaceActions,
                         speaker = speaker,

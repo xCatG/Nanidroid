@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.compose.stage
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -48,6 +48,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
@@ -62,6 +66,7 @@ import com.cattailsw.nanidroid.runtime.stage.BubbleRegionSet
 import com.cattailsw.nanidroid.runtime.stage.BubbleScrollOrigin
 import com.cattailsw.nanidroid.runtime.stage.MeasuredBubbleHitRegion
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -74,6 +79,7 @@ data class BubbleUiState(
     val pendingInput: PendingInputState? = null,
     val scrollPosition: Int,
     val userScrolledThisTalk: Boolean,
+    val scrollOwnerKey: String = "",
     val talkId: Long = 0L,
     val contentRevision: Long = 0L,
 )
@@ -131,18 +137,27 @@ fun GhostBubble(
     }
     var layoutGeneration by remember(state.talkId, state.contentRevision) { mutableLongStateOf(0L) }
     val latestPublication by rememberUpdatedState(onRegionSet)
-    val scrollState = key(state.talkId) {
-        rememberScrollState(
+    val scrollState = remember(state.scrollOwnerKey, state.talkId) {
+        ScrollState(
             initial = state.scrollPosition.takeUnless { it == Int.MAX_VALUE }?.coerceAtLeast(0) ?: 0,
         )
     }
-    var manuallyScrolled by remember(state.talkId) { mutableStateOf(state.userScrolledThisTalk) }
-    var programmaticPosition by remember(state.talkId) { mutableStateOf<Int?>(null) }
-    var viewportHeight by remember(state.talkId) { mutableStateOf(0) }
+    var manuallyScrolled by remember(state.scrollOwnerKey, state.talkId) {
+        mutableStateOf(state.userScrolledThisTalk)
+    }
+    var programmaticPosition by remember(state.scrollOwnerKey, state.talkId) { mutableStateOf<Int?>(null) }
+    var viewportHeight by remember(state.scrollOwnerKey, state.talkId) { mutableStateOf(0) }
     val scrollScope = rememberCoroutineScope()
     val latestScrollChange by rememberUpdatedState(onScrollPositionChanged)
+    val announcementCandidate = remember(state.content) { state.content.accessibleText() }
+    var announcedDialogue by remember(state.talkId) { mutableStateOf("") }
 
-    LaunchedEffect(state.talkId, scrollState.maxValue, manuallyScrolled) {
+    LaunchedEffect(state.talkId, announcementCandidate) {
+        delay(BUBBLE_ANNOUNCEMENT_SETTLE_MILLIS)
+        announcedDialogue = announcementCandidate
+    }
+
+    LaunchedEffect(state.scrollOwnerKey, state.talkId, scrollState.maxValue, manuallyScrolled) {
         if (!manuallyScrolled) {
             val target = scrollState.maxValue
             programmaticPosition = target
@@ -150,7 +165,7 @@ fun GhostBubble(
             latestScrollChange(target, BubbleScrollOrigin.PROGRAMMATIC)
         }
     }
-    LaunchedEffect(scrollState, state.talkId) {
+    LaunchedEffect(scrollState, state.scrollOwnerKey, state.talkId) {
         var observedMaxValue = scrollState.maxValue
         snapshotFlow { scrollState.value to scrollState.maxValue }
             .drop(1)
@@ -201,6 +216,12 @@ fun GhostBubble(
         modifier = modifier
             .fillMaxSize()
             .testTag("ghost-bubble-${state.speaker.tag}")
+            .semantics {
+                if (announcedDialogue.isNotBlank()) {
+                    liveRegion = LiveRegionMode.Polite
+                    contentDescription = announcedDialogue
+                }
+            }
             .onGloballyPositioned { next ->
                 rootCoordinates = next
                 viewportHeight = next.size.height
@@ -279,6 +300,18 @@ fun GhostBubble(
         }
     }
 }
+
+private fun DialogueContent.accessibleText(): String = buildString {
+    segments.forEach { segment ->
+        when (segment) {
+            is DialogueSegment.Text -> append(segment.value)
+            DialogueSegment.NewLine -> append('\n')
+            else -> Unit
+        }
+    }
+}.trim()
+
+private const val BUBBLE_ANNOUNCEMENT_SETTLE_MILLIS = 500L
 
 @Composable
 private fun BubbleBackground(

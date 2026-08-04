@@ -395,6 +395,25 @@ class StagePointerInputTest {
     }
 
     @Test
+    fun disablingHostCancelsPendingPhysicalSingle() {
+        val effects = mutableListOf<SurfaceInteractionEffect>()
+        val enabled = mutableStateOf(true)
+        setStage(
+            snapshot = { snapshot(surfaces = listOf(surface(IntRect(0, 0, 200, 200)))) },
+            effects = effects,
+            toggle = {},
+            enabled = { enabled.value },
+        )
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag(TAG).performMouseInput { click(Offset(40f, 40f)) }
+        composeRule.runOnIdle { enabled.value = false }
+        composeRule.mainClock.advanceTimeBy(1_000)
+
+        composeRule.runOnIdle { assertTrue(effects.isEmpty()) }
+    }
+
+    @Test
     fun surfaceAndEmptySemanticsUseCentralResolverWithoutNestedDuplicate() {
         val effects = mutableListOf<SurfaceInteractionEffect>()
         var toggles = 0
@@ -616,6 +635,7 @@ class StagePointerInputTest {
         toggle: () -> Unit,
         includeSurfaceSemantic: Boolean = false,
         pointerObserver: ((PointerEventType, Boolean) -> Unit)? = null,
+        enabled: () -> Boolean = { true },
         monotonicNowMillis: () -> Long = { composeRule.mainClock.currentTime },
     ) {
         composeRule.mainClock.autoAdvance = true
@@ -624,20 +644,26 @@ class StagePointerInputTest {
                 snapshotProvider = snapshot,
                 onSurfaceEffect = effects::add,
                 onToggleChrome = toggle,
+                enabled = enabled(),
                 monotonicNowMillis = monotonicNowMillis,
                 modifier = Modifier.fillMaxSize().testTag(TAG),
             ) { semanticActivate ->
                 if (includeSurfaceSemantic) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .stageSurfaceSemantics(
-                                SURFACE_TAG,
-                                SurfaceSpeaker.SAKURA,
-                                "Sakura character",
-                                semanticActivate,
-                            ),
-                    )
+                    snapshot().surfaces.singleOrNull()?.let { surface ->
+                        val semantics = GhostStageSemantics.build(surface)
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .stageSurfaceSemantics(
+                                    SURFACE_TAG,
+                                    "Sakura character",
+                                    semantics,
+                                    "Operate Sakura character",
+                                    semantics.collisionActions.map { "Operate ${it.spokenIdentifier}" },
+                                    semanticActivate,
+                                ),
+                        )
+                    }
                 }
                 if (pointerObserver != null) {
                     Box(

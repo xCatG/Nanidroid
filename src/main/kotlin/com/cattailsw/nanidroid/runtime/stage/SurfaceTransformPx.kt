@@ -235,6 +235,52 @@ data class SurfaceTransformPx(
         rootPoint.y.toDouble() - stageToRoot.y.toDouble(),
     )
 
+    /** Center of one intrinsic pixel in stage-local coordinates. */
+    fun stageCenterForIntrinsic(intrinsic: IntOffset): IntOffset? {
+        if (!usable || intrinsic.x !in 0 until intrinsicSize.width || intrinsic.y !in 0 until intrinsicSize.height) {
+            return null
+        }
+        val x = renderedBounds.left.toDouble() +
+            (intrinsic.x.toDouble() + 0.5) * renderedWidth.toDouble() / intrinsicSize.width.toDouble()
+        val y = renderedBounds.top.toDouble() +
+            (intrinsic.y.toDouble() + 0.5) * renderedHeight.toDouble() / intrinsicSize.height.toDouble()
+        return IntOffset(
+            x.roundToInt().coerceIn(renderedBounds.left, renderedBounds.right - 1),
+            y.roundToInt().coerceIn(renderedBounds.top, renderedBounds.bottom - 1),
+        )
+    }
+
+    /** One exact authored hit pixel inside both [shape] and the intrinsic canvas. */
+    fun representativeIntrinsicPoint(
+        shape: CollisionShape,
+        budget: CollisionGeometryBudget = CollisionGeometryBudget.perCollisionDefault(),
+    ): IntOffset? {
+        if (!usable) return null
+        val clippedLeft = maxOf(0, shape.bounds.left)
+        val clippedTop = maxOf(0, shape.bounds.top)
+        val clippedRight = minOf(intrinsicSize.width, shape.bounds.right)
+        val clippedBottom = minOf(intrinsicSize.height, shape.bounds.bottom)
+        if (clippedLeft >= clippedRight || clippedTop >= clippedBottom) return null
+        if (shape is CollisionShape.Rectangle) return IntOffset(clippedLeft, clippedTop)
+
+        val width = clippedRight.toLong() - clippedLeft.toLong()
+        val height = clippedBottom.toLong() - clippedTop.toLong()
+        if (!budget.reserve(collisionWorkEstimate(shape, width, height), rects = 0L, boundarySegments = 0L)) {
+            return null
+        }
+        for (y in clippedTop until clippedBottom) {
+            val firstRun = when (shape) {
+                is CollisionShape.Ellipse,
+                is CollisionShape.Circle,
+                -> convexRowRuns(shape, y, clippedLeft, clippedRight)
+                is CollisionShape.Polygon -> polygonRowRuns(shape, y, clippedLeft, clippedRight)
+                is CollisionShape.Rectangle -> error("rectangle handled above")
+            }.firstOrNull()
+            if (firstRun != null) return IntOffset(firstRun.left, y)
+        }
+        return null
+    }
+
     fun toStage(shape: CollisionShape): CollisionShapePx {
         val scaleX = renderedWidth.toDouble() / intrinsicSize.width.toDouble()
         val scaleY = renderedHeight.toDouble() / intrinsicSize.height.toDouble()

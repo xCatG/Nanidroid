@@ -65,6 +65,7 @@ class ComposeGhostStageHost private constructor(
         }
     }
     private var activeSurfaceManager: SurfaceManager? by mutableStateOf(null)
+    private var activeGhostKey: String by mutableStateOf("")
     private var sakuraFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var keroFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var sakuraScheduler: SurfaceAnimationScheduler? = null
@@ -96,8 +97,8 @@ class ComposeGhostStageHost private constructor(
             transition.state.presentation.kero, talkUpdate)
     }
 
-    fun setSurfaceManager(manager: SurfaceManager?) {
-        if (activeSurfaceManager !== manager) {
+    fun setSurfaceManager(manager: SurfaceManager?, ghostKey: String) {
+        if (activeSurfaceManager !== manager || activeGhostKey != ghostKey) {
             surfaceManagerInputEpoch++
             sakuraScheduler = null
             keroScheduler = null
@@ -110,6 +111,7 @@ class ComposeGhostStageHost private constructor(
             stageMeasureState.resetFor(manager)
         }
         activeSurfaceManager = manager
+        activeGhostKey = ghostKey
     }
 
     @Composable
@@ -178,7 +180,7 @@ class ComposeGhostStageHost private constructor(
             sakuraComposedSurface = sakuraComposed,
             keroComposedSurface = keroComposed,
             measureState = stageMeasureState,
-            ghostKey = manager?.let { "manager-${System.identityHashCode(it)}" }.orEmpty(),
+            ghostKey = activeGhostKey,
             ghostIdentity = manager ?: NoGhostIdentity,
             blockingInput = blockingInput(),
             ghostIdentityProvider = { activeSurfaceManager ?: NoGhostIdentity },

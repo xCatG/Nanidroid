@@ -13,6 +13,7 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -661,6 +662,34 @@ class NanidroidComposeShellTest {
         composeRule.onRoot().performTouchInput { click(updateCenter) }
         composeRule.waitForIdle()
         assertEquals("", selected)
+    }
+
+    @Test
+    fun shell_overflow_popup_is_not_restored_with_the_activity() {
+        val restoration = StateRestorationTester(composeRule)
+        restoration.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "Loading ghost",
+                toolbarVisible = true,
+                onListGhost = {},
+                onUpdate = {},
+                onReadme = {},
+                onPreferences = {},
+                onHelp = {},
+                showDebugControls = false,
+                simpleDialog = null,
+                onDismissSimpleDialog = {},
+            )
+        }
+        composeRule.onNodeWithTag("appbar-overflow").performClick()
+        composeRule.onNodeWithTag("update").assertIsDisplayed()
+
+        restoration.emulateSavedInstanceStateRestore()
+
+        composeRule.onNodeWithTag("appbar-overflow").assertIsDisplayed()
+        assertNoNodeWithTag("update", useUnmergedTree = true)
     }
 
     @Test

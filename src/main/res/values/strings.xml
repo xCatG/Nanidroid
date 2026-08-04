@@ -74,6 +74,12 @@
   <string name="toggle_stage_chrome_action">Show or hide controls</string>
   <string name="sakura_character_description">Sakura character</string>
   <string name="kero_character_description">Kero character</string>
+  <string name="stage_tiny_window_message">This window is too small for Nanidroid. Make it a little bigger 💦</string>
+  <string name="stage_surface_activate_action">Operate %1$s</string>
+  <string name="stage_collision_activate_action">Operate “%2$s” on %1$s</string>
+  <string name="stage_collision_activate_repeated_action">Operate “%2$s” on %1$s (%3$d)</string>
+  <string name="stage_collision_unnamed_region">unnamed region</string>
+  <string name="stage_collision_disambiguated_identifier">%1$s [%2$d]</string>
   <string name="debug_surface_title">Ghost debug</string>
   <string name="debug_surface_selected_speaker_label">Selected speaker: %1$s</string>
   <string name="debug_surface_speaker_label">Speaker</string>
