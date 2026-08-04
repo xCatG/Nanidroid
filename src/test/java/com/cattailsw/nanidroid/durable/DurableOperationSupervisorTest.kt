@@ -102,6 +102,111 @@ class DurableOperationSupervisorTest {
         assertEquals(listOf(CancellationRequest(selected, selectedJob)), cancellation.requests)
     }
 
+    @Test fun requestStopRetriesAfterCancellationThrow() {
+        val cancellation = ThrowingCancellation()
+        val throwingSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val stopHandle = handle("update-1", 1)
+        val binding = ExternalJobBinding.WorkManager("worker-1")
+        assertTrue(throwingSupervisor.start(stopHandle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        var thrown = false
+        try {
+            throwingSupervisor.requestStop(stopHandle)
+        } catch (_: IllegalStateException) {
+            thrown = true
+        }
+        assertTrue(thrown)
+        assertEquals(
+            listOf(
+                CancellationRequest(stopHandle, binding),
+            ),
+            cancellation.requests,
+        )
+
+        assertTrue(throwingSupervisor.requestStop(stopHandle))
+        assertEquals(
+            listOf(
+                CancellationRequest(stopHandle, binding),
+                CancellationRequest(stopHandle, binding),
+            ),
+            cancellation.requests,
+        )
+        assertEquals(OperationStatus.CANCEL_REQUESTED, store.read().single().status)
+    }
+
+    @Test fun requestStopDoesNotDuplicateAfterSuccessfulCancellation() {
+        val cancellation = RecordingCancellation()
+        val stopSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val stopHandle = handle("update-2", 2)
+        val binding = ExternalJobBinding.WorkManager("worker-2")
+        assertTrue(stopSupervisor.start(stopHandle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        assertTrue(stopSupervisor.requestStop(stopHandle))
+        assertTrue(stopSupervisor.requestStop(stopHandle))
+        assertEquals(listOf(CancellationRequest(stopHandle, binding)), cancellation.requests)
+    }
+
+    @Test fun recreationReissuesPersistedCancelRequestAfterPreviousThrow() {
+        val cancellation = ThrowingCancellation()
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val stopHandle = handle("update-3", 1)
+        val binding = ExternalJobBinding.WorkManager("worker-3")
+        assertTrue(firstSupervisor.start(stopHandle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        var thrown = false
+        try {
+            firstSupervisor.requestStop(stopHandle)
+        } catch (_: IllegalStateException) {
+            thrown = true
+        }
+        assertTrue(thrown)
+        assertEquals(
+            listOf(
+                CancellationRequest(stopHandle, binding),
+            ),
+            cancellation.requests,
+        )
+
+        DurableOperationSupervisor(store, clock, cancellation)
+
+        assertEquals(
+            listOf(
+                CancellationRequest(stopHandle, binding),
+                CancellationRequest(stopHandle, binding),
+            ),
+            cancellation.requests,
+        )
+        assertEquals(OperationStatus.CANCEL_REQUESTED, store.read().single().status)
+    }
+
+    @Test fun requestStopRetryUsesExactBindingInstance() {
+        val binding = ExternalJobBinding.WorkManager("worker-4")
+        val cancellation = ThrowingCancellation()
+        val bindingSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val handle = handle("update-4", 1)
+        assertTrue(
+            bindingSupervisor.start(
+                handle,
+                OperationKind.GHOST_UPDATE,
+                "Queued",
+                0,
+                binding,
+            ),
+        )
+
+        var thrown = false
+        try {
+            bindingSupervisor.requestStop(handle)
+        } catch (_: IllegalStateException) {
+            thrown = true
+        }
+        assertTrue(thrown)
+
+        assertTrue(bindingSupervisor.requestStop(handle))
+        assertEquals(2, cancellation.requests.size)
+        assertTrue(cancellation.requests[1].binding === binding)
+    }
+
     @Test fun recreationStartsAFreshWindowForRunningWork() {
         val handle = handle("nar-1", 1)
         supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading", 1)
@@ -995,6 +1100,19 @@ class DurableOperationSupervisorTest {
         val handle: OperationHandle,
         val binding: ExternalJobBinding,
     )
+
+    private class ThrowingCancellation : OperationCancellation {
+        val requests = mutableListOf<CancellationRequest>()
+        private var shouldThrow = true
+
+        override fun cancel(handle: OperationHandle, binding: ExternalJobBinding) {
+            requests += CancellationRequest(handle, binding)
+            if (shouldThrow) {
+                shouldThrow = false
+                throw IllegalStateException("cancellation failed")
+            }
+        }
+    }
 
     private data class ArchivePipelineCase(
         val sourceKind: OperationKind,
