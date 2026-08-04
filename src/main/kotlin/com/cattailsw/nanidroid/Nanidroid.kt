@@ -274,6 +274,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 toolbarVisible = toolbarVisible,
                 onListGhost = ::onListGhost,
                 onUpdate = ::onUpdate,
+                onReadme = ::openCurrentGhostReadme,
                 onPreferences = ::onSetupClick,
                 onHelp = ::onHelp,
                 onArchiveQueue = {
@@ -285,11 +286,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 },
                 archiveDownloads = downloads,
                 showDebugControls = dbgBuild,
-                onNextSurface = ::onNextSurface,
-                onAnimate = ::onAnimate,
-                onNextGhost = ::onNextGhost,
-                onRun = ::runClick,
-                onNarTest = ::narTest,
                 simpleDialog = simpleDialog,
                 onDismissSimpleDialog = { simpleDialog = null },
             )
@@ -390,6 +386,25 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun showReadme(readme: File, ghostId: String) {
         AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_README}:$ghostId")
         simpleDialog = createReadmeDialog(readme, ghostId)
+    }
+    private fun openCurrentGhostReadme() {
+        val ghost = currentGhost ?: return
+        val ghostId = ghost.getGhostId()
+        val readme = gm?.getGhostReadMe(ghostId)
+        if (readme?.exists() == true) {
+            AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_README}:$ghostId")
+            simpleDialog = NanidroidSimpleDialog.TextDocument(
+                getString(R.string.readme_menu_text),
+                PlainTextDocument.read(readme),
+                ::openDocumentLink,
+                ghostId,
+            )
+        } else {
+            simpleDialog = NanidroidSimpleDialog.Notice(
+                R.string.current_ghost_no_readme_title,
+                R.string.current_ghost_no_readme_message,
+            )
+        }
     }
     private fun showGhostInstalledDlg(ghostId: String) {
         AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_NO_REAMDE}:$ghostId")

@@ -1,0 +1,259 @@
+package com.cattailsw.nanidroid.compose.debug
+
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasNoClickAction
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import com.cattailsw.nanidroid.runtime.BoundedShioriLog
+import com.cattailsw.nanidroid.runtime.BoundedShioriLog.Entry
+
+class GhostDebugSurfaceTest {
+    @get:Rule
+    val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    private fun assertNoNodeWithTag(tag: String, useUnmergedTree: Boolean = false) {
+        assertFalse(
+            "Expected no node with tag=$tag",
+            composeRule.onAllNodesWithTag(tag, useUnmergedTree).fetchSemanticsNodes().isNotEmpty(),
+        )
+    }
+
+    @Test
+    fun debug_surface_not_rendered_when_not_visible() {
+        var dismissed = 0
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = DebugPanelState(visible = false),
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = { dismissed++ },
+            )
+        }
+
+        composeRule.waitForIdle()
+        assertNoNodeWithTag(GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG)
+        assertNoNodeWithTag(GHOST_DEBUG_SURFACE_BOTTOM_SHEET_TAG)
+        assertNoNodeWithTag(GHOST_DEBUG_SURFACE_SIDE_PANEL_TAG)
+        assertEquals(0, dismissed)
+    }
+
+    @Test
+    fun debug_surface_uses_expected_container_for_each_presentation() {
+        val activePresentation = mutableStateOf(DebugPresentation.FULL_STAGE_MODAL)
+        val presentations = listOf(
+            DebugPresentation.FULL_STAGE_MODAL to GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG,
+            DebugPresentation.BOTTOM_SHEET to GHOST_DEBUG_SURFACE_BOTTOM_SHEET_TAG,
+            DebugPresentation.SIDE_PANEL to GHOST_DEBUG_SURFACE_SIDE_PANEL_TAG,
+        )
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = activePresentation.value,
+                state = DebugPanelState(visible = true, selectedSpeaker = SurfaceSpeaker.SAKURA),
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = {},
+            )
+        }
+
+        presentations.forEach { (presentation, tag) ->
+            composeRule.runOnIdle { activePresentation.value = presentation }
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag(tag).assertIsDisplayed()
+            assertNoNodeWithTag(
+                if (tag == GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG) {
+                    GHOST_DEBUG_SURFACE_BOTTOM_SHEET_TAG
+                } else {
+                    GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG
+                },
+            )
+        }
+    }
+
+    @Test
+    fun debug_surface_calls_speaker_callback_for_sakura_default_and_kero_selection() {
+        val speaker = mutableStateOf(SurfaceSpeaker.SAKURA)
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = DebugPanelState(visible = true, selectedSpeaker = speaker.value),
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = { speaker.value = it },
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_KERO_TAG).performClick()
+        composeRule.runOnIdle { assertEquals(SurfaceSpeaker.KERO, speaker.value) }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SAKURA_TAG).performClick()
+        composeRule.runOnIdle { assertEquals(SurfaceSpeaker.SAKURA, speaker.value) }
+    }
+
+    @Test
+    fun debug_surface_callbacks_exposed_for_collision_overlay_nar_and_dismiss() {
+        var collision = false
+        var nar = false
+        var dismissed = false
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = DebugPanelState(visible = true, selectedSpeaker = SurfaceSpeaker.SAKURA, showCollisionOverlay = false),
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = { collision = it },
+                onNarTest = { nar = true },
+                onDismiss = { dismissed = true },
+            )
+        }
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_COLLISION_SWITCH_TAG).performClick()
+        composeRule.runOnIdle { assertEquals(true, collision) }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_NAR_TEST_TAG).performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(true, nar) }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_DISMISS_TAG).performClick()
+        composeRule.runOnIdle { assertEquals(true, dismissed) }
+    }
+
+    @Test
+    fun debug_surface_shows_surface_input_and_shiori_data() {
+        val selection = SurfaceDebugSelection(
+            speaker = SurfaceSpeaker.SAKURA,
+            scope = "sakura_scope",
+            surfaceId = "surface-01",
+            intrinsicWidth = 420,
+            intrinsicHeight = 280,
+            composedLeft = 1,
+            composedTop = 2,
+            composedRight = 421,
+            composedBottom = 281,
+            composedWidth = 420,
+            composedHeight = 279,
+            visibleLeft = 9,
+            visibleTop = 10,
+            visibleRight = 409,
+            visibleBottom = 270,
+            animationId = "animation-01",
+            visible = true,
+            animationRunning = false,
+            revision = 77L,
+        )
+        val input = SurfacePointerDebugEvent(
+            speaker = SurfaceSpeaker.KERO,
+            viewportX = 13,
+            viewportY = 14,
+            sourceX = 15,
+            sourceY = 16,
+            collisionId = 123,
+            collisionName = "bubble",
+            buttonId = 1,
+            eventName = "surface-click",
+            source = "mouse",
+        )
+        val logs = listOf(
+            Entry(
+                event = "OnTest",
+                request = "Reference0:payload",
+                responseStatus = 200,
+                responseValue = "OK",
+            ),
+        )
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = DebugPanelState(visible = true, selectedSpeaker = SurfaceSpeaker.SAKURA),
+                selection = selection,
+                lastInput = input,
+                logs = logs,
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithText("surface-01").assertIsDisplayed()
+        composeRule.onNodeWithText("9,10 to 409,270").assertExists()
+        composeRule.onNodeWithText("X=13, Y=14").assertIsDisplayed()
+        composeRule.onNodeWithText("Event: OnTest").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Status: 200").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Response: OK").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Collision ID / name").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("123 / bubble").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun debug_surface_reports_missing_selection_as_unknown() {
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = DebugPanelState(visible = true),
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = {},
+            )
+        }
+
+        assertTrue(composeRule.onAllNodesWithText("—").fetchSemanticsNodes().isNotEmpty())
+        composeRule.onAllNodesWithText("No").assertCountEquals(0)
+    }
+
+    @Test
+    fun debug_surface_old_legacy_tags_are_absent() {
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.SIDE_PANEL,
+                state = DebugPanelState(visible = true, selectedSpeaker = SurfaceSpeaker.SAKURA),
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = {},
+            )
+        }
+
+        assertNoNodeWithTag("debug-next-surface", true)
+        assertNoNodeWithTag("debug-draw-cbox", true)
+        assertNoNodeWithTag("debug-dump-surfaces", true)
+        assertNoNodeWithTag("debug-run", true)
+        assertNoNodeWithTag("debug-nar", true)
+    }
+}

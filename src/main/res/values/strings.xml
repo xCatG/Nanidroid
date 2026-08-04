@@ -45,6 +45,17 @@
   <string name="url_help_install">http://blog.cattail-sw.com/?p=197</string>
   <string name="help_supported_ops">Show Supported Functions</string>
   <string name="url_support_ops">http://blog.cattail-sw.com/?p=212</string>
+  <string name="check_updates_btn_text">Check updates</string>
+  <string name="ghosts_btn_text">Ghosts</string>
+  <string name="more_btn_text">More</string>
+  <string name="debug_tools_menu_text">Debug tools</string>
+  <string name="debug_button_description">Open debug controls</string>
+  <string name="readme_menu_text">Readme</string>
+  <string name="current_ghost_no_readme_title">No Readme</string>
+  <string name="current_ghost_no_readme_message">The current ghost has no readme file to show.</string>
+  <string name="archive_queue_btn_text">Downloads</string>
+  <string name="archive_queue_status_text">Downloads (%1$d)</string>
+  <string name="archive_queue_btn_text_with_count">%1$d downloads</string>
   
   <string name="user_input_dlg_title">Input</string>
   <string name="dialogue_choose_action">Choose…</string>
@@ -63,4 +74,44 @@
   <string name="toggle_stage_chrome_action">Show or hide controls</string>
   <string name="sakura_character_description">Sakura character</string>
   <string name="kero_character_description">Kero character</string>
+  <string name="debug_surface_title">Ghost debug</string>
+  <string name="debug_surface_selected_speaker_label">Selected speaker: %1$s</string>
+  <string name="debug_surface_speaker_label">Speaker</string>
+  <string name="debug_surface_surface_section_title">Surface details</string>
+  <string name="debug_surface_surface_id_label">Surface ID</string>
+  <string name="debug_surface_scope_label">Scope</string>
+  <string name="debug_surface_intrinsic_dims_label">Intrinsic dimensions</string>
+  <string name="debug_surface_composed_bounds_label">Composed bounds</string>
+  <string name="debug_surface_composed_dims_label">Composed dimensions</string>
+  <string name="debug_surface_visible_bounds_label">Visible pixel bounds</string>
+  <string name="debug_surface_visible_label">Visible</string>
+  <string name="debug_surface_animation_label">Animation ID</string>
+  <string name="debug_surface_animation_running_label">Animation running</string>
+  <string name="debug_surface_revision_label">Revision</string>
+  <string name="debug_surface_pointer_section_title">Last input</string>
+  <string name="debug_surface_viewport_coords_label">Viewport coordinates</string>
+  <string name="debug_surface_intrinsic_coords_label">Intrinsic coordinates</string>
+  <string name="debug_surface_collision_id_label">Collision ID / name</string>
+  <string name="debug_surface_pointer_button_label">Button</string>
+  <string name="debug_surface_pointer_source_label">Source</string>
+  <string name="debug_surface_pointer_event_label">Event</string>
+  <string name="debug_surface_pointer_speaker_label">Speaker</string>
+  <string name="debug_surface_collision_section_title">Debug overlays</string>
+  <string name="debug_surface_collision_overlay_toggle">Show collision overlay</string>
+  <string name="debug_surface_nar_test_button">Run NAR test</string>
+  <string name="debug_surface_shiori_section_title">Bounded SHIORI log</string>
+  <string name="debug_surface_empty_log">No SHIORI events yet.</string>
+  <string name="debug_surface_empty_value">—</string>
+  <string name="debug_surface_value_true">Yes</string>
+  <string name="debug_surface_value_false">No</string>
+  <string name="debug_surface_value_coordinates">X=%1$d, Y=%2$d</string>
+  <string name="debug_surface_value_dimensions">%1$d × %2$d</string>
+  <string name="debug_surface_value_bounds">%1$d,%2$d to %3$d,%4$d</string>
+  <string name="debug_surface_value_collision">%1$d / %2$s</string>
+  <string name="debug_surface_log_entry_event">Event: %1$s</string>
+  <string name="debug_surface_log_entry_request">Request: %1$s</string>
+  <string name="debug_surface_log_entry_status">Status: %1$d</string>
+  <string name="debug_surface_log_entry_response">Response: %1$s</string>
+  <string name="debug_surface_log_show_full_payload">Show full payload</string>
+  <string name="debug_surface_log_collapse_payload">Collapse payload</string>
 </resources>
