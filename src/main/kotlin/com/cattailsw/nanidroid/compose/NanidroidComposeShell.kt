@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -36,7 +37,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.compose.debug.DebugAvailabilityPolicy
+import com.cattailsw.nanidroid.compose.durable.StalledOperationPrompt
 import com.cattailsw.nanidroid.install.NarDownload
+import com.cattailsw.nanidroid.durable.DurableAttentionAction
+import com.cattailsw.nanidroid.durable.DurableOperationRecord
+import com.cattailsw.nanidroid.durable.OperationHandle
 
 /**
  * The activity's Compose-owned chrome.
@@ -63,6 +68,9 @@ internal fun NanidroidComposeShell(
     onDebug: () -> Unit = {},
     simpleDialog: NanidroidSimpleDialog?,
     onDismissSimpleDialog: () -> Unit,
+    stalledOperations: List<DurableOperationRecord> = emptyList(),
+    onDurableAttentionAction: (OperationHandle, DurableAttentionAction) -> Unit = { _, _ -> },
+    transientOverlay: @Composable () -> Unit = {},
     wallpaper: Drawable? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -77,8 +85,10 @@ internal fun NanidroidComposeShell(
             color = Color.Transparent,
         ) {
             val isDebuggable = DebugAvailabilityPolicy(isDebuggable = showDebugControls).showDebugIcon
+            val lowerModalStateHolder = rememberSaveableStateHolder()
 
             Box(modifier = Modifier.fillMaxSize()) {
+                val durableAttentionVisible = stalledOperations.any { it.showStallPrompt }
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
@@ -112,10 +122,21 @@ internal fun NanidroidComposeShell(
                 if (loading) {
                     LoadingOverlay(progressMessage)
                 }
-                NanidroidSimpleDialogHost(
-                    dialog = simpleDialog,
-                    onDismiss = onDismissSimpleDialog,
-                    archiveDownloads = archiveDownloads,
+                if (!durableAttentionVisible) {
+                    lowerModalStateHolder.SaveableStateProvider("simple-dialog") {
+                        NanidroidSimpleDialogHost(
+                            dialog = simpleDialog,
+                            onDismiss = onDismissSimpleDialog,
+                            archiveDownloads = archiveDownloads,
+                        )
+                    }
+                    lowerModalStateHolder.SaveableStateProvider("transient-overlay") {
+                        transientOverlay()
+                    }
+                }
+                StalledOperationPrompt(
+                    records = stalledOperations,
+                    onAction = onDurableAttentionAction,
                 )
             }
         }

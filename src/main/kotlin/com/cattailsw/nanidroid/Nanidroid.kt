@@ -295,6 +295,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         progressMessage = getString(R.string.prog_startup)
         setContent {
             val downloads by narDownloads.observeDownloads().collectAsState()
+            val stalledOperations by SharedDurableOperationSupervisor
+                .attention(applicationContext)
+                .observeStalledOperations()
+                .collectAsState()
             LaunchedEffect(downloads) {
                 if (downloads.any { it.state is NarDownloadState.Complete }) gm?.refreshGhost()
             }
@@ -341,35 +345,42 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     },
                     simpleDialog = simpleDialog,
                     onDismissSimpleDialog = { simpleDialog = null },
+                    stalledOperations = stalledOperations,
+                    onDurableAttentionAction = { handle, action ->
+                        SharedDurableOperationSupervisor.get(applicationContext)
+                            .performAttentionAction(handle, action)
+                    },
+                    transientOverlay = {
+                        if (dbgBuild && !loading) {
+                            GhostDebugSurface(
+                                presentation = resolveDebugPresentation(
+                                    width = maxWidth,
+                                    stageMode = measured?.layoutDp?.mode ?: StageMode.STANDARD,
+                                ),
+                                state = debugPanelState,
+                                selection = measured.debugSelection(
+                                    debugPanelState.selectedSpeaker,
+                                    composeStage.runtimeState,
+                                ),
+                                lastInput = lastPointerDebugEvent,
+                                logs = debugShioriEntries,
+                                onSelectSpeaker = {
+                                    debugPanelState = debugPanelState.copy(selectedSpeaker = it)
+                                },
+                                onCollisionOverlayChange = {
+                                    debugPanelState = debugPanelState.copy(showCollisionOverlay = it)
+                                },
+                                onNarTest = {
+                                    debugPanelState = debugPanelState.copy(sampleQueued = true)
+                                    narTest()
+                                },
+                                onDismiss = {
+                                    debugPanelState = debugPanelState.dismissDebugSurface()
+                                },
+                            )
+                        }
+                    },
                 )
-                if (dbgBuild && !loading) {
-                    GhostDebugSurface(
-                        presentation = resolveDebugPresentation(
-                            width = maxWidth,
-                            stageMode = measured?.layoutDp?.mode ?: StageMode.STANDARD,
-                        ),
-                        state = debugPanelState,
-                        selection = measured.debugSelection(
-                            debugPanelState.selectedSpeaker,
-                            composeStage.runtimeState,
-                        ),
-                        lastInput = lastPointerDebugEvent,
-                        logs = debugShioriEntries,
-                        onSelectSpeaker = {
-                            debugPanelState = debugPanelState.copy(selectedSpeaker = it)
-                        },
-                        onCollisionOverlayChange = {
-                            debugPanelState = debugPanelState.copy(showCollisionOverlay = it)
-                        },
-                        onNarTest = {
-                            debugPanelState = debugPanelState.copy(sampleQueued = true)
-                            narTest()
-                        },
-                        onDismiss = {
-                            debugPanelState = debugPanelState.dismissDebugSurface()
-                        },
-                    )
-                }
             }
         }
         showProgress()

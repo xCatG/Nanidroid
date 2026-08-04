@@ -112,6 +112,13 @@ internal object DurableOperationPresentation {
         else -> R.string.durable_phase_updating
     }
 
+    @StringRes
+    fun actionLabelResource(action: DurableAttentionAction) = when (action) {
+        DurableAttentionAction.KEEP_WAITING -> R.string.durable_action_keep_waiting
+        DurableAttentionAction.STOP -> R.string.durable_action_stop
+        DurableAttentionAction.RETRY_STOP -> R.string.durable_action_retry_stop
+    }
+
     fun diagnosticText(context: Context, record: DurableOperationRecord): String? = when {
         record.isCancellationDispatchFailure() ->
             context.getString(R.string.durable_diagnostic_cancel_dispatch_failed)
@@ -230,7 +237,7 @@ internal class AndroidDurableAttentionNotifier(
             builder.addAction(
                 Notification.Action.Builder(
                     null,
-                    appContext.getString(action.labelResource()),
+                    appContext.getString(DurableOperationPresentation.actionLabelResource(action)),
                     DurableAttentionPendingIntents.action(appContext, record.handle(), action),
                 ).build(),
             )
@@ -252,12 +259,6 @@ internal class AndroidDurableAttentionNotifier(
         DurableAttentionNotificationPolicy.notificationTag(record.handle())
 
     private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
-
-    private fun DurableAttentionAction.labelResource() = when (this) {
-        DurableAttentionAction.KEEP_WAITING -> R.string.durable_action_keep_waiting
-        DurableAttentionAction.STOP -> R.string.durable_action_stop
-        DurableAttentionAction.RETRY_STOP -> R.string.durable_action_retry_stop
-    }
 
     private companion object {
         const val CHANNEL_ID = "nanidroid_operation_attention"
