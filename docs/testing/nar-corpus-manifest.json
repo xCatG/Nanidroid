@@ -55,6 +55,7 @@
       "version": "1.0.0",
       "sha256": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
       "expectedKind": "ghost",
+      "allowNativeKawariCrash": true,
       "requiredEvidence": [
         "installOutcome",
         "surfaceCount",
@@ -125,6 +126,7 @@
       "version": "1.0.0",
       "sha256": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
       "expectedKind": "ghost",
+      "allowNativeKawariCrash": true,
       "requiredEvidence": [
         "installOutcome",
         "surfaceCount",
@@ -141,6 +143,7 @@
       "version": "1.0.0",
       "sha256": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9",
       "expectedKind": "ghost",
+      "allowNativeKawariCrash": true,
       "requiredEvidence": [
         "installOutcome",
         "surfaceCount",
@@ -157,6 +160,7 @@
       "version": "1.0.1",
       "sha256": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c",
       "expectedKind": "ghost",
+      "allowNativeKawariCrash": true,
       "requiredEvidence": [
         "installOutcome",
         "surfaceCount",
@@ -173,6 +177,7 @@
       "version": "silent_ALPHA",
       "sha256": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17",
       "expectedKind": "ghost",
+      "allowNativeKawariCrash": true,
       "requiredEvidence": [
         "installOutcome",
         "surfaceCount",
@@ -346,6 +351,7 @@
       "version": "1.0.0",
       "sha256": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
       "expectedKind": "ghost",
+      "allowNativeKawariCrash": true,
       "requiredEvidence": [
         "installOutcome",
         "surfaceCount",

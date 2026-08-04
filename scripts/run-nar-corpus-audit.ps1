@@ -55,6 +55,8 @@ $tmpRunRoot = "$tmpRoot/$runId"
 $tmpRunSafeRoot = "/data/local/tmp/nanidroid-corpus/$runId"
 $privateDataRoot = $null
 $failureOutputMaxChars = 3200
+$adbTransportTimedOut = $false
+$adbTransportTimeoutEvidence = $null
 
 New-Item -ItemType Directory -Force -Path $reportRoot, $failuresRoot, $screenshotRoot, $hostTmpRoot, $hostRunTmpRoot | Out-Null
 
@@ -277,6 +279,25 @@ function Test-OnlyExpectedTokenizerDiagnostics {
     return $true
 }
 
+function Test-NativeKawariCrashAllowed {
+    param(
+        [object]$ManifestEntry
+    )
+
+    return $null -ne $ManifestEntry -and
+        (Has-Property -Object $ManifestEntry -Name 'allowNativeKawariCrash') -and
+        $ManifestEntry.allowNativeKawariCrash -eq $true -and
+        ($ManifestEntry.allowedClassifications -contains 'incompatible')
+}
+
+function Test-AdbTransportAvailable {
+    param(
+        [bool]$TransportTimedOut
+    )
+
+    return -not $TransportTimedOut
+}
+
 function Set-CanonicalArchiveCleanup {
     param(
         [object]$ArchiveResult,
@@ -295,6 +316,13 @@ function ConvertTo-NarCorpusJson {
     )
 
     return $Value | ConvertTo-Json -Depth 32
+}
+
+function Get-NarCorpusSentinelMarkdownHeader {
+    return @(
+        '| Name | Passed | Expected | Observed | Detail |',
+        '| --- | --- | --- | --- | --- |'
+    ) -join [Environment]::NewLine
 }
 
 function Truncate-Text([string]$Text, [int]$MaxChars = 4000) {
@@ -416,6 +444,10 @@ function Invoke-Adb {
         [switch]$AllowFailure
     )
 
+    if (-not (Test-AdbTransportAvailable -TransportTimedOut $script:adbTransportTimedOut)) {
+        ThrowIf "ADB transport disabled after timeout: $script:adbTransportTimeoutEvidence" 'adb-timeout'
+    }
+
     $fullArgs = if ([string]::IsNullOrWhiteSpace($DeviceSerial)) { @() } else { @('-s', $DeviceSerial) }
     $fullArgs += $Arguments
     $tempOut = if ($StdOutFile) { $StdOutFile } else { New-HostTempFile '.stdout' }
@@ -425,6 +457,8 @@ function Invoke-Adb {
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         Remove-Item $tempOut, $tempErr -ErrorAction SilentlyContinue
+        $script:adbTransportTimedOut = $true
+        $script:adbTransportTimeoutEvidence = "adb $($fullArgs -join ' ') exceeded $TimeoutSeconds seconds"
         ThrowIf "adb timed out: adb $($fullArgs -join ' ')" $Code
     }
     $stdout = Get-Content -Path $tempOut -Raw -ErrorAction SilentlyContinue
@@ -814,6 +848,15 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         if (-not $entry.allowedClassifications -or $entry.allowedClassifications.Count -eq 0) {
             ThrowIf "Manifest entry '$($entry.label)' has no allowedClassifications."
         }
+        if ((Has-Property -Object $entry -Name 'allowNativeKawariCrash') -and
+            ($entry.allowNativeKawariCrash -isnot [bool] -or -not $entry.allowNativeKawariCrash)) {
+            ThrowIf "Manifest entry '$($entry.label)' has invalid allowNativeKawariCrash; omit it or set it to true."
+        }
+        if ((Has-Property -Object $entry -Name 'allowNativeKawariCrash') -and
+            $entry.allowNativeKawariCrash -and
+            ($entry.allowedClassifications -notcontains 'incompatible')) {
+            ThrowIf "Manifest entry '$($entry.label)' allows a Kawari crash without allowing incompatible classification."
+        }
         $sha = $entry.sha256.ToLowerInvariant()
         $label = $entry.label.ToLowerInvariant()
         $safeLabel = (Sanitize-Label -Label $entry.label).ToLowerInvariant()
@@ -1152,9 +1195,9 @@ function Run-TestArchive {
         }
         catch {
             if ($_.Exception.Message -like 'Timed out while executing:*') {
-                Invoke-Adb -Arguments @('shell', 'am', 'force-stop', $targetPackage) | Out-Null
-                Invoke-Adb -Arguments @('shell', 'am', 'force-stop', $testPackage) | Out-Null
-                ThrowIf "Timed out running instrumentation for $Label."
+                $script:adbTransportTimedOut = $true
+                $script:adbTransportTimeoutEvidence = "instrumentation for '$Label' exceeded $PerArchiveTimeoutMinutes minutes"
+                ThrowIf "adb timed out during instrumentation for $Label; no further ADB commands will be issued." 'adb-timeout'
             }
             throw
         }
@@ -1212,7 +1255,7 @@ function Run-TestArchive {
         if ($acceptedCrashPredicate -and -not ($ManifestEntry.allowedClassifications -contains 'incompatible')) {
             ThrowIf "Accepted native-crash criteria met for $Label but manifest does not allow 'incompatible'."
         }
-        $acceptedNativeCrash = $acceptedCrashPredicate -and ($ManifestEntry.allowedClassifications -contains 'incompatible')
+        $acceptedNativeCrash = $acceptedCrashPredicate -and (Test-NativeKawariCrashAllowed -ManifestEntry $ManifestEntry)
         if ($acceptedNativeCrash) {
             $nativeCrashAccepted = $true
             $nativeCrashEvidence = "Accepted native crash marker for ${Label}: target process+SIGSEGV+libkawari8"
@@ -1301,22 +1344,27 @@ function Run-TestArchive {
         }
     }
     finally {
-        Invoke-Adb -Arguments @('shell', 'am', 'force-stop', $targetPackage) -TimeoutSeconds 10 -AllowFailure | Out-Null
-        Invoke-Adb -Arguments @('shell', 'am', 'force-stop', $testPackage) -TimeoutSeconds 10 -AllowFailure | Out-Null
-        if ($privateInputPath -like "$privateDataRoot/cache/nar-corpus-host/$runId/*") {
-            Invoke-Adb -Arguments @('shell', 'run-as', $targetPackage, 'rm', '-rf', $privateInputPath) -TimeoutSeconds 20 -AllowFailure | Out-Null
-        }
-        Remove-RemotePath -Path $externalResultPath -TrimParents $true
-        Remove-RemotePath -Path $tmpArchiveDir
-        $postPrivateSnapshot = @(Get-DevicePathPresence $privateInputPath 'run-as')
-        $postOutputSnapshot = @(Get-DevicePathPresence $externalResultPath)
-        $postTmpSnapshot = @(Get-DevicePathPresence $tmpArchiveDir)
-        if ($postPrivateSnapshot.Count -eq 0 -and $postOutputSnapshot.Count -eq 0 -and $postTmpSnapshot.Count -eq 0) {
-            $hostCleanupEvidence = 'host cleanup completed; no remaining paths'
+        if (Test-AdbTransportAvailable -TransportTimedOut $script:adbTransportTimedOut) {
+            Invoke-Adb -Arguments @('shell', 'am', 'force-stop', $targetPackage) -TimeoutSeconds 10 -AllowFailure | Out-Null
+            Invoke-Adb -Arguments @('shell', 'am', 'force-stop', $testPackage) -TimeoutSeconds 10 -AllowFailure | Out-Null
+            if ($privateInputPath -like "$privateDataRoot/cache/nar-corpus-host/$runId/*") {
+                Invoke-Adb -Arguments @('shell', 'run-as', $targetPackage, 'rm', '-rf', $privateInputPath) -TimeoutSeconds 20 -AllowFailure | Out-Null
+            }
+            Remove-RemotePath -Path $externalResultPath -TrimParents $true
+            Remove-RemotePath -Path $tmpArchiveDir
+            $postPrivateSnapshot = @(Get-DevicePathPresence $privateInputPath 'run-as')
+            $postOutputSnapshot = @(Get-DevicePathPresence $externalResultPath)
+            $postTmpSnapshot = @(Get-DevicePathPresence $tmpArchiveDir)
+            if ($postPrivateSnapshot.Count -eq 0 -and $postOutputSnapshot.Count -eq 0 -and $postTmpSnapshot.Count -eq 0) {
+                $hostCleanupEvidence = 'host cleanup completed; no remaining paths'
+            }
+            else {
+                $hostCleanupEvidence = "host cleanup detected residue: private=$($postPrivateSnapshot -join ', '), external=$($postOutputSnapshot -join ', '), tmp=$($postTmpSnapshot -join ', ')"
+                ThrowIf $hostCleanupEvidence
+            }
         }
         else {
-            $hostCleanupEvidence = "host cleanup detected residue: private=$($postPrivateSnapshot -join ', '), external=$($postOutputSnapshot -join ', '), tmp=$($postTmpSnapshot -join ', ')"
-            ThrowIf $hostCleanupEvidence
+            $hostCleanupEvidence = "host cleanup not attempted after ADB transport timeout: $script:adbTransportTimeoutEvidence"
         }
     }
 
@@ -1545,6 +1593,60 @@ foreach ($arg in $ProbeArgs) {
     }
     Write-Host 'Dry-run result normalization probes passed.'
 
+    $explicitKawariCrashEntry = [pscustomobject]@{
+        allowedClassifications = @('compatible', 'incompatible')
+        allowNativeKawariCrash = $true
+    }
+    $genericIncompatibleEntry = [pscustomobject]@{
+        allowedClassifications = @('compatible', 'incompatible')
+    }
+    if (-not (Test-NativeKawariCrashAllowed -ManifestEntry $explicitKawariCrashEntry)) {
+        ThrowIf 'Dry-run native-crash probe rejected an explicitly allowlisted Kawari row.'
+    }
+    if (Test-NativeKawariCrashAllowed -ManifestEntry $genericIncompatibleEntry) {
+        ThrowIf 'Dry-run native-crash probe accepted a generic incompatible-capable row.'
+    }
+    if (Test-AdbTransportAvailable -TransportTimedOut $true) {
+        ThrowIf 'Dry-run ADB transport probe allowed commands after a transport timeout.'
+    }
+    if (-not (Test-AdbTransportAvailable -TransportTimedOut $false)) {
+        ThrowIf 'Dry-run ADB transport probe rejected a healthy transport.'
+    }
+    $script:adbTransportTimedOut = $true
+    $script:adbTransportTimeoutEvidence = 'dry-run simulated transport deadline'
+    try {
+        try {
+            Invoke-Adb -Arguments @('version') | Out-Null
+            ThrowIf 'Dry-run ADB cutoff probe unexpectedly launched a command.'
+        }
+        catch {
+            if ($_.Exception.Message -notlike 'adb-timeout: ADB transport disabled after timeout:*') {
+                throw
+            }
+        }
+    }
+    finally {
+        $script:adbTransportTimedOut = $false
+        $script:adbTransportTimeoutEvidence = $null
+    }
+    Write-Host 'Dry-run crash allowlist and transport cutoff probes passed.'
+
+    $dryRunMarkdownHeader = Get-NarCorpusSentinelMarkdownHeader
+    if ($dryRunMarkdownHeader -ne "| Name | Passed | Expected | Observed | Detail |$([Environment]::NewLine)| --- | --- | --- | --- | --- |") {
+        ThrowIf 'Dry-run Markdown probe did not render the sentinel header on two lines.'
+    }
+    $dryRunManifestSha = 'manifest-sha-probe'
+    $dryRunSentinels = [pscustomobject]@{ passed = $true }
+    $dryRunMarkdownMetadata = @"
+- Manifest: manifest.json ($dryRunManifestSha)
+- Sentinel checks passed: $($dryRunSentinels.passed)
+"@
+    if ($dryRunMarkdownMetadata -notmatch [regex]::Escape('(manifest-sha-probe)') -or
+        $dryRunMarkdownMetadata -notmatch [regex]::Escape('Sentinel checks passed: True')) {
+        ThrowIf 'Dry-run Markdown probe did not interpolate summary metadata.'
+    }
+    Write-Host 'Dry-run Markdown rendering probe passed.'
+
     $dryRunNestedEvidence = [pscustomobject]@{
         level1 = [pscustomobject]@{
             level2 = [pscustomobject]@{
@@ -1666,7 +1768,7 @@ $installed = $false
             $results.Add($errorResult) | Out-Null
             $failures.Add($failurePath) | Out-Null
             Write-Host "ERROR: $($entry.label) failed"
-            if ($failureReason -match 'adb timed out') {
+            if ($script:adbTransportTimedOut) {
                 $abortedDueToTimeout = $true
                 $abortedEntryLabel = $entry.label
                 Write-Host "TIMEOUT: aborting after $($entry.label)"
@@ -2420,6 +2522,8 @@ $installed = $false
     $summaryPath = Join-Path $reportRoot 'summary.json'
     ConvertTo-NarCorpusJson -Value $summary | Set-Content -Path $summaryPath -Encoding UTF8
 
+    $sentinelMarkdownHeader = Get-NarCorpusSentinelMarkdownHeader
+
     $summaryMd = @"
 # NAR corpus audit summary
 
@@ -2430,7 +2534,7 @@ $installed = $false
 - APKs:
   - debug sha256: $($apkInfo.DebugApkSha256)
   - test sha256: $($apkInfo.TestApkSha256)
-- Manifest: $manifestEntryName (`$manifestSha`)
+- Manifest: $manifestEntryName ($manifestSha)
 - Duration: $runSeconds seconds
 - Corpus entries: $($manifest.entries.Count)
 - Results: $($results.Count)
@@ -2438,7 +2542,7 @@ $installed = $false
 - Aborted due to timeout: $abortedDueToTimeout
 - Aborted entry: $abortedEntryLabel
 - Cleanup verification: $cleanupVerification
-- Sentinel checks passed: $globalSentinels.passed
+- Sentinel checks passed: $($globalSentinels.passed)
 - Sentinels failed: $failedSentinelChecks
 
 ## Result rows
@@ -2453,10 +2557,7 @@ $(
 
 ## Sentinel checks
 
-$(
-  "| Name | Passed | Expected | Observed | Detail |"
-  "| --- | --- | --- | --- | --- |"
-)
+$sentinelMarkdownHeader
 $(
   $globalSentinels.checks | ForEach-Object {
       "| $($_.name) | $($_.passed) | $($_.expected) | $($_.observed) | $($_.detail) |"
@@ -2473,18 +2574,20 @@ $(
     }
 }
 finally {
-    if ($networkState) {
-        Set-NetworkState -Disable $false -Snapshot $networkState
+    if (Test-AdbTransportAvailable -TransportTimedOut $script:adbTransportTimedOut) {
+        if ($networkState) {
+            Set-NetworkState -Disable $false -Snapshot $networkState
+        }
+        if ($installed) {
+            try { Invoke-Adb -Arguments @('uninstall', $targetPackage) -TimeoutSeconds 120 | Out-Null } catch {}
+            try { Invoke-Adb -Arguments @('uninstall', $testPackage) -TimeoutSeconds 120 | Out-Null } catch {}
+            try {
+                Remove-RemotePath -Path "/sdcard/Android/data/$targetPackage/files/nar-corpus" -TrimParents $true
+                Remove-RemotePath -Path "/sdcard/Android/data/$targetPackage/files"
+                Remove-RemotePath -Path "/sdcard/Android/data/$targetPackage"
+            } catch {}
+        }
+        try { Remove-RemotePath -Path $tmpRunSafeRoot -TrimParents $true } catch {}
     }
-    if ($installed) {
-        try { Invoke-Adb -Arguments @('uninstall', $targetPackage) -TimeoutSeconds 120 | Out-Null } catch {}
-        try { Invoke-Adb -Arguments @('uninstall', $testPackage) -TimeoutSeconds 120 | Out-Null } catch {}
-        try {
-            Remove-RemotePath -Path "/sdcard/Android/data/$targetPackage/files/nar-corpus" -TrimParents $true
-            Remove-RemotePath -Path "/sdcard/Android/data/$targetPackage/files"
-            Remove-RemotePath -Path "/sdcard/Android/data/$targetPackage"
-        } catch {}
-    }
-    try { Remove-RemotePath -Path $tmpRunSafeRoot -TrimParents $true } catch {}
     Remove-Item -LiteralPath $hostRunTmpRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

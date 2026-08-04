@@ -99,6 +99,9 @@ The run fails for:
 
 Intentionally incompatible and unsupported packages are successful audit rows when
 their classification and structured diagnostics match the manifest. A native crash
-is accepted only for the known Kawari compatibility case when the instrument output,
-crash buffer, target process, `SIGSEGV`, and `libkawari8` markers all agree and the
-manifest permits `incompatible`; every other native crash fails the run.
+is accepted only for an exact manifest row with `allowNativeKawariCrash: true` when
+the instrument output, crash buffer, target process, `SIGSEGV`, and `libkawari8`
+markers all agree and the row permits `incompatible`; every other native crash fails
+the run. If any ADB process exceeds its host deadline, the runner records the partial
+result and stops issuing device commands because the transport is no longer trusted;
+cleanup is reported as unverified for that run.
