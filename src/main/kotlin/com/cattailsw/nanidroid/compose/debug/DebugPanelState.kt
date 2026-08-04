@@ -14,6 +14,15 @@ data class DebugPanelState(
     val sampleQueued: Boolean = false,
 )
 
+fun DebugPanelState.collisionOverlaySpeaker(
+    loading: Boolean,
+    debugBuild: Boolean,
+): SurfaceSpeaker? = selectedSpeaker.takeIf {
+    !loading && debugBuild && showCollisionOverlay
+}
+
+fun DebugPanelState.dismissDebugSurface(): DebugPanelState = copy(visible = false)
+
 enum class DebugPresentation {
     FULL_STAGE_MODAL,
     BOTTOM_SHEET,

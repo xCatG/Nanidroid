@@ -36,6 +36,8 @@ import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.debug.DebugPanelState
 import com.cattailsw.nanidroid.compose.debug.GhostDebugSurface
 import com.cattailsw.nanidroid.compose.debug.SurfacePointerDebugEvent
+import com.cattailsw.nanidroid.compose.debug.collisionOverlaySpeaker
+import com.cattailsw.nanidroid.compose.debug.dismissDebugSurface
 import com.cattailsw.nanidroid.compose.debug.debugSelection
 import com.cattailsw.nanidroid.compose.debug.resolveDebugPresentation
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
@@ -293,9 +295,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                             onDialogueAnchor = { action -> runner?.activateAnchor(action) },
                             onDialogueExternalUrl = ::openDialogueExternalUrl,
                             onDialogueInput = ::openDialogueInput,
-                            collisionOverlaySpeaker = debugPanelState.selectedSpeaker.takeIf {
-                                !loading && dbgBuild && debugPanelState.visible && debugPanelState.showCollisionOverlay
-                            },
+                            collisionOverlaySpeaker = debugPanelState.collisionOverlaySpeaker(
+                                loading = loading,
+                                debugBuild = dbgBuild,
+                            ),
                         )
                     },
                     loading = loading,
@@ -348,10 +351,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                             narTest()
                         },
                         onDismiss = {
-                            debugPanelState = debugPanelState.copy(
-                                visible = false,
-                                showCollisionOverlay = false,
-                            )
+                            debugPanelState = debugPanelState.dismissDebugSurface()
                         },
                     )
                 }
