@@ -36,9 +36,11 @@ __pycache__/
 test-results/
 screenshots/generated/
 artifacts/
+*.nar
 
 # Legacy vendor build artifacts are neither executed nor consumed by CMake.
 jni/satori/lib
 jni/satori/lib.exe
 jni/satori/satori.so
 .worktrees/
+build/reports/nar-corpus/

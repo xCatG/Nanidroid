@@ -41,6 +41,33 @@ class NarTransactionalInstallerTest {
 
     @Test
     @Throws(Exception::class)
+    fun installsWrappedArchiveWithDeeperBundledDescriptorPayload() {
+        val root = temporaryDirectory("transaction-nested-descriptor")
+        val archive = zip(
+            "bundle/install.txt", descriptor("forced-id"),
+            "bundle/ghost/master.txt", bytes("hello"),
+            "bundle/shell/install.txt", bytes("type,shell\nname,Nested Shell\ndirectory,ignored\n"),
+            "bundle/balloon/install.txt", bytes("type,balloon\nname,Nested Balloon\ndirectory,ignored\n"),
+        )
+
+        val result = NarTransactionalInstaller.install(archive, root, null)
+
+        Assert.assertTrue(result.isSuccess)
+        Assert.assertEquals("forced-id", result.targetId)
+        Assert.assertArrayEquals(
+            bytes("hello"), read(File(root, "forced-id/ghost/master.txt"))
+        )
+        Assert.assertArrayEquals(
+            bytes("type,shell\nname,Nested Shell\ndirectory,ignored\n"), read(File(root, "forced-id/shell/install.txt"))
+        )
+        Assert.assertArrayEquals(
+            bytes("type,balloon\nname,Nested Balloon\ndirectory,ignored\n"), read(File(root, "forced-id/balloon/install.txt"))
+        )
+        Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+    }
+
+    @Test
+    @Throws(Exception::class)
     fun rejectsExistingTargetWithoutChangingItOrCreatingStaging() {
         val root = temporaryDirectory("transaction-existing")
         val existing = File(root, "ghost-id")

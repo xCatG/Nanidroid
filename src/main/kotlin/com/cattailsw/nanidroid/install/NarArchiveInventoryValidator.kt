@@ -203,27 +203,34 @@ class NarArchiveInventoryValidator {
 
     @Throws(Rejected::class)
     private fun layout(items: List<Item>): Layout {
-        val candidates = ArrayList<Item>()
+        var rootDescriptor: Item? = null
+        val wrapperDescriptors = ArrayList<Item>()
         var deep = false
         for (item in items) {
             val components = item.path.normalized.split("/")
             val descriptor = !item.source.directory && components.last() == "install.txt"
-            if (descriptor && components.size <= 2) {
-                candidates.add(item)
-            } else if (descriptor) {
+            if (!descriptor) continue
+            if (components.size == 1 && item.path.normalized == "install.txt") {
+                rootDescriptor = item
+            } else if (components.size == 2) {
+                wrapperDescriptors.add(item)
+            } else {
                 deep = true
             }
         }
-        if (candidates.size > 1) {
-            reject(NarInstallError.AMBIGUOUS_LAYOUT, "multiple install.txt")
+        if (rootDescriptor != null) {
+            return Layout(rootDescriptor, null)
         }
-        if (deep) {
-            reject(NarInstallError.INVALID_LAYOUT, "deep install.txt")
-        }
-        if (candidates.isEmpty()) {
+        if (wrapperDescriptors.isEmpty()) {
+            if (deep) {
+                reject(NarInstallError.INVALID_LAYOUT, "deep install.txt")
+            }
             reject(NarInstallError.MISSING_INSTALL_DESCRIPTOR, "no supported install.txt")
         }
-        val descriptor = candidates[0]
+        if (wrapperDescriptors.size > 1) {
+            reject(NarInstallError.AMBIGUOUS_LAYOUT, "multiple install.txt")
+        }
+        val descriptor = wrapperDescriptors[0]
         val slash = descriptor.path.normalized.indexOf('/')
         val wrapper = if (slash < 0) null else descriptor.path.normalized.substring(0, slash)
         if (wrapper != null) {

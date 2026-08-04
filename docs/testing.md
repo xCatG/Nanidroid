@@ -51,8 +51,68 @@ With the dedicated disposable emulator running, use:
 powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DeviceSerial emulator-5554
 ```
 
+Run a host-only preflight check:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DryRun
+```
+
+For explicit roots that include file inputs (for example `.\\2elf-2.46.nar`) and directories, pass
+`-CorpusRoots` explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DryRun -CorpusRoots .\2elf-2.46.nar, .\build\ui-audit
+```
+
+If `apksigner` is not in `PATH`, pass it explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DeviceSerial emulator-5554 -ApkSignerPath "C:\path\to\apksigner.bat"
+```
+
 The corpus runner and its manifest are added in Task 17; do not place local
 archives or generated corpus reports under version control.
+
+- `docs/testing/nar-corpus-manifest.json` contains manifest labels, versions, expected
+  package kinds, required evidence, allowed classification, and canonical hashes.
+- `docs/testing/nar-corpus.md` defines script behavior and per-run output.
+
+```powershell
+.\gradlew.bat assembleDebug assembleDebugAndroidTest
+powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DeviceSerial emulator-5554
+```
+
+Expected outputs:
+
+- `build/reports/nar-corpus/summary.json`
+- `build/reports/nar-corpus/summary.md`
+- `build/reports/nar-corpus/screenshots/<label>.png`
+- `build/reports/nar-corpus/<label>/result.json`
+- `build/reports/nar-corpus/failures/<label>.txt` (on failures)
+
+The report run intentionally refuses:
+
+- missing required arguments
+- non-emulator devices
+- API outside 31–37
+- unsupported ABI
+- pre-existing target or test package installation/data
+- pre-existing app-owned storage
+- missing manifest hash matches
+- missing results or timeouts
+
+The five-minute per-archive timeout belongs only to this disposable host harness.
+It does not change Nanidroid's runtime hang policy: the app never cancels a ghost
+automatically and exposes the explicit Stop action after 30 seconds. A device-side
+adb timeout produces a partial report and stops the corpus run without attempting
+more commands through the unresponsive transport.
+
+Expected incompatible and unsupported archives count as passing audit rows only
+when their structured classification and diagnostics match the manifest. The sole
+accepted native-crash path additionally requires the exact known Kawari target,
+`SIGSEGV`, and `libkawari8` evidence contract. Summary sentinels verify all 23 rows,
+host/device cleanup, representative parser and dialogue behavior, authored collision
+geometry, optical bounds, asymmetric stages, and unsupported non-ghost packages.
 
 ## Full verification
 

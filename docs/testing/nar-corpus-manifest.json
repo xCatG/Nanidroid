@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-04T00:00:00Z",
+  "entries": [
+    {
+      "label": "2elf-2.46",
+      "version": "2.46",
+      "sha256": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes",
+        "dialogueProbe"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible"
+      ]
+    },
+    {
+      "label": "tewire-sen",
+      "version": "unknown",
+      "sha256": "2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Yes Man-2.1.1",
+      "version": "2.1.1",
+      "sha256": "aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "shioriOutcome"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Big Red Button",
+      "version": "1.0.0",
+      "sha256": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "renderOutcome"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Earthquake Rescue Duo",
+      "version": "1.0.1",
+      "sha256": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Haiidrate",
+      "version": "unknown",
+      "sha256": "ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685",
+      "expectedKind": "shell",
+      "requiredEvidence": [
+        "installOutcome",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "unsupported"
+      ]
+    },
+    {
+      "label": "Hareraiser",
+      "version": "unknown",
+      "sha256": "a686e3b4c57f30985582fb8ffe9cbbfda49609fa046bb8ca08b003105e1fe7fe",
+      "expectedKind": "balloon",
+      "requiredEvidence": [
+        "installOutcome",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "unsupported"
+      ]
+    },
+    {
+      "label": "Kitsune no Ocha",
+      "version": "unknown",
+      "sha256": "7b74cbaba0f2b0b159fb20da194d51c07925bb6c208c97e5021879fbdc3d29f5",
+      "expectedKind": "shell",
+      "requiredEvidence": [
+        "installOutcome",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "unsupported"
+      ]
+    },
+    {
+      "label": "LOBO",
+      "version": "1.0.0",
+      "sha256": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Nanika Atsume 1.0.0",
+      "version": "1.0.0",
+      "sha256": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Nanika Atsume 1.0.1",
+      "version": "1.0.1",
+      "sha256": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Nanika Atsume silent_ALPHA",
+      "version": "silent_ALPHA",
+      "sha256": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake and Otacon V1.0.0",
+      "version": "1.0.0",
+      "sha256": "526b7721103031fb3f28b22fffc54b71fd0b1e279168934a06d8076e20a1cbcc",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "inputOutcome"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake and Otacon V1.0.1",
+      "version": "1.0.1",
+      "sha256": "6f44dd039c17093d3f91e47bb9c474e128eb34fa4bfeb5ef3148625bbd613764",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake And Otacon V1.1.1",
+      "version": "1.1.1",
+      "sha256": "21253507c17e90073974229ddf8b0d39e36efcae968a27c2569fe5c46c201e4b",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake and Otacon V1.2.1",
+      "version": "1.2.1",
+      "sha256": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "renderOutcome"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake and Otacon V1.3.1",
+      "version": "1.3.1",
+      "sha256": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake and Otacon V1.3.2",
+      "version": "1.3.2",
+      "sha256": "1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "inputOutcome"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake_Otacon_1.1.1b",
+      "version": "1.1.1b",
+      "sha256": "ef1590f766964b1932020abf6e93aa229be12fbc6ba9238a4e5cda90939f4d70",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake_Otacon_1.2.1b",
+      "version": "1.2.1b",
+      "sha256": "4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "Snake_Otacon_1.3.1b",
+      "version": "1.3.1b",
+      "sha256": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "renderOutcome"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    },
+    {
+      "label": "The Petpet Puddle",
+      "version": "1.0.0",
+      "sha256": "7746f4f47b633ff940200859052d351fb4d68bce307425af42cddbd1b9dccb22",
+      "expectedKind": "shell",
+      "requiredEvidence": [
+        "installOutcome",
+        "parserDiagnostics"
+      ],
+      "allowedClassifications": [
+        "unsupported"
+      ]
+    },
+    {
+      "label": "Watchdog Bancho",
+      "version": "1.0.0",
+      "sha256": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "expectedKind": "ghost",
+      "requiredEvidence": [
+        "installOutcome",
+        "surfaceCount",
+        "namedCollisionProbes"
+      ],
+      "allowedClassifications": [
+        "compatible",
+        "partiallyCompatible",
+        "incompatible"
+      ]
+    }
+  ]
+}
