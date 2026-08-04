@@ -355,7 +355,9 @@ class DurableOperationSupervisor(
 
     private fun issueCancellation(handle: OperationHandle, binding: ExternalJobBinding) {
         val request = BoundCancellation(handle, binding)
-        if (cancellationIssued.add(request)) cancellation.cancel(handle, binding)
+        if (request in cancellationIssued) return
+        cancellation.cancel(handle, binding)
+        cancellationIssued.add(request)
     }
 
     private fun OperationStatus.isActive() =
