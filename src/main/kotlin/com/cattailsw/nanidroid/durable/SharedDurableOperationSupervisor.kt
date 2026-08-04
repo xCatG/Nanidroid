@@ -4,7 +4,6 @@ import android.app.DownloadManager
 import android.content.Context
 import androidx.work.WorkManager
 import com.cattailsw.nanidroid.di.MonotonicClock
-import com.cattailsw.nanidroid.install.NarDownloadRepository
 import java.util.UUID
 
 internal object SharedDurableOperationSupervisor {
@@ -84,7 +83,6 @@ internal object SharedDurableOperationSupervisor {
 
     internal interface WorkManagerCancellationGateway {
         fun cancel(workManagerId: UUID)
-        fun cancel(uniqueWorkName: String)
     }
 
     internal class AndroidDurableOperationCancellation : OperationCancellation {
@@ -114,30 +112,12 @@ internal object SharedDurableOperationSupervisor {
             when (binding) {
                 is ExternalJobBinding.DownloadManager -> downloadGateway.cancel(binding.id)
                 is ExternalJobBinding.WorkManager -> {
-                    val uuid = runCatching { UUID.fromString(binding.uuid) }
-                        .getOrNull()
-                        ?.takeIf { it.toString() == binding.uuid }
-                    if (uuid != null) {
-                        workGateway.cancel(uuid)
-                        return
-                    }
-                    if (kind == OperationKind.REMOTE_NAR) {
-                        throw IllegalArgumentException("invalid WorkManager binding for remote NAR workflow")
-                    }
-                    workGateway.cancel(recoveryWorkName(handle.operationId, kind))
+                    val uuid = canonicalUuidOrNull(binding.uuid)
+                        ?: throw IllegalArgumentException("invalid WorkManager binding")
+                    workGateway.cancel(uuid)
                 }
             }
         }
-    }
-
-    internal fun recoveryWorkName(
-        operationId: OperationId,
-        kind: OperationKind,
-    ): String = when (kind) {
-        OperationKind.NAR_INSTALL -> NarDownloadRepository.workName(operationId.value)
-        OperationKind.LOCAL_NAR -> NarDownloadRepository.stageWorkName(operationId.value)
-        OperationKind.GHOST_UPDATE -> GhostUpdateWorker.recoveryWorkName(operationId)
-        else -> throw IllegalArgumentException("no recovery work name for $kind")
     }
 
     internal class AndroidDownloadManagerCancellation(context: Context) :
@@ -160,10 +140,6 @@ internal object SharedDurableOperationSupervisor {
 
         override fun cancel(workManagerId: UUID) {
             workManager.cancelWorkById(workManagerId)
-        }
-
-        override fun cancel(uniqueWorkName: String) {
-            workManager.cancelUniqueWork(uniqueWorkName)
         }
     }
 

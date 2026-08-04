@@ -361,27 +361,52 @@ class DurableOperationSupervisor(
         kind: OperationKind,
         binding: ExternalJobBinding,
     ) {
-        val request = BoundCancellation(handle, binding)
+        val exactBinding = try {
+            repairMalformedWorkManagerBinding(handle, kind, binding)
+        } catch (_: Exception) {
+            storeCancellationFailure(handle, binding)
+            return
+        } ?: return
+        val request = BoundCancellation(handle, exactBinding)
         if (!cancellationIssued.add(request)) return
         try {
-            cancellation.cancel(handle, kind, binding)
-            clearCancellationFailureDiagnostic(handle, binding)
+            cancellation.cancel(handle, kind, exactBinding)
+            clearCancellationFailureDiagnostic(handle, exactBinding)
             lastProgressAt[handle] = clock.nowMillis()
         } catch (error: Exception) {
-            storeCancellationFailure(handle, binding)
+            storeCancellationFailure(handle, exactBinding)
             cancellationIssued.remove(request)
         }
+    }
+
+    private fun repairMalformedWorkManagerBinding(
+        handle: OperationHandle,
+        kind: OperationKind,
+        binding: ExternalJobBinding,
+    ): ExternalJobBinding? {
+        if (binding !is ExternalJobBinding.WorkManager || canonicalUuidOrNull(binding.uuid) != null) {
+            return binding
+        }
+        if (kind !in WORK_MANAGER_KINDS) return binding
+        val current = activeRecord(handle) ?: return null
+        if (current.kind != kind || current.externalJob != binding) return null
+        val repaired = ExternalJobBinding.WorkManager(durableWorkManagerId(handle, kind).toString())
+        val updated = current.copy(
+            externalJob = repaired,
+            externalJobHistory = current.externalJobHistory + binding + repaired,
+        )
+        return if (store.compareAndSet(current, updated)) repaired else null
     }
 
     private fun storeCancellationFailure(
         handle: OperationHandle,
         binding: ExternalJobBinding,
     ) {
-        val current = activeRecord(handle) ?: return
-        if (current.status != OperationStatus.CANCEL_REQUESTED || current.externalJob != binding) return
-        val failure = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
-        if (current.diagnostics == failure) return
         try {
+            val current = activeRecord(handle) ?: return
+            if (current.status != OperationStatus.CANCEL_REQUESTED || current.externalJob != binding) return
+            val failure = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
+            if (current.diagnostics == failure) return
             store.compareAndSet(
                 current,
                 current.copy(showStallPrompt = false, diagnostics = failure),
@@ -421,6 +446,11 @@ class DurableOperationSupervisor(
         const val STALL_MILLIS = 30_000L
         const val STOPPING_PHASE = "Stopping..."
         const val STOPPING_DIAGNOSTIC = "Cancellation has not completed after 30 seconds."
+        val WORK_MANAGER_KINDS = setOf(
+            OperationKind.LOCAL_NAR,
+            OperationKind.NAR_INSTALL,
+            OperationKind.GHOST_UPDATE,
+        )
     }
 
     private data class BoundCancellation(

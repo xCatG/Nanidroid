@@ -1,15 +1,47 @@
 package com.cattailsw.nanidroid.durable
 
 import com.cattailsw.nanidroid.di.MonotonicClock
-import com.cattailsw.nanidroid.install.NarDownloadRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
 
 class SharedDurableOperationSupervisorTest {
+    @Test fun createForTestingRetriesTransientResetFailureAndResolvesSameProcess() {
+        val raw = "v1\n${"x".repeat(40_000)}"
+        val storage = RecoveringStorage(raw)
+        val store = SharedPreferencesDurableOperationStore(storage)
+        val state = SharedDurableOperationSupervisor.createForTesting(
+            store,
+            MonotonicClock { 0L },
+            NoopOperationCancellation,
+        )
+
+        assertTrue(state.isRecoveryRequired())
+        assertEquals(emptyList<DurableOperationRecord>(), state.store!!.read())
+        val record = DurableOperationRecord(
+            id = OperationId("resolved"),
+            attemptId = AttemptId(1),
+            kind = OperationKind.GHOST_UPDATE,
+            externalJob = null,
+            progress = OperationProgress("Queued", 0),
+            status = OperationStatus.RUNNING,
+            showStallPrompt = false,
+        )
+        assertFalse(state.store.putIfAbsent(record))
+        assertTrue(state.resolveRecovery())
+        assertFalse(state.isRecoveryRequired())
+        assertEquals("v2", storage.value)
+        assertEquals(raw.take(16_384), storage.lastQuarantinedPayload)
+        assertNull(storage.quarantine)
+
+        assertTrue(state.store.putIfAbsent(record))
+        assertTrue(state.store.compareAndSet(record, record.copy(status = OperationStatus.COMPLETED)))
+    }
+
     @Test fun pureFactoryCatchesCorruptionAndPublishesRecoveryState() {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage("v1\nwyg\n"),
@@ -81,7 +113,6 @@ class SharedDurableOperationSupervisorTest {
         )
 
         assertEquals(listOf(id), works.byId)
-        assertTrue(works.byUniqueName.isEmpty())
     }
 
     @Test fun androidCancellationTreatsNonCanonicalUuidTextAsMalformed() {
@@ -91,53 +122,29 @@ class SharedDurableOperationSupervisorTest {
             works,
         )
 
-        cancellation.cancel(
-            OperationHandle(OperationId("install-item"), AttemptId(1)),
-            OperationKind.NAR_INSTALL,
-            ExternalJobBinding.WorkManager("1-1-1-1-1"),
-        )
+        assertThrows(IllegalArgumentException::class.java) {
+            cancellation.cancel(
+                OperationHandle(OperationId("install-item"), AttemptId(1)),
+                OperationKind.NAR_INSTALL,
+                ExternalJobBinding.WorkManager("1-1-1-1-1"),
+            )
+        }
 
         assertTrue(works.byId.isEmpty())
-        assertEquals(listOf(NarDownloadRepository.workName("install-item")), works.byUniqueName)
     }
 
-    @Test fun androidCancellationFallsBackToKindWorkNameOnMalformedWorkManagerBinding() {
-        val downloads = RecordingDownloadManagerCancellation()
-        val works = RecordingWorkManagerCancellation()
-        val cancellation = SharedDurableOperationSupervisor.AndroidDurableOperationCancellation(
-            downloads,
-            works,
-        )
+    @Test fun durableWorkManagerIdsAreStableAndExactAttemptScoped() {
+        val handle = OperationHandle(OperationId("same-item"), AttemptId(7))
+        val expected = durableWorkManagerId(handle, OperationKind.NAR_INSTALL)
 
-        cancellation.cancel(
-            OperationHandle(OperationId("install-item"), AttemptId(1)),
-            OperationKind.NAR_INSTALL,
-            ExternalJobBinding.WorkManager("not-a-valid-uuid"),
-        )
-        assertEquals(listOf(NarDownloadRepository.workName("install-item")), works.byUniqueName)
-
-        cancellation.cancel(
-            OperationHandle(OperationId("copy-item"), AttemptId(2)),
-            OperationKind.LOCAL_NAR,
-            ExternalJobBinding.WorkManager("also-not-a-uuid"),
-        )
-        assertEquals(
-            listOf(
-                NarDownloadRepository.workName("install-item"),
-                NarDownloadRepository.stageWorkName("copy-item"),
+        assertEquals(expected, durableWorkManagerId(handle, OperationKind.NAR_INSTALL))
+        assertTrue(expected != durableWorkManagerId(handle.copy(attemptId = AttemptId(8)), OperationKind.NAR_INSTALL))
+        assertTrue(expected != durableWorkManagerId(handle, OperationKind.LOCAL_NAR))
+        assertTrue(
+            expected != durableWorkManagerId(
+                handle.copy(operationId = OperationId("other-item")),
+                OperationKind.NAR_INSTALL,
             ),
-            works.byUniqueName,
-        )
-
-        val ghostId = OperationId("ghost-update-${"f".repeat(64)}")
-        cancellation.cancel(
-            OperationHandle(ghostId, AttemptId(3)),
-            OperationKind.GHOST_UPDATE,
-            ExternalJobBinding.WorkManager("still-not-a-valid-uuid"),
-        )
-        assertEquals(
-            GhostUpdateWorker.recoveryWorkName(ghostId),
-            works.byUniqueName.last(),
         )
     }
 
@@ -178,13 +185,43 @@ private class RecordingDownloadManagerCancellation : SharedDurableOperationSuper
 
 private class RecordingWorkManagerCancellation : SharedDurableOperationSupervisor.WorkManagerCancellationGateway {
     val byId = mutableListOf<UUID>()
-    val byUniqueName = mutableListOf<String>()
 
     override fun cancel(workManagerId: UUID) {
         byId += workManagerId
     }
+}
 
-    override fun cancel(uniqueWorkName: String) {
-        byUniqueName += uniqueWorkName
+private class RecoveringStorage(initialValue: String) : SharedPreferencesDurableOperationStore.Storage {
+    var value = initialValue
+    var quarantine: String? = null
+    var recoveryMarker = false
+    var lastQuarantinedPayload: String? = null
+    private var quarantineAndResetAttempts = 0
+
+    override fun read() = value
+
+    override fun write(value: String) {
+        this.value = value
+    }
+
+    override fun readQuarantine() = quarantine
+
+    override fun hasRecoveryMarker() = recoveryMarker
+
+    override fun writeQuarantine(value: String) {
+        quarantine = value
+    }
+
+    override fun writeQuarantineAndReset(value: String) {
+        if (quarantineAndResetAttempts++ == 0) throw RuntimeException("transient failure")
+        quarantine = value.take(16_384)
+        lastQuarantinedPayload = quarantine
+        recoveryMarker = true
+        this.value = "v2"
+    }
+
+    override fun clearQuarantine() {
+        quarantine = null
+        recoveryMarker = false
     }
 }

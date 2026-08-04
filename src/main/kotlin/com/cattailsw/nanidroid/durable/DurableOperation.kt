@@ -1,5 +1,8 @@
 package com.cattailsw.nanidroid.durable
 
+import java.nio.charset.StandardCharsets
+import java.util.UUID
+
 @JvmInline value class OperationId(val value: String)
 
 @JvmInline value class AttemptId(val value: Long)
@@ -32,3 +35,32 @@ data class DurableOperationRecord(
 fun interface OperationCancellation {
     fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding)
 }
+
+internal fun canonicalUuidOrNull(value: String): UUID? = runCatching { UUID.fromString(value) }
+    .getOrNull()
+    ?.takeIf { it.toString() == value }
+
+internal fun durableWorkManagerId(
+    handle: OperationHandle,
+    kind: OperationKind,
+): UUID {
+    require(kind in WORK_MANAGER_OPERATION_KINDS) { "$kind does not use durable WorkManager jobs" }
+    val operationId = handle.operationId.value
+    val identity = buildString {
+        append("nanidroid-durable-work-v1\n")
+        append(kind.name)
+        append('\n')
+        append(handle.attemptId.value)
+        append('\n')
+        append(operationId.length)
+        append(':')
+        append(operationId)
+    }
+    return UUID.nameUUIDFromBytes(identity.toByteArray(StandardCharsets.UTF_8))
+}
+
+private val WORK_MANAGER_OPERATION_KINDS = setOf(
+    OperationKind.LOCAL_NAR,
+    OperationKind.NAR_INSTALL,
+    OperationKind.GHOST_UPDATE,
+)

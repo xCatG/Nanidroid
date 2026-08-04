@@ -33,9 +33,9 @@ The transition rules apply to every operation kind as follows:
 | Kind | Acceptance and external identity | Stop ownership | Terminal cleanup / recovery |
 | --- | --- | --- | --- |
 | `REMOTE_NAR` | `NarDownload.id`; bind the exact DownloadManager row | Remove/cancel only that row | Archive adapter records terminal state, then retries owned-file/row cleanup; duplicate receiver delivery is ignored. |
-| `LOCAL_NAR` | `NarDownload.id`; bind the exact copy Work UUID | Cancel only that copy worker | Preserve or release the URI grant according to archive ownership; stale workers cannot replace a retry. |
-| `NAR_INSTALL` | `NarDownload.id`; bind the exact install Work UUID | Cancel only that staged install | Publication is transactional; terminal state precedes bounded staging/archive cleanup. |
-| `GHOST_UPDATE` | Stable ghost update ID; bind the exact Work UUID | Cancel only that updater | Recovery journal rolls publication forward/back before boot; terminal state precedes staging cleanup. |
+| `LOCAL_NAR` | `NarDownload.id`; new attempts derive a deterministic Work UUID from kind + operation + attempt; valid legacy UUIDs remain accepted | Cancel only that exact copy UUID. A malformed binding is CAS-repaired to the deterministic ID only while the same handle is active; never cancel the reusable unique-work name. | Preserve or release the URI grant according to archive ownership; stale workers cannot replace a retry. |
+| `NAR_INSTALL` | `NarDownload.id`; new attempts derive a deterministic Work UUID from kind + operation + attempt; valid legacy UUIDs remain accepted | Cancel only that exact install UUID, using the same fenced malformed-binding repair rule as local copy. | Publication is transactional; terminal state precedes bounded staging/archive cleanup. |
+| `GHOST_UPDATE` | Stable ghost update ID; new attempts derive a deterministic Work UUID from kind + operation + attempt; valid legacy UUIDs remain accepted | Cancel only that exact updater UUID, using the same fenced malformed-binding repair rule as archive work. | Recovery journal rolls publication forward/back before boot; terminal state precedes staging cleanup. |
 
 | Surface | Ownership | Transition rule |
 | --- | --- | --- |

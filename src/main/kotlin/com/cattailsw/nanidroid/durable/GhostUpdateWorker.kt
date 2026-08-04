@@ -412,10 +412,17 @@ class GhostUpdateWorker(
                 }
             ) return@synchronized false
             val attempt = AttemptId((previous?.attemptId?.value ?: 0L) + 1L)
-            val request = request(UUID.randomUUID(), operationId, attempt, ghostId, canonicalRoot, baseUri)
+            val handle = OperationHandle(operationId, attempt)
+            val request = request(
+                durableWorkManagerId(handle, OperationKind.GHOST_UPDATE),
+                operationId,
+                attempt,
+                ghostId,
+                canonicalRoot,
+                baseUri,
+            )
             val binding = ExternalJobBinding.WorkManager(request.id.toString())
             val supervisor = supervisor(context)
-            val handle = OperationHandle(operationId, attempt)
             if (!supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding)) {
                 return@synchronized false
             }
@@ -464,14 +471,6 @@ class GhostUpdateWorker(
         internal fun recoveryWorkName(storageRoot: File, targetGhostRoot: File?): String {
             val identity = targetGhostRoot?.canonicalPath ?: storageRoot.canonicalPath
             return "ghost-update-recovery-${canonicalDigest(identity).take(32)}"
-        }
-
-        internal fun recoveryWorkName(operationId: OperationId): String {
-            if (!GHOST_UPDATE_OPERATION_ID.matches(operationId.value)) {
-                throw IllegalArgumentException("unsupported ghost update operation id")
-            }
-            val suffix = operationId.value.removePrefix(GHOST_UPDATE_OPERATION_ID_PREFIX)
-            return "$GHOST_UPDATE_OPERATION_ID_PREFIX${suffix.take(32)}"
         }
 
         internal fun pendingAttemptRecoveryTargets(
@@ -963,8 +962,6 @@ class GhostUpdateWorker(
         private fun canonicalDigest(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
-        private val GHOST_UPDATE_OPERATION_ID_PREFIX = "ghost-update-"
-        private val GHOST_UPDATE_OPERATION_ID = Regex("^${GHOST_UPDATE_OPERATION_ID_PREFIX}[0-9a-f]{64}$")
 
         private fun request(
             id: UUID,

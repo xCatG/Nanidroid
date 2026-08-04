@@ -13,6 +13,7 @@ import com.cattailsw.nanidroid.durable.OperationId
 import com.cattailsw.nanidroid.durable.OperationKind
 import com.cattailsw.nanidroid.durable.OperationStatus
 import com.cattailsw.nanidroid.durable.SharedPreferencesDurableOperationStore
+import com.cattailsw.nanidroid.durable.durableWorkManagerId
 import io.mockk.every
 import io.mockk.spyk
 import org.junit.Assert.assertEquals
@@ -32,6 +33,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+
+private fun workId(itemId: String, attemptId: Long, kind: OperationKind): String =
+    durableWorkManagerId(
+        OperationHandle(OperationId(itemId), AttemptId(attemptId)),
+        kind,
+    ).toString()
 
 class NarDownloadRepositoryTest {
     private val store = NarDownloadStore(NarDownloadStore.MemoryStorage())
@@ -430,7 +437,7 @@ class NarDownloadRepositoryTest {
 
         val installAttempt = store.get(item.id)!!
         assertEquals(item.attemptId + 1L, installAttempt.attemptId)
-        assertEquals("install-nar-${item.id}-${installAttempt.attemptId}", installAttempt.workManagerId)
+        assertEquals(workId(item.id, installAttempt.attemptId, OperationKind.NAR_INSTALL), installAttempt.workManagerId)
         val operation = operationStore.read().single()
         assertEquals(installAttempt.attemptId, operation.attemptId.value)
         assertEquals(OperationKind.NAR_INSTALL, operation.kind)
@@ -908,7 +915,7 @@ class NarDownloadRepositoryTest {
         assertEquals(item.attemptId, operation.attemptId.value)
         assertEquals(OperationKind.LOCAL_NAR, operation.kind)
         assertEquals(
-            ExternalJobBinding.WorkManager("stage-local-nar-${item.id}-${item.attemptId}"),
+            ExternalJobBinding.WorkManager(workId(item.id, item.attemptId, OperationKind.LOCAL_NAR)),
             operation.externalJob,
         )
         assertEquals(OperationStatus.FAILED, operation.status)
@@ -935,7 +942,7 @@ class NarDownloadRepositoryTest {
         assertEquals(item.attemptId, operation.attemptId.value)
         assertEquals(OperationKind.NAR_INSTALL, operation.kind)
         assertEquals(
-            ExternalJobBinding.WorkManager("install-nar-${item.id}-${item.attemptId}"),
+            ExternalJobBinding.WorkManager(workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)),
             operation.externalJob,
         )
         assertEquals(OperationStatus.FAILED, operation.status)
@@ -966,7 +973,7 @@ class NarDownloadRepositoryTest {
         recreated.reconcile()
 
         assertEquals(item.attemptId, recovered.attemptId)
-        assertEquals("install-nar-${item.id}-${item.attemptId}", recovered.workManagerId)
+        assertEquals(workId(item.id, item.attemptId, OperationKind.NAR_INSTALL), recovered.workManagerId)
         assertEquals(listOf(recovered.workManagerId), work.installEnqueuedIds)
         val operation = operationStore.read().single()
         assertEquals(item.attemptId, operation.attemptId.value)
@@ -1073,7 +1080,7 @@ class NarDownloadRepositoryTest {
 
         assertEquals(retry, store.get(item.id))
         assertEquals(item.attemptId + 1L, retry.attemptId)
-        assertEquals("install-nar-${item.id}-${retry.attemptId}", retry.workManagerId)
+        assertEquals(workId(item.id, retry.attemptId, OperationKind.NAR_INSTALL), retry.workManagerId)
     }
 
     @Test fun installQueryExceptionCannotOverwriteConcurrentInstallCompletion() {
@@ -1190,7 +1197,7 @@ class NarDownloadRepositoryTest {
 
         assertEquals(installAttempt, store.get(item.id))
         assertEquals(item.attemptId + 1L, installAttempt.attemptId)
-        assertEquals("install-nar-${item.id}-${installAttempt.attemptId}", installAttempt.workManagerId)
+        assertEquals(workId(item.id, installAttempt.attemptId, OperationKind.NAR_INSTALL), installAttempt.workManagerId)
         assertEquals(listOf(installAttempt.workManagerId), work.installEnqueuedIds)
         var staleCallbackRan = false
         repository.stageLocal(item.id, item.attemptId, item.workManagerId!!, { false }) { _, _, _ ->
@@ -1238,7 +1245,7 @@ class NarDownloadRepositoryTest {
         assertEquals(1L, replacement.attemptId)
         assertEquals(NarDownloadState.Copying, replacement.state)
         assertEquals(
-            "stage-local-nar-${replacement.id}-${replacement.attemptId}",
+            workId(replacement.id, replacement.attemptId, OperationKind.LOCAL_NAR),
             replacement.workManagerId,
         )
         val operation = operationStore.read().single { it.id.value == replacement.id }
@@ -1283,10 +1290,10 @@ class NarDownloadRepositoryTest {
                         onProgress("Copying archive", completed)
                         val operation = operationStore.read().single()
                         supervisedProgressObserved.set(
-                            operation.attemptId.value == 1L &&
+                                operation.attemptId.value == 1L &&
                                 operation.status == OperationStatus.RUNNING &&
                                 operation.externalJob == ExternalJobBinding.WorkManager(
-                                    "stage-local-nar-${operation.id.value}-1",
+                                    workId(operation.id.value, 1L, OperationKind.LOCAL_NAR),
                                 ) &&
                                 operation.progress.completed > 0L,
                         )
@@ -1726,7 +1733,7 @@ class NarDownloadRepositoryTest {
         assertEquals(item.attemptId + 1L, installAttempt.attemptId)
         assertEquals(NarDownloadState.Queued, installAttempt.state)
         assertEquals("file:///owned/${item.id}.nar", installAttempt.retainedUri)
-        assertEquals("install-nar-${item.id}-${installAttempt.attemptId}", installAttempt.workManagerId)
+        assertEquals(workId(item.id, installAttempt.attemptId, OperationKind.NAR_INSTALL), installAttempt.workManagerId)
         recreated.onDownloadComplete(75L)
         assertEquals(installAttempt, store.get(item.id))
     }
@@ -1900,7 +1907,7 @@ class NarDownloadRepositoryTest {
             onPrepared: (workManagerId: String) -> Boolean,
         ): Boolean {
             installEnqueueFailure?.let { throw it }
-            val workManagerId = "install-nar-$itemId-$attemptId"
+            val workManagerId = workId(itemId, attemptId, OperationKind.NAR_INSTALL)
             val beforePrepared = beforeNextInstallPrepared
             beforeNextInstallPrepared = null
             beforePrepared?.invoke(itemId, attemptId)
@@ -1932,7 +1939,7 @@ class NarDownloadRepositoryTest {
             attemptId: Long,
             onPrepared: (workManagerId: String) -> Boolean,
         ): Boolean {
-            val workManagerId = "stage-local-nar-$itemId-$attemptId"
+            val workManagerId = workId(itemId, attemptId, OperationKind.LOCAL_NAR)
             val beforePrepared = beforeNextStagePrepared
             beforeNextStagePrepared = null
             beforePrepared?.invoke(itemId, attemptId)
@@ -2159,7 +2166,7 @@ class NarDownloadRepositoryTest {
         assertEquals(item.attemptId + 1L, reselected.attemptId)
         assertEquals(NarDownloadState.Queued, reselected.state)
         assertEquals(replacement, reselected.retainedUri)
-        assertEquals("install-nar-${item.id}-${reselected.attemptId}", reselected.workManagerId)
+        assertEquals(workId(item.id, reselected.attemptId, OperationKind.NAR_INSTALL), reselected.workManagerId)
         val install = operationStore.read().single()
         assertEquals(OperationKind.NAR_INSTALL, install.kind)
         assertEquals(OperationStatus.RUNNING, install.status)

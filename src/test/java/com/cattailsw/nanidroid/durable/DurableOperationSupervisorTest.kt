@@ -462,11 +462,95 @@ class DurableOperationSupervisorTest {
         )
 
         val first = DurableOperationSupervisor(store, clock, cancellation)
+        val repairedBinding = ExternalJobBinding.WorkManager(
+            durableWorkManagerId(handle, OperationKind.NAR_INSTALL).toString(),
+        )
         assertEquals(OperationKind.NAR_INSTALL, cancellation.lastKind)
+        assertEquals(listOf(CancellationRequest(handle, repairedBinding)), cancellation.requests)
+        assertEquals(repairedBinding, store.read().single().externalJob)
+        assertEquals(
+            setOf(malformedBinding, repairedBinding),
+            store.read().single().externalJobHistory,
+        )
         assertNull(first.snapshot().single().diagnostics)
 
         val second = DurableOperationSupervisor(store, clock, cancellation)
         assertNull(second.snapshot().single().diagnostics)
+    }
+
+    @Test fun malformedBindingRepairCasLossDoesNotCancelReplacementAttempt() {
+        val oldHandle = handle("install-race", 1)
+        val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
+        val oldRecord = DurableOperationRecord(
+            id = oldHandle.operationId,
+            attemptId = oldHandle.attemptId,
+            kind = OperationKind.NAR_INSTALL,
+            externalJob = malformedBinding,
+            progress = OperationProgress("Stopping...", 0),
+            status = OperationStatus.CANCEL_REQUESTED,
+            showStallPrompt = false,
+            externalJobHistory = setOf(malformedBinding),
+        )
+        assertTrue(store.putIfAbsent(oldRecord))
+        val replacementHandle = oldHandle.copy(attemptId = AttemptId(2))
+        val replacementBinding = ExternalJobBinding.WorkManager(
+            durableWorkManagerId(replacementHandle, OperationKind.NAR_INSTALL).toString(),
+        )
+        val replacement = oldRecord.copy(
+            attemptId = replacementHandle.attemptId,
+            externalJob = replacementBinding,
+            status = OperationStatus.RUNNING,
+            externalJobHistory = oldRecord.externalJobHistory + replacementBinding,
+        )
+        store.beforeNextCompareAndSet = {
+            assertTrue(store.compareAndSet(oldRecord, replacement))
+        }
+
+        DurableOperationSupervisor(store, clock, cancellation)
+
+        assertTrue(cancellation.requests.isEmpty())
+        assertEquals(replacement, store.read().single())
+    }
+
+    @Test fun malformedBindingRepairPersistenceFailureDoesNotCrashRestore() {
+        val handle = handle("install-repair-failure", 1)
+        val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
+        val delegate = MemoryDurableOperationStore()
+        val throwingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (expected.externalJob == malformedBinding && updated.externalJob != malformedBinding) {
+                    throw IllegalStateException("repair persistence failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        assertTrue(
+            throwingStore.putIfAbsent(
+                DurableOperationRecord(
+                    id = handle.operationId,
+                    attemptId = handle.attemptId,
+                    kind = OperationKind.NAR_INSTALL,
+                    externalJob = malformedBinding,
+                    progress = OperationProgress("Stopping...", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = false,
+                    externalJobHistory = setOf(malformedBinding),
+                ),
+            ),
+        )
+
+        DurableOperationSupervisor(throwingStore, clock, cancellation)
+
+        assertTrue(cancellation.requests.isEmpty())
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, throwingStore.read().single().diagnostics)
     }
 
     @Test fun stoppingGetsASecondObservationWindowAndDiagnostics() {

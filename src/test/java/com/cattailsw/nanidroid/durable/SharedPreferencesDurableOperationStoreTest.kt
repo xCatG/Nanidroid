@@ -11,7 +11,12 @@ import java.util.UUID
 
 class SharedPreferencesDurableOperationStoreTest {
     @Test fun emptyPresentValueCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
-        assertCorruptionRequiresRecovery("", "missing durable operation version")
+        val fixture = assertCorruptionRequiresRecovery("", "missing durable operation version")
+
+        val recreated = SharedPreferencesDurableOperationStore(fixture.storage)
+        assertThrows(DurableOperationStoreCorruptionException::class.java) { recreated.read() }
+        assertTrue(recreated.isRecoveryRequired())
+        assertWritesAreBlocked(recreated)
     }
 
     @Test fun unknownVersionCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
@@ -130,6 +135,7 @@ class SharedPreferencesDurableOperationStoreTest {
     @Test fun newStoreReadsPersistedRecoveryMarkerAndBlocksWrites() {
         val storage = RecordingStorage("v1\nwyg\n")
         storage.quarantine = "v1\nwyg\n".take(16_384)
+        storage.recoveryMarker = true
 
         val firstStore = SharedPreferencesDurableOperationStore(storage)
         assertThrows(DurableOperationStoreCorruptionException::class.java) { firstStore.read() }
@@ -147,12 +153,8 @@ class SharedPreferencesDurableOperationStoreTest {
         assertTrue(fixture.store.read().isEmpty())
 
         val record = record("recovered", 3)
-        assertThrows(DurableOperationStoreCorruptionException::class.java) {
-            fixture.store.putIfAbsent(record)
-        }
-        assertThrows(DurableOperationStoreCorruptionException::class.java) {
-            fixture.store.compareAndSet(record, record.copy(status = OperationStatus.COMPLETED))
-        }
+        assertFalse(fixture.store.putIfAbsent(record))
+        assertFalse(fixture.store.compareAndSet(record, record.copy(status = OperationStatus.COMPLETED)))
     }
 
     @Test fun malformedWorkManagerUuidInCurrentRecordIsPreserved() {
@@ -321,12 +323,8 @@ class SharedPreferencesDurableOperationStoreTest {
 
     private fun assertWritesAreBlocked(store: SharedPreferencesDurableOperationStore) {
         val record = record("new", 1)
-        assertThrows(DurableOperationStoreCorruptionException::class.java) {
-            store.putIfAbsent(record)
-        }
-        assertThrows(DurableOperationStoreCorruptionException::class.java) {
-            store.compareAndSet(record, record.copy(status = OperationStatus.COMPLETED))
-        }
+        assertFalse(store.putIfAbsent(record))
+        assertFalse(store.compareAndSet(record, record.copy(status = OperationStatus.COMPLETED)))
         assertThrows(DurableOperationStoreCorruptionException::class.java) { store.read() }
     }
 
@@ -359,12 +357,15 @@ class SharedPreferencesDurableOperationStoreTest {
     private class RecordingStorage(initialValue: String?) : SharedPreferencesDurableOperationStore.Storage {
         var value = initialValue
         var quarantine: String? = null
+        var recoveryMarker = false
         var writeCount = 0
         var quarantineWriteCount = 0
 
         override fun read() = value
 
         override fun readQuarantine() = quarantine
+
+        override fun hasRecoveryMarker() = recoveryMarker
 
         override fun write(value: String) {
             this.value = value
@@ -378,12 +379,14 @@ class SharedPreferencesDurableOperationStoreTest {
 
         override fun writeQuarantineAndReset(value: String) {
             quarantine = value.take(16_384)
+            recoveryMarker = true
             quarantineWriteCount += 1
             this.value = "v2"
         }
 
         override fun clearQuarantine() {
             quarantine = null
+            recoveryMarker = false
         }
     }
 
@@ -407,6 +410,8 @@ class SharedPreferencesDurableOperationStoreTest {
         }
 
         override fun readQuarantine() = quarantine
+
+        override fun hasRecoveryMarker() = false
 
         override fun writeQuarantineAndReset(value: String) {
             quarantineAndResetAttempted = true
