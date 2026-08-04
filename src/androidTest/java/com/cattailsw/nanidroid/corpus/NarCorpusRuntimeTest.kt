@@ -39,6 +39,7 @@ import com.cattailsw.nanidroid.runtime.stage.StageInputTarget
 import com.cattailsw.nanidroid.runtime.stage.StageLayoutDp
 import com.cattailsw.nanidroid.runtime.stage.StageLayoutPx
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
+import com.cattailsw.nanidroid.runtime.stage.CollisionRegionPx
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
@@ -1077,19 +1078,33 @@ class NarCorpusRuntimeTest {
         assertTrue("narCorpusSha256 must be 64 lowercase hex chars", Regex("^[0-9a-f]{64}$").matches(sha))
     }
 
-    private fun assertCollisionIntrinsicPointWithinTolerance(
-        expected: androidx.compose.ui.unit.IntOffset,
+    private fun assertCollisionIntrinsicPointMatchesTransform(
+        representative: androidx.compose.ui.unit.IntOffset,
+        mapped: androidx.compose.ui.unit.IntOffset,
         actual: androidx.compose.ui.unit.IntOffset,
-        tolerancePx: Float,
+        shape: CollisionShape,
     ): androidx.compose.ui.unit.IntOffset {
-        val deltaX = abs(actual.x - expected.x)
-        val deltaY = abs(actual.y - expected.y)
-        assertTrue(
-            "Named collision intrinsic mapping drifted beyond ${tolerancePx} px (dx=$deltaX, dy=$deltaY): expected=$expected, actual=$actual",
-            deltaX <= tolerancePx && deltaY <= tolerancePx,
+        assertEquals(
+            "Named collision routing must use the shared transform's exact inverse",
+            mapped,
+            actual,
         )
+        assertTrue("Mapped intrinsic point must remain inside the intended collision", shape.contains(actual))
+        val deltaX = abs(actual.x - representative.x)
+        val deltaY = abs(actual.y - representative.y)
         return androidx.compose.ui.unit.IntOffset(deltaX, deltaY)
     }
+
+    private fun CollisionRegionPx.representativeIntegerStagePoint(): androidx.compose.ui.unit.IntOffset? =
+        rects.firstNotNullOfOrNull { rect ->
+            val x = ceil(rect.left).toInt()
+            val y = ceil(rect.top).toInt()
+            if (x.toDouble() < rect.right && y.toDouble() < rect.bottom) {
+                androidx.compose.ui.unit.IntOffset(x, y)
+            } else {
+                null
+            }
+        }
 
     private fun assertProbeArchiveLocation(source: File, context: Context, safeLabel: String) {
         val canonicalArchive = source.canonicalFile
@@ -1468,18 +1483,18 @@ class NarCorpusRuntimeTest {
                         )
                         return@forEach
                     }
-                val stagePoint = surface.overlayTransform.stageCenterForIntrinsic(intrinsicPoint)
+                val overlayRegion = surface.overlayTransform.toStageRegion(collision.shape)
+                val stagePoint = overlayRegion.representativeIntegerStagePoint()
                     ?: run {
                         probes.put(
                             probe
                                 .put("representable", false)
                                 .put("representativePoint", JSONObject().put("x", intrinsicPoint.x).put("y", intrinsicPoint.y))
-                                .put("representableReason", "rendered-point-unavailable"),
+                                .put("representableReason", "integer-stage-point-unavailable"),
                         )
                         return@forEach
                     }
                 val stageOffset = Offset(stagePoint.x.toFloat(), stagePoint.y.toFloat())
-                val overlayRegion = surface.overlayTransform.toStageRegion(collision.shape)
                 val resolution = StageInputRouter.resolve(
                     snapshot = snapshot,
                     stagePoint = stageOffset,
@@ -1541,16 +1556,23 @@ class NarCorpusRuntimeTest {
                 assertEquals(collisionTarget.id, effect.diagnosticCollisionId)
                 assertEquals("TOUCH", effect.source.name)
                 assertEquals(0, effect.button)
-                val intrinsicTolerancePx = 1f
-                val intrinsicDelta = assertCollisionIntrinsicPointWithinTolerance(
-                    expected = intrinsicPoint,
+                val mappedIntrinsic = requireNotNull(surface.overlayTransform.toIntrinsic(stageOffset)) {
+                    "Representative stage point unexpectedly fell outside the surface transform"
+                }
+                val intrinsicDelta = assertCollisionIntrinsicPointMatchesTransform(
+                    representative = intrinsicPoint,
+                    mapped = mappedIntrinsic,
                     actual = effect.intrinsic,
-                    tolerancePx = intrinsicTolerancePx,
+                    shape = collision.shape,
                 )
                 probe
                     .put("intrinsicDeltaX", intrinsicDelta.x)
                     .put("intrinsicDeltaY", intrinsicDelta.y)
-                    .put("intrinsicTolerancePx", intrinsicTolerancePx)
+                    .put(
+                        "mappedIntrinsicPoint",
+                        JSONObject().put("x", mappedIntrinsic.x).put("y", mappedIntrinsic.y),
+                    )
+                    .put("intrinsicMappingContract", "exact-shared-transform-inverse")
 
                 assertTrue(
                     "Named collision ${collision.identifier} for surface ${surface.composedSurface.surfaceKey.surfaceId} should be inside exact overlay region",
