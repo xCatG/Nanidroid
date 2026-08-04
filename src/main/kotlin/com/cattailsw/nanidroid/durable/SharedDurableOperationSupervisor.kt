@@ -13,16 +13,24 @@ internal object SharedDurableOperationSupervisor {
         appState?.supervisor ?: create(context).also { appState = it }.supervisor
     }
 
+    fun attention(context: Context): DurableOperationAttentionCoordinator = synchronized(this) {
+        val state = appState ?: create(context).also { appState = it }
+        checkNotNull(state.attentionCoordinator) { "durable attention is unavailable" }
+    }
+
     @JvmStatic
     internal fun resetForTesting() = synchronized(this) {
+        appState?.attentionCoordinator?.stop()
         appState = null
     }
 
     @JvmStatic
     internal fun replaceForTesting(supervisor: DurableOperationSupervisor) = synchronized(this) {
+        appState?.attentionCoordinator?.stop()
         appState = AppState(
             store = null,
             supervisor = supervisor,
+            attentionCoordinator = null,
         )
     }
 
@@ -59,14 +67,30 @@ internal object SharedDurableOperationSupervisor {
                 clock,
                 cancellation,
             ),
+            attentionCoordinator = null,
         )
     }
 
-    private fun create(context: Context): AppState = createForTesting(
-        store = SharedPreferencesDurableOperationStore(context.applicationContext),
-        clock = MonotonicClock { android.os.SystemClock.elapsedRealtime() },
-        cancellation = AndroidDurableOperationCancellation(context),
-    )
+    private fun create(context: Context): AppState {
+        val appContext = context.applicationContext
+        val store = SharedPreferencesDurableOperationStore(appContext)
+        try {
+            store.read()
+        } catch (_: DurableOperationStoreCorruptionException) {
+            store.acknowledgeRecoverySignal()
+        }
+        val supervisor = DurableOperationSupervisor(
+            store,
+            MonotonicClock { android.os.SystemClock.elapsedRealtime() },
+            AndroidDurableOperationCancellation(appContext),
+        )
+        val attentionCoordinator = DurableOperationAttentionCoordinator(
+            supervisor,
+            BackgroundDurableAttentionScheduler(),
+            AndroidDurableAttentionNotifier(appContext),
+        ).also(DurableOperationAttentionCoordinator::start)
+        return AppState(store, supervisor, attentionCoordinator)
+    }
 
     private fun create(
         context: Context,
@@ -146,6 +170,7 @@ internal object SharedDurableOperationSupervisor {
     internal data class AppState(
         val store: SharedPreferencesDurableOperationStore?,
         val supervisor: DurableOperationSupervisor,
+        val attentionCoordinator: DurableOperationAttentionCoordinator?,
     ) {
         fun isRecoveryRequired(): Boolean = store?.isRecoveryRequired() ?: false
 

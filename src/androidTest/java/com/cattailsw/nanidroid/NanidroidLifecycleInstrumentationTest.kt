@@ -3,6 +3,9 @@ package com.cattailsw.nanidroid
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ActivityScenario.ActivityAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.Lifecycle
+import androidx.test.platform.app.InstrumentationRegistry
+import com.cattailsw.nanidroid.durable.DurableNotificationPermissionAcceptance
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import org.junit.Assert
@@ -31,6 +34,27 @@ class NanidroidLifecycleInstrumentationTest {
             scenario.onActivity(ActivityAction { newValue: Nanidroid? -> recreated.set(newValue) })
             Assert.assertNotNull(recreated.get())
             Assert.assertFalse(recreated.get()!!.isFinishing())
+        }
+    }
+
+    @Test
+    fun acceptedUpdatePermissionOpportunitySurvivesRecreation() {
+        DurableNotificationPermissionAcceptance.resetForTesting()
+        try {
+            ActivityScenario.launch<Nanidroid?>(Nanidroid::class.java).use { scenario ->
+                scenario.moveToState(Lifecycle.State.CREATED)
+                DurableNotificationPermissionAcceptance.markAccepted()
+
+                scenario.recreate()
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+                Assert.assertFalse(
+                    DurableNotificationPermissionAcceptance.hasPendingAcceptanceForTesting(),
+                )
+            }
+        } finally {
+            DurableNotificationPermissionAcceptance.resetForTesting()
         }
     }
 }

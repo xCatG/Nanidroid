@@ -111,4 +111,22 @@
   <string name="debug_surface_log_entry_response">回應: %1$s</string>
   <string name="debug_surface_log_show_full_payload">顯示完整資料</string>
   <string name="debug_surface_log_collapse_payload">收合資料</string>
+  <string name="durable_attention_channel_name">作業需要確認</string>
+  <string name="durable_attention_channel_description">封存檔或幽靈作業需要決定時顯示通知</string>
+  <string name="durable_attention_title">%1$s需要確認</string>
+  <string name="durable_operation_remote_nar">下載封存檔</string>
+  <string name="durable_operation_local_nar">複製封存檔</string>
+  <string name="durable_operation_nar_install">安裝封存檔</string>
+  <string name="durable_operation_ghost_update">更新幽靈</string>
+  <string name="durable_action_keep_waiting">繼續等待</string>
+  <string name="durable_action_stop">要求停止</string>
+  <string name="durable_action_retry_stop">重試停止要求</string>
+  <string name="durable_phase_downloading">正在下載封存檔…</string>
+  <string name="durable_phase_copying">正在複製封存檔…</string>
+  <string name="durable_phase_installing">正在安裝封存檔…</string>
+  <string name="durable_phase_updating">正在更新幽靈…</string>
+  <string name="durable_phase_stopping">正在停止…</string>
+  <string name="durable_diagnostics_label">診斷資訊</string>
+  <string name="durable_diagnostic_cancel_dispatch_failed">無法送出停止要求。你可以重試。</string>
+  <string name="durable_diagnostic_stopping_delayed">停止要求已超過30秒仍未完成。</string>
 </resources>

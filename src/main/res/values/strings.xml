@@ -116,4 +116,22 @@
   <string name="debug_surface_log_entry_response">Response: %1$s</string>
   <string name="debug_surface_log_show_full_payload">Show full payload</string>
   <string name="debug_surface_log_collapse_payload">Collapse payload</string>
+  <string name="durable_attention_channel_name">Operation attention</string>
+  <string name="durable_attention_channel_description">Alerts when an archive or ghost operation needs a decision</string>
+  <string name="durable_attention_title">%1$s needs attention</string>
+  <string name="durable_operation_remote_nar">Archive download</string>
+  <string name="durable_operation_local_nar">Archive copy</string>
+  <string name="durable_operation_nar_install">Archive install</string>
+  <string name="durable_operation_ghost_update">Ghost update</string>
+  <string name="durable_action_keep_waiting">Keep waiting</string>
+  <string name="durable_action_stop">Request stop</string>
+  <string name="durable_action_retry_stop">Retry stop request</string>
+  <string name="durable_phase_downloading">Downloading archive…</string>
+  <string name="durable_phase_copying">Copying archive…</string>
+  <string name="durable_phase_installing">Installing archive…</string>
+  <string name="durable_phase_updating">Updating ghost…</string>
+  <string name="durable_phase_stopping">Stopping…</string>
+  <string name="durable_diagnostics_label">Diagnostics</string>
+  <string name="durable_diagnostic_cancel_dispatch_failed">Nanidroid could not send the stop request. You can retry it.</string>
+  <string name="durable_diagnostic_stopping_delayed">The stop request has not finished after 30 seconds.</string>
 </resources>

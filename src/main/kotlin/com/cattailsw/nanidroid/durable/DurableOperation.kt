@@ -32,6 +32,17 @@ data class DurableOperationRecord(
     val externalJobHistory: Set<ExternalJobBinding> = emptySet(),
 )
 
+internal data class DurableAttentionSnapshot(
+    val records: List<DurableOperationRecord>,
+    val nextCheckDelayMillis: Long?,
+)
+
+internal enum class DurableAttentionAction {
+    KEEP_WAITING,
+    STOP,
+    RETRY_STOP,
+}
+
 fun interface OperationCancellation {
     fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding)
 }

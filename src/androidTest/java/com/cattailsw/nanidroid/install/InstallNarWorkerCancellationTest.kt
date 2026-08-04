@@ -68,7 +68,7 @@ class InstallNarWorkerCancellationTest {
                 SharedPreferencesDurableOperationStore.MemoryStorage(),
             ),
             MonotonicClock { 0L },
-        ) { _, binding ->
+        ) { _, _, binding ->
             if (binding is ExternalJobBinding.WorkManager) {
                 workManager.cancelWorkById(UUID.fromString(binding.uuid))
             }
