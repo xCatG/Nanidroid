@@ -98,7 +98,9 @@
   <string name="debug_surface_pointer_speaker_label">Speaker</string>
   <string name="debug_surface_collision_section_title">Debug overlays</string>
   <string name="debug_surface_collision_overlay_toggle">Show collision overlay</string>
-  <string name="debug_surface_nar_test_button">Run NAR test</string>
+  <string name="debug_surface_nar_test_button">Run SakuraScript sample</string>
+  <string name="debug_surface_sample_queued">Sample queued</string>
+  <string name="debug_surface_pointer_scope_label">Input scope</string>
   <string name="debug_surface_shiori_section_title">Bounded SHIORI log</string>
   <string name="debug_surface_empty_log">No SHIORI events yet.</string>
   <string name="debug_surface_empty_value">—</string>

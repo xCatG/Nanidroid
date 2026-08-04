@@ -6,6 +6,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
+import kotlin.math.roundToInt
 
 /** Raw local coordinates accepted by a future Compose pointer modifier. */
 data class SurfacePointerPosition(val x: Float, val y: Float)
@@ -81,6 +82,10 @@ object SurfacePointerInteractionMapper {
                 source = source,
                 collisionIdentifier = collision?.identifier,
                 diagnosticCollisionId = collision?.id ?: NO_COLLISION,
+                viewportPosition = androidx.compose.ui.unit.IntOffset(
+                    position.x.roundToInt(),
+                    position.y.roundToInt(),
+                ),
             ),
         )
     }

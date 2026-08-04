@@ -46,6 +46,7 @@ import com.cattailsw.nanidroid.install.NarDownload
  * supplied by the declarative ghost-stage host.
  */
 @Composable
+@Suppress("UnusedMaterial3ScaffoldPaddingParameter")
 internal fun NanidroidComposeShell(
     ghostStage: @Composable () -> Unit,
     loading: Boolean,
@@ -95,6 +96,10 @@ internal fun NanidroidComposeShell(
                         )
                     }
                 },
+                // Keep composition padding explicit because stage layout policy
+                // already reserves CANONICAL_APP_BAR_HEIGHT (64.dp) for the
+                // stage's adaptive candidate, which prevents double top-space
+                // reservation and preserves stable stage reclassification.
             ) { _ ->
                 Box(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.fillMaxSize().testTag("ghost-stage")) {

@@ -3,7 +3,6 @@ package com.cattailsw.nanidroid.compose.debug
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -119,30 +118,68 @@ class GhostDebugSurfaceTest {
     }
 
     @Test
+    fun side_panel_consumes_back_to_dismiss_debug_instead_of_finishing_activity() {
+        val visible = mutableStateOf(true)
+        var dismissed = 0
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.SIDE_PANEL,
+                state = DebugPanelState(visible = visible.value),
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = {
+                    dismissed++
+                    visible.value = false
+                },
+            )
+        }
+
+        composeRule.runOnIdle { composeRule.activity.onBackPressedDispatcher.onBackPressed() }
+
+        composeRule.runOnIdle {
+            assertEquals(1, dismissed)
+            assertFalse(composeRule.activity.isFinishing)
+        }
+        assertNoNodeWithTag(GHOST_DEBUG_SURFACE_SIDE_PANEL_TAG)
+    }
+
+    @Test
     fun debug_surface_callbacks_exposed_for_collision_overlay_nar_and_dismiss() {
-        var collision = false
+        val collision = mutableStateOf(false)
+        val collisionChanges = mutableListOf<Boolean>()
         var nar = false
         var dismissed = false
 
         composeRule.setContent {
             GhostDebugSurface(
                 presentation = DebugPresentation.FULL_STAGE_MODAL,
-                state = DebugPanelState(visible = true, selectedSpeaker = SurfaceSpeaker.SAKURA, showCollisionOverlay = false),
+                state = DebugPanelState(
+                    visible = true,
+                    selectedSpeaker = SurfaceSpeaker.SAKURA,
+                    showCollisionOverlay = collision.value,
+                ),
                 selection = null,
                 lastInput = null,
                 logs = emptyList(),
                 onSelectSpeaker = {},
-                onCollisionOverlayChange = { collision = it },
+                onCollisionOverlayChange = {
+                    collisionChanges += it
+                    collision.value = it
+                },
                 onNarTest = { nar = true },
                 onDismiss = { dismissed = true },
             )
         }
 
-        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_COLLISION_SWITCH_TAG).performClick()
-        composeRule.runOnIdle { assertEquals(true, collision) }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_COLLISION_SWITCH_TAG).performScrollTo().performClick()
+        composeRule.runOnIdle { assertEquals(listOf(true), collisionChanges.toList()) }
         composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_NAR_TEST_TAG).performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(true, nar) }
-        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_DISMISS_TAG).performClick()
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_DISMISS_TAG).performScrollTo().performClick()
         composeRule.runOnIdle { assertEquals(true, dismissed) }
     }
 
@@ -206,7 +243,10 @@ class GhostDebugSurfaceTest {
 
         composeRule.onNodeWithText("surface-01").assertIsDisplayed()
         composeRule.onNodeWithText("9,10 to 409,270").assertExists()
-        composeRule.onNodeWithText("X=13, Y=14").assertIsDisplayed()
+        composeRule.onNodeWithText("X=13, Y=14").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Bounded SHIORI log").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("ghost-debug-surface-shiori-log-0").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Event: OnTest").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Status: 200").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Response: OK").performScrollTo().assertIsDisplayed()

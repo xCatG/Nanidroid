@@ -3,12 +3,15 @@ package com.cattailsw.nanidroid.compose.debug
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
+import com.cattailsw.nanidroid.runtime.GhostPresentationRuntimeState
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 
 data class DebugPanelState(
     val visible: Boolean = false,
     val selectedSpeaker: SurfaceSpeaker = SurfaceSpeaker.SAKURA,
     val showCollisionOverlay: Boolean = false,
+    val sampleQueued: Boolean = false,
 )
 
 enum class DebugPresentation {
@@ -63,4 +66,41 @@ fun resolveDebugPresentation(width: Dp, stageMode: StageMode): DebugPresentation
     stageMode == StageMode.COMPACT_LANDSCAPE -> DebugPresentation.FULL_STAGE_MODAL
     width < sidePanelMinWidth -> DebugPresentation.BOTTOM_SHEET
     else -> DebugPresentation.SIDE_PANEL
+}
+
+fun StageMeasuredSnapshot?.debugSelection(
+    selectedSpeaker: SurfaceSpeaker,
+    runtime: GhostPresentationRuntimeState,
+): SurfaceDebugSelection? {
+    val snapshot = when (selectedSpeaker) {
+        SurfaceSpeaker.SAKURA -> this?.sakura
+        SurfaceSpeaker.KERO -> this?.kero
+    } ?: return null
+    val presentation = when (selectedSpeaker) {
+        SurfaceSpeaker.SAKURA -> runtime.presentation.sakura
+        SurfaceSpeaker.KERO -> runtime.presentation.kero
+    }
+    val rendered = snapshot.debugTransform.renderedBounds
+    val visible = snapshot.composedSurface.visiblePixelBounds
+    return SurfaceDebugSelection(
+        speaker = selectedSpeaker,
+        scope = selectedSpeaker.legacyReference,
+        surfaceId = presentation.surfaceId,
+        intrinsicWidth = snapshot.debugTransform.intrinsicSize.width,
+        intrinsicHeight = snapshot.debugTransform.intrinsicSize.height,
+        composedLeft = rendered.left,
+        composedTop = rendered.top,
+        composedRight = rendered.right,
+        composedBottom = rendered.bottom,
+        composedWidth = rendered.width,
+        composedHeight = rendered.height,
+        visibleLeft = visible?.left ?: 0,
+        visibleTop = visible?.top ?: 0,
+        visibleRight = visible?.right ?: 0,
+        visibleBottom = visible?.bottom ?: 0,
+        animationId = presentation.animationId,
+        visible = !snapshot.composedSurface.explicitlyHidden,
+        animationRunning = presentation.animationId != null,
+        revision = snapshot.composedSurface.revision,
+    )
 }

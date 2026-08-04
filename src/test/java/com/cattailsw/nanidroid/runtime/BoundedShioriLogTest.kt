@@ -25,6 +25,32 @@ class BoundedShioriLogTest {
         assertEquals("OnBoot\nReference0:A\nReference1:B", entry.request)
         assertEquals(200, entry.responseStatus)
         assertEquals("value", entry.responseValue)
+        assertTrue(entry.response.contains("value"))
+        assertEquals(log.snapshot(), log.updates.value)
+    }
+
+    @Test
+    fun recordsExactRawPayloadsBeforeIndependentUtf8Truncation() {
+        val log = BoundedShioriLog(maxPayloadBytes = 64)
+        val request = "GET SHIORI/3.0\r\nID: OnTest\r\n\r\n"
+        val rawResponse = "SHIORI/3.0 200 OK\r\nValue: raw value\r\n\r\n"
+
+        log.append("OnTest", request, 200, "raw value", rawResponse)
+
+        val entry = log.updates.value.single()
+        assertEquals(request, entry.request)
+        assertEquals(rawResponse, entry.response)
+    }
+
+    @Test
+    fun eventNameIsBoundedByTheSameUtf8Limit() {
+        val log = BoundedShioriLog(maxPayloadBytes = 20)
+
+        log.append("😀".repeat(20), "request", 200, "value", "response")
+
+        val event = log.snapshot().single().event
+        assertTrue(event.endsWith("… (truncated)"))
+        assertTrue(event.toByteArray(UTF_8).size <= 20)
     }
 
     @Test

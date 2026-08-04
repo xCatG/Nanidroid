@@ -2,6 +2,9 @@ package com.cattailsw.nanidroid.runtime
 
 import com.cattailsw.nanidroid.ShioriResponse
 import java.nio.charset.StandardCharsets.UTF_8
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** Keeps a bounded, in-memory history of recent SHIORI traffic for debug UI. */
 class BoundedShioriLog(
@@ -18,9 +21,12 @@ class BoundedShioriLog(
         val request: String,
         val responseStatus: Int,
         val responseValue: String,
+        val response: String = responseValue,
     )
 
     private val entries = ArrayDeque<Entry>()
+    private val mutableEntries = MutableStateFlow<List<Entry>>(emptyList())
+    val updates: StateFlow<List<Entry>> = mutableEntries.asStateFlow()
 
     @Synchronized
     fun record(
@@ -29,22 +35,45 @@ class BoundedShioriLog(
         response: ShioriResponse?,
     ) {
         if (maxEvents == 0) return
+        append(
+            event = event,
+            request = requestText(event, request),
+            responseStatus = response?.getStatusCode() ?: 500,
+            responseValue = response?.getKey("Value") ?: "",
+            response = response?.toString().orEmpty(),
+        )
+    }
+
+    @Synchronized
+    fun append(
+        event: String,
+        request: String,
+        responseStatus: Int,
+        responseValue: String,
+        response: String,
+    ) {
+        if (maxEvents == 0) return
         entries.addLast(
             Entry(
-                event = event,
-                request = truncate(requestText(event, request)),
-                responseStatus = response?.getStatusCode() ?: 500,
-                responseValue = truncate(response?.getKey("Value") ?: ""),
+                event = truncate(event),
+                request = truncate(request),
+                responseStatus = responseStatus,
+                responseValue = truncate(responseValue),
+                response = truncate(response),
             ),
         )
         while (entries.size > maxEvents) entries.removeFirst()
+        mutableEntries.value = entries.toList()
     }
 
     @Synchronized
     fun snapshot(): List<Entry> = entries.toList()
 
     @Synchronized
-    fun clear() = entries.clear()
+    fun clear() {
+        entries.clear()
+        mutableEntries.value = emptyList()
+    }
 
     private fun requestText(event: String, request: Array<out String?>?): String = buildString {
         append(event)

@@ -22,6 +22,7 @@ data class SurfaceInteractionEffect(
     val collisionIdentifier: String?,
     val diagnosticCollisionId: Int?,
     val wheelDelta: Int = 0,
+    val viewportPosition: IntOffset = IntOffset.Zero,
 )
 
 /** Resolves one interaction to at most one mouse event; deferred kinds remain undispatched. */

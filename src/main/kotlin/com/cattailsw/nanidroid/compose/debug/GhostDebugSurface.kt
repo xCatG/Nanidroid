@@ -2,6 +2,7 @@
 
 package com.cattailsw.nanidroid.compose.debug
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -32,10 +35,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +51,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.cattailsw.nanidroid.R
@@ -61,6 +67,7 @@ internal const val GHOST_DEBUG_SURFACE_COLLISION_SWITCH_TAG = "ghost-debug-surfa
 internal const val GHOST_DEBUG_SURFACE_NAR_TEST_TAG = "ghost-debug-surface-nar-test"
 internal const val GHOST_DEBUG_SURFACE_DISMISS_TAG = "ghost-debug-surface-dismiss"
 internal const val GHOST_DEBUG_SURFACE_EMPTY_LOG_TAG = "ghost-debug-surface-empty-log"
+internal const val GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG = "ghost-debug-surface-shiori-log"
 
 @Composable
 internal fun GhostDebugSurface(
@@ -196,6 +203,7 @@ private fun SidePanelGhostDebugSurface(
     onDismiss: () -> Unit,
     modifier: Modifier,
 ) {
+    BackHandler(onBack = onDismiss)
     Box(modifier = modifier.fillMaxSize()) {
         Surface(
             modifier = Modifier
@@ -249,11 +257,17 @@ private fun GhostDebugSurfaceContent(
     val closeLabel = stringResource(R.string.close_btn_text)
     val emptyValue = stringResource(R.string.debug_surface_empty_value)
     var expandedLogIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    val feedbackRequester = remember { BringIntoViewRequester() }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(state.sampleQueued) {
+        if (state.sampleQueued) feedbackRequester.bringIntoView()
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -386,6 +400,10 @@ private fun GhostDebugSurfaceContent(
                 )
                 if (lastInput != null) {
                     SurfaceInfoField(
+                        label = stringResource(R.string.debug_surface_pointer_scope_label),
+                        value = lastInput.speaker.legacyReference,
+                    )
+                    SurfaceInfoField(
                         label = stringResource(R.string.debug_surface_pointer_speaker_label),
                         value = stringResource(
                             if (lastInput.speaker == SurfaceSpeaker.SAKURA) {
@@ -432,6 +450,13 @@ private fun GhostDebugSurfaceContent(
         ) {
             Text(narLabel)
         }
+        if (state.sampleQueued) {
+            Text(
+                text = stringResource(R.string.debug_surface_sample_queued),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.bringIntoViewRequester(feedbackRequester),
+            )
+        }
         GhostDebugSurfaceSection(
             title = stringResource(R.string.debug_surface_shiori_section_title),
             content = {
@@ -441,21 +466,24 @@ private fun GhostDebugSurfaceContent(
                         modifier = Modifier.testTag(GHOST_DEBUG_SURFACE_EMPTY_LOG_TAG),
                     )
                 } else {
-                    LazyColumn(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 360.dp),
+                            .heightIn(max = 360.dp)
+                            .testTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG),
                     ) {
-                        itemsIndexed(logs) { index, log ->
-                            GhostShioriLogRow(
-                                entry = log,
-                                expanded = expandedLogIndex == index,
-                                onToggleExpanded = {
-                                    expandedLogIndex = if (expandedLogIndex == index) null else index
-                                },
-                                modifier = Modifier.testTag("ghost-debug-surface-shiori-log-$index"),
-                            )
-                            HorizontalDivider()
+                        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                            itemsIndexed(logs) { index, log ->
+                                GhostShioriLogRow(
+                                    entry = log,
+                                    expanded = expandedLogIndex == index,
+                                    onToggleExpanded = {
+                                        expandedLogIndex = if (expandedLogIndex == index) null else index
+                                    },
+                                    modifier = Modifier.testTag("ghost-debug-surface-shiori-log-$index"),
+                                )
+                                HorizontalDivider()
+                            }
                         }
                     }
                 }
@@ -476,7 +504,7 @@ private fun GhostDebugTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = stringResource(R.string.debug_surface_title),
                 style = MaterialTheme.typography.titleLarge,
@@ -484,6 +512,8 @@ private fun GhostDebugTopBar(
             Text(
                 text = stringResource(R.string.debug_surface_selected_speaker_label, selectedSpeakerLabel),
                 style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Button(
@@ -593,7 +623,7 @@ private fun GhostShioriLogRow(
     modifier: Modifier = Modifier,
 ) {
     val request = if (expanded) entry.request else entry.request.payloadPreview()
-    val response = if (expanded) entry.responseValue else entry.responseValue.payloadPreview()
+    val response = if (expanded) entry.response else entry.response.payloadPreview()
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -616,7 +646,7 @@ private fun GhostShioriLogRow(
             text = stringResource(R.string.debug_surface_log_entry_response, response),
             style = MaterialTheme.typography.bodySmall,
         )
-        if (entry.request != request || entry.responseValue != response || expanded) {
+        if (entry.request != request || entry.response != response || expanded) {
             TextButton(
                 onClick = onToggleExpanded,
                 modifier = Modifier.heightIn(min = 48.dp),

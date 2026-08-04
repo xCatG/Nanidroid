@@ -38,10 +38,12 @@ fun RenderedSurfaceLayer(
             transform = snapshot.rendererTransform,
             modifier = Modifier.fillMaxSize(),
         )
-        CollisionOverlay(
-            collisions = snapshot.composedSurface.effectiveCollisions,
-            transform = snapshot.overlayTransform,
-            visible = showCollisionOverlay,
-        )
+        if (showCollisionOverlay) {
+            CollisionOverlay(
+                collisions = snapshot.composedSurface.effectiveCollisions,
+                transform = snapshot.overlayTransform,
+                visible = true,
+            )
+        }
     }
 }
