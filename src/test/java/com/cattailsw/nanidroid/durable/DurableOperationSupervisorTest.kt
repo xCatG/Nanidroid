@@ -430,6 +430,40 @@ class DurableOperationSupervisorTest {
         assertTrue(restored.snapshot().single().showStallPrompt)
     }
 
+    @Test fun recreationDoesNotCrashWhenPersistedPromptClearFails() {
+        val delegate = MemoryDurableOperationStore()
+        val stalled = DurableOperationRecord(
+            id = OperationId("stalled-restore"),
+            attemptId = AttemptId(1),
+            kind = OperationKind.GHOST_UPDATE,
+            externalJob = null,
+            progress = OperationProgress("Queued", 0),
+            status = OperationStatus.RUNNING,
+            showStallPrompt = true,
+        )
+        assertTrue(delegate.putIfAbsent(stalled))
+        val throwingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (expected.showStallPrompt && !updated.showStallPrompt) {
+                    throw IllegalStateException("prompt clear persistence failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+
+        DurableOperationSupervisor(throwingStore, clock, cancellation)
+
+        assertEquals(stalled, throwingStore.read().single())
+    }
+
     @Test fun recreationImmediatelyResumesPersistedCancellation() {
         val handle = handle("update-1", 1)
         val binding = workManager("worker-1")

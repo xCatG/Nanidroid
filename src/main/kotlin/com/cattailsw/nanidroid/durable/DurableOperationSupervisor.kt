@@ -19,10 +19,13 @@ class DurableOperationSupervisor(
             val handle = restored.handle()
             lastProgressAt[handle] = now
             if (restored.showStallPrompt) {
-                store.compareAndSet(
-                    restored,
-                    restored.copy(showStallPrompt = false),
-                )
+                try {
+                    store.compareAndSet(
+                        restored,
+                        restored.copy(showStallPrompt = false),
+                    )
+                } catch (_: Exception) {
+                }
             }
             if (restored.status == OperationStatus.CANCEL_REQUESTED && restored.externalJob != null) {
                 issueCancellation(handle, restored.kind, restored.externalJob)
