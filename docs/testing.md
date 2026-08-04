@@ -35,6 +35,14 @@ existing references only; updating a baseline requires human image-diff review.
 After a screenshot-plugin upgrade, regenerate and review every golden. The
 HTML comparison report is `build/reports/screenshotTest/preview/debug/index.html`.
 
+The adaptive ghost-stage suite contains exactly 34 named cases: nine window-size
+grid cases, 19 product-state cases, and six pairwise theme/direction/font/density
+cases. Its deterministic Layoutlib fixtures exercise the production shell,
+stage, bubbles, compositor, collision overlay, debug content, and durable-prompt
+content without reading files, using the network, or depending on a clock. The
+debug-sheet, full-modal, and durable-prompt previews use static Layoutlib hosts;
+they do not replace connected tests of the real platform modal surfaces.
+
 ## NAR corpus (introduced in Task 17)
 
 With the dedicated disposable emulator running, use:

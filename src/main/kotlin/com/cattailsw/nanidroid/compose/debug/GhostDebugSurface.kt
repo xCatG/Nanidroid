@@ -3,6 +3,7 @@
 package com.cattailsw.nanidroid.compose.debug
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,11 +82,22 @@ internal fun GhostDebugSurface(
     onNarTest: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    staticPreview: Boolean = false,
 ) {
     if (!state.visible) return
 
     when (presentation) {
-        DebugPresentation.FULL_STAGE_MODAL -> FullStageGhostDebugSurface(
+        DebugPresentation.FULL_STAGE_MODAL -> if (staticPreview) StaticFullStageGhostDebugSurface(
+            state = state,
+            selection = selection,
+            lastInput = lastInput,
+            logs = logs,
+            onSelectSpeaker = onSelectSpeaker,
+            onCollisionOverlayChange = onCollisionOverlayChange,
+            onNarTest = onNarTest,
+            onDismiss = onDismiss,
+            modifier = modifier,
+        ) else FullStageGhostDebugSurface(
             state = state,
             selection = selection,
             lastInput = lastInput,
@@ -96,7 +108,17 @@ internal fun GhostDebugSurface(
             onDismiss = onDismiss,
             modifier = modifier,
         )
-        DebugPresentation.BOTTOM_SHEET -> BottomSheetGhostDebugSurface(
+        DebugPresentation.BOTTOM_SHEET -> if (staticPreview) StaticBottomSheetGhostDebugSurface(
+            state = state,
+            selection = selection,
+            lastInput = lastInput,
+            logs = logs,
+            onSelectSpeaker = onSelectSpeaker,
+            onCollisionOverlayChange = onCollisionOverlayChange,
+            onNarTest = onNarTest,
+            onDismiss = onDismiss,
+            modifier = modifier,
+        ) else BottomSheetGhostDebugSurface(
             state = state,
             selection = selection,
             lastInput = lastInput,
@@ -118,6 +140,87 @@ internal fun GhostDebugSurface(
             onDismiss = onDismiss,
             modifier = modifier,
         )
+    }
+}
+
+/** Layoutlib-only deterministic host; runtime callers use platform modal surfaces. */
+@Composable
+private fun StaticFullStageGhostDebugSurface(
+    state: DebugPanelState,
+    selection: SurfaceDebugSelection?,
+    lastInput: SurfacePointerDebugEvent?,
+    logs: List<BoundedShioriLog.Entry>,
+    onSelectSpeaker: (SurfaceSpeaker) -> Unit,
+    onCollisionOverlayChange: (Boolean) -> Unit,
+    onNarTest: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.56f)),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(8.dp)
+                .testTag(GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG),
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 6.dp,
+        ) {
+            GhostDebugSurfaceContent(
+                state = state,
+                selection = selection,
+                lastInput = lastInput,
+                logs = logs,
+                onSelectSpeaker = onSelectSpeaker,
+                onCollisionOverlayChange = onCollisionOverlayChange,
+                onNarTest = onNarTest,
+                onDismiss = onDismiss,
+            )
+        }
+    }
+}
+
+/** Layoutlib-only deterministic host; runtime callers use [ModalBottomSheet]. */
+@Composable
+private fun StaticBottomSheetGhostDebugSurface(
+    state: DebugPanelState,
+    selection: SurfaceDebugSelection?,
+    lastInput: SurfacePointerDebugEvent?,
+    logs: List<BoundedShioriLog.Entry>,
+    onSelectSpeaker: (SurfaceSpeaker) -> Unit,
+    onCollisionOverlayChange: (Boolean) -> Unit,
+    onNarTest: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f)),
+    ) {
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .heightIn(max = 560.dp)
+                .testTag(GHOST_DEBUG_SURFACE_BOTTOM_SHEET_TAG),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            tonalElevation = 6.dp,
+        ) {
+            GhostDebugSurfaceContent(
+                state = state,
+                selection = selection,
+                lastInput = lastInput,
+                logs = logs,
+                onSelectSpeaker = onSelectSpeaker,
+                onCollisionOverlayChange = onCollisionOverlayChange,
+                onNarTest = onNarTest,
+                onDismiss = onDismiss,
+            )
+        }
     }
 }
 

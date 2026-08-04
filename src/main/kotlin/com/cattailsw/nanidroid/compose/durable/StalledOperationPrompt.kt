@@ -1,11 +1,20 @@
 package com.cattailsw.nanidroid.compose.durable
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -15,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -34,6 +44,7 @@ import com.cattailsw.nanidroid.durable.isCancellationDispatchFailure
 internal fun StalledOperationPrompt(
     records: List<DurableOperationRecord>,
     onAction: (OperationHandle, DurableAttentionAction) -> Unit,
+    staticPreview: Boolean = false,
 ) {
     var pinnedTag by rememberSaveable { mutableStateOf<String?>(null) }
     var seenTags by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -96,55 +107,86 @@ internal fun StalledOperationPrompt(
         tag in stoppingSummaryTags && tag != selectedTag &&
             record.status == OperationStatus.CANCEL_REQUESTED
     }
-    AlertDialog(
-        modifier = Modifier.testTag("durable-attention-prompt"),
-        onDismissRequest = {},
-        title = {
-            Text(
-                stringResource(
-                    R.string.durable_attention_title,
-                    stringResource(DurableOperationPresentation.titleResource(selected.kind)),
-                ),
-            )
-        },
-        text = {
-            Column(
+    val title: @Composable () -> Unit = {
+        Text(
+            stringResource(
+                R.string.durable_attention_title,
+                stringResource(DurableOperationPresentation.titleResource(selected.kind)),
+            ),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+    }
+    val body: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = bodyMaxHeight)
+                .verticalScroll(rememberScrollState())
+                .testTag("durable-attention-body"),
+        ) {
+            deferredStopping.forEach { record ->
+                Text(
+                    "${stringResource(DurableOperationPresentation.titleResource(record.kind))} — " +
+                        stringResource(DurableOperationPresentation.phaseResource(record)),
+                )
+            }
+            Text(stringResource(DurableOperationPresentation.phaseResource(selected)))
+            diagnostics?.let {
+                Text("${stringResource(R.string.durable_diagnostics_label)}: $it")
+            }
+        }
+    }
+    val actions: @Composable () -> Unit = {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            DurableAttentionNotificationPolicy.actions(selected).forEach { action ->
+                TextButton(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("durable-attention-${action.tagSuffix()}"),
+                    onClick = {
+                        onAction(selected.handle(), action)
+                    },
+                ) {
+                    Text(stringResource(DurableOperationPresentation.actionLabelResource(action)))
+                }
+            }
+        }
+    }
+    if (staticPreview) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.56f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = bodyMaxHeight)
-                    .verticalScroll(rememberScrollState())
-                    .testTag("durable-attention-body"),
+                    .padding(24.dp)
+                    .widthIn(max = 560.dp)
+                    .testTag("durable-attention-prompt"),
+                shape = RoundedCornerShape(28.dp),
+                tonalElevation = 6.dp,
             ) {
-                deferredStopping.forEach { record ->
-                    Text(
-                        "${stringResource(DurableOperationPresentation.titleResource(record.kind))} — " +
-                            stringResource(DurableOperationPresentation.phaseResource(record)),
-                    )
-                }
-                Text(stringResource(DurableOperationPresentation.phaseResource(selected)))
-                diagnostics?.let {
-                    Text("${stringResource(R.string.durable_diagnostics_label)}: $it")
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    title()
+                    body()
+                    actions()
                 }
             }
-        },
-        confirmButton = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                DurableAttentionNotificationPolicy.actions(selected).forEach { action ->
-                    TextButton(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                            .testTag("durable-attention-${action.tagSuffix()}"),
-                        onClick = {
-                            onAction(selected.handle(), action)
-                        },
-                    ) {
-                        Text(stringResource(DurableOperationPresentation.actionLabelResource(action)))
-                    }
-                }
-            }
-        },
-    )
+        }
+    } else {
+        AlertDialog(
+            modifier = Modifier.testTag("durable-attention-prompt"),
+            onDismissRequest = {},
+            title = title,
+            text = body,
+            confirmButton = actions,
+        )
+    }
 }
 
 private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
