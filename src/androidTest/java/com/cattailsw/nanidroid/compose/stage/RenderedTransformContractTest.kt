@@ -153,6 +153,54 @@ class RenderedTransformContractTest {
     }
 
     @Test
+    fun onePixelKeroRemainsPublishedWithoutShrinkingSakuraAcrossPortraitAndLandscape() {
+        val landscapeViewport = mutableStateOf(false)
+        val measureState = GhostStageMeasureState()
+        val kero = surface(1, 1, revision = 1, collisionId = 12)
+        val sakura = surface(427, 640, revision = 1, collisionId = 13)
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                val size = if (landscapeViewport.value) IntSize(720, 360) else IntSize(360, 720)
+                Box(Modifier.requiredSize(size.width.dp, size.height.dp)) {
+                    MeasuredGhostStageLayout(
+                        presentation = presentation(),
+                        environmentForSize = { measured -> environment(measured) },
+                        measureState = measureState,
+                        kero = kero,
+                        sakura = sakura,
+                        modifier = Modifier.fillMaxSize(),
+                        surfaceContent = { snapshot ->
+                            RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
+                        },
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        val portrait = requireNotNull(measureState.latest)
+        val portraitKero = requireNotNull(portrait.kero)
+        val portraitSakura = requireNotNull(portrait.sakura)
+        assertEquals(IntSize(1, 1), portraitKero.transform.intrinsicSize)
+        assertEquals(IntRect(90, 719, 91, 720), portraitKero.transform.renderedBounds)
+        assertEquals(IntSize(427, 640), portraitSakura.transform.intrinsicSize)
+        assertEquals(IntRect(180, 450, 360, 720), portraitSakura.transform.renderedBounds)
+        assertExactSurfaceEdges(portraitKero)
+
+        composeRule.runOnIdle { landscapeViewport.value = true }
+        composeRule.waitForIdle()
+
+        val landscape = requireNotNull(measureState.latest)
+        val landscapeKero = requireNotNull(landscape.kero)
+        val landscapeSakura = requireNotNull(landscape.sakura)
+        assertEquals(IntSize(1, 1), landscapeKero.transform.intrinsicSize)
+        assertEquals(IntRect(120, 359, 121, 360), landscapeKero.transform.renderedBounds)
+        assertEquals(IntSize(427, 640), landscapeSakura.transform.intrinsicSize)
+        assertEquals(IntRect(501, 64, 699, 360), landscapeSakura.transform.renderedBounds)
+        assertExactSurfaceEdges(landscapeKero)
+    }
+
+    @Test
     fun dialogueOnlyRecompositionKeepsTheComposedPixelsAndDecodeCountStable() {
         var decodeCount = 0
         val plan = SurfaceRenderPlan(

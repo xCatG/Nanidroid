@@ -11,6 +11,7 @@ import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -35,6 +36,21 @@ class SurfaceTransformPxTest {
         assertNull(transform.toIntrinsic(Offset(20f, 27f)))
         assertNull(transform.toIntrinsic(Offset(10.999f, 20f)))
         assertNull(transform.toIntrinsic(Offset(20f, 16.999f)))
+    }
+
+    @Test
+    fun `subpixel scale round trip uses the exact inverse despite authored quantization`() {
+        val transform = SurfaceTransformPx(
+            intrinsicSize = IntSize(772, 535),
+            renderedBounds = IntRect(0, 0, 180, 125),
+            scale = 180f / 772f,
+            stageToRoot = IntOffset.Zero,
+        )
+
+        val stagePoint = transform.stageCenterForIntrinsic(IntOffset(312, 6))
+
+        assertEquals(IntOffset(73, 2), stagePoint)
+        assertEquals(IntOffset(313, 8), transform.toIntrinsic(stagePoint!!))
     }
 
     @Test
@@ -107,6 +123,59 @@ class SurfaceTransformPxTest {
         assertEquals(measured.keroSurface, transform.renderedBounds)
         assertEquals(3f, transform.scale, 0.0001f)
         assertEquals(IntOffset(3, 7), transform.stageToRoot)
+    }
+
+    @Test
+    fun `one pixel visible surface survives horizontal edge quantization inside its lane`() {
+        val layout = layout(
+            content = StageDpRect(0.dp, 0.dp, 360.dp, 720.dp),
+            keroSurface = StageDpRect(89.57845.dp, 695.1569.dp, 90.42155.dp, 696.dp),
+        ).copy(
+            keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 720.dp),
+            keroSurfaceRegion = StageDpRect(0.dp, 259.2.dp, 180.dp, 720.dp),
+        )
+
+        val measured = StageLayoutPx.from(layout, density = 1f)
+        val transform = measured.transformFor(SurfaceScope.KERO, IntSize(1, 1))
+
+        assertNotNull(transform)
+        transform ?: return
+        val region = requireNotNull(measured.keroSurfaceRegion)
+        val lane = requireNotNull(measured.keroLane)
+        assertEquals(IntRect(90, 695, 91, 696), transform.renderedBounds)
+        assertEquals(696, transform.renderedBounds.bottom)
+        assertTrue(transform.renderedBounds.left >= region.left)
+        assertTrue(transform.renderedBounds.right <= region.right)
+        assertTrue(transform.renderedBounds.left >= lane.left)
+        assertTrue(transform.renderedBounds.right <= lane.right)
+        assertEquals(IntOffset.Zero, transform.toIntrinsic(Offset(90.5f, 695.5f)))
+        assertNull(transform.toIntrinsic(Offset(91f, 695.5f)))
+        assertNull(transform.toIntrinsic(Offset(90.5f, 696f)))
+
+        val rightEdgeSurface = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 360.dp, 720.dp),
+                keroSurface = StageDpRect(179.57845.dp, 695.1569.dp, 180.42155.dp, 696.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 720.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 259.2.dp, 180.dp, 720.dp),
+            ),
+            density = 1f,
+        ).transformFor(SurfaceScope.KERO, IntSize(1, 1))
+        assertNotNull(rightEdgeSurface)
+        assertEquals(IntRect(179, 695, 180, 696), rightEdgeSurface?.renderedBounds)
+
+        val emptySurface = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 360.dp, 720.dp),
+                keroSurface = StageDpRect(90.dp, 695.1569.dp, 90.dp, 696.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 720.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 259.2.dp, 180.dp, 720.dp),
+            ),
+            density = 1f,
+        )
+        assertNull(emptySurface.transformFor(SurfaceScope.KERO, IntSize(1, 1)))
     }
 
     @Test
