@@ -1607,6 +1607,49 @@ foreach ($arg in $ProbeArgs) {
     }
     Write-Host 'Dry-run Snake lifecycle sentinel probes passed.'
 
+    $dryRunSnakeAggregateSteps = @(
+        [pscustomobject]@{
+            eventId = 'OnFirstBoot'
+            status = 200
+            value = '\\![enter,passivemode]'
+            tokenizerDiagnostics = @()
+        },
+        [pscustomobject]@{
+            eventId = 'OnChoiceSelect'
+            status = 200
+            value = '\\![leave,passivemode]'
+            tokenizerDiagnostics = @()
+        },
+        [pscustomobject]@{
+            eventId = 'OnChoiceSelect'
+            status = 200
+            value = 'FAQ'
+            tokenizerDiagnostics = @()
+        }
+    )
+    $dryRunSnakeAggregateEvidence = & {
+        param([object[]]$Steps)
+
+        $snakeSequenceCount = $Steps.Count
+        $snakeStepOnFirstBoot = if ($snakeSequenceCount -gt 0) { $Steps[0] } else { $null }
+        $snakeStepFirstChoiceSelect = if ($snakeSequenceCount -gt 1) { $Steps[1] } else { $null }
+        $snakeStepSecondChoiceSelect = if ($snakeSequenceCount -gt 2) { $Steps[2] } else { $null }
+        $snakeOnFirstBootTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepOnFirstBoot -Path 'tokenizerDiagnostics'
+        $snakeFirstChoiceSelectTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepFirstChoiceSelect -Path 'tokenizerDiagnostics'
+        $snakeFaqTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'tokenizerDiagnostics'
+        [pscustomobject]@{
+            firstBootTokenizerCount = @($snakeOnFirstBootTokenizerDiagnostics).Count
+            firstChoiceTokenizerCount = @($snakeFirstChoiceSelectTokenizerDiagnostics).Count
+            faqTokenizerCount = @($snakeFaqTokenizerDiagnostics).Count
+        }
+    } $dryRunSnakeAggregateSteps
+    if ($dryRunSnakeAggregateEvidence.firstBootTokenizerCount -ne 0 -or
+        $dryRunSnakeAggregateEvidence.firstChoiceTokenizerCount -ne 0 -or
+        $dryRunSnakeAggregateEvidence.faqTokenizerCount -ne 0) {
+        ThrowIf 'Dry-run Snake aggregate variable setup produced unexpected tokenizer counts.'
+    }
+    Write-Host 'Dry-run Snake aggregate strict-mode probe passed.'
+
     $knownPresentationDiagnostics = @(
         'unsupported-command:*',
         'unsupported-command:*',
@@ -2305,12 +2348,9 @@ $installed = $false
     $snakeFaqAnchorIds = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'anchorIds')
     $snakeFaqStatusInt = 0
     $snakeFaqStatus2xx = [int]::TryParse([string]$snakeFaqStatus, [ref]$snakeFaqStatusInt) -and $snakeFaqStatusInt -ge 200 -and $snakeFaqStatusInt -le 299
-    $snakeOnBootTokenizerCount = if ($null -ne $snakeOnBootTokenizerDiagnostics) { @($snakeOnBootTokenizerDiagnostics).Count } else { $null }
     $snakeFirstChoiceSelectTokenizerCount = if ($null -ne $snakeFirstChoiceSelectTokenizerDiagnostics) { @($snakeFirstChoiceSelectTokenizerDiagnostics).Count } else { $null }
     $snakeOnFirstBootTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeOnFirstBootTokenizerDiagnostics
     $snakeFaqTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeFaqTokenizerDiagnostics
-    $snakeOnBootValueText = if ($null -eq $snakeOnBootValue) { '' } else { [string]$snakeOnBootValue }
-    $snakeOnBootValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeOnBootValueText)
     $snakeOnFirstBootValueText = if ($null -eq $snakeOnFirstBootValue) { '' } else { [string]$snakeOnFirstBootValue }
     $snakeOnFirstBootValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeOnFirstBootValueText)
     $snakeFirstChoiceSelectValueText = if ($null -eq $snakeFirstChoiceSelectValue) { '' } else { [string]$snakeFirstChoiceSelectValue }
