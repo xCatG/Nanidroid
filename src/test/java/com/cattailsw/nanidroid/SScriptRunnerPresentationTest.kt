@@ -59,6 +59,22 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun attachingAReplacementRendererRepublishesTheCurrentFrameWithoutANewScriptEvent() {
+        val firstFrames = mutableListOf<GhostPresentationFrame>()
+        val runner = SScriptRunner(null)
+        runner.setNoWaitMode(true)
+        runner.setPresentationRenderer { firstFrames += it }
+        runner.addMsgToQueue(arrayOf("\\hCurrent frame\\s[120]\\e"))
+        runner.run()
+        val current = firstFrames.last()
+        val replacementFrames = mutableListOf<GhostPresentationFrame>()
+
+        runner.setPresentationRenderer { replacementFrames += it }
+
+        Assert.assertEquals(listOf(current), replacementFrames)
+    }
+
+    @Test
     fun firstAttachmentRetainsScriptsQueuedBeforeTheGhostIsReady() {
         val clock = FakeClock(10_000L)
         val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)

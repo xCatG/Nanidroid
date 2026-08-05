@@ -67,8 +67,14 @@
   <string name="unsupported_shiori_onclose">\\0\\s0Nanidroidのご利用をいただき、ありがとうございました！\\e</string>
   <string name="err_no_ghost_available">現在利用できるゴーストがありません。中断された更新からの復旧処理がまだ続いている可能性があります。Nanidroidを開き直してみてください。</string>
   <string name="toggle_stage_chrome_action">コントロールを表示または非表示にする</string>
-  <string name="sakura_character_description">さくらキャラクター</string>
-  <string name="kero_character_description">ケロキャラクター</string>
+  <string name="sakura_character_description">本体側</string>
+  <string name="kero_character_description">相方側</string>
+  <string name="stage_tiny_window_message">このウィンドウは Nanidroid を表示するには小さすぎます。もう少し大きくしてください💦</string>
+  <string name="stage_surface_activate_action">%1$sを操作する</string>
+  <string name="stage_collision_activate_action">%1$sの「%2$s」を操作する</string>
+  <string name="stage_collision_activate_repeated_action">%1$sの「%2$s」を操作する（%3$d件目）</string>
+  <string name="stage_collision_unnamed_region">名称のない領域</string>
+  <string name="stage_collision_disambiguated_identifier">%1$s [%2$d]</string>
   <string name="debug_surface_title">ゴーストデバッグ</string>
   <string name="debug_surface_selected_speaker_label">選択中の話者: %1$s</string>
   <string name="debug_surface_speaker_label">話者</string>
@@ -111,5 +117,27 @@
   <string name="debug_surface_log_entry_response">レスポンス: %1$s</string>
   <string name="debug_surface_log_show_full_payload">全内容を表示</string>
   <string name="debug_surface_log_collapse_payload">簡易表示にする</string>
+  <string name="durable_attention_channel_name">処理の確認</string>
+  <string name="durable_attention_channel_description">アーカイブまたはゴーストの処理で確認が必要なときに通知します</string>
+  <string name="durable_attention_title">%1$sを確認してください</string>
+  <string name="durable_operation_remote_nar">アーカイブのダウンロード</string>
+  <string name="durable_operation_local_nar">アーカイブのコピー</string>
+  <string name="durable_operation_nar_install">アーカイブのインストール</string>
+  <string name="durable_operation_ghost_update">ゴーストの更新</string>
+  <string name="durable_action_keep_waiting">待ち続ける</string>
+  <string name="durable_action_stop">処理の停止を依頼</string>
+  <string name="durable_action_retry_stop">停止依頼を再試行</string>
+  <string name="durable_phase_downloading">アーカイブをダウンロードしています…</string>
+  <string name="durable_phase_copying">アーカイブをコピーしています…</string>
+  <string name="durable_phase_installing">アーカイブをインストールしています…</string>
+  <string name="durable_phase_updating">ゴーストを更新しています…</string>
+  <string name="durable_phase_stopping">停止しています…</string>
+  <string name="durable_diagnostics_label">診断情報</string>
+  <string name="durable_diagnostic_cancel_dispatch_failed">停止依頼を送信できませんでした。再試行できます。</string>
+  <string name="durable_diagnostic_stopping_delayed">停止依頼から30秒以上経過しています。</string>
+  <string name="durable_store_recovery_title">処理の復旧に対応が必要です</string>
+  <string name="durable_store_recovery_message">保存されていたダウンロード、インストール、更新の状態を読み取れませんでした。新しい処理は一時停止しています。Android に引き渡された処理は、まだ実行中の可能性があります。再開するには、読み取れない履歴を破棄してください。Nanidroid が処理を自動的に停止することはありません。</string>
+  <string name="durable_store_recovery_confirm">読み取れない履歴を破棄して再開</string>
+  <string name="durable_store_recovery_failed">復旧を完了できませんでした。処理は一時停止したままです。もう一度お試しください。</string>
 
 </resources>

@@ -27,6 +27,10 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import javax.net.ssl.HttpsURLConnection
 
+private fun workManagerBinding(label: String) = ExternalJobBinding.WorkManager(
+    UUID.nameUUIDFromBytes(label.toByteArray()).toString(),
+)
+
 class GhostUpdateRepositoryTest {
     @Test
     fun `verified update publishes one complete tree and preserves untouched files`() {
@@ -652,16 +656,16 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-stale"), AttemptId(1))
-        val current = ExternalJobBinding.WorkManager("current-work")
+        val current = workManagerBinding("current-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, current))
         var invoked = false
 
         val result = GhostUpdateWorker.execute(
             supervisor,
             handle,
-            ExternalJobBinding.WorkManager("stale-work"),
+            workManagerBinding("stale-work"),
             { false },
         ) {
             invoked = true
@@ -678,9 +682,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-current"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("current-work")
+        val binding = workManagerBinding("current-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
         val result = GhostUpdateWorker.execute(supervisor, handle, binding, { false }) {
@@ -696,9 +700,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-interrupted"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("interrupted-work")
+        val binding = workManagerBinding("interrupted-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
         val result = GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
@@ -714,9 +718,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-identical-progress-retry"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("identical-progress-work")
+        val binding = workManagerBinding("identical-progress-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
         var runs = 0
 
@@ -740,9 +744,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-unchanged-cancelled"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("unchanged-cancelled-work")
+        val binding = workManagerBinding("unchanged-cancelled-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Fetching update manifest", 0, binding))
         assertTrue(supervisor.requestStop(handle))
         var invoked = false
@@ -786,9 +790,9 @@ class GhostUpdateRepositoryTest {
                 updated: DurableOperationRecord,
             ): Boolean = delegate.compareAndSet(expected, updated)
         }
-        val supervisor = DurableOperationSupervisor(racingStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(racingStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-progress-cancel-race"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("progress-cancel-race-work")
+        val binding = workManagerBinding("progress-cancel-race-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Fetching update manifest", 0, binding))
         armed = true
         var invoked = false
@@ -808,9 +812,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-stop-reason"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("stop-reason-work")
+        val binding = workManagerBinding("stop-reason-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
         assertEquals(
@@ -829,9 +833,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-interrupted-cancel-race"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("interrupted-cancel-race-work")
+        val binding = workManagerBinding("interrupted-cancel-race-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
         val result = GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
@@ -848,9 +852,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-stop-race"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("stop-race-work")
+        val binding = workManagerBinding("stop-race-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
         val reason = GhostUpdateWorker.stopReason(supervisor, handle, binding) {
@@ -925,9 +929,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-stop-commit"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("commit-work")
+        val binding = workManagerBinding("commit-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
         GhostUpdateWorker.execute(supervisor, handle, binding, { true }) {
@@ -943,9 +947,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-stop-before"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("queued-work")
+        val binding = workManagerBinding("queued-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
         GhostUpdateWorker.workerStopped(supervisor, handle, binding, hasStarted = false)
@@ -958,9 +962,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-system-stop-started"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("system-stop-started-work")
+        val binding = workManagerBinding("system-stop-started-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Preparing candidate", 0, binding))
 
         GhostUpdateWorker.workerStopped(supervisor, handle, binding, hasStarted = true)
@@ -973,9 +977,9 @@ class GhostUpdateRepositoryTest {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("worker-user-stop"), AttemptId(1))
-        val binding = ExternalJobBinding.WorkManager("user-stop-work")
+        val binding = workManagerBinding("user-stop-work")
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
         assertTrue(supervisor.requestStop(handle))
 
@@ -992,7 +996,7 @@ class GhostUpdateRepositoryTest {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(fixture.operationId, AttemptId(1))
         val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
@@ -1127,9 +1131,9 @@ class GhostUpdateRepositoryTest {
             val durableStore = SharedPreferencesDurableOperationStore(
                 SharedPreferencesDurableOperationStore.MemoryStorage(),
             )
-            val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _ -> }
+            val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
             val handle = OperationHandle(OperationId("pending-$index"), AttemptId(1))
-            val binding = ExternalJobBinding.WorkManager("pending-work-$index")
+            val binding = workManagerBinding("pending-work-$index")
             assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
 
             val result = GhostUpdateWorker.execute(supervisor, handle, binding, { false }) { pending }
@@ -1286,7 +1290,7 @@ class GhostUpdateRepositoryTest {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(fixture.operationId, AttemptId(1))
         val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
@@ -1337,7 +1341,7 @@ class GhostUpdateRepositoryTest {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(fixture.operationId, AttemptId(1))
         val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
@@ -1724,7 +1728,7 @@ class GhostUpdateRepositoryTest {
             val store = SharedPreferencesDurableOperationStore(
                 SharedPreferencesDurableOperationStore.MemoryStorage(),
             )
-            val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+            val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
             val handle = OperationHandle(OperationId("no-journal-$index"), AttemptId(1))
             val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
             assertTrue(row.label, supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
@@ -1802,7 +1806,7 @@ class GhostUpdateRepositoryTest {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(fixture.operationId, AttemptId(1))
         val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
@@ -1830,7 +1834,7 @@ class GhostUpdateRepositoryTest {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(fixture.operationId, AttemptId(1))
         val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Preparing candidate", 0, binding))
@@ -1931,7 +1935,7 @@ class GhostUpdateRepositoryTest {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(terminalOperation, attempt)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
         assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
@@ -2057,7 +2061,7 @@ class GhostUpdateRepositoryTest {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0 }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0 }) { _, _, _ -> }
         val handle = OperationHandle(OperationId("rollover"), AttemptId(4))
         val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))

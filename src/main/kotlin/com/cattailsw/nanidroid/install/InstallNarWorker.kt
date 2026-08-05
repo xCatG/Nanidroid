@@ -7,8 +7,14 @@ import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
+import androidx.work.WorkInfo
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import com.cattailsw.nanidroid.durable.AttemptId
+import com.cattailsw.nanidroid.durable.OperationHandle
+import com.cattailsw.nanidroid.durable.OperationId
+import com.cattailsw.nanidroid.durable.OperationKind
+import com.cattailsw.nanidroid.durable.durableWorkManagerId
 import java.util.UUID
 
 class InstallNarWorker(
@@ -116,22 +122,25 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         itemId: String,
         attemptId: Long,
         workManagerId: String,
+        recreateIfMissing: Boolean,
     ): NarInstallWorkRecovery {
         val requestId = UUID.fromString(workManagerId)
         val workInfo = workManager.getWorkInfoById(requestId).get()
         if (workInfo != null) {
-            return if (workInfo.state.isFinished) {
-                NarInstallWorkRecovery.FINISHED
-            } else {
-                NarInstallWorkRecovery.RESUMABLE
+            return when (workInfo.state) {
+                WorkInfo.State.SUCCEEDED -> NarInstallWorkRecovery.SUCCEEDED
+                WorkInfo.State.FAILED -> NarInstallWorkRecovery.FAILED
+                WorkInfo.State.CANCELLED -> NarInstallWorkRecovery.CANCELLED
+                else -> NarInstallWorkRecovery.ACTIVE
             }
         }
+        if (!recreateIfMissing) return NarInstallWorkRecovery.MISSING
         workManager.enqueueUniqueWork(
             NarDownloadRepository.workName(itemId),
             ExistingWorkPolicy.KEEP,
             installRequest(itemId, attemptId, requestId),
         )
-        return NarInstallWorkRecovery.RESUMABLE
+        return NarInstallWorkRecovery.ACTIVE
     }
 
     private fun installRequest(
@@ -139,13 +148,18 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         attemptId: Long,
         requestId: UUID? = null,
     ) = OneTimeWorkRequestBuilder<InstallNarWorker>()
+        .setId(
+            requestId ?: durableWorkManagerId(
+                OperationHandle(OperationId(itemId), AttemptId(attemptId)),
+                OperationKind.NAR_INSTALL,
+            ),
+        )
         .setInputData(
             Data.Builder()
                 .putString(InstallNarWorker.INPUT_ITEM_ID, itemId)
                 .putLong(InstallNarWorker.INPUT_ATTEMPT_ID, attemptId)
                 .build(),
         )
-        .also { builder -> requestId?.let(builder::setId) }
         .build()
 
     override fun enqueueStage(
@@ -167,22 +181,25 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         itemId: String,
         attemptId: Long,
         workManagerId: String,
+        recreateIfMissing: Boolean,
     ): NarStageWorkRecovery {
         val requestId = UUID.fromString(workManagerId)
         val workInfo = workManager.getWorkInfoById(requestId).get()
         if (workInfo != null) {
-            return if (workInfo.state.isFinished) {
-                NarStageWorkRecovery.FINISHED
-            } else {
-                NarStageWorkRecovery.RESUMABLE
+            return when (workInfo.state) {
+                WorkInfo.State.SUCCEEDED -> NarStageWorkRecovery.SUCCEEDED
+                WorkInfo.State.FAILED -> NarStageWorkRecovery.FAILED
+                WorkInfo.State.CANCELLED -> NarStageWorkRecovery.CANCELLED
+                else -> NarStageWorkRecovery.ACTIVE
             }
         }
+        if (!recreateIfMissing) return NarStageWorkRecovery.MISSING
         workManager.enqueueUniqueWork(
             NarDownloadRepository.stageWorkName(itemId),
             ExistingWorkPolicy.KEEP,
             stageRequest(itemId, attemptId, requestId),
         )
-        return NarStageWorkRecovery.RESUMABLE
+        return NarStageWorkRecovery.ACTIVE
     }
 
     private fun stageRequest(
@@ -190,6 +207,12 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         attemptId: Long,
         requestId: UUID? = null,
     ) = OneTimeWorkRequestBuilder<StageLocalNarWorker>()
+        .setId(
+            requestId ?: durableWorkManagerId(
+                OperationHandle(OperationId(itemId), AttemptId(attemptId)),
+                OperationKind.LOCAL_NAR,
+            ),
+        )
         .setInputData(
             Data.Builder()
                 .putString(StageLocalNarWorker.INPUT_ITEM_ID, itemId)
@@ -197,7 +220,6 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
                 .build(),
         )
         .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-        .also { builder -> requestId?.let(builder::setId) }
         .build()
 
     override fun cancel(itemId: String) {

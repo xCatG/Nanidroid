@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -16,10 +17,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +30,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
@@ -53,6 +58,9 @@ import com.cattailsw.nanidroid.install.NarDownloadRepository
 import com.cattailsw.nanidroid.install.NarLiveGrantHandoff
 import com.cattailsw.nanidroid.install.NarDownloadState
 import com.cattailsw.nanidroid.install.StageLocalNarWorker
+import com.cattailsw.nanidroid.durable.DurableAttentionNotificationPolicy
+import com.cattailsw.nanidroid.durable.DurableNotificationPermissionAcceptance
+import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
 import com.cattailsw.nanidroid.runtime.dialogue.ActionOrigin
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
@@ -104,6 +112,71 @@ internal fun <T : Any> routeGhostSwitchResult(
     apply(result)
 }
 
+internal data class TransientUiSnapshot(
+    val toolbarVisible: Boolean,
+    val debugPanelState: DebugPanelState,
+)
+
+internal fun restoredTransientUiSnapshot(
+    toolbarVisible: Boolean,
+    debugVisible: Boolean,
+    debugSpeakerName: String?,
+    collisionOverlayVisible: Boolean,
+    isDebuggable: Boolean,
+): TransientUiSnapshot {
+    val debug = if (isDebuggable) {
+        DebugPanelState(
+            visible = debugVisible,
+            selectedSpeaker = SurfaceSpeaker.entries.firstOrNull { it.name == debugSpeakerName }
+                ?: SurfaceSpeaker.SAKURA,
+            showCollisionOverlay = collisionOverlayVisible,
+            sampleQueued = false,
+        )
+    } else {
+        DebugPanelState()
+    }
+    return TransientUiSnapshot(toolbarVisible, debug)
+}
+
+internal fun transientUiSnapshotToSave(
+    pending: TransientUiSnapshot?,
+    initialized: Boolean,
+    toolbarVisible: Boolean,
+    debugPanelState: DebugPanelState,
+): TransientUiSnapshot? = pending ?: if (initialized) {
+    TransientUiSnapshot(
+        toolbarVisible = toolbarVisible,
+        debugPanelState = debugPanelState.copy(sampleQueued = false),
+    )
+} else {
+    null
+}
+
+internal fun Bundle.readTransientUiSnapshot(isDebuggable: Boolean): TransientUiSnapshot? =
+    takeIf { getBoolean(TRANSIENT_UI_PRESENT, false) }?.let { state ->
+        restoredTransientUiSnapshot(
+            toolbarVisible = state.getBoolean(TRANSIENT_TOOLBAR_VISIBLE, true),
+            debugVisible = state.getBoolean(TRANSIENT_DEBUG_VISIBLE, false),
+            debugSpeakerName = state.getString(TRANSIENT_DEBUG_SPEAKER),
+            collisionOverlayVisible = state.getBoolean(TRANSIENT_COLLISION_OVERLAY, false),
+            isDebuggable = isDebuggable,
+        )
+    }
+
+internal fun Bundle.writeTransientUiSnapshot(snapshot: TransientUiSnapshot) {
+    putBoolean(TRANSIENT_UI_PRESENT, true)
+    putBoolean(TRANSIENT_TOOLBAR_VISIBLE, snapshot.toolbarVisible)
+    putBoolean(TRANSIENT_DEBUG_VISIBLE, snapshot.debugPanelState.visible)
+    putString(TRANSIENT_DEBUG_SPEAKER, snapshot.debugPanelState.selectedSpeaker.name)
+    putBoolean(TRANSIENT_COLLISION_OVERLAY, snapshot.debugPanelState.showCollisionOverlay)
+}
+
+private const val TRANSIENT_UI_PRESENT = "transient_ui_present"
+private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
+private const val TRANSIENT_DEBUG_VISIBLE = "transient_debug_visible"
+private const val TRANSIENT_DEBUG_SPEAKER = "transient_debug_speaker"
+private const val TRANSIENT_COLLISION_OVERLAY = "transient_collision_overlay"
+
 /**
  * The production activity. Compose owns both chrome and ghost presentation;
  * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
@@ -123,6 +196,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     private var progressMessage by mutableStateOf("")
     private var toolbarVisible by mutableStateOf(false)
+    private var transientUiInitialized = false
+    private var pendingRestoredTransientUi: TransientUiSnapshot? = null
     private val simpleDialogState = mutableStateOf<NanidroidSimpleDialog?>(null)
     private var simpleDialog: NanidroidSimpleDialog?
         get() = simpleDialogState.value
@@ -159,6 +234,13 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var awaitingNarDocument = false
     private var replacingNarDownloadId: String? = null
     private var archiveIntentState = ArchiveIntentState()
+    private var pendingDurableNotificationPermission = false
+    private val durableNotificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        pendingDurableNotificationPermission = false
+        refreshDurableAttention()
+    }
     private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
     private val narLiveGrantExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "nar-live-grant-copy")
@@ -182,6 +264,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
+        observeDurableNotificationPermissionAcceptance()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             simpleDialog = NanidroidSimpleDialog.Notice(
                 R.string.err_title,
@@ -191,6 +274,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             return
         }
         checkIsRestore(savedInstanceState)
+        pendingRestoredTransientUi = savedInstanceState?.readTransientUiSnapshot(dbgBuild)
         runner = SScriptRunner.getInstance(this)
         restoreSimpleDialog(savedInstanceState)
         initOnSeparateThread()
@@ -265,7 +349,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
 
     private fun setGhostToRunner(reservation: ReservedGhost): Boolean {
         val ghost = reservation.ghost
-        composeStage.setSurfaceManager(ghost.mgr)
+        composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
         runner!!.setPresentationRenderer(composeStage.renderer)
         runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
         // The runner remains attached precisely once, on the initialized UI thread.
@@ -280,6 +364,13 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         progressMessage = getString(R.string.prog_startup)
         setContent {
             val downloads by narDownloads.observeDownloads().collectAsState()
+            val stalledOperations by SharedDurableOperationSupervisor
+                .attention(applicationContext)
+                .observeStalledOperations()
+                .collectAsState()
+            var durableRecoveryRequired by remember {
+                mutableStateOf(SharedDurableOperationSupervisor.isRecoveryRequired())
+            }
             LaunchedEffect(downloads) {
                 if (downloads.any { it.state is NarDownloadState.Complete }) gm?.refreshGhost()
             }
@@ -326,35 +417,49 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     },
                     simpleDialog = simpleDialog,
                     onDismissSimpleDialog = { simpleDialog = null },
+                    stalledOperations = stalledOperations,
+                    onDurableAttentionAction = { handle, action ->
+                        SharedDurableOperationSupervisor.get(applicationContext)
+                            .performAttentionAction(handle, action)
+                    },
+                    durableRecoveryRequired = durableRecoveryRequired,
+                    onResolveDurableRecovery = {
+                        val resolved = SharedDurableOperationSupervisor.resolveRecovery()
+                        durableRecoveryRequired =
+                            SharedDurableOperationSupervisor.isRecoveryRequired()
+                        resolved
+                    },
+                    transientOverlay = {
+                        if (dbgBuild && !loading) {
+                            GhostDebugSurface(
+                                presentation = resolveDebugPresentation(
+                                    width = maxWidth,
+                                    stageMode = measured?.layoutDp?.mode ?: StageMode.STANDARD,
+                                ),
+                                state = debugPanelState,
+                                selection = measured.debugSelection(
+                                    debugPanelState.selectedSpeaker,
+                                    composeStage.runtimeState,
+                                ),
+                                lastInput = lastPointerDebugEvent,
+                                logs = debugShioriEntries,
+                                onSelectSpeaker = {
+                                    debugPanelState = debugPanelState.copy(selectedSpeaker = it)
+                                },
+                                onCollisionOverlayChange = {
+                                    debugPanelState = debugPanelState.copy(showCollisionOverlay = it)
+                                },
+                                onNarTest = {
+                                    debugPanelState = debugPanelState.copy(sampleQueued = true)
+                                    narTest()
+                                },
+                                onDismiss = {
+                                    debugPanelState = debugPanelState.dismissDebugSurface()
+                                },
+                            )
+                        }
+                    },
                 )
-                if (dbgBuild && !loading) {
-                    GhostDebugSurface(
-                        presentation = resolveDebugPresentation(
-                            width = maxWidth,
-                            stageMode = measured?.layoutDp?.mode ?: StageMode.STANDARD,
-                        ),
-                        state = debugPanelState,
-                        selection = measured.debugSelection(
-                            debugPanelState.selectedSpeaker,
-                            composeStage.runtimeState,
-                        ),
-                        lastInput = lastPointerDebugEvent,
-                        logs = debugShioriEntries,
-                        onSelectSpeaker = {
-                            debugPanelState = debugPanelState.copy(selectedSpeaker = it)
-                        },
-                        onCollisionOverlayChange = {
-                            debugPanelState = debugPanelState.copy(showCollisionOverlay = it)
-                        },
-                        onNarTest = {
-                            debugPanelState = debugPanelState.copy(sampleQueued = true)
-                            narTest()
-                        },
-                        onDismiss = {
-                            debugPanelState = debugPanelState.dismissDebugSurface()
-                        },
-                    )
-                }
             }
         }
         showProgress()
@@ -394,7 +499,18 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )
         loading = true
     }
-    private fun hideProgress() { loading = false; toolbarVisible = true }
+    private fun hideProgress() {
+        val restored = pendingRestoredTransientUi
+        if (restored != null) {
+            toolbarVisible = restored.toolbarVisible
+            debugPanelState = restored.debugPanelState
+        } else {
+            toolbarVisible = true
+        }
+        pendingRestoredTransientUi = null
+        transientUiInitialized = true
+        loading = false
+    }
     private fun checkIsRestore(state: Bundle?): Boolean {
         if (state != null) { Log.d(TAG, "was minimized"); restoreFromMinimize = state.getBoolean(MIN_TAG, false); return restoreFromMinimize }; return false
     }
@@ -415,6 +531,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onPause() { super.onPause(); runner?.stopClock(); sendStopIntent() }
     override fun onSaveInstanceState(outState: Bundle) {
         saveSimpleDialog(outState)
+        transientUiSnapshotToSave(
+            pending = pendingRestoredTransientUi,
+            initialized = transientUiInitialized,
+            toolbarVisible = toolbarVisible,
+            debugPanelState = debugPanelState,
+        )?.let(outState::writeTransientUiSnapshot)
         outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
         outState.putString(NAR_PICK_REPLACEMENT_ID, replacingNarDownloadId)
         outState.putString(NAR_CONSUMED_INTENT_URI, archiveIntentState.consumedUri)
@@ -429,7 +551,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         super.onDestroy()
         sendStopIntent()
     }
-    override fun onResume() { super.onResume(); if (initComplete) { runner?.startClock(); runner?.run() }; AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG) }
+    override fun onResume() {
+        super.onResume()
+        refreshDurableAttention()
+        requestPendingDurableNotificationPermission()
+        if (initComplete) {
+            runner?.startClock()
+            runner?.run()
+        }
+        AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG)
+    }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
             if (!allows(GuardedAction.EXIT)) return
@@ -476,6 +607,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             return
         }
         narDownloads.enqueueRemote(value)
+        onUserDurableWorkAccepted()
     }
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
@@ -547,7 +679,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
                 // Keep the Compose stage and runner on the UI thread; its frame
                 // cache and scheduler state are intentionally not synchronized.
-                composeStage.setSurfaceManager(ghost.mgr)
+                composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
                 updateSurfaceKeys(ghost)
                 keyindex = 0
                 currentSurfaceKey = surfaceKeys!![keyindex]
@@ -599,7 +731,23 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         handleIncomingIntent(intent, isNewIntent = true)
         if (initComplete) enqueuePendingArchiveIntent()
     }
-    fun onUpdate() { if (!allows(GuardedAction.UPDATE)) return; AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0); val home = runner!!.getStringValueFromShiori("homeurl") ?: return; runner!!.doShioriEvent("OnUpdateBegin", arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath())); startModernService(NanidroidService.createUpdateIntent(this, home, currentGhost!!.getGhostId(), currentGhost!!.getGhostPath())) }
+    fun onUpdate() {
+        if (!allows(GuardedAction.UPDATE)) return
+        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0)
+        val home = runner!!.getStringValueFromShiori("homeurl") ?: return
+        runner!!.doShioriEvent(
+            "OnUpdateBegin",
+            arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath()),
+        )
+        startModernService(
+            NanidroidService.createUpdateIntent(
+                this,
+                home,
+                currentGhost!!.getGhostId(),
+                currentGhost!!.getGhostPath(),
+            ),
+        )
+    }
     fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
     fun onHelp() {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "help", "", 0)
@@ -652,21 +800,68 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 } else {
                     narDownloads.replaceLocalSource(replacementId, uri.toString())
                 }
+                onUserDurableWorkAccepted()
                 return
             } catch (_: SecurityException) {
                 // Fall back to supervised staging while the temporary grant remains available.
             }
         }
 
-        if (narLiveGrantHandoff.enqueue(uri.toString(), replacementId) {
+        val accepted = narLiveGrantHandoff.enqueue(uri.toString(), replacementId) {
                 contentResolver.openInputStream(uri)
-            } == null
-        ) {
+            }
+        if (accepted == null) {
             Toast.makeText(
                 this,
                 "The selected document is no longer available.",
                 Toast.LENGTH_LONG,
             ).show()
+        } else {
+            onUserDurableWorkAccepted()
+        }
+    }
+
+    private fun onUserDurableWorkAccepted() {
+        if (Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        pendingDurableNotificationPermission = true
+        requestPendingDurableNotificationPermission()
+    }
+
+    private fun observeDurableNotificationPermissionAcceptance() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                DurableNotificationPermissionAcceptance.observe().collect { accepted ->
+                    if (accepted && DurableNotificationPermissionAcceptance.consumeAccepted()) {
+                        onUserDurableWorkAccepted()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun requestPendingDurableNotificationPermission() {
+        if (!DurableAttentionNotificationPolicy.shouldRequestPermission(
+                apiLevel = Build.VERSION.SDK_INT,
+                permissionGranted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED,
+                userWorkAccepted = pendingDurableNotificationPermission,
+                activityResumed = lifecycle.currentState.isAtLeast(
+                    androidx.lifecycle.Lifecycle.State.RESUMED,
+                ),
+            )) {
+            return
+        }
+        pendingDurableNotificationPermission = false
+        durableNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun refreshDurableAttention() {
+        runCatching {
+            SharedDurableOperationSupervisor.attention(applicationContext).refresh()
         }
     }
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

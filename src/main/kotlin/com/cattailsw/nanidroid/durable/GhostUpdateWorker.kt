@@ -11,7 +11,6 @@ import androidx.work.WorkInfo
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.cattailsw.nanidroid.SScriptRunner
-import com.cattailsw.nanidroid.di.MonotonicClock
 import com.cattailsw.nanidroid.util.NetworkUtil
 import java.io.File
 import java.io.IOException
@@ -413,10 +412,17 @@ class GhostUpdateWorker(
                 }
             ) return@synchronized false
             val attempt = AttemptId((previous?.attemptId?.value ?: 0L) + 1L)
-            val request = request(UUID.randomUUID(), operationId, attempt, ghostId, canonicalRoot, baseUri)
+            val handle = OperationHandle(operationId, attempt)
+            val request = request(
+                durableWorkManagerId(handle, OperationKind.GHOST_UPDATE),
+                operationId,
+                attempt,
+                ghostId,
+                canonicalRoot,
+                baseUri,
+            )
             val binding = ExternalJobBinding.WorkManager(request.id.toString())
             val supervisor = supervisor(context)
-            val handle = OperationHandle(operationId, attempt)
             if (!supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding)) {
                 return@synchronized false
             }
@@ -979,21 +985,8 @@ class GhostUpdateWorker(
 
         private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
 
-        private fun supervisor(context: Context): DurableOperationSupervisor =
-            synchronized(supervisorLock) {
-                appSupervisor ?: DurableOperationSupervisor(
-                    SharedPreferencesDurableOperationStore(context.applicationContext),
-                    MonotonicClock { android.os.SystemClock.elapsedRealtime() },
-                ) { _, binding ->
-                    if (binding is ExternalJobBinding.WorkManager) {
-                        WorkManager.getInstance(context.applicationContext)
-                            .cancelWorkById(UUID.fromString(binding.uuid))
-                    }
-                }.also { appSupervisor = it }
-            }
-
         private val enqueueLock = Any()
-        private val supervisorLock = Any()
-        @Volatile private var appSupervisor: DurableOperationSupervisor? = null
+        private fun supervisor(context: Context): DurableOperationSupervisor =
+            SharedDurableOperationSupervisor.get(context)
     }
 }

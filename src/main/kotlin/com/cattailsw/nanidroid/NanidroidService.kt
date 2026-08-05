@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.os.Message
 import android.util.Log
 import android.util.Pair
+import com.cattailsw.nanidroid.durable.DurableNotificationPermissionAcceptance
 import com.cattailsw.nanidroid.durable.GhostUpdateWorker
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.NarUtil
@@ -79,9 +80,13 @@ class NanidroidService : Service() {
                     startForegroundWork(startId)
                     dispatchGhostUpdateEnqueue(ghostUpdateEnqueueExecutor) {
                         try {
-                            if (!GhostUpdateWorker.enqueue(this, homeurl!!, gid, File(ghostRoot))) {
+                            val accepted = GhostUpdateWorker.enqueue(this, homeurl!!, gid, File(ghostRoot))
+                            if (accepted) DurableNotificationPermissionAcceptance.markAccepted()
+                            if (!accepted) {
                                 Log.w(TAG, "Ghost update is already active or could not be queued")
                             }
+                        } catch (error: RuntimeException) {
+                    Log.e(TAG, "Could not enqueue ghost update", error)
                         } finally {
                             finishForegroundWork(startId)
                         }
@@ -402,9 +407,13 @@ class NanidroidService : Service() {
         const val ACTION_CAN_STOP = "canstopsensing"
         const val EXT_GID = "ghost_id_to_update"
         const val EXT_GROOT = "ghost_root_to_update"
-
         @JvmStatic
-        fun createUpdateIntent(ctx: Context, homeurl: String, ghostId: String, ghostRoot: String): Intent =
+        fun createUpdateIntent(
+            ctx: Context,
+            homeurl: String,
+            ghostId: String,
+            ghostRoot: String,
+        ): Intent =
             Intent(ctx, NanidroidService::class.java).apply {
                 action = Intent.ACTION_SYNC
                 data = Uri.parse(homeurl)

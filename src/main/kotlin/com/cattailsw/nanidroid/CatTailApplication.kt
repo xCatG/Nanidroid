@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.CrashReporting
 import dagger.hilt.android.HiltAndroidApp
@@ -21,6 +22,7 @@ class CatTailApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        SharedDurableOperationSupervisor.get(this)
         if (isDeviceValidationNoTelemetry()) {
             AnalyticsUtils.setDeviceValidationNoTelemetry(true)
             return

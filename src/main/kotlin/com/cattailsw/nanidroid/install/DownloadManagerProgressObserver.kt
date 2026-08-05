@@ -5,6 +5,9 @@ import android.os.Looper
 import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
 import com.cattailsw.nanidroid.durable.ExternalJobBinding
 import com.cattailsw.nanidroid.durable.OperationHandle
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 internal interface NarRemoteProgressObserver {
     fun start(handle: OperationHandle, downloadManagerId: Long)
@@ -15,6 +18,47 @@ internal interface NarRemoteProgressObserver {
 internal interface NarProgressScheduler {
     fun post(task: Runnable, delayMillis: Long)
     fun cancel(task: Runnable)
+}
+
+internal interface NarStopReconciliationScheduler {
+    fun schedule(handle: OperationHandle, delayMillis: Long, task: Runnable)
+    fun cancel(handle: OperationHandle)
+
+    data object None : NarStopReconciliationScheduler {
+        override fun schedule(handle: OperationHandle, delayMillis: Long, task: Runnable) = Unit
+        override fun cancel(handle: OperationHandle) = Unit
+    }
+}
+
+internal class BackgroundStopReconciliationScheduler : NarStopReconciliationScheduler {
+    private val executor = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "nanidroid-stop-reconciliation").apply { isDaemon = true }
+    }
+    private val pending = mutableMapOf<OperationHandle, PendingStopReconciliation>()
+
+    @Synchronized
+    override fun schedule(handle: OperationHandle, delayMillis: Long, task: Runnable) {
+        pending.remove(handle)?.future?.cancel(false)
+        val token = Any()
+        val future = executor.schedule(reconcile@{
+            synchronized(this) {
+                if (pending[handle]?.token !== token) return@reconcile
+                pending.remove(handle)
+            }
+            task.run()
+        }, delayMillis, TimeUnit.MILLISECONDS)
+        pending[handle] = PendingStopReconciliation(token, future)
+    }
+
+    @Synchronized
+    override fun cancel(handle: OperationHandle) {
+        pending.remove(handle)?.future?.cancel(false)
+    }
+
+    private data class PendingStopReconciliation(
+        val token: Any,
+        val future: ScheduledFuture<*>,
+    )
 }
 
 private class MainLooperProgressScheduler : NarProgressScheduler {

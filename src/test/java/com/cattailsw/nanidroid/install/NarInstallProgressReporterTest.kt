@@ -17,7 +17,7 @@ import org.junit.Test
 class NarInstallProgressReporterTest {
     private val clock = FakeClock()
     private val store = CountingStore()
-    private val supervisor = DurableOperationSupervisor(store, clock) { _, _ -> }
+    private val supervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
     private val handle = OperationHandle(OperationId("large-install"), AttemptId(1L))
     private val binding = ExternalJobBinding.WorkManager("install-worker")
     private val reporter = ThrottledNarInstallProgressReporter(supervisor, clock)

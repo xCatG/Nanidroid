@@ -49,7 +49,7 @@ class GhostUpdateRecoveryTest {
         val binding = ExternalJobBinding.WorkManager(failedWork.id.toString())
         fixture.journal(CommitPhase.PREPARED, attemptId = attempt, workManagerUuid = binding.uuid)
         val store = SharedPreferencesDurableOperationStore(context)
-        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _ -> }
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         val handle = OperationHandle(fixture.operationId, attempt)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing update", 0, binding))
         assertFalse(fixture.live.exists())

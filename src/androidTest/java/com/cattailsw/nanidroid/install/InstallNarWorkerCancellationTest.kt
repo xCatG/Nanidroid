@@ -68,7 +68,7 @@ class InstallNarWorkerCancellationTest {
                 SharedPreferencesDurableOperationStore.MemoryStorage(),
             ),
             MonotonicClock { 0L },
-        ) { _, binding ->
+        ) { _, _, binding ->
             if (binding is ExternalJobBinding.WorkManager) {
                 workManager.cancelWorkById(UUID.fromString(binding.uuid))
             }
@@ -122,12 +122,14 @@ class InstallNarWorkerCancellationTest {
                 itemId: String,
                 attemptId: Long,
                 workManagerId: String,
-            ) = NarInstallWorkRecovery.RESUMABLE
+                recreateIfMissing: Boolean,
+            ) = NarInstallWorkRecovery.ACTIVE
             override fun ensureStageEnqueued(
                 itemId: String,
                 attemptId: Long,
                 workManagerId: String,
-            ) = NarStageWorkRecovery.RESUMABLE
+                recreateIfMissing: Boolean,
+            ) = NarStageWorkRecovery.ACTIVE
         },
         installer = object : NarArchiveInstaller {
             override fun install(

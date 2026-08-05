@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
@@ -72,6 +73,40 @@ import org.junit.Test
 class GhostBubbleInteractionTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun dialogue_live_region_announces_only_the_settled_typewriter_copy() {
+        val state = mutableStateOf(
+            BubbleUiState(
+                speaker = SurfaceSpeaker.SAKURA,
+                content = DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("H"))),
+                pendingChoices = emptyList(),
+                scrollPosition = 0,
+                userScrolledThisTalk = false,
+                talkId = 91L,
+                contentRevision = 1L,
+            ),
+        )
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent { GhostBubble(state = state.value) }
+        val bubble = composeRule.onNodeWithTag("ghost-bubble-sakura")
+
+        composeRule.mainClock.advanceTimeBy(300)
+        composeRule.runOnIdle {
+            state.value = state.value.copy(
+                content = DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Hello"))),
+                contentRevision = 2L,
+            )
+        }
+        composeRule.mainClock.advanceTimeBy(499)
+        assertTrue(SemanticsProperties.LiveRegion !in bubble.fetchSemanticsNode().config)
+
+        composeRule.mainClock.advanceTimeBy(1)
+        composeRule.waitForIdle()
+        val semantics = bubble.fetchSemanticsNode().config
+        assertEquals(LiveRegionMode.Polite, semantics[SemanticsProperties.LiveRegion])
+        assertEquals(listOf("Hello"), semantics[SemanticsProperties.ContentDescription])
+    }
 
     @Test
     fun reachedInputOnlyDialogueProvidesAnOwningBubbleControl() {
