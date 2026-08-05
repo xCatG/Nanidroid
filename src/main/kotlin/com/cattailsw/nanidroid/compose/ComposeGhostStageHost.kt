@@ -122,6 +122,7 @@ class ComposeGhostStageHost private constructor(
         onDialogueAnchor: (AnchorAction) -> Unit = {},
         onDialogueExternalUrl: (String) -> Unit = {},
         onDialogueInput: (DialogueSegment.InputBox) -> Unit = {},
+        collisionOverlaySpeaker: SurfaceSpeaker? = null,
     ) {
         val manager = activeSurfaceManager
         val state = runtimeState
@@ -204,10 +205,16 @@ class ComposeGhostStageHost private constructor(
             onDialogueExternalUrl = onDialogueExternalUrl,
             onDialogueInput = onDialogueInput,
             sakuraSurface = { snapshot ->
-                RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
+                RenderedSurfaceLayer(
+                    snapshot,
+                    showCollisionOverlay = collisionOverlaySpeaker == SurfaceSpeaker.SAKURA,
+                )
             },
             keroSurface = { snapshot ->
-                RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
+                RenderedSurfaceLayer(
+                    snapshot,
+                    showCollisionOverlay = collisionOverlaySpeaker == SurfaceSpeaker.KERO,
+                )
             },
         )
     }

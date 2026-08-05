@@ -41,6 +41,17 @@
 
   <string name="help_install">如何安裝新的偽人格</string>
   <string name="help_supported_ops">目前本體支援的功能</string>
+  <string name="check_updates_btn_text">檢查更新</string>
+  <string name="ghosts_btn_text">偽人格列表</string>
+  <string name="more_btn_text">更多</string>
+  <string name="debug_tools_menu_text">偵錯工具</string>
+  <string name="debug_button_description">開啟偵錯控制</string>
+  <string name="readme_menu_text">Readme</string>
+  <string name="current_ghost_no_readme_title">沒有 Readme</string>
+  <string name="current_ghost_no_readme_message">目前偽人格沒有可顯示的說明文件。</string>
+  <string name="archive_queue_btn_text">下載</string>
+  <string name="archive_queue_status_text">下載 (%1$d)</string>
+  <string name="archive_queue_btn_text_with_count">共 %1$d 個下載</string>
 
   <string name="user_input_dlg_title">輸入</string>
   <string name="dialogue_choose_action">選擇…</string>
@@ -58,4 +69,46 @@
   <string name="toggle_stage_chrome_action">顯示或隱藏控制項</string>
   <string name="sakura_character_description">Sakura 角色</string>
   <string name="kero_character_description">Kero 角色</string>
+  <string name="debug_surface_title">偽人格除錯</string>
+  <string name="debug_surface_selected_speaker_label">已選擇角色: %1$s</string>
+  <string name="debug_surface_speaker_label">角色</string>
+  <string name="debug_surface_surface_section_title">畫面資訊</string>
+  <string name="debug_surface_surface_id_label">Surface ID</string>
+  <string name="debug_surface_scope_label">範圍</string>
+  <string name="debug_surface_intrinsic_dims_label">原始尺寸</string>
+  <string name="debug_surface_composed_bounds_label">定位</string>
+  <string name="debug_surface_composed_dims_label">排版尺寸</string>
+  <string name="debug_surface_visible_bounds_label">可見像素範圍</string>
+  <string name="debug_surface_visible_label">可見</string>
+  <string name="debug_surface_animation_label">動畫 ID</string>
+  <string name="debug_surface_animation_running_label">動畫播放中</string>
+  <string name="debug_surface_revision_label">修訂版本</string>
+  <string name="debug_surface_pointer_section_title">最後輸入</string>
+  <string name="debug_surface_viewport_coords_label">螢幕座標</string>
+  <string name="debug_surface_intrinsic_coords_label">本地座標</string>
+  <string name="debug_surface_collision_id_label">碰撞 ID / 名稱</string>
+  <string name="debug_surface_pointer_button_label">按鈕</string>
+  <string name="debug_surface_pointer_source_label">來源</string>
+  <string name="debug_surface_pointer_event_label">事件</string>
+  <string name="debug_surface_pointer_speaker_label">角色</string>
+  <string name="debug_surface_collision_section_title">除錯覆蓋</string>
+  <string name="debug_surface_collision_overlay_toggle">顯示碰撞覆蓋</string>
+  <string name="debug_surface_nar_test_button">執行 SakuraScript 範例</string>
+  <string name="debug_surface_sample_queued">樣本已加入佇列</string>
+  <string name="debug_surface_pointer_scope_label">輸入範圍</string>
+  <string name="debug_surface_shiori_section_title">限制版 SHIORI 紀錄</string>
+  <string name="debug_surface_empty_log">尚未有 SHIORI 事件。</string>
+  <string name="debug_surface_empty_value">—</string>
+  <string name="debug_surface_value_true">是</string>
+  <string name="debug_surface_value_false">否</string>
+  <string name="debug_surface_value_coordinates">X=%1$d, Y=%2$d</string>
+  <string name="debug_surface_value_dimensions">%1$d × %2$d</string>
+  <string name="debug_surface_value_bounds">%1$d,%2$d 到 %3$d,%4$d</string>
+  <string name="debug_surface_value_collision">%1$d / %2$s</string>
+  <string name="debug_surface_log_entry_event">事件: %1$s</string>
+  <string name="debug_surface_log_entry_request">請求: %1$s</string>
+  <string name="debug_surface_log_entry_status">狀態: %1$d</string>
+  <string name="debug_surface_log_entry_response">回應: %1$s</string>
+  <string name="debug_surface_log_show_full_payload">顯示完整資料</string>
+  <string name="debug_surface_log_collapse_payload">收合資料</string>
 </resources>

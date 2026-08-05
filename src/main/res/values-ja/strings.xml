@@ -40,6 +40,17 @@
   <string name="url_help_install">http://blog.cattail-sw.com/?p=215</string>
   <string name="help_supported_ops">対応した機能の表示</string>
   <string name="url_support_ops">http://blog.cattail-sw.com/?p=217</string>
+  <string name="check_updates_btn_text">更新を確認</string>
+  <string name="ghosts_btn_text">ゴースト一覧</string>
+  <string name="more_btn_text">その他</string>
+  <string name="debug_tools_menu_text">デバッグツール</string>
+  <string name="debug_button_description">デバッグコントロールを開く</string>
+  <string name="readme_menu_text">Readme</string>
+  <string name="current_ghost_no_readme_title">Readme がありません</string>
+  <string name="current_ghost_no_readme_message">現在のゴーストには表示する Readme がありません。</string>
+  <string name="archive_queue_btn_text">ダウンロード</string>
+  <string name="archive_queue_status_text">ダウンロード (%1$d)</string>
+  <string name="archive_queue_btn_text_with_count">ダウンロード (%1$d)</string>
 
   <string name="user_input_dlg_title">入力してください</string>
   <string name="dialogue_choose_action">選択…</string>
@@ -58,5 +69,47 @@
   <string name="toggle_stage_chrome_action">コントロールを表示または非表示にする</string>
   <string name="sakura_character_description">さくらキャラクター</string>
   <string name="kero_character_description">ケロキャラクター</string>
+  <string name="debug_surface_title">ゴーストデバッグ</string>
+  <string name="debug_surface_selected_speaker_label">選択中の話者: %1$s</string>
+  <string name="debug_surface_speaker_label">話者</string>
+  <string name="debug_surface_surface_section_title">サーフェス情報</string>
+  <string name="debug_surface_surface_id_label">サーフェスID</string>
+  <string name="debug_surface_scope_label">スコープ</string>
+  <string name="debug_surface_intrinsic_dims_label">本来のサイズ</string>
+  <string name="debug_surface_composed_bounds_label">合成位置</string>
+  <string name="debug_surface_composed_dims_label">合成サイズ</string>
+  <string name="debug_surface_visible_bounds_label">可視ピクセル範囲</string>
+  <string name="debug_surface_visible_label">表示</string>
+  <string name="debug_surface_animation_label">アニメーションID</string>
+  <string name="debug_surface_animation_running_label">再生中</string>
+  <string name="debug_surface_revision_label">リビジョン</string>
+  <string name="debug_surface_pointer_section_title">最終入力</string>
+  <string name="debug_surface_viewport_coords_label">ビューポート座標</string>
+  <string name="debug_surface_intrinsic_coords_label">ローカル座標</string>
+  <string name="debug_surface_collision_id_label">コリジョンID / 名前</string>
+  <string name="debug_surface_pointer_button_label">ボタン</string>
+  <string name="debug_surface_pointer_source_label">送信元</string>
+  <string name="debug_surface_pointer_event_label">イベント</string>
+  <string name="debug_surface_pointer_speaker_label">話者</string>
+  <string name="debug_surface_collision_section_title">デバッグオーバーレイ</string>
+  <string name="debug_surface_collision_overlay_toggle">衝突オーバーレイを表示</string>
+  <string name="debug_surface_nar_test_button">SakuraScript サンプルを実行</string>
+  <string name="debug_surface_sample_queued">サンプルをキューに登録しました</string>
+  <string name="debug_surface_pointer_scope_label">入力スコープ</string>
+  <string name="debug_surface_shiori_section_title">SHIORIログ</string>
+  <string name="debug_surface_empty_log">まだSHIORIイベントはありません。</string>
+  <string name="debug_surface_empty_value">—</string>
+  <string name="debug_surface_value_true">はい</string>
+  <string name="debug_surface_value_false">いいえ</string>
+  <string name="debug_surface_value_coordinates">X=%1$d, Y=%2$d</string>
+  <string name="debug_surface_value_dimensions">%1$d × %2$d</string>
+  <string name="debug_surface_value_bounds">%1$d,%2$d ～ %3$d,%4$d</string>
+  <string name="debug_surface_value_collision">%1$d / %2$s</string>
+  <string name="debug_surface_log_entry_event">イベント: %1$s</string>
+  <string name="debug_surface_log_entry_request">リクエスト: %1$s</string>
+  <string name="debug_surface_log_entry_status">ステータス: %1$d</string>
+  <string name="debug_surface_log_entry_response">レスポンス: %1$s</string>
+  <string name="debug_surface_log_show_full_payload">全内容を表示</string>
+  <string name="debug_surface_log_collapse_payload">簡易表示にする</string>
 
 </resources>

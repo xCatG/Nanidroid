@@ -35,6 +35,7 @@ class SurfacePointerInteractionTest {
                 PointerSource.TOUCH,
                 "Collision41",
                 41,
+                viewportPosition = IntOffset(1, 1),
             ),
             resolution.effect,
         )
@@ -77,6 +78,7 @@ class SurfacePointerInteractionTest {
                 PointerSource.TOUCH,
                 null,
                 -1,
+                viewportPosition = IntOffset(17, 34),
             ),
             resolution.effect,
         )
