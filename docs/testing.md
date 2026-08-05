@@ -120,3 +120,108 @@ geometry, optical bounds, asymmetric stages, and unsupported non-ghost packages.
 .\gradlew.bat testDebugUnitTest connectedDebugAndroidTest
 .\gradlew.bat validateDebugScreenshotTest jacocoTestReport
 ```
+
+## Adaptive UI visual audit (Task 18)
+
+The final hands-on audit is driven by `scripts/run-ui-visual-audit.ps1`. It is
+an emulator-only, fail-closed workflow: it starts its own `Nanidroid_API_37`
+instance from an existing immutable snapshot, refuses a running/reused device or
+pre-existing Nanidroid data, captures the original display configuration before
+any mutation, and restores and verifies that configuration in `finally`.
+PowerShell 7 or newer is required; invoke the runner with `pwsh`, not Windows
+PowerShell 5.1 (`powershell.exe`).
+
+Provision a clean `default_boot` snapshot for `Nanidroid_API_37` before running
+the audit. The runner loads that snapshot with `-no-snapshot-save` and
+`-read-only`; it never creates, overwrites, or deletes an AVD snapshot. The
+snapshot must contain no installed `com.cattailsw.nanidroid` or
+`com.cattailsw.nanidroid.test` package and no retained app data. Stop any running
+instance of the AVD first because the runner will not take ownership of an
+existing emulator.
+
+Run the host-only contract checks first. Dry-run performs no build, device,
+emulator, report-directory, or snapshot mutation:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 -DryRun `
+  -CorpusRoots C:\work\src\Nanidroid\2elf-2.46.nar, `
+    C:\work\src\Nanidroid\build\ui-audit\ghosts, `
+    C:\work\src\Nanidroid\build\ui-audit\pcPets
+```
+
+Run the complete capture workflow with the same corpus roots:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 `
+  -DeviceSerial emulator-5554 `
+  -AvdName Nanidroid_API_37 `
+  -SnapshotName default_boot `
+  -CorpusRoots C:\work\src\Nanidroid\2elf-2.46.nar, `
+    C:\work\src\Nanidroid\build\ui-audit\ghosts, `
+    C:\work\src\Nanidroid\build\ui-audit\pcPets
+```
+
+The runner records and restores the physical/override `wm size` and `wm
+density`, automatic and user rotation, display rotation, `font_scale` (including
+an originally absent setting), theme, locale, and network state. The 160 dpi
+overrides are used only inside the reversible workflow. Native-density phone and
+tablet passes retain the physical density. Each profile must settle across two
+`wm` readings, match the requested logical size from `dumpsys window displays`,
+retain the intended orientation lock, and match the root UIAutomator bounds;
+physical display dimensions are not treated as logical orientation evidence.
+Locale evidence uses `persist.sys.locale`, falling back when blank to
+`ro.product.locale` and then the activity configuration locale.
+
+A transport deadline aborts the run, writes partial host evidence, and disables
+every later ADB command. Native-command timeouts terminate the exact owned
+process tree, wait for it, drain its redirected streams, and dispose it. The
+emulator is launched only with `-read-only` and `-no-snapshot-save`. Immediately
+after launch, a hidden, non-redirected watchdog binds the audit host PID/start
+time and emulator PID/start time. If the host disappears, the watchdog kills
+only that exact emulator tree; it never matches a process name or command-line
+pattern. Normal `finally` cleanup stops the watchdog first, restores device
+state, asks the owned emulator to exit, and then enforces exact-tree cleanup.
+Failure to establish the watchdog handshake aborts the audit.
+
+The versioned, deterministic 67-case manifest is generated before capture and
+combines three authoritative sources (12 live profiles, 34 fixtures, and 21 NAR
+representative/profile cases):
+
+- live production `CatTailApplication` captures through Android CLI at the eight
+  required dp sizes, font scales 1.0/1.5/2.0, and native-density passes;
+- all 34 current Compose screenshot fixtures after
+  `validateDebugScreenshotTest`; and
+- Task 17 production-stage probes for exactly `2elf-2.46`, `Snake and Otacon
+  V1.3.2`, `Nanika Atsume 1.0.1`, `Watchdog Bancho`, `Big Red Button`,
+  `Earthquake Rescue Duo`, and `tewire-sen`, captured in portrait,
+  compact-landscape, and tablet profiles.
+
+The live path uses Android CLI `run`, `layout --pretty`, `screen capture`, and
+annotated `screen capture -a`. For every live case it also runs `uiautomator
+dump`, retains the pulled XML beside the Android CLI layout as
+`<case>.layout.uiautomator.xml`, and reads the measured `ghost-stage` bounds from
+that XML. A missing or ambiguous stage resource ID, empty XML, or root bounds
+that disagree with the settled logical display is a failure. NAR cases use the
+Task 17 probe's measured layout and screenshot evidence and do not claim an
+Android CLI annotation that was never produced. Each Task 17 invocation has a
+180-minute parent budget so it exceeds the build plus all 23 five-minute child
+deadlines. The runner retains the validated Task 17 summary independently for
+each profile at `nar/<profile>/task17-summary.json` before the next profile can
+replace `build/reports/nar-corpus/summary.json`. Fixture cases are clearly
+labeled as validated Layoutlib renders rather than production-window captures.
+
+Generated evidence is under `build/reports/ui-audit/` and must not be committed:
+
+- `case-manifest.json` and its SHA-256 in `summary.json`;
+- `cases/<case-id>/` screenshots, annotations, layouts, and result evidence;
+- `summary.json` and `summary.md`; and
+- `manual-inspection.md`.
+
+The executing reviewer owns `manual-inspection.md`. Open every fresh PNG at its
+original resolution and fill one result row per manifest case. Then complete the
+interaction checklist for touch, mouse single/double click, keyboard and D-pad,
+bubble scrolling/actions, debug presentations, rotation/recreation, input IME,
+the passive stall prompt, TalkBack plus Switch Access or Voice Access, collision
+custom actions, focus recovery, and exact SHIORI diagnostics. The audit fails on
+case-count mismatch or any unresolved visual/interaction result; automated pixel
+comparison is supporting evidence, not a substitute for this inspection.
