@@ -202,6 +202,41 @@ function Compare-NumericWithTolerance {
     return $delta -le $Tolerance
 }
 
+function Get-AspectContainedSize {
+    param(
+        [double]$IntrinsicWidth,
+        [double]$IntrinsicHeight,
+        [double]$MaximumWidth,
+        [double]$MaximumHeight
+    )
+
+    if ($IntrinsicWidth -le 0 -or $IntrinsicHeight -le 0 -or $MaximumWidth -le 0 -or $MaximumHeight -le 0) {
+        ThrowIf 'Aspect-contained size inputs must be positive.'
+    }
+    $scale = [Math]::Min($MaximumWidth / $IntrinsicWidth, $MaximumHeight / $IntrinsicHeight)
+    return [pscustomobject]@{
+        width = $IntrinsicWidth * $scale
+        height = $IntrinsicHeight * $scale
+        scale = $scale
+    }
+}
+
+function Test-AspectContainedSizeMatch {
+    param(
+        [double]$IntrinsicWidth,
+        [double]$IntrinsicHeight,
+        [double]$MaximumWidth,
+        [double]$MaximumHeight,
+        [double]$ActualWidth,
+        [double]$ActualHeight,
+        [double]$Tolerance
+    )
+
+    $expected = Get-AspectContainedSize -IntrinsicWidth $IntrinsicWidth -IntrinsicHeight $IntrinsicHeight -MaximumWidth $MaximumWidth -MaximumHeight $MaximumHeight
+    return (Compare-NumericWithTolerance -Expected $expected.width -Actual $ActualWidth -Tolerance $Tolerance) -and
+        (Compare-NumericWithTolerance -Expected $expected.height -Actual $ActualHeight -Tolerance $Tolerance)
+}
+
 function As-NonNullArray {
     param(
         [object]$Value
@@ -1581,6 +1616,22 @@ foreach ($arg in $ProbeArgs) {
     if (Compare-NumericWithTolerance -Expected 2.0 -Actual 2.2 -Tolerance 0.1) {
         ThrowIf 'Dry-run numeric tolerance helper unexpectedly accepted out-of-range values.'
     }
+    $compactWatchdogExpected = Get-AspectContainedSize -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth 240 -MaximumHeight 248
+    if (-not (Compare-NumericWithTolerance -Expected 165.4625 -Actual $compactWatchdogExpected.width -Tolerance 0.0001) -or
+        -not (Compare-NumericWithTolerance -Expected 248.0 -Actual $compactWatchdogExpected.height -Tolerance 0.0001)) {
+        ThrowIf "Dry-run Watchdog compact-landscape aspect containment expected 165.4625x248, got $($compactWatchdogExpected.width)x$($compactWatchdogExpected.height)."
+    }
+    if (-not (Test-AspectContainedSizeMatch -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth 240 -MaximumHeight 248 -ActualWidth 165.4625 -ActualHeight 248 -Tolerance 0.02)) {
+        ThrowIf 'Dry-run Watchdog aspect sentinel rejected the compact-landscape height-limited size.'
+    }
+    if (Test-AspectContainedSizeMatch -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth 240 -MaximumHeight 248 -ActualWidth 240 -ActualHeight 248 -Tolerance 0.02) {
+        ThrowIf 'Dry-run Watchdog aspect sentinel accepted the old lane-filling distortion.'
+    }
+    $wideWatchdogExpected = Get-AspectContainedSize -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth 300 -MaximumHeight 700
+    if (-not (Compare-NumericWithTolerance -Expected 300.0 -Actual $wideWatchdogExpected.width -Tolerance 0.0001) -or
+        -not (Compare-NumericWithTolerance -Expected 449.6487119438 -Actual $wideWatchdogExpected.height -Tolerance 0.0001)) {
+        ThrowIf "Dry-run Watchdog width-limited aspect containment expected 300x449.6487119438, got $($wideWatchdogExpected.width)x$($wideWatchdogExpected.height)."
+    }
 
     $dryRunSentinelAccumulator = New-SentinelAccumulator
     Add-SentinelCheck -Accumulator $dryRunSentinelAccumulator -Name 'nested-property-access' -Passed $true -Expected 'nested lookup resolves value' -Observed $outerInnerNumber
@@ -2155,7 +2206,9 @@ $installed = $false
     $watchdogKeroIntrinsicHeight = Get-NestedPropertyValue -Object $watchdogResult -Path 'evidence.productionStage.kero.intrinsic.height'
     $watchdogProductionKero = Get-NestedPropertyValue -Object $watchdogResult -Path 'evidence.productionStage.kero'
     $watchdogSakuraSurfaceWidth = Get-NestedPropertyValue -Object $watchdogResult -Path 'evidence.productionStage.layoutDp.sakuraSurface.width'
+    $watchdogSakuraSurfaceHeight = Get-NestedPropertyValue -Object $watchdogResult -Path 'evidence.productionStage.layoutDp.sakuraSurface.height'
     $watchdogSakuraSurfaceRegionWidth = Get-NestedPropertyValue -Object $watchdogResult -Path 'evidence.productionStage.layoutDp.sakuraSurfaceRegion.width'
+    $watchdogSakuraSurfaceRegionHeight = Get-NestedPropertyValue -Object $watchdogResult -Path 'evidence.productionStage.layoutDp.sakuraSurfaceRegion.height'
     $watchdogSharedAuthoredScale = Get-NestedPropertyValue -Object $watchdogResult -Path 'evidence.productionStage.layoutDp.sizingBaseline.sharedAuthoredScale'
     $watchdogSakuraWidthRatio = if ($null -ne $watchdogSakuraSurfaceWidth) { $watchdogSakuraSurfaceWidth / 427 } else { $null }
     $watchdogSakuraRatioMatchesSharedScale = (
@@ -2163,12 +2216,22 @@ $installed = $false
         $null -ne $watchdogSharedAuthoredScale -and
         (Compare-NumericWithTolerance -Expected $watchdogSharedAuthoredScale -Actual $watchdogSakuraWidthRatio -Tolerance 0.02)
     )
-    $watchdogSakuraFillsRegion = (
-        $null -ne $watchdogSakuraSurfaceWidth -and
+    $watchdogSakuraExpectedSize = if (
         $null -ne $watchdogSakuraSurfaceRegionWidth -and
+        $null -ne $watchdogSakuraSurfaceRegionHeight -and
         $watchdogSakuraSurfaceRegionWidth -gt 0 -and
-        (Compare-NumericWithTolerance -Expected $watchdogSakuraSurfaceRegionWidth -Actual $watchdogSakuraSurfaceWidth -Tolerance 0.5) -and
-        $watchdogSakuraSurfaceWidth -ge ($watchdogSakuraSurfaceRegionWidth * 0.99)
+        $watchdogSakuraSurfaceRegionHeight -gt 0
+    ) {
+        Get-AspectContainedSize -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth $watchdogSakuraSurfaceRegionWidth -MaximumHeight $watchdogSakuraSurfaceRegionHeight
+    }
+    else {
+        $null
+    }
+    $watchdogSakuraMatchesAspectContainedSize = (
+        $null -ne $watchdogSakuraExpectedSize -and
+        $null -ne $watchdogSakuraSurfaceWidth -and
+        $null -ne $watchdogSakuraSurfaceHeight -and
+        (Test-AspectContainedSizeMatch -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth $watchdogSakuraSurfaceRegionWidth -MaximumHeight $watchdogSakuraSurfaceRegionHeight -ActualWidth $watchdogSakuraSurfaceWidth -ActualHeight $watchdogSakuraSurfaceHeight -Tolerance 0.02)
     )
 
     $bigRedSummaryRows = @($results | Where-Object { $_.label -eq 'Big Red Button' })
@@ -2439,7 +2502,7 @@ $installed = $false
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-kero-intrinsic' -Passed ($watchdogKeroIntrinsicWidth -eq 1 -and $watchdogKeroIntrinsicHeight -eq 1) -Expected '1x1' -Observed "${watchdogKeroIntrinsicWidth}x${watchdogKeroIntrinsicHeight}" -Detail 'Expected Watchdog 1x1 Kero intrinsic canvas.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-production-kero-present' -Passed ($null -ne $watchdogProductionKero) -Expected $true -Observed ($null -ne $watchdogProductionKero) -Detail 'Expected the production stage to retain the 1x1 Kero surface.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-sakura-shared-scale' -Passed $watchdogSakuraRatioMatchesSharedScale -Expected $watchdogSharedAuthoredScale -Observed $watchdogSakuraWidthRatio -Detail 'Expected Sakura layout width / 427 within 0.02 of shared authored scale.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-sakura-fills-region' -Passed $watchdogSakuraFillsRegion -Expected $watchdogSakuraSurfaceRegionWidth -Observed $watchdogSakuraSurfaceWidth -Detail 'Expected the 1x1 Kero not to shrink Sakura: width must be within 0.5dp and at least 99% of its surface region.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-sakura-aspect-contained' -Passed $watchdogSakuraMatchesAspectContainedSize -Expected $(if ($null -ne $watchdogSakuraExpectedSize) { "$($watchdogSakuraExpectedSize.width)x$($watchdogSakuraExpectedSize.height)" } else { $null }) -Observed "${watchdogSakuraSurfaceWidth}x${watchdogSakuraSurfaceHeight}" -Detail 'Expected the 427x640 Sakura within 0.02dp of the exact aspect-ratio-contained size for its current surface region; the retained 1x1 Kero must not shrink it in any layout mode.'
 
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-big-red-summary-row-count' -Passed ($bigRedSummaryRows.Count -eq 1) -Expected 1 -Observed $bigRedSummaryRows.Count -Detail 'Expected exactly one Big Red Button summary row.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-big-red-summary-result-path' -Passed (-not [string]::IsNullOrWhiteSpace($bigRedSummaryResultPath)) -Expected 'non-empty' -Observed $bigRedSummaryResultPath -Detail 'Expected Big Red Button resultPath.'

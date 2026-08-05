@@ -130,12 +130,67 @@ class NarCorpusRuntimeTest {
             0,
             successfulProbeCountAfterRouting(
                 currentCount = 0,
+                intendedSpeaker = SurfaceSpeaker.SAKURA,
+                routedSpeaker = SurfaceSpeaker.SAKURA,
                 intendedId = 7,
                 intendedIdentifier = "Hand",
                 routedId = 8,
                 routedIdentifier = "Hand",
             ),
         )
+    }
+
+    @Test
+    fun namedCollisionProbeDoesNotAcceptMatchingCollisionFromOtherSpeaker() {
+        assertEquals(
+            0,
+            successfulProbeCountAfterRouting(
+                currentCount = 0,
+                intendedSpeaker = SurfaceSpeaker.SAKURA,
+                routedSpeaker = SurfaceSpeaker.KERO,
+                intendedId = 3,
+                intendedIdentifier = "Ear",
+                routedId = 3,
+                routedIdentifier = "Ear",
+            ),
+        )
+    }
+
+    @Test
+    fun namedCollisionProbePrefersLaterPointThatRoutesToIntendedCollision() {
+        val region = CollisionRegionPx(
+            rects = listOf(com.cattailsw.nanidroid.runtime.stage.DoubleRect(0.0, 0.0, 3.0, 1.0)),
+            boundarySegments = emptyList(),
+        )
+
+        val selected = region.preferredIntegerStageRoutingCandidate(
+            resolve = { point -> if (point.x == 2) "Ear" else "Head" },
+            isDirectHit = { it == "Ear" },
+        )
+
+        assertNotNull(selected)
+        assertEquals(androidx.compose.ui.unit.IntOffset(2, 0), selected?.stagePoint)
+        assertEquals("Ear", selected?.routing)
+        assertTrue(selected?.directHit == true)
+    }
+
+    @Test
+    fun namedCollisionProbeReportsFirstCandidateWhenShapeIsFullyOccluded() {
+        val region = CollisionRegionPx(
+            rects = listOf(com.cattailsw.nanidroid.runtime.stage.DoubleRect(4.0, 5.0, 6.0, 6.0)),
+            boundarySegments = emptyList(),
+        )
+
+        val selected = region.preferredIntegerStageRoutingCandidate(
+            resolve = { "Head" },
+            isDirectHit = { it == "Ear" },
+        )
+
+        assertNotNull(selected)
+        assertEquals(androidx.compose.ui.unit.IntOffset(4, 5), selected?.stagePoint)
+        assertEquals("Head", selected?.routing)
+        assertFalse(selected?.directHit == true)
+        assertEquals("fully-occluded", collisionProbeResolutionOutcome(selected?.directHit == true))
     }
 
     @Test
@@ -1133,16 +1188,39 @@ class NarCorpusRuntimeTest {
         return androidx.compose.ui.unit.IntOffset(deltaX, deltaY)
     }
 
-    private fun CollisionRegionPx.representativeIntegerStagePoint(): androidx.compose.ui.unit.IntOffset? =
-        rects.firstNotNullOfOrNull { rect ->
-            val x = ceil(rect.left).toInt()
-            val y = ceil(rect.top).toInt()
-            if (x.toDouble() < rect.right && y.toDouble() < rect.bottom) {
-                androidx.compose.ui.unit.IntOffset(x, y)
-            } else {
-                null
+    private data class IntegerStageRoutingCandidate<T>(
+        val stagePoint: androidx.compose.ui.unit.IntOffset,
+        val routing: T,
+        val directHit: Boolean,
+    )
+
+    private fun <T> CollisionRegionPx.preferredIntegerStageRoutingCandidate(
+        resolve: (androidx.compose.ui.unit.IntOffset) -> T,
+        isDirectHit: (T) -> Boolean,
+    ): IntegerStageRoutingCandidate<T>? {
+        var firstCandidate: IntegerStageRoutingCandidate<T>? = null
+        rects.forEach { rect ->
+            val left = ceil(rect.left).toInt()
+            val top = ceil(rect.top).toInt()
+            val rightExclusive = ceil(rect.right).toInt()
+            val bottomExclusive = ceil(rect.bottom).toInt()
+            for (y in top until bottomExclusive) {
+                for (x in left until rightExclusive) {
+                    val stagePoint = androidx.compose.ui.unit.IntOffset(x, y)
+                    if (!contains(Offset(x.toFloat(), y.toFloat()))) continue
+                    val routing = resolve(stagePoint)
+                    val candidate = IntegerStageRoutingCandidate(
+                        stagePoint = stagePoint,
+                        routing = routing,
+                        directHit = isDirectHit(routing),
+                    )
+                    if (candidate.directHit) return candidate
+                    if (firstCandidate == null) firstCandidate = candidate
+                }
             }
         }
+        return firstCandidate
+    }
 
     private fun assertProbeArchiveLocation(source: File, context: Context, safeLabel: String) {
         val canonicalArchive = source.canonicalFile
@@ -1522,7 +1600,28 @@ class NarCorpusRuntimeTest {
                         return@forEach
                     }
                 val overlayRegion = surface.overlayTransform.toStageRegion(collision.shape)
-                val stagePoint = overlayRegion.representativeIntegerStagePoint()
+                val routingCandidate = overlayRegion.preferredIntegerStageRoutingCandidate(
+                    resolve = { candidate ->
+                        StageInputRouter.resolve(
+                            snapshot = snapshot,
+                            stagePoint = Offset(candidate.x.toFloat(), candidate.y.toFloat()),
+                            source = PointerSource.TOUCH,
+                            button = 0,
+                        )
+                    },
+                    isDirectHit = { candidateResolution ->
+                        val candidateSurface = candidateResolution.target as? StageInputTarget.Surface
+                        val candidateCollision = candidateSurface?.hit as? SurfaceHitTarget.Collision
+                        candidateCollision != null && isDirectNamedCollisionHit(
+                            intendedSpeaker = surface.speaker,
+                            routedSpeaker = candidateSurface.speaker,
+                            intendedId = collision.id,
+                            intendedIdentifier = collision.identifier,
+                            routedId = candidateCollision.id,
+                            routedIdentifier = candidateCollision.identifier,
+                        )
+                    },
+                )
                     ?: run {
                         probes.put(
                             probe
@@ -1532,13 +1631,9 @@ class NarCorpusRuntimeTest {
                         )
                         return@forEach
                     }
+                val stagePoint = routingCandidate.stagePoint
                 val stageOffset = Offset(stagePoint.x.toFloat(), stagePoint.y.toFloat())
-                val resolution = StageInputRouter.resolve(
-                    snapshot = snapshot,
-                    stagePoint = stageOffset,
-                    source = PointerSource.TOUCH,
-                    button = 0,
-                )
+                val resolution = routingCandidate.routing
 
                 probe
                     .put(
@@ -1556,6 +1651,22 @@ class NarCorpusRuntimeTest {
 
                 val target = resolution.target
                 val surfaceHit = target as? StageInputTarget.Surface
+                if (!routingCandidate.directHit) {
+                    val routedCollision = (surfaceHit?.hit as? SurfaceHitTarget.Collision)?.let { routed ->
+                        JSONObject()
+                            .put("routedId", routed.id)
+                            .put("routedIdentifier", routed.identifier)
+                    } ?: JSONObject.NULL
+                    probe
+                        .put("resolutionOutcome", collisionProbeResolutionOutcome(directHit = false))
+                        .put("intendedCollisionWasDirectlyHit", false)
+                        .put("targetSpeaker", surfaceHit?.speaker?.name ?: JSONObject.NULL)
+                        .put("surfaceHitType", surfaceHit?.hit?.javaClass?.simpleName ?: JSONObject.NULL)
+                        .put("routedCollision", routedCollision)
+                        .put("effect", resolution.effect?.let(::interactionEffectEvidence) ?: JSONObject.NULL)
+                    probes.put(probe)
+                    return@forEach
+                }
                 if (surfaceHit == null) {
                     probes.put(
                         probe
@@ -1582,6 +1693,8 @@ class NarCorpusRuntimeTest {
                 }
 
                 val directHit = isDirectNamedCollisionHit(
+                    intendedSpeaker = surface.speaker,
+                    routedSpeaker = surfaceHit.speaker,
                     intendedId = collision.id,
                     intendedIdentifier = collision.identifier,
                     routedId = collisionTarget.id,
@@ -1589,6 +1702,8 @@ class NarCorpusRuntimeTest {
                 )
                 successfulProbeCount = successfulProbeCountAfterRouting(
                     currentCount = successfulProbeCount,
+                    intendedSpeaker = surface.speaker,
+                    routedSpeaker = surfaceHit.speaker,
                     intendedId = collision.id,
                     intendedIdentifier = collision.identifier,
                     routedId = collisionTarget.id,
@@ -1602,7 +1717,7 @@ class NarCorpusRuntimeTest {
                     .put("targetSpeaker", surfaceHit.speaker.name)
                     .put(
                         "resolutionOutcome",
-                        if (directHit) "direct-hit" else "overlapped-or-occluded",
+                        collisionProbeResolutionOutcome(directHit),
                     )
                     .put("intendedCollisionWasDirectlyHit", directHit)
                     .put("routedCollision", routedCollision)
@@ -1664,20 +1779,26 @@ class NarCorpusRuntimeTest {
     }
 
     private fun isDirectNamedCollisionHit(
+        intendedSpeaker: SurfaceSpeaker,
+        routedSpeaker: SurfaceSpeaker,
         intendedId: Int,
         intendedIdentifier: String,
         routedId: Int,
         routedIdentifier: String,
-    ): Boolean = intendedId == routedId && intendedIdentifier == routedIdentifier
+    ): Boolean = intendedSpeaker == routedSpeaker && intendedId == routedId && intendedIdentifier == routedIdentifier
 
     private fun successfulProbeCountAfterRouting(
         currentCount: Int,
+        intendedSpeaker: SurfaceSpeaker,
+        routedSpeaker: SurfaceSpeaker,
         intendedId: Int,
         intendedIdentifier: String,
         routedId: Int,
         routedIdentifier: String,
     ): Int = if (
         isDirectNamedCollisionHit(
+            intendedSpeaker = intendedSpeaker,
+            routedSpeaker = routedSpeaker,
             intendedId = intendedId,
             intendedIdentifier = intendedIdentifier,
             routedId = routedId,
@@ -1688,6 +1809,9 @@ class NarCorpusRuntimeTest {
     } else {
         currentCount
     }
+
+    private fun collisionProbeResolutionOutcome(directHit: Boolean): String =
+        if (directHit) "direct-hit" else "fully-occluded"
 
     private fun interactionEffectEvidence(effect: SurfaceInteractionEffect): JSONObject = JSONObject()
         .put("kind", effect.kind.name)
