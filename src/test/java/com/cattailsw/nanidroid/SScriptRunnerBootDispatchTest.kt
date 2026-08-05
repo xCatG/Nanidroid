@@ -241,6 +241,41 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
+    fun speakerChangeBeforePassiveOnlyCommandPreservesExistingDialogueAndChoices() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        runner.setGhost(RawRecordingGhost("passive-clear", "Passive clear", 2, mutableListOf()))
+        runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\e"))
+        runner.run()
+        val before = runner.dialogueStateSnapshot()
+
+        runner.addMsgToQueue(arrayOf("\\u\\![enter,passivemode]\\e"))
+        runner.run()
+
+        val after = runner.dialogueStateSnapshot()
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+        Assert.assertEquals(before.contents, after.contents)
+        Assert.assertEquals(before.pendingChoices, after.pendingChoices)
+    }
+
+    @Test
+    fun authoredClearBeforePassiveCommandRetiresExistingDialogueAndChoices() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        runner.setGhost(RawRecordingGhost("passive-authored-clear", "Passive authored clear", 2, mutableListOf()))
+        runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\e"))
+        runner.run()
+
+        runner.addMsgToQueue(arrayOf("\\c\\![enter,passivemode]\\e"))
+        runner.run()
+
+        val after = runner.dialogueStateSnapshot()
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+        Assert.assertTrue(after.contents.flatMap { it.segments }.none { it is DialogueSegment.Text })
+        Assert.assertTrue(after.pendingChoices.isEmpty())
+    }
+
+    @Test
     fun updateReloadInvalidatesPassiveDialogueAndStaleActionsFromTheOldSession() {
         val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
         runner.setNoWaitMode(true)
@@ -321,15 +356,15 @@ class SScriptRunnerBootDispatchTest {
         runner.setGhost(ghost)
         runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9old tail\\e"))
         runner.run()
+        val stalePlaybackCallback = scheduler.captureNext()
         scheduler.runUntil { inputShown }
-        Assert.assertTrue(scheduler.pendingCount > 0)
+        Assert.assertEquals(0, scheduler.pendingCount)
 
         runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
-        Assert.assertTrue(scheduler.cancelledCount > 0)
         frames.clear()
         runner.dispatchClockTickForTesting()
 
-        scheduler.runCancelled()
+        stalePlaybackCallback()
         Assert.assertTrue(frames.isEmpty())
         scheduler.runPending()
         Assert.assertTrue(frames.any { it.sakura.text.contains("new session talk") })
@@ -834,6 +869,8 @@ class SScriptRunnerBootDispatchTest {
             }
             throw AssertionError("playback condition was not reached")
         }
+
+        fun captureNext(): () -> Unit = requireNotNull(pending.firstOrNull())
 
         fun runNext() {
             requireNotNull(pending.removeFirstOrNull()).invoke()

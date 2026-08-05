@@ -42,6 +42,7 @@
   <string name="url_support_ops">http://blog.cattail-sw.com/?p=217</string>
 
   <string name="user_input_dlg_title">入力してください</string>
+  <string name="dialogue_choose_action">選択…</string>
   <string name="user_sel_dlg_title">一つを選んってください</string>
   <string name="err_title">エラー</string>
   <string name="err_no_sdcard">SDカードがございません。続けません。</string>

@@ -40,6 +40,7 @@ import com.cattailsw.nanidroid.install.NarDownloadState
 import com.cattailsw.nanidroid.install.StageLocalNarWorker
 import com.cattailsw.nanidroid.runtime.dialogue.ActionOrigin
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.GhostActionGuard
 import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
@@ -61,6 +62,13 @@ internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf
 
 internal fun ownsGhostSwitchRequest(targetGhostId: String, pendingGhostId: String?): Boolean =
     targetGhostId == pendingGhostId
+
+internal fun tryLaunchDialogueExternalUri(launch: () -> Unit): Boolean = try {
+    launch()
+    true
+} catch (_: RuntimeException) {
+    false
+}
 
 internal fun <T : Any> routeGhostSwitchResult(
     result: T?,
@@ -235,6 +243,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val ghost = reservation.ghost
         composeStage.setSurfaceManager(ghost.mgr)
         runner!!.setPresentationRenderer(composeStage.renderer)
+        runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
         // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
         val attached = runner!!.attachReservedGhost(reservation)
@@ -254,6 +263,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                         blockingInput = ::isStageInputBlocked,
                         blockingInputEpoch = { stageInputEpoch },
                         onSurfaceTap = ::frameClick,
+                        onDialogueChoice = { action -> runner?.activateChoice(action) },
+                        onDialogueAnchor = { action -> runner?.activateAnchor(action) },
+                        onDialogueExternalUrl = ::openDialogueExternalUrl,
+                        onDialogueInput = ::openDialogueInput,
                     )
                 },
                 loading = loading,
@@ -606,7 +619,26 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val dialog = simpleDialog as? NanidroidSimpleDialog.UserInput ?: return
         simpleDialog = dialog.copy(value = value)
     }
-    private fun isStageInputBlocked(): Boolean = loading || simpleDialog != null
+    private fun openDialogueInput(input: DialogueSegment.InputBox) {
+        val pending = runner?.dialogueStateSnapshot()?.pendingInput ?: return
+        if (pending.spec !== input.spec) return
+        val id = when (val dispatch = pending.spec.dispatch) {
+            is InputDispatch.Normal -> dispatch.id
+            is InputDispatch.DirectEvent -> dispatch.eventId
+        }
+        simpleDialog = createUserInputDialog(id, pending.generation)
+    }
+    private fun openDialogueExternalUrl(value: String) {
+        val uri = try {
+            Uri.parse(value)
+        } catch (_: Exception) {
+            return
+        }
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return
+        tryLaunchDialogueExternalUri { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+    }
+    private fun isStageInputBlocked(): Boolean =
+        loading || simpleDialog != null || runner?.runtimeModeSnapshot()?.pendingUserAction == true
     private fun createUserChoiceDialog(labels: List<String>, ids: List<String>, actions: List<DialogueAction> = emptyList()) =
         dialogueDialogBinding.userChoice(labels, ids, actions)
     private fun restoreUserChoiceDialog(
@@ -762,14 +794,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         toolbarVisible = !toolbarVisible
     }
     override fun showUserInputBox(id: String) {
-        val pending = runner?.dialogueStateSnapshot()?.pendingInput
-            ?.takeIf { (it.spec.dispatch as? InputDispatch.Normal)?.id == id }
-        simpleDialog = createUserInputDialog(id, pending?.generation)
+        // Publication pauses the script. The exact owning bubble opens the
+        // dialog, so this legacy callback must not create a second host.
     }
     override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
-        val actions = runner?.dialogueStateSnapshot()?.pendingChoices.orEmpty()
-            .takeIf { it.size == ids.size } ?: emptyList()
-        simpleDialog = createUserChoiceDialog(textlabel.toList(), ids.toList(), actions)
+        // The Compose stage observes the same runtime-owned action instances
+        // and exposes the owning bubble's reopenable Choose action. Keeping
+        // this callback side-effect free prevents the legacy dialog from
+        // racing it or consuming a pending choice on host recreation.
     }
 
     companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }

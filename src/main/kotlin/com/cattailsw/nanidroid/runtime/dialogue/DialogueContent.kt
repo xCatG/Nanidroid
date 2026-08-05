@@ -54,6 +54,8 @@ sealed interface DialogueSegment {
     data object NewLine : DialogueSegment
     data class Wait(val millis: Long) : DialogueSegment
     data object Clear : DialogueSegment
+    /** Clears a re-entered speaker visually without erasing authored control inventory. */
+    data object SpeakerChangeClear : DialogueSegment
     data class Choice(val action: DialogueAction) : DialogueSegment
     data class Anchor(val action: AnchorAction) : DialogueSegment
     data class ExternalUrl(val label: String, val uri: String) : DialogueSegment
@@ -66,6 +68,10 @@ data class DialogueContent(val speaker: GhostSpeaker, val segments: List<Dialogu
 /** Immutable runtime-owned action state; UI hosts only observe a snapshot. */
 data class DialogueRuntimeState(
     val revision: Long = 0L,
+    /** Changes whenever the live ghost/session clears dialogue ownership. */
+    val incarnation: Long = 0L,
+    /** Changes only when the runner starts a new authored dialogue payload. */
+    val talkId: Long = 0L,
     val contents: List<DialogueContent> = emptyList(),
     val pendingChoices: List<DialogueAction> = emptyList(),
     val pendingInput: PendingInputState? = null,
@@ -75,4 +81,6 @@ data class PendingInputState(
     val generation: Long,
     val spec: InputBoxSpec,
     val deadlineElapsedMillis: Long,
+    /** Stable speaker ownership survives unrelated authored talks that carry this capability. */
+    val owner: GhostSpeaker? = null,
 )

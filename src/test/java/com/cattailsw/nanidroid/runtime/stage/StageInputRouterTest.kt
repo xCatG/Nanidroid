@@ -11,6 +11,7 @@ import com.cattailsw.nanidroid.compose.SurfacePixelImage
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
+import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.InputBoxSpec
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
@@ -37,7 +38,8 @@ class StageInputRouterTest {
     @Test
     fun `bubble variants resolve in first-match order and consume the complete frame`() {
         val choice = BubbleInteractionTarget.Choice(DialogueAction.Normal("Yes", "yes", listOf("r1")))
-        val anchor = BubbleInteractionTarget.Anchor("Topic", listOf("one", "two"))
+        val anchorAction = AnchorAction.Normal("Topic", "topic", listOf("one", "two"))
+        val anchor = BubbleInteractionTarget.Anchor(anchorAction)
         val url = BubbleInteractionTarget.ExternalUrl("https://example.test/")
         val input = BubbleInteractionTarget.Input(
             DialogueSegment.InputBox(InputBoxSpec(InputDispatch.Normal("name"), null, "", emptySet(), "", emptyList(), emptyList())),

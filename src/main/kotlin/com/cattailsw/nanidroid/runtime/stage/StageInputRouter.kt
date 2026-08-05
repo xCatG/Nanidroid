@@ -9,13 +9,14 @@ import com.cattailsw.nanidroid.compose.SurfacePointerResolution
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
+import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 
 sealed interface BubbleInteractionTarget {
     data class Choice(val action: DialogueAction) : BubbleInteractionTarget
-    data class Anchor(val id: String, val arguments: List<String>) : BubbleInteractionTarget
+    data class Anchor(val action: AnchorAction) : BubbleInteractionTarget
     data class ExternalUrl(val uri: String) : BubbleInteractionTarget
     data class Input(val input: DialogueSegment.InputBox) : BubbleInteractionTarget
     data class Scroll(val speaker: SurfaceSpeaker) : BubbleInteractionTarget
