@@ -12,6 +12,7 @@ param(
     [int]$NarProfileTimeoutMinutes = 180,
     [int]$BootTimeoutMinutes = 5,
     [int]$CommandTimeoutSeconds = 120,
+    [switch]$VerifyManualInspection,
     [switch]$DryRun
 )
 
@@ -60,6 +61,20 @@ function ConvertTo-SafeLabel([string]$Value) {
 
 function Get-NarProfileSummaryRelativePath([string]$ProfileName) {
     return "nar\$(ConvertTo-SafeLabel $ProfileName)\task17-summary.json"
+}
+
+function Expand-CorpusRootArguments([string[]]$Values) {
+    $expanded = [System.Collections.ArrayList]::new()
+    foreach ($value in @($Values)) {
+        foreach ($part in @(([string]$value) -split ',')) {
+            $trimmed = $part.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                $expanded.Add($trimmed) | Out-Null
+            }
+        }
+    }
+    if ($expanded.Count -eq 0) { Fail 'At least one corpus root is required.' 'corpus' }
+    return @($expanded)
 }
 
 function Get-RelativePath([string]$BasePath, [string]$ChildPath) {
@@ -363,6 +378,7 @@ function New-EmulatorWatchdogInvocation {
     )
     $readyPayload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ReadyPath))
     $watchdogScript=@"
+`$ErrorActionPreference='Stop'
 `$hostProcessId=$HostProcessId
 `$hostStartTimeUtcTicks=$HostStartTimeUtcTicks
 `$emulatorProcessId=$EmulatorProcessId
@@ -394,7 +410,9 @@ function Stop-ExactProcessTree([int]`$processId, [long]`$startTimeUtcTicks) {
         if (`$null -ne `$candidate) { `$candidate.Dispose() }
     }
 }
-[IO.File]::WriteAllText(`$readyPath, "`$hostProcessId|`$hostStartTimeUtcTicks|`$emulatorProcessId|`$emulatorStartTimeUtcTicks", [Text.UTF8Encoding]::new(`$false))
+`$readyTempPath="`$readyPath.`$PID.tmp"
+[IO.File]::WriteAllText(`$readyTempPath, "`$hostProcessId|`$hostStartTimeUtcTicks|`$emulatorProcessId|`$emulatorStartTimeUtcTicks", [Text.UTF8Encoding]::new(`$false))
+[IO.File]::Move(`$readyTempPath, `$readyPath, `$true)
 while (`$true) {
     if (-not (Test-ExactProcessIdentity `$hostProcessId `$hostStartTimeUtcTicks)) { [void](Stop-ExactProcessTree `$emulatorProcessId `$emulatorStartTimeUtcTicks); exit 0 }
     if (-not (Test-ExactProcessIdentity `$emulatorProcessId `$emulatorStartTimeUtcTicks)) { exit 0 }
@@ -407,15 +425,17 @@ while (`$true) {
     }
 }
 
-function Start-EmulatorWatchdog([Diagnostics.Process]$EmulatorProcess, [long]$EmulatorStartTimeUtcTicks) {
-    $host=[Diagnostics.Process]::GetCurrentProcess()
-    $readyPath=Join-Path ([IO.Path]::GetTempPath()) ("nanidroid-ui-audit-watchdog-$([Guid]::NewGuid().ToString('N')).ready")
+function Start-EmulatorWatchdog([Diagnostics.Process]$EmulatorProcess, [long]$EmulatorStartTimeUtcTicks, [string]$ReadyRoot = $reportRoot) {
+    $hostProcess=[Diagnostics.Process]::GetCurrentProcess()
+    New-Item -ItemType Directory -Force -Path $ReadyRoot | Out-Null
+    $readyPath=Join-Path $ReadyRoot ("nanidroid-ui-audit-watchdog-$([Guid]::NewGuid().ToString('N')).ready")
     $watchdog=$null
     $watchdogStartTimeUtcTicks=0
     try {
-        $invocation=New-EmulatorWatchdogInvocation -HostProcessId $host.Id -HostStartTimeUtcTicks $host.StartTime.ToUniversalTime().Ticks -EmulatorProcessId $EmulatorProcess.Id -EmulatorStartTimeUtcTicks $EmulatorStartTimeUtcTicks -ReadyPath $readyPath
-        $launch=[Diagnostics.ProcessStartInfo]::new(); $launch.FileName=$script:resolvedPwsh; $launch.UseShellExecute=$true; $launch.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
-        $launch.Arguments=(@($invocation.arguments | ForEach-Object { ConvertTo-WindowsCommandLineArgument ([string]$_) }) -join ' ')
+        $invocation=New-EmulatorWatchdogInvocation -HostProcessId $hostProcess.Id -HostStartTimeUtcTicks $hostProcess.StartTime.ToUniversalTime().Ticks -EmulatorProcessId $EmulatorProcess.Id -EmulatorStartTimeUtcTicks $EmulatorStartTimeUtcTicks -ReadyPath $readyPath
+        $launch=[Diagnostics.ProcessStartInfo]::new(); $launch.FileName=$script:resolvedPwsh; $launch.UseShellExecute=$false; $launch.CreateNoWindow=$true
+        if ($null -ne $launch.PSObject.Properties['ArgumentList']) { foreach ($argument in $invocation.arguments) { [void]$launch.ArgumentList.Add([string]$argument) } }
+        else { $launch.Arguments=(@($invocation.arguments | ForEach-Object { ConvertTo-WindowsCommandLineArgument ([string]$_) }) -join ' ') }
         $watchdog=[Diagnostics.Process]::Start($launch)
         if ($null -eq $watchdog) { Fail 'Failed to launch the owned-emulator cleanup watchdog.' 'watchdog' }
         $watchdogStartTimeUtcTicks=$watchdog.StartTime.ToUniversalTime().Ticks
@@ -426,13 +446,12 @@ function Start-EmulatorWatchdog([Diagnostics.Process]$EmulatorProcess, [long]$Em
                 if ($readyRecord -eq $invocation.readyRecord -and (Test-OwnedProcessIdentity $watchdog.Id $watchdogStartTimeUtcTicks)) {
                     return [pscustomobject]@{ process=$watchdog; processId=$watchdog.Id; startTimeUtcTicks=$watchdogStartTimeUtcTicks; readyPath=$readyPath }
                 }
-                break
             }
             Start-Sleep -Milliseconds 100
         } while ((Get-Date) -lt $deadline)
         Fail 'Owned-emulator cleanup watchdog did not establish an exact identity-bound handshake.' 'watchdog'
     } finally {
-        $host.Dispose()
+        $hostProcess.Dispose()
         if ($null -eq $watchdog -or -not (Test-Path -LiteralPath $readyPath -PathType Leaf) -or -not (Test-OwnedProcessIdentity $watchdog.Id $watchdogStartTimeUtcTicks)) {
             if ($null -ne $watchdog) {
                 [void](Stop-OwnedProcessTree -Process $watchdog -ExpectedStartTimeUtcTicks $watchdogStartTimeUtcTicks)
@@ -449,7 +468,8 @@ function Stop-EmulatorWatchdog([object]$Watchdog) {
 }
 
 function Invoke-Native {
-    param([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds = 120, [switch]$AllowFailure, [ValidateSet('normal','adb','adb-owner')][string]$Transport = 'normal')
+    param([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds = 120, [int]$DrainTimeoutSeconds = 30, [switch]$AllowFailure, [ValidateSet('normal','adb','adb-owner')][string]$Transport = 'normal')
+    if ($DrainTimeoutSeconds -le 0) { Fail 'DrainTimeoutSeconds must be positive.' 'process' }
     if ($Transport -in @('adb','adb-owner') -and $script:adbTransportDead) { Fail 'ADB transport was declared dead; refusing all later ADB commands.' 'adb-timeout' }
     $info = [Diagnostics.ProcessStartInfo]::new(); $info.FileName=$FilePath; $info.UseShellExecute=$false; $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true; $info.CreateNoWindow=$true
     if ($null -ne $info.PSObject.Properties['ArgumentList']) { foreach ($argument in $Arguments) { [void]$info.ArgumentList.Add([string]$argument) } }
@@ -471,6 +491,12 @@ function Invoke-Native {
             } catch { $drainError=$_.Exception.Message }
             if ($drainError) { Fail "Timed out after $TimeoutSeconds seconds and could not drain process output: $drainError" 'process-timeout' }
             Fail "Timed out after $TimeoutSeconds seconds: $FilePath $($Arguments -join ' ')." $(if ($Transport -in @('adb','adb-owner')) {'adb-timeout'} else {'process-timeout'})
+        }
+        $drainTasks=[Threading.Tasks.Task[]]@($stdoutTask,$stderrTask)
+        if (-not [Threading.Tasks.Task]::WaitAll($drainTasks,$DrainTimeoutSeconds*1000)) {
+            if ($Transport -in @('adb','adb-owner')) { $script:adbTransportDead=$true }
+            [void](Stop-OwnedProcessTree -Process $process -ExpectedStartTimeUtcTicks $processStartTimeUtcTicks)
+            Fail "Process exited but inherited output handles did not close within $DrainTimeoutSeconds seconds: $FilePath $($Arguments -join ' ')." $(if ($Transport -in @('adb','adb-owner')) {'adb-timeout'} else {'process-timeout'})
         }
         $stdout=$stdoutTask.GetAwaiter().GetResult(); $stderr=$stderrTask.GetAwaiter().GetResult(); $exit=$process.ExitCode
     } finally {
@@ -558,7 +584,7 @@ function Assert-CorpusInputs([object]$NarManifest) {
     if ($archives.Count -ne 23) { Fail "Corpus must contain exactly 23 archives, found $($archives.Count)." 'corpus' }
     $hashes=@{}; foreach ($archive in $archives) { $hash=(Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); if ($hashes.ContainsKey($hash)) { Fail "Duplicate corpus SHA '$hash'." 'corpus' }; $hashes[$hash]=$archive.FullName }
     foreach ($entry in $entries) { if (-not $hashes.ContainsKey([string]$entry.sha256)) { Fail "Missing corpus archive '$($entry.label)' SHA $($entry.sha256)." 'corpus' } }
-    return ,@($resolvedRoots)
+    return @($resolvedRoots)
 }
 
 function Get-WmSnapshot {
@@ -605,6 +631,12 @@ function Select-AuditLocale([string]$PersistLocale, [string]$ProductLocale, [str
     if ($match.Success) {
         $locale=$match.Groups['locale'].Value.Trim('[',']').Split(',')[0].Trim()
         if (-not [string]::IsNullOrWhiteSpace($locale)) { return $locale }
+    }
+    $qualifierMatch=[regex]::Match($ActivityConfiguration, '(?i)(?:^|[\s-])(?<locale>b\+[a-z]{2,3}(?:\+[a-z0-9]{2,8})+|[a-z]{2,3}(?:-r[a-z]{2})?)(?=$|[\s-])')
+    if ($qualifierMatch.Success) {
+        $locale=$qualifierMatch.Groups['locale'].Value
+        if ($locale.StartsWith('b+', [StringComparison]::OrdinalIgnoreCase)) { return $locale.Substring(2).Replace('+','-') }
+        return ($locale -replace '-r','-')
     }
     return $null
 }
@@ -704,7 +736,7 @@ function New-ManualInspectionTemplate([object]$Manifest, [string]$ManifestHash) 
     if (Test-Path -LiteralPath $path) {
         $existing=Get-Content -LiteralPath $path -Raw
         if ($existing -match '(?im)^Audit status:\s*complete\s*$' -or $existing -match '(?im)^\|[^|]+\|[^|]+\|[^|]+\|\s*(pass|fail)\s*\|') { Fail 'Refusing to overwrite a completed manual-inspection checklist.' 'report' }
-        return
+        if ($existing -match "(?im)^Manifest SHA-256:\s*$([regex]::Escape($ManifestHash))\s*$") { return }
     }
     $lines=@('# UI visual audit manual inspection','', 'Audit status: incomplete', '', "Manifest SHA-256: $ManifestHash", "Required case count: $expectedCaseCount", '', 'Automated capture is not manual inspection. Open every PNG and fill Result and Defect.', '', '| Case | Artifact SHA-256 | Requested / measured window and stage | Density / font / theme / locale | Expected invariants | Result | Defect |','| --- | --- | --- | --- | --- | --- | --- |')
     foreach($case in $Manifest.cases){
@@ -713,6 +745,82 @@ function New-ManualInspectionTemplate([object]$Manifest, [string]$ManifestHash) 
     }
     $lines += @('', '## Required interaction checklist','', '- [ ] Touch named collisions and generic transparent canvas.','- [ ] Mouse primary single-click and double-click.','- [ ] Scroll/click bubbles and reopen choices.','- [ ] Tab, Shift-Tab, arrows, Page Up, Page Down, Enter, Space, Escape, and D-pad.','- [ ] Toggle chrome only through empty stage or its labeled semantic action.','- [ ] Open and close bottom-sheet, side-panel, and full-modal debug presentations.','- [ ] Rotate, resize, and recreate the Activity.','- [ ] TalkBack plus Switch Access or Voice Access; merged and unmerged semantics.','- [ ] Invoke collision custom actions and verify focus recovery.','- [ ] Exercise input IME on Snake and Otacon.','- [ ] Verify passive stall prompt behavior.','- [ ] Verify exact SHIORI coordinate, scope, identifier, button, and source fields; no bubble/surface/chrome leakage.')
     $lines | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
+function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash) {
+    $manifestPath = Join-Path $reportRoot 'case-manifest.json'
+    $manifestHashPath = Join-Path $reportRoot 'case-manifest.sha256'
+    $summaryPath = Join-Path $reportRoot 'summary.json'
+    $summaryMarkdownPath = Join-Path $reportRoot 'summary.md'
+    $manualPath = Join-Path $reportRoot 'manual-inspection.md'
+    foreach ($path in @($manifestPath, $manifestHashPath, $summaryPath, $summaryMarkdownPath, $manualPath)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "Required audit evidence is missing: '$path'." 'manual-inspection' }
+    }
+
+    $capturedManifestText = Get-Content -LiteralPath $manifestPath -Raw
+    $capturedManifestHash = Get-StringSha256 $capturedManifestText
+    $recordedManifestHash = (Get-Content -LiteralPath $manifestHashPath -Raw).Trim().ToLowerInvariant()
+    if ($capturedManifestHash -ne $recordedManifestHash -or $capturedManifestHash -ne $ManifestHash) {
+        Fail "Manifest hash mismatch: generated=$ManifestHash captured=$capturedManifestHash recorded=$recordedManifestHash." 'manual-inspection'
+    }
+    $capturedManifest = $capturedManifestText | ConvertFrom-Json
+    Assert-UiAuditManifest $capturedManifest
+
+    $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+    if ($summary.manifestSha256 -ne $ManifestHash -or $summary.expectedCaseCount -ne $expectedCaseCount -or $summary.resultCount -ne $expectedCaseCount) {
+        Fail 'Capture summary does not describe the complete current manifest.' 'manual-inspection'
+    }
+    if ($null -ne $summary.failure -or @($summary.cleanupErrors).Count -ne 0 -or $summary.status -notin @('captured-awaiting-manual-inspection', 'complete')) {
+        Fail 'Capture summary contains a run/cleanup failure or an invalid status.' 'manual-inspection'
+    }
+    $resultById = @{}
+    foreach ($result in @($summary.results)) {
+        if ($resultById.ContainsKey([string]$result.id)) { Fail "Duplicate summary result '$($result.id)'." 'manual-inspection' }
+        if ([string]::IsNullOrWhiteSpace([string]$result.screenshotSha256)) { Fail "Summary result '$($result.id)' lacks a screenshot hash." 'manual-inspection' }
+        $resultById[[string]$result.id] = $result
+    }
+    if ($resultById.Count -ne $expectedCaseCount) { Fail "Expected $expectedCaseCount unique capture results, got $($resultById.Count)." 'manual-inspection' }
+
+    $manualText = Get-Content -LiteralPath $manualPath -Raw
+    if ($manualText -notmatch '(?im)^Audit status:\s*complete\s*$') { Fail 'Manual inspection must explicitly set Audit status: complete.' 'manual-inspection' }
+    if ($manualText -notmatch "(?im)^Manifest SHA-256:\s*$([regex]::Escape($ManifestHash))\s*$") { Fail 'Manual inspection manifest hash is missing or stale.' 'manual-inspection' }
+
+    $manualRows = @{}
+    foreach ($line in @($manualText -split "`r?`n")) {
+        if ($line -notmatch '^\|') { continue }
+        $cells = @($line.Split('|') | ForEach-Object { $_.Trim() })
+        if ($cells.Count -lt 9) { continue }
+        $caseId = $cells[1]
+        if (-not $resultById.ContainsKey($caseId)) { continue }
+        if ($manualRows.ContainsKey($caseId)) { Fail "Duplicate manual inspection row '$caseId'." 'manual-inspection' }
+        $artifactHash = $cells[2].ToLowerInvariant()
+        $requestedMeasured = $cells[3]
+        $environment = $cells[4]
+        $invariants = $cells[5]
+        $manualResult = $cells[6].ToLowerInvariant()
+        if ($artifactHash -ne ([string]$resultById[$caseId].screenshotSha256).ToLowerInvariant()) { Fail "Manual row '$caseId' has a stale artifact hash." 'manual-inspection' }
+        if ([string]::IsNullOrWhiteSpace($requestedMeasured) -or $requestedMeasured -match '/\s*$') { Fail "Manual row '$caseId' lacks measured window/stage evidence." 'manual-inspection' }
+        if ([string]::IsNullOrWhiteSpace($environment) -or [string]::IsNullOrWhiteSpace($invariants)) { Fail "Manual row '$caseId' lacks environment or invariant evidence." 'manual-inspection' }
+        if ($manualResult -ne 'pass') { Fail "Manual row '$caseId' is not an explicit pass." 'manual-inspection' }
+        $manualRows[$caseId] = $true
+    }
+    if ($manualRows.Count -ne $expectedCaseCount) { Fail "Expected $expectedCaseCount completed manual rows, got $($manualRows.Count)." 'manual-inspection' }
+
+    $expectedChecklistCount = 12
+    $checked = @([regex]::Matches($manualText, '(?im)^- \[[xX]\] ')).Count
+    $unchecked = @([regex]::Matches($manualText, '(?im)^- \[ \] ')).Count
+    if ($checked -ne $expectedChecklistCount -or $unchecked -ne 0) {
+        Fail "Interaction checklist must have exactly $expectedChecklistCount checked items and none unchecked; checked=$checked unchecked=$unchecked." 'manual-inspection'
+    }
+
+    $summary.status = 'complete'
+    $summary.manualInspectionComplete = $true
+    $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $summaryPath -Encoding UTF8
+    $summaryMarkdown = Get-Content -LiteralPath $summaryMarkdownPath -Raw
+    $summaryMarkdown = $summaryMarkdown -replace '(?m)^- Status: .+$', '- Status: complete'
+    $summaryMarkdown = $summaryMarkdown -replace '(?m)^- Manual inspection complete: .+$', '- Manual inspection complete: true'
+    Set-Content -LiteralPath $summaryMarkdownPath -Value $summaryMarkdown -Encoding UTF8
+    Write-Host "Manual inspection verified: cases=$expectedCaseCount interactions=$expectedChecklistCount manifest=$ManifestHash"
 }
 
 function Add-Result([object]$Case, [string]$ScreenshotSha, [string]$LayoutSha, [object]$Measured, [object]$Stage, [object]$SourceEvidence) {
@@ -727,6 +835,10 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     foreach($bad in @('..\escape.png','C:\escape.png','bad path.png')) { $failed=$false; try { Assert-SafeReportRelativePath $bad } catch { $failed=$true }; if(-not $failed){Fail "Unsafe path probe unexpectedly passed '$bad'." 'dry-run'} }
     $quoted=ConvertTo-WindowsCommandLineArgument 'label with spaces'; if($quoted -ne '"label with spaces"'){Fail 'Argument quoting probe failed.' 'dry-run'}
     $timeout=[Diagnostics.Stopwatch]::StartNew(); $proc=Invoke-Native -FilePath (Get-Process -Id $PID).Path -Arguments @('-NoProfile','-Command','exit 0') -TimeoutSeconds 20; $timeout.Stop(); if($proc.exitCode -ne 0 -or $timeout.Elapsed.TotalSeconds -ge 20){Fail 'Process/timeout helper probe failed.' 'dry-run'}
+    $drainProbeCommand='$child=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @(''-NoProfile'',''-Command'',''Start-Sleep -Seconds 4'') -NoNewWindow -PassThru; exit 0'
+    $drainProbeEncoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($drainProbeCommand)); $drainProbeFailed=$false; $drainProbeTimer=[Diagnostics.Stopwatch]::StartNew()
+    try { Invoke-Native -FilePath (Get-Process -Id $PID).Path -Arguments @('-NoProfile','-EncodedCommand',$drainProbeEncoded) -TimeoutSeconds 10 -DrainTimeoutSeconds 1 | Out-Null } catch { $drainProbeFailed=$_.Exception.Message -match 'inherited output handles did not close' }
+    $drainProbeTimer.Stop(); if(-not$drainProbeFailed-or$drainProbeTimer.Elapsed.TotalSeconds-ge 4){Fail 'Bounded normal-exit stream-drain probe failed.' 'dry-run'}
     $pwshProbe=Resolve-PowerShell7
     $cmdPath=[Environment]::GetEnvironmentVariable('ComSpec')
     if ([string]::IsNullOrWhiteSpace($cmdPath)) { Fail 'Timeout tree probe cannot resolve cmd.exe.' 'dry-run' }
@@ -755,6 +867,20 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $watchdogScript=[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($watchdogInvocation.Arguments[-1]))
     foreach($required in @('$hostProcessId=12345','$hostStartTimeUtcTicks=638000000000000000','$emulatorProcessId=23456','$emulatorStartTimeUtcTicks=638000000000000001','GetProcessById','Kill($true)')) { if (-not $watchdogScript.Contains($required)) { Fail "Watchdog identity-binding probe missing '$required'." 'dry-run' } }
     if ($watchdogScript -match 'Get-Process|Get-CimInstance|Where-Object|\-Name') { Fail 'Watchdog command generation must not use broad process matching.' 'dry-run' }
+    $script:resolvedPwsh = $pwshProbe
+    $watchdogTargetInfo=[Diagnostics.ProcessStartInfo]::new(); $watchdogTargetInfo.FileName=$pwshProbe; $watchdogTargetInfo.UseShellExecute=$false; $watchdogTargetInfo.CreateNoWindow=$true
+    if ($null -ne $watchdogTargetInfo.PSObject.Properties['ArgumentList']) { foreach ($argument in @('-NoProfile','-Command','Start-Sleep -Seconds 60')) { [void]$watchdogTargetInfo.ArgumentList.Add($argument) } } else { $watchdogTargetInfo.Arguments='-NoProfile -Command "Start-Sleep -Seconds 60"' }
+    $watchdogTarget=[Diagnostics.Process]::Start($watchdogTargetInfo); $watchdogTargetStartTimeUtcTicks=$watchdogTarget.StartTime.ToUniversalTime().Ticks; $watchdogProbe=$null
+    $watchdogProbeRoot=Join-Path $repoRoot '.superpowers\ui-audit-watchdog-probe'
+    try {
+        $watchdogProbe=Start-EmulatorWatchdog $watchdogTarget $watchdogTargetStartTimeUtcTicks $watchdogProbeRoot
+        if (-not (Test-OwnedProcessIdentity $watchdogProbe.processId $watchdogProbe.startTimeUtcTicks)) { Fail 'Live watchdog handshake probe did not retain its exact process identity.' 'dry-run' }
+    } finally {
+        if ($null -ne $watchdogProbe -and -not (Stop-EmulatorWatchdog $watchdogProbe)) { Fail 'Live watchdog handshake probe did not stop cleanly.' 'dry-run' }
+        [void](Stop-OwnedProcessTree -Process $watchdogTarget -ExpectedStartTimeUtcTicks $watchdogTargetStartTimeUtcTicks -TimeoutMilliseconds 5000)
+        $watchdogTarget.Dispose()
+        Remove-Item -LiteralPath $watchdogProbeRoot -Force -ErrorAction SilentlyContinue
+    }
     $transportBefore=$script:adbTransportDead; if(-not ( -not $transportBefore)){Fail 'Transport-dead initial probe failed.' 'dry-run'}
     $pngSig=[BitConverter]::ToString([byte[]](0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a)); if($pngSig -ne '89-50-4E-47-0D-0A-1A-0A'){Fail 'PNG signature probe failed.' 'dry-run'}
     $roundTrip=($Manifest | ConvertTo-Json -Depth 16 | ConvertFrom-Json); Assert-UiAuditManifest $roundTrip
@@ -780,21 +906,29 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     if ($logical.width -ne 720 -or $logical.height -ne 360) { Fail 'Logical display-size parser probe failed.' 'dry-run' }
     if ((Select-AuditLocale -PersistLocale '' -ProductLocale 'en-US' -ActivityConfiguration '') -ne 'en-US') { Fail 'Blank persisted-locale product fallback probe failed.' 'dry-run' }
     if ((Select-AuditLocale -PersistLocale '' -ProductLocale '' -ActivityConfiguration 'config: { locales=[en-GB,fr-FR] }') -ne 'en-GB') { Fail 'Blank persisted/product locale configuration fallback probe failed.' 'dry-run' }
+    if ((Select-AuditLocale -PersistLocale '' -ProductLocale '' -ActivityConfiguration 'config: en-rUS-ldltr-sw360dp-w360dp-h720dp') -ne 'en-US') { Fail 'Android resource-qualifier locale fallback probe failed.' 'dry-run' }
     if (-not(Test-Path -LiteralPath $pwshProbe -PathType Leaf)) { Fail 'PowerShell 7 resolver probe failed.' 'dry-run' }
     if ($NarProfileTimeoutMinutes -le ($BuildTimeoutMinutes + (23 * 5))) { Fail 'NAR profile parent timeout does not exceed Task 17 child deadlines.' 'dry-run' }
     if ((Get-NarProfileSummaryRelativePath 'compact-landscape') -ne 'nar\compact-landscape\task17-summary.json') { Fail 'NAR retained-summary path probe failed.' 'dry-run' }
+    $expandedRoots = @(Expand-CorpusRootArguments @('one.nar,two', 'three'))
+    if ($expandedRoots.Count -ne 3 -or $expandedRoots[0] -ne 'one.nar' -or $expandedRoots[2] -ne 'three') { Fail 'Comma-separated corpus-root transport probe failed.' 'dry-run' }
     $narManifest=Get-Content -LiteralPath (Join-Path $repoRoot $ManifestPath) -Raw | ConvertFrom-Json
     foreach($rep in (Get-UiAuditRepresentatives)){if(@($narManifest.entries|Where-Object{$_.label -ceq $rep.label -and $_.sha256 -ceq $rep.sha256}).Count -ne 1){Fail "Dry-run NAR label/SHA probe failed for '$($rep.label)'." 'dry-run'}}
+    $resolvedDryRunCorpus=@(Assert-CorpusInputs $narManifest)
+    if($resolvedDryRunCorpus.Count-ne $CorpusRoots.Count){Fail "Dry-run corpus preflight expected $($CorpusRoots.Count) resolved roots, got $($resolvedDryRunCorpus.Count)." 'dry-run'}
     Write-Host "Dry-run passed: schemaVersion=$($Manifest.schemaVersion), caseSetVersion=$($Manifest.caseSetVersion), cases=$($Manifest.caseCount), sha256=$ManifestHash"
     Write-Host 'Dry-run made no build, device, emulator, or report mutations.'
 }
 
 Set-Location -LiteralPath $repoRoot
+$CorpusRoots = @(Expand-CorpusRootArguments $CorpusRoots)
 $uiManifest=New-UiAuditManifest
 $canonicalManifest=ConvertTo-CanonicalManifestJson $uiManifest
 $uiManifestHash=Get-StringSha256 $canonicalManifest
 
+if ($DryRun -and $VerifyManualInspection) { Fail 'DryRun and VerifyManualInspection are mutually exclusive.' 'usage' }
 if ($DryRun) { Invoke-DryRunSelfTest $uiManifest $uiManifestHash; return }
+if ($VerifyManualInspection) { Complete-ManualInspectionAudit $uiManifest $uiManifestHash; return }
 
 $script:originalState=$null
 $installed=$false
@@ -899,13 +1033,13 @@ try {
 }
 catch { $script:runFailure=$_.Exception.Message }
 finally {
-    if($null-ne$script:emulatorWatchdog){try{if(-not(Stop-EmulatorWatchdog $script:emulatorWatchdog)){$script:cleanupErrors.Add('Owned-emulator cleanup watchdog did not stop cleanly.')|Out-Null}}catch{$script:cleanupErrors.Add("Owned-emulator cleanup watchdog stop failed: $($_.Exception.Message)")|Out-Null}}
     if(-not$script:adbTransportDead){
         try{Restore-DeviceState $script:originalState}catch{$script:cleanupErrors.Add($_.Exception.Message)|Out-Null}
         if($installed){foreach($package in @($targetPackage,$testPackage)){try{Invoke-Adb @('uninstall',$package) 120 -AllowFailure|Out-Null}catch{$script:cleanupErrors.Add("Uninstall $package failed: $($_.Exception.Message)")|Out-Null}}}
         if($null-ne$script:ownedEmulator){try{Invoke-Adb @('emu','kill') 30 -AllowFailure|Out-Null}catch{$script:cleanupErrors.Add("Emulator stop failed: $($_.Exception.Message)")|Out-Null}}
     }
     if($null-ne$script:ownedEmulator){try{if(-not(Stop-OwnedProcessTree -Process $script:ownedEmulator -ExpectedStartTimeUtcTicks $script:ownedEmulatorStartTimeUtcTicks)){$script:cleanupErrors.Add('Owned emulator process tree did not stop cleanly.')|Out-Null}}catch{$script:cleanupErrors.Add("Owned emulator process-tree stop failed: $($_.Exception.Message)")|Out-Null}finally{$script:ownedEmulator.Dispose()}}
+    if($null-ne$script:emulatorWatchdog){try{if(-not(Stop-EmulatorWatchdog $script:emulatorWatchdog)){$script:cleanupErrors.Add('Owned-emulator cleanup watchdog did not stop cleanly.')|Out-Null}}catch{$script:cleanupErrors.Add("Owned-emulator cleanup watchdog stop failed: $($_.Exception.Message)")|Out-Null}}
     $status=if($script:runFailure-or$script:cleanupErrors.Count-gt 0){'failed'}elseif($script:results.Count-eq$expectedCaseCount){'captured-awaiting-manual-inspection'}else{'failed'}
     Write-ReportSummary $uiManifest $uiManifestHash $script:originalState $status
 }

@@ -213,15 +213,30 @@ labeled as validated Layoutlib renders rather than production-window captures.
 Generated evidence is under `build/reports/ui-audit/` and must not be committed:
 
 - `case-manifest.json` and its SHA-256 in `summary.json`;
-- `cases/<case-id>/` screenshots, annotations, layouts, and result evidence;
+- `live/`, `fixtures/`, and `nar/<profile>/` screenshots, annotations, layouts,
+  retained Task 17 summaries, and per-representative result evidence;
 - `summary.json` and `summary.md`; and
 - `manual-inspection.md`.
 
-The executing reviewer owns `manual-inspection.md`. Open every fresh PNG at its
-original resolution and fill one result row per manifest case. Then complete the
+The capture command exits after writing `captured-awaiting-manual-inspection`;
+that status is not a passing audit. The executing reviewer owns
+`manual-inspection.md`. Open every fresh PNG at its original resolution and fill
+one result row per manifest case, including the exact screenshot SHA-256 and the
+requested/measured window and stage evidence. Set `Audit status: complete` only
+after every row is an explicit `pass`. Then complete the
 interaction checklist for touch, mouse single/double click, keyboard and D-pad,
 bubble scrolling/actions, debug presentations, rotation/recreation, input IME,
 the passive stall prompt, TalkBack plus Switch Access or Voice Access, collision
 custom actions, focus recovery, and exact SHIORI diagnostics. The audit fails on
 case-count mismatch or any unresolved visual/interaction result; automated pixel
 comparison is supporting evidence, not a substitute for this inspection.
+
+Finish with the fail-closed verifier. It checks the current manifest hash, the
+capture summary and cleanup status, all 67 unique artifact rows, all 12 interaction
+checks, and refuses any blank, stale, duplicate, unchecked, or non-pass result. It
+is the only mode that changes the summary status to `complete`:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 `
+  -VerifyManualInspection
+```
