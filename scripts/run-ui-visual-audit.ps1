@@ -1079,9 +1079,21 @@ function New-ManualInspectionTemplate([object]$Manifest, [string]$ManifestHash) 
     $lines | Set-Content -LiteralPath $path -Encoding UTF8
 }
 
+function ConvertTo-CaptureStartedAtUtc([object]$Value) {
+    if ($Value -is [DateTime]) {
+        $dateTime = [DateTime]$Value
+        if ($dateTime.Kind -eq [DateTimeKind]::Unspecified) { Fail 'Capture summary timestamp lacks an explicit UTC offset.' 'manual-inspection' }
+        return $dateTime.ToUniversalTime()
+    }
+    $text = [string]$Value
+    if ($text -notmatch '(?:Z|[+-]\d{2}:\d{2})$') { Fail 'Capture summary timestamp lacks an explicit UTC offset.' 'manual-inspection' }
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse($text, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$parsed)) { Fail 'Capture summary lacks a valid capture-start timestamp.' 'manual-inspection' }
+    return $parsed.UtcDateTime
+}
+
 function Assert-CurrentReportPngEvidence([object]$Manifest, [object]$Summary, [object]$ManualRows, [object[]]$InteractionRows, [string]$Root = $reportRoot) {
-    $captureStartedAt = [DateTime]::MinValue
-    if (-not [DateTime]::TryParse([string]$Summary.captureStartedAtUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$captureStartedAt)) { Fail 'Capture summary lacks a valid capture-start timestamp.' 'manual-inspection' }
+    $captureStartedAt = ConvertTo-CaptureStartedAtUtc $Summary.captureStartedAtUtc
     $resultById = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
     foreach ($result in @($Summary.results)) {
         if ($resultById.ContainsKey([string]$result.id)) { Fail "Duplicate summary result '$($result.id)'." 'manual-inspection' }
@@ -1116,7 +1128,7 @@ function Assert-CurrentReportPngEvidence([object]$Manifest, [object]$Summary, [o
         $safePath = Resolve-SafeReportArtifactPath $Root $relativePath $true
         if (-not $expectedPngs.ContainsKey($relativePath)) { Fail "Report contains an unexpected PNG '$relativePath'." 'manual-inspection' }
         Assert-ReportPngHash $Root $relativePath $expectedPngs[$relativePath] | Out-Null
-        if ($relativePath -like 'interaction\*' -and (Get-Item -LiteralPath $safePath).LastWriteTimeUtc -lt $captureStartedAt.ToUniversalTime()) { Fail "Interaction evidence '$relativePath' predates this capture." 'manual-inspection' }
+        if ($relativePath -like 'interaction\*' -and (Get-Item -LiteralPath $safePath).LastWriteTimeUtc -lt $captureStartedAt) { Fail "Interaction evidence '$relativePath' predates this capture." 'manual-inspection' }
     }
 }
 
@@ -1289,6 +1301,8 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $transportBefore=$script:adbTransportDead; if(-not ( -not $transportBefore)){Fail 'Transport-dead initial probe failed.' 'dry-run'}
     $pngSig=[BitConverter]::ToString([byte[]](0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a)); if($pngSig -ne '89-50-4E-47-0D-0A-1A-0A'){Fail 'PNG signature probe failed.' 'dry-run'}
     $roundTrip=($Manifest | ConvertTo-Json -Depth 16 | ConvertFrom-Json); Assert-UiAuditManifest $roundTrip
+    $jsonUtc = ('{"captureStartedAtUtc":"2026-08-05T05:17:50.9318003Z"}' | ConvertFrom-Json).captureStartedAtUtc
+    if ((ConvertTo-CaptureStartedAtUtc $jsonUtc).ToString('o', [Globalization.CultureInfo]::InvariantCulture) -cne '2026-08-05T05:17:50.9318003Z') { Fail 'JSON UTC capture-start round-trip probe failed.' 'dry-run' }
     $manualTableHeader = '| Case | Artifact SHA-256 | Requested / measured window and stage | Density / font / theme / locale | Expected invariants | Result | Defect |'
     $wrongColumnResult = "$manualTableHeader`n| case-one | hash | pass | environment | invariants |  |  |"
     $actualColumnResult = "$manualTableHeader`n| case-one | $('a' * 64) | requested / measured | environment | invariants | pass |  |"
