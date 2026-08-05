@@ -24,6 +24,10 @@ param(
     [string]
     $ApkSignerPath,
 
+    [ValidateSet('compact-landscape')]
+    [string]
+    $ExpectedStageGeometryProfile,
+
     [switch]
     $DryRun
 )
@@ -235,6 +239,52 @@ function Test-AspectContainedSizeMatch {
     $expected = Get-AspectContainedSize -IntrinsicWidth $IntrinsicWidth -IntrinsicHeight $IntrinsicHeight -MaximumWidth $MaximumWidth -MaximumHeight $MaximumHeight
     return (Compare-NumericWithTolerance -Expected $expected.width -Actual $ActualWidth -Tolerance $Tolerance) -and
         (Compare-NumericWithTolerance -Expected $expected.height -Actual $ActualHeight -Tolerance $Tolerance)
+}
+
+function Get-ExpectedWatchdogStageGeometry {
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $Profile
+    )
+
+    switch ($Profile) {
+        'compact-landscape' {
+            return [pscustomobject]@{
+                profile = $Profile
+                sakuraSurfaceRegionWidth = 240.0
+                sakuraSurfaceRegionHeight = 248.0
+                sakuraSurfaceWidth = 165.4625
+                sakuraSurfaceHeight = 248.0
+            }
+        }
+        default {
+            ThrowIf "Unsupported expected stage geometry profile '$Profile'."
+        }
+    }
+}
+
+function Test-WatchdogStageGeometryContract {
+    param(
+        [Parameter(Mandatory)]
+        [object]
+        $Expected,
+        [double]
+        $ObservedRegionWidth,
+        [double]
+        $ObservedRegionHeight,
+        [double]
+        $ObservedSurfaceWidth,
+        [double]
+        $ObservedSurfaceHeight,
+        [double]
+        $Tolerance
+    )
+
+    return (Compare-NumericWithTolerance -Expected $Expected.sakuraSurfaceRegionWidth -Actual $ObservedRegionWidth -Tolerance $Tolerance) -and
+        (Compare-NumericWithTolerance -Expected $Expected.sakuraSurfaceRegionHeight -Actual $ObservedRegionHeight -Tolerance $Tolerance) -and
+        (Compare-NumericWithTolerance -Expected $Expected.sakuraSurfaceWidth -Actual $ObservedSurfaceWidth -Tolerance $Tolerance) -and
+        (Compare-NumericWithTolerance -Expected $Expected.sakuraSurfaceHeight -Actual $ObservedSurfaceHeight -Tolerance $Tolerance)
 }
 
 function As-NonNullArray {
@@ -1632,6 +1682,20 @@ foreach ($arg in $ProbeArgs) {
         -not (Compare-NumericWithTolerance -Expected 449.6487119438 -Actual $wideWatchdogExpected.height -Tolerance 0.0001)) {
         ThrowIf "Dry-run Watchdog width-limited aspect containment expected 300x449.6487119438, got $($wideWatchdogExpected.width)x$($wideWatchdogExpected.height)."
     }
+    $compactWatchdogContract = Get-ExpectedWatchdogStageGeometry -Profile 'compact-landscape'
+    if ($compactWatchdogContract.sakuraSurfaceRegionWidth -ne 240 -or
+        $compactWatchdogContract.sakuraSurfaceRegionHeight -ne 248 -or
+        $compactWatchdogContract.sakuraSurfaceWidth -ne 165.4625 -or
+        $compactWatchdogContract.sakuraSurfaceHeight -ne 248) {
+        ThrowIf 'Dry-run compact-landscape geometry contract did not preserve the literal 240x248 region and 165.4625x248 Sakura surface.'
+    }
+    if (-not (Test-WatchdogStageGeometryContract -Expected $compactWatchdogContract -ObservedRegionWidth 240 -ObservedRegionHeight 248 -ObservedSurfaceWidth 165.4625 -ObservedSurfaceHeight 248 -Tolerance 0.02)) {
+        ThrowIf 'Dry-run compact-landscape geometry contract rejected its exact production measurements.'
+    }
+    $coShrunkWatchdogSurface = Get-AspectContainedSize -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth 200 -MaximumHeight 200
+    if (Test-WatchdogStageGeometryContract -Expected $compactWatchdogContract -ObservedRegionWidth 200 -ObservedRegionHeight 200 -ObservedSurfaceWidth $coShrunkWatchdogSurface.width -ObservedSurfaceHeight $coShrunkWatchdogSurface.height -Tolerance 0.02) {
+        ThrowIf 'Dry-run compact-landscape geometry contract accepted a proportionally co-shrunk region and Sakura surface.'
+    }
 
     $dryRunSentinelAccumulator = New-SentinelAccumulator
     Add-SentinelCheck -Accumulator $dryRunSentinelAccumulator -Name 'nested-property-access' -Passed $true -Expected 'nested lookup resolves value' -Observed $outerInnerNumber
@@ -2233,6 +2297,20 @@ $installed = $false
         $null -ne $watchdogSakuraSurfaceHeight -and
         (Test-AspectContainedSizeMatch -IntrinsicWidth 427 -IntrinsicHeight 640 -MaximumWidth $watchdogSakuraSurfaceRegionWidth -MaximumHeight $watchdogSakuraSurfaceRegionHeight -ActualWidth $watchdogSakuraSurfaceWidth -ActualHeight $watchdogSakuraSurfaceHeight -Tolerance 0.02)
     )
+    $watchdogExpectedStageGeometry = if ([string]::IsNullOrWhiteSpace($ExpectedStageGeometryProfile)) {
+        $null
+    }
+    else {
+        Get-ExpectedWatchdogStageGeometry -Profile $ExpectedStageGeometryProfile
+    }
+    $watchdogMatchesExpectedStageGeometry = (
+        $null -ne $watchdogExpectedStageGeometry -and
+        $null -ne $watchdogSakuraSurfaceRegionWidth -and
+        $null -ne $watchdogSakuraSurfaceRegionHeight -and
+        $null -ne $watchdogSakuraSurfaceWidth -and
+        $null -ne $watchdogSakuraSurfaceHeight -and
+        (Test-WatchdogStageGeometryContract -Expected $watchdogExpectedStageGeometry -ObservedRegionWidth $watchdogSakuraSurfaceRegionWidth -ObservedRegionHeight $watchdogSakuraSurfaceRegionHeight -ObservedSurfaceWidth $watchdogSakuraSurfaceWidth -ObservedSurfaceHeight $watchdogSakuraSurfaceHeight -Tolerance 0.02)
+    )
 
     $bigRedSummaryRows = @($results | Where-Object { $_.label -eq 'Big Red Button' })
     $bigRedSummaryRow = if ($bigRedSummaryRows.Count -eq 1) { $bigRedSummaryRows[0] } else { $null }
@@ -2503,6 +2581,9 @@ $installed = $false
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-production-kero-present' -Passed ($null -ne $watchdogProductionKero) -Expected $true -Observed ($null -ne $watchdogProductionKero) -Detail 'Expected the production stage to retain the 1x1 Kero surface.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-sakura-shared-scale' -Passed $watchdogSakuraRatioMatchesSharedScale -Expected $watchdogSharedAuthoredScale -Observed $watchdogSakuraWidthRatio -Detail 'Expected Sakura layout width / 427 within 0.02 of shared authored scale.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-sakura-aspect-contained' -Passed $watchdogSakuraMatchesAspectContainedSize -Expected $(if ($null -ne $watchdogSakuraExpectedSize) { "$($watchdogSakuraExpectedSize.width)x$($watchdogSakuraExpectedSize.height)" } else { $null }) -Observed "${watchdogSakuraSurfaceWidth}x${watchdogSakuraSurfaceHeight}" -Detail 'Expected the 427x640 Sakura within 0.02dp of the exact aspect-ratio-contained size for its current surface region; the retained 1x1 Kero must not shrink it in any layout mode.'
+    if ($null -ne $watchdogExpectedStageGeometry) {
+        Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-watchdog-expected-stage-geometry' -Passed $watchdogMatchesExpectedStageGeometry -Expected "region=$($watchdogExpectedStageGeometry.sakuraSurfaceRegionWidth)x$($watchdogExpectedStageGeometry.sakuraSurfaceRegionHeight);surface=$($watchdogExpectedStageGeometry.sakuraSurfaceWidth)x$($watchdogExpectedStageGeometry.sakuraSurfaceHeight)" -Observed "region=${watchdogSakuraSurfaceRegionWidth}x${watchdogSakuraSurfaceRegionHeight};surface=${watchdogSakuraSurfaceWidth}x${watchdogSakuraSurfaceHeight}" -Detail "Expected Watchdog production measurements for the explicitly requested '$ExpectedStageGeometryProfile' profile; this contract is opt-in so standalone and other-profile audits retain measured-region validation."
+    }
 
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-big-red-summary-row-count' -Passed ($bigRedSummaryRows.Count -eq 1) -Expected 1 -Observed $bigRedSummaryRows.Count -Detail 'Expected exactly one Big Red Button summary row.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-big-red-summary-result-path' -Passed (-not [string]::IsNullOrWhiteSpace($bigRedSummaryResultPath)) -Expected 'non-empty' -Observed $bigRedSummaryResultPath -Detail 'Expected Big Red Button resultPath.'
@@ -2649,6 +2730,7 @@ $installed = $false
         results = $results
         failures = $failures
         corpusRoots = $resolvedCorpusRoots
+        expectedStageGeometryProfile = if ([string]::IsNullOrWhiteSpace($ExpectedStageGeometryProfile)) { $null } else { $ExpectedStageGeometryProfile }
         unexpectedAbort = $unexpectedAbort
         unexpectedAbortMetadata = $unexpectedAbortMetadata
         abortedDueToTimeout = $abortedDueToTimeout
