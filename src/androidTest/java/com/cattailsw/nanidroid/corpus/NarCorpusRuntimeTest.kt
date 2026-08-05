@@ -33,6 +33,7 @@ import com.cattailsw.nanidroid.install.NarTransactionalInstaller
 import com.cattailsw.nanidroid.compose.currentStageInputSnapshot
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
 import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
 import com.cattailsw.nanidroid.runtime.stage.StageInputTarget
@@ -89,6 +90,53 @@ class NarCorpusRuntimeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
     private val probeContent = NarCorpusProbeContent()
+
+    @Test
+    fun snakeBootLifecycleDoesNotFallbackWhenOnFirstBootReturnsContent() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelect", "OnChoiceSelect"),
+            requests,
+        )
+    }
+
+    @Test
+    fun snakeBootLifecycleFallsBackToOnBootOnlyAfterOnFirstBootReturns204() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", if (eventId == "OnFirstBoot") 204 else 200)
+                .put("outcome", "success")
+        }
+
+        assertEquals(listOf("OnFirstBoot", "OnBoot"), requests)
+    }
+
+    @Test
+    fun namedCollisionProbeDoesNotCountAnOverlappingWrongTargetAsDirect() {
+        assertEquals(
+            0,
+            successfulProbeCountAfterRouting(
+                currentCount = 0,
+                intendedId = 7,
+                intendedIdentifier = "Hand",
+                routedId = 8,
+                routedIdentifier = "Hand",
+            ),
+        )
+    }
 
     @Test
     fun probesArchive() {
@@ -670,42 +718,13 @@ class NarCorpusRuntimeTest {
             )
         }
 
-        val sequence = JSONArray()
-        val onBoot = probeShioriEvent(
-            shiori = shiori,
-            method = ShioriMethod.GET,
-            eventId = "OnBoot",
-            references = listOf(shellName),
-        )
-        sequence.put(onBoot)
-
-        if (onBoot.optString("outcome") == "success") {
-            val onFirstBoot = probeShioriEvent(
+        val sequence = snakeBootLifecycleSequence(shellName) { eventId, references ->
+            probeShioriEvent(
                 shiori = shiori,
                 method = ShioriMethod.GET,
-                eventId = "OnFirstBoot",
-                references = listOf("0"),
+                eventId = eventId,
+                references = references,
             )
-            sequence.put(onFirstBoot)
-            if (onFirstBoot.optString("outcome") == "success") {
-                val firstChoice = probeShioriEvent(
-                    shiori = shiori,
-                    method = ShioriMethod.GET,
-                    eventId = "OnChoiceSelect",
-                    references = listOf(SNAKE_CHOICE_FIRST_HE_HIM_ID),
-                )
-                sequence.put(firstChoice)
-                if (firstChoice.optString("outcome") == "success") {
-                    sequence.put(
-                        probeShioriEvent(
-                            shiori = shiori,
-                            method = ShioriMethod.GET,
-                            eventId = "OnChoiceSelect",
-                            references = listOf(SNAKE_FAQ_ID),
-                        ),
-                    )
-                }
-            }
         }
 
         var overallOutcome = "success"
@@ -756,20 +775,39 @@ class NarCorpusRuntimeTest {
                 "passiveTransitions",
                 firstStep.optJSONArray("passiveTransitions") ?: JSONArray(),
             )
-            .put("method", ShioriMethod.GET.name)
-            .put("eventId", "OnBoot")
-            .put(
-                "references",
-                JSONArray().apply {
-                    put(shellName)
-                },
-            )
+            .put("method", firstStep.optString("method", ShioriMethod.GET.name))
+            .put("eventId", firstStep.optString("eventId", "OnFirstBoot"))
+            .put("references", firstStep.optJSONArray("references") ?: JSONArray())
             .put(
                 "tokenizerDiagnostics",
                 firstStep.optJSONArray("tokenizerDiagnostics") ?: JSONArray(),
             )
             .put("failure", firstFailure)
             .put("sequence", sequence)
+    }
+
+    private fun snakeBootLifecycleSequence(
+        shellName: String,
+        probe: (eventId: String, references: List<String>) -> JSONObject,
+    ): JSONArray {
+        val sequence = JSONArray()
+        val onFirstBoot = probe("OnFirstBoot", listOf("0"))
+        sequence.put(onFirstBoot)
+
+        if (onFirstBoot.optInt("status", -1) == 204) {
+            sequence.put(probe("OnBoot", listOf(shellName)))
+            return sequence
+        }
+        if (onFirstBoot.optString("outcome") != "success") {
+            return sequence
+        }
+
+        val firstChoice = probe("OnChoiceSelect", listOf(SNAKE_CHOICE_FIRST_HE_HIM_ID))
+        sequence.put(firstChoice)
+        if (firstChoice.optString("outcome") == "success") {
+            sequence.put(probe("OnChoiceSelect", listOf(SNAKE_FAQ_ID)))
+        }
+        return sequence
     }
 
     private fun probeShioriOnBootLegacy(
@@ -1543,14 +1581,43 @@ class NarCorpusRuntimeTest {
                     return@forEach
                 }
 
-                val effect = requireNotNull(resolution.effect) {
-                    "Named collision ${collision.identifier} on surface ${surface.composedSurface.surfaceKey.surfaceId} produced no interaction effect"
-                }
-                val directHit = collisionTarget.id == collision.id && collisionTarget.identifier == collision.identifier
+                val directHit = isDirectNamedCollisionHit(
+                    intendedId = collision.id,
+                    intendedIdentifier = collision.identifier,
+                    routedId = collisionTarget.id,
+                    routedIdentifier = collisionTarget.identifier,
+                )
+                successfulProbeCount = successfulProbeCountAfterRouting(
+                    currentCount = successfulProbeCount,
+                    intendedId = collision.id,
+                    intendedIdentifier = collision.identifier,
+                    routedId = collisionTarget.id,
+                    routedIdentifier = collisionTarget.identifier,
+                )
                 val routedCollision = JSONObject()
                     .put("routedId", collisionTarget.id)
                     .put("routedIdentifier", collisionTarget.identifier)
 
+                probe
+                    .put("targetSpeaker", surfaceHit.speaker.name)
+                    .put(
+                        "resolutionOutcome",
+                        if (directHit) "direct-hit" else "overlapped-or-occluded",
+                    )
+                    .put("intendedCollisionWasDirectlyHit", directHit)
+                    .put("routedCollision", routedCollision)
+                    .put("hitIdentifier", collisionTarget.identifier)
+
+                if (!directHit) {
+                    probes.put(
+                        probe.put("effect", resolution.effect?.let(::interactionEffectEvidence) ?: JSONObject.NULL),
+                    )
+                    return@forEach
+                }
+
+                val effect = requireNotNull(resolution.effect) {
+                    "Named collision ${collision.identifier} on surface ${surface.composedSurface.surfaceKey.surfaceId} produced no interaction effect"
+                }
                 assertEquals(surface.speaker, surfaceHit.speaker)
                 assertEquals(collisionTarget.identifier, effect.collisionIdentifier)
                 assertEquals(collisionTarget.id, effect.diagnosticCollisionId)
@@ -1583,41 +1650,11 @@ class NarCorpusRuntimeTest {
                     overlayRegion.isExact,
                 )
 
-                successfulProbeCount++
                 if (firstSuccessfulSpeaker == null) {
                     firstSuccessfulSpeaker = surface.speaker
                 }
 
-                probe
-                    .put("targetSpeaker", surfaceHit.speaker.name)
-                    .put(
-                        "resolutionOutcome",
-                        if (directHit) "direct-hit" else "overlapped-or-occluded",
-                    )
-                    .put("intendedCollisionWasDirectlyHit", directHit)
-                    .put("routedCollision", routedCollision)
-                    .put("hitIdentifier", collisionTarget.identifier)
-                    .put(
-                        "effect",
-                        JSONObject()
-                            .put("kind", effect.kind.name)
-                            .put(
-                                "intrinsic",
-                                JSONObject().put("x", effect.intrinsic.x).put("y", effect.intrinsic.y),
-                            )
-                            .put("button", effect.button)
-                            .put("source", effect.source.name)
-                            .put("collisionIdentifier", effect.collisionIdentifier ?: JSONObject.NULL)
-                            .put("diagnosticCollisionId", effect.diagnosticCollisionId)
-                            .put(
-                                "references",
-                                JSONArray().apply {
-                                    SurfaceInteractionProtocol.references(effect).forEach { reference ->
-                                        put(reference)
-                                    }
-                                },
-                            ),
-                    )
+                probe.put("effect", interactionEffectEvidence(effect))
                 probes.put(probe)
             }
         }
@@ -1625,6 +1662,51 @@ class NarCorpusRuntimeTest {
         result.put("namedCollisionProbes", probes)
         return NamedCollisionProbeResult(successfulProbeCount, firstSuccessfulSpeaker)
     }
+
+    private fun isDirectNamedCollisionHit(
+        intendedId: Int,
+        intendedIdentifier: String,
+        routedId: Int,
+        routedIdentifier: String,
+    ): Boolean = intendedId == routedId && intendedIdentifier == routedIdentifier
+
+    private fun successfulProbeCountAfterRouting(
+        currentCount: Int,
+        intendedId: Int,
+        intendedIdentifier: String,
+        routedId: Int,
+        routedIdentifier: String,
+    ): Int = if (
+        isDirectNamedCollisionHit(
+            intendedId = intendedId,
+            intendedIdentifier = intendedIdentifier,
+            routedId = routedId,
+            routedIdentifier = routedIdentifier,
+        )
+    ) {
+        currentCount + 1
+    } else {
+        currentCount
+    }
+
+    private fun interactionEffectEvidence(effect: SurfaceInteractionEffect): JSONObject = JSONObject()
+        .put("kind", effect.kind.name)
+        .put(
+            "intrinsic",
+            JSONObject().put("x", effect.intrinsic.x).put("y", effect.intrinsic.y),
+        )
+        .put("button", effect.button)
+        .put("source", effect.source.name)
+        .put("collisionIdentifier", effect.collisionIdentifier ?: JSONObject.NULL)
+        .put("diagnosticCollisionId", effect.diagnosticCollisionId)
+        .put(
+            "references",
+            JSONArray().apply {
+                SurfaceInteractionProtocol.references(effect).forEach { reference ->
+                    put(reference)
+                }
+            },
+        )
 
     private fun StageLayoutPx.toJson() = JSONObject()
         .put("mode", mode.name)

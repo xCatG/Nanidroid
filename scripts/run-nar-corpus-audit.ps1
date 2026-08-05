@@ -261,6 +261,36 @@ function Add-SentinelNestedCheck {
     Add-SentinelCheck -Accumulator $Accumulator -Name $Name -Passed $passed -Expected $Expected -Observed $actualText -Detail $Detail
 }
 
+function Test-SnakeBootLifecycleSequence {
+    param(
+        [object[]]$Steps,
+        [bool]$ExpectOnBootFallback
+    )
+
+    $expectedEvents = if ($ExpectOnBootFallback) {
+        @('OnFirstBoot', 'OnBoot')
+    }
+    else {
+        @('OnFirstBoot', 'OnChoiceSelect', 'OnChoiceSelect')
+    }
+    if ($Steps.Count -ne $expectedEvents.Count) {
+        return $false
+    }
+
+    $eventIds = @($Steps | ForEach-Object { Get-NestedPropertyValue -Object $_ -Path 'eventId' })
+    for ($i = 0; $i -lt $expectedEvents.Count; $i++) {
+        if ($eventIds[$i] -cne $expectedEvents[$i]) {
+            return $false
+        }
+    }
+
+    $firstStatus = Get-NestedPropertyValue -Object $Steps[0] -Path 'status'
+    if ($ExpectOnBootFallback) {
+        return [string]$firstStatus -eq '204'
+    }
+    return [string]$firstStatus -ne '204' -and -not ($eventIds -contains 'OnBoot')
+}
+
 function Test-OnlyExpectedTokenizerDiagnostics {
     param(
         [object]$Diagnostics
@@ -1560,6 +1590,23 @@ foreach ($arg in $ProbeArgs) {
     }
     Write-Host 'Dry-run helper sentinel probes passed.'
 
+    $dryRunSnakeNoFallback = @(
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200 },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200 },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200 }
+    )
+    $dryRunSnakeFallback = @(
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 204 },
+        [pscustomobject]@{ eventId = 'OnBoot'; status = 200 }
+    )
+    if (-not (Test-SnakeBootLifecycleSequence -Steps $dryRunSnakeNoFallback -ExpectOnBootFallback $false)) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel accepted neither the non-204 no-fallback sequence nor its event order.'
+    }
+    if (-not (Test-SnakeBootLifecycleSequence -Steps $dryRunSnakeFallback -ExpectOnBootFallback $true)) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel rejected the 204 OnBoot fallback sequence.'
+    }
+    Write-Host 'Dry-run Snake lifecycle sentinel probes passed.'
+
     $knownPresentationDiagnostics = @(
         'unsupported-command:*',
         'unsupported-command:*',
@@ -2213,20 +2260,10 @@ $installed = $false
         $snakeSequenceSteps = @($snakeSequence)
     }
     $snakeSequenceCount = $snakeSequenceSteps.Count
-    $snakeStepOnBoot = if ($snakeSequenceCount -gt 0) { $snakeSequenceSteps[0] } else { $null }
-    $snakeStepOnFirstBoot = if ($snakeSequenceCount -gt 1) { $snakeSequenceSteps[1] } else { $null }
-    $snakeStepFirstChoiceSelect = if ($snakeSequenceCount -gt 2) { $snakeSequenceSteps[2] } else { $null }
-    $snakeStepSecondChoiceSelect = if ($snakeSequenceCount -gt 3) { $snakeSequenceSteps[3] } else { $null }
-    $snakeOnBootStatus = Get-NestedPropertyValue -Object $snakeStepOnBoot -Path 'status'
-    $snakeOnBootOutcome = Get-NestedPropertyValue -Object $snakeStepOnBoot -Path 'outcome'
-    $snakeOnBootValue = Get-NestedPropertyValue -Object $snakeStepOnBoot -Path 'value'
-    $snakeOnBootFailure = Get-NestedPropertyValue -Object $snakeStepOnBoot -Path 'failure'
-    $snakeOnBootTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepOnBoot -Path 'tokenizerDiagnostics'
-    $snakeOnBootMethod = Get-NestedPropertyValue -Object $snakeStepOnBoot -Path 'method'
-    $snakeOnBootRefs = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepOnBoot -Path 'references')
-    $snakeOnBootRef0 = if ($snakeOnBootRefs.Count -gt 0) { $snakeOnBootRefs[0] } else { $null }
-    $snakeOnBootStatusInt = 0
-    $snakeOnBootStatus2xx = [int]::TryParse([string]$snakeOnBootStatus, [ref]$snakeOnBootStatusInt) -and $snakeOnBootStatusInt -ge 200 -and $snakeOnBootStatusInt -le 299
+    $snakeStepOnFirstBoot = if ($snakeSequenceCount -gt 0) { $snakeSequenceSteps[0] } else { $null }
+    $snakeStepFirstChoiceSelect = if ($snakeSequenceCount -gt 1) { $snakeSequenceSteps[1] } else { $null }
+    $snakeStepSecondChoiceSelect = if ($snakeSequenceCount -gt 2) { $snakeSequenceSteps[2] } else { $null }
+    $snakeNoFallbackLifecycleValid = Test-SnakeBootLifecycleSequence -Steps $snakeSequenceSteps -ExpectOnBootFallback $false
 
     $snakeOnFirstBootStatus = Get-NestedPropertyValue -Object $snakeStepOnFirstBoot -Path 'status'
     $snakeOnFirstBootOutcome = Get-NestedPropertyValue -Object $snakeStepOnFirstBoot -Path 'outcome'
@@ -2404,20 +2441,18 @@ $installed = $false
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-239-surface-0-or-9' -Passed $snakeSurfaceLine239FoundForSurface0Or9 -Expected $true -Observed $snakeSurfaceLine239FoundForSurface0Or9 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 239 for surface 0 or 9.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-285-surface-8' -Passed $snakeSurfaceLine285FoundForSurface8 -Expected $true -Observed $snakeSurfaceLine285FoundForSurface8 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 285 for surface 8.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-394-surface-19-or-40' -Passed $snakeSurfaceLine394FoundForSurface19Or40 -Expected $true -Observed $snakeSurfaceLine394FoundForSurface19Or40 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 394 for surface 19 or 40.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-sequence-count' -Passed ($snakeSequenceCount -eq 4) -Expected 4 -Observed $snakeSequenceCount -Detail 'Expected Snake and Otacon dialogue sequence to include exactly 4 events.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-event-id' -Result $snakeStepOnBoot -Path 'eventId' -Expected 'OnBoot' -Detail 'Expected Snake and Otacon dialogue step 1 eventId OnBoot.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-event-id' -Result $snakeStepOnFirstBoot -Path 'eventId' -Expected 'OnFirstBoot' -Detail 'Expected Snake and Otacon dialogue step 2 eventId OnFirstBoot.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-2-event-id' -Result $snakeStepFirstChoiceSelect -Path 'eventId' -Expected 'OnChoiceSelect' -Detail 'Expected Snake and Otacon dialogue step 3 eventId OnChoiceSelect.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-3-event-id' -Result $snakeStepSecondChoiceSelect -Path 'eventId' -Expected 'OnChoiceSelect' -Detail 'Expected Snake and Otacon dialogue step 4 eventId OnChoiceSelect.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-ref-shell' -Passed (($null -ne $snakeOnBootRefs -and $snakeOnBootRefs.Count -eq 1 -and $snakeOnBootRef0 -eq 'Snake and Otacon - Solid Shell') -and ($snakeOnBootStatus2xx -and $snakeOnBootOutcome -eq 'success' -and $snakeOnBootValueNonBlank -and $null -eq $snakeOnBootFailure -and $snakeOnBootTokenizerCount -eq 0) ) -Expected $true -Observed (($snakeOnBootRefs.Count -eq 1) -and $snakeOnBootRef0) -Detail 'Expected Snake and Otacon step 1 to be GET, success, 2xx, nonblank value, no failure, no tokenizer diagnostics, and shell-name reference exact "Snake and Otacon - Solid Shell".'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-method' -Result $snakeStepOnBoot -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon OnBoot method GET.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-ref-0' -Result $snakeStepOnFirstBoot -Path 'references[0]' -Expected '0' -Detail 'Expected Snake and Otacon OnFirstBoot refs[0] = 0.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-passive-true-choice-id' -Passed (($snakeOnFirstBootPassiveTransitions -contains $true) -and ($snakeOnFirstBootChoiceIds -contains 'choicefirsthehim') -and $snakeOnFirstBootStatus2xx -and $snakeOnFirstBootOutcome -eq 'success' -and $snakeOnFirstBootValueNonBlank -and $null -eq $snakeOnFirstBootFailure -and $snakeOnFirstBootTokenizerDiagnosticsExpected) -Expected $true -Observed ([pscustomobject]@{ passiveAndChoice = (($snakeOnFirstBootPassiveTransitions -contains $true) -and ($snakeOnFirstBootChoiceIds -contains 'choicefirsthehim')); tokenizerDiagnostics = @($snakeOnFirstBootTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeOnFirstBootTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon OnFirstBoot to expose passive=true and choicefirsthehim with no tokenizer diagnostics beyond its known presentation markers.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-method' -Result $snakeStepOnFirstBoot -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon OnFirstBoot method GET.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-2-ref-choice-first' -Passed (($snakeFirstChoiceSelectRefs.Count -eq 1) -and ($snakeFirstChoiceSelectRef0 -eq 'choicefirsthehim') -and ($snakeFirstChoiceSelectPassiveTransitions -contains $false) -and ($snakeFirstChoiceSelectStatus2xx -and $snakeFirstChoiceSelectOutcome -eq 'success' -and $snakeFirstChoiceSelectValueNonBlank -and $null -eq $snakeFirstChoiceSelectFailure -and $snakeFirstChoiceSelectTokenizerCount -eq 0) -and $snakeFirstChoiceSelectInputDispatchId -eq 'OnNameTeach' -and [string]::Equals([string]$snakeFirstChoiceSelectInputTimeout, '-1')) -Expected $true -Observed ($snakeFirstChoiceSelectRefs.Count -eq 1 -and $snakeFirstChoiceSelectRef0) -Detail 'Expected Snake and Otacon first OnChoiceSelect to transition passive=false, reference choicefirsthehim, expose OnNameTeach timeout=-1, and be successful GET.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-2-method' -Result $snakeStepFirstChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon first OnChoiceSelect method GET.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-3-ref-faq' -Passed (($snakeFaqRefs.Count -eq 1) -and ($snakeFaqRef0 -eq 'faq') -and $snakeFaqStatus2xx -and $snakeFaqOutcome -eq 'success' -and $snakeFaqValueNonBlank -and $null -eq $snakeFaqFailure -and $snakeFaqTokenizerDiagnosticsExpected -and ($snakeFaqAnchorIds -contains 'whoSnake') -and ($snakeFaqAnchorIds -contains 'whoHal')) -Expected $true -Observed ([pscustomobject]@{ faqReference = (($snakeFaqRefs.Count -eq 1) -and ($snakeFaqRef0 -eq 'faq')); anchors = @($snakeFaqAnchorIds); tokenizerDiagnostics = @($snakeFaqTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeFaqTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon second OnChoiceSelect to target faq, be successful GET, include whoSnake/whoHal anchors, and have no tokenizer diagnostics beyond its known presentation markers.'
-    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-3-method' -Result $snakeStepSecondChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon second OnChoiceSelect method GET.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-no-fallback-lifecycle' -Passed $snakeNoFallbackLifecycleValid -Expected 'OnFirstBoot,OnChoiceSelect,OnChoiceSelect (without OnBoot)' -Observed ($snakeSequenceSteps | ForEach-Object { Get-NestedPropertyValue -Object $_ -Path 'eventId' }) -Detail 'Expected the real Snake run to avoid the OnBoot fallback because OnFirstBoot returned a non-204 response.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-sequence-count' -Passed ($snakeSequenceCount -eq 3) -Expected 3 -Observed $snakeSequenceCount -Detail 'Expected Snake and Otacon dialogue sequence to include OnFirstBoot and two choices without OnBoot fallback.'
+    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-event-id' -Result $snakeStepOnFirstBoot -Path 'eventId' -Expected 'OnFirstBoot' -Detail 'Expected Snake and Otacon dialogue step 1 eventId OnFirstBoot.'
+    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-event-id' -Result $snakeStepFirstChoiceSelect -Path 'eventId' -Expected 'OnChoiceSelect' -Detail 'Expected Snake and Otacon dialogue step 2 eventId OnChoiceSelect.'
+    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-2-event-id' -Result $snakeStepSecondChoiceSelect -Path 'eventId' -Expected 'OnChoiceSelect' -Detail 'Expected Snake and Otacon dialogue step 3 eventId OnChoiceSelect.'
+    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-ref-0' -Result $snakeStepOnFirstBoot -Path 'references[0]' -Expected '0' -Detail 'Expected Snake and Otacon OnFirstBoot refs[0] = 0.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-passive-true-choice-id' -Passed (($snakeOnFirstBootPassiveTransitions -contains $true) -and ($snakeOnFirstBootChoiceIds -contains 'choicefirsthehim') -and $snakeOnFirstBootStatus2xx -and $snakeOnFirstBootOutcome -eq 'success' -and $snakeOnFirstBootValueNonBlank -and $null -eq $snakeOnFirstBootFailure -and $snakeOnFirstBootTokenizerDiagnosticsExpected) -Expected $true -Observed ([pscustomobject]@{ passiveAndChoice = (($snakeOnFirstBootPassiveTransitions -contains $true) -and ($snakeOnFirstBootChoiceIds -contains 'choicefirsthehim')); tokenizerDiagnostics = @($snakeOnFirstBootTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeOnFirstBootTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon OnFirstBoot to expose passive=true and choicefirsthehim with no tokenizer diagnostics beyond its known presentation markers.'
+    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-method' -Result $snakeStepOnFirstBoot -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon OnFirstBoot method GET.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-ref-choice-first' -Passed (($snakeFirstChoiceSelectRefs.Count -eq 1) -and ($snakeFirstChoiceSelectRef0 -eq 'choicefirsthehim') -and ($snakeFirstChoiceSelectPassiveTransitions -contains $false) -and ($snakeFirstChoiceSelectStatus2xx -and $snakeFirstChoiceSelectOutcome -eq 'success' -and $snakeFirstChoiceSelectValueNonBlank -and $null -eq $snakeFirstChoiceSelectFailure -and $snakeFirstChoiceSelectTokenizerCount -eq 0) -and $snakeFirstChoiceSelectInputDispatchId -eq 'OnNameTeach' -and [string]::Equals([string]$snakeFirstChoiceSelectInputTimeout, '-1')) -Expected $true -Observed ($snakeFirstChoiceSelectRefs.Count -eq 1 -and $snakeFirstChoiceSelectRef0) -Detail 'Expected Snake and Otacon first OnChoiceSelect to transition passive=false, reference choicefirsthehim, expose OnNameTeach timeout=-1, and be successful GET.'
+    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-method' -Result $snakeStepFirstChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon first OnChoiceSelect method GET.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-2-ref-faq' -Passed (($snakeFaqRefs.Count -eq 1) -and ($snakeFaqRef0 -eq 'faq') -and $snakeFaqStatus2xx -and $snakeFaqOutcome -eq 'success' -and $snakeFaqValueNonBlank -and $null -eq $snakeFaqFailure -and $snakeFaqTokenizerDiagnosticsExpected -and ($snakeFaqAnchorIds -contains 'whoSnake') -and ($snakeFaqAnchorIds -contains 'whoHal')) -Expected $true -Observed ([pscustomobject]@{ faqReference = (($snakeFaqRefs.Count -eq 1) -and ($snakeFaqRef0 -eq 'faq')); anchors = @($snakeFaqAnchorIds); tokenizerDiagnostics = @($snakeFaqTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeFaqTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon second OnChoiceSelect to target faq, be successful GET, include whoSnake/whoHal anchors, and have no tokenizer diagnostics beyond its known presentation markers.'
+    Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-2-method' -Result $snakeStepSecondChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon second OnChoiceSelect method GET.'
 
     $runEnd = Get-Date
     $runSeconds = [int]($runEnd - $runStart).TotalSeconds
