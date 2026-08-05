@@ -74,6 +74,7 @@ internal fun NanidroidComposeShell(
     durableRecoveryRequired: Boolean = false,
     onResolveDurableRecovery: () -> Boolean = { false },
     transientOverlay: @Composable () -> Unit = {},
+    staticDurablePromptPreview: Boolean = false,
     wallpaper: Drawable? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -142,6 +143,7 @@ internal fun NanidroidComposeShell(
                     StalledOperationPrompt(
                         records = stalledOperations,
                         onAction = onDurableAttentionAction,
+                        staticPreview = staticDurablePromptPreview,
                     )
                 }
                 DurableStoreRecoveryPrompt(
