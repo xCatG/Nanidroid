@@ -37,6 +37,8 @@ $script:reportInitialized = $false
 $script:cleanupErrors = [System.Collections.ArrayList]::new()
 $script:results = [System.Collections.ArrayList]::new()
 $script:runFailure = $null
+$script:captureProvenance = $null
+$script:captureStartedAtUtc = $null
 
 function Fail([string]$Message, [string]$Code = 'validation') {
     throw [System.InvalidOperationException]::new("$Code`: $Message")
@@ -170,18 +172,18 @@ function New-CaseRecord {
 function New-UiAuditManifest {
     $cases = [System.Collections.ArrayList]::new()
     $liveProfiles = @(
-        @{ name = 'dp-360x720-f100'; widthDp = 360; heightDp = 720; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-720x360-f100'; widthDp = 720; heightDp = 360; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-400x1000-f100'; widthDp = 400; heightDp = 1000; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-610x500-f100'; widthDp = 610; heightDp = 500; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-800x1280-f100'; widthDp = 800; heightDp = 1280; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-1280x800-f100'; widthDp = 1280; heightDp = 800; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-480x230-f100'; widthDp = 480; heightDp = 230; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-230x400-f100'; widthDp = 230; heightDp = 400; densityMode = '160'; fontScale = 1.0 },
-        @{ name = 'dp-400x1000-f150'; widthDp = 400; heightDp = 1000; densityMode = '160'; fontScale = 1.5 },
-        @{ name = 'dp-400x1000-f200'; widthDp = 400; heightDp = 1000; densityMode = '160'; fontScale = 2.0 },
-        @{ name = 'native-density-phone'; widthDp = 400; heightDp = 1000; densityMode = 'native'; fontScale = 1.0 },
-        @{ name = 'native-density-tablet'; widthDp = 1280; heightDp = 800; densityMode = 'native'; fontScale = 1.0 }
+        @{ name = 'dp-360x720-f100'; widthDp = 360; heightDp = 720; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $true },
+        @{ name = 'dp-720x360-f100'; widthDp = 720; heightDp = 360; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $true },
+        @{ name = 'dp-400x1000-f100'; widthDp = 400; heightDp = 1000; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $true },
+        @{ name = 'dp-610x500-f100'; widthDp = 610; heightDp = 500; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $true },
+        @{ name = 'dp-800x1280-f100'; widthDp = 800; heightDp = 1280; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $true },
+        @{ name = 'dp-1280x800-f100'; widthDp = 1280; heightDp = 800; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $true },
+        @{ name = 'dp-480x230-f100'; widthDp = 480; heightDp = 230; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $false },
+        @{ name = 'dp-230x400-f100'; widthDp = 230; heightDp = 400; densityMode = '160'; fontScale = 1.0; expectCharacterSurfaces = $false },
+        @{ name = 'dp-400x1000-f150'; widthDp = 400; heightDp = 1000; densityMode = '160'; fontScale = 1.5; expectCharacterSurfaces = $true },
+        @{ name = 'dp-400x1000-f200'; widthDp = 400; heightDp = 1000; densityMode = '160'; fontScale = 2.0; expectCharacterSurfaces = $true },
+        @{ name = 'native-density-phone'; widthDp = 400; heightDp = 1000; densityMode = 'native'; fontScale = 1.0; expectCharacterSurfaces = $true },
+        @{ name = 'native-density-tablet'; widthDp = 1280; heightDp = 800; densityMode = 'native'; fontScale = 1.0; expectCharacterSurfaces = $true }
     )
     foreach ($profile in $liveProfiles) {
         $id = "live-$($profile.name)"
@@ -189,10 +191,11 @@ function New-UiAuditManifest {
             widthDp = $profile.widthDp; heightDp = $profile.heightDp
             density = $profile.densityMode; fontScale = $profile.fontScale
             theme = 'host-current'; locale = 'host-current'; rotation = if ($profile.widthDp -gt $profile.heightDp) { 'landscape' } else { 'portrait' }
+            expectCharacterSurfaces = [bool]$profile.expectCharacterSurfaces
         }
         $cases.Add((New-CaseRecord -Id $id -Kind 'live' -Driver 'android-cli-live' `
             -ScreenshotPath "live/$id.png" -LayoutPath "live/$id.layout.json" -AnnotatedPath "live/$id.annotated.png" `
-            -Requested $requested -ExpectedInvariants @('single-ghost-stage', 'stage-contained', 'bottom-aligned', 'no-clipped-content'))) | Out-Null
+            -Requested $requested -ExpectedInvariants @('single-ghost-safe-stage', 'stage-contained', 'bottom-aligned', 'no-clipped-content'))) | Out-Null
     }
 
     $references = @(Get-ChildItem -LiteralPath $fixtureRoot -Recurse -File -Filter '*.png' | Sort-Object FullName)
@@ -225,12 +228,15 @@ function New-UiAuditManifest {
         }
     }
 
+    $interactionEvidence = @(Get-RequiredInteractionEvidenceContract)
     $manifest = [pscustomobject][ordered]@{
-        schemaVersion = 1
-        caseSetVersion = '2026-08-04.1'
+        schemaVersion = 2
+        caseSetVersion = '2026-08-04.2'
         caseCount = $cases.Count
+        interactionEvidenceCount = $interactionEvidence.Count
         generatedBy = 'scripts/run-ui-visual-audit.ps1'
         cases = @($cases)
+        interactionEvidence = $interactionEvidence
     }
     return $manifest
 }
@@ -245,8 +251,54 @@ function Get-StringSha256([string]$Value) {
     finally { $sha.Dispose() }
 }
 
+function Assert-InteractionEvidenceManifestContract([object]$Manifest) {
+    $expectedEvidence = @(Get-RequiredInteractionEvidenceContract)
+    if (-not (Test-Property $Manifest 'interactionEvidenceCount') -or -not (Test-Property $Manifest 'interactionEvidence')) { Fail 'UI audit manifest lacks the interaction-evidence contract.' }
+    $actualEvidence = @($Manifest.interactionEvidence)
+    if ($Manifest.interactionEvidenceCount -ne $expectedEvidence.Count -or $actualEvidence.Count -ne $expectedEvidence.Count) { Fail "Interaction evidence must contain exactly $($expectedEvidence.Count) artifacts." }
+    for ($index = 0; $index -lt $expectedEvidence.Count; $index++) {
+        $expected = $expectedEvidence[$index]
+        $actual = $actualEvidence[$index]
+        foreach ($property in @('id', 'artifactPath', 'expectedInvariants')) {
+            if (-not (Test-Property $actual $property)) { Fail "Interaction evidence $($index + 1) lacks '$property'." }
+        }
+        if ([string]$actual.id -cne [string]$expected.id -or [string]$actual.artifactPath -cne [string]$expected.artifactPath) { Fail "Interaction evidence $($index + 1) has a substituted identity or path." }
+        if ((@($actual.expectedInvariants) -join [char]31) -cne (@($expected.expectedInvariants) -join [char]31)) { Fail "Interaction evidence '$($expected.id)' has substituted invariants." }
+        Assert-SafeReportRelativePath ([string]$actual.artifactPath)
+    }
+}
+
+function Resolve-SafeReportArtifactPath([string]$Root, [string]$RelativePath, [bool]$MustExist = $false) {
+    Assert-SafeReportRelativePath $RelativePath
+    $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\', '/')
+    $candidate = [IO.Path]::GetFullPath((Join-Path $rootFull $RelativePath))
+    $rootPrefix = $rootFull + [IO.Path]::DirectorySeparatorChar
+    if (-not $candidate.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { Fail "Report artifact escapes its root: '$RelativePath'." 'artifact' }
+    $current = $rootFull
+    if (Test-Path -LiteralPath $current) {
+        if (((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Fail "Report root cannot be a reparse point: '$rootFull'." 'artifact' }
+    }
+    foreach ($segment in @($RelativePath -split '[\\/]')) {
+        $current = Join-Path $current $segment
+        if (Test-Path -LiteralPath $current) {
+            if (((Get-Item -LiteralPath $current -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Fail "Report artifact path cannot traverse a reparse point: '$RelativePath'." 'artifact' }
+        }
+    }
+    if ($MustExist -and -not (Test-Path -LiteralPath $candidate -PathType Leaf)) { Fail "Required report artifact is missing: '$RelativePath'." 'artifact' }
+    return $candidate
+}
+
+function Assert-ReportPngHash([string]$Root, [string]$RelativePath, [string]$ExpectedSha256) {
+    if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$') { Fail "Invalid expected PNG SHA-256 for '$RelativePath'." 'artifact' }
+    $path = Resolve-SafeReportArtifactPath $Root $RelativePath $true
+    $actualSha256 = Assert-Png $path
+    if ($actualSha256 -cne $ExpectedSha256.ToLowerInvariant()) { Fail "Report PNG '$RelativePath' hash changed: expected=$($ExpectedSha256.ToLowerInvariant()) actual=$actualSha256." 'artifact' }
+    return $actualSha256
+}
+
 function Assert-UiAuditManifest([object]$Manifest) {
-    if ($Manifest.schemaVersion -ne 1 -or $Manifest.caseSetVersion -ne '2026-08-04.1') { Fail 'Unexpected UI audit manifest version.' }
+    if ($Manifest.schemaVersion -ne 2 -or $Manifest.caseSetVersion -ne '2026-08-04.2') { Fail 'Unexpected UI audit manifest version.' }
+    Assert-InteractionEvidenceManifestContract $Manifest
     if ($Manifest.caseCount -ne $expectedCaseCount -or @($Manifest.cases).Count -ne $expectedCaseCount) { Fail "UI audit case-count gate expected $expectedCaseCount, got $($Manifest.caseCount)/$(@($Manifest.cases).Count)." }
     $kinds = @($Manifest.cases | Group-Object kind | ForEach-Object { @{ name = $_.Name; count = $_.Count } })
     foreach ($expected in @(@{name='live';count=12}, @{name='fixture';count=34}, @{name='nar';count=21})) {
@@ -267,6 +319,17 @@ function Assert-UiAuditManifest([object]$Manifest) {
             $paths[$path.ToLowerInvariant()] = $true
         }
         if (-not $case.manualInspectionRequired -or @($case.expectedInvariants).Count -lt 1) { Fail "Case '$($case.id)' lacks manual requirements/invariants." }
+        if ($case.kind -eq 'live') {
+            $expectedCharacterSurfaces = $case.id -notin @('live-dp-480x230-f100', 'live-dp-230x400-f100')
+            if (-not (Test-Property $case.requested 'expectCharacterSurfaces') -or [bool]$case.requested.expectCharacterSurfaces -ne $expectedCharacterSurfaces) {
+                Fail "Live case '$($case.id)' has an invalid character-surface expectation."
+            }
+        }
+    }
+    foreach ($evidence in $Manifest.interactionEvidence) {
+        $path = [string]$evidence.artifactPath
+        if ($paths.ContainsKey($path.ToLowerInvariant())) { Fail "Duplicate report output '$path'." }
+        $paths[$path.ToLowerInvariant()] = $true
     }
 }
 
@@ -280,12 +343,23 @@ function ConvertFrom-LayoutBounds([object]$Bounds) {
     return [pscustomobject][ordered]@{ left=$left; top=$top; right=$right; bottom=$bottom; width=$right-$left; height=$bottom-$top }
 }
 
-function Get-GhostStageBoundsFromUiAutomatorXmlText([string]$XmlText) {
+function Test-SemanticIdMatch([string]$Value, [string]$SemanticId) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    return $Value -ceq $SemanticId -or $Value -cmatch "(^|[:/])$([regex]::Escape($SemanticId))$"
+}
+
+function Get-SemanticBoundsFromUiAutomatorXmlText([string]$XmlText, [string]$SemanticId) {
     try { [xml]$document=$XmlText }
     catch { Fail "Invalid UiAutomator XML: $($_.Exception.Message)" 'layout' }
-    $nodes=@($document.SelectNodes("//*[@resource-id='ghost-stage']"))
-    if ($nodes.Count -ne 1) { Fail "Expected exactly one UiAutomator ghost-stage resource node, found $($nodes.Count)." 'layout' }
+    $nodes = @($document.SelectNodes('//*[@resource-id]') | Where-Object { Test-SemanticIdMatch ([string]$_.GetAttribute('resource-id')) $SemanticId })
+    if ($nodes.Count -ne 1) { Fail "Expected exactly one UiAutomator '$SemanticId' resource node, found $($nodes.Count)." 'layout' }
     return ConvertFrom-LayoutBounds ([string]$nodes[0].bounds)
+}
+
+function Get-SemanticNodeCountFromUiAutomatorXmlText([string]$XmlText, [string]$SemanticId) {
+    try { [xml]$document=$XmlText }
+    catch { Fail "Invalid UiAutomator XML: $($_.Exception.Message)" 'layout' }
+    return @($document.SelectNodes('//*[@resource-id]') | Where-Object { Test-SemanticIdMatch ([string]$_.GetAttribute('resource-id')) $SemanticId }).Count
 }
 
 function Get-WindowBoundsFromUiAutomatorXmlText([string]$XmlText) {
@@ -296,7 +370,7 @@ function Get-WindowBoundsFromUiAutomatorXmlText([string]$XmlText) {
     return ConvertFrom-LayoutBounds ([string]$rootNode.bounds)
 }
 
-function Find-LayoutGhostStageNodes([object]$Value) {
+function Find-LayoutSemanticNodes([object]$Value, [string]$SemanticId) {
     $found = [System.Collections.ArrayList]::new()
     function Visit([object]$Node) {
         if ($null -eq $Node) { return }
@@ -304,32 +378,70 @@ function Find-LayoutGhostStageNodes([object]$Value) {
         if ($Node -is [Collections.IDictionary]) {
             $resource = $null
             foreach ($key in @('resourceId','resource-id','id','testTag')) { if ($Node.Contains($key)) { $resource = [string]$Node[$key]; break } }
-            if ($resource -eq 'ghost-stage' -or $resource -match '(^|[:/])ghost-stage$') { $found.Add($Node) | Out-Null }
+            if (Test-SemanticIdMatch $resource $SemanticId) { $found.Add($Node) | Out-Null }
             foreach ($key in $Node.Keys) { Visit $Node[$key] }
             return
         }
         $resource = $null
         foreach ($key in @('resourceId','resource-id','id','testTag')) { if (Test-Property $Node $key) { $resource = [string]$Node.$key; break } }
-        if ($resource -eq 'ghost-stage' -or $resource -match '(^|[:/])ghost-stage$') { $found.Add($Node) | Out-Null }
+        if (Test-SemanticIdMatch $resource $SemanticId) { $found.Add($Node) | Out-Null }
         if ($Node -is [Collections.IEnumerable]) { foreach ($item in $Node) { Visit $item }; return }
         foreach ($property in $Node.PSObject.Properties) { Visit $property.Value }
     }
     Visit $Value
-    return ,@($found)
+    return @($found)
 }
 
-function Get-GhostStageBoundsFromLayout([string]$LayoutPath, [string]$UiAutomatorPath) {
-    $json = Get-Content -LiteralPath $LayoutPath -Raw | ConvertFrom-Json
-    $nodes = @(Find-LayoutGhostStageNodes $json)
-    if ($nodes.Count -ne 1) { Fail "Expected exactly one ghost-stage resource node, found $($nodes.Count)." 'layout' }
+function Get-SemanticCenterFromLayoutJsonText([string]$JsonText, [string]$SemanticId) {
+    try { $json = $JsonText | ConvertFrom-Json }
+    catch { Fail "Invalid Android CLI layout JSON: $($_.Exception.Message)" 'layout' }
+    $nodes = @(Find-LayoutSemanticNodes $json $SemanticId)
+    if ($nodes.Count -ne 1) { Fail "Expected exactly one Android CLI '$SemanticId' resource node, found $($nodes.Count)." 'layout' }
     $node = $nodes[0]
-    $bounds = $null
-    foreach ($name in @('bounds','boundsInScreen','visibleBounds')) { if (Test-Property $node $name) { $bounds = $node.$name; break } }
-    if ($null -eq $bounds) {
-        if ([string]::IsNullOrWhiteSpace($UiAutomatorPath) -or -not(Test-Path -LiteralPath $UiAutomatorPath -PathType Leaf)) { Fail 'ghost-stage node has no supported bounds field and no UiAutomator layout capture is available.' 'layout' }
-        return Get-GhostStageBoundsFromUiAutomatorXmlText (Get-Content -LiteralPath $UiAutomatorPath -Raw)
+    if (-not (Test-Property $node 'center') -or [string]$node.center -notmatch '^\[(?<x>-?\d+),(?<y>-?\d+)\]$') {
+        Fail "Android CLI '$SemanticId' node has no supported integer center." 'layout'
     }
-    return ConvertFrom-LayoutBounds $bounds
+    return [pscustomobject][ordered]@{ x=[int]$matches.x; y=[int]$matches.y }
+}
+
+function Get-SemanticNodeCountFromLayoutJsonText([string]$JsonText, [string]$SemanticId) {
+    try { $json = $JsonText | ConvertFrom-Json }
+    catch { Fail "Invalid Android CLI layout JSON: $($_.Exception.Message)" 'layout' }
+    return @(Find-LayoutSemanticNodes $json $SemanticId).Count
+}
+
+function Assert-SemanticCenterMatchesUiAutomatorBounds([string]$LayoutJsonText, [string]$UiAutomatorXmlText, [string]$SemanticId) {
+    $jsonCenter = Get-SemanticCenterFromLayoutJsonText $LayoutJsonText $SemanticId
+    $xmlBounds = Get-SemanticBoundsFromUiAutomatorXmlText $UiAutomatorXmlText $SemanticId
+    $xmlCenterX = [int][Math]::Floor(([double]($xmlBounds.left + $xmlBounds.right)) / 2)
+    $xmlCenterY = [int][Math]::Floor(([double]($xmlBounds.top + $xmlBounds.bottom)) / 2)
+    if ($jsonCenter.x -ne $xmlCenterX -or $jsonCenter.y -ne $xmlCenterY) {
+        Fail "Android CLI '$SemanticId' center [$($jsonCenter.x),$($jsonCenter.y)] differs from the UiAutomator bounds center [$xmlCenterX,$xmlCenterY]." 'layout'
+    }
+    return $jsonCenter
+}
+
+function Get-VerifiedGhostSafeStageBounds {
+    param(
+        [string]$LayoutJsonText,
+        [string]$UiAutomatorXmlText,
+        [bool]$ExpectCharacterSurfaces
+    )
+    $safeStageBounds = Get-SemanticBoundsFromUiAutomatorXmlText $UiAutomatorXmlText 'ghost-safe-stage'
+    Assert-SemanticCenterMatchesUiAutomatorBounds $LayoutJsonText $UiAutomatorXmlText 'list-ghost' | Out-Null
+    foreach ($semanticId in @('surface-kero', 'surface-sakura')) {
+        if (-not $ExpectCharacterSurfaces) {
+            $jsonCount = Get-SemanticNodeCountFromLayoutJsonText $LayoutJsonText $semanticId
+            $xmlCount = Get-SemanticNodeCountFromUiAutomatorXmlText $UiAutomatorXmlText $semanticId
+            if ($jsonCount -ne 0 -or $xmlCount -ne 0) { Fail "Tiny fallback requires '$semanticId' to be absent from Android CLI and UiAutomator layouts, found $jsonCount/$xmlCount." 'layout' }
+            continue
+        }
+        $jsonCenter = Assert-SemanticCenterMatchesUiAutomatorBounds $LayoutJsonText $UiAutomatorXmlText $semanticId
+        if ($jsonCenter.x -lt $safeStageBounds.left -or $jsonCenter.x -ge $safeStageBounds.right -or $jsonCenter.y -lt $safeStageBounds.top -or $jsonCenter.y -ge $safeStageBounds.bottom) {
+            Fail "Verified '$semanticId' center [$($jsonCenter.x),$($jsonCenter.y)] lies outside ghost-safe-stage [$($safeStageBounds.left),$($safeStageBounds.top)][$($safeStageBounds.right),$($safeStageBounds.bottom)]." 'layout'
+        }
+    }
+    return $safeStageBounds
 }
 
 function Assert-Png([string]$Path) {
@@ -751,20 +863,208 @@ function Resolve-DebugApk {
     return (Resolve-Path -LiteralPath $files[0]).Path
 }
 
+function Resolve-Git {
+    $commands = @(Get-Command git -CommandType Application -ErrorAction SilentlyContinue)
+    if ($commands.Count -lt 1) { Fail 'git is required to bind audit evidence to the current repository HEAD.' 'tool' }
+    return [string]$commands[0].Source
+}
+
+function Get-TrackedRepositoryState([string]$GitPath) {
+    $headBefore = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'rev-parse', '--verify', 'HEAD') -TimeoutSeconds 20).output.Trim().ToLowerInvariant()
+    if ($headBefore -notmatch '^[0-9a-f]{40,64}$') { Fail "git returned an invalid HEAD identity '$headBefore'." 'git' }
+    $status = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'status', '--porcelain=v1', '--untracked-files=no') -TimeoutSeconds 20).output
+    $headAfter = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'rev-parse', '--verify', 'HEAD') -TimeoutSeconds 20).output.Trim().ToLowerInvariant()
+    if ($headBefore -cne $headAfter) { Fail "Repository HEAD changed while its audit identity was read: $headBefore -> $headAfter." 'git' }
+    if (-not [string]::IsNullOrWhiteSpace($status)) { Fail 'Tracked worktree changes must be committed or reverted before audit capture/completion.' 'git' }
+    return [pscustomobject][ordered]@{ gitHead = $headBefore; trackedWorktreeClean = $true }
+}
+
+function Get-CurrentCaptureProvenance([string]$GitPath, [string]$DebugApkPath) {
+    $repository = Get-TrackedRepositoryState $GitPath
+    if (-not (Test-Path -LiteralPath $DebugApkPath -PathType Leaf)) { Fail "Current debug APK is missing: '$DebugApkPath'." 'build' }
+    $relativeApkPath = Get-RelativePath -BasePath $repoRoot -ChildPath $DebugApkPath
+    if ([IO.Path]::IsPathRooted($relativeApkPath) -or $relativeApkPath -match '(^|[\\/])\.\.([\\/]|$)') { Fail "Debug APK is outside the repository: '$DebugApkPath'." 'build' }
+    return [pscustomobject][ordered]@{
+        gitHead = $repository.gitHead
+        trackedWorktreeClean = $repository.trackedWorktreeClean
+        debugApkPath = $relativeApkPath
+        debugApkSha256 = (Get-FileHash -LiteralPath $DebugApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+
+function Assert-CaptureProvenance([object]$Captured, [object]$Current) {
+    foreach ($property in @('gitHead', 'trackedWorktreeClean', 'debugApkPath', 'debugApkSha256')) {
+        if (-not (Test-Property $Captured $property) -or -not (Test-Property $Current $property)) { Fail "Capture provenance lacks '$property'." 'manual-inspection' }
+    }
+    if ($Captured.trackedWorktreeClean -ne $true -or $Current.trackedWorktreeClean -ne $true) { Fail 'Capture and completion both require a clean tracked worktree.' 'manual-inspection' }
+    if ([string]$Captured.gitHead -notmatch '^[0-9a-f]{40,64}$' -or [string]$Current.gitHead -notmatch '^[0-9a-f]{40,64}$') { Fail 'Capture provenance contains an invalid git HEAD.' 'manual-inspection' }
+    if ([string]$Captured.debugApkSha256 -notmatch '^[0-9a-f]{64}$' -or [string]$Current.debugApkSha256 -notmatch '^[0-9a-f]{64}$') { Fail 'Capture provenance contains an invalid debug APK SHA-256.' 'manual-inspection' }
+    foreach ($property in @('gitHead', 'debugApkPath', 'debugApkSha256')) {
+        if ([string]$Captured.$property -cne [string]$Current.$property) { Fail "Capture provenance '$property' changed: captured='$($Captured.$property)' current='$($Current.$property)'." 'manual-inspection' }
+    }
+}
+
 function Write-ReportSummary([object]$Manifest, [string]$ManifestHash, [object]$OriginalState, [string]$Status) {
     if (-not $script:reportInitialized) { return }
-    $summary=[pscustomobject][ordered]@{ schemaVersion=1; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
+    $summary=[pscustomobject][ordered]@{ schemaVersion=2; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; requiredInteractionEvidenceCount=$Manifest.interactionEvidenceCount; interactionEvidenceCount=0; interactionEvidence=@(); status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; captureStartedAtUtc=$script:captureStartedAtUtc; captureProvenance=$script:captureProvenance; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
     $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $reportRoot 'summary.json') -Encoding UTF8
     $lines=@('# UI visual audit summary','',"- Status: $Status","- Case set: $($Manifest.caseSetVersion)","- Manifest SHA-256: $ManifestHash","- Cases expected: $expectedCaseCount","- Results captured: $($script:results.Count)",'- Manual inspection complete: false','', '| Case | Driver | Screenshot SHA-256 | Layout SHA-256 | Requested | Measured | Stage | Result | Defect |','| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
     foreach ($case in $Manifest.cases) { $row=@($script:results | Where-Object id -eq $case.id | Select-Object -First 1); $r=if($row.Count){$row[0]}else{$null}; $lines += "| $($case.id) | $($case.sourceDriver) | $(if($r){$r.screenshotSha256}else{''}) | $(if($r){$r.layoutSha256}else{''}) | $($case.requested | ConvertTo-Json -Compress) | $(if($r){$r.measured}else{''}) | $(if($r){$r.stage}else{''}) |  |  |" }
     $lines | Set-Content -LiteralPath (Join-Path $reportRoot 'summary.md') -Encoding UTF8
 }
 
+function Get-RequiredInteractionChecklistLabels {
+    return @(
+        'Touch named collisions and generic transparent canvas.',
+        'Mouse primary single-click and double-click.',
+        'Scroll/click bubbles and reopen choices.',
+        'Tab, Shift-Tab, arrows, Page Up, Page Down, Enter, Space, Escape, and D-pad.',
+        'Toggle chrome only through empty stage or its labeled semantic action.',
+        'Open and close bottom-sheet, side-panel, and full-modal debug presentations.',
+        'Rotate, resize, and recreate the Activity.',
+        'TalkBack plus Switch Access or Voice Access; merged and unmerged semantics.',
+        'Invoke collision custom actions and verify focus recovery.',
+        'Exercise input IME on Snake and Otacon.',
+        'Verify passive stall prompt behavior.',
+        'Verify exact SHIORI event identity, coordinate, scope, identifier, button, and source fields; no bubble/surface/chrome leakage.'
+    )
+}
+
+function Get-RequiredInteractionEvidenceContract {
+    return @(
+        [pscustomobject][ordered]@{
+            id = 'extracted-choice-surface'
+            artifactPath = 'interaction\extracted-choice-surface.png'
+            expectedInvariants = @('fresh-current-build', 'choice-surface-extracted', 'choices-visible')
+        },
+        [pscustomobject][ordered]@{
+            id = 'snake-otacon-input-ime-visible'
+            artifactPath = 'interaction\snake-otacon-input-ime-visible.png'
+            expectedInvariants = @('fresh-current-build', 'snake-otacon-input-visible', 'ime-visible')
+        }
+    )
+}
+
+function Assert-ExactInteractionChecklist([string]$ManualText) {
+    $expectedLabels = @(Get-RequiredInteractionChecklistLabels)
+    $actualItems = [System.Collections.ArrayList]::new()
+    foreach ($line in @($ManualText -split "`r?`n")) {
+        if ($line -notmatch '^\s*-\s*\[') { continue }
+        if ($line -notmatch '^- \[(?<mark>[ xX])\] (?<label>.+)$') {
+            Fail "Interaction checklist contains a malformed checkbox line: '$line'." 'manual-inspection'
+        }
+        $actualItems.Add([pscustomobject]@{ mark = $matches.mark; label = $matches.label }) | Out-Null
+    }
+    if ($actualItems.Count -ne $expectedLabels.Count) {
+        Fail "Interaction checklist must contain exactly $($expectedLabels.Count) items, got $($actualItems.Count)." 'manual-inspection'
+    }
+    $expectedSet = [Collections.Generic.Dictionary[string, bool]]::new([StringComparer]::Ordinal)
+    foreach ($label in $expectedLabels) { $expectedSet.Add($label, $true) }
+    $actualSet = [Collections.Generic.Dictionary[string, bool]]::new([StringComparer]::Ordinal)
+    foreach ($actual in $actualItems) {
+        if ($actual.mark -notin @('x', 'X')) {
+            Fail "Interaction checklist item '$($actual.label)' must be checked." 'manual-inspection'
+        }
+        if (-not $expectedSet.ContainsKey($actual.label)) {
+            Fail "Interaction checklist contains an unexpected or substituted label: '$($actual.label)'." 'manual-inspection'
+        }
+        if ($actualSet.ContainsKey($actual.label)) { Fail "Interaction checklist duplicates '$($actual.label)'." 'manual-inspection' }
+        $actualSet.Add($actual.label, $true)
+    }
+    foreach ($label in $expectedLabels) {
+        if (-not $actualSet.ContainsKey($label)) { Fail "Interaction checklist is missing '$label'." 'manual-inspection' }
+    }
+}
+
+function Test-ManualInspectionHasRecordedResult([string]$ManualText) {
+    $resultColumn = -1
+    foreach ($line in @($ManualText -split "`r?`n")) {
+        if ($line -notmatch '^\|') { $resultColumn = -1; continue }
+        $cells = @($line.Split('|') | ForEach-Object { $_.Trim() })
+        $headerResultColumns = @()
+        for ($index = 0; $index -lt $cells.Count; $index++) {
+            if ($cells[$index] -ceq 'Result') { $headerResultColumns += $index }
+        }
+        if ($headerResultColumns.Count -gt 0) {
+            $resultColumn = if ($headerResultColumns.Count -eq 1) { $headerResultColumns[0] } else { -1 }
+            continue
+        }
+        if ($resultColumn -ge 0 -and $cells.Count -gt $resultColumn -and $cells[$resultColumn] -match '^(?i:pass|fail)$') { return $true }
+    }
+    return $false
+}
+
+function Get-ManualInteractionEvidenceRows([object]$Manifest, [string]$ManualText) {
+    Assert-InteractionEvidenceManifestContract $Manifest
+    $requiredColumns = @('Interaction evidence', 'Artifact path', 'Artifact SHA-256', 'Expected invariants', 'Result', 'Defect')
+    $expectedById = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($evidence in $Manifest.interactionEvidence) { $expectedById.Add([string]$evidence.id, $evidence) }
+    $actualById = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    $insideTable = $false
+    foreach ($line in @($ManualText -split "`r?`n")) {
+        if ($line -notmatch '^\|') { $insideTable = $false; continue }
+        $cells = @($line.Split('|') | ForEach-Object { $_.Trim() })
+        if ($cells.Count -eq 8 -and (@($cells[1..6]) -join [char]31) -ceq ($requiredColumns -join [char]31)) { $insideTable = $true; continue }
+        if (-not $insideTable -or $cells.Count -ne 8 -or $cells[1] -eq '---') { continue }
+        $id = [string]$cells[1]
+        if (-not $expectedById.ContainsKey($id)) { Fail "Manual interaction evidence contains an unexpected identity '$id'." 'manual-inspection' }
+        if ($actualById.ContainsKey($id)) { Fail "Manual interaction evidence duplicates '$id'." 'manual-inspection' }
+        $expected = $expectedById[$id]
+        $artifactPath = [string]$cells[2]
+        $artifactHash = ([string]$cells[3]).ToLowerInvariant()
+        $invariants = [string]$cells[4]
+        $result = ([string]$cells[5]).ToLowerInvariant()
+        $defect = [string]$cells[6]
+        if ($artifactPath -cne [string]$expected.artifactPath) { Fail "Manual interaction evidence '$id' has a substituted artifact path." 'manual-inspection' }
+        if ($artifactHash -notmatch '^[0-9a-f]{64}$') { Fail "Manual interaction evidence '$id' lacks a valid artifact SHA-256." 'manual-inspection' }
+        if ($invariants -cne (@($expected.expectedInvariants) -join ', ')) { Fail "Manual interaction evidence '$id' has stale or substituted invariants." 'manual-inspection' }
+        if ($result -ne 'pass') { Fail "Manual interaction evidence '$id' is not an explicit pass." 'manual-inspection' }
+        if (-not [string]::IsNullOrWhiteSpace($defect)) { Fail "Manual interaction evidence '$id' cannot pass with a recorded defect." 'manual-inspection' }
+        $row = [pscustomobject][ordered]@{ id=$id; artifactPath=$artifactPath; artifactSha256=$artifactHash; expectedInvariants=@($expected.expectedInvariants); result='pass'; defect=$null }
+        $actualById.Add($id, $row)
+    }
+    if ($actualById.Count -ne $expectedById.Count) { Fail "Expected $($expectedById.Count) completed interaction-evidence rows, got $($actualById.Count)." 'manual-inspection' }
+    return @($Manifest.interactionEvidence | ForEach-Object { $actualById[[string]$_.id] })
+}
+
+function Get-ManualAutomatedInspectionRows([object]$ResultById, [string]$ManualText) {
+    $manualRows = @{}
+    foreach ($line in @($ManualText -split "`r?`n")) {
+        if ($line -notmatch '^\|') { continue }
+        $cells = @($line.Split('|') | ForEach-Object { $_.Trim() })
+        if ($cells.Count -lt 9) { continue }
+        $caseId = [string]$cells[1]
+        if (-not $ResultById.ContainsKey($caseId)) { continue }
+        if ($manualRows.ContainsKey($caseId)) { Fail "Duplicate manual inspection row '$caseId'." 'manual-inspection' }
+        $artifactHash = ([string]$cells[2]).ToLowerInvariant()
+        $requestedMeasured = [string]$cells[3]
+        $environment = [string]$cells[4]
+        $invariants = [string]$cells[5]
+        $manualResult = ([string]$cells[6]).ToLowerInvariant()
+        $defect = [string]$cells[7]
+        if ($artifactHash -ne ([string]$ResultById[$caseId].screenshotSha256).ToLowerInvariant()) { Fail "Manual row '$caseId' has a stale artifact hash." 'manual-inspection' }
+        if ([string]::IsNullOrWhiteSpace($requestedMeasured) -or $requestedMeasured -match '/\s*$') { Fail "Manual row '$caseId' lacks measured window/stage evidence." 'manual-inspection' }
+        if ([string]::IsNullOrWhiteSpace($environment) -or [string]::IsNullOrWhiteSpace($invariants)) { Fail "Manual row '$caseId' lacks environment or invariant evidence." 'manual-inspection' }
+        if ($manualResult -ne 'pass') { Fail "Manual row '$caseId' is not an explicit pass." 'manual-inspection' }
+        if (-not [string]::IsNullOrWhiteSpace($defect)) { Fail "Manual row '$caseId' cannot pass with a recorded defect." 'manual-inspection' }
+        $manualRows[$caseId] = [pscustomobject][ordered]@{ artifactHash=$artifactHash; result=$manualResult; defect=$defect }
+    }
+    return $manualRows
+}
+
+function Assert-RequiredInteractionEvidenceAbsent([object]$Manifest, [string]$Root = $reportRoot) {
+    Assert-InteractionEvidenceManifestContract $Manifest
+    foreach ($evidence in $Manifest.interactionEvidence) {
+        $interactionPath = Resolve-SafeReportArtifactPath $Root $evidence.artifactPath $false
+        if (Test-Path -LiteralPath $interactionPath) { Fail "Refusing pre-existing interaction evidence '$($evidence.artifactPath)'; capture it fresh after this run." 'report' }
+    }
+}
+
 function New-ManualInspectionTemplate([object]$Manifest, [string]$ManifestHash) {
     $path=Join-Path $reportRoot 'manual-inspection.md'
     if (Test-Path -LiteralPath $path) {
         $existing=Get-Content -LiteralPath $path -Raw
-        if ($existing -match '(?im)^Audit status:\s*complete\s*$' -or $existing -match '(?im)^\|[^|]+\|[^|]+\|[^|]+\|\s*(pass|fail)\s*\|') { Fail 'Refusing to overwrite a completed manual-inspection checklist.' 'report' }
+        if ($existing -match '(?im)^Audit status:\s*complete\s*$' -or (Test-ManualInspectionHasRecordedResult $existing)) { Fail 'Refusing to overwrite a completed manual-inspection checklist.' 'report' }
         if ($existing -match "(?im)^Manifest SHA-256:\s*$([regex]::Escape($ManifestHash))\s*$") { return }
     }
     $lines=@('# UI visual audit manual inspection','', 'Audit status: incomplete', '', "Manifest SHA-256: $ManifestHash", "Required case count: $expectedCaseCount", '', 'Automated capture is not manual inspection. Open every PNG and fill Result and Defect.', '', '| Case | Artifact SHA-256 | Requested / measured window and stage | Density / font / theme / locale | Expected invariants | Result | Defect |','| --- | --- | --- | --- | --- | --- | --- |')
@@ -772,8 +1072,52 @@ function New-ManualInspectionTemplate([object]$Manifest, [string]$ManifestHash) 
         $requestedWindow = if ((Test-Property $case.requested 'widthDp') -and (Test-Property $case.requested 'heightDp')) { "$($case.requested.widthDp)x$($case.requested.heightDp)" } else { [string]$case.requested.display }
         $lines += "| $($case.id) |  | $requestedWindow /  | $($case.requested.density) / $($case.requested.fontScale) / $($case.requested.theme) / $($case.requested.locale) | $($case.expectedInvariants -join ', ') |  |  |"
     }
-    $lines += @('', '## Required interaction checklist','', '- [ ] Touch named collisions and generic transparent canvas.','- [ ] Mouse primary single-click and double-click.','- [ ] Scroll/click bubbles and reopen choices.','- [ ] Tab, Shift-Tab, arrows, Page Up, Page Down, Enter, Space, Escape, and D-pad.','- [ ] Toggle chrome only through empty stage or its labeled semantic action.','- [ ] Open and close bottom-sheet, side-panel, and full-modal debug presentations.','- [ ] Rotate, resize, and recreate the Activity.','- [ ] TalkBack plus Switch Access or Voice Access; merged and unmerged semantics.','- [ ] Invoke collision custom actions and verify focus recovery.','- [ ] Exercise input IME on Snake and Otacon.','- [ ] Verify passive stall prompt behavior.','- [ ] Verify exact SHIORI coordinate, scope, identifier, button, and source fields; no bubble/surface/chrome leakage.')
+    $lines += @('', '## Required live interaction evidence', '', 'Capture these PNGs after this audit run. The manifest fixes their identities and report-relative paths.', '', '| Interaction evidence | Artifact path | Artifact SHA-256 | Expected invariants | Result | Defect |', '| --- | --- | --- | --- | --- | --- |')
+    foreach ($evidence in $Manifest.interactionEvidence) { $lines += "| $($evidence.id) | $($evidence.artifactPath) |  | $($evidence.expectedInvariants -join ', ') |  |  |" }
+    $lines += @('', '## Required interaction checklist','')
+    foreach ($label in (Get-RequiredInteractionChecklistLabels)) { $lines += "- [ ] $label" }
     $lines | Set-Content -LiteralPath $path -Encoding UTF8
+}
+
+function Assert-CurrentReportPngEvidence([object]$Manifest, [object]$Summary, [object]$ManualRows, [object[]]$InteractionRows, [string]$Root = $reportRoot) {
+    $captureStartedAt = [DateTime]::MinValue
+    if (-not [DateTime]::TryParse([string]$Summary.captureStartedAtUtc, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$captureStartedAt)) { Fail 'Capture summary lacks a valid capture-start timestamp.' 'manual-inspection' }
+    $resultById = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($result in @($Summary.results)) {
+        if ($resultById.ContainsKey([string]$result.id)) { Fail "Duplicate summary result '$($result.id)'." 'manual-inspection' }
+        $resultById.Add([string]$result.id, $result)
+    }
+    $expectedPngs = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($case in $Manifest.cases) {
+        if (-not $resultById.ContainsKey([string]$case.id)) { Fail "Summary lacks result '$($case.id)'." 'manual-inspection' }
+        $result = $resultById[[string]$case.id]
+        if ([string]$result.screenshotPath -cne [string]$case.screenshotPath) { Fail "Summary result '$($case.id)' has a substituted screenshot path." 'manual-inspection' }
+        $screenshotHash = ([string]$result.screenshotSha256).ToLowerInvariant()
+        if (-not $ManualRows.ContainsKey([string]$case.id) -or [string]$ManualRows[[string]$case.id].artifactHash -cne $screenshotHash) { Fail "Manual row '$($case.id)' does not match its summary screenshot hash." 'manual-inspection' }
+        $screenshotPath = ([string]$case.screenshotPath).Replace('/', '\')
+        if ($expectedPngs.ContainsKey($screenshotPath)) { Fail "Duplicate expected PNG '$($case.screenshotPath)'." 'manual-inspection' }
+        $expectedPngs.Add($screenshotPath, $screenshotHash)
+        if (-not [string]::IsNullOrWhiteSpace([string]$case.annotatedPath)) {
+            if ([string]$result.annotatedPath -cne [string]$case.annotatedPath -or [string]$result.annotatedSha256 -notmatch '^[0-9a-f]{64}$') { Fail "Summary result '$($case.id)' lacks its annotated PNG identity/hash." 'manual-inspection' }
+            $annotatedPath = ([string]$case.annotatedPath).Replace('/', '\')
+            if ($expectedPngs.ContainsKey($annotatedPath)) { Fail "Duplicate expected PNG '$($case.annotatedPath)'." 'manual-inspection' }
+            $expectedPngs.Add($annotatedPath, ([string]$result.annotatedSha256).ToLowerInvariant())
+        }
+    }
+    foreach ($row in @($InteractionRows)) {
+        $interactionPath = ([string]$row.artifactPath).Replace('/', '\')
+        if ($expectedPngs.ContainsKey($interactionPath)) { Fail "Duplicate expected PNG '$($row.artifactPath)'." 'manual-inspection' }
+        $expectedPngs.Add($interactionPath, ([string]$row.artifactSha256).ToLowerInvariant())
+    }
+    $actualPngs = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Filter '*.png')
+    if ($actualPngs.Count -ne $expectedPngs.Count) { Fail "Report PNG set must contain exactly $($expectedPngs.Count) files, got $($actualPngs.Count)." 'manual-inspection' }
+    foreach ($png in $actualPngs) {
+        $relativePath = Get-RelativePath -BasePath $Root -ChildPath $png.FullName
+        $safePath = Resolve-SafeReportArtifactPath $Root $relativePath $true
+        if (-not $expectedPngs.ContainsKey($relativePath)) { Fail "Report contains an unexpected PNG '$relativePath'." 'manual-inspection' }
+        Assert-ReportPngHash $Root $relativePath $expectedPngs[$relativePath] | Out-Null
+        if ($relativePath -like 'interaction\*' -and (Get-Item -LiteralPath $safePath).LastWriteTimeUtc -lt $captureStartedAt.ToUniversalTime()) { Fail "Interaction evidence '$relativePath' predates this capture." 'manual-inspection' }
+    }
 }
 
 function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash) {
@@ -796,12 +1140,15 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     Assert-UiAuditManifest $capturedManifest
 
     $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
-    if ($summary.manifestSha256 -ne $ManifestHash -or $summary.expectedCaseCount -ne $expectedCaseCount -or $summary.resultCount -ne $expectedCaseCount) {
+    if ($summary.schemaVersion -ne 2 -or $summary.manifestSha256 -ne $ManifestHash -or $summary.expectedCaseCount -ne $expectedCaseCount -or $summary.resultCount -ne $expectedCaseCount -or $summary.requiredInteractionEvidenceCount -ne $capturedManifest.interactionEvidenceCount) {
         Fail 'Capture summary does not describe the complete current manifest.' 'manual-inspection'
     }
     if ($null -ne $summary.failure -or @($summary.cleanupErrors).Count -ne 0 -or $summary.status -notin @('captured-awaiting-manual-inspection', 'complete')) {
         Fail 'Capture summary contains a run/cleanup failure or an invalid status.' 'manual-inspection'
     }
+    $gitPath = Resolve-Git
+    $currentDebugApk = Resolve-DebugApk
+    Assert-CaptureProvenance $summary.captureProvenance (Get-CurrentCaptureProvenance $gitPath $currentDebugApk)
     $resultById = @{}
     foreach ($result in @($summary.results)) {
         if ($resultById.ContainsKey([string]$result.id)) { Fail "Duplicate summary result '$($result.id)'." 'manual-inspection' }
@@ -813,37 +1160,20 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     $manualText = Get-Content -LiteralPath $manualPath -Raw
     if ($manualText -notmatch '(?im)^Audit status:\s*complete\s*$') { Fail 'Manual inspection must explicitly set Audit status: complete.' 'manual-inspection' }
     if ($manualText -notmatch "(?im)^Manifest SHA-256:\s*$([regex]::Escape($ManifestHash))\s*$") { Fail 'Manual inspection manifest hash is missing or stale.' 'manual-inspection' }
+    $interactionEvidenceRows = @(Get-ManualInteractionEvidenceRows $capturedManifest $manualText)
 
-    $manualRows = @{}
-    foreach ($line in @($manualText -split "`r?`n")) {
-        if ($line -notmatch '^\|') { continue }
-        $cells = @($line.Split('|') | ForEach-Object { $_.Trim() })
-        if ($cells.Count -lt 9) { continue }
-        $caseId = $cells[1]
-        if (-not $resultById.ContainsKey($caseId)) { continue }
-        if ($manualRows.ContainsKey($caseId)) { Fail "Duplicate manual inspection row '$caseId'." 'manual-inspection' }
-        $artifactHash = $cells[2].ToLowerInvariant()
-        $requestedMeasured = $cells[3]
-        $environment = $cells[4]
-        $invariants = $cells[5]
-        $manualResult = $cells[6].ToLowerInvariant()
-        if ($artifactHash -ne ([string]$resultById[$caseId].screenshotSha256).ToLowerInvariant()) { Fail "Manual row '$caseId' has a stale artifact hash." 'manual-inspection' }
-        if ([string]::IsNullOrWhiteSpace($requestedMeasured) -or $requestedMeasured -match '/\s*$') { Fail "Manual row '$caseId' lacks measured window/stage evidence." 'manual-inspection' }
-        if ([string]::IsNullOrWhiteSpace($environment) -or [string]::IsNullOrWhiteSpace($invariants)) { Fail "Manual row '$caseId' lacks environment or invariant evidence." 'manual-inspection' }
-        if ($manualResult -ne 'pass') { Fail "Manual row '$caseId' is not an explicit pass." 'manual-inspection' }
-        $manualRows[$caseId] = $true
-    }
+    $manualRows = Get-ManualAutomatedInspectionRows $resultById $manualText
     if ($manualRows.Count -ne $expectedCaseCount) { Fail "Expected $expectedCaseCount completed manual rows, got $($manualRows.Count)." 'manual-inspection' }
 
-    $expectedChecklistCount = 12
-    $checked = @([regex]::Matches($manualText, '(?im)^- \[[xX]\] ')).Count
-    $unchecked = @([regex]::Matches($manualText, '(?im)^- \[ \] ')).Count
-    if ($checked -ne $expectedChecklistCount -or $unchecked -ne 0) {
-        Fail "Interaction checklist must have exactly $expectedChecklistCount checked items and none unchecked; checked=$checked unchecked=$unchecked." 'manual-inspection'
-    }
+    Assert-CurrentReportPngEvidence $capturedManifest $summary $manualRows $interactionEvidenceRows
+
+    $expectedChecklistCount = @(Get-RequiredInteractionChecklistLabels).Count
+    Assert-ExactInteractionChecklist $manualText
 
     $summary.status = 'complete'
     $summary.manualInspectionComplete = $true
+    $summary.interactionEvidenceCount = $interactionEvidenceRows.Count
+    $summary.interactionEvidence = $interactionEvidenceRows
     $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $summaryPath -Encoding UTF8
     $summaryMarkdown = Get-Content -LiteralPath $summaryMarkdownPath -Raw
     $summaryMarkdown = $summaryMarkdown -replace '(?m)^- Status: .+$', '- Status: complete'
@@ -852,16 +1182,62 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     Write-Host "Manual inspection verified: cases=$expectedCaseCount interactions=$expectedChecklistCount manifest=$ManifestHash"
 }
 
-function Add-Result([object]$Case, [string]$ScreenshotSha, [string]$LayoutSha, [object]$Measured, [object]$Stage, [object]$SourceEvidence) {
-    $script:results.Add([pscustomobject][ordered]@{ id=$Case.id; sourceDriver=$Case.sourceDriver; screenshotPath=$Case.screenshotPath; screenshotSha256=$ScreenshotSha; layoutPath=$Case.layoutPath; layoutSha256=$LayoutSha; annotatedPath=$Case.annotatedPath; requested=$Case.requested; measured=$Measured; stage=$Stage; theme=$script:originalState.theme; locale=$script:originalState.locale; expectedInvariants=$Case.expectedInvariants; sourceEvidence=$SourceEvidence; manualResult=$null; defect=$null }) | Out-Null
+function Add-Result([object]$Case, [string]$ScreenshotSha, [string]$LayoutSha, [object]$Measured, [object]$Stage, [object]$SourceEvidence, [string]$AnnotatedSha = $null) {
+    $script:results.Add([pscustomobject][ordered]@{ id=$Case.id; sourceDriver=$Case.sourceDriver; screenshotPath=$Case.screenshotPath; screenshotSha256=$ScreenshotSha; layoutPath=$Case.layoutPath; layoutSha256=$LayoutSha; annotatedPath=$Case.annotatedPath; annotatedSha256=$AnnotatedSha; requested=$Case.requested; measured=$Measured; stage=$Stage; theme=$script:originalState.theme; locale=$script:originalState.locale; expectedInvariants=$Case.expectedInvariants; sourceEvidence=$SourceEvidence; manualResult=$null; defect=$null }) | Out-Null
 }
 
 function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     Assert-UiAuditManifest $Manifest
     $again=New-UiAuditManifest; $againHash=Get-StringSha256 (ConvertTo-CanonicalManifestJson $again)
     if ($ManifestHash -ne $againHash) { Fail 'Manifest generation is not deterministic.' 'dry-run' }
+    Assert-InteractionEvidenceManifestContract $Manifest
+    foreach ($mutation in @('missing', 'substituted', 'duplicated', 'extra')) {
+        $mutatedManifest = $Manifest | ConvertTo-Json -Depth 16 | ConvertFrom-Json
+        switch ($mutation) {
+            'missing' { $mutatedManifest.interactionEvidence = @($mutatedManifest.interactionEvidence | Select-Object -First 1) }
+            'substituted' { $mutatedManifest.interactionEvidence[0].id = 'substituted-evidence' }
+            'duplicated' { $mutatedManifest.interactionEvidence[1].id = $mutatedManifest.interactionEvidence[0].id }
+            'extra' { $mutatedManifest.interactionEvidence = @($mutatedManifest.interactionEvidence) + $mutatedManifest.interactionEvidence[0] }
+        }
+        $mutatedManifest.interactionEvidenceCount = @($mutatedManifest.interactionEvidence).Count
+        $failed = $false
+        try { Assert-InteractionEvidenceManifestContract $mutatedManifest } catch { $failed = $true }
+        if (-not $failed) { Fail "Interaction evidence manifest $mutation probe unexpectedly passed." 'dry-run' }
+    }
+    $interactionEvidenceHeader = '| Interaction evidence | Artifact path | Artifact SHA-256 | Expected invariants | Result | Defect |'
+    $interactionEvidenceRows = @($Manifest.interactionEvidence | ForEach-Object { "| $($_.id) | $($_.artifactPath) | $('a' * 64) | $($_.expectedInvariants -join ', ') | pass |  |" })
+    $validInteractionEvidenceTable = (@($interactionEvidenceHeader, '| --- | --- | --- | --- | --- | --- |') + $interactionEvidenceRows) -join "`n"
+    $parsedInteractionEvidence = @(Get-ManualInteractionEvidenceRows $Manifest $validInteractionEvidenceTable)
+    if ($parsedInteractionEvidence.Count -ne 2) { Fail 'Valid manual interaction-evidence table probe did not return two rows.' 'dry-run' }
+    foreach ($mutation in @('missing', 'substituted-path', 'substituted-invariants', 'failed', 'defect')) {
+        $mutatedRows = @($interactionEvidenceRows)
+        switch ($mutation) {
+            'missing' { $mutatedRows = @($mutatedRows | Select-Object -First 1) }
+            'substituted-path' { $mutatedRows[0] = $mutatedRows[0].Replace('interaction\extracted-choice-surface.png', 'interaction\substituted.png') }
+            'substituted-invariants' { $mutatedRows[0] = $mutatedRows[0].Replace('fresh-current-build, choice-surface-extracted, choices-visible', 'substituted') }
+            'failed' { $mutatedRows[0] = $mutatedRows[0].Replace('| pass |', '| fail |') }
+            'defect' { $mutatedRows[0] = $mutatedRows[0].Replace('| pass |  |', '| pass | visible defect |') }
+        }
+        $failed = $false
+        try { Get-ManualInteractionEvidenceRows $Manifest ((@($interactionEvidenceHeader, '| --- | --- | --- | --- | --- | --- |') + $mutatedRows) -join "`n") | Out-Null } catch { $failed = $true }
+        if (-not $failed) { Fail "Manual interaction evidence $mutation probe unexpectedly passed." 'dry-run' }
+    }
     $bounds=ConvertFrom-LayoutBounds '[1,2][3,5]'; if ($bounds.width -ne 2 -or $bounds.height -ne 3) { Fail 'Bounds parser probe failed.' 'dry-run' }
     foreach($bad in @('..\escape.png','C:\escape.png','bad path.png')) { $failed=$false; try { Assert-SafeReportRelativePath $bad } catch { $failed=$true }; if(-not $failed){Fail "Unsafe path probe unexpectedly passed '$bad'." 'dry-run'} }
+    $pngProbeRoot = Join-Path $repoRoot ".superpowers\ui-audit-png-probe-$([guid]::NewGuid().ToString('N'))"
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $pngProbeRoot 'nested') | Out-Null
+        $pngProbePath = Join-Path $pngProbeRoot 'nested\probe.png'
+        [IO.File]::WriteAllBytes($pngProbePath, [byte[]](0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x01))
+        $pngProbeHash = (Get-FileHash -LiteralPath $pngProbePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        Assert-ReportPngHash $pngProbeRoot 'nested\probe.png' $pngProbeHash | Out-Null
+        [IO.File]::WriteAllBytes($pngProbePath, [byte[]](0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0x02))
+        $failed = $false
+        try { Assert-ReportPngHash $pngProbeRoot 'nested\probe.png' $pngProbeHash | Out-Null } catch { $failed = $true }
+        if (-not $failed) { Fail 'Tampered report PNG hash probe unexpectedly passed.' 'dry-run' }
+    } finally {
+        if (Test-Path -LiteralPath $pngProbeRoot) { Remove-Item -LiteralPath $pngProbeRoot -Recurse -Force }
+    }
     $quoted=ConvertTo-WindowsCommandLineArgument 'label with spaces'; if($quoted -ne '"label with spaces"'){Fail 'Argument quoting probe failed.' 'dry-run'}
     $timeout=[Diagnostics.Stopwatch]::StartNew(); $proc=Invoke-Native -FilePath (Get-Process -Id $PID).Path -Arguments @('-NoProfile','-Command','exit 0') -TimeoutSeconds 20; $timeout.Stop(); if($proc.exitCode -ne 0 -or $timeout.Elapsed.TotalSeconds -ge 20){Fail 'Process/timeout helper probe failed.' 'dry-run'}
     $drainProbeCommand='$child=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @(''-NoProfile'',''-Command'',''Start-Sleep -Seconds 4'') -NoNewWindow -PassThru; exit 0'
@@ -913,6 +1289,70 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $transportBefore=$script:adbTransportDead; if(-not ( -not $transportBefore)){Fail 'Transport-dead initial probe failed.' 'dry-run'}
     $pngSig=[BitConverter]::ToString([byte[]](0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a)); if($pngSig -ne '89-50-4E-47-0D-0A-1A-0A'){Fail 'PNG signature probe failed.' 'dry-run'}
     $roundTrip=($Manifest | ConvertTo-Json -Depth 16 | ConvertFrom-Json); Assert-UiAuditManifest $roundTrip
+    $manualTableHeader = '| Case | Artifact SHA-256 | Requested / measured window and stage | Density / font / theme / locale | Expected invariants | Result | Defect |'
+    $wrongColumnResult = "$manualTableHeader`n| case-one | hash | pass | environment | invariants |  |  |"
+    $actualColumnResult = "$manualTableHeader`n| case-one | $('a' * 64) | requested / measured | environment | invariants | pass |  |"
+    if (Test-ManualInspectionHasRecordedResult $wrongColumnResult) { Fail 'Non-Result-column pass probe unexpectedly counted as a recorded result.' 'dry-run' }
+    if (-not (Test-ManualInspectionHasRecordedResult $actualColumnResult)) { Fail 'Actual Result-column pass probe was not detected.' 'dry-run' }
+    $manualResultById = @{ 'case-one' = [pscustomobject]@{ screenshotSha256 = ('a' * 64) } }
+    $validManualRows = Get-ManualAutomatedInspectionRows $manualResultById $actualColumnResult
+    if ($validManualRows.Count -ne 1 -or [string]$validManualRows['case-one'].defect -cne '') { Fail 'Valid automated manual-row Defect parsing probe failed.' 'dry-run' }
+    $defectBearingPass = "$manualTableHeader`n| case-one | $('a' * 64) | requested / measured | environment | invariants | pass | visible defect |"
+    $failed = $false
+    try { Get-ManualAutomatedInspectionRows $manualResultById $defectBearingPass | Out-Null } catch { $failed = $true }
+    if (-not $failed) { Fail 'Automated manual row passed with a non-empty Defect cell.' 'dry-run' }
+    $capturedProvenance = [pscustomobject]@{
+        gitHead = '1111111111111111111111111111111111111111'
+        trackedWorktreeClean = $true
+        debugApkPath = 'build\outputs\apk\debug\nanidroid-debug.apk'
+        debugApkSha256 = ('a' * 64)
+    }
+    Assert-CaptureProvenance $capturedProvenance $capturedProvenance
+    foreach ($mutation in @('head', 'dirty', 'missing-apk', 'apk-path', 'apk-hash')) {
+        $currentProvenance = $capturedProvenance | ConvertTo-Json | ConvertFrom-Json
+        switch ($mutation) {
+            'head' { $currentProvenance.gitHead = '2222222222222222222222222222222222222222' }
+            'dirty' { $currentProvenance.trackedWorktreeClean = $false }
+            'missing-apk' { $currentProvenance.debugApkSha256 = $null }
+            'apk-path' { $currentProvenance.debugApkPath = 'build\outputs\apk\debug\other.apk' }
+            'apk-hash' { $currentProvenance.debugApkSha256 = ('b' * 64) }
+        }
+        $failed = $false
+        try { Assert-CaptureProvenance $capturedProvenance $currentProvenance } catch { $failed = $true }
+        if (-not $failed) { Fail "Capture provenance $mutation probe unexpectedly passed." 'dry-run' }
+    }
+    $interactionLabels = @(
+        'Touch named collisions and generic transparent canvas.',
+        'Mouse primary single-click and double-click.',
+        'Scroll/click bubbles and reopen choices.',
+        'Tab, Shift-Tab, arrows, Page Up, Page Down, Enter, Space, Escape, and D-pad.',
+        'Toggle chrome only through empty stage or its labeled semantic action.',
+        'Open and close bottom-sheet, side-panel, and full-modal debug presentations.',
+        'Rotate, resize, and recreate the Activity.',
+        'TalkBack plus Switch Access or Voice Access; merged and unmerged semantics.',
+        'Invoke collision custom actions and verify focus recovery.',
+        'Exercise input IME on Snake and Otacon.',
+        'Verify passive stall prompt behavior.',
+        'Verify exact SHIORI event identity, coordinate, scope, identifier, button, and source fields; no bubble/surface/chrome leakage.'
+    )
+    $checkedInteractionLines = @($interactionLabels | ForEach-Object { "- [x] $_" })
+    Assert-ExactInteractionChecklist ($checkedInteractionLines -join "`n")
+    Assert-ExactInteractionChecklist (@($checkedInteractionLines[11..0]) -join "`n")
+    $invalidInteractionChecklists = [ordered]@{
+        missing = @($checkedInteractionLines[0..10])
+        substituted = @($checkedInteractionLines)
+        duplicated = @($checkedInteractionLines)
+        extra = @($checkedInteractionLines) + '- [x] Unexpected interaction.'
+        unchecked = @($checkedInteractionLines)
+    }
+    $invalidInteractionChecklists.substituted[4] = '- [x] Substituted interaction.'
+    $invalidInteractionChecklists.duplicated[4] = $checkedInteractionLines[3]
+    $invalidInteractionChecklists.unchecked[4] = $invalidInteractionChecklists.unchecked[4].Replace('[x]', '[ ]')
+    foreach ($probe in $invalidInteractionChecklists.GetEnumerator()) {
+        $failed = $false
+        try { Assert-ExactInteractionChecklist (@($probe.Value) -join "`n") } catch { $failed = $true }
+        if (-not $failed) { Fail "Interaction checklist $($probe.Key) probe unexpectedly passed." 'dry-run' }
+    }
     $restoreProbe=[pscustomobject]@{ sizeMode='reset'; densityMode='override'; fontMode='delete'; rotationOrder=@('auto','user'); networkOrder=@('data','wifi') }; if($restoreProbe.fontMode -ne 'delete' -or $restoreProbe.rotationOrder.Count -ne 2){Fail 'Restore-plan probe failed.' 'dry-run'}
     if ((Get-CorpusInputKind -IsContainer $false -Extension '.nar') -ne 'archive') { Fail 'Standalone NAR corpus-input probe failed.' 'dry-run' }
     if ((Get-CorpusInputKind -IsContainer $true -Extension '') -ne 'directory') { Fail 'Directory corpus-input probe failed.' 'dry-run' }
@@ -926,10 +1366,42 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     if ((Get-ExternalDataProbeState 1 '' 'No such file or directory') -ne 'absent') { Fail 'Missing external-data probe failed.' 'dry-run' }
     if ((Get-ExternalDataProbeState 0 '/sdcard/Android/data/example' '') -ne 'present') { Fail 'Present external-data probe failed.' 'dry-run' }
     if ((Get-ExternalDataProbeState 1 '' 'Permission denied') -ne 'unknown') { Fail 'Unknown external-data probe failed.' 'dry-run' }
-    $xmlBounds=Get-GhostStageBoundsFromUiAutomatorXmlText '<hierarchy><node resource-id="ghost-stage" bounds="[1,2][8,9]" /></hierarchy>'
-    if ($xmlBounds.width -ne 7 -or $xmlBounds.height -ne 7) { Fail 'UiAutomator bounds probe failed.' 'dry-run' }
-    $windowBounds=Get-WindowBoundsFromUiAutomatorXmlText '<hierarchy><node bounds="[0,0][720,360]" /></hierarchy>'
-    if ($windowBounds.width -ne 720 -or $windowBounds.height -ne 360) { Fail 'UiAutomator window-bounds probe failed.' 'dry-run' }
+    $safeStageLayoutJson = '[{"resource-id":"list-ghost","center":"[50,10]"},{"resource-id":"surface-kero","center":"[20,30]"},{"resource-id":"surface-sakura","center":"[70,30]"}]'
+    $safeStageXml = '<hierarchy><node bounds="[0,0][100,100]"><node resource-id="ghost-safe-stage" bounds="[0,0][100,100]" /><node resource-id="list-ghost" bounds="[40,0][60,20]" /><node resource-id="surface-kero" bounds="[10,20][30,40]" /><node resource-id="surface-sakura" bounds="[60,20][81,41]" /></node></hierarchy>'
+    $safeStageBounds = Get-VerifiedGhostSafeStageBounds $safeStageLayoutJson $safeStageXml -ExpectCharacterSurfaces $true
+    if ($safeStageBounds.width -ne 100 -or $safeStageBounds.height -ne 100) { Fail 'Dual-source surface-center/safe-stage bounds probe failed.' 'dry-run' }
+    $tinyLayoutJson = '[{"resource-id":"list-ghost","center":"[50,10]"}]'
+    $tinyLayoutXml = '<hierarchy><node bounds="[0,0][100,100]"><node resource-id="ghost-safe-stage" bounds="[0,0][100,100]" /><node resource-id="list-ghost" bounds="[40,0][60,20]" /></node></hierarchy>'
+    $tinySafeStageBounds = Get-VerifiedGhostSafeStageBounds $tinyLayoutJson $tinyLayoutXml -ExpectCharacterSurfaces $false
+    if ($tinySafeStageBounds.width -ne 100 -or $tinySafeStageBounds.height -ne 100) { Fail 'Tiny fallback dual-source anchor/safe-stage probe failed.' 'dry-run' }
+    $invalidSafeStagePairs = [ordered]@{
+        missingSafeStageXml = @($safeStageLayoutJson, $safeStageXml.Replace('<node resource-id="ghost-safe-stage" bounds="[0,0][100,100]" />', ''))
+        duplicateSafeStageXml = @($safeStageLayoutJson, $safeStageXml.Replace('<node resource-id="ghost-safe-stage" bounds="[0,0][100,100]" />', '<node resource-id="ghost-safe-stage" bounds="[0,0][100,100]" /><node resource-id="ghost-safe-stage" bounds="[0,0][100,100]" />'))
+        missingJsonAnchor = @($safeStageLayoutJson.Replace('{"resource-id":"list-ghost","center":"[50,10]"},', ''), $safeStageXml)
+        duplicateXmlAnchor = @($safeStageLayoutJson, $safeStageXml.Replace('<node resource-id="list-ghost" bounds="[40,0][60,20]" />', '<node resource-id="list-ghost" bounds="[40,0][60,20]" /><node resource-id="list-ghost" bounds="[40,0][60,20]" />'))
+        mismatchedAnchor = @($safeStageLayoutJson.Replace('[50,10]', '[51,10]'), $safeStageXml)
+        missingJsonSurface = @('[{"resource-id":"list-ghost","center":"[50,10]"},{"resource-id":"surface-kero","center":"[20,30]"}]', $safeStageXml)
+        duplicateJsonSurface = @($safeStageLayoutJson.Replace('{"resource-id":"surface-kero","center":"[20,30]"}', '{"resource-id":"surface-kero","center":"[20,30]"},{"resource-id":"surface-kero","center":"[20,30]"}'), $safeStageXml)
+        missingXmlSurface = @($safeStageLayoutJson, $safeStageXml.Replace('<node resource-id="surface-sakura" bounds="[60,20][81,41]" />', ''))
+        duplicateXmlSurface = @($safeStageLayoutJson, $safeStageXml.Replace('<node resource-id="surface-sakura" bounds="[60,20][81,41]" />', '<node resource-id="surface-sakura" bounds="[60,20][81,41]" /><node resource-id="surface-sakura" bounds="[60,20][81,41]" />'))
+        mismatchedCenter = @($safeStageLayoutJson.Replace('[20,30]', '[21,30]'), $safeStageXml)
+        outsideSafeStage = @($safeStageLayoutJson.Replace('[70,30]', '[120,30]'), $safeStageXml.Replace('[60,20][81,41]', '[110,20][131,41]'))
+    }
+    foreach ($probe in $invalidSafeStagePairs.GetEnumerator()) {
+        $failed = $false
+        try { Get-VerifiedGhostSafeStageBounds $probe.Value[0] $probe.Value[1] -ExpectCharacterSurfaces $true | Out-Null } catch { $failed = $true }
+        if (-not $failed) { Fail "Dual-source surface/safe-stage $($probe.Key) probe unexpectedly passed." 'dry-run' }
+    }
+    foreach ($probe in ([ordered]@{
+        jsonSurfacePresent = @('[{"resource-id":"list-ghost","center":"[50,10]"},{"resource-id":"surface-kero","center":"[20,30]"}]', $tinyLayoutXml)
+        xmlSurfacePresent = @($tinyLayoutJson, $tinyLayoutXml.Replace('</node></hierarchy>', '<node resource-id="surface-kero" bounds="[10,20][30,40]" /></node></hierarchy>'))
+    }).GetEnumerator()) {
+        $failed = $false
+        try { Get-VerifiedGhostSafeStageBounds $probe.Value[0] $probe.Value[1] -ExpectCharacterSurfaces $false | Out-Null } catch { $failed = $true }
+        if (-not $failed) { Fail "Tiny fallback $($probe.Key) probe unexpectedly passed." 'dry-run' }
+    }
+    $windowBounds=Get-WindowBoundsFromUiAutomatorXmlText $safeStageXml
+    if ($windowBounds.width -ne 100 -or $windowBounds.height -ne 100) { Fail 'UiAutomator window-bounds probe failed.' 'dry-run' }
     if ((Get-DisplayOrientationFromDump "header`nmCurrentOrientation=3`nfooter") -ne '3') { Fail 'Display-orientation parser probe failed.' 'dry-run' }
     $logical=Get-LogicalDisplaySizeFromWindowDump 'init=1080x2400 base=720x360 cur=720x360 app=720x360'
     if ($logical.width -ne 720 -or $logical.height -ne 360) { Fail 'Logical display-size parser probe failed.' 'dry-run' }
@@ -958,6 +1430,18 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     foreach($rep in (Get-UiAuditRepresentatives)){if(@($narManifest.entries|Where-Object{$_.label -ceq $rep.label -and $_.sha256 -ceq $rep.sha256}).Count -ne 1){Fail "Dry-run NAR label/SHA probe failed for '$($rep.label)'." 'dry-run'}}
     $resolvedDryRunCorpus=@(Assert-CorpusInputs $narManifest)
     if($resolvedDryRunCorpus.Count-ne $CorpusRoots.Count){Fail "Dry-run corpus preflight expected $($CorpusRoots.Count) resolved roots, got $($resolvedDryRunCorpus.Count)." 'dry-run'}
+    $interactionPreflightRoot = Join-Path $repoRoot ".superpowers\ui-audit-interaction-preflight-$([guid]::NewGuid().ToString('N'))"
+    try {
+        Assert-RequiredInteractionEvidenceAbsent $Manifest $interactionPreflightRoot
+        $existingInteractionPath = Resolve-SafeReportArtifactPath $interactionPreflightRoot $Manifest.interactionEvidence[0].artifactPath $false
+        New-Item -ItemType Directory -Force -Path (Split-Path $existingInteractionPath -Parent) | Out-Null
+        Set-Content -LiteralPath $existingInteractionPath -Value 'existing evidence' -Encoding UTF8
+        $failed = $false
+        try { Assert-RequiredInteractionEvidenceAbsent $Manifest $interactionPreflightRoot } catch { $failed = $true }
+        if (-not $failed) { Fail 'Pre-existing interaction-evidence path probe unexpectedly passed.' 'dry-run' }
+    } finally {
+        if (Test-Path -LiteralPath $interactionPreflightRoot) { Remove-Item -LiteralPath $interactionPreflightRoot -Recurse -Force }
+    }
     Write-Host "Dry-run passed: schemaVersion=$($Manifest.schemaVersion), caseSetVersion=$($Manifest.caseSetVersion), cases=$($Manifest.caseCount), sha256=$ManifestHash"
     Write-Host 'Dry-run made no build, device, emulator, or report mutations.'
 }
@@ -979,7 +1463,7 @@ try {
     $narManifest=Get-Content -LiteralPath (Join-Path $repoRoot $ManifestPath) -Raw | ConvertFrom-Json
     $resolvedCorpusRoots=Assert-CorpusInputs $narManifest
     $manualPath=Join-Path $reportRoot 'manual-inspection.md'
-    if(Test-Path -LiteralPath $manualPath){$existing=Get-Content -LiteralPath $manualPath -Raw;if($existing -match '(?im)^Audit status:\s*complete\s*$' -or $existing -match '(?im)^\|[^|]+\|[^|]+\|[^|]+\|\s*(pass|fail)\s*\|'){Fail 'Refusing completed checklist overwrite.' 'report'}}
+    if(Test-Path -LiteralPath $manualPath){$existing=Get-Content -LiteralPath $manualPath -Raw;if($existing -match '(?im)^Audit status:\s*complete\s*$' -or (Test-ManualInspectionHasRecordedResult $existing)){Fail 'Refusing completed checklist overwrite.' 'report'}}
 
     $script:resolvedAdb=Resolve-SdkTool $AdbPath 'platform-tools\adb.exe' 'adb'
     $script:resolvedEmulator=Resolve-SdkTool $EmulatorPath 'emulator\emulator.exe' 'emulator'
@@ -995,10 +1479,16 @@ try {
     if(-not $avdDir){Fail "Existing AVD directory '$AvdName.avd' was not found." 'device'}
     $snapshotDir=Join-Path $avdDir "snapshots\$SnapshotName"; if(-not(Test-Path -LiteralPath $snapshotDir -PathType Container)){Fail "Existing snapshot '$SnapshotName' was not found; runner never creates/deletes snapshots." 'device'}
 
+    $gitPath=Resolve-Git
+    $repositoryBeforeBuild=Get-TrackedRepositoryState $gitPath
     $gradle=Join-Path $repoRoot 'gradlew.bat'; Invoke-Native -FilePath $gradle -Arguments @('assembleDebug','validateDebugScreenshotTest','--console=plain') -TimeoutSeconds ($BuildTimeoutMinutes*60) | Out-Null
     $debugApk=Resolve-DebugApk
+    $script:captureProvenance=Get-CurrentCaptureProvenance $gitPath $debugApk
+    if ($script:captureProvenance.gitHead -cne $repositoryBeforeBuild.gitHead) { Fail 'Repository HEAD changed during the audit build.' 'git' }
 
+    Assert-RequiredInteractionEvidenceAbsent $uiManifest $reportRoot
     New-Item -ItemType Directory -Force -Path $reportRoot | Out-Null; $script:reportInitialized=$true
+    $script:captureStartedAtUtc=[DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
     [IO.File]::WriteAllText((Join-Path $reportRoot 'case-manifest.json'), $canonicalManifest, [Text.UTF8Encoding]::new($false))
     Set-Content -LiteralPath (Join-Path $reportRoot 'case-manifest.sha256') -Value $uiManifestHash -Encoding Ascii
     New-ManualInspectionTemplate $uiManifest $uiManifestHash
@@ -1035,11 +1525,11 @@ try {
         Invoke-Native -FilePath $script:resolvedAndroidCli -Arguments @('screen','capture','-a',"--device=$DeviceSerial",'-o',$annotated) -TimeoutSeconds 60 -Transport adb-owner|Out-Null
         if((Get-Item -LiteralPath $layout).Length -le 2){Fail "Empty layout capture for '$($case.id)'." 'artifact'}
         if((Get-Item -LiteralPath $uiAutomatorLayout).Length -le 2){Fail "Empty UiAutomator layout capture for '$($case.id)'." 'artifact'}
-        $uiAutomatorXmlText=Get-Content -LiteralPath $uiAutomatorLayout -Raw;$stage=Get-GhostStageBoundsFromLayout $layout $uiAutomatorLayout;$windowBounds=Get-WindowBoundsFromUiAutomatorXmlText $uiAutomatorXmlText
+        $layoutJsonText=Get-Content -LiteralPath $layout -Raw;$uiAutomatorXmlText=Get-Content -LiteralPath $uiAutomatorLayout -Raw;$stage=Get-VerifiedGhostSafeStageBounds $layoutJsonText $uiAutomatorXmlText -ExpectCharacterSurfaces ([bool]$case.requested.expectCharacterSurfaces);$windowBounds=Get-WindowBoundsFromUiAutomatorXmlText $uiAutomatorXmlText
         if($windowBounds.width-ne$wm.logicalWidth-or$windowBounds.height-ne$wm.logicalHeight){Fail "UiAutomator window $($windowBounds.width)x$($windowBounds.height) differs from settled logical display $($wm.logicalWidth)x$($wm.logicalHeight)." 'layout'}
-        $shotHash=Assert-Png $shot;$null=Assert-Png $annotated;$layoutHash=(Get-FileHash -LiteralPath $layout -Algorithm SHA256).Hash.ToLowerInvariant();$uiAutomatorLayoutHash=(Get-FileHash -LiteralPath $uiAutomatorLayout -Algorithm SHA256).Hash.ToLowerInvariant()
+        $shotHash=Assert-Png $shot;$annotatedHash=Assert-Png $annotated;$layoutHash=(Get-FileHash -LiteralPath $layout -Algorithm SHA256).Hash.ToLowerInvariant();$uiAutomatorLayoutHash=(Get-FileHash -LiteralPath $uiAutomatorLayout -Algorithm SHA256).Hash.ToLowerInvariant()
         $measured=[pscustomobject]@{widthPx=$windowBounds.width;heightPx=$windowBounds.height;density=$wm.effectiveDensity;widthDp=[Math]::Round($windowBounds.width*160/$wm.effectiveDensity,2);heightDp=[Math]::Round($windowBounds.height*160/$wm.effectiveDensity,2);fontScale=$case.requested.fontScale}
-        Add-Result $case $shotHash $layoutHash $measured $stage ([pscustomobject]@{apkSha256=(Get-FileHash $debugApk -Algorithm SHA256).Hash.ToLowerInvariant();uiAutomatorLayoutPath=Get-RelativePath $reportRoot $uiAutomatorLayout;uiAutomatorLayoutSha256=$uiAutomatorLayoutHash})
+        Add-Result $case $shotHash $layoutHash $measured $stage ([pscustomobject]@{apkSha256=(Get-FileHash $debugApk -Algorithm SHA256).Hash.ToLowerInvariant();uiAutomatorLayoutPath=Get-RelativePath $reportRoot $uiAutomatorLayout;uiAutomatorLayoutSha256=$uiAutomatorLayoutHash}) $annotatedHash
     }
 
     $uninstallResult=Invoke-Adb @('uninstall',$targetPackage) 120

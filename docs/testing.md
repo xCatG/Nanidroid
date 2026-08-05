@@ -183,8 +183,9 @@ pattern. Normal `finally` cleanup stops the watchdog first, restores device
 state, asks the owned emulator to exit, and then enforces exact-tree cleanup.
 Failure to establish the watchdog handshake aborts the audit.
 
-The versioned, deterministic 67-case manifest is generated before capture and
-combines three authoritative sources (12 live profiles, 34 fixtures, and 21 NAR
+The versioned, deterministic manifest contains 67 automated cases plus 2
+required fresh live interaction artifacts. The automated cases combine three
+authoritative sources (12 live profiles, 34 fixtures, and 21 NAR
 representative/profile cases):
 
 - live production `CatTailApplication` captures through Android CLI at the eight
@@ -198,10 +199,18 @@ representative/profile cases):
 
 The live path uses Android CLI `run`, `layout --pretty`, `screen capture`, and
 annotated `screen capture -a`. For every live case it also runs `uiautomator
-dump`, retains the pulled XML beside the Android CLI layout as
-`<case>.layout.uiautomator.xml`, and reads the measured `ghost-stage` bounds from
-that XML. A missing or ambiguous stage resource ID, empty XML, or root bounds
-that disagree with the settled logical display is a failure. NAR cases use the
+dump` and retains the pulled XML beside the Android CLI layout as
+`<case>.layout.uiautomator.xml`. UiAutomator XML must contain exactly one
+`ghost-safe-stage`, whose exact bounds become the measured stage. Independently,
+the Android CLI JSON and UiAutomator XML must each contain exactly one
+`list-ghost`; the CLI integer center must equal the floor center of the XML
+bounds. Normal live profiles apply the same independent center/bounds check to
+exactly one `surface-kero` and `surface-sakura` and require both verified centers
+inside the safe stage. The 480x230 and 230x400 tiny fallback profiles explicitly
+require both surface nodes to be absent from both sources while retaining the
+toolbar-anchor cross-check. A missing or duplicate required node, wrong tiny-mode
+presence, mismatched center, out-of-stage surface center, empty capture, or root
+bounds that disagree with the settled logical display is a failure. NAR cases use the
 Task 17 probe's measured layout and screenshot evidence and do not claim an
 Android CLI annotation that was never produced. Each Task 17 invocation has a
 180-minute parent budget so it exceeds the build plus all 23 five-minute child
@@ -215,26 +224,39 @@ Generated evidence is under `build/reports/ui-audit/` and must not be committed:
 - `case-manifest.json` and its SHA-256 in `summary.json`;
 - `live/`, `fixtures/`, and `nar/<profile>/` screenshots, annotations, layouts,
   retained Task 17 summaries, and per-representative result evidence;
+- `interaction/extracted-choice-surface.png` and
+  `interaction/snake-otacon-input-ime-visible.png`, captured manually after the
+  automated run at the exact manifest-declared paths;
 - `summary.json` and `summary.md`; and
 - `manual-inspection.md`.
 
 The capture command exits after writing `captured-awaiting-manual-inspection`;
 that status is not a passing audit. The executing reviewer owns
 `manual-inspection.md`. Open every fresh PNG at its original resolution and fill
-one result row per manifest case, including the exact screenshot SHA-256 and the
-requested/measured window and stage evidence. Set `Audit status: complete` only
-after every row is an explicit `pass`. Then complete the
+one result row per automated manifest case, including the exact screenshot
+SHA-256 and the requested/measured window and stage evidence. An automated row
+marked `pass` must have an empty Defect cell. Capture the two
+required interaction PNGs from the current build, then fill their exact manifest
+identity, path, SHA-256, invariant text, explicit `pass`, and empty Defect cell
+in the separate interaction-evidence table. Set `Audit status: complete` only
+after all 67 automated rows and both interaction rows are explicit passes. Then complete the
 interaction checklist for touch, mouse single/double click, keyboard and D-pad,
 bubble scrolling/actions, debug presentations, rotation/recreation, input IME,
 the passive stall prompt, TalkBack plus Switch Access or Voice Access, collision
-custom actions, focus recovery, and exact SHIORI diagnostics. The audit fails on
+custom actions, focus recovery, and exact SHIORI event identity and diagnostics. The audit fails on
 case-count mismatch or any unresolved visual/interaction result; automated pixel
 comparison is supporting evidence, not a substitute for this inspection.
 
-Finish with the fail-closed verifier. It checks the current manifest hash, the
-capture summary and cleanup status, all 67 unique artifact rows, all 12 interaction
-checks, and refuses any blank, stale, duplicate, unchecked, or non-pass result. It
-is the only mode that changes the summary status to `complete`:
+Capture and completion both require a clean tracked worktree. The capture summary
+records the exact git HEAD, resolved debug APK path and SHA-256, and capture start
+time. Before report initialization, capture preflights both required interaction
+paths; an accidental rerun with either artifact already present aborts without
+rewriting the prior summary in `finally`. Finish with the fail-closed verifier. It requires the same current HEAD and
+APK, rehashes the exact current report PNG set (67 screenshots, 12 annotations,
+and 2 fresh interaction artifacts), rejects extra or stale PNGs, checks all 67
+automated rows, both interaction-evidence rows, and all 12 exact checklist labels,
+and refuses any blank, stale, duplicate, unchecked, defect-bearing, or non-pass
+result. It is the only mode that changes the summary status to `complete`:
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 `
