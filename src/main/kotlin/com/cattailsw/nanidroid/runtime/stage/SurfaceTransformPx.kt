@@ -719,21 +719,69 @@ data class StageLayoutPx(
                     roundDp(rect.bottom.value, density),
                 )
             }
+            val content = requireNotNull(layout.content.rounded())
+            val keroLane = layout.keroLane.rounded()
+            val sakuraLane = layout.sakuraLane.rounded()
+            val keroBubble = layout.keroBubble.rounded()
+            val sakuraBubble = layout.sakuraBubble.rounded()
+            val keroSurfaceRegion = layout.keroSurfaceRegion.rounded()
+            val sakuraSurfaceRegion = layout.sakuraSurfaceRegion.rounded()
             return StageLayoutPx(
                 mode = layout.mode,
-                content = requireNotNull(layout.content.rounded()),
-                keroLane = layout.keroLane.rounded(),
-                sakuraLane = layout.sakuraLane.rounded(),
-                keroBubble = layout.keroBubble.rounded(),
-                sakuraBubble = layout.sakuraBubble.rounded(),
-                keroSurfaceRegion = layout.keroSurfaceRegion.rounded(),
-                sakuraSurfaceRegion = layout.sakuraSurfaceRegion.rounded(),
-                keroSurface = layout.keroSurface.rounded(),
-                sakuraSurface = layout.sakuraSurface.rounded(),
+                content = content,
+                keroLane = keroLane,
+                sakuraLane = sakuraLane,
+                keroBubble = keroBubble,
+                sakuraBubble = sakuraBubble,
+                keroSurfaceRegion = keroSurfaceRegion,
+                sakuraSurfaceRegion = sakuraSurfaceRegion,
+                keroSurface = repairCollapsedSurface(
+                    authored = layout.keroSurface,
+                    rounded = layout.keroSurface.rounded(),
+                    content = content,
+                    surfaceRegion = keroSurfaceRegion,
+                    lane = keroLane,
+                ),
+                sakuraSurface = repairCollapsedSurface(
+                    authored = layout.sakuraSurface,
+                    rounded = layout.sakuraSurface.rounded(),
+                    content = content,
+                    surfaceRegion = sakuraSurfaceRegion,
+                    lane = sakuraLane,
+                ),
                 stageToRoot = stageToRoot,
             )
         }
     }
+}
+
+/** Keeps a non-empty authored surface measurable when final edge rounding collapses an axis. */
+private fun repairCollapsedSurface(
+    authored: StageDpRect?,
+    rounded: IntRect?,
+    content: IntRect,
+    surfaceRegion: IntRect?,
+    lane: IntRect?,
+): IntRect? {
+    if (authored == null || rounded == null || authored.width.value <= 0f || authored.height.value <= 0f) {
+        return rounded
+    }
+    val constraints = listOfNotNull(content, surfaceRegion, lane)
+    fun IntRect.isContained() = constraints.all { constraint ->
+        left >= constraint.left && top >= constraint.top &&
+            right <= constraint.right && bottom <= constraint.bottom
+    }
+    fun IntRect.repairWidth(): IntRect? = listOfNotNull(
+        takeIf { left < Int.MAX_VALUE }?.let { IntRect(left, top, left + 1, bottom) },
+        takeIf { right > Int.MIN_VALUE }?.let { IntRect(right - 1, top, right, bottom) },
+    ).firstOrNull(IntRect::isContained)
+    fun IntRect.repairHeight(): IntRect? = listOfNotNull(
+        takeIf { bottom > Int.MIN_VALUE }?.let { IntRect(left, bottom - 1, right, bottom) },
+        takeIf { top < Int.MAX_VALUE }?.let { IntRect(left, top, right, top + 1) },
+    ).firstOrNull(IntRect::isContained)
+
+    val widthRepaired = if (rounded.width == 0) rounded.repairWidth() ?: return rounded else rounded
+    return if (widthRepaired.height == 0) widthRepaired.repairHeight() ?: rounded else widthRepaired
 }
 
 fun IntRect.positiveIntersection(other: IntRect): Boolean =
