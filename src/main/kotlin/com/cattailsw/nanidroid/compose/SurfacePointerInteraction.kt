@@ -48,6 +48,7 @@ object SurfacePointerInteractionMapper {
         transform: SurfaceTransformPx,
         position: SurfacePointerPosition,
         source: PointerSource?,
+        button: Int = 0,
     ): SurfacePointerResolution {
         source ?: return SurfacePointerResolution.UnsupportedPointerSource
         val intrinsic = transform.toIntrinsic(androidx.compose.ui.geometry.Offset(position.x, position.y))
@@ -76,7 +77,7 @@ object SurfacePointerInteractionMapper {
                 kind = PointerEventKind.CLICK,
                 speaker = speaker,
                 intrinsic = androidx.compose.ui.unit.IntOffset(intrinsic.x, intrinsic.y),
-                button = 0,
+                button = button,
                 source = source,
                 collisionIdentifier = collision?.identifier,
                 diagnosticCollisionId = collision?.id ?: NO_COLLISION,

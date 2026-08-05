@@ -104,6 +104,8 @@ data class ComposedSurface(
     val surfaceKey: SurfaceKey,
     val revision: Long,
     val explicitlyHidden: Boolean,
+    /** Stable hit authority; changes for BASE replacement geometry, not raster-only animation frames. */
+    val inputAuthority: Any = surfaceKey,
 ) {
     fun metrics(): ComposedSurfaceMetrics = ComposedSurfaceMetrics(
         canvasSize = canvasSize,
@@ -182,6 +184,7 @@ class SurfaceCompositor(
                 collisions = emptyList(),
                 explicitlyHidden = explicitlyHidden,
                 revision = revision,
+                inputAuthority = frame,
             )
         }
         if (!plan.hasPositiveCanvas()) return composed(
@@ -231,16 +234,19 @@ class SurfaceCompositor(
         collisions: List<SurfaceCollision>,
         explicitlyHidden: Boolean,
         revision: Long,
+        inputAuthority: Any? = null,
     ): ComposedSurface {
         val canvasSize = IntSize(image.width, image.height)
+        val surfaceKey = SurfaceKey(surfaceId, canvasSize)
         return ComposedSurface(
             image = image,
             canvasSize = canvasSize,
             visiblePixelBounds = image.visibleBounds(),
             effectiveCollisions = collisions.toList(),
-            surfaceKey = SurfaceKey(surfaceId, canvasSize),
+            surfaceKey = surfaceKey,
             revision = revision,
             explicitlyHidden = explicitlyHidden,
+            inputAuthority = inputAuthority ?: surfaceKey,
         )
     }
 }

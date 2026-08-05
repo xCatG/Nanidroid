@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.SurfaceCollision
+import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.GhostPresentationFrame
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.SurfaceHitTarget
@@ -60,6 +62,8 @@ import com.cattailsw.nanidroid.runtime.stage.StageDisplayFeature
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
 import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
+import com.cattailsw.nanidroid.runtime.stage.BubbleHitRegionRegistry
+import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import com.cattailsw.nanidroid.runtime.stage.positiveIntersection
@@ -100,8 +104,6 @@ class RenderedTransformContractTest {
                         surfaceContent = { snapshot ->
                             RenderedSurfaceLayer(
                                 snapshot = snapshot,
-                                interactionPort = SurfaceInteractionPort {},
-                                onSurfaceTap = {},
                                 showCollisionOverlay = true,
                             )
                         },
@@ -181,7 +183,7 @@ class RenderedTransformContractTest {
                 kero = null,
                 sakura = composed,
                 surfaceContent = { snapshot ->
-                    RenderedSurfaceLayer(snapshot, SurfaceInteractionPort {}, {}, false)
+                    RenderedSurfaceLayer(snapshot, false)
                 },
             )
         }
@@ -218,27 +220,37 @@ class RenderedTransformContractTest {
         val measureState = GhostStageMeasureState()
         val composed = edgeSentinelSurface()
         composeRule.setContent {
-            MeasuredGhostStageLayout(
-                presentation = presentation(),
-                environmentForSize = { environment(it, density = 1.5f) },
-                measureState = measureState,
-                kero = null,
-                sakura = composed,
-                modifier = Modifier.fillMaxSize(),
-                surfaceContent = { snapshot ->
-                    RenderedSurfaceLayer(
-                        snapshot = snapshot,
-                        interactionPort = SurfaceInteractionPort(effects::add),
-                        onSurfaceTap = { taps++ },
-                        showCollisionOverlay = overlayVisible.value,
-                    )
-                },
+            val measured = measureState.latest
+            val input = StageInputRouter.snapshot(
+                blocking = false,
+                bubbleRegistry = BubbleHitRegionRegistry.Empty,
+                bubbleGeneration = 0,
+                ghostKey = "overlay-input",
+                surfaces = listOfNotNull(measured?.sakura),
             )
+            StagePointerInput({ input }, effects::add, { taps++ }, Modifier.fillMaxSize()) { _ ->
+                MeasuredGhostStageLayout(
+                    presentation = presentation(),
+                    environmentForSize = { environment(it, density = 1.5f) },
+                    measureState = measureState,
+                    kero = null,
+                    sakura = composed,
+                    modifier = Modifier.fillMaxSize(),
+                    surfaceContent = { snapshot ->
+                        RenderedSurfaceLayer(
+                            snapshot = snapshot,
+                            showCollisionOverlay = overlayVisible.value,
+                        )
+                    },
+                )
+            }
         }
         composeRule.waitForIdle()
 
         val snapshot = requireNotNull(measureState.latest?.sakura)
         val image = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true).captureToImage()
+        composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
+            .assertContentDescriptionEquals(composeRule.activity.getString(R.string.sakura_character_description))
         val pixels = image.toPixelMap()
         assertEquals(snapshot.transform.renderedBounds.width, image.width)
         assertEquals(snapshot.transform.renderedBounds.height, image.height)
@@ -250,7 +262,7 @@ class RenderedTransformContractTest {
         composeRule.runOnIdle { overlayVisible.value = true }
         composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true).performClick()
         composeRule.runOnIdle {
-            assertEquals(1, taps)
+            assertEquals(0, taps)
             assertEquals(1, effects.size)
         }
     }
@@ -423,14 +435,10 @@ class RenderedTransformContractTest {
                             keroComposedSurface = null,
                             measureState = state,
                             ghostKey = "root-fixture",
+                            onSurfaceEffect = effects::add,
                             modifier = Modifier.fillMaxSize(),
                             sakuraSurface = { snapshot ->
-                                RenderedSurfaceLayer(
-                                    snapshot,
-                                    SurfaceInteractionPort(effects::add),
-                                    {},
-                                    showCollisionOverlay = true,
-                                )
+                                RenderedSurfaceLayer(snapshot, showCollisionOverlay = true)
                             },
                         )
                     }
@@ -515,7 +523,7 @@ class RenderedTransformContractTest {
                             )
                         },
                         surfaceContent = { snapshot ->
-                            RenderedSurfaceLayer(snapshot, SurfaceInteractionPort {}, {}, false)
+                            RenderedSurfaceLayer(snapshot, false)
                         },
                     )
                 }
@@ -656,26 +664,22 @@ class RenderedTransformContractTest {
     }
 
     @Test
-    fun sameCanvasRevisionDuringAnInProgressTapUsesLatestAtomicSurfaceWithoutCancellation() {
+    fun collisionGeometryChangeDuringAnInProgressTapCancelsTheGesture() {
         val current = mutableStateOf(surface(10, 10, 1, collisionId = 31))
         val effects = mutableListOf<SurfaceInteractionEffect>()
         var taps = 0
         val state = GhostStageMeasureState()
         composeRule.setContent {
-            MeasuredGhostStageLayout(
+            GhostPresentationStage(
                 presentation = presentation(),
-                environmentForSize = { environment(it) },
                 measureState = state,
-                kero = null,
-                sakura = current.value,
-                surfaceContent = { snapshot ->
-                    RenderedSurfaceLayer(
-                        snapshot,
-                        SurfaceInteractionPort(effects::add),
-                        { taps++ },
-                        showCollisionOverlay = false,
-                    )
-                },
+                keroComposedSurface = null,
+                sakuraComposedSurface = current.value,
+                ghostKey = "geometry-change",
+                onSurfaceEffect = effects::add,
+                onToggleChrome = { taps++ },
+                modifier = Modifier.fillMaxSize(),
+                sakuraSurface = { snapshot -> RenderedSurfaceLayer(snapshot, false) },
             )
         }
         composeRule.waitForIdle()
@@ -694,10 +698,8 @@ class RenderedTransformContractTest {
         node.performTouchInput { up() }
 
         composeRule.runOnIdle {
-            assertEquals(1, taps)
-            assertEquals(1, effects.size)
-            assertEquals(99, effects.single().diagnosticCollisionId)
-            assertEquals("latest", effects.single().collisionIdentifier)
+            assertEquals(0, taps)
+            assertTrue(effects.isEmpty())
         }
     }
 
@@ -714,7 +716,7 @@ class RenderedTransformContractTest {
                     sakura = surface(10, 10, 4, collisionId = 9),
                     stageToRoot = IntOffset(13, 17),
                     surfaceContent = { snapshot ->
-                        RenderedSurfaceLayer(snapshot, SurfaceInteractionPort {}, {}, true)
+                        RenderedSurfaceLayer(snapshot, true)
                     },
                 )
             }

@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -22,7 +24,6 @@ class NanidroidComposeShellTest {
     @Test
     fun shell_exposes_compose_controls_and_keeps_the_stage_in_compose() {
         var selected = ""
-        var stageTapped = false
         val loading = mutableStateOf(false)
         composeRule.setContent {
             NanidroidComposeShell(
@@ -34,15 +35,13 @@ class NanidroidComposeShellTest {
                 onUpdate = { selected = "update" },
                 onPreferences = { selected = "preferences" },
                 onHelp = { selected = "help" },
-                onStageClick = { stageTapped = true },
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
         }
 
         composeRule.onNodeWithTag("ghost-stage").assertIsDisplayed()
-        composeRule.onNodeWithTag("ghost-stage").performClick()
-        composeRule.runOnIdle { assertEquals(true, stageTapped) }
+        composeRule.onNodeWithTag("ghost-stage").assert(hasNoClickAction())
         composeRule.onNodeWithTag("list-ghost").performClick()
         composeRule.runOnIdle { assertEquals("list", selected) }
         composeRule.onNodeWithTag("update").performClick()

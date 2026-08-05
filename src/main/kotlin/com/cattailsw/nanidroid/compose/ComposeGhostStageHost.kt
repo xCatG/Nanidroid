@@ -61,6 +61,7 @@ class ComposeGhostStageHost private constructor(
     private val activeComposedSurfaces = mutableMapOf<SurfaceSpeaker, ActiveComposedSurface>()
     private var renderedFramePixels = 0L
     private var nextComposedRevision = 1L
+    private var surfaceManagerInputEpoch = 0L
     private val stageMeasureState = GhostStageMeasureState()
     internal val latestMeasuredSnapshot get() = stageMeasureState.latest
 
@@ -78,6 +79,7 @@ class ComposeGhostStageHost private constructor(
 
     fun setSurfaceManager(manager: SurfaceManager?) {
         if (activeSurfaceManager !== manager) {
+            surfaceManagerInputEpoch++
             sakuraScheduler = null
             keroScheduler = null
             sakuraFrame = null
@@ -92,7 +94,12 @@ class ComposeGhostStageHost private constructor(
     }
 
     @Composable
-    fun Stage(modifier: Modifier = Modifier, onSurfaceTap: () -> Unit = {}) {
+    fun Stage(
+        modifier: Modifier = Modifier,
+        blockingInput: () -> Boolean = { false },
+        blockingInputEpoch: () -> Long = { 0L },
+        onSurfaceTap: () -> Unit = {},
+    ) {
         val manager = activeSurfaceManager
         val state = runtimeState
         val plans = remember(manager) { manager?.getSurfaceKeys()
@@ -138,12 +145,24 @@ class ComposeGhostStageHost private constructor(
             keroComposedSurface = keroComposed,
             measureState = stageMeasureState,
             ghostKey = manager?.let { "manager-${System.identityHashCode(it)}" }.orEmpty(),
+            ghostIdentity = manager ?: NoGhostIdentity,
+            blockingInput = blockingInput(),
+            ghostIdentityProvider = { activeSurfaceManager ?: NoGhostIdentity },
+            blockingInputProvider = blockingInput,
+            routingEpochProvider = {
+                HostRoutingEpoch(
+                    surfaceManager = surfaceManagerInputEpoch,
+                    blocking = blockingInputEpoch(),
+                )
+            },
+            onSurfaceEffect = interactionPort::dispatch,
+            onToggleChrome = onSurfaceTap,
             modifier = modifier,
             sakuraSurface = { snapshot ->
-                RenderedSurfaceLayer(snapshot, interactionPort, onSurfaceTap, showCollisionOverlay = false)
+                RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
             },
             keroSurface = { snapshot ->
-                RenderedSurfaceLayer(snapshot, interactionPort, onSurfaceTap, showCollisionOverlay = false)
+                RenderedSurfaceLayer(snapshot, showCollisionOverlay = false)
             },
         )
     }
@@ -152,6 +171,7 @@ class ComposeGhostStageHost private constructor(
     private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
     private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
     private data class ActiveComposedSurface(val key: RenderedFrameKey, val surface: ComposedSurface)
+    private data class HostRoutingEpoch(val surfaceManager: Long, val blocking: Long)
 
     private fun composedSurface(
         compositor: SurfaceCompositor,
@@ -284,6 +304,7 @@ class ComposeGhostStageHost private constructor(
         width >= 0 && height >= 0 && width.toLong() * height.toLong() <= MAX_RENDERABLE_SURFACE_PIXELS
 
     private companion object {
+        private data object NoGhostIdentity
         /** 32 MiB of ARGB pixels; oversized frames remain usable but uncached. */
         const val MAX_CACHED_FRAME_PIXELS = 8L * 1024L * 1024L
         // Rendering creates several temporary ARGB copies; keep malicious or

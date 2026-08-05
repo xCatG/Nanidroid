@@ -54,5 +54,8 @@
   <string name="unsupported_shiori_ongchanging">\\0\\s0%1$sさんにゴーストを切り替えます\\e</string>
   <string name="unsupported_shiori_onclose">\\0\\s0Nanidroidのご利用をいただき、ありがとうございました！\\e</string>
   <string name="err_no_ghost_available">現在利用できるゴーストがありません。中断された更新からの復旧処理がまだ続いている可能性があります。Nanidroidを開き直してみてください。</string>
+  <string name="toggle_stage_chrome_action">コントロールを表示または非表示にする</string>
+  <string name="sakura_character_description">さくらキャラクター</string>
+  <string name="kero_character_description">ケロキャラクター</string>
 
 </resources>
