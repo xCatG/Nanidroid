@@ -63,6 +63,35 @@ function Get-NarProfileSummaryRelativePath([string]$ProfileName) {
     return "nar\$(ConvertTo-SafeLabel $ProfileName)\task17-summary.json"
 }
 
+function New-NarCorpusAuditChildInvocation {
+    param(
+        [string]$ProfileName,
+        [string[]]$ResolvedCorpusRoots,
+        [string]$ResolvedAdbPath
+    )
+
+    $narInvocation = [ordered]@{
+        script = Join-Path $scriptRoot 'run-nar-corpus-audit.ps1'
+        device = $DeviceSerial
+        manifest = $ManifestPath
+        adb = $ResolvedAdbPath
+        roots = @($ResolvedCorpusRoots)
+    }
+    if ($ProfileName -ceq 'compact-landscape') {
+        $narInvocation.expectedStageGeometryProfile = 'compact-landscape'
+    }
+
+    $narPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($narInvocation | ConvertTo-Json -Depth 4 -Compress)))
+    $narCommand = '$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''' + $narPayload + '''))|ConvertFrom-Json; & $p.script -DeviceSerial $p.device -ManifestPath $p.manifest -AdbPath $p.adb -CorpusRoots @($p.roots)'
+    if ($ProfileName -ceq 'compact-landscape') {
+        $narCommand += ' -ExpectedStageGeometryProfile compact-landscape'
+    }
+    return [pscustomobject][ordered]@{
+        payload = $narPayload
+        command = $narCommand
+    }
+}
+
 function Expand-CorpusRootArguments([string[]]$Values) {
     $expanded = [System.Collections.ArrayList]::new()
     foreach ($value in @($Values)) {
@@ -910,6 +939,19 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     if (-not(Test-Path -LiteralPath $pwshProbe -PathType Leaf)) { Fail 'PowerShell 7 resolver probe failed.' 'dry-run' }
     if ($NarProfileTimeoutMinutes -le ($BuildTimeoutMinutes + (23 * 5))) { Fail 'NAR profile parent timeout does not exceed Task 17 child deadlines.' 'dry-run' }
     if ((Get-NarProfileSummaryRelativePath 'compact-landscape') -ne 'nar\compact-landscape\task17-summary.json') { Fail 'NAR retained-summary path probe failed.' 'dry-run' }
+    $compactNarChild = New-NarCorpusAuditChildInvocation -ProfileName 'compact-landscape' -ResolvedCorpusRoots @('one.nar', 'two.nar') -ResolvedAdbPath 'adb'
+    $portraitNarChild = New-NarCorpusAuditChildInvocation -ProfileName 'portrait' -ResolvedCorpusRoots @('one.nar', 'two.nar') -ResolvedAdbPath 'adb'
+    $tabletNarChild = New-NarCorpusAuditChildInvocation -ProfileName 'tablet' -ResolvedCorpusRoots @('one.nar', 'two.nar') -ResolvedAdbPath 'adb'
+    $compactNarPayload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($compactNarChild.payload)) | ConvertFrom-Json
+    foreach ($profileChild in @($portraitNarChild, $tabletNarChild)) {
+        $profilePayload = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($profileChild.payload)) | ConvertFrom-Json
+        if ($null -ne $profilePayload.PSObject.Properties['expectedStageGeometryProfile'] -or $profileChild.command -match 'ExpectedStageGeometryProfile') {
+            Fail 'Only compact-landscape may pass a Task 17 expected-stage geometry profile.' 'dry-run'
+        }
+    }
+    if ($compactNarPayload.expectedStageGeometryProfile -cne 'compact-landscape' -or $compactNarChild.command -notmatch '(?<!\S)-ExpectedStageGeometryProfile compact-landscape(?!\S)') {
+        Fail 'Compact-landscape Task 17 geometry-profile transport probe failed.' 'dry-run'
+    }
     $expandedRoots = @(Expand-CorpusRootArguments @('one.nar,two', 'three'))
     if ($expandedRoots.Count -ne 3 -or $expandedRoots[0] -ne 'one.nar' -or $expandedRoots[2] -ne 'three') { Fail 'Comma-separated corpus-root transport probe failed.' 'dry-run' }
     $narManifest=Get-Content -LiteralPath (Join-Path $repoRoot $ManifestPath) -Raw | ConvertFrom-Json
@@ -1013,10 +1055,8 @@ try {
 
     foreach($profile in @(@{name='portrait';w=360;h=720},@{name='compact-landscape';w=720;h=360},@{name='tablet';w=1280;h=800})){
         $request=[pscustomobject]@{widthDp=$profile.w;heightDp=$profile.h;density=160;fontScale=1.0};$wm=Set-DisplayProfile $request $script:originalState.wm.physicalDensity
-        $narInvocation = [pscustomobject]@{ script=(Join-Path $scriptRoot 'run-nar-corpus-audit.ps1'); device=$DeviceSerial; manifest=$ManifestPath; adb=$script:resolvedAdb; roots=@($resolvedCorpusRoots) }
-        $narPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($narInvocation | ConvertTo-Json -Depth 4 -Compress)))
-        $narCommand = '$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(''' + $narPayload + '''))|ConvertFrom-Json; & $p.script -DeviceSerial $p.device -ManifestPath $p.manifest -AdbPath $p.adb -CorpusRoots @($p.roots)'
-        $narEncodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($narCommand))
+        $narChild = New-NarCorpusAuditChildInvocation -ProfileName $profile.name -ResolvedCorpusRoots $resolvedCorpusRoots -ResolvedAdbPath $script:resolvedAdb
+        $narEncodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($narChild.command))
         Invoke-Native -FilePath $script:resolvedPwsh -Arguments @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$narEncodedCommand) -TimeoutSeconds ($NarProfileTimeoutMinutes*60) -Transport adb-owner | Out-Null
         $narSummaryPath=Join-Path $narReportRoot 'summary.json';if(-not(Test-Path -LiteralPath $narSummaryPath)){Fail "Task17 summary missing for profile '$($profile.name)'." 'nar'}
         $narSummary=Get-Content -LiteralPath $narSummaryPath -Raw|ConvertFrom-Json
