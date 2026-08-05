@@ -61,8 +61,8 @@ fun CollisionOverlay(
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            .clearAndSetSemantics { }
-            .testTag("collision-overlay"),
+            .testTag("collision-overlay")
+            .clearAndSetSemantics { },
     ) {
         if (!visible) return@Canvas
         localShapes.forEach { collision ->
