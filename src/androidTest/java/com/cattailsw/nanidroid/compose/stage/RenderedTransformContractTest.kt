@@ -836,22 +836,22 @@ class RenderedTransformContractTest {
         }
         composeRule.waitForIdle()
         val before = requireNotNull(state.latest)
-        composeRule.onNodeWithTag("debug-next-surface", useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithTag("debug", useUnmergedTree = true).assertDoesNotExist()
 
         composeRule.runOnIdle { debug.value = true }
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("debug-next-surface", useUnmergedTree = true).assertExists()
-        val withVisibleDebugRow = requireNotNull(state.latest)
+        composeRule.onNodeWithTag("debug", useUnmergedTree = true).assertExists()
+        val withVisibleDebugIcon = requireNotNull(state.latest)
 
         composeRule.runOnIdle { toolbar.value = false }
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("debug-next-surface", useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithTag("debug", useUnmergedTree = true).assertDoesNotExist()
         val after = requireNotNull(state.latest)
 
-        assertEquals(before.layoutDp.mode, withVisibleDebugRow.layoutDp.mode)
-        assertEquals(before.layoutDp.content, withVisibleDebugRow.layoutDp.content)
-        assertEquals(requireNotNull(before.kero).transform.renderedBounds, requireNotNull(withVisibleDebugRow.kero).transform.renderedBounds)
-        assertEquals(requireNotNull(before.sakura).transform.renderedBounds, requireNotNull(withVisibleDebugRow.sakura).transform.renderedBounds)
+        assertEquals(before.layoutDp.mode, withVisibleDebugIcon.layoutDp.mode)
+        assertEquals(before.layoutDp.content, withVisibleDebugIcon.layoutDp.content)
+        assertEquals(requireNotNull(before.kero).transform.renderedBounds, requireNotNull(withVisibleDebugIcon.kero).transform.renderedBounds)
+        assertEquals(requireNotNull(before.sakura).transform.renderedBounds, requireNotNull(withVisibleDebugIcon.sakura).transform.renderedBounds)
         assertEquals(before.layoutDp.mode, after.layoutDp.mode)
         assertEquals(before.layoutDp.content, after.layoutDp.content)
         assertEquals(requireNotNull(before.kero).transform.renderedBounds, requireNotNull(after.kero).transform.renderedBounds)
