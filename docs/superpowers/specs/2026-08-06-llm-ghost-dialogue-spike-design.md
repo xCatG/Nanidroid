@@ -101,6 +101,16 @@ results into `GenerationEvent` values. Endpoint and model configuration are
 command-line or environment inputs and are never committed. HTTP client and
 JVM response types remain private to this adapter.
 
+The desktop adapter uses Ktor Client with the CIO engine. Ktor is chosen so a
+later Android adapter can use the same transport conventions with Ktor's
+Android engine, but the spike does not migrate Nanidroid's production network
+callers. Production currently uses `HttpsURLConnection` through `NetworkUtil`
+for direct reads and Android `DownloadManager` for durable NAR downloads. The
+broader migration is tracked separately in
+[issue #259](https://github.com/xCatG/Nanidroid/issues/259); it is not a
+prerequisite for this spike. The experimental cleartext LAN endpoint remains a
+desktop-only input and does not weaken Nanidroid's HTTPS-only Android policy.
+
 The interface intentionally does not expose HTTP messages, ML Kit types, or
 LiteRT-LM conversations. A future `MlKitPromptBackend` can perform AICore
 availability, download, warmup, token-count, and structured-output checks. A
