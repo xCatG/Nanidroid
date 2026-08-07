@@ -91,12 +91,13 @@ class SatoriTalkExtractor {
             return null
         }
 
-        var speaker: GhostSpeakerId? = null
-        var surface: Int? = null
+        var speaker = GhostSpeakerId.KERO
+        val surfaces = mutableMapOf<GhostSpeakerId, Int>()
         var invalid = false
         val turns = mutableListOf<CanonicalTurn>()
 
         block.dialogueLines.forEach { dialogue ->
+            speaker = speaker.other()
             when (val parsed = parseDialogue(dialogue.text)) {
                 is ParsedDialogue.Invalid -> {
                     diagnostics += diagnostic(parsed.code, file, dialogue.line, parsed.detail)
@@ -106,20 +107,9 @@ class SatoriTalkExtractor {
                 is ParsedDialogue.Valid -> parsed.parts.forEach { part ->
                     when (part) {
                         is DialoguePart.Scope -> speaker = part.speaker
-                        is DialoguePart.Surface -> surface = part.surface
+                        is DialoguePart.Surface -> surfaces[speaker] = part.surface
                         is DialoguePart.Text -> if (part.text.isNotEmpty()) {
-                            val currentSpeaker = speaker
-                            if (currentSpeaker == null) {
-                                diagnostics += diagnostic(
-                                    "missing-speaker",
-                                    file,
-                                    dialogue.line,
-                                    "Visible text appeared before a supported speaker scope.",
-                                )
-                                invalid = true
-                            } else {
-                                turns += CanonicalTurn(currentSpeaker, surface, part.text)
-                            }
+                            turns += CanonicalTurn(speaker, surfaces[speaker], part.text)
                         }
                     }
                 }
@@ -173,7 +163,15 @@ class SatoriTalkExtractor {
         character.isLetterOrDigit() || character == '-' || character == '_'
 
     private fun parseDialogue(text: String): ParsedDialogue {
-        if (text.contains("http://") || text.contains("https://") || text.contains("${'$'}{") || text.contains("${'$'}(")) {
+        if (text.length > MAX_DIALOGUE_CODE_UNITS) {
+            return ParsedDialogue.Invalid("malformed-control", "Dialogue line exceeds the extraction limit.")
+        }
+        if (
+            text.contains("http://", ignoreCase = true) ||
+            text.contains("https://", ignoreCase = true) ||
+            text.contains("${'$'}{") ||
+            text.contains("${'$'}(")
+        ) {
             return ParsedDialogue.Invalid("unsupported-control", "URLs and variable expressions are not extracted.")
         }
 
@@ -188,22 +186,34 @@ class SatoriTalkExtractor {
             }
         }
 
+        if (text.startsWith(FULL_WIDTH_OPEN)) {
+            when (val surface = parseFullWidthSurface(text)) {
+                is ParsedSurface.Invalid -> return ParsedDialogue.Invalid(surface.code, surface.detail)
+                is ParsedSurface.Valid -> {
+                    parts += DialoguePart.Surface(surface.value)
+                    index = surface.endExclusive
+                }
+            }
+        }
+
         while (index < text.length) {
             when {
                 text[index] == '\\' && index + 1 < text.length -> {
-                    flushVisible()
                     when (val control = text[index + 1]) {
                         '0', 'h' -> {
+                            flushVisible()
                             parts += DialoguePart.Scope(GhostSpeakerId.SAKURA)
                             index += 2
                         }
 
                         '1', 'u' -> {
+                            flushVisible()
                             parts += DialoguePart.Scope(GhostSpeakerId.KERO)
                             index += 2
                         }
 
                         's' -> {
+                            flushVisible()
                             if (index + 2 >= text.length || text[index + 2] != '[') {
                                 return ParsedDialogue.Invalid("malformed-control", "Surface control is missing an opening bracket.")
                             }
@@ -219,6 +229,30 @@ class SatoriTalkExtractor {
                             parts += DialoguePart.Surface(parsedSurface)
                             index = closing + 1
                         }
+
+                        'w' -> {
+                            var digitIndex = index + 2
+                            var digitCount = 0
+                            while (digitIndex < text.length && text[digitIndex] in '0'..'9') {
+                                digitCount += 1
+                                if (digitCount > MAX_WAIT_DIGITS) {
+                                    return ParsedDialogue.Invalid(
+                                        "malformed-control",
+                                        "Presentation wait exceeds the extraction limit.",
+                                    )
+                                }
+                                digitIndex += 1
+                            }
+                            if (digitCount == 0) {
+                                return ParsedDialogue.Invalid(
+                                    "malformed-control",
+                                    "Presentation wait must contain ASCII digits.",
+                                )
+                            }
+                            index = digitIndex
+                        }
+
+                        'e' -> index += 2
 
                         else -> return ParsedDialogue.Invalid(
                             "unsupported-control",
@@ -246,6 +280,39 @@ class SatoriTalkExtractor {
 
         flushVisible()
         return ParsedDialogue.Valid(parts)
+    }
+
+    private fun parseFullWidthSurface(text: String): ParsedSurface {
+        var index = 1
+        var digitCount = 0
+        var value = 0
+        while (index < text.length) {
+            val character = text[index]
+            if (character == FULL_WIDTH_CLOSE) {
+                return if (digitCount == 0) {
+                    ParsedSurface.Invalid("malformed-control", "Surface token must contain full-width digits.")
+                } else {
+                    ParsedSurface.Valid(value, index + 1)
+                }
+            }
+            if (character !in FULL_WIDTH_ZERO..FULL_WIDTH_NINE) {
+                return ParsedSurface.Invalid(
+                    "unsupported-control",
+                    "Only a leading numeric surface token is extracted from SATORI Kakko syntax.",
+                )
+            }
+            digitCount += 1
+            if (digitCount > MAX_SURFACE_DIGITS) {
+                return ParsedSurface.Invalid("malformed-control", "Surface token exceeds the extraction limit.")
+            }
+            val digit = character.code - FULL_WIDTH_ZERO.code
+            if (value > (Int.MAX_VALUE - digit) / 10) {
+                return ParsedSurface.Invalid("malformed-control", "Surface token exceeds the supported integer range.")
+            }
+            value = value * 10 + digit
+            index += 1
+        }
+        return ParsedSurface.Invalid("malformed-control", "Surface token is missing its closing parenthesis.")
     }
 
     private fun categoryFor(heading: String): TalkCategory = when {
@@ -290,6 +357,16 @@ class SatoriTalkExtractor {
         data class Invalid(val code: String, val detail: String) : ParsedDialogue
     }
 
+    private sealed interface ParsedSurface {
+        data class Valid(val value: Int, val endExclusive: Int) : ParsedSurface
+        data class Invalid(val code: String, val detail: String) : ParsedSurface
+    }
+
+    private fun GhostSpeakerId.other(): GhostSpeakerId = when (this) {
+        GhostSpeakerId.SAKURA -> GhostSpeakerId.KERO
+        GhostSpeakerId.KERO -> GhostSpeakerId.SAKURA
+    }
+
     private companion object {
         const val BLOCK_MARKER = "＊"
         const val DIALOGUE_MARKER = "："
@@ -297,5 +374,12 @@ class SatoriTalkExtractor {
         const val POINTER_DISPATCH_PREFIX = "（Ｒ３）（Ｒ４）"
         const val MAX_LITERAL_LENGTH = 64
         const val MAX_POINTER_BODY_LENGTH = MAX_LITERAL_LENGTH * 2
+        const val MAX_DIALOGUE_CODE_UNITS = 65_536
+        const val MAX_SURFACE_DIGITS = 10
+        const val MAX_WAIT_DIGITS = 8
+        const val FULL_WIDTH_OPEN = '（'
+        const val FULL_WIDTH_CLOSE = '）'
+        const val FULL_WIDTH_ZERO = '０'
+        const val FULL_WIDTH_NINE = '９'
     }
 }

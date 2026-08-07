@@ -14,6 +14,137 @@ class SatoriTalkExtractorTest {
     private val extractor = SatoriTalkExtractor()
 
     @Test
+    fun implicitlyAlternatesEachDialogueLineFromNativeKeroInitialScope() {
+        val result = extractor.extract(
+            input(source("＊Random\n：一行目\n：二行目\n：三行目\n")),
+        )
+
+        assertEquals(
+            listOf(GhostSpeakerId.SAKURA, GhostSpeakerId.KERO, GhostSpeakerId.SAKURA),
+            result.talks.single().turns.map { it.speaker },
+        )
+        assertEquals(listOf("一行目", "二行目", "三行目"), result.talks.single().turns.map { it.text })
+        assertTrue(result.diagnostics.isEmpty())
+    }
+
+    @Test
+    fun persistsFullWidthNumericSurfacesIndependentlyForEachSpeaker() {
+        val result = extractor.extract(
+            input(
+                source(
+                    "＊Random\n：（３）桜A\n：（１９）ケロA\n：桜B\n：ケロB\n",
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                Triple(GhostSpeakerId.SAKURA, 3, "桜A"),
+                Triple(GhostSpeakerId.KERO, 19, "ケロA"),
+                Triple(GhostSpeakerId.SAKURA, 3, "桜B"),
+                Triple(GhostSpeakerId.KERO, 19, "ケロB"),
+            ),
+            result.talks.single().turns.map { Triple(it.speaker, it.surface, it.text) },
+        )
+    }
+
+    @Test
+    fun explicitScopesOverrideTheCurrentLineAndDriveTheNextNativeToggle() {
+        val result = extractor.extract(
+            input(source("＊Random\n：\\1一行目\n：二行目\n：\\h三行目\n：四行目\n")),
+        )
+
+        assertEquals(
+            listOf(GhostSpeakerId.KERO, GhostSpeakerId.SAKURA, GhostSpeakerId.SAKURA, GhostSpeakerId.KERO),
+            result.talks.single().turns.map { it.speaker },
+        )
+    }
+
+    @Test
+    fun extractsRealShapedJapaneseTalkAndStripsOnlySafePresentationControls() {
+        val result = extractor.extract(input(fixture("native-satori-talks.txt")))
+
+        val safeTalk = result.talks.single()
+        assertEquals("森の朝", safeTalk.heading)
+        assertEquals(
+            listOf(
+                Triple(GhostSpeakerId.SAKURA, 3, "おはよう、今日は静かね。"),
+                Triple(GhostSpeakerId.KERO, 19, "うん、少し待って……行こう。"),
+                Triple(GhostSpeakerId.SAKURA, 3, "忘れ物はない？またね。"),
+            ),
+            safeTalk.turns.map { Triple(it.speaker, it.surface, it.text) },
+        )
+        assertTrue(result.diagnostics.any { it.code == "unsupported-control" && it.line == 7 })
+    }
+
+    @Test
+    fun presentationOnlyLineStillTogglesNativeScope() {
+        val result = extractor.extract(
+            input(source("＊Random\n：\\w8\\w9\\e\n：次はケロの台詞\n")),
+        )
+
+        val turn = result.talks.single().turns.single()
+        assertEquals(GhostSpeakerId.KERO, turn.speaker)
+        assertEquals("次はケロの台詞", turn.text)
+    }
+
+    @Test
+    fun rejectsMalformedOrUnsafeFullWidthKakkoWithoutEvaluatingIt() {
+        val unsafeTokens = listOf(
+            "（）",
+            "（－１）",
+            "（-１）",
+            "（２A）",
+            "（２（３））",
+            "（ユーザ名）",
+            "（Ｒ０）",
+            "（２１４７４８３６４８）",
+            "(3)",
+        )
+        val sourceText = unsafeTokens.mapIndexed { index, token ->
+            "＊Unsafe$index\n：${token}本文"
+        }.joinToString("\n")
+
+        val result = extractor.extract(input(source(sourceText)))
+
+        assertTrue(result.talks.isEmpty())
+        assertEquals(unsafeTokens.size, result.diagnostics.count { it.code in setOf("unsupported-control", "malformed-control") })
+    }
+
+    @Test
+    fun rejectsUnknownCommandsUrlsAndExpressionsAtTheTalkBoundary() {
+        val unsafeBodies = listOf(
+            "\\c消去",
+            "\\_q選択",
+            "\\q選択",
+            "https://example.invalid/action",
+            "HTTPS://example.invalid/action",
+            "${'$'}{user}",
+            "${'$'}(call)",
+        )
+        val sourceText = unsafeBodies.mapIndexed { index, body ->
+            "＊Unsafe$index\n：$body"
+        }.joinToString("\n")
+
+        val result = extractor.extract(input(source(sourceText)))
+
+        assertTrue(result.talks.isEmpty())
+        assertEquals(unsafeBodies.size, result.diagnostics.count { it.code == "unsupported-control" })
+    }
+
+    @Test
+    fun boundsSurfaceAndPresentationControlScanningWithoutThrowing() {
+        val hugeSurface = "９".repeat(20_000)
+        val hugeWait = "9".repeat(20_000)
+        val result = extractor.extract(
+            input(source("＊Surface\n：（$hugeSurface）本文\n＊Wait\n：\\w${hugeWait}本文\n")),
+        )
+
+        assertTrue(result.talks.isEmpty())
+        assertEquals(2, result.diagnostics.count { it.code == "malformed-control" })
+    }
+
+    @Test
     fun extractsSpeakersSurfacesCategoriesAndProvenance() {
         val result = extractor.extract(input(fixture("2elf-shaped-talks.txt")))
 
@@ -132,6 +263,25 @@ class SatoriTalkExtractorTest {
         assertEquals(listOf("0Headつつかれ", "1l-headつつかれ", "1l-headつつかれ"), result.talks.map { it.heading })
         assertEquals(listOf("First", "Second", "Duplicate"), result.talks.map { it.turns.single().text })
         assertEquals(3, result.talks.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun preservesPointerReactionMetadataWithImplicitNativeScope() {
+        val result = extractor.extract(
+            input(
+                source(
+                    "＊OnMouseDoubleClick\n＞（Ｒ３）（Ｒ４）つつかれ\n＊0Headつつかれ\n：（３）やさしくしてね。\n",
+                ),
+            ),
+        )
+
+        val talk = result.talks.single()
+        assertEquals(TalkCategory.TOUCH, talk.category)
+        assertEquals(GhostSpeakerId.SAKURA, talk.touchSpeaker)
+        assertEquals("Head", talk.touchRegion)
+        assertEquals(Triple(GhostSpeakerId.SAKURA, 3, "やさしくしてね。"), talk.turns.single().let {
+            Triple(it.speaker, it.surface, it.text)
+        })
     }
 
     @Test
