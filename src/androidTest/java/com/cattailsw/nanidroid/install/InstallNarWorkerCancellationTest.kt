@@ -80,7 +80,7 @@ class InstallNarWorkerCancellationTest {
             0L,
             ExternalJobBinding.WorkManager(request.id.toString()),
         )
-        val repository = repository(store, supervisor)
+        val repository = repository(store, supervisor, workManager)
 
         repository.stop(itemId)
 
@@ -88,6 +88,7 @@ class InstallNarWorkerCancellationTest {
         val untouched = workManager.getWorkInfoById(unrelated.id).get(5, TimeUnit.SECONDS)
         assertEquals(WorkInfo.State.CANCELLED, cancelled!!.state)
         assertNotEquals(WorkInfo.State.CANCELLED, untouched!!.state)
+        repository.reconcile()
         assertEquals(NarDownloadState.Cancelled, repository.observeDownloads().value.single().state)
     }
 
@@ -105,6 +106,7 @@ class InstallNarWorkerCancellationTest {
     private fun repository(
         store: NarDownloadStore,
         supervisor: DurableOperationSupervisor,
+        workManager: WorkManager,
     ) = NarDownloadRepository(
         store = store,
         downloads = object : NarDownloadGateway {
@@ -123,7 +125,17 @@ class InstallNarWorkerCancellationTest {
                 attemptId: Long,
                 workManagerId: String,
                 recreateIfMissing: Boolean,
-            ) = NarInstallWorkRecovery.ACTIVE
+            ) = when (
+                workManager.getWorkInfoById(UUID.fromString(workManagerId))
+                    .get(5, TimeUnit.SECONDS)
+                    ?.state
+            ) {
+                WorkInfo.State.SUCCEEDED -> NarInstallWorkRecovery.SUCCEEDED
+                WorkInfo.State.FAILED -> NarInstallWorkRecovery.FAILED
+                WorkInfo.State.CANCELLED -> NarInstallWorkRecovery.CANCELLED
+                null -> NarInstallWorkRecovery.MISSING
+                else -> NarInstallWorkRecovery.ACTIVE
+            }
             override fun ensureStageEnqueued(
                 itemId: String,
                 attemptId: Long,

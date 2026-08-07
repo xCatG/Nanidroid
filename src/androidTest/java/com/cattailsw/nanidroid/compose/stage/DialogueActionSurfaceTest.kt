@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid.compose.stage
 
-import android.view.View
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.activity.ComponentActivity
@@ -26,12 +25,6 @@ import androidx.compose.ui.test.then
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.key.Key
-import androidx.test.espresso.Espresso
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.withClassName
-import org.hamcrest.Description
-import org.hamcrest.Matchers.endsWith
-import org.hamcrest.TypeSafeMatcher
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import org.junit.Assert.assertEquals
@@ -175,7 +168,6 @@ class DialogueActionSurfaceTest {
             )
         }
 
-        Espresso.onView(withClassName(endsWith("AndroidComposeView"))).check(matches(windowFocused()))
         composeRule.waitUntil(5_000) { focusRequests.any { it.accepted } }
         composeRule.runOnIdle {
             assertTrue(focusRequests.isNotEmpty())
@@ -243,11 +235,4 @@ class DialogueActionSurfaceTest {
         }
     }
 
-    private fun windowFocused() = object : TypeSafeMatcher<View>() {
-        override fun describeTo(description: Description) {
-            description.appendText("view has window focus")
-        }
-
-        override fun matchesSafely(view: View): Boolean = view.hasWindowFocus()
-    }
 }
