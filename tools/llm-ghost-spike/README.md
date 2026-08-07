@@ -4,6 +4,10 @@ This standalone desktop harness asks whether a large OpenAI-compatible model can
 
 It is an experiment, not an Android feature and not a SHIORI replacement. Nothing here changes Nanidroid's production ghost selection, networking, event routing, or playback.
 
+The completed 2elf results, architectural decision, human-quality analysis, and
+on-device experiment ladder are in the
+[spike report](../../docs/superpowers/reports/2026-08-07-llm-ghost-dialogue-spike.md).
+
 ## Build and hermetic tests
 
 From the Nanidroid repository root in PowerShell:
