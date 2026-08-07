@@ -191,6 +191,93 @@ class NarCorpusLoaderTest {
     }
 
     @Test
+    fun parsesOnlyClosedSurfaceBlocksWithSpacedSelectorsOutsideCommentsAndDescript() =
+        withTemporaryDirectory { directory ->
+            val entries = validEntries().map { spec ->
+                if (spec.name == "shell/master/surfaces.txt") {
+                    textEntry(
+                        spec.name,
+                        """
+                        charset,UTF-8
+                        // surface900
+                        descript
+                        {
+                        surface901 {
+                        }
+                        surface0, 3 // spaced selector
+                        {
+                        }
+                        surface999
+                        surface998
+                        {
+                        """.trimIndent(),
+                    )
+                } else {
+                    spec
+                }
+            }
+
+            val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+            assertEquals(setOf(0, 3), result.input.identity.shellSurfaces[GhostSpeakerId.SAKURA])
+            assertEquals(setOf(0, 3), result.input.identity.shellSurfaces[GhostSpeakerId.KERO])
+        }
+
+    @Test
+    fun chargesAppendSelectorCardinalityAgainstPerFileBudget() =
+        withTemporaryDirectory { directory ->
+            val highWork = buildString {
+                appendLine("charset,UTF-8")
+                repeat(10) { append("surface.append0-9999 {\n}\n") }
+            }
+            val entries = validEntries().map { spec ->
+                if (spec.name == "shell/master/surfaces.txt") textEntry(spec.name, highWork) else spec
+            }
+
+            assertFailure(loader.load(writeNar(directory, entries)), "invalid-shell-inventory")
+        }
+
+    @Test
+    fun rejectsSelectorWorkAbovePerFileBudgetBeforeExpandingAllRanges() =
+        withTemporaryDirectory { directory ->
+            val highWork = buildString {
+                appendLine("charset,UTF-8")
+                repeat(10) { append("surface0-9999 {\n}\n") }
+            }
+            val entries = validEntries().map { spec ->
+                if (spec.name == "shell/master/surfaces.txt") textEntry(spec.name, highWork) else spec
+            }
+
+            assertFailure(loader.load(writeNar(directory, entries)), "invalid-shell-inventory")
+        }
+
+    @Test
+    fun rejectsSelectorWorkAboveAggregateBudgetAcrossSurfaceFiles() =
+        withTemporaryDirectory { directory ->
+            val perFileWork = buildString {
+                appendLine("charset,UTF-8")
+                repeat(9) { append("surface0-9999 {\n}\n") }
+            }
+            val entries = validEntries().filterNot { it.name == "shell/master/surfaces.txt" } +
+                (1..3).map { index -> textEntry("shell/master/surfaces$index.txt", perFileWork) }
+
+            assertFailure(loader.load(writeNar(directory, entries)), "invalid-shell-inventory")
+        }
+
+    @Test
+    fun acceptsHighCountRepeatedCharsetDeclarations() = withTemporaryDirectory { directory ->
+        val repetitiveDictionary = buildString {
+            repeat(200_000) { appendLine("charset,UTF-8") }
+            append("＊talk\nline\n")
+        }
+        val entries = validEntries(dictionaryText = repetitiveDictionary)
+
+        val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+        assertTrue(result.input.files.single().text.endsWith("＊talk\nline\n"))
+    }
+
+    @Test
     fun hashesEveryFileEntryUsingNormalizedPaths() = withTemporaryDirectory { directory ->
         val entries = validEntries() + EntrySpec("assets/empty.bin", ByteArray(0))
 

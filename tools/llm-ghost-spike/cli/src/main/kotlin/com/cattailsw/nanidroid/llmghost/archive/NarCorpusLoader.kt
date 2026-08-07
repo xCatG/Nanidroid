@@ -112,18 +112,16 @@ class NarCorpusLoader {
             hashes[normalizedName] = digest.digest().toHexString()
         }
 
-        val textEntryNames = entries.keys.filter(::isPotentialTextEntry)
-        val declaredCharsets = textEntryNames
-            .flatMap { name -> scanCharsetDeclarations(entries.getValue(name)) }
-            .map(::supportedCharset)
-        if (declaredCharsets.isEmpty()) {
+        var declaredCharset: SupportedCharset? = null
+        entries.forEach { (name, bytes) ->
+            if (isPotentialTextEntry(name)) {
+                declaredCharset = foldCharsetDeclarations(bytes, declaredCharset)
+            }
+        }
+        if (declaredCharset == null) {
             reject("missing-charset", "No supported charset declaration was found.")
         }
-        val canonicalCharsets = declaredCharsets.map { it.canonicalName }.toSet()
-        if (canonicalCharsets.size != 1) {
-            reject("inconsistent-charset", "Text entries declare inconsistent character encodings.")
-        }
-        val charset = declaredCharsets.first().charset
+        val charset = declaredCharset.charset
 
         val descriptorBytes = entries[GHOST_DESCRIPTOR]
             ?: reject("missing-identity", "The ghost descriptor is missing.")
@@ -148,8 +146,12 @@ class NarCorpusLoader {
             MASTER_SURFACE_PNG.matchEntire(name)?.groupValues?.get(1)?.let(::parseSurfaceId)
         }
         val surfaceEntryNames = entries.keys.filter(::isSurfaceEntry).sorted()
+        val selectorBudget = SurfaceSelectorBudget()
         surfaceEntryNames.forEach { name ->
-            surfaceInventory += parseSurfaceIds(decodeText(entries.getValue(name), charset))
+            surfaceInventory += parseSurfaceIds(
+                text = decodeText(entries.getValue(name), charset),
+                aggregateBudget = selectorBudget,
+            )
         }
         if (surfaceInventory.isEmpty()) {
             reject("missing-shell-inventory", "The shell surface inventory is empty.")
@@ -195,40 +197,70 @@ class NarCorpusLoader {
         return normalizedParts.joinToString("/").lowercase(Locale.ROOT)
     }
 
-    private fun scanCharsetDeclarations(bytes: ByteArray): List<String> {
-        val declarations = mutableListOf<String>()
+    private fun foldCharsetDeclarations(
+        bytes: ByteArray,
+        initial: SupportedCharset?,
+    ): SupportedCharset? {
+        var declared = initial
         var lineStart = 0
         while (lineStart <= bytes.size) {
             var lineEnd = lineStart
             while (lineEnd < bytes.size && bytes[lineEnd] != '\n'.code.toByte()) lineEnd++
-            var contentStart = lineStart
-            if (
-                lineStart == 0 && lineEnd - lineStart >= 3 &&
-                bytes[lineStart] == 0xef.toByte() &&
-                bytes[lineStart + 1] == 0xbb.toByte() &&
-                bytes[lineStart + 2] == 0xbf.toByte()
-            ) {
-                contentStart += 3
-            }
-            val lineBytes = bytes.copyOfRange(contentStart, lineEnd)
-            if (lineBytes.all { (it.toInt() and 0xff) <= 0x7f }) {
-                val line = String(lineBytes, StandardCharsets.US_ASCII).trimEnd('\r')
-                CHARSET_DECLARATION.matchEntire(line)?.groupValues?.get(1)?.let(declarations::add)
+            val candidate = scanCharsetDeclaration(bytes, lineStart, lineEnd)
+            if (candidate != null) {
+                if (declared != null && declared != candidate) {
+                    reject("inconsistent-charset", "Text entries declare inconsistent character encodings.")
+                }
+                declared = candidate
             }
             if (lineEnd == bytes.size) break
             lineStart = lineEnd + 1
         }
-        return declarations
+        return declared
     }
 
-    private fun supportedCharset(declaration: String): SupportedCharset {
-        val alias = declaration.lowercase(Locale.ROOT).filterNot { it == '-' || it == '_' || it == '.' }
-        return when (alias) {
-            "utf8" -> SupportedCharset("utf-8", StandardCharsets.UTF_8)
-            "shiftjis", "sjis", "mskanji" ->
-                SupportedCharset("shift-jis", Charset.forName("windows-31j"))
-            "windows31j", "windows932", "cp932", "ms932" ->
-                SupportedCharset("windows-31j", Charset.forName("windows-31j"))
+    private fun scanCharsetDeclaration(
+        bytes: ByteArray,
+        start: Int,
+        end: Int,
+    ): SupportedCharset? {
+        var cursor = start
+        if (
+            start == 0 && end - start >= 3 &&
+            bytes[start] == 0xef.toByte() &&
+            bytes[start + 1] == 0xbb.toByte() &&
+            bytes[start + 2] == 0xbf.toByte()
+        ) {
+            cursor += 3
+        }
+        while (cursor < end && bytes[cursor].isAsciiWhitespace()) cursor++
+        if (!bytes.matchesAsciiIgnoreCase(cursor, end, "charset")) return null
+        cursor += "charset".length
+        while (cursor < end && bytes[cursor].isAsciiWhitespace()) cursor++
+        if (cursor >= end || bytes[cursor] != ','.code.toByte()) return null
+        cursor++
+        while (cursor < end && bytes[cursor].isAsciiWhitespace()) cursor++
+        val aliasStart = cursor
+        while (cursor < end && bytes[cursor].isCharsetAliasCharacter()) cursor++
+        if (cursor == aliasStart) return null
+        val aliasEnd = cursor
+        while (cursor < end && bytes[cursor].isAsciiWhitespace()) cursor++
+        if (
+            cursor < end &&
+            !(cursor + 1 < end && bytes[cursor] == '/'.code.toByte() && bytes[cursor + 1] == '/'.code.toByte())
+        ) {
+            return null
+        }
+
+        return when {
+            bytes.aliasEquals(aliasStart, aliasEnd, "utf8") -> SupportedCharset.UTF_8
+            bytes.aliasEquals(aliasStart, aliasEnd, "shiftjis") ||
+                bytes.aliasEquals(aliasStart, aliasEnd, "sjis") ||
+                bytes.aliasEquals(aliasStart, aliasEnd, "mskanji") -> SupportedCharset.SHIFT_JIS
+            bytes.aliasEquals(aliasStart, aliasEnd, "windows31j") ||
+                bytes.aliasEquals(aliasStart, aliasEnd, "windows932") ||
+                bytes.aliasEquals(aliasStart, aliasEnd, "cp932") ||
+                bytes.aliasEquals(aliasStart, aliasEnd, "ms932") -> SupportedCharset.WINDOWS_31J
             else -> reject("unsupported-charset", "The NAR declares an unsupported character encoding.")
         }
     }
@@ -256,16 +288,32 @@ class NarCorpusLoader {
         }
     }
 
-    private fun parseSurfaceIds(text: String): Set<Int> {
+    private fun parseSurfaceIds(
+        text: String,
+        aggregateBudget: SurfaceSelectorBudget,
+    ): Set<Int> {
         val inventory = linkedSetOf<Int>()
-        text.lineSequence().forEach { rawLine ->
-            val line = rawLine.substringBefore("//")
-            val declaration = SURFACE_DECLARATION.matchEntire(line) ?: return@forEach
-            if (declaration.groupValues[1].isNotEmpty()) return@forEach
-            val selector = declaration.groupValues[2]
+        var fileWork = 0L
+        var state: SurfaceParseState = SurfaceParseState.TopLevel
+
+        fun charge(amount: Long) {
+            if (
+                amount < 0 ||
+                fileWork > MAX_SURFACE_FILE_WORK - amount ||
+                aggregateBudget.work > MAX_SURFACE_TOTAL_WORK - amount
+            ) {
+                reject("invalid-shell-inventory", "The shell surface selector work limit was exceeded.")
+            }
+            fileWork += amount
+            aggregateBudget.work += amount
+        }
+
+        fun materialize(selector: String, append: Boolean) {
+            charge(1)
             val included = linkedSetOf<Int>()
             val exclusions = linkedSetOf<Int>()
-            selector.split(',').forEach tokenLoop@{ rawToken ->
+            selector.splitToSequence(',').forEach tokenLoop@{ rawToken ->
+                charge(1)
                 var token = rawToken.trim().lowercase(Locale.ROOT)
                 val exclusion = token.startsWith('!')
                 if (exclusion) token = token.drop(1).trim()
@@ -276,6 +324,9 @@ class NarCorpusLoader {
                 if (last < first || last.toLong() - first > MAX_SURFACE_RANGE) {
                     reject("invalid-shell-inventory", "The shell contains an invalid surface range.")
                 }
+                val cardinality = last.toLong() - first + 1
+                charge(cardinality)
+                if (append) return@tokenLoop
                 for (surface in first..last) {
                     if (exclusion) {
                         exclusions += surface
@@ -287,7 +338,82 @@ class NarCorpusLoader {
             }
             inventory += included
         }
+
+        text.lineSequence().forEach { rawLine ->
+            val line = rawLine.substringBefore("//").trim()
+            var reprocess = true
+            while (reprocess) {
+                reprocess = false
+                state = when (val current = state) {
+                    SurfaceParseState.TopLevel -> when {
+                        line.isEmpty() -> SurfaceParseState.TopLevel
+                        isDescriptDeclaration(line) -> {
+                            if ('{' in line) SurfaceParseState.DescriptBlock else SurfaceParseState.ExpectDescriptOpen
+                        }
+                        isSurfaceDeclaration(line) -> {
+                            val parsed = parseSurfaceDeclaration(line)
+                            if ('{' in line) {
+                                SurfaceParseState.SurfaceBlock(parsed.selector, parsed.append)
+                            } else {
+                                SurfaceParseState.ExpectSurfaceOpen(parsed.selector, parsed.append)
+                            }
+                        }
+                        else -> SurfaceParseState.TopLevel
+                    }
+                    SurfaceParseState.ExpectDescriptOpen -> when {
+                        line.isEmpty() -> current
+                        line == "{" -> SurfaceParseState.DescriptBlock
+                        else -> {
+                            reprocess = true
+                            SurfaceParseState.TopLevel
+                        }
+                    }
+                    is SurfaceParseState.ExpectSurfaceOpen -> when {
+                        line.isEmpty() -> current
+                        line == "{" -> SurfaceParseState.SurfaceBlock(current.selector, current.append)
+                        else -> {
+                            reprocess = true
+                            SurfaceParseState.TopLevel
+                        }
+                    }
+                    SurfaceParseState.DescriptBlock -> when {
+                        line.startsWith('}') -> SurfaceParseState.TopLevel
+                        else -> current
+                    }
+                    is SurfaceParseState.SurfaceBlock -> when {
+                        line.startsWith('}') -> {
+                            materialize(current.selector, current.append)
+                            SurfaceParseState.TopLevel
+                        }
+                        isSurfaceDeclaration(line) -> {
+                            reprocess = true
+                            SurfaceParseState.TopLevel
+                        }
+                        else -> current
+                    }
+                }
+            }
+        }
         return inventory
+    }
+
+    private fun isDescriptDeclaration(line: String): Boolean =
+        line.substringBefore('{').trim().equals("descript", ignoreCase = true)
+
+    private fun isSurfaceDeclaration(line: String): Boolean {
+        val lower = line.lowercase(Locale.ROOT)
+        return lower.startsWith("surface") && !lower.startsWith("surface.alias")
+    }
+
+    private fun parseSurfaceDeclaration(line: String): SurfaceDeclaration {
+        val declaration = line.substringBefore('{').trim()
+        val lower = declaration.lowercase(Locale.ROOT)
+        val append = lower.startsWith("surface.append")
+        val prefixLength = if (append) "surface.append".length else "surface".length
+        return SurfaceDeclaration(
+            selector = declaration.substring(prefixLength).trim(),
+            append = append,
+        )
     }
 
     private fun parseSurfaceId(value: String): Int {
@@ -323,10 +449,56 @@ class NarCorpusLoader {
         "%02x".format(Locale.ROOT, byte.toInt() and 0xff)
     }
 
-    private data class SupportedCharset(
-        val canonicalName: String,
-        val charset: Charset,
+    private fun Byte.isAsciiWhitespace(): Boolean = (toInt() and 0xff) <= 0x20
+
+    private fun Byte.isCharsetAliasCharacter(): Boolean {
+        val value = toInt() and 0xff
+        return value in 'A'.code..'Z'.code ||
+            value in 'a'.code..'z'.code ||
+            value in '0'.code..'9'.code ||
+            value == '.'.code || value == '-'.code || value == '_'.code
+    }
+
+    private fun ByteArray.matchesAsciiIgnoreCase(start: Int, end: Int, expected: String): Boolean {
+        if (end - start < expected.length) return false
+        return expected.indices.all { index ->
+            (this[start + index].toInt() and 0xff).toChar().lowercaseChar() == expected[index]
+        }
+    }
+
+    private fun ByteArray.aliasEquals(start: Int, end: Int, expected: String): Boolean {
+        var cursor = start
+        var expectedIndex = 0
+        while (cursor < end) {
+            val value = (this[cursor].toInt() and 0xff).toChar().lowercaseChar()
+            cursor++
+            if (value == '-' || value == '_' || value == '.') continue
+            if (expectedIndex >= expected.length || value != expected[expectedIndex]) return false
+            expectedIndex++
+        }
+        return expectedIndex == expected.length
+    }
+
+    private enum class SupportedCharset(val charset: Charset) {
+        UTF_8(StandardCharsets.UTF_8),
+        SHIFT_JIS(Charset.forName("windows-31j")),
+        WINDOWS_31J(Charset.forName("windows-31j")),
+    }
+
+    private data class SurfaceDeclaration(
+        val selector: String,
+        val append: Boolean,
     )
+
+    private sealed interface SurfaceParseState {
+        data object TopLevel : SurfaceParseState
+        data object ExpectDescriptOpen : SurfaceParseState
+        data object DescriptBlock : SurfaceParseState
+        data class ExpectSurfaceOpen(val selector: String, val append: Boolean) : SurfaceParseState
+        data class SurfaceBlock(val selector: String, val append: Boolean) : SurfaceParseState
+    }
+
+    private class SurfaceSelectorBudget(var work: Long = 0)
 
     private class RejectedArchive(
         val code: String,
@@ -340,17 +512,11 @@ class NarCorpusLoader {
         const val COPY_BUFFER_SIZE = 16 * 1024
         const val MAX_SURFACE_ID = 1_000_000
         const val MAX_SURFACE_RANGE = 100_000L
+        const val MAX_SURFACE_FILE_WORK = 100_000L
+        const val MAX_SURFACE_TOTAL_WORK = 250_000L
         const val GHOST_DESCRIPTOR = "ghost/master/descript.txt"
 
         val DRIVE_PATH = Regex("^[A-Za-z]:.*")
-        val CHARSET_DECLARATION = Regex(
-            "^\\s*charset\\s*,\\s*([A-Za-z0-9._-]+)\\s*(?://.*)?$",
-            RegexOption.IGNORE_CASE,
-        )
-        val SURFACE_DECLARATION = Regex(
-            "^\\s*surface(\\.append)?\\s*([^\\s{]+)\\s*(?:\\{.*)?$",
-            RegexOption.IGNORE_CASE,
-        )
         val SURFACE_RANGE = Regex("^([0-9]+)(?:-([0-9]+))?$")
         val MASTER_SURFACE_SOURCE = Regex("^shell/master/surfaces[^/]*\\.txt$")
         val MASTER_SURFACE_PNG = Regex("^shell/master/surface([0-9]+)\\.png$")
