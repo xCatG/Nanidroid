@@ -42,3 +42,10 @@ jni/satori/lib
 jni/satori/lib.exe
 jni/satori/satori.so
 .worktrees/
+
+# Standalone LLM ghost spike: generated evidence and local inputs
+/tools/llm-ghost-spike/build/
+/tools/llm-ghost-spike/**/build/
+/tools/llm-ghost-spike/*.nar
+/tools/llm-ghost-spike/reports/
+/tools/llm-ghost-spike/**/human-review.json
