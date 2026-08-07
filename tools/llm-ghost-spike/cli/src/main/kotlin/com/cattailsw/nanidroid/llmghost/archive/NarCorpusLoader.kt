@@ -109,13 +109,14 @@ class NarCorpusLoader {
                 reject("entry-read-failed", "A NAR entry failed its integrity check.")
             }
             entries[normalizedName] = output.toByteArray()
+            // Provenance hashes cover the raw archive entry, before any .sat deinterleave transform.
             hashes[normalizedName] = digest.digest().toHexString()
         }
 
         var declaredCharset: SupportedCharset? = null
         entries.forEach { (name, bytes) ->
             if (isPotentialTextEntry(name)) {
-                declaredCharset = foldCharsetDeclarations(bytes, declaredCharset)
+                declaredCharset = foldCharsetDeclarations(decodeDictionaryBytes(name, bytes), declaredCharset)
             }
         }
         if (declaredCharset == null) {
@@ -139,7 +140,10 @@ class NarCorpusLoader {
             reject("missing-dictionary", "The NAR does not contain any supported ghost dictionaries.")
         }
         val dictionaries = dictionaryNames.map { name ->
-            GhostSourceFile(path = name, text = decodeText(entries.getValue(name), charset))
+            GhostSourceFile(
+                path = name,
+                text = decodeText(decodeDictionaryBytes(name, entries.getValue(name)), charset),
+            )
         }
 
         val surfaceInventory = entries.keys.mapNotNullTo(linkedSetOf()) { name ->
@@ -274,6 +278,55 @@ class NarCorpusLoader {
             .removePrefix("\uFEFF")
     } catch (_: CharacterCodingException) {
         reject("malformed-text", "A declared text entry contains malformed or unmappable bytes.")
+    }
+
+    private fun decodeDictionaryBytes(name: String, rawBytes: ByteArray): ByteArray {
+        if (!name.endsWith(".sat") || !isDictionaryEntry(name)) return rawBytes
+
+        val firstPass = ByteArray(rawBytes.size)
+        val decoded = ByteArray(rawBytes.size)
+        var lineStart = 0
+        var cursor = 0
+        while (cursor < rawBytes.size) {
+            if (rawBytes[cursor] == '\n'.code.toByte()) {
+                val contentEnd = if (
+                    cursor > lineStart && rawBytes[cursor - 1] == '\r'.code.toByte()
+                ) {
+                    cursor - 1
+                } else {
+                    cursor
+                }
+                decodeSatLine(rawBytes, lineStart, contentEnd, firstPass, lineStart)
+                decodeSatLine(firstPass, lineStart, contentEnd, decoded, lineStart)
+                if (contentEnd < cursor) decoded[contentEnd] = '\r'.code.toByte()
+                decoded[cursor] = '\n'.code.toByte()
+                lineStart = cursor + 1
+            }
+            cursor++
+        }
+        decodeSatLine(rawBytes, lineStart, rawBytes.size, firstPass, lineStart)
+        decodeSatLine(firstPass, lineStart, rawBytes.size, decoded, lineStart)
+        return decoded
+    }
+
+    private fun decodeSatLine(
+        source: ByteArray,
+        start: Int,
+        end: Int,
+        destination: ByteArray,
+        destinationStart: Int,
+    ) {
+        var output = destinationStart
+        var input = start
+        while (input < end) {
+            destination[output++] = source[input]
+            input += 2
+        }
+        input = if ((end - start) % 2 == 0) end - 1 else end - 2
+        while (input >= start + 1) {
+            destination[output++] = source[input]
+            input -= 2
+        }
     }
 
     private fun parseDescriptor(text: String): Map<String, String> = buildMap {

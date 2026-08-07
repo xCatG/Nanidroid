@@ -111,7 +111,7 @@ class NarCorpusLoaderTest {
         val entries = validEntries().filterNot { it.name == "ghost/master/dic01.txt" } + listOf(
             textEntry("ghost/master/dic_root.txt", "charset,UTF-8\n＊root\nroot line\n"),
             textEntry("ghost/master/characters/dic_sakura.txt", "＊character\ncharacter line\n"),
-            textEntry("ghost/master/events/dic_seasonal.sat", "＊event\nevent line\n"),
+            satEntry("ghost/master/events/dic_seasonal.sat", "＊event\nevent line\n"),
             textEntry("ghost/master/characters/descript.txt", "metadata,not dialogue"),
             textEntry("ghost/master/readme.txt", "not a dictionary"),
             textEntry("ghost/master/private/notes.txt", "private notes,not executable dialogue"),
@@ -128,6 +128,70 @@ class NarCorpusLoaderTest {
             ),
             result.input.files.map { it.path },
         )
+    }
+
+    @Test
+    fun decodesNativeSatPermutationPerLineAndKeepsRawEntryHash() = withTemporaryDirectory { directory ->
+        val decoded = "＊挨拶\r\n：今日は\nx\n\n＄if（１）\r\n終端"
+        val sat = satEntry(
+            name = "ghost/master/events/dic_native.sat",
+            text = decoded,
+            charset = Charset.forName("windows-31j"),
+        )
+        val entries = validEntries(
+            charsetDeclaration = "CP932",
+            charset = Charset.forName("windows-31j"),
+        ).filterNot { it.name == "ghost/master/dic01.txt" } + sat
+
+        val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+        assertEquals("ghost/master/events/dic_native.sat", result.input.files.single().path)
+        assertEquals(decoded, result.input.files.single().text)
+        assertEquals(
+            "b38da9244c0d4c7b3c4f94932a2cacec7ea053e59d4efcf9f8773bd67bc59f85",
+            result.entryHashes["ghost/master/events/dic_native.sat"],
+        )
+    }
+
+    @Test
+    fun loadsEncodedSatControlDictionaryWithoutInterpretingItsContents() = withTemporaryDirectory { directory ->
+        val decoded = "＄if（random[2]）\n＠internal-value\n＄endif\n"
+        val entries = validEntries().filterNot { it.name == "ghost/master/dic01.txt" } +
+            satEntry("ghost/master/kyotu/dic_ng.sat", decoded)
+
+        val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+        assertEquals(decoded, result.input.files.single().text)
+        assertFalse(result.input.files.single().text.contains("＊"))
+    }
+
+    @Test
+    fun rejectsMalformedUtf8AndCp932AfterSatDeinterleaveWithoutLeakingBytes() = withTemporaryDirectory { directory ->
+        val secret = "private-authored-secret"
+        val cases = listOf(
+            Triple("UTF-8", StandardCharsets.UTF_8, byteArrayOf(0xc3.toByte(), 0x28)),
+            Triple("CP932", Charset.forName("windows-31j"), byteArrayOf(0x81.toByte(), 0x00)),
+        )
+        cases.forEachIndexed { index, (declaration, charset, malformedSuffix) ->
+            val malformedDecoded = secret.toByteArray(charset) + malformedSuffix
+            val entries = validEntries(declaration, charset).filterNot { it.name == "ghost/master/dic01.txt" } +
+                EntrySpec("ghost/master/dic_bad.sat", encodeSatBytes(malformedDecoded))
+
+            assertFailure(
+                loader.load(writeNar(directory, entries, "malformed-$index.nar")),
+                "malformed-text",
+                secret,
+            )
+        }
+    }
+
+    @Test
+    fun doesNotFallBackToPlainTextWhenSatDeinterleaveIsMalformed() = withTemporaryDirectory { directory ->
+        val plainSat = "＊未符号化\n：これは平文です\n".toByteArray(StandardCharsets.UTF_8)
+        val entries = validEntries().filterNot { it.name == "ghost/master/dic01.txt" } +
+            EntrySpec("ghost/master/dic_plain.sat", plainSat)
+
+        assertFailure(loader.load(writeNar(directory, entries)), "malformed-text")
     }
 
     @Test
@@ -549,6 +613,55 @@ class NarCorpusLoaderTest {
         text: String,
         charset: Charset = StandardCharsets.UTF_8,
     ) = EntrySpec(name, text.toByteArray(charset))
+
+    private fun satEntry(
+        name: String,
+        text: String,
+        charset: Charset = StandardCharsets.UTF_8,
+    ) = EntrySpec(name, encodeSatBytes(text.toByteArray(charset)))
+
+    private fun encodeSatBytes(decoded: ByteArray): ByteArray {
+        val output = ByteArray(decoded.size)
+        var lineStart = 0
+        var cursor = 0
+        while (cursor < decoded.size) {
+            if (decoded[cursor] == '\n'.code.toByte()) {
+                val contentEnd = if (cursor > lineStart && decoded[cursor - 1] == '\r'.code.toByte()) cursor - 1 else cursor
+                encodeNativeLineTwice(decoded, lineStart, contentEnd, output)
+                if (contentEnd < cursor) output[contentEnd] = '\r'.code.toByte()
+                output[cursor] = '\n'.code.toByte()
+                lineStart = cursor + 1
+            }
+            cursor++
+        }
+        encodeNativeLineTwice(decoded, lineStart, decoded.size, output)
+        return output
+    }
+
+    private fun encodeNativeLineTwice(source: ByteArray, start: Int, end: Int, output: ByteArray) {
+        val first = ByteArray(end - start)
+        encodeNativeLine(source, start, end, first, 0)
+        encodeNativeLine(first, 0, first.size, output, start)
+    }
+
+    private fun encodeNativeLine(
+        source: ByteArray,
+        start: Int,
+        end: Int,
+        output: ByteArray,
+        outputStart: Int,
+    ) {
+        val length = end - start
+        val evenCount = (length + 1) / 2
+        for (sourceIndex in 0 until length) {
+            val encodedIndex = if (sourceIndex % 2 == 0) {
+                sourceIndex / 2
+            } else {
+                evenCount + (length / 2 - 1 - sourceIndex / 2)
+            }
+            output[outputStart + sourceIndex] = source[start + encodedIndex]
+        }
+    }
 
     private fun writeNar(
         directory: Path,
