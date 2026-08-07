@@ -10,6 +10,7 @@ data class GhostGenerationRequest(
     val language: OutputLanguage,
     val examples: List<CanonicalTalk>,
     val validSurfaces: Map<GhostSpeakerId, Set<Int>>,
+    val recentGeneratedHistory: GeneratedDialogue? = null,
 )
 
 @Serializable
