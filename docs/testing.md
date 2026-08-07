@@ -120,3 +120,145 @@ geometry, optical bounds, asymmetric stages, and unsupported non-ghost packages.
 .\gradlew.bat testDebugUnitTest connectedDebugAndroidTest
 .\gradlew.bat validateDebugScreenshotTest jacocoTestReport
 ```
+
+## Adaptive UI visual audit (Task 18)
+
+The final hands-on audit is driven by `scripts/run-ui-visual-audit.ps1`. It is
+an emulator-only, fail-closed workflow: it starts its own `Nanidroid_API_37`
+instance from an existing immutable snapshot, refuses a running/reused device or
+pre-existing Nanidroid data, captures the original display configuration before
+any mutation, and restores and verifies that configuration in `finally`.
+PowerShell 7 or newer is required; invoke the runner with `pwsh`, not Windows
+PowerShell 5.1 (`powershell.exe`).
+
+Provision a clean `default_boot` snapshot for `Nanidroid_API_37` before running
+the audit. The runner loads that snapshot with `-no-snapshot-save` and
+`-read-only`; it never creates, overwrites, or deletes an AVD snapshot. The
+snapshot must contain no installed `com.cattailsw.nanidroid` or
+`com.cattailsw.nanidroid.test` package and no retained app data. Stop any running
+instance of the AVD first because the runner will not take ownership of an
+existing emulator.
+
+Run the host-only contract checks first. Dry-run performs no build, device,
+emulator, report-directory, or snapshot mutation:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 -DryRun `
+  -CorpusRoots C:\work\src\Nanidroid\2elf-2.46.nar, `
+    C:\work\src\Nanidroid\build\ui-audit\ghosts, `
+    C:\work\src\Nanidroid\build\ui-audit\pcPets
+```
+
+Run the complete capture workflow with the same corpus roots:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 `
+  -DeviceSerial emulator-5554 `
+  -AvdName Nanidroid_API_37 `
+  -SnapshotName default_boot `
+  -CorpusRoots C:\work\src\Nanidroid\2elf-2.46.nar, `
+    C:\work\src\Nanidroid\build\ui-audit\ghosts, `
+    C:\work\src\Nanidroid\build\ui-audit\pcPets
+```
+
+The runner records and restores the physical/override `wm size` and `wm
+density`, automatic and user rotation, display rotation, `font_scale` (including
+an originally absent setting), theme, locale, and network state. The 160 dpi
+overrides are used only inside the reversible workflow. Native-density phone and
+tablet passes retain the physical density. Each profile must settle across two
+`wm` readings, match the requested logical size from `dumpsys window displays`,
+retain the intended orientation lock, and match the root UIAutomator bounds;
+physical display dimensions are not treated as logical orientation evidence.
+Locale evidence uses `persist.sys.locale`, falling back when blank to
+`ro.product.locale` and then the activity configuration locale.
+
+A transport deadline aborts the run, writes partial host evidence, and disables
+every later ADB command. Native-command timeouts terminate the exact owned
+process tree, wait for it, drain its redirected streams, and dispose it. The
+emulator is launched only with `-read-only` and `-no-snapshot-save`. Immediately
+after launch, a hidden, non-redirected watchdog binds the audit host PID/start
+time and emulator PID/start time. If the host disappears, the watchdog kills
+only that exact emulator tree; it never matches a process name or command-line
+pattern. Normal `finally` cleanup stops the watchdog first, restores device
+state, asks the owned emulator to exit, and then enforces exact-tree cleanup.
+Failure to establish the watchdog handshake aborts the audit.
+
+The versioned, deterministic manifest contains 67 automated cases plus 2
+required fresh live interaction artifacts. The automated cases combine three
+authoritative sources (12 live profiles, 34 fixtures, and 21 NAR
+representative/profile cases):
+
+- live production `CatTailApplication` captures through Android CLI at the eight
+  required dp sizes, font scales 1.0/1.5/2.0, and native-density passes;
+- all 34 current Compose screenshot fixtures after
+  `validateDebugScreenshotTest`; and
+- Task 17 production-stage probes for exactly `2elf-2.46`, `Snake and Otacon
+  V1.3.2`, `Nanika Atsume 1.0.1`, `Watchdog Bancho`, `Big Red Button`,
+  `Earthquake Rescue Duo`, and `tewire-sen`, captured in portrait,
+  compact-landscape, and tablet profiles.
+
+The live path uses Android CLI `run`, `layout --pretty`, `screen capture`, and
+annotated `screen capture -a`. For every live case it also runs `uiautomator
+dump` and retains the pulled XML beside the Android CLI layout as
+`<case>.layout.uiautomator.xml`. UiAutomator XML must contain exactly one
+`ghost-safe-stage`, whose exact bounds become the measured stage. Independently,
+the Android CLI JSON and UiAutomator XML must each contain exactly one
+`list-ghost`; the CLI integer center must equal the floor center of the XML
+bounds. Normal live profiles apply the same independent center/bounds check to
+exactly one `surface-kero` and `surface-sakura` and require both verified centers
+inside the safe stage. The 480x230 and 230x400 tiny fallback profiles explicitly
+require both surface nodes to be absent from both sources while retaining the
+toolbar-anchor cross-check. A missing or duplicate required node, wrong tiny-mode
+presence, mismatched center, out-of-stage surface center, empty capture, or root
+bounds that disagree with the settled logical display is a failure. NAR cases use the
+Task 17 probe's measured layout and screenshot evidence and do not claim an
+Android CLI annotation that was never produced. Each Task 17 invocation has a
+180-minute parent budget so it exceeds the build plus all 23 five-minute child
+deadlines. The runner retains the validated Task 17 summary independently for
+each profile at `nar/<profile>/task17-summary.json` before the next profile can
+replace `build/reports/nar-corpus/summary.json`. Fixture cases are clearly
+labeled as validated Layoutlib renders rather than production-window captures.
+
+Generated evidence is under `build/reports/ui-audit/` and must not be committed:
+
+- `case-manifest.json` and its SHA-256 in `summary.json`;
+- `live/`, `fixtures/`, and `nar/<profile>/` screenshots, annotations, layouts,
+  retained Task 17 summaries, and per-representative result evidence;
+- `interaction/extracted-choice-surface.png` and
+  `interaction/snake-otacon-input-ime-visible.png`, captured manually after the
+  automated run at the exact manifest-declared paths;
+- `summary.json` and `summary.md`; and
+- `manual-inspection.md`.
+
+The capture command exits after writing `captured-awaiting-manual-inspection`;
+that status is not a passing audit. The executing reviewer owns
+`manual-inspection.md`. Open every fresh PNG at its original resolution and fill
+one result row per automated manifest case, including the exact screenshot
+SHA-256 and the requested/measured window and stage evidence. An automated row
+marked `pass` must have an empty Defect cell. Capture the two
+required interaction PNGs from the current build, then fill their exact manifest
+identity, path, SHA-256, invariant text, explicit `pass`, and empty Defect cell
+in the separate interaction-evidence table. Set `Audit status: complete` only
+after all 67 automated rows and both interaction rows are explicit passes. Then complete the
+interaction checklist for touch, mouse single/double click, keyboard and D-pad,
+bubble scrolling/actions, debug presentations, rotation/recreation, input IME,
+the passive stall prompt, TalkBack plus Switch Access or Voice Access, collision
+custom actions, focus recovery, and exact SHIORI event identity and diagnostics. The audit fails on
+case-count mismatch or any unresolved visual/interaction result; automated pixel
+comparison is supporting evidence, not a substitute for this inspection.
+
+Capture and completion both require a clean tracked worktree. The capture summary
+records the exact git HEAD, resolved debug APK path and SHA-256, and capture start
+time. Before report initialization, capture preflights both required interaction
+paths; an accidental rerun with either artifact already present aborts without
+rewriting the prior summary in `finally`. Finish with the fail-closed verifier. It requires the same current HEAD and
+APK, rehashes the exact current report PNG set (67 screenshots, 12 annotations,
+and 2 fresh interaction artifacts), rejects extra or stale PNGs, checks all 67
+automated rows, both interaction-evidence rows, and all 12 exact checklist labels,
+and refuses any blank, stale, duplicate, unchecked, defect-bearing, or non-pass
+result. It is the only mode that changes the summary status to `complete`:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 `
+  -VerifyManualInspection
+```

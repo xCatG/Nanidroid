@@ -31,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,12 +81,15 @@ internal fun NanidroidComposeShell(
 ) {
     MaterialTheme {
         Surface(
-            modifier = modifier.fillMaxSize().drawBehind {
-                wallpaper?.apply {
-                    setBounds(0, 0, size.width.toInt(), size.height.toInt())
-                    draw(drawContext.canvas.nativeCanvas)
-                }
-            },
+            modifier = modifier
+                .fillMaxSize()
+                .semantics { testTagsAsResourceId = true }
+                .drawBehind {
+                    wallpaper?.apply {
+                        setBounds(0, 0, size.width.toInt(), size.height.toInt())
+                        draw(drawContext.canvas.nativeCanvas)
+                    }
+                },
             color = Color.Transparent,
         ) {
             val isDebuggable = DebugAvailabilityPolicy(isDebuggable = showDebugControls).showDebugIcon

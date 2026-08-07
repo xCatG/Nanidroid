@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -234,6 +235,7 @@ fun MeasuredGhostStageLayout(
         }.forEach { it.measure(Constraints.fixed(0, 0)) }
 
         val children = buildList {
+            add(measureSafeStage(layoutPx.content))
             keroSnapshot?.let { surface ->
                 add(measureSurface(StageSlot.KERO_SURFACE, surface, surfaceContent))
             }
@@ -290,6 +292,15 @@ private data class MeasuredChild(
     val placeables: List<androidx.compose.ui.layout.Placeable>,
 )
 
+private fun androidx.compose.ui.layout.SubcomposeMeasureScope.measureSafeStage(
+    bounds: IntRect,
+): MeasuredChild = MeasuredChild(
+    bounds = bounds,
+    placeables = subcompose(StageSlot.SAFE_STAGE) {
+        Spacer(Modifier.testTag("ghost-safe-stage"))
+    }.map { measurable -> measurable.measure(bounds.fixedConstraints()) },
+)
+
 private fun androidx.compose.ui.layout.SubcomposeMeasureScope.measureSurface(
     slot: StageSlot,
     snapshot: StageSurfaceSnapshot,
@@ -339,6 +350,7 @@ private fun IntRect.fixedConstraints() = Constraints.fixed(
 
 private enum class StageSlot {
     COMMIT,
+    SAFE_STAGE,
     KERO_SURFACE,
     SAKURA_SURFACE,
     KERO_BALLOON,
