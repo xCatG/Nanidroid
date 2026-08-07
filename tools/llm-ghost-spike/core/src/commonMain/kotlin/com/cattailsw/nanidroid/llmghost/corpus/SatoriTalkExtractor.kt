@@ -320,7 +320,6 @@ class SatoriTalkExtractor {
             this in '0'..'9' ||
             this == '!' ||
             this == '*' ||
-            this == '/' ||
             this == '&' ||
             this == '?' ||
             this == '_'

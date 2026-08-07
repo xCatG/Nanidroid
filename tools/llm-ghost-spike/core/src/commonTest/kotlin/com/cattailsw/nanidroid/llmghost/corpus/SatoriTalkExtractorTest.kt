@@ -103,7 +103,6 @@ class SatoriTalkExtractorTest {
             "\\1!tail",
             "\\e9tail",
             "\\e*tail",
-            "\\e/tail",
             "\\e&tail",
         )
         val sourceText = unsafeBodies.mapIndexed { index, body ->
@@ -114,6 +113,26 @@ class SatoriTalkExtractorTest {
 
         assertTrue(result.talks.isEmpty())
         assertEquals(unsafeBodies.size, result.diagnostics.count { it.code == "unsupported-control" })
+    }
+
+    @Test
+    fun acceptsSlashAsANativeCommandDelimiterAndRetainsVisiblePathText() {
+        val result = extractor.extract(
+            input(source("＊SlashDelimiter\n：\\e/path\n：\\w8/path\n：\\0/path\n")),
+        )
+
+        assertEquals(listOf("/path", "/path", "/path"), result.talks.single().turns.map { it.text })
+        assertTrue(result.diagnostics.isEmpty())
+    }
+
+    @Test
+    fun slashDelimiterCannotBypassTheIndependentCaseInsensitiveUrlGuard() {
+        val result = extractor.extract(
+            input(source("＊UnsafeUrl\n：\\e/HTTPS://example.invalid/action\n")),
+        )
+
+        assertTrue(result.talks.isEmpty())
+        assertTrue(result.diagnostics.any { it.code == "unsupported-control" })
     }
 
     @Test
