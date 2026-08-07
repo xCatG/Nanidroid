@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class CanonicalSimilarityTest {
     @Test
@@ -114,6 +115,165 @@ class CanonicalSimilarityTest {
 
         assertTrue(finding.exact)
         assertEquals(1.0, finding.ratio)
+    }
+
+    @Test
+    fun invisible_characters_and_compatibility_forms_cannot_hide_exact_copies() {
+        val variants = listOf(
+            "c\u200Bo\u200Bp\u200By" to "copy",
+            "co\u202Epy" to "copy",
+            "cop\uFE0Fy" to "copy",
+            "\uFF43\uFF4F\uFF50\uFF59" to "copy",
+            "\uFB02ower" to "flower",
+            "co\uFFF0py" to "copy",
+        )
+
+        variants.forEach { (generated, canonical) ->
+            val finding = CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, generated)),
+                canonicalTalks = listOf(talk("copy", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, canonical)))),
+            ).single()
+            assertTrue(finding.exact, "Expected exact copy for $generated")
+        }
+    }
+
+    @Test
+    fun mathematical_alphanumeric_copy_normalizes_to_plain_text() {
+        val finding = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(
+                GeneratedTurn("sakura", 0, "\uD835\uDC1C\uD835\uDC28\uD835\uDC29\uD835\uDC32"),
+            ),
+            canonicalTalks = listOf(
+                talk("plain", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "copy"))),
+            ),
+        ).single()
+
+        assertTrue(finding.exact)
+    }
+
+    @Test
+    fun pinned_nfkd_handles_kana_halfwidth_and_cjk_compatibility_sequences() {
+        val pairs = listOf(
+            "ゟ" to "より",
+            "ヿ" to "コト",
+            "ﾃｽﾄ" to "ﾃｽﾄ",
+            "ｶﾞ" to "ガ",
+            "℃" to "°C",
+        )
+
+        pairs.forEach { (generated, canonical) ->
+            val finding = CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, generated)),
+                canonicalTalks = listOf(
+                    talk("plain", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, canonical))),
+                ),
+            ).single()
+            assertTrue(finding.exact, "Expected NFKD exact match: $generated / $canonical")
+        }
+    }
+
+    @Test
+    fun pinned_nfkd_reorders_combining_marks_by_canonical_class() {
+        val finding = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "a\u0315\u0300")),
+            canonicalTalks = listOf(
+                talk("canonical", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "à\u0315"))),
+            ),
+        ).single()
+
+        assertTrue(finding.exact)
+    }
+
+    @Test
+    fun pinned_nfkd_reorders_combining_marks_after_ignored_punctuation_is_removed() {
+        val finding = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "a\u0315,\u0300")),
+            canonicalTalks = listOf(
+                talk("canonical", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "a\u0300\u0315"))),
+            ),
+        ).single()
+
+        assertTrue(finding.exact)
+    }
+
+    @Test
+    fun exact_canonical_turn_split_across_adjacent_generated_turns_is_detected() {
+        val generated = listOf(
+            GeneratedTurn("sakura", 0, "A fresh"),
+            GeneratedTurn("kero", 1, " canonical"),
+            GeneratedTurn("sakura", 0, " line"),
+        )
+
+        val exact = CanonicalSimilarity.evaluate(
+            generatedTurns = generated,
+            canonicalTalks = listOf(talk("split", listOf(CanonicalTurn(GhostSpeakerId.KERO, 1, "A fresh canonical line")))),
+        ).single { it.exact }
+
+        assertEquals("split", exact.canonicalTalkId)
+        assertEquals(0, exact.generatedTurnStartIndex)
+        assertEquals(2, exact.generatedTurnEndIndex)
+        assertEquals(generated.first(), exact.generatedTurn)
+    }
+
+    @Test
+    fun adjacent_window_findings_have_deterministic_start_then_end_order() {
+        val findings = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(
+                GeneratedTurn("sakura", 0, "a"),
+                GeneratedTurn("kero", 1, "b"),
+                GeneratedTurn("sakura", 0, "c"),
+            ),
+            canonicalTalks = listOf(
+                talk("ab", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "ab"))),
+                talk("bc", listOf(CanonicalTurn(GhostSpeakerId.KERO, 1, "bc"))),
+            ),
+        ).filter { it.exact }
+
+        assertEquals(listOf(0 to 1, 1 to 2), findings.map { it.generatedTurnStartIndex to it.generatedTurnEndIndex })
+    }
+
+    @Test
+    fun duplicate_canonical_candidates_do_not_consume_repeated_dp_budget() {
+        val canonical = CanonicalTurn(GhostSpeakerId.SAKURA, 0, "12345678901234567890")
+        val findings = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "123456789012345678XX")),
+            canonicalTalks = List(1_000) { talk("duplicate-$it", listOf(canonical)) },
+            budget = SimilarityBudget(maxComparisons = 1, maxDpCells = 400),
+        )
+
+        assertEquals(0.9, findings.single().ratio, absoluteTolerance = 0.000_001)
+        assertEquals("duplicate-0", findings.single().canonicalTalkId)
+    }
+
+    @Test
+    fun excessive_comparison_work_fails_closed_deterministically() {
+        val talks = List(3) { index ->
+            talk("talk-$index", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "a".repeat(20) + index)))
+        }
+
+        val failure = assertFailsWith<SimilarityBudgetExceededException> {
+            CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, "a".repeat(20) + "x")),
+                canonicalTalks = talks,
+                budget = SimilarityBudget(maxComparisons = 2, maxDpCells = 10_000),
+            )
+        }
+
+        assertEquals(2, failure.completedComparisons)
+    }
+
+    @Test
+    fun maximum_length_irrelevant_canonical_line_is_safely_filtered_without_dp() {
+        val findings = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "short original line")),
+            canonicalTalks = listOf(
+                talk("maximum", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "x".repeat(65_536)))),
+            ),
+            budget = SimilarityBudget(maxComparisons = 0, maxDpCells = 0),
+        )
+
+        assertEquals(0.0, findings.single().ratio)
+        assertFalse(findings.single().exact)
     }
 
     private fun talk(id: String, turns: List<CanonicalTurn>) = CanonicalTalk(

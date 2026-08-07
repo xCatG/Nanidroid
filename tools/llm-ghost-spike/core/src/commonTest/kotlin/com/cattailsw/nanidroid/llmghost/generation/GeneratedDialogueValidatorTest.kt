@@ -86,6 +86,44 @@ class GeneratedDialogueValidatorTest {
     }
 
     @Test
+    fun rejectsInvisibleFormatVariationAndTagCodePoints() {
+        val result = validator.validate(
+            GeneratedDialogue(
+                listOf(
+                    GeneratedTurn("sakura", 3, "zero\u200Bwidth"),
+                    GeneratedTurn("kero", 19, "left\u202Eright"),
+                    GeneratedTurn("sakura", 3, "heart\uFE0F"),
+                    GeneratedTurn("kero", 19, "tag\uDB40\uDC61"),
+                    GeneratedTurn("sakura", 3, "reserved\uFFF0format"),
+                ),
+            ),
+            VALID_SURFACES,
+        )
+
+        assertNull(result.dialogue)
+        assertEquals(List(5) { "forbidden-invisible-format" }, result.violations.map { it.code })
+        assertEquals(listOf(0, 1, 2, 3, 4), result.violations.map { it.turnIndex })
+    }
+
+    @Test
+    fun acceptsPinnedCompatibilityFormsIncludingOrdinaryHalfwidthKana() {
+        val result = validator.validate(
+            GeneratedDialogue(
+                listOf(
+                    GeneratedTurn("sakura", 3, "bold \uD835\uDC1A"),
+                    GeneratedTurn("kero", 19, "superscript \u00B2"),
+                    GeneratedTurn("sakura", 3, "square \u338F"),
+                    GeneratedTurn("kero", 19, "ﾃｽﾄ ｶﾞ ℃ ゟ ヿ"),
+                ),
+            ),
+            VALID_SURFACES,
+        )
+
+        assertNotNull(result.dialogue)
+        assertTrue(result.violations.isEmpty())
+    }
+
+    @Test
     fun rejectsWaitsOutsideZeroThroughTwoThousandMilliseconds() {
         val result = validator.validate(
             GeneratedDialogue(

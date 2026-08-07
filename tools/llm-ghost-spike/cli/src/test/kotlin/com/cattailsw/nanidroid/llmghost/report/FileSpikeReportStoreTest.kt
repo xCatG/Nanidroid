@@ -31,6 +31,7 @@ import java.time.Instant
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -121,6 +122,274 @@ class FileSpikeReportStoreTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun caseJsonFailureAfterCompletedCaseTransitionsToSanitizedRecovery() {
+        val root = Files.createTempDirectory("case-json-recovery")
+        val secret = "Bearer secret-case-write at http://user:password@example.test"
+        val store = FileSpikeReportStore(
+            root,
+            artifactWriter = FailingNthCaseArtifactWriter(failingCase = 2, message = secret),
+        )
+        val instant = Instant.parse("2026-08-07T01:02:03Z")
+        val run = store.beginRun(instant, "case-json-failure")
+        val completedCase = run.writeCase(evidence(), 1)
+
+        val failure = assertFailsWith<SpikeReportPublicationException> {
+            run.writeCase(evidence(), 2)
+        }
+
+        assertEquals("case-write-failed", failure.failureCode)
+        assertEquals(run.directory.toAbsolutePath().normalize(), failure.recoveryDirectory)
+        assertTrue(Files.isRegularFile(completedCase.resolve("case.json")))
+        assertTrue(Files.isRegularFile(completedCase.resolve(".case-complete")))
+        assertTrue(!Files.exists(run.directory.resolve("idle-english-2/.case-complete")))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+        val recoveryJson = Files.readString(run.directory.resolve("recovery.json"))
+        assertTrue(recoveryJson.contains("case-write-failed"))
+        assertTrue(!recoveryJson.contains("secret-case-write") && !recoveryJson.contains("user:password"))
+        assertFailsWith<FileAlreadyExistsException> {
+            FileSpikeReportStore(root).beginRun(instant, "case-json-failure")
+        }
+    }
+
+    @Test
+    fun caseMarkerFailureLeavesClosedJsonUncommittedAndTransitionsToRecovery() {
+        val root = Files.createTempDirectory("case-marker-recovery")
+        val secret = "marker failed beside secret-token"
+        val store = FileSpikeReportStore(
+            root = root,
+            caseCommitter = FailingNthCaseCommitter(failingCase = 2, message = secret),
+        )
+        val run = store.beginRun(Instant.parse("2026-08-07T01:02:03Z"), "case-marker-failure")
+        val completedCase = run.writeCase(evidence(), 1)
+
+        val failure = assertFailsWith<SpikeReportPublicationException> {
+            run.writeCase(evidence(), 2)
+        }
+
+        assertEquals("case-completion-marker-failed", failure.failureCode)
+        assertTrue(Files.isRegularFile(completedCase.resolve(".case-complete")))
+        assertTrue(Files.isRegularFile(run.directory.resolve("idle-english-2/case.json")))
+        assertTrue(!Files.exists(run.directory.resolve("idle-english-2/.case-complete")))
+        assertTrue(!Files.readString(run.directory.resolve("recovery.json")).contains("secret-token"))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+    }
+
+    @Test
+    fun caseMarkerCreatedBeforeCommitterFailureRemainsLogicallyCommitted() {
+        val root = Files.createTempDirectory("case-marker-then-failure")
+        val run = FileSpikeReportStore(
+            root = root,
+            caseCommitter = MarkerThenThrowCaseCommitter(IOException("secret close failure")),
+        ).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "case-marker-then-failure")
+
+        val caseDirectory = run.writeCase(evidence(), 1)
+
+        assertTrue(Files.isRegularFile(caseDirectory.resolve("case.json")))
+        assertTrue(Files.isRegularFile(caseDirectory.resolve(".case-complete")))
+        assertEquals(null, run.recoveryDirectory)
+        assertTrue(!Files.exists(run.directory.resolve("recovery.json")))
+        run.finish(summary(model = "case-marker-model"))
+        assertTrue(FileSpikeReportStore.isPublishedRun(run.directory))
+    }
+
+    @Test
+    fun runMarkerCreatedBeforeCommitterFailureRemainsPublished() {
+        val root = Files.createTempDirectory("run-marker-then-failure")
+        val run = FileSpikeReportStore(
+            root = root,
+            runCommitter = MarkerThenThrowRunCommitter(IOException("secret close failure")),
+        ).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "run-marker-then-failure")
+        run.writeCase(evidence(), 1)
+
+        run.finish(summary(model = "published-model"))
+
+        assertTrue(FileSpikeReportStore.isPublishedRun(run.directory))
+        assertEquals(null, run.recoveryDirectory)
+        assertTrue(!Files.exists(run.directory.resolve(".recovery")))
+        assertTrue(!Files.exists(run.directory.resolve("recovery.json")))
+        assertTrue(Files.readString(run.directory.resolve("summary.json")).contains("published-model"))
+        assertTrue(Files.isRegularFile(run.directory.resolve("review.md")))
+        assertFailsWith<FileAlreadyExistsException> { run.finish(summary(model = "must-not-overwrite")) }
+    }
+
+    @Test
+    fun prematureRunMarkerDuringSummaryOrReviewIOExceptionIsNeverAuthoritative() {
+        listOf("summary.json", "review.md").forEach { failingName ->
+            val root = Files.createTempDirectory("premature-marker-io")
+            val run = FileSpikeReportStore(
+                root = root,
+                artifactWriter = MarkerThenThrowArtifactWriter(
+                    failingName = failingName,
+                    failure = IOException("secret $failingName provider failure"),
+                ),
+            ).beginRun(
+                Instant.parse("2026-08-07T01:02:03Z"),
+                "premature-${failingName.substringBefore('.')}",
+            )
+            run.writeCase(evidence(), 1)
+
+            val failure = assertFailsWith<SpikeReportPublicationException> {
+                run.finish(summary(model = "must-not-publish"))
+            }
+
+            assertEquals("${failingName.substringBefore('.')}-write-failed", failure.failureCode)
+            assertEquals(run.directory.toAbsolutePath().normalize(), failure.recoveryDirectory)
+            assertEquals(run.directory, run.recoveryDirectory)
+            assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+            assertTrue(!Files.exists(run.directory.resolve(".complete")))
+            assertTrue(Files.isRegularFile(run.directory.resolve(".recovery")))
+            assertTrue(Files.isRegularFile(run.directory.resolve("recovery.json")))
+            assertTrue(!Files.readString(run.directory.resolve("recovery.json")).contains("secret"))
+            if (failingName == "summary.json") {
+                assertTrue(!Files.exists(run.directory.resolve("summary.json")))
+            } else {
+                assertTrue(Files.isRegularFile(run.directory.resolve("summary.json")))
+                assertTrue(!Files.exists(run.directory.resolve("review.md")))
+            }
+        }
+    }
+
+    @Test
+    fun prematureRunMarkerDuringSummaryOrReviewCancellationPreservesIdentityAndAbortability() {
+        listOf("summary.json", "review.md").forEach { failingName ->
+            val cancelled = CancellationException("exact $failingName cancellation")
+            val run = FileSpikeReportStore(
+                root = Files.createTempDirectory("premature-marker-cancel"),
+                artifactWriter = MarkerThenThrowArtifactWriter(failingName, cancelled),
+            ).beginRun(
+                Instant.parse("2026-08-07T01:02:03Z"),
+                "cancel-${failingName.substringBefore('.')}",
+            )
+            run.writeCase(evidence(), 1)
+
+            val thrown = assertFailsWith<CancellationException> {
+                run.finish(summary(model = "must-not-publish"))
+            }
+
+            assertTrue(thrown === cancelled)
+            assertTrue(Files.isRegularFile(run.directory.resolve(".complete")))
+            assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+            assertEquals(null, run.recoveryDirectory)
+            assertEquals(run.directory, run.abort("run-cancelled"))
+            assertEquals(run.directory, run.recoveryDirectory)
+            assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+            assertTrue(!Files.exists(run.directory.resolve(".complete")))
+            assertTrue(Files.isRegularFile(run.directory.resolve(".recovery")))
+            assertTrue(Files.isRegularFile(run.directory.resolve("recovery.json")))
+        }
+    }
+
+    @Test
+    fun directRecoverySentinelPreventsPublicationWhenRecoveryJsonAlsoFails() {
+        listOf("summary.json", "review.md").forEach { failingName ->
+            listOf(false, true).forEach { cancel ->
+                val cancellation = CancellationException("exact $failingName recovery cancellation")
+                val run = FileSpikeReportStore(
+                    root = Files.createTempDirectory("premature-marker-no-metadata"),
+                    artifactWriter = MarkerThenThrowArtifactWriter(
+                        failingName = failingName,
+                        failure = if (cancel) cancellation else IOException("secret artifact failure"),
+                        failRecoveryWrite = true,
+                    ),
+                ).beginRun(
+                    Instant.parse("2026-08-07T01:02:03Z"),
+                    "no-metadata-${failingName.substringBefore('.')}-${if (cancel) "cancel" else "io"}",
+                )
+                run.writeCase(evidence(), 1)
+
+                if (cancel) {
+                    val thrown = assertFailsWith<CancellationException> {
+                        run.finish(summary(model = "must-not-publish"))
+                    }
+                    assertTrue(thrown === cancellation)
+                    run.abort("run-cancelled")
+                } else {
+                    assertFailsWith<SpikeReportPublicationException> {
+                        run.finish(summary(model = "must-not-publish"))
+                    }
+                }
+
+                assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+                assertTrue(!Files.exists(run.directory.resolve(".complete")))
+                assertTrue(Files.isRegularFile(run.directory.resolve(".recovery")))
+                assertTrue(!Files.exists(run.directory.resolve("recovery.json")))
+            }
+        }
+    }
+
+    @Test
+    fun markerThenCancellationPreservesIdentityAndLogicalCommitState() {
+        val caseCancellation = CancellationException("case exact cancellation")
+        val caseRun = FileSpikeReportStore(
+            root = Files.createTempDirectory("case-marker-cancel"),
+            caseCommitter = MarkerThenThrowCaseCommitter(caseCancellation),
+        ).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "case-marker-cancel")
+
+        val caseThrown = assertFailsWith<CancellationException> { caseRun.writeCase(evidence(), 1) }
+
+        assertTrue(caseThrown === caseCancellation)
+        assertTrue(Files.isRegularFile(caseRun.directory.resolve("idle-english-1/.case-complete")))
+        assertEquals(null, caseRun.recoveryDirectory)
+
+        val runCancellation = CancellationException("run exact cancellation")
+        val publishedRun = FileSpikeReportStore(
+            root = Files.createTempDirectory("run-marker-cancel"),
+            runCommitter = MarkerThenThrowRunCommitter(runCancellation),
+        ).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "run-marker-cancel")
+        publishedRun.writeCase(evidence(), 1)
+
+        val runThrown = assertFailsWith<CancellationException> {
+            publishedRun.finish(summary(model = "cancelled-after-publish"))
+        }
+
+        assertTrue(runThrown === runCancellation)
+        assertTrue(FileSpikeReportStore.isPublishedRun(publishedRun.directory))
+        assertEquals(null, publishedRun.recoveryDirectory)
+        assertFailsWith<FileAlreadyExistsException> { publishedRun.abort("run-cancelled") }
+    }
+
+    @Test
+    fun recoveryMetadataWriteFailureCannotHideReservedDirectory() {
+        val root = Files.createTempDirectory("recovery-metadata-failure")
+        val instant = Instant.parse("2026-08-07T01:02:03Z")
+        val run = FileSpikeReportStore(
+            root,
+            artifactWriter = FailingCaseAndRecoveryArtifactWriter,
+        ).beginRun(instant, "metadata-failure")
+
+        val failure = assertFailsWith<SpikeReportPublicationException> {
+            run.writeCase(evidence(), 1)
+        }
+
+        assertEquals("case-write-failed", failure.failureCode)
+        assertEquals(run.directory.toAbsolutePath().normalize(), failure.recoveryDirectory)
+        assertEquals(run.directory.toAbsolutePath().normalize(), run.recoveryDirectory)
+        assertTrue(Files.isDirectory(failure.recoveryDirectory))
+        assertTrue(!Files.exists(failure.recoveryDirectory.resolve("recovery.json")))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(failure.recoveryDirectory))
+        assertFailsWith<FileAlreadyExistsException> {
+            FileSpikeReportStore(root).beginRun(instant, "metadata-failure")
+        }
+    }
+
+    @Test
+    fun casePersistenceCancellationKeepsExactIdentityForRunnerAbort() {
+        val cancelled = CancellationException("exact cancellation")
+        val run = FileSpikeReportStore(
+            Files.createTempDirectory("case-persistence-cancel"),
+            artifactWriter = ArtifactWriter { _, _ -> throw cancelled },
+        ).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "cancelled-write")
+
+        val thrown = assertFailsWith<CancellationException> {
+            run.writeCase(evidence(), 1)
+        }
+
+        assertTrue(thrown === cancelled)
+        assertEquals(run.directory, run.abort("run-cancelled"))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
     }
 
     @Test
@@ -413,6 +682,88 @@ class FileSpikeReportStoreTest {
     private class FailingArtifactWriter(private val failingName: String) : ArtifactWriter {
         override fun write(finalPath: java.nio.file.Path, value: String) {
             if (finalPath.fileName.toString() == failingName) throw IOException("fixture write failure")
+            JvmCreateNewArtifactWriter.write(finalPath, value)
+        }
+    }
+
+    private class FailingNthCaseArtifactWriter(
+        private val failingCase: Int,
+        private val message: String,
+    ) : ArtifactWriter {
+        private var cases = 0
+
+        override fun write(finalPath: java.nio.file.Path, value: String) {
+            if (finalPath.fileName.toString() == "case.json" && ++cases == failingCase) {
+                throw IOException(message)
+            }
+            JvmCreateNewArtifactWriter.write(finalPath, value)
+        }
+    }
+
+    private class FailingNthCaseCommitter(
+        private val failingCase: Int,
+        private val message: String,
+    ) : CaseCommitter {
+        private var cases = 0
+
+        override fun commit(caseDirectory: java.nio.file.Path) {
+            if (++cases == failingCase) throw IOException(message)
+            JvmCreateNewCaseCommitter.commit(caseDirectory)
+        }
+    }
+
+    private class MarkerThenThrowCaseCommitter(
+        private val failure: Throwable,
+    ) : CaseCommitter {
+        override fun commit(caseDirectory: java.nio.file.Path) {
+            Files.newByteChannel(
+                caseDirectory.resolve(".case-complete"),
+                StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE,
+            ).use { }
+            throw failure
+        }
+    }
+
+    private class MarkerThenThrowRunCommitter(
+        private val failure: Throwable,
+    ) : RunCommitter {
+        override fun commit(runDirectory: java.nio.file.Path) {
+            Files.newByteChannel(
+                runDirectory.resolve(".complete"),
+                StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE,
+            ).use { }
+            throw failure
+        }
+    }
+
+    private class MarkerThenThrowArtifactWriter(
+        private val failingName: String,
+        private val failure: Throwable,
+        private val failRecoveryWrite: Boolean = false,
+    ) : ArtifactWriter {
+        override fun write(finalPath: java.nio.file.Path, value: String) {
+            if (failRecoveryWrite && finalPath.fileName.toString() == "recovery.json") {
+                throw IOException("secret recovery metadata failure")
+            }
+            if (finalPath.fileName.toString() == failingName) {
+                Files.newByteChannel(
+                    finalPath.parent.resolve(".complete"),
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE,
+                ).use { }
+                throw failure
+            }
+            JvmCreateNewArtifactWriter.write(finalPath, value)
+        }
+    }
+
+    private object FailingCaseAndRecoveryArtifactWriter : ArtifactWriter {
+        override fun write(finalPath: java.nio.file.Path, value: String) {
+            if (finalPath.fileName.toString() == "case.json" || finalPath.fileName.toString() == "recovery.json") {
+                throw IOException("secret persistence detail")
+            }
             JvmCreateNewArtifactWriter.write(finalPath, value)
         }
     }

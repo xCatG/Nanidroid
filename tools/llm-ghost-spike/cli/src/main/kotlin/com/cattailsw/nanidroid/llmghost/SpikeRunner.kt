@@ -10,6 +10,7 @@ import com.cattailsw.nanidroid.llmghost.report.FileSpikeReportStore
 import com.cattailsw.nanidroid.llmghost.report.SpikeCaseEvidence
 import com.cattailsw.nanidroid.llmghost.report.SpikeRunSummary
 import com.cattailsw.nanidroid.llmghost.report.RetrievedExampleEvidence
+import com.cattailsw.nanidroid.llmghost.report.SpikeReportPublicationException
 import com.cattailsw.nanidroid.llmghost.retrieval.CanonicalTalkRetriever
 import java.nio.file.Path
 import java.time.Instant
@@ -130,6 +131,9 @@ class SpikeRunner(
                     .onSuccess { recovery -> runCatching { onRecovery(recovery) } }
             }
             throw cancelled
+        } catch (failure: SpikeReportPublicationException) {
+            runCatching { onRecovery(failure.recoveryDirectory) }
+            throw failure
         }
     }
 }

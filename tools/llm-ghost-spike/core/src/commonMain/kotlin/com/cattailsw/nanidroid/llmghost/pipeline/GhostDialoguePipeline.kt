@@ -2,6 +2,8 @@ package com.cattailsw.nanidroid.llmghost.pipeline
 
 import com.cattailsw.nanidroid.llmghost.evaluation.CanonicalSimilarity
 import com.cattailsw.nanidroid.llmghost.evaluation.SimilarityFinding
+import com.cattailsw.nanidroid.llmghost.evaluation.SimilarityBudgetExceededException
+import com.cattailsw.nanidroid.llmghost.evaluation.UnsafeSimilarityTextException
 import com.cattailsw.nanidroid.llmghost.generation.GeneratedDialogueDecoder
 import com.cattailsw.nanidroid.llmghost.generation.GeneratedDialogueValidator
 import com.cattailsw.nanidroid.llmghost.model.CaseStatus
@@ -235,7 +237,40 @@ class GhostDialoguePipeline(
             }
 
             stage = PipelineStage.SIMILARITY
-            val findings = similarityEvaluator(decoded.turns, case.request.examples)
+            val findings = try {
+                similarityEvaluator(decoded.turns, case.request.examples)
+            } catch (exhausted: SimilarityBudgetExceededException) {
+                return failureReport(
+                    case = case,
+                    startedAtMillis = startedAtMillis,
+                    renderedPrompt = renderedPrompt,
+                    rawResponse = rawResponse.toString(),
+                    preparationEvents = preparationEvents,
+                    generationEvents = generationEvents,
+                    code = "similarity-budget-exceeded",
+                    detail = exhausted.message ?: "Canonical similarity work budget was exceeded.",
+                    usage = usage,
+                    generatedDialogue = decoded,
+                    compiledSakuraScript = compilation.script,
+                    compiledScriptValidation = compiledReport,
+                )
+            } catch (unsafe: UnsafeSimilarityTextException) {
+                return failureReport(
+                    case = case,
+                    startedAtMillis = startedAtMillis,
+                    renderedPrompt = renderedPrompt,
+                    rawResponse = rawResponse.toString(),
+                    preparationEvents = preparationEvents,
+                    generationEvents = generationEvents,
+                    code = "similarity-unsafe-text",
+                    detail = unsafe.message ?: "Canonical similarity encountered unsafe text.",
+                    sourceCode = unsafe.sourceCode,
+                    usage = usage,
+                    generatedDialogue = decoded,
+                    compiledSakuraScript = compilation.script,
+                    compiledScriptValidation = compiledReport,
+                )
+            }
             val exactCopy = findings.firstOrNull { it.exact }
             if (exactCopy != null) {
                 return failureReport(

@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.llmghost
 
+import com.cattailsw.nanidroid.llmghost.report.SpikeReportPublicationException
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -208,6 +209,30 @@ class SpikeCliArgumentsTest {
         assertEquals(130, exit)
         assertEquals(listOf(path.toString()), output.lines().filter(String::isNotBlank))
         assertEquals("cancelled: Spike execution was cancelled.", error.toString().trim())
+    }
+
+    @Test
+    fun persistenceFailurePrintsStableRecoveryDirectoryOnceAndStaticError() = runBlocking {
+        val path = Path.of("reports", "case-recovery").toAbsolutePath().normalize()
+        val output = StringBuilder()
+        val error = StringBuilder()
+
+        val exit = executeCli(
+            args = listOf("--nar", "x"),
+            environment = emptyMap(),
+            stdout = output,
+            stderr = error,
+        ) {
+            throw SpikeReportPublicationException(path, "case-write-failed")
+        }
+
+        assertEquals(1, exit)
+        assertEquals(listOf(path.toString()), output.lines().filter(String::isNotBlank))
+        assertEquals(
+            "case-write-failed: Report publication failed; recovery evidence was preserved.",
+            error.toString().trim(),
+        )
+        assertFalse((output.toString() + error).contains("secret"))
     }
 
     @Test

@@ -21,6 +21,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -31,6 +32,10 @@ internal fun interface ArtifactWriter {
 
 internal fun interface RunCommitter {
     fun commit(runDirectory: Path)
+}
+
+internal fun interface CaseCommitter {
+    fun commit(caseDirectory: Path)
 }
 
 internal object JvmCreateNewArtifactWriter : ArtifactWriter {
@@ -50,6 +55,12 @@ internal object JvmCreateNewRunCommitter : RunCommitter {
     }
 }
 
+internal object JvmCreateNewCaseCommitter : CaseCommitter {
+    override fun commit(caseDirectory: Path) {
+        createMarker(caseDirectory.resolve(CASE_COMPLETION_MARKER))
+    }
+}
+
 private fun createMarker(path: Path) {
     Files.newByteChannel(
         path,
@@ -60,12 +71,31 @@ private fun createMarker(path: Path) {
 
 private const val RUN_COMPLETION_MARKER = ".complete"
 private const val CASE_COMPLETION_MARKER = ".case-complete"
+private const val RECOVERY_MARKER = ".recovery"
 
 class SpikeReportPublicationException(
-    val recoveryDirectory: Path,
-    val failureCode: String,
+    recoveryDirectory: Path,
+    failureCode: String,
 ) : IOException(
-    "Report publication failed ($failureCode); completed evidence remains in the recovery directory.",
+    "Report publication failed (${stablePersistenceFailureCode(failureCode)}); " +
+        "completed evidence remains in the recovery directory.",
+) {
+    val recoveryDirectory: Path = recoveryDirectory.toAbsolutePath().normalize()
+    val failureCode: String = stablePersistenceFailureCode(failureCode)
+}
+
+private fun stablePersistenceFailureCode(value: String): String =
+    value.takeIf(PERSISTENCE_FAILURE_CODES::contains) ?: "report-persistence-failed"
+
+private val PERSISTENCE_FAILURE_CODES = setOf(
+    "case-directory-failed",
+    "case-write-failed",
+    "case-completion-marker-failed",
+    "summary-write-failed",
+    "review-write-failed",
+    "publication-target-exists",
+    "completion-marker-failed",
+    "report-persistence-failed",
 )
 
 @Serializable
@@ -121,19 +151,36 @@ private data class RecoveryEvidence(val failureCode: String)
 class FileSpikeReportStore private constructor(
     private val root: Path,
     private val artifactWriter: ArtifactWriter,
+    private val caseCommitter: CaseCommitter,
     private val runCommitter: RunCommitter,
 ) {
-    constructor(root: Path) : this(root, JvmCreateNewArtifactWriter, JvmCreateNewRunCommitter)
+    constructor(root: Path) : this(
+        root,
+        JvmCreateNewArtifactWriter,
+        JvmCreateNewCaseCommitter,
+        JvmCreateNewRunCommitter,
+    )
 
     internal constructor(
         root: Path,
         artifactWriter: ArtifactWriter,
-    ) : this(root, artifactWriter, JvmCreateNewRunCommitter)
+    ) : this(root, artifactWriter, JvmCreateNewCaseCommitter, JvmCreateNewRunCommitter)
+
+    internal constructor(
+        root: Path,
+        caseCommitter: CaseCommitter,
+    ) : this(root, JvmCreateNewArtifactWriter, caseCommitter, JvmCreateNewRunCommitter)
+
+    internal constructor(
+        root: Path,
+        artifactWriter: ArtifactWriter,
+        caseCommitter: CaseCommitter,
+    ) : this(root, artifactWriter, caseCommitter, JvmCreateNewRunCommitter)
 
     internal constructor(
         root: Path,
         runCommitter: RunCommitter,
-    ) : this(root, JvmCreateNewArtifactWriter, runCommitter)
+    ) : this(root, JvmCreateNewArtifactWriter, JvmCreateNewCaseCommitter, runCommitter)
 
     fun beginRun(startedAt: Instant, runId: String): OpenSpikeRun {
         Files.createDirectories(root)
@@ -144,6 +191,7 @@ class FileSpikeReportStore private constructor(
         return OpenSpikeRun(
             directory = finalDirectory,
             artifactWriter = artifactWriter,
+            caseCommitter = caseCommitter,
             runCommitter = runCommitter,
         )
     }
@@ -151,13 +199,14 @@ class FileSpikeReportStore private constructor(
     class OpenSpikeRun internal constructor(
         val directory: Path,
         private val artifactWriter: ArtifactWriter,
+        private val caseCommitter: CaseCommitter,
         private val runCommitter: RunCommitter,
     ) {
         private var state = RunState.OPEN
 
         @get:Synchronized
         val recoveryDirectory: Path?
-            get() = directory.takeIf { state == RunState.FAILED || state == RunState.RECOVERY }
+            get() = directory.takeIf { state == RunState.RECOVERY }
 
         @Synchronized
         fun writeCase(evidence: SpikeCaseEvidence, candidate: Int): Path {
@@ -165,10 +214,29 @@ class FileSpikeReportStore private constructor(
             require(candidate > 0) { "Candidate numbers must be positive." }
             val caseName = "${stableName(evidence.report.caseId)}-$candidate"
             val caseDirectory = directory.resolve(caseName)
-            Files.createDirectory(caseDirectory)
+            try {
+                Files.createDirectory(caseDirectory)
+            } catch (exists: FileAlreadyExistsException) {
+                throw exists
+            } catch (exception: Exception) {
+                throw persistenceFailure("case-directory-failed")
+            }
             val sanitized = sanitizeEvidence(evidence)
-            artifactWriter.write(caseDirectory.resolve(CASE_FILE), REPORT_JSON.encodeToString(sanitized))
-            createMarker(caseDirectory.resolve(CASE_COMPLETION_MARKER))
+            try {
+                artifactWriter.write(caseDirectory.resolve(CASE_FILE), REPORT_JSON.encodeToString(sanitized))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (exception: Exception) {
+                throw persistenceFailure("case-write-failed")
+            }
+            try {
+                caseCommitter.commit(caseDirectory)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (exception: Exception) {
+                if (isCommittedCase(caseDirectory)) return caseDirectory
+                throw persistenceFailure("case-completion-marker-failed")
+            }
             return caseDirectory
         }
 
@@ -189,34 +257,53 @@ class FileSpikeReportStore private constructor(
                     throw IOException("The run committer did not create the completion marker.")
                 }
                 state = RunState.PUBLISHED
+            } catch (cancelled: CancellationException) {
+                if (stage == PublicationStage.RUN && isPublishedRun(directory)) {
+                    state = RunState.PUBLISHED
+                }
+                throw cancelled
             } catch (exception: Exception) {
-                state = RunState.FAILED
-                throw SpikeReportPublicationException(
-                    recoveryDirectory = directory,
-                    failureCode = stage.failureCode(exception),
-                )
+                if (stage == PublicationStage.RUN && isPublishedRun(directory)) {
+                    state = RunState.PUBLISHED
+                    return
+                }
+                throw persistenceFailure(stage.failureCode(exception))
             }
         }
 
         @Synchronized
         fun abort(failureCode: String): Path {
             requireOpen()
+            transitionToRecovery(stableDiagnosticCode(failureCode))
+            return directory
+        }
+
+        private fun persistenceFailure(failureCode: String): SpikeReportPublicationException {
+            val code = stablePersistenceFailureCode(failureCode)
+            transitionToRecovery(code)
+            return SpikeReportPublicationException(directory, code)
+        }
+
+        private fun transitionToRecovery(failureCode: String) {
             state = RunState.RECOVERY
-            val code = stableDiagnosticCode(failureCode)
+            runCatching { createMarker(directory.resolve(RECOVERY_MARKER)) }
+            runCatching { Files.deleteIfExists(directory.resolve(RUN_COMPLETION_MARKER)) }
             runCatching {
                 artifactWriter.write(
                     directory.resolve(RECOVERY_FILE),
-                    REPORT_JSON.encodeToString(RecoveryEvidence(code)),
+                    REPORT_JSON.encodeToString(RecoveryEvidence(failureCode)),
                 )
             }
-            return directory
         }
 
         private fun requireOpen() {
             if (state != RunState.OPEN) throw FileAlreadyExistsException(directory.toString())
         }
 
-        private enum class RunState { OPEN, PUBLISHED, FAILED, RECOVERY }
+        private fun isCommittedCase(caseDirectory: Path): Boolean =
+            Files.isRegularFile(caseDirectory.resolve(CASE_COMPLETION_MARKER))
+
+        private enum class RunState { OPEN, PUBLISHED, RECOVERY }
 
         private enum class PublicationStage {
             SUMMARY,
@@ -236,7 +323,12 @@ class FileSpikeReportStore private constructor(
     companion object {
         /** The only supported reader check for distinguishing final reports from recovery directories. */
         fun isPublishedRun(directory: Path): Boolean =
-            Files.isDirectory(directory) && Files.isRegularFile(directory.resolve(RUN_COMPLETION_MARKER))
+            Files.isDirectory(directory) &&
+                Files.isRegularFile(directory.resolve(RUN_COMPLETION_MARKER)) &&
+                Files.isRegularFile(directory.resolve(SUMMARY_FILE)) &&
+                Files.isRegularFile(directory.resolve(REVIEW_FILE)) &&
+                Files.notExists(directory.resolve(RECOVERY_MARKER)) &&
+                Files.notExists(directory.resolve(RECOVERY_FILE))
 
         fun sanitizeEndpoint(value: String): String {
             val uri = try {

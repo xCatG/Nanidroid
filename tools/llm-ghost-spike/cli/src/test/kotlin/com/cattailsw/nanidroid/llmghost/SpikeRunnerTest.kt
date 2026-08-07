@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.llmghost
 
 import com.cattailsw.nanidroid.llmghost.model.CanonicalTalk
 import com.cattailsw.nanidroid.llmghost.model.CanonicalTurn
+import com.cattailsw.nanidroid.llmghost.model.CaseStatus
 import com.cattailsw.nanidroid.llmghost.model.GenerationEvent
 import com.cattailsw.nanidroid.llmghost.model.GhostCorpusInput
 import com.cattailsw.nanidroid.llmghost.model.GhostGenerationRequest
@@ -12,11 +13,18 @@ import com.cattailsw.nanidroid.llmghost.model.ModelCapabilities
 import com.cattailsw.nanidroid.llmghost.model.ModelPreparation
 import com.cattailsw.nanidroid.llmghost.model.OutputLanguage
 import com.cattailsw.nanidroid.llmghost.model.ScenarioKind
+import com.cattailsw.nanidroid.llmghost.model.SpikeCaseReport
 import com.cattailsw.nanidroid.llmghost.model.TalkCategory
-import com.cattailsw.nanidroid.llmghost.report.FileSpikeReportStore
 import com.cattailsw.nanidroid.llmghost.pipeline.GhostDialoguePipeline
+import com.cattailsw.nanidroid.llmghost.report.ArtifactWriter
+import com.cattailsw.nanidroid.llmghost.report.FileSpikeReportStore
+import com.cattailsw.nanidroid.llmghost.report.JvmCreateNewArtifactWriter
+import com.cattailsw.nanidroid.llmghost.report.RunCommitter
+import com.cattailsw.nanidroid.llmghost.report.SpikeReportPublicationException
+import java.io.IOException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -198,6 +206,73 @@ class SpikeRunnerTest {
     }
 
     @Test
+    fun firstCasePersistenceFailureInvokesRecoverySinkAndThrowsStableFailure() = runBlocking {
+        val root = Files.createTempDirectory("spike-first-case-persistence")
+        var reportedRecovery: java.nio.file.Path? = null
+        val runner = SpikeRunner(
+            scenarioFactory = SpikeScenarioFactory,
+            reportStore = FileSpikeReportStore(root, artifactWriter = FirstCaseFailingWriter),
+            executeCase = { case, _ ->
+                SpikeCaseExecution(
+                    GhostDialoguePipeline(
+                        ScriptedBackend(completedJson("Generated before persistence failed")),
+                        nowMillis = { 1_000L },
+                    ).runCase(case),
+                )
+            },
+            now = { Instant.parse("2026-08-07T01:02:03Z") },
+            onRecovery = { reportedRecovery = it },
+        )
+
+        val failure = assertFailsWith<SpikeReportPublicationException> {
+            runner.run(
+                SpikeRunRequest(
+                    corpus(), talks(), emptyMap(), "http://example.test/v1", "model", 1, runId = "first-case",
+                ),
+            )
+        }
+
+        assertEquals("case-write-failed", failure.failureCode)
+        assertEquals(failure.recoveryDirectory, reportedRecovery)
+        assertTrue(Files.isDirectory(failure.recoveryDirectory))
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("recovery.json")))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(failure.recoveryDirectory))
+        assertTrue(!failure.message.orEmpty().contains("secret-case-persistence"))
+    }
+
+    @Test
+    fun runMarkerThenCommitterFailureReturnsPublishedSuccessWithoutRecovery() = runBlocking {
+        val root = Files.createTempDirectory("spike-run-marker-close-failure")
+        var reportedRecovery: java.nio.file.Path? = null
+        val runner = SpikeRunner(
+            scenarioFactory = SpikeScenarioFactory,
+            reportStore = FileSpikeReportStore(root, runCommitter = MarkerThenThrowRunCommitter),
+            executeCase = { case, _ ->
+                SpikeCaseExecution(
+                    SpikeCaseReport(
+                        caseId = case.caseId,
+                        status = CaseStatus.PASSED,
+                        rawResponse = "",
+                    ),
+                )
+            },
+            now = { Instant.parse("2026-08-07T01:02:03Z") },
+            onRecovery = { reportedRecovery = it },
+        )
+
+        val outcome = runner.run(
+            SpikeRunRequest(
+                corpus(), talks(), emptyMap(), "http://example.test/v1", "model", 1, runId = "published-close",
+            ),
+        )
+
+        assertEquals(0, outcome.exitCode)
+        assertTrue(FileSpikeReportStore.isPublishedRun(outcome.reportDirectory))
+        assertEquals(null, reportedRecovery)
+        assertTrue(!Files.exists(outcome.reportDirectory.resolve("recovery.json")))
+    }
+
+    @Test
     fun cancellationPropagatesWithoutBeingReportedAsAnOrdinaryFailure() {
         val root = Files.createTempDirectory("spike-cancel")
         val cancelled = CancellationException("stop unchanged")
@@ -294,5 +369,25 @@ class SpikeRunnerTest {
         override fun prepare(): Flow<ModelPreparation> = flowOf(ModelPreparation.Ready)
         override fun generate(request: GhostGenerationRequest): Flow<GenerationEvent> = flowOf(*events.toTypedArray())
         override suspend fun close() = Unit
+    }
+
+    private object FirstCaseFailingWriter : ArtifactWriter {
+        override fun write(finalPath: java.nio.file.Path, value: String) {
+            if (finalPath.fileName.toString() == "case.json") {
+                throw IOException("secret-case-persistence")
+            }
+            JvmCreateNewArtifactWriter.write(finalPath, value)
+        }
+    }
+
+    private object MarkerThenThrowRunCommitter : RunCommitter {
+        override fun commit(runDirectory: java.nio.file.Path) {
+            Files.newByteChannel(
+                runDirectory.resolve(".complete"),
+                StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE,
+            ).use { }
+            throw IOException("secret provider close failure")
+        }
     }
 }

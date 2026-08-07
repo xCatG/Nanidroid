@@ -1,5 +1,7 @@
 package com.cattailsw.nanidroid.llmghost.pipeline
 
+import com.cattailsw.nanidroid.llmghost.evaluation.SimilarityBudgetExceededException
+import com.cattailsw.nanidroid.llmghost.evaluation.UnsafeSimilarityTextException
 import com.cattailsw.nanidroid.llmghost.model.CanonicalTalk
 import com.cattailsw.nanidroid.llmghost.model.CanonicalTurn
 import com.cattailsw.nanidroid.llmghost.model.CaseStatus
@@ -326,6 +328,26 @@ class GhostDialoguePipelineTest {
     }
 
     @Test
+    fun canonical_copy_split_across_adjacent_turns_fails() = runBlocking {
+        val response = """{"turns":[""" +
+            """{"speaker":"sakura","surface":0,"text":"A fresh","waitAfterMs":25},""" +
+            """{"speaker":"kero","surface":1,"text":" canonical line","waitAfterMs":25}]}"""
+        val report = pipeline(
+            EventBackend(
+                generationEvents = listOf(
+                    GenerationEvent.TextDelta(response),
+                    GenerationEvent.Completed(null),
+                ),
+            ),
+        ).runCase(spikeCase(canonicalText = "A fresh canonical line"))
+
+        assertFailure(report, "canonical-exact-copy")
+        val exact = report.similarityFindings.single { it.exact }
+        assertEquals(0, exact.generatedTurnStartIndex)
+        assertEquals(1, exact.generatedTurnEndIndex)
+    }
+
+    @Test
     fun near_canonical_copy_passes_with_a_warning() = runBlocking {
         val canonical = "12345678901234567890"
         val generated = "123456789012345678XX"
@@ -361,6 +383,76 @@ class GhostDialoguePipelineTest {
 
         assertFailure(report, "similarity-exception")
         assertEquals(usage, report.usage)
+    }
+
+    @Test
+    fun similarity_budget_exhaustion_fails_closed_with_structured_code() = runBlocking {
+        val backend = EventBackend(
+            generationEvents = listOf(
+                GenerationEvent.TextDelta(validJson("A fresh thought")),
+                GenerationEvent.Completed(null),
+            ),
+        )
+        val report = GhostDialoguePipeline(
+            backend = backend,
+            nowMillis = SequenceClock(4_000, 4_010)::now,
+            similarityEvaluator = { _, _ -> throw SimilarityBudgetExceededException(7, 12_345) },
+        ).runCase(spikeCase())
+
+        assertFailure(report, "similarity-budget-exceeded")
+        assertTrue(assertNotNull(report.failure).detail.contains("7 comparisons"))
+        assertNotNull(report.compiledSakuraScript)
+        Unit
+    }
+
+    @Test
+    fun unsafe_similarity_text_fails_closed_with_structured_code() = runBlocking {
+        val backend = EventBackend(
+            generationEvents = listOf(
+                GenerationEvent.TextDelta(validJson("A fresh thought")),
+                GenerationEvent.Completed(null),
+            ),
+        )
+        val report = GhostDialoguePipeline(
+            backend = backend,
+            nowMillis = SequenceClock(4_000, 4_010)::now,
+            similarityEvaluator = { _, _ -> throw UnsafeSimilarityTextException(0x1D400) },
+        ).runCase(spikeCase())
+
+        assertFailure(report, "similarity-unsafe-text", sourceCode = "U+1D400")
+        assertNotNull(report.compiledSakuraScript)
+        Unit
+    }
+
+    @Test
+    fun mapped_compatibility_scalar_in_canonical_corpus_participates_in_copy_detection() = runBlocking {
+        val report = pipeline(
+            EventBackend(
+                generationEvents = listOf(
+                    GenerationEvent.TextDelta(validJson("a")),
+                    GenerationEvent.Completed(null),
+                ),
+            ),
+        ).runCase(spikeCase(canonicalText = "\uD835\uDC1A"))
+
+        assertFailure(report, "canonical-exact-copy")
+        assertNotNull(report.compiledSakuraScript)
+        Unit
+    }
+
+    @Test
+    fun ordinary_halfwidth_kana_in_canonical_corpus_does_not_fail_unrelated_case() = runBlocking {
+        val report = pipeline(
+            EventBackend(
+                generationEvents = listOf(
+                    GenerationEvent.TextDelta(validJson("A fresh thought")),
+                    GenerationEvent.Completed(null),
+                ),
+            ),
+        ).runCase(spikeCase(canonicalText = "ﾃｽﾄ ｶﾞ"))
+
+        assertEquals(CaseStatus.PASSED, report.status)
+        assertNull(report.failure)
     }
 
     private fun pipeline(backend: GhostModelBackend) = GhostDialoguePipeline(

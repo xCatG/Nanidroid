@@ -162,6 +162,14 @@ class GeneratedDialogueValidator {
             }
         }
 
+        if (UnicodeSecurity.containsInvisibleFormat(text)) {
+            violations += DialogueViolation(
+                code = "forbidden-invisible-format",
+                turnIndex = turnIndex,
+                detail = "Default-ignorable, format, bidi, variation, and tag characters are not allowed.",
+            )
+        }
+
         if ('\\' in text) {
             violations += DialogueViolation(
                 code = "forbidden-backslash",
@@ -267,4 +275,40 @@ class GeneratedDialogueValidator {
         val SCRIPT_SCHEME_PATTERN = Regex("script\\s*:", RegexOption.IGNORE_CASE)
         val CHOICE_PATTERN = Regex("(?:\\([^()\\r\\n]*,[^()\\r\\n]*\\)|（[^（）\\r\\n]*,[^（）\\r\\n]*）)")
     }
+}
+
+internal object UnicodeSecurity {
+    fun containsInvisibleFormat(text: String): Boolean {
+        var found = false
+        forEachScalar(text) { if (isInvisibleFormat(it)) found = true }
+        return found
+    }
+
+    inline fun forEachScalar(text: String, action: (Int) -> Unit) {
+        var index = 0
+        while (index < text.length) {
+            val first = text[index]
+            if (first in '\uD800'..'\uDBFF' && text.getOrNull(index + 1) in '\uDC00'..'\uDFFF') {
+                val second = text[index + 1]
+                action(0x10000 + ((first.code - 0xD800) shl 10) + second.code - 0xDC00)
+                index += 2
+            } else {
+                action(first.code)
+                index++
+            }
+        }
+    }
+
+    fun isInvisibleFormat(codePoint: Int): Boolean = when (codePoint) {
+        0x00AD, 0x034F, 0x061C, 0x06DD, 0x070F, 0x08E2, 0xFEFF, 0x110BD, 0x110CD,
+        0xE0001 -> true
+        in 0x0600..0x0605, in 0x0890..0x0891, in 0x115F..0x1160,
+        in 0x17B4..0x17B5, in 0x180B..0x180F, in 0x200B..0x200F,
+        in 0x202A..0x202E, in 0x2060..0x206F, in 0x3164..0x3164,
+        in 0xFE00..0xFE0F, in 0xFFA0..0xFFA0, in 0xFFF0..0xFFFB,
+        in 0x13430..0x1343F, in 0x1BCA0..0x1BCA3, in 0x1D173..0x1D17A,
+        in 0xE0000..0xE0FFF -> true
+        else -> false
+    }
+
 }
