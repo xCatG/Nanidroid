@@ -15,6 +15,10 @@ param(
     [int]
     $BuildTimeoutMinutes = 45,
 
+    [ValidateRange(60, 300)]
+    [int]
+    $DevicePathProbeTimeoutSeconds = 60,
+
     [long]
     $MinimumFreeBytes = 3GB,
 
@@ -826,13 +830,33 @@ function Resolve-CorpusRoots([string[]]$Roots) {
     return @($deduped + $fileRoots)
 }
 
-function Get-DevicePathPresence([string]$Path, [string]$Context = 'output') {
+function Get-DevicePathProbeInvocation([string]$Path, [string]$Context = 'output') {
+    $arguments = if ($Context -eq 'run-as') {
+        @('shell', 'run-as', $targetPackage, 'ls', '-d', $Path)
+    }
+    else {
+        @('shell', 'ls', '-d', $Path)
+    }
+    return @{
+        Arguments = [string[]]$arguments
+        TimeoutSeconds = $DevicePathProbeTimeoutSeconds
+        AllowFailure = $true
+    }
+}
+
+function Get-DevicePathPresence {
+    param(
+        [string]$Path,
+        [string]$Context = 'output',
+        [scriptblock]$AdbInvoker = { param([hashtable]$Invocation) Invoke-Adb @Invocation }
+    )
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return @()
     }
 
+    $invocation = Get-DevicePathProbeInvocation -Path $Path -Context $Context
     if ($Context -eq 'run-as') {
-        $result = Invoke-Adb -Arguments @('shell', 'run-as', $targetPackage, 'ls', '-d', $Path) -TimeoutSeconds 20 -AllowFailure
+        $result = & $AdbInvoker $invocation
         if ($result.exitCode -ne 0 -and $result.output -match 'No such file|No such file or directory') {
             return @()
         }
@@ -842,7 +866,7 @@ function Get-DevicePathPresence([string]$Path, [string]$Context = 'output') {
         return @($result.output.Trim())
     }
 
-    $result = Invoke-Adb -Arguments @('shell', 'ls', '-d', $Path) -TimeoutSeconds 20 -AllowFailure
+    $result = & $AdbInvoker $invocation
     if ($result.exitCode -ne 0 -and $result.output -match 'No such file|No such file or directory') {
         return @()
     }
@@ -1576,10 +1600,52 @@ if ($DryRun) {
     Write-Host "Manifest entries: $($manifest.entries.Count)"
     Write-Host "Corpus archives discovered: $($archives.Count)"
     Write-Host "Resolved roots: $(@($resolvedCorpusRoots).Count)"
+    $devicePathProbeCases = @(
+        @{ context = 'run-as'; expectedArguments = @('shell', 'run-as', $targetPackage, 'ls', '-d', '/data/local/tmp/run-owned') },
+        @{ context = 'output'; expectedArguments = @('shell', 'ls', '-d', '/data/local/tmp/run-owned') }
+    )
+    $recordedDevicePathProbeInvocations = [System.Collections.Generic.List[hashtable]]::new()
+    $recordingAdbInvoker = {
+        param([hashtable]$Invocation)
+        $recordedDevicePathProbeInvocations.Add($Invocation)
+        return @{ exitCode = 1; output = 'No such file or directory' }
+    }.GetNewClosure()
+    foreach ($case in $devicePathProbeCases) {
+        $beforeCount = $recordedDevicePathProbeInvocations.Count
+        $presence = @(Get-DevicePathPresence -Path '/data/local/tmp/run-owned' -Context $case.context -AdbInvoker $recordingAdbInvoker)
+        if ($presence.Count -ne 0 -or $recordedDevicePathProbeInvocations.Count -ne ($beforeCount + 1)) {
+            ThrowIf "Dry-run $($case.context) device-path presence probe did not invoke ADB exactly once and preserve missing-path handling."
+        }
+        $invocation = $recordedDevicePathProbeInvocations[$beforeCount]
+        if ($invocation.TimeoutSeconds -ne $DevicePathProbeTimeoutSeconds) {
+            ThrowIf "Dry-run $($case.context) device-path probe did not receive the configured $DevicePathProbeTimeoutSeconds-second timeout."
+        }
+        if (-not $invocation.AllowFailure) {
+            ThrowIf "Dry-run $($case.context) device-path probe no longer preserves absence-probe failure handling."
+        }
+        if (($invocation.Arguments -join [char]0) -ne ($case.expectedArguments -join [char]0)) {
+            ThrowIf "Dry-run $($case.context) device-path probe did not preserve its ADB argument boundary."
+        }
+    }
+    Write-Host "Dry-run device-path probe plumbing passed at $DevicePathProbeTimeoutSeconds seconds."
     $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
     if (-not $pwshPath) {
         ThrowIf 'Dry-run argument probe requires pwsh in PATH.'
     }
+    $invalidPathProbeTimeout = Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @(
+        '-NoProfile',
+        '-NoLogo',
+        '-File',
+        $PSCommandPath,
+        '-DryRun',
+        '-DevicePathProbeTimeoutSeconds',
+        '59'
+    ) -TimeoutSeconds 15
+    $invalidPathProbeTimeoutOutput = $invalidPathProbeTimeout.error + [Environment]::NewLine + $invalidPathProbeTimeout.output
+    if ($invalidPathProbeTimeout.exitCode -eq 0 -or $invalidPathProbeTimeoutOutput -notmatch '(?is)DevicePathProbeTimeoutSeconds.*minimum allowed range of 60') {
+        ThrowIf 'Dry-run device-path probe timeout boundary did not reject a sub-60-second budget.'
+    }
+    Write-Host 'Dry-run device-path probe timeout boundary passed.'
     $probeScript = New-HostTempFile '.argv-probe.ps1'
     @'
 param([Parameter(ValueFromRemainingArguments = $true)] [string[]]$ProbeArgs)

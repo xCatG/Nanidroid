@@ -30,6 +30,10 @@ device copies in `finally` blocks.
   user-visible script-hang policy. Nanidroid does not cancel a running ghost
   automatically; its explicit Stop action appears after 30 seconds.
 - `-BuildTimeoutMinutes` (optional): Gradle assemble timeout in minutes.
+- `-DevicePathProbeTimeoutSeconds` (optional): deadline for the run-owned
+  device-path absence probes before and after each archive. Defaults to 60 seconds
+  and rejects values below 60 so emulator `adbd` can recover after native-crash
+  processing without weakening the fail-closed transport cutoff.
 - `-DryRun` (optional): preflight-only manifest/hash validation.
 - `-MinimumFreeBytes` (optional): guard before test execution, defaults to 3 GB.
 
