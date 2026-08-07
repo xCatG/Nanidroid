@@ -24,9 +24,9 @@ import com.cattailsw.nanidroid.llmghost.model.SpikeWarning
 import com.cattailsw.nanidroid.llmghost.model.TalkCategory
 import com.cattailsw.nanidroid.llmghost.pipeline.GhostDialoguePipeline
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 import java.time.Instant
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
@@ -41,6 +41,54 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class FileSpikeReportStoreTest {
+    @Test
+    fun preexistingFinalDirectoryIsNeverModifiedByProductionBeginRun() {
+        val root = Files.createTempDirectory("preexisting-final")
+        val expected = root.resolve("20260807T010203.000Z-existing")
+        Files.createDirectory(expected)
+        Files.writeString(expected.resolve("external.txt"), "external-owner")
+
+        assertFailsWith<FileAlreadyExistsException> {
+            FileSpikeReportStore(root).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "existing")
+        }
+
+        assertEquals("external-owner", Files.readString(expected.resolve("external.txt")))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(expected))
+    }
+
+    @Test
+    fun completionMarkerIsTheLastLogicalCommit() {
+        val root = Files.createTempDirectory("logical-commit")
+        val run = FileSpikeReportStore(root).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "commit")
+        run.writeCase(evidence(), 2)
+        assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+
+        run.finish(summary(model = "model-commit"))
+
+        assertTrue(Files.exists(run.directory.resolve("summary.json")))
+        assertTrue(Files.exists(run.directory.resolve("review.md")))
+        assertTrue(FileSpikeReportStore.isPublishedRun(run.directory))
+    }
+
+    @Test
+    fun completionMarkerFailureLeavesACompleteUnpublishedRecoveryDirectory() {
+        val root = Files.createTempDirectory("commit-failure")
+        val run = FileSpikeReportStore(root, runCommitter = OmittingRunCommitter)
+            .beginRun(Instant.parse("2026-08-07T01:02:03Z"), "commit-failure")
+        run.writeCase(evidence(), 2)
+
+        val failure = assertFailsWith<SpikeReportPublicationException> {
+            run.finish(summary(model = "model-commit"))
+        }
+
+        assertEquals("completion-marker-failed", failure.failureCode)
+        assertEquals(run.directory, failure.recoveryDirectory)
+        assertTrue(Files.exists(run.directory.resolve("idle-english-2/case.json")))
+        assertTrue(Files.exists(run.directory.resolve("summary.json")))
+        assertTrue(Files.exists(run.directory.resolve("review.md")))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
+    }
+
     @Test
     fun summaryOrReviewWriteFailurePreservesCompletedCasesAtRecoveryLocation() {
         listOf("summary.json", "review.md").forEach { failingName ->
@@ -60,68 +108,44 @@ class FileSpikeReportStoreTest {
             assertEquals("${failingName.substringBefore('.')}-write-failed", failure.failureCode)
             assertEquals(run.recoveryDirectory, failure.recoveryDirectory)
             assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
-            assertTrue(!Files.exists(run.directory))
+            assertTrue(Files.isDirectory(run.directory))
+            assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
             assertTrue(Files.list(failure.recoveryDirectory).use { paths ->
                 paths.noneMatch { it.fileName.toString().endsWith(".tmp") }
             })
 
-            val retry = FileSpikeReportStore(root).beginRun(
-                instant,
-                "write-failure-${failingName.substringBefore('.')}",
-            )
-            retry.finish(summary(model = "model-retry"))
-            assertTrue(Files.exists(retry.directory.resolve("summary.json")))
+            assertFailsWith<FileAlreadyExistsException> {
+                FileSpikeReportStore(root).beginRun(
+                    instant,
+                    "write-failure-${failingName.substringBefore('.')}",
+                )
+            }
         }
     }
 
     @Test
-    fun finalTargetRaceFailsClosedAndPreservesRecoveryEvidence() {
+    fun externallyAppearingSummaryIsNeverOverwrittenAndRunBecomesRecovery() {
         val root = Files.createTempDirectory("target-race")
-        val store = FileSpikeReportStore(root, runPublisher = TargetAppearingPublisher)
+        val store = FileSpikeReportStore(root)
         val run = store.beginRun(Instant.parse("2026-08-07T01:02:03Z"), "target-race")
         run.writeCase(evidence(), 2)
+        Files.writeString(
+            run.directory.resolve("summary.json"),
+            "external-owner",
+            StandardOpenOption.CREATE_NEW,
+        )
 
         val failure = assertFailsWith<SpikeReportPublicationException> {
             run.finish(summary(model = "model-race"))
         }
 
-        assertEquals("publication-target-exists", failure.failureCode)
+        assertEquals("summary-write-failed", failure.failureCode)
         assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
-        assertTrue(Files.exists(failure.recoveryDirectory.resolve("summary.json")))
-        assertTrue(Files.exists(failure.recoveryDirectory.resolve("review.md")))
-        assertTrue(Files.isDirectory(run.directory))
-        assertTrue(!Files.exists(run.directory.resolve("summary.json")))
+        assertEquals("external-owner", Files.readString(run.directory.resolve("summary.json")))
+        assertTrue(!Files.exists(run.directory.resolve("review.md")))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(run.directory))
         assertFailsWith<FileAlreadyExistsException> {
             FileSpikeReportStore(root).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "target-race")
-        }
-    }
-
-    @Test
-    fun unsupportedAtomicRunMoveNeverFallsBackToPartialPublication() {
-        val root = Files.createTempDirectory("atomic-unsupported")
-        val store = FileSpikeReportStore(root, runPublisher = UnsupportedAtomicPublisher)
-        val run = store.beginRun(Instant.parse("2026-08-07T01:02:03Z"), "unsupported")
-        run.writeCase(evidence(), 2)
-
-        val failure = assertFailsWith<SpikeReportPublicationException> {
-            run.finish(summary(model = "model-atomic"))
-        }
-
-        assertEquals("atomic-publication-unsupported", failure.failureCode)
-        assertTrue(!Files.exists(run.directory))
-        assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
-        assertTrue(Files.exists(failure.recoveryDirectory.resolve("summary.json")))
-        assertTrue(Files.exists(failure.recoveryDirectory.resolve("review.md")))
-
-        val retry = FileSpikeReportStore(root).beginRun(
-            Instant.parse("2026-08-07T01:02:03Z"),
-            "unsupported",
-        )
-        retry.finish(summary(model = "model-retry"))
-        assertTrue(Files.exists(retry.directory.resolve("summary.json")))
-        assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
-        assertFailsWith<FileAlreadyExistsException> {
-            FileSpikeReportStore(root).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "unsupported")
         }
     }
 
@@ -237,7 +261,7 @@ class FileSpikeReportStoreTest {
         val caseDirectory = run.writeCase(evidence(), candidate = 2)
 
         assertEquals("idle-english-2", caseDirectory.fileName.toString())
-        assertEquals(listOf("case.json"), Files.list(caseDirectory).use { paths ->
+        assertEquals(listOf(".case-complete", "case.json"), Files.list(caseDirectory).use { paths ->
             paths.map { it.fileName.toString() }.sorted().toList()
         })
         val json = Files.readString(caseDirectory.resolve("case.json"))
@@ -386,23 +410,14 @@ class FileSpikeReportStoreTest {
         override suspend fun close() = Unit
     }
 
-    private class FailingArtifactWriter(private val failingName: String) : AtomicArtifactWriter {
+    private class FailingArtifactWriter(private val failingName: String) : ArtifactWriter {
         override fun write(finalPath: java.nio.file.Path, value: String) {
             if (finalPath.fileName.toString() == failingName) throw IOException("fixture write failure")
-            JvmAtomicArtifactWriter.write(finalPath, value)
+            JvmCreateNewArtifactWriter.write(finalPath, value)
         }
     }
 
-    private object TargetAppearingPublisher : AtomicRunPublisher {
-        override fun publish(source: java.nio.file.Path, target: java.nio.file.Path) {
-            Files.createDirectory(target)
-            throw FileAlreadyExistsException(target.toString())
-        }
-    }
-
-    private object UnsupportedAtomicPublisher : AtomicRunPublisher {
-        override fun publish(source: java.nio.file.Path, target: java.nio.file.Path) {
-            throw AtomicMoveNotSupportedException(source.toString(), target.toString(), "fixture")
-        }
+    private object OmittingRunCommitter : RunCommitter {
+        override fun commit(runDirectory: java.nio.file.Path) = Unit
     }
 }

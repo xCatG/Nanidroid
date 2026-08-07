@@ -15,6 +15,7 @@ import com.cattailsw.nanidroid.llmghost.model.ScenarioKind
 import com.cattailsw.nanidroid.llmghost.model.TalkCategory
 import com.cattailsw.nanidroid.llmghost.report.FileSpikeReportStore
 import com.cattailsw.nanidroid.llmghost.pipeline.GhostDialoguePipeline
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
@@ -198,14 +199,28 @@ class SpikeRunnerTest {
 
     @Test
     fun cancellationPropagatesWithoutBeingReportedAsAnOrdinaryFailure() {
+        val root = Files.createTempDirectory("spike-cancel")
+        val cancelled = CancellationException("stop unchanged")
+        var executions = 0
         val runner = SpikeRunner(
             scenarioFactory = SpikeScenarioFactory,
-            reportStore = FileSpikeReportStore(Files.createTempDirectory("spike-cancel")),
-            executeCase = { _, _ -> throw CancellationException("stop") },
+            reportStore = FileSpikeReportStore(root),
+            executeCase = { case, _ ->
+                if (executions++ == 0) {
+                    SpikeCaseExecution(
+                        GhostDialoguePipeline(
+                            ScriptedBackend(completedJson("Saved before cancellation")),
+                            nowMillis = { 1_000L + executions },
+                        ).runCase(case),
+                    )
+                } else {
+                    throw cancelled
+                }
+            },
             now = { Instant.parse("2026-08-07T01:02:03Z") },
         )
 
-        assertFailsWith<CancellationException> {
+        val thrown = assertFailsWith<CancellationException> {
             runBlocking {
                 runner.run(
                     SpikeRunRequest(
@@ -213,6 +228,14 @@ class SpikeRunnerTest {
                     ),
                 )
             }
+        }
+        assertTrue(thrown === cancelled)
+        val recovery = Files.list(root).use { it.toList().single() }
+        assertTrue(Files.exists(recovery.resolve("idle-japanese-1/case.json")))
+        assertTrue(Files.exists(recovery.resolve("recovery.json")))
+        assertTrue(!FileSpikeReportStore.isPublishedRun(recovery))
+        assertFailsWith<FileAlreadyExistsException> {
+            FileSpikeReportStore(root).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "cancel")
         }
     }
 

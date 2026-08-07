@@ -13,46 +13,53 @@ import com.cattailsw.nanidroid.llmghost.model.SpikeWarning
 import java.io.IOException
 import java.net.URI
 import java.nio.charset.StandardCharsets
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-internal fun interface AtomicArtifactWriter {
+internal fun interface ArtifactWriter {
     fun write(finalPath: Path, value: String)
 }
 
-internal fun interface AtomicRunPublisher {
-    fun publish(source: Path, target: Path)
+internal fun interface RunCommitter {
+    fun commit(runDirectory: Path)
 }
 
-internal object JvmAtomicArtifactWriter : AtomicArtifactWriter {
+internal object JvmCreateNewArtifactWriter : ArtifactWriter {
     override fun write(finalPath: Path, value: String) {
-        val temporary = finalPath.resolveSibling(".${finalPath.fileName}.${UUID.randomUUID()}.tmp")
-        try {
-            Files.newBufferedWriter(temporary, StandardCharsets.UTF_8).use { it.write(value) }
-            JvmAtomicRunPublisher.publish(temporary, finalPath)
-        } finally {
-            Files.deleteIfExists(temporary)
-        }
+        Files.newBufferedWriter(
+            finalPath,
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE_NEW,
+            StandardOpenOption.WRITE,
+        ).use { it.write(value) }
     }
 }
 
-internal object JvmAtomicRunPublisher : AtomicRunPublisher {
-    override fun publish(source: Path, target: Path) {
-        Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
+internal object JvmCreateNewRunCommitter : RunCommitter {
+    override fun commit(runDirectory: Path) {
+        createMarker(runDirectory.resolve(RUN_COMPLETION_MARKER))
     }
 }
+
+private fun createMarker(path: Path) {
+    Files.newByteChannel(
+        path,
+        StandardOpenOption.CREATE_NEW,
+        StandardOpenOption.WRITE,
+    ).use { }
+}
+
+private const val RUN_COMPLETION_MARKER = ".complete"
+private const val CASE_COMPLETION_MARKER = ".case-complete"
 
 class SpikeReportPublicationException(
     val recoveryDirectory: Path,
@@ -100,94 +107,76 @@ data class SpikeRunSummary(
     val preflightFailure: SpikeFailure? = null,
 )
 
+@Serializable
+private data class RecoveryEvidence(val failureCode: String)
+
+/**
+ * Reserves the stable run directory with create-new directory semantics.
+ *
+ * Cases become logically complete when their `.case-complete` marker exists.
+ * A run becomes published only when `.complete` is created after every report
+ * artifact has been closed. A directory without `.complete` is recovery state,
+ * not a final report, and is never automatically overwritten or deleted.
+ */
 class FileSpikeReportStore private constructor(
     private val root: Path,
-    private val artifactWriter: AtomicArtifactWriter,
-    private val runPublisher: AtomicRunPublisher,
+    private val artifactWriter: ArtifactWriter,
+    private val runCommitter: RunCommitter,
 ) {
-    constructor(root: Path) : this(root, JvmAtomicArtifactWriter, JvmAtomicRunPublisher)
+    constructor(root: Path) : this(root, JvmCreateNewArtifactWriter, JvmCreateNewRunCommitter)
 
     internal constructor(
         root: Path,
-        artifactWriter: AtomicArtifactWriter,
-    ) : this(root, artifactWriter, JvmAtomicRunPublisher)
+        artifactWriter: ArtifactWriter,
+    ) : this(root, artifactWriter, JvmCreateNewRunCommitter)
 
     internal constructor(
         root: Path,
-        runPublisher: AtomicRunPublisher,
-    ) : this(root, JvmAtomicArtifactWriter, runPublisher)
+        runCommitter: RunCommitter,
+    ) : this(root, JvmCreateNewArtifactWriter, runCommitter)
 
     fun beginRun(startedAt: Instant, runId: String): OpenSpikeRun {
         Files.createDirectories(root)
         val stableRunId = stableName(runId)
         val timestamp = RUN_TIMESTAMP.format(startedAt)
         val finalDirectory = root.resolve("$timestamp-$stableRunId")
-        val reservation = root.resolve(".${finalDirectory.fileName}.reserve")
-        reserve(reservation)
-        var workingDirectory: Path? = null
-        try {
-            if (Files.exists(finalDirectory)) throw FileAlreadyExistsException(finalDirectory.toString())
-            workingDirectory = Files.createTempDirectory(root, ".${finalDirectory.fileName}.work-")
-            return OpenSpikeRun(
-                directory = finalDirectory,
-                workingDirectory = workingDirectory,
-                runReservation = reservation,
-                artifactWriter = artifactWriter,
-                runPublisher = runPublisher,
-            )
-        } catch (exception: Exception) {
-            workingDirectory?.toFile()?.deleteRecursively()
-            Files.deleteIfExists(reservation)
-            throw exception
-        }
+        Files.createDirectory(finalDirectory)
+        return OpenSpikeRun(
+            directory = finalDirectory,
+            artifactWriter = artifactWriter,
+            runCommitter = runCommitter,
+        )
     }
 
     class OpenSpikeRun internal constructor(
         val directory: Path,
-        private val workingDirectory: Path,
-        private val runReservation: Path,
-        private val artifactWriter: AtomicArtifactWriter,
-        private val runPublisher: AtomicRunPublisher,
+        private val artifactWriter: ArtifactWriter,
+        private val runCommitter: RunCommitter,
     ) {
         private var state = RunState.OPEN
 
         @get:Synchronized
         val recoveryDirectory: Path?
-            get() = workingDirectory.takeIf { state == RunState.FAILED }
+            get() = directory.takeIf { state == RunState.FAILED || state == RunState.RECOVERY }
 
         @Synchronized
         fun writeCase(evidence: SpikeCaseEvidence, candidate: Int): Path {
             requireOpen()
             require(candidate > 0) { "Candidate numbers must be positive." }
             val caseName = "${stableName(evidence.report.caseId)}-$candidate"
-            val finalDirectory = workingDirectory.resolve(caseName)
-            val reservation = workingDirectory.resolve(".$caseName.reserve")
-            reserve(reservation)
-            var temporary: Path? = null
-            try {
-                if (Files.exists(finalDirectory)) throw FileAlreadyExistsException(finalDirectory.toString())
-                temporary = Files.createTempDirectory(workingDirectory, ".$caseName-")
-                val sanitized = sanitizeEvidence(evidence)
-                Files.newBufferedWriter(
-                    temporary.resolve(CASE_FILE),
-                    StandardCharsets.UTF_8,
-                ).use { writer -> writer.write(REPORT_JSON.encodeToString(sanitized)) }
-                JvmAtomicRunPublisher.publish(temporary, finalDirectory)
-                temporary = null
-            } catch (exception: Exception) {
-                throw exception
-            } finally {
-                temporary?.toFile()?.deleteRecursively()
-                Files.deleteIfExists(reservation)
-            }
-            return finalDirectory
+            val caseDirectory = directory.resolve(caseName)
+            Files.createDirectory(caseDirectory)
+            val sanitized = sanitizeEvidence(evidence)
+            artifactWriter.write(caseDirectory.resolve(CASE_FILE), REPORT_JSON.encodeToString(sanitized))
+            createMarker(caseDirectory.resolve(CASE_COMPLETION_MARKER))
+            return caseDirectory
         }
 
         @Synchronized
         fun finish(summary: SpikeRunSummary) {
             requireOpen()
-            val summaryPath = workingDirectory.resolve(SUMMARY_FILE)
-            val reviewPath = workingDirectory.resolve(REVIEW_FILE)
+            val summaryPath = directory.resolve(SUMMARY_FILE)
+            val reviewPath = directory.resolve(REVIEW_FILE)
             val sanitized = sanitizeSummary(summary)
             var stage = PublicationStage.SUMMARY
             try {
@@ -195,24 +184,39 @@ class FileSpikeReportStore private constructor(
                 stage = PublicationStage.REVIEW
                 artifactWriter.write(reviewPath, renderReview(sanitized))
                 stage = PublicationStage.RUN
-                runPublisher.publish(workingDirectory, directory)
+                runCommitter.commit(directory)
+                if (!isPublishedRun(directory)) {
+                    throw IOException("The run committer did not create the completion marker.")
+                }
                 state = RunState.PUBLISHED
             } catch (exception: Exception) {
                 state = RunState.FAILED
                 throw SpikeReportPublicationException(
-                    recoveryDirectory = workingDirectory,
+                    recoveryDirectory = directory,
                     failureCode = stage.failureCode(exception),
                 )
-            } finally {
-                runCatching { Files.deleteIfExists(runReservation) }
             }
+        }
+
+        @Synchronized
+        fun abort(failureCode: String): Path {
+            requireOpen()
+            state = RunState.RECOVERY
+            val code = stableDiagnosticCode(failureCode)
+            runCatching {
+                artifactWriter.write(
+                    directory.resolve(RECOVERY_FILE),
+                    REPORT_JSON.encodeToString(RecoveryEvidence(code)),
+                )
+            }
+            return directory
         }
 
         private fun requireOpen() {
             if (state != RunState.OPEN) throw FileAlreadyExistsException(directory.toString())
         }
 
-        private enum class RunState { OPEN, PUBLISHED, FAILED }
+        private enum class RunState { OPEN, PUBLISHED, FAILED, RECOVERY }
 
         private enum class PublicationStage {
             SUMMARY,
@@ -223,14 +227,17 @@ class FileSpikeReportStore private constructor(
             fun failureCode(exception: Exception): String = when {
                 this == SUMMARY -> "summary-write-failed"
                 this == REVIEW -> "review-write-failed"
-                exception is AtomicMoveNotSupportedException -> "atomic-publication-unsupported"
                 exception is FileAlreadyExistsException -> "publication-target-exists"
-                else -> "run-publication-failed"
+                else -> "completion-marker-failed"
             }
         }
     }
 
     companion object {
+        /** The only supported reader check for distinguishing final reports from recovery directories. */
+        fun isPublishedRun(directory: Path): Boolean =
+            Files.isDirectory(directory) && Files.isRegularFile(directory.resolve(RUN_COMPLETION_MARKER))
+
         fun sanitizeEndpoint(value: String): String {
             val uri = try {
                 URI(value)
@@ -276,14 +283,6 @@ class FileSpikeReportStore private constructor(
                 appendLine()
                 appendLine("Review: Character voice · Relationship · Novelty · Coherence · English adaptation")
             }
-        }
-
-        private fun reserve(path: Path) {
-            Files.newByteChannel(
-                path,
-                StandardOpenOption.CREATE_NEW,
-                StandardOpenOption.WRITE,
-            ).use { }
         }
 
         private fun sanitizeSummary(summary: SpikeRunSummary): SpikeRunSummary = summary.copy(
@@ -362,6 +361,7 @@ class FileSpikeReportStore private constructor(
         private const val CASE_FILE = "case.json"
         private const val SUMMARY_FILE = "summary.json"
         private const val REVIEW_FILE = "review.md"
+        private const val RECOVERY_FILE = "recovery.json"
         private const val MAX_NAME_LENGTH = 80
         private const val REDACTED_DIAGNOSTIC_CODE = "redacted-diagnostic-code"
         private val NON_NAME = Regex("[^a-z0-9-]+")
@@ -430,6 +430,7 @@ class FileSpikeReportStore private constructor(
             "request-timeout",
             "response-too-large",
             "runner-exception",
+            "run-cancelled",
             "schema-invalid",
             "server-error",
             "service-unavailable",
