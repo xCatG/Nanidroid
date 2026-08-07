@@ -283,30 +283,29 @@ class NarCorpusLoader {
     private fun decodeDictionaryBytes(name: String, rawBytes: ByteArray): ByteArray {
         if (!name.endsWith(".sat") || !isDictionaryEntry(name)) return rawBytes
 
-        val firstPass = ByteArray(rawBytes.size)
-        val decoded = ByteArray(rawBytes.size)
-        var lineStart = 0
-        var cursor = 0
-        while (cursor < rawBytes.size) {
-            if (rawBytes[cursor] == '\n'.code.toByte()) {
-                val contentEnd = if (
-                    cursor > lineStart && rawBytes[cursor - 1] == '\r'.code.toByte()
-                ) {
-                    cursor - 1
-                } else {
-                    cursor
-                }
-                decodeSatLine(rawBytes, lineStart, contentEnd, firstPass, lineStart)
-                decodeSatLine(firstPass, lineStart, contentEnd, decoded, lineStart)
-                if (contentEnd < cursor) decoded[contentEnd] = '\r'.code.toByte()
-                decoded[cursor] = '\n'.code.toByte()
-                lineStart = cursor + 1
-            }
-            cursor++
+        var decodedSize = rawBytes.size
+        rawBytes.forEach { byte ->
+            if (byte == '\r'.code.toByte()) decodedSize--
         }
-        decodeSatLine(rawBytes, lineStart, rawBytes.size, firstPass, lineStart)
-        decodeSatLine(firstPass, lineStart, rawBytes.size, decoded, lineStart)
-        return decoded
+        val firstPass = ByteArray(decodedSize)
+        val decoded = ByteArray(decodedSize)
+        var lineStart = 0
+        var compactedCursor = 0
+        rawBytes.forEach { byte ->
+            when (byte) {
+                '\r'.code.toByte() -> Unit
+                '\n'.code.toByte() -> {
+                    decodeSatLine(firstPass, lineStart, compactedCursor, decoded, lineStart)
+                    decodeSatLine(decoded, lineStart, compactedCursor, firstPass, lineStart)
+                    firstPass[compactedCursor++] = byte
+                    lineStart = compactedCursor
+                }
+                else -> firstPass[compactedCursor++] = byte
+            }
+        }
+        decodeSatLine(firstPass, lineStart, compactedCursor, decoded, lineStart)
+        decodeSatLine(decoded, lineStart, compactedCursor, firstPass, lineStart)
+        return firstPass
     }
 
     private fun decodeSatLine(

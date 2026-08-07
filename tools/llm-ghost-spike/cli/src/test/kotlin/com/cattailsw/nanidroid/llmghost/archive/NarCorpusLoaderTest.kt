@@ -146,11 +146,27 @@ class NarCorpusLoaderTest {
         val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
 
         assertEquals("ghost/master/events/dic_native.sat", result.input.files.single().path)
-        assertEquals(decoded, result.input.files.single().text)
+        assertEquals("＊挨拶\n：今日は\nx\n\n＄if（１）\n終端", result.input.files.single().text)
         assertEquals(
             "b38da9244c0d4c7b3c4f94932a2cacec7ea053e59d4efcf9f8773bd67bc59f85",
             result.entryHashes["ghost/master/events/dic_native.sat"],
         )
+    }
+
+    @Test
+    fun removesEveryRawCarriageReturnBeforeNativeSatDecode() = withTemporaryDirectory { directory ->
+        val rawSat = byteArrayOf(
+            0x61, 0x0d, 0x62, 0x0a,
+            0x63, 0x0d, 0x0a,
+            0x0d, 0x0a,
+            0x64, 0x0d, 0x65,
+        )
+        val entries = validEntries().filterNot { it.name == "ghost/master/dic01.txt" } +
+            EntrySpec("ghost/master/dic_cr_oracle.sat", rawSat)
+
+        val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+        assertEquals("ab\nc\n\nde", result.input.files.single().text)
     }
 
     @Test
