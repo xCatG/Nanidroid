@@ -224,6 +224,63 @@ class NarCorpusLoaderTest {
         }
 
     @Test
+    fun materializesCompactSurfaceBlockAtEofWithWhitespaceAndComment() =
+        withTemporaryDirectory { directory ->
+            val entries = validEntries().map { spec ->
+                if (spec.name == "shell/master/surfaces.txt") {
+                    textEntry(spec.name, "charset,UTF-8\n  surface0, 3   { }   // compact\n")
+                } else {
+                    spec
+                }
+            }
+
+            val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+            assertEquals(setOf(0, 3), result.input.identity.shellSurfaces[GhostSpeakerId.SAKURA])
+            assertEquals(setOf(0, 3), result.input.identity.shellSurfaces[GhostSpeakerId.KERO])
+        }
+
+    @Test
+    fun compactDescriptDoesNotSuppressFollowingSurfaceBlocks() =
+        withTemporaryDirectory { directory ->
+            val entries = validEntries().map { spec ->
+                if (spec.name == "shell/master/surfaces.txt") {
+                    textEntry(
+                        spec.name,
+                        "charset,UTF-8\ndescript { } // compact metadata\nsurface4 {}\nsurface5\n{}\n",
+                    )
+                } else {
+                    spec
+                }
+            }
+
+            val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+            assertEquals(setOf(4, 5), result.input.identity.shellSurfaces[GhostSpeakerId.SAKURA])
+            assertEquals(setOf(4, 5), result.input.identity.shellSurfaces[GhostSpeakerId.KERO])
+        }
+
+    @Test
+    fun unrelatedClosingBraceAfterCompactBlocksDoesNotAffectLaterInventory() =
+        withTemporaryDirectory { directory ->
+            val entries = validEntries().map { spec ->
+                if (spec.name == "shell/master/surfaces.txt") {
+                    textEntry(
+                        spec.name,
+                        "charset,UTF-8\nsurface1 {}\ndescript {}\n}\nsurface2 {}\n",
+                    )
+                } else {
+                    spec
+                }
+            }
+
+            val result = assertIs<NarLoadResult.Success>(loader.load(writeNar(directory, entries)))
+
+            assertEquals(setOf(1, 2), result.input.identity.shellSurfaces[GhostSpeakerId.SAKURA])
+            assertEquals(setOf(1, 2), result.input.identity.shellSurfaces[GhostSpeakerId.KERO])
+        }
+
+    @Test
     fun chargesAppendSelectorCardinalityAgainstPerFileBudget() =
         withTemporaryDirectory { directory ->
             val highWork = buildString {

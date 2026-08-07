@@ -348,20 +348,28 @@ class NarCorpusLoader {
                     SurfaceParseState.TopLevel -> when {
                         line.isEmpty() -> SurfaceParseState.TopLevel
                         isDescriptDeclaration(line) -> {
-                            if ('{' in line) SurfaceParseState.DescriptBlock else SurfaceParseState.ExpectDescriptOpen
+                            when {
+                                hasSameLineBraces(line) -> SurfaceParseState.TopLevel
+                                '{' in line -> SurfaceParseState.DescriptBlock
+                                else -> SurfaceParseState.ExpectDescriptOpen
+                            }
                         }
                         isSurfaceDeclaration(line) -> {
                             val parsed = parseSurfaceDeclaration(line)
-                            if ('{' in line) {
-                                SurfaceParseState.SurfaceBlock(parsed.selector, parsed.append)
-                            } else {
-                                SurfaceParseState.ExpectSurfaceOpen(parsed.selector, parsed.append)
+                            when {
+                                hasSameLineBraces(line) -> {
+                                    materialize(parsed.selector, parsed.append)
+                                    SurfaceParseState.TopLevel
+                                }
+                                '{' in line -> SurfaceParseState.SurfaceBlock(parsed.selector, parsed.append)
+                                else -> SurfaceParseState.ExpectSurfaceOpen(parsed.selector, parsed.append)
                             }
                         }
                         else -> SurfaceParseState.TopLevel
                     }
                     SurfaceParseState.ExpectDescriptOpen -> when {
                         line.isEmpty() -> current
+                        hasSameLineBraces(line) && line.startsWith('{') -> SurfaceParseState.TopLevel
                         line == "{" -> SurfaceParseState.DescriptBlock
                         else -> {
                             reprocess = true
@@ -370,6 +378,10 @@ class NarCorpusLoader {
                     }
                     is SurfaceParseState.ExpectSurfaceOpen -> when {
                         line.isEmpty() -> current
+                        hasSameLineBraces(line) && line.startsWith('{') -> {
+                            materialize(current.selector, current.append)
+                            SurfaceParseState.TopLevel
+                        }
                         line == "{" -> SurfaceParseState.SurfaceBlock(current.selector, current.append)
                         else -> {
                             reprocess = true
@@ -399,6 +411,11 @@ class NarCorpusLoader {
 
     private fun isDescriptDeclaration(line: String): Boolean =
         line.substringBefore('{').trim().equals("descript", ignoreCase = true)
+
+    private fun hasSameLineBraces(line: String): Boolean {
+        val opening = line.indexOf('{')
+        return opening >= 0 && line.indexOf('}', opening + 1) >= 0
+    }
 
     private fun isSurfaceDeclaration(line: String): Boolean {
         val lower = line.lowercase(Locale.ROOT)
