@@ -359,7 +359,10 @@ class FileSpikeReportStore private constructor(
                 appendLine("## ${evidence.report.caseId} — candidate ${evidence.candidate}")
                 appendLine()
                 appendLine("Status: `${evidence.report.status}`")
-                evidence.report.failure?.let { appendLine("Failure: `${it.code}` — ${it.detail}") }
+                evidence.report.failure?.let { failure ->
+                    appendLine("Failure: `${failure.code}` — ${failure.detail}")
+                    failure.sourceCode?.let { appendLine("Source: `$it`") }
+                }
                 appendLine()
                 appendLine("### Canonical examples")
                 evidence.retrievedExamples.forEach { example ->
@@ -480,6 +483,7 @@ class FileSpikeReportStore private constructor(
             "forbidden-backslash",
             "forbidden-choice",
             "forbidden-control",
+            "forbidden-invisible-format",
             "forbidden-script-scheme",
             "forbidden-url",
             "generation-duplicate-completion",
@@ -514,6 +518,7 @@ class FileSpikeReportStore private constructor(
             "missing-shell-inventory",
             "missing-speaker",
             "model-not-found",
+            "nfkd-expansion-limit",
             "preparation-exception",
             "preparation-failed",
             "preparation-incomplete",
@@ -527,6 +532,8 @@ class FileSpikeReportStore private constructor(
             "server-error",
             "service-unavailable",
             "similarity-exception",
+            "similarity-budget-exceeded",
+            "similarity-unsafe-text",
             "surface-not-allowed",
             "text-blank",
             "text-too-long",

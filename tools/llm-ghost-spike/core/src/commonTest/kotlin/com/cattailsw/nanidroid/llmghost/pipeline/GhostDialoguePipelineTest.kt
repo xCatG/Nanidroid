@@ -367,6 +367,80 @@ class GhostDialoguePipelineTest {
     }
 
     @Test
+    fun near_canonical_copy_split_across_adjacent_turns_warns_with_window_provenance() = runBlocking {
+        val canonical = "a".repeat(100)
+        val response = """{"turns":[""" +
+            """{"speaker":"sakura","surface":0,"text":"${"a".repeat(50)}","waitAfterMs":25},""" +
+            """{"speaker":"kero","surface":1,"text":"${"a".repeat(49)}b","waitAfterMs":25}]}"""
+        val report = pipeline(
+            EventBackend(
+                generationEvents = listOf(
+                    GenerationEvent.TextDelta(response),
+                    GenerationEvent.Completed(null),
+                ),
+            ),
+        ).runCase(spikeCase(canonicalText = canonical))
+
+        assertEquals(CaseStatus.PASSED, report.status)
+        assertEquals(1, report.warnings.size)
+        val near = report.similarityFindings.single {
+            it.generatedTurnStartIndex == 0 && it.generatedTurnEndIndex == 1
+        }
+        assertEquals(0.99, near.ratio, absoluteTolerance = 0.000_001)
+    }
+
+    @Test
+    fun overlapping_near_windows_emit_one_deterministic_warning_per_canonical_source() = runBlocking {
+        val canonical = "a".repeat(100)
+        val response = """{"turns":[""" +
+            """{"speaker":"sakura","surface":0,"text":"${"a".repeat(50)}","waitAfterMs":25},""" +
+            """{"speaker":"kero","surface":1,"text":"${"a".repeat(49)}b","waitAfterMs":25},""" +
+            """{"speaker":"sakura","surface":0,"text":"${"a".repeat(50)}","waitAfterMs":25}]}"""
+        val report = pipeline(
+            EventBackend(
+                generationEvents = listOf(
+                    GenerationEvent.TextDelta(response),
+                    GenerationEvent.Completed(null),
+                ),
+            ),
+        ).runCase(spikeCase(canonicalText = canonical))
+
+        assertEquals(CaseStatus.PASSED, report.status)
+        assertEquals(2, report.similarityFindings.count { it.ratio == 0.99 })
+        assertEquals(1, report.warnings.size)
+        assertEquals("canonical-near-copy", report.warnings.single().code)
+        assertTrue(report.warnings.single().detail.contains("turns=0..1"))
+        assertTrue(report.warnings.single().detail.contains("ratio=0.99"))
+    }
+
+    @Test
+    fun near_warnings_for_different_canonical_sources_are_not_deduplicated() = runBlocking {
+        val baseCase = spikeCase(canonicalText = "a".repeat(100))
+        val firstTalk = baseCase.request.examples.single()
+        val secondTalk = firstTalk.copy(
+            id = "canonical-2",
+            turns = listOf(firstTalk.turns.single().copy(text = "z".repeat(100))),
+        )
+        val case = baseCase.copy(request = baseCase.request.copy(examples = listOf(firstTalk, secondTalk)))
+        val response = """{"turns":[""" +
+            """{"speaker":"sakura","surface":0,"text":"${"a".repeat(99)}b","waitAfterMs":25},""" +
+            """{"speaker":"kero","surface":1,"text":"${"z".repeat(99)}y","waitAfterMs":25}]}"""
+        val report = pipeline(
+            EventBackend(
+                generationEvents = listOf(
+                    GenerationEvent.TextDelta(response),
+                    GenerationEvent.Completed(null),
+                ),
+            ),
+        ).runCase(case)
+
+        assertEquals(CaseStatus.PASSED, report.status)
+        assertEquals(2, report.warnings.size)
+        assertTrue(report.warnings[0].detail.contains("canonical-1"))
+        assertTrue(report.warnings[1].detail.contains("canonical-2"))
+    }
+
+    @Test
     fun downstream_exception_after_completion_preserves_usage() = runBlocking {
         val usage = GenerationUsage(promptTokens = 3, completionTokens = 5, totalTokens = 8)
         val backend = EventBackend(

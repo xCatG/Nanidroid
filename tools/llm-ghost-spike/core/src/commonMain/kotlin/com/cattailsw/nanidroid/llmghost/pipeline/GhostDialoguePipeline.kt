@@ -8,6 +8,7 @@ import com.cattailsw.nanidroid.llmghost.generation.GeneratedDialogueDecoder
 import com.cattailsw.nanidroid.llmghost.generation.GeneratedDialogueValidator
 import com.cattailsw.nanidroid.llmghost.model.CaseStatus
 import com.cattailsw.nanidroid.llmghost.model.CanonicalTalk
+import com.cattailsw.nanidroid.llmghost.model.CanonicalTurn
 import com.cattailsw.nanidroid.llmghost.model.CompiledScriptValidationReport
 import com.cattailsw.nanidroid.llmghost.model.GeneratedDialogue
 import com.cattailsw.nanidroid.llmghost.model.GeneratedTurn
@@ -289,15 +290,26 @@ class GhostDialoguePipeline(
                     similarityFindings = findings,
                 )
             }
-            val warnings = findings
-                .filter { it.ratio >= CanonicalSimilarity.NEAR_COPY_THRESHOLD }
-                .map { finding ->
-                    SpikeWarning(
-                        code = "canonical-near-copy",
-                        detail = "Generated text is near canonical talk ${finding.canonicalTalkId} " +
-                            "(ratio=${finding.ratio}).",
-                    )
+            val strongestNearCopyBySource = linkedMapOf<
+                Pair<String, CanonicalTurn>,
+                SimilarityFinding,
+            >()
+            findings.forEach { finding ->
+                if (finding.ratio < CanonicalSimilarity.NEAR_COPY_THRESHOLD) return@forEach
+                val source = finding.canonicalTalkId to finding.canonicalTurn
+                val previous = strongestNearCopyBySource[source]
+                if (previous == null || finding.ratio > previous.ratio) {
+                    strongestNearCopyBySource[source] = finding
                 }
+            }
+            val warnings = strongestNearCopyBySource.values.map { finding ->
+                SpikeWarning(
+                    code = "canonical-near-copy",
+                    detail = "Generated text is near canonical talk ${finding.canonicalTalkId} " +
+                        "(ratio=${finding.ratio}, turns=${finding.generatedTurnStartIndex}.." +
+                        "${finding.generatedTurnEndIndex}).",
+                )
+            }
             return SpikeCaseReport(
                 caseId = case.caseId,
                 status = CaseStatus.PASSED,

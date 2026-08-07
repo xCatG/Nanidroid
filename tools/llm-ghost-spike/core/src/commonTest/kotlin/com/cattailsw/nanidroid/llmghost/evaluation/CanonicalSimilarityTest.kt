@@ -216,6 +216,30 @@ class CanonicalSimilarityTest {
     }
 
     @Test
+    fun near_copy_split_across_adjacent_generated_turns_is_detected() {
+        val canonicalText = "a".repeat(100)
+        val generated = listOf(
+            GeneratedTurn("sakura", 0, "a".repeat(50)),
+            GeneratedTurn("kero", 1, "a".repeat(49) + "b"),
+        )
+
+        val findings = CanonicalSimilarity.evaluate(
+            generatedTurns = generated,
+            canonicalTalks = listOf(
+                talk("near-window", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, canonicalText))),
+            ),
+        )
+        val nearWindow = findings.single {
+            it.generatedTurnStartIndex == 0 && it.generatedTurnEndIndex == 1
+        }
+
+        assertFalse(nearWindow.exact)
+        assertEquals(0.99, nearWindow.ratio, absoluteTolerance = 0.000_001)
+        assertTrue(findings.filter { it.generatedTurnStartIndex == it.generatedTurnEndIndex }
+            .all { it.ratio < CanonicalSimilarity.NEAR_COPY_THRESHOLD })
+    }
+
+    @Test
     fun adjacent_window_findings_have_deterministic_start_then_end_order() {
         val findings = CanonicalSimilarity.evaluate(
             generatedTurns = listOf(
@@ -274,6 +298,107 @@ class CanonicalSimilarityTest {
 
         assertEquals(0.0, findings.single().ratio)
         assertFalse(findings.single().exact)
+    }
+
+    @Test
+    fun canonical_raw_scalar_budget_stops_before_scanning_remaining_long_turns() {
+        val talks = List(100) { index ->
+            talk(
+                "long-$index",
+                listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "x".repeat(1_000) + index)),
+            )
+        }
+
+        val failure = assertFailsWith<SimilarityBudgetExceededException> {
+            CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, "original")),
+                canonicalTalks = talks,
+                budget = SimilarityBudget(maxCanonicalRawScalars = 1_500),
+            )
+        }
+
+        assertEquals("canonical-raw-scalars", failure.limitCode)
+        assertEquals(1_500, failure.canonicalRawScalarsExamined)
+        assertEquals(1_001, failure.canonicalNormalizedScalars)
+    }
+
+    @Test
+    fun canonical_retention_entry_and_scalar_budgets_have_exact_failure_points() {
+        val talks = listOf(
+            talk("one", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "abcdefghij"))),
+            talk("two", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "klmnopqrst"))),
+        )
+
+        val entryFailure = assertFailsWith<SimilarityBudgetExceededException> {
+            CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, "original")),
+                canonicalTalks = talks,
+                budget = SimilarityBudget(maxRetainedCanonicalEntries = 1),
+            )
+        }
+        val scalarFailure = assertFailsWith<SimilarityBudgetExceededException> {
+            CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, "original")),
+                canonicalTalks = talks,
+                budget = SimilarityBudget(maxRetainedCanonicalScalars = 15),
+            )
+        }
+
+        assertEquals("canonical-retained-entries", entryFailure.limitCode)
+        assertEquals(1, entryFailure.retainedCanonicalEntries)
+        assertEquals("canonical-retained-scalars", scalarFailure.limitCode)
+        assertEquals(10, scalarFailure.retainedCanonicalScalars)
+    }
+
+    @Test
+    fun canonical_nfkd_expansion_budget_fails_at_exact_normalized_scalar_count() {
+        val failure = assertFailsWith<SimilarityBudgetExceededException> {
+            CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, "original")),
+                canonicalTalks = listOf(
+                    talk("corporation", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "㍿"))),
+                ),
+                budget = SimilarityBudget(maxCanonicalNormalizedScalars = 3),
+            )
+        }
+
+        assertEquals("canonical-normalized-scalars", failure.limitCode)
+        assertEquals(1, failure.canonicalRawScalarsExamined)
+        assertEquals(3, failure.canonicalNormalizedScalars)
+        assertEquals(0, failure.retainedCanonicalEntries)
+    }
+
+    @Test
+    fun real_2elf_shaped_corpus_completes_under_default_aggregate_budgets() {
+        val talks = List(2_000) { index ->
+            talk(
+                "2elf-$index",
+                listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "会話${index}です" + "あ".repeat(40))),
+            )
+        }
+
+        val findings = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "今日は新しい話をしましょう")),
+            canonicalTalks = talks,
+        )
+
+        assertEquals(1, findings.size)
+        assertFalse(findings.single().exact)
+    }
+
+    @Test
+    fun direct_evaluator_enforces_generated_schema_scalar_bound_before_normalization() {
+        val failure = assertFailsWith<SimilarityBudgetExceededException> {
+            CanonicalSimilarity.evaluate(
+                generatedTurns = listOf(GeneratedTurn("sakura", 0, "a".repeat(501))),
+                canonicalTalks = listOf(
+                    talk("canonical", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "ordinary"))),
+                ),
+            )
+        }
+
+        assertEquals("generated-raw-scalars", failure.limitCode)
+        assertEquals(500, failure.generatedRawScalarsExamined)
     }
 
     private fun talk(id: String, turns: List<CanonicalTurn>) = CanonicalTalk(

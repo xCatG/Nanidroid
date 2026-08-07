@@ -20,6 +20,7 @@ import com.cattailsw.nanidroid.llmghost.model.RenderedPromptReport
 import com.cattailsw.nanidroid.llmghost.model.ScenarioKind
 import com.cattailsw.nanidroid.llmghost.model.SpikeCaseReport
 import com.cattailsw.nanidroid.llmghost.model.SpikeCase
+import com.cattailsw.nanidroid.llmghost.model.SpikeFailure
 import com.cattailsw.nanidroid.llmghost.model.SpikeWarning
 import com.cattailsw.nanidroid.llmghost.model.TalkCategory
 import com.cattailsw.nanidroid.llmghost.pipeline.GhostDialoguePipeline
@@ -457,6 +458,75 @@ class FileSpikeReportStoreTest {
         assertTrue(artifacts[0].contains("Generate a short ghost dialogue"))
         assertTrue(artifacts[0].contains("Fresh generated line"))
         assertTrue(artifacts[0].contains("Canonical line"))
+    }
+
+    @Test
+    fun currentStableSimilarityAndInvisibleFormatCodesSurviveEveryReportArtifact() {
+        val secret = "Bearer persistence-secret at http://user:password@example.test"
+        val arbitraryCode = "secret-arbitrary-code"
+        val cases = listOf(
+            "similarity-budget" to SpikeFailure(
+                code = "similarity-budget-exceeded",
+                detail = secret,
+            ),
+            "similarity-unsafe" to SpikeFailure(
+                code = "similarity-unsafe-text",
+                detail = secret,
+                sourceCode = "nfkd-expansion-limit",
+            ),
+            "invisible-format" to SpikeFailure(
+                code = "dialogue-validation-failed",
+                detail = secret,
+                sourceCode = "forbidden-invisible-format",
+            ),
+        ).map { (caseId, failure) ->
+            val base = evidence()
+            val report = base.report.copy(
+                caseId = caseId,
+                status = CaseStatus.FAILED,
+                failure = failure,
+                compiledScriptValidation = CompiledScriptValidationReport(
+                    valid = false,
+                    violationCodes = listOf("forbidden-invisible-format", arbitraryCode),
+                ),
+            )
+            base.copy(
+                report = report,
+                validation = CaseValidationEvidence(report.status, failure),
+                tokenizerEquivalentResult = report.compiledScriptValidation,
+            )
+        }
+        val run = FileSpikeReportStore(Files.createTempDirectory("current-stable-codes"))
+            .beginRun(Instant.parse("2026-08-07T01:02:03Z"), "current-stable-codes")
+        cases.forEach { run.writeCase(it, 1) }
+
+        run.finish(
+            SpikeRunSummary(
+                runId = "current-stable-codes",
+                endpoint = "http://example.test/v1",
+                model = "model",
+                startedAtUtc = "2026-08-07T01:02:03Z",
+                cases = cases,
+            ),
+        )
+
+        val caseJson = cases.map { Files.readString(run.directory.resolve("${it.report.caseId}-1/case.json")) }
+        val summary = Files.readString(run.directory.resolve("summary.json"))
+        val review = Files.readString(run.directory.resolve("review.md"))
+        listOf("similarity-budget-exceeded", "similarity-unsafe-text", "forbidden-invisible-format")
+            .forEachIndexed { index, code ->
+                assertTrue(caseJson[index].contains(code), "case JSON redacted stable code $code")
+                assertTrue(summary.contains(code), "summary redacted stable code $code")
+                assertTrue(review.contains(code), "review redacted stable code $code")
+            }
+        assertTrue(caseJson[1].contains("nfkd-expansion-limit"))
+        assertTrue(summary.contains("nfkd-expansion-limit"))
+        assertTrue(review.contains("nfkd-expansion-limit"))
+        (caseJson + summary + review).forEach { artifact ->
+            assertTrue(!artifact.contains("persistence-secret") && !artifact.contains("user:password"))
+            assertTrue(!artifact.contains(arbitraryCode))
+        }
+        assertTrue(summary.contains("redacted-diagnostic-code"))
     }
 
     @Test
