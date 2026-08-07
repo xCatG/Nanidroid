@@ -249,7 +249,7 @@ class GeneratedDialogueValidator {
         val HIGH_SURROGATE_RANGE = '\uD800'..'\uDBFF'
         val LOW_SURROGATE_RANGE = '\uDC00'..'\uDFFF'
         val URI_SCHEME_PATTERN = Regex(
-            "\\b[a-z][a-z0-9+.-]{1,31}:(?://)?[^\\s]+",
+            "\\b[a-z][a-z0-9+.-]{0,31}:(?://)?[^\\s]+",
             RegexOption.IGNORE_CASE,
         )
         val BARE_DOMAIN_PATTERN = Regex(

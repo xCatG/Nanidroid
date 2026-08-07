@@ -172,6 +172,18 @@ class GeneratedDialogueValidatorTest {
     }
 
     @Test
+    fun rejectsOneCharacterUriSchemesAsUrls() {
+        val result = validator.validate(
+            GeneratedDialogue(listOf(GeneratedTurn("sakura", 3, "x:payload"))),
+            VALID_SURFACES,
+        )
+
+        assertNull(result.dialogue)
+        assertEquals("forbidden-url", result.violations.single().code)
+        assertEquals(0, result.violations.single().turnIndex)
+    }
+
+    @Test
     fun acceptsAuthorizedTwoSpeakerDialogueAsTrustedSpeakerIds() {
         val result = validator.validate(
             GeneratedDialogue(
