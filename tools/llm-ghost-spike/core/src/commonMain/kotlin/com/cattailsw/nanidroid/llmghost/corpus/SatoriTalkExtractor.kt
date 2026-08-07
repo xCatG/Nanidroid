@@ -77,7 +77,7 @@ class SatoriTalkExtractor {
             if (!selector.startsWith(POINTER_DISPATCH_PREFIX)) return@mapNotNull null
             selector.removePrefix(POINTER_DISPATCH_PREFIX).takeIf(::isBoundedLiteral)
         }
-        .toSet()
+        .toHashSet()
 
     private fun extractBlock(
         file: GhostSourceFile,
@@ -145,23 +145,32 @@ class SatoriTalkExtractor {
         )
     }
 
-    private fun pointerMetadata(heading: String, suffixes: Set<String>): PointerMetadata? {
+    internal fun pointerMetadata(heading: String, suffixes: Set<String>): PointerMetadata? {
         val speaker = when (heading.firstOrNull()) {
             '0' -> GhostSpeakerId.SAKURA
             '1' -> GhostSpeakerId.KERO
             else -> return null
         }
-        val matchingSuffixes = suffixes.filter { heading.endsWith(it) }
-        if (matchingSuffixes.size != 1) return null
+        val body = heading.substring(1)
+        if (body.length !in 2..MAX_POINTER_BODY_LENGTH || !body.all(::isLiteralCharacter)) return null
 
-        val suffix = matchingSuffixes.single()
-        val region = heading.substring(1, heading.length - suffix.length)
-        if (!isBoundedLiteral(region)) return null
-        return PointerMetadata(speaker, region)
+        val minimumSuffixLength = maxOf(1, body.length - MAX_LITERAL_LENGTH)
+        val maximumSuffixLength = minOf(MAX_LITERAL_LENGTH, body.length - 1)
+        var matchedRegion: String? = null
+        for (suffixLength in minimumSuffixLength..maximumSuffixLength) {
+            val regionEnd = heading.length - suffixLength
+            if (!suffixes.contains(heading.substring(regionEnd))) continue
+            if (matchedRegion != null) return null
+            matchedRegion = heading.substring(1, regionEnd)
+        }
+        return matchedRegion?.let { PointerMetadata(speaker, it) }
     }
 
     private fun isBoundedLiteral(value: String): Boolean =
-        value.length in 1..MAX_LITERAL_LENGTH && value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+        value.length in 1..MAX_LITERAL_LENGTH && value.all(::isLiteralCharacter)
+
+    private fun isLiteralCharacter(character: Char): Boolean =
+        character.isLetterOrDigit() || character == '-' || character == '_'
 
     private fun parseDialogue(text: String): ParsedDialogue {
         if (text.contains("http://") || text.contains("https://") || text.contains("${'$'}{") || text.contains("${'$'}(")) {
@@ -260,7 +269,7 @@ class SatoriTalkExtractor {
         val selectors: MutableList<String> = mutableListOf(),
     )
 
-    private data class PointerMetadata(
+    internal data class PointerMetadata(
         val speaker: GhostSpeakerId,
         val region: String,
     )
@@ -287,5 +296,6 @@ class SatoriTalkExtractor {
         const val SELECTOR_MARKER = "＞"
         const val POINTER_DISPATCH_PREFIX = "（Ｒ３）（Ｒ４）"
         const val MAX_LITERAL_LENGTH = 64
+        const val MAX_POINTER_BODY_LENGTH = MAX_LITERAL_LENGTH * 2
     }
 }

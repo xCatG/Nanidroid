@@ -216,6 +216,55 @@ class SatoriTalkExtractorTest {
         assertNull(talk.touchRegion)
     }
 
+    @Test
+    fun preservesTalkWhenObservedSuffixConsumesSpeakerPrefix() {
+        listOf(
+            "0" to "0",
+            "00" to "00",
+            "0Head" to "0Head",
+            "1" to "1",
+        ).forEach { (suffix, heading) ->
+            val result = extractor.extract(
+                input(
+                    source(
+                        """
+                        ＊OnMouseDoubleClick
+                        ＞（Ｒ３）（Ｒ４）$suffix
+                        ＊$heading
+                        ：\0Authored $heading
+                        """.trimIndent(),
+                    ),
+                ),
+            )
+
+            val talk = result.talks.single()
+            assertEquals("Authored $heading", talk.turns.single().text)
+            assertEquals(TalkCategory.OTHER, talk.category)
+            assertNull(talk.touchSpeaker)
+            assertNull(talk.touchRegion)
+        }
+    }
+
+    @Test
+    fun pointerMatchingUsesBoundedHashProbesInsteadOfScanningObservedSuffixes() {
+        val observedSuffixes = ProbeCountingSet(
+            (0 until 4_096).mapTo(mutableSetOf()) { "suffix$it" },
+        )
+        val talkCount = 512
+
+        repeat(talkCount) { index ->
+            assertNull(
+                extractor.pointerMetadata(
+                    heading = "0region${index}unmatched",
+                    suffixes = observedSuffixes,
+                ),
+            )
+        }
+
+        assertEquals(0, observedSuffixes.iteratedElements)
+        assertTrue(observedSuffixes.containsCalls <= talkCount * 64)
+    }
+
     private fun input(vararg sources: GhostSourceFile) = GhostCorpusInput(
         identity = GhostIdentity(
             ghostName = "Fixture ghost",
@@ -236,5 +285,31 @@ class SatoriTalkExtractorTest {
     private fun fixture(name: String): GhostSourceFile {
         val stream = checkNotNull(javaClass.getResourceAsStream("/fixtures/$name"))
         return GhostSourceFile("fixture/$name", stream.bufferedReader().use { it.readText() })
+    }
+
+    private class ProbeCountingSet(
+        private val values: Set<String>,
+    ) : Set<String> by values {
+        var containsCalls: Int = 0
+            private set
+        var iteratedElements: Int = 0
+            private set
+
+        override fun contains(element: String): Boolean {
+            containsCalls += 1
+            return values.contains(element)
+        }
+
+        override fun iterator(): Iterator<String> {
+            val delegate = values.iterator()
+            return object : Iterator<String> {
+                override fun hasNext(): Boolean = delegate.hasNext()
+
+                override fun next(): String {
+                    iteratedElements += 1
+                    return delegate.next()
+                }
+            }
+        }
     }
 }
