@@ -7,6 +7,7 @@ import com.cattailsw.nanidroid.llmghost.model.GhostSpeakerId
 import com.cattailsw.nanidroid.llmghost.model.TalkCategory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SatoriTalkExtractorTest {
@@ -102,6 +103,119 @@ class SatoriTalkExtractorTest {
         assertTrue(result.diagnostics.all { it.path == "fixture/talk.txt" && it.line > 0 })
     }
 
+    @Test
+    fun linksLiteralPointerDispatchToConcreteReactionHeadings() {
+        val result = extractor.extract(
+            input(
+                source(
+                    """
+                    ＊OnMouseDoubleClick
+                    ＞（Ｒ３）（Ｒ４）つつかれ
+                    ＊0Headつつかれ
+                    ：\0First
+                    ＊1l-headつつかれ
+                    ：\1Second
+                    ＊1l-headつつかれ
+                    ：\1Duplicate
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        assertEquals(3, result.talks.size)
+        assertEquals(
+            listOf(GhostSpeakerId.SAKURA, GhostSpeakerId.KERO, GhostSpeakerId.KERO),
+            result.talks.map { it.touchSpeaker },
+        )
+        assertEquals(listOf("Head", "l-head", "l-head"), result.talks.map { it.touchRegion })
+        assertTrue(result.talks.all { it.category == TalkCategory.TOUCH })
+        assertEquals(listOf("0Headつつかれ", "1l-headつつかれ", "1l-headつつかれ"), result.talks.map { it.heading })
+        assertEquals(listOf("First", "Second", "Duplicate"), result.talks.map { it.turns.single().text })
+        assertEquals(3, result.talks.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun doesNotInferPointerMetadataWithoutASafeObservedSuffix() {
+        val tooLong = "x".repeat(65)
+        val result = extractor.extract(
+            input(
+                source(
+                    """
+                    ＊OnMouseDoubleClick
+                    ＞（Ｒ３）（Ｒ４）動的（call）
+                    ＞（Ｒ３）（Ｒ４）変数「${'$'}{name}」
+                    ＞（Ｒ３）（Ｒ４）$tooLong
+                    ＞（Ｒ3）（Ｒ4）wrongwidth
+                    ＊0Head動的（call）
+                    ：\0Dynamic
+                    ＊0Headつつかれ
+                    ：\0Missing
+                    ＊名前のない頭つつかれ
+                    ：\0Named
+                    ＊0つつかれ
+                    ：\0Empty region
+                    ＊0Headwrongwidth
+                    ：\0Wrong-width selector
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        assertEquals(5, result.talks.size)
+        assertTrue(result.talks.all { it.category == TalkCategory.OTHER })
+        assertTrue(result.talks.all { it.touchSpeaker == null && it.touchRegion == null })
+    }
+
+    @Test
+    fun keepsPointerSuffixDiscoveryWithinOneSourceFile() {
+        val result = extractor.extract(
+            input(
+                source(
+                    "dispatch.txt",
+                    """
+                    ＊OnMouseDoubleClick
+                    ＞（Ｒ３）（Ｒ４）つつかれ
+                    """.trimIndent(),
+                ),
+                source(
+                    "reaction.txt",
+                    """
+                    ＊0Headつつかれ
+                    ：\0Cross-file
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        val talk = result.talks.single()
+        assertEquals("fixture/reaction.txt", talk.sourcePath)
+        assertEquals(TalkCategory.OTHER, talk.category)
+        assertNull(talk.touchSpeaker)
+        assertNull(talk.touchRegion)
+    }
+
+    @Test
+    fun doesNotInferWhenObservedSuffixesMakeHeadingAmbiguous() {
+        val result = extractor.extract(
+            input(
+                source(
+                    """
+                    ＊OnMouseDoubleClick
+                    ＞（Ｒ３）（Ｒ４）かれ
+                    ＞（Ｒ３）（Ｒ４）つつかれ
+                    ＊0Headつつかれ
+                    ：\0Ambiguous
+                    """.trimIndent(),
+                ),
+            ),
+        )
+
+        val talk = result.talks.single()
+        assertEquals(TalkCategory.OTHER, talk.category)
+        assertNull(talk.touchSpeaker)
+        assertNull(talk.touchRegion)
+    }
+
     private fun input(vararg sources: GhostSourceFile) = GhostCorpusInput(
         identity = GhostIdentity(
             ghostName = "Fixture ghost",
@@ -115,7 +229,9 @@ class SatoriTalkExtractorTest {
         files = sources.toList(),
     )
 
-    private fun source(text: String) = GhostSourceFile("fixture/talk.txt", text)
+    private fun source(text: String) = source("talk.txt", text)
+
+    private fun source(name: String, text: String) = GhostSourceFile("fixture/$name", text)
 
     private fun fixture(name: String): GhostSourceFile {
         val stream = checkNotNull(javaClass.getResourceAsStream("/fixtures/$name"))

@@ -31,8 +31,10 @@ class SatoriTalkExtractor {
         val diagnostics = mutableListOf<CorpusDiagnostic>()
 
         input.files.forEach { file ->
-            discoverBlocks(file).forEachIndexed { index, block ->
-                extractBlock(file, block, index + 1, diagnostics)?.let(talks::add)
+            val blocks = discoverBlocks(file)
+            val pointerDispatchSuffixes = discoverPointerDispatchSuffixes(blocks)
+            blocks.forEachIndexed { index, block ->
+                extractBlock(file, block, index + 1, pointerDispatchSuffixes, diagnostics)?.let(talks::add)
             }
         }
 
@@ -53,6 +55,8 @@ class SatoriTalkExtractor {
                 )
             } else if (line.startsWith(DIALOGUE_MARKER)) {
                 current?.dialogueLines?.add(DialogueLine(index + 1, line.removePrefix(DIALOGUE_MARKER)))
+            } else if (line.startsWith(SELECTOR_MARKER)) {
+                current?.selectors?.add(line.removePrefix(SELECTOR_MARKER))
             }
         }
         current?.let(blocks::add)
@@ -60,10 +64,26 @@ class SatoriTalkExtractor {
         return blocks
     }
 
+    /**
+     * Recognizes only the literal pointer dispatch used by the shipped 2elf dictionaries:
+     * an OnMouse block selector whose complete value is `（Ｒ３）（Ｒ４）<suffix>`. The suffix
+     * is 1..64 letters, digits, hyphens, or underscores. No SATORI expression is evaluated.
+     */
+    private fun discoverPointerDispatchSuffixes(blocks: List<TalkBlock>): Set<String> = blocks
+        .asSequence()
+        .filter { it.heading.startsWith("OnMouse") }
+        .flatMap { it.selectors.asSequence() }
+        .mapNotNull { selector ->
+            if (!selector.startsWith(POINTER_DISPATCH_PREFIX)) return@mapNotNull null
+            selector.removePrefix(POINTER_DISPATCH_PREFIX).takeIf(::isBoundedLiteral)
+        }
+        .toSet()
+
     private fun extractBlock(
         file: GhostSourceFile,
         block: TalkBlock,
         ordinal: Int,
+        pointerDispatchSuffixes: Set<String>,
         diagnostics: MutableList<CorpusDiagnostic>,
     ): CanonicalTalk? {
         if (block.dialogueLines.isEmpty()) {
@@ -112,15 +132,36 @@ class SatoriTalkExtractor {
             return null
         }
 
+        val pointer = pointerMetadata(block.heading, pointerDispatchSuffixes)
         return CanonicalTalk(
             id = "${file.path}:${block.headingLine}:$ordinal",
             sourcePath = file.path,
             sourceLine = block.headingLine,
             heading = block.heading.ifBlank { null },
-            category = categoryFor(block.heading),
+            category = if (pointer != null) TalkCategory.TOUCH else categoryFor(block.heading),
+            touchSpeaker = pointer?.speaker,
+            touchRegion = pointer?.region,
             turns = turns,
         )
     }
+
+    private fun pointerMetadata(heading: String, suffixes: Set<String>): PointerMetadata? {
+        val speaker = when (heading.firstOrNull()) {
+            '0' -> GhostSpeakerId.SAKURA
+            '1' -> GhostSpeakerId.KERO
+            else -> return null
+        }
+        val matchingSuffixes = suffixes.filter { heading.endsWith(it) }
+        if (matchingSuffixes.size != 1) return null
+
+        val suffix = matchingSuffixes.single()
+        val region = heading.substring(1, heading.length - suffix.length)
+        if (!isBoundedLiteral(region)) return null
+        return PointerMetadata(speaker, region)
+    }
+
+    private fun isBoundedLiteral(value: String): Boolean =
+        value.length in 1..MAX_LITERAL_LENGTH && value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
 
     private fun parseDialogue(text: String): ParsedDialogue {
         if (text.contains("http://") || text.contains("https://") || text.contains("${'$'}{") || text.contains("${'$'}(")) {
@@ -216,6 +257,12 @@ class SatoriTalkExtractor {
         val heading: String,
         val headingLine: Int,
         val dialogueLines: MutableList<DialogueLine> = mutableListOf(),
+        val selectors: MutableList<String> = mutableListOf(),
+    )
+
+    private data class PointerMetadata(
+        val speaker: GhostSpeakerId,
+        val region: String,
     )
 
     private data class DialogueLine(
@@ -237,5 +284,8 @@ class SatoriTalkExtractor {
     private companion object {
         const val BLOCK_MARKER = "＊"
         const val DIALOGUE_MARKER = "："
+        const val SELECTOR_MARKER = "＞"
+        const val POINTER_DISPATCH_PREFIX = "（Ｒ３）（Ｒ４）"
+        const val MAX_LITERAL_LENGTH = 64
     }
 }
