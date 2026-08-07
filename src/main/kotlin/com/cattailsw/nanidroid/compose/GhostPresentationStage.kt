@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -304,11 +306,7 @@ fun GhostPresentationStage(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = stringResource(R.string.stage_tiny_window_message),
-                            modifier = Modifier.padding(24.dp),
-                            textAlign = TextAlign.Center,
-                        )
+                        TinyStageFallback(modifier = Modifier.padding(12.dp))
                     }
                 }
                 activeActionSurfaceSpeaker?.takeUnless { tinyFallback }?.let { speaker ->
@@ -335,6 +333,24 @@ fun GhostPresentationStage(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun TinyStageFallback(
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Text(
+            text = stringResource(R.string.stage_tiny_window_message),
+            modifier = Modifier.padding(24.dp),
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

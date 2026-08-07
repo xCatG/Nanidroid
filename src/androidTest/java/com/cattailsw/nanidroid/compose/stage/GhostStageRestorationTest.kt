@@ -3,18 +3,24 @@ package com.cattailsw.nanidroid.compose.stage
 import android.content.Context
 import android.content.res.Configuration
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -41,6 +47,7 @@ import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.util.Locale
@@ -105,6 +112,44 @@ class GhostStageRestorationTest {
         composeRule.runOnIdle {
             assertSame(before, requireNotNull(measureState.latest?.sakura?.composedSurface))
         }
+    }
+
+    @Test
+    fun tiny_message_has_a_light_container_over_a_dark_wallpaper() {
+        val measureState = GhostStageMeasureState().also { it.resetFor("tiny-contrast") }
+        composeRule.setContent {
+            MaterialTheme(colorScheme = lightColorScheme()) {
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    Box(
+                        Modifier
+                            .requiredSize(230.dp, 400.dp)
+                            .background(Color(0xFF15131A)),
+                    ) {
+                        GhostPresentationStage(
+                            presentation = presentation(),
+                            sakuraComposedSurface = surface(),
+                            keroComposedSurface = null,
+                            measureState = measureState,
+                            ghostKey = "tiny-contrast",
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+        }
+
+        composeRule.waitUntil(5_000) { measureState.latest?.layoutDp?.mode == StageMode.TINY }
+        val pixels = composeRule.onNodeWithText(TINY_MESSAGE).captureToImage().toPixelMap()
+
+        assertTrue(
+            "Tiny fallback needs a padded area large enough to inspect.",
+            pixels.width > 32 && pixels.height > 32,
+        )
+        val containerPixel = pixels[16, 16]
+        assertTrue(
+            "Tiny fallback needs an opaque light container over arbitrary wallpaper, got $containerPixel.",
+            containerPixel.red > 0.8f && containerPixel.green > 0.8f && containerPixel.blue > 0.8f,
+        )
     }
 
     @Test

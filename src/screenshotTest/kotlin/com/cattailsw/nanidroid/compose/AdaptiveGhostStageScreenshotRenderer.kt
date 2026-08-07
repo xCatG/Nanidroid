@@ -1,17 +1,17 @@
 package com.cattailsw.nanidroid.compose
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
@@ -87,7 +87,11 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
 
     NanidroidComposeShell(
         ghostStage = {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(if (mode == StageMode.TINY) TinyFixtureWallpaper else Color.Transparent),
+            ) {
                 MeasuredGhostStageLayout(
                     presentation = fixture.state.presentation,
                     environmentForSize = { size ->
@@ -126,11 +130,10 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
                     },
                 )
                 if (mode == StageMode.TINY) {
-                    Text(
-                        text = stringResource(R.string.stage_tiny_window_message),
+                    TinyStageFallback(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .padding(24.dp),
+                            .padding(12.dp),
                     )
                 }
             }
@@ -282,6 +285,8 @@ private fun screenshotEnvironment(
         ghostKey = "screenshot-${fixture.name}",
     )
 }
+
+private val TinyFixtureWallpaper = Color(0xFF15131A)
 
 private fun ScreenshotSurfaceFixture.composedSurface(): ComposedSurface {
     val assetPath = "fixture:${definition.id}:${definition.width}x${definition.height}"
