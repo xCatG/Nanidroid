@@ -932,6 +932,77 @@ function Assert-SafeLabel([string]$SafeLabel) {
     }
 }
 
+function Clear-LocalArchiveArtifacts {
+    param(
+        [string]$SafeLabel,
+        [string]$BaseReportRoot = $reportRoot
+    )
+
+    Assert-SafeLabel -SafeLabel $SafeLabel
+    $baseRoot = [IO.Path]::GetFullPath($BaseReportRoot).TrimEnd('\')
+    $localReportDir = [IO.Path]::GetFullPath((Join-Path $baseRoot $SafeLabel))
+    $localScreenshotRoot = [IO.Path]::GetFullPath((Join-Path $baseRoot 'screenshots'))
+    $localScreenshotPath = [IO.Path]::GetFullPath((Join-Path $localScreenshotRoot "$SafeLabel.png"))
+    if (-not (Split-Path -Parent $localReportDir).Equals($baseRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        ThrowIf "Refusing per-archive cleanup outside report root: $localReportDir"
+    }
+    if (-not (Split-Path -Parent $localScreenshotPath).Equals($localScreenshotRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        ThrowIf "Refusing per-archive screenshot cleanup outside screenshot root: $localScreenshotPath"
+    }
+    if (Test-Path -LiteralPath $localReportDir) {
+        Remove-Item -LiteralPath $localReportDir -Recurse -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath $localScreenshotPath) {
+        Remove-Item -LiteralPath $localScreenshotPath -Force -ErrorAction Stop
+    }
+}
+
+function Clear-ManifestLocalArtifacts {
+    param(
+        [object[]]$ManifestEntries,
+        [string]$BaseReportRoot = $reportRoot
+    )
+
+    foreach ($entry in $ManifestEntries) {
+        Clear-LocalArchiveArtifacts -SafeLabel (Sanitize-Label -Label $entry.label) -BaseReportRoot $BaseReportRoot
+    }
+}
+
+function Test-EmptyInstrumentationProtocol {
+    param(
+        [int]$ExitCode,
+        [string]$Output,
+        [string]$ErrorOutput
+    )
+
+    return $ExitCode -eq 0 -and
+        [string]::IsNullOrWhiteSpace($Output) -and
+        [string]::IsNullOrWhiteSpace($ErrorOutput)
+}
+
+function Get-LogcatAfterMarker {
+    param(
+        [string]$LogcatText,
+        [string]$Marker
+    )
+
+    if ([string]::IsNullOrEmpty($LogcatText) -or [string]::IsNullOrWhiteSpace($Marker)) {
+        return [pscustomobject]@{ markerFound = $false; text = '' }
+    }
+    $markerIndex = $LogcatText.IndexOf($Marker, [StringComparison]::Ordinal)
+    if ($markerIndex -lt 0) {
+        return [pscustomobject]@{ markerFound = $false; text = '' }
+    }
+    $lineStart = $LogcatText.LastIndexOf("`n", $markerIndex)
+    if ($lineStart -lt 0) {
+        $lineStart = 0
+    }
+    else {
+        $lineStart++
+    }
+    return [pscustomobject]@{ markerFound = $true; text = $LogcatText.Substring($lineStart) }
+}
+
 function Remove-RemotePath([string]$Path, [bool]$TrimParents = $false) {
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return
@@ -1275,6 +1346,7 @@ function Run-TestArchive {
     if ($Label.Contains('"')) {
         ThrowIf "Archive label contains an unsupported quote character: $Label"
     }
+    Assert-SafeLabel -SafeLabel $SafeLabel
     $privateInputPath = "$privateDataRoot/cache/nar-corpus-host/$runId/$SafeLabel"
     $externalResultPath = "/sdcard/Android/data/$targetPackage/files/nar-corpus/$SafeLabel"
     $tmpArchiveDir = "$tmpRunRoot/$SafeLabel"
@@ -1282,10 +1354,10 @@ function Run-TestArchive {
     $resultJsonPath = "$externalResultPath/result.json"
     $resultScreenshotPath = "$externalResultPath/screenshot.png"
     $localReportDir = Join-Path $reportRoot $SafeLabel
-    New-Item -ItemType Directory -Force -Path $localReportDir | Out-Null
     $resultJsonLocal = Join-Path $localReportDir 'result.json'
     $screenshotLocal = Join-Path $screenshotRoot "$SafeLabel.png"
     $crashLogLocal = Join-Path $localReportDir 'crash-log.txt'
+    $instrumentationDiagnosticLocal = Join-Path $localReportDir 'instrumentation-diagnostic.txt'
     $archiveResult = $null
     $nativeCrashAccepted = $false
     $nativeCrashEvidence = $null
@@ -1296,8 +1368,9 @@ function Run-TestArchive {
     $postOutputSnapshot = @()
     $postTmpSnapshot = @()
 
+    Clear-LocalArchiveArtifacts -SafeLabel $SafeLabel
+    New-Item -ItemType Directory -Force -Path $localReportDir | Out-Null
     Write-Host "Running archive: $Label"
-    Assert-SafeLabel -SafeLabel $SafeLabel
 
     if ($PrivateArchivePath -ne "$privateInputPath/$constantFileName") {
         ThrowIf "Private archive path escaped the exact run-owned input root: $PrivateArchivePath"
@@ -1329,6 +1402,9 @@ function Run-TestArchive {
             $instrumentationRunner
         )
         $processArguments = @('-s', $DeviceSerial) + $instrumentationArgs
+        $attemptLogMarker = "attempt:$runId`:$SafeLabel"
+        Invoke-Adb -Arguments @('shell', 'log', '-p', 'i', '-t', 'NanidroidCorpusHost', $attemptLogMarker) -TimeoutSeconds 10 | Out-Null
+        $instrumentationStopwatch = [Diagnostics.Stopwatch]::StartNew()
         try {
             $instrumentProcessResult = Invoke-ArgumentListProcess -FilePath $AdbPath -Arguments $processArguments -TimeoutSeconds ($PerArchiveTimeoutMinutes * 60)
         }
@@ -1340,9 +1416,40 @@ function Run-TestArchive {
             }
             throw
         }
+        finally {
+            $instrumentationStopwatch.Stop()
+        }
         $rawOut = $instrumentProcessResult.output
         $rawErr = $instrumentProcessResult.error
         $instrumentProcess = @{ ExitCode = $instrumentProcessResult.exitCode }
+        $emptyInstrumentationProtocol = Test-EmptyInstrumentationProtocol -ExitCode $instrumentProcessResult.exitCode -Output $rawOut -ErrorOutput $rawErr
+        if ($emptyInstrumentationProtocol) {
+            $getState = Invoke-Adb -Arguments @('get-state') -TimeoutSeconds 10 -AllowFailure
+            $targetPid = Invoke-Adb -Arguments @('shell', 'pidof', $targetPackage) -TimeoutSeconds 10 -AllowFailure
+            $testPid = Invoke-Adb -Arguments @('shell', 'pidof', $testPackage) -TimeoutSeconds 10 -AllowFailure
+            $activityProcesses = Invoke-Adb -Arguments @('shell', 'dumpsys', 'activity', 'processes') -TimeoutSeconds 30 -AllowFailure
+            $diagnosticLogcat = Invoke-Adb -Arguments @('logcat', '-b', 'main', '-b', 'system', '-b', 'events', '-b', 'crash', '-d', '-v', 'threadtime') -TimeoutSeconds 30 -AllowFailure
+            $attemptLogcat = Get-LogcatAfterMarker -LogcatText $diagnosticLogcat.output -Marker $attemptLogMarker
+            $phaseStartObserved = $attemptLogcat.text -match 'NarCorpusProbe.*phase:start'
+            $diagnostic = @(
+                'classification=instrumentation-empty-protocol',
+                "durationMs=$($instrumentationStopwatch.ElapsedMilliseconds)",
+                "exitCode=$($instrumentProcessResult.exitCode)",
+                "logMarkerFound=$($attemptLogcat.markerFound)",
+                "phaseStartObserved=$phaseStartObserved",
+                "adbGetStateExit=$($getState.exitCode)",
+                "adbGetState=$((Truncate-Text -Text $getState.output -MaxChars 1000))",
+                "targetPidExit=$($targetPid.exitCode)",
+                "targetPid=$((Truncate-Text -Text $targetPid.output -MaxChars 1000))",
+                "testPidExit=$($testPid.exitCode)",
+                "testPid=$((Truncate-Text -Text $testPid.output -MaxChars 1000))",
+                '--- dumpsys activity processes ---',
+                (Truncate-Text -Text $activityProcesses.output -MaxChars 24000),
+                '--- logcat main/system/events/crash ---',
+                (Truncate-Text -Text $attemptLogcat.text -MaxChars 48000)
+            ) -join [Environment]::NewLine
+            Set-Content -LiteralPath $instrumentationDiagnosticLocal -Value $diagnostic -Encoding UTF8
+        }
         $instrumentationReportedFailure = $rawOut -match 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_STATUS_CODE:\s*-2'
         $processCrashed = $rawOut -match 'Process crashed'
         $crashBuffer = Invoke-Adb -Arguments @('logcat', '-b', 'crash', '-d') -TimeoutSeconds 20 -AllowFailure
@@ -1359,6 +1466,10 @@ function Run-TestArchive {
         }
         if ($pullScreenshot.exitCode -ne 0 -or -not (Test-Path $screenshotLocal)) {
             $artifactContext += "screenshot missing (pullExit=$($pullScreenshot.exitCode), pullOutput=$((Truncate-Text -Text $pullScreenshot.output -MaxChars $failureOutputMaxChars)) )"
+        }
+        if ($emptyInstrumentationProtocol) {
+            $artifactSummary = if ($artifactContext.Count -gt 0) { $artifactContext -join '; ' } else { 'fresh result and screenshot unexpectedly present' }
+            ThrowIf "instrumentation-empty-protocol for $Label after $($instrumentationStopwatch.ElapsedMilliseconds)ms; phase/start and process diagnostics: $instrumentationDiagnosticLocal; $artifactSummary"
         }
         if ($artifactContext.Count -gt 0) {
             $artifactError = ($artifactContext -join '; ')
@@ -1628,6 +1739,52 @@ if ($DryRun) {
         }
     }
     Write-Host "Dry-run device-path probe plumbing passed at $DevicePathProbeTimeoutSeconds seconds."
+    $staleArtifactRoot = Join-Path $hostRunTmpRoot 'stale-artifact-probe'
+    $staleArtifactEntries = @(
+        [pscustomobject]@{ label = 'Snake and Otacon V1.3.2' },
+        [pscustomobject]@{ label = 'Watchdog Bancho' }
+    )
+    $staleArtifactPaths = foreach ($entry in $staleArtifactEntries) {
+        $safeLabel = Sanitize-Label -Label $entry.label
+        $resultPath = Join-Path $staleArtifactRoot "$safeLabel\result.json"
+        $screenshotPath = Join-Path $staleArtifactRoot "screenshots\$safeLabel.png"
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $resultPath), (Split-Path -Parent $screenshotPath) | Out-Null
+        Set-Content -LiteralPath $resultPath -Value '{"stale":true}' -Encoding UTF8
+        Set-Content -LiteralPath $screenshotPath -Value 'stale' -Encoding UTF8
+        $resultPath
+        $screenshotPath
+    }
+    Clear-ManifestLocalArtifacts -ManifestEntries $staleArtifactEntries -BaseReportRoot $staleArtifactRoot
+    if (@($staleArtifactPaths | Where-Object { Test-Path -LiteralPath $_ }).Count -ne 0) {
+        ThrowIf 'Dry-run per-archive freshness probe retained stale local evidence.'
+    }
+    Write-Host 'Dry-run per-archive evidence freshness probe passed.'
+    if (-not (Test-EmptyInstrumentationProtocol -ExitCode 0 -Output '' -ErrorOutput "`t")) {
+        ThrowIf 'Dry-run empty instrumentation protocol probe did not detect a successful blank transaction.'
+    }
+    foreach ($nonEmptyProtocol in @(
+        @{ exitCode = 1; output = ''; errorOutput = '' },
+        @{ exitCode = 0; output = 'INSTRUMENTATION_CODE: -1'; errorOutput = '' },
+        @{ exitCode = 0; output = ''; errorOutput = 'adb error' }
+    )) {
+        if (Test-EmptyInstrumentationProtocol -ExitCode $nonEmptyProtocol.exitCode -Output $nonEmptyProtocol.output -ErrorOutput $nonEmptyProtocol.errorOutput) {
+            ThrowIf 'Dry-run empty instrumentation protocol probe accepted a non-matching transaction.'
+        }
+    }
+    Write-Host 'Dry-run empty instrumentation protocol classification probe passed.'
+    $dryRunLogMarker = 'attempt:dry-run:Snake-and-Otacon-V1.3.2'
+    $dryRunLogSlice = Get-LogcatAfterMarker -LogcatText "unrelated-before`nNanidroidCorpusHost: $dryRunLogMarker`nNarCorpusProbe: phase:start`nunrelated-after" -Marker $dryRunLogMarker
+    if (-not $dryRunLogSlice.markerFound -or
+        $dryRunLogSlice.text -match 'unrelated-before' -or
+        $dryRunLogSlice.text -notmatch [regex]::Escape($dryRunLogMarker) -or
+        $dryRunLogSlice.text -notmatch 'NarCorpusProbe: phase:start') {
+        ThrowIf 'Dry-run non-destructive log marker probe did not isolate attempt diagnostics.'
+    }
+    $missingDryRunLogSlice = Get-LogcatAfterMarker -LogcatText 'NarCorpusProbe: phase:start from an older attempt' -Marker $dryRunLogMarker
+    if ($missingDryRunLogSlice.markerFound -or -not [string]::IsNullOrEmpty($missingDryRunLogSlice.text)) {
+        ThrowIf 'Dry-run missing log marker probe attributed prior-attempt diagnostics to the current attempt.'
+    }
+    Write-Host 'Dry-run non-destructive log marker probe passed.'
     $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
     if (-not $pwshPath) {
         ThrowIf 'Dry-run argument probe requires pwsh in PATH.'
@@ -1948,6 +2105,7 @@ foreach ($arg in $ProbeArgs) {
 }
 
 Clear-RunArtifacts -FailuresRoot $failuresRoot -SummaryPathRoot $reportRoot
+Clear-ManifestLocalArtifacts -ManifestEntries $manifest.entries
 
 $AdbPath = Resolve-AdbPath
 Ensure-ExecutableExists -Path $AdbPath -Purpose 'ADB'

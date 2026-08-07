@@ -37,6 +37,15 @@ device copies in `finally` blocks.
 - `-DryRun` (optional): preflight-only manifest/hash validation.
 - `-MinimumFreeBytes` (optional): guard before test execution, defaults to 3 GB.
 
+Each run removes the exact manifest labels' prior local `result.json` and
+screenshot evidence before starting the device work. This prevents an aborted
+run from satisfying later sentinel checks with artifacts from an older run.
+If `am instrument` reports success with empty stdout and stderr, the audit
+classifies it as `instrumentation-empty-protocol`, captures process, Activity
+Manager, phase-marker, and logcat diagnostics, and fails closed. It does not
+automatically retry that envelope because an early runner or app-process death
+must remain visible until the retained evidence proves otherwise.
+
 The script requires:
 
 - connected serial and working `adb`
