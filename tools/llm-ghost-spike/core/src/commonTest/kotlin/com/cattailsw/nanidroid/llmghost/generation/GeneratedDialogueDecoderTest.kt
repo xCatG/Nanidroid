@@ -40,6 +40,20 @@ class GeneratedDialogueDecoderTest {
     }
 
     @Test
+    fun decodesFencedJsonWhoseTextContainsFenceCharacters() {
+        val result = decoder.decode(
+            """
+                ```json
+                {"turns":[{"speaker":"sakura","surface":3,"text":"literal ``` text"}]}
+                ```
+            """.trimIndent(),
+        )
+
+        assertEquals("literal ``` text", result.dialogue?.turns?.single()?.text)
+        assertNull(result.error)
+    }
+
+    @Test
     fun rejectsProseAroundJsonAsAmbiguousOutput() {
         assertDecodeError("Here is the dialogue: $VALID_JSON", "ambiguous-output")
     }

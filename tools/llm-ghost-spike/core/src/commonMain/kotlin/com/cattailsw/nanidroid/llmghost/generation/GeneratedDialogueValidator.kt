@@ -1,16 +1,55 @@
 package com.cattailsw.nanidroid.llmghost.generation
 
 import com.cattailsw.nanidroid.llmghost.model.GeneratedDialogue
+import com.cattailsw.nanidroid.llmghost.model.GeneratedTurn
 import com.cattailsw.nanidroid.llmghost.model.GhostSpeakerId
 
-data class TrustedTurn(
+/**
+ * A turn that has crossed the dialogue validation boundary.
+ *
+ * The constructor is internal so public common callers can obtain instances
+ * only from [GeneratedDialogueValidator]. It is intentionally not a data
+ * class: a public `copy` function would allow callers to bypass validation.
+ */
+class TrustedTurn internal constructor(
     val speaker: GhostSpeakerId,
     val surface: Int,
     val text: String,
     val waitAfterMs: Int,
-)
+) {
+    override fun equals(other: Any?): Boolean = other is TrustedTurn &&
+        speaker == other.speaker &&
+        surface == other.surface &&
+        text == other.text &&
+        waitAfterMs == other.waitAfterMs
 
-data class TrustedDialogue(val turns: List<TrustedTurn>)
+    override fun hashCode(): Int {
+        var result = speaker.hashCode()
+        result = 31 * result + surface
+        result = 31 * result + text.hashCode()
+        result = 31 * result + waitAfterMs
+        return result
+    }
+
+    override fun toString(): String =
+        "TrustedTurn(speaker=$speaker, surface=$surface, text=$text, waitAfterMs=$waitAfterMs)"
+}
+
+/**
+ * Validated dialogue accepted by the trusted compiler.
+ *
+ * Its internal constructor and immutable turn snapshot prevent public common
+ * callers from manufacturing or mutating trusted content.
+ */
+class TrustedDialogue internal constructor(turns: List<TrustedTurn>) {
+    val turns: List<TrustedTurn> = turns.toList()
+
+    override fun equals(other: Any?): Boolean = other is TrustedDialogue && turns == other.turns
+
+    override fun hashCode(): Int = turns.hashCode()
+
+    override fun toString(): String = "TrustedDialogue(turns=$turns)"
+}
 
 data class DialogueViolation(
     val code: String,
@@ -45,7 +84,7 @@ class GeneratedDialogueValidator {
                     turnIndex = index,
                     detail = "Speaker must be exactly sakura or kero.",
                 )
-            } else if (turn.surface !in validSurfaces[speaker].orEmpty()) {
+            } else if (turn.surface < 0 || turn.surface !in validSurfaces[speaker].orEmpty()) {
                 violations += DialogueViolation(
                     code = "surface-not-allowed",
                     turnIndex = index,
@@ -76,6 +115,23 @@ class GeneratedDialogueValidator {
             dialogue = if (violations.isEmpty()) TrustedDialogue(trustedTurns.filterNotNull()) else null,
             violations = violations,
         )
+    }
+
+    internal fun validateTrusted(dialogue: TrustedDialogue): List<DialogueViolation> {
+        val generated = GeneratedDialogue(
+            dialogue.turns.map { turn ->
+                GeneratedTurn(
+                    speaker = turn.speaker.wireName(),
+                    surface = turn.surface,
+                    text = turn.text,
+                    waitAfterMs = turn.waitAfterMs,
+                )
+            },
+        )
+        val intrinsicSurfaceAuthorization = dialogue.turns
+            .groupBy(TrustedTurn::speaker, TrustedTurn::surface)
+            .mapValues { (_, surfaces) -> surfaces.toSet() }
+        return validate(generated, intrinsicSurfaceAuthorization).violations
     }
 
     private fun validateText(
@@ -120,7 +176,7 @@ class GeneratedDialogueValidator {
                 detail = "Control characters are not allowed in generated text.",
             )
         }
-        if (URL_PATTERN.containsMatchIn(text)) {
+        if (text.containsUrl()) {
             violations += DialogueViolation(
                 code = "forbidden-url",
                 turnIndex = turnIndex,
@@ -169,6 +225,21 @@ class GeneratedDialogueValidator {
         else -> null
     }
 
+    private fun GhostSpeakerId.wireName(): String = when (this) {
+        GhostSpeakerId.SAKURA -> "sakura"
+        GhostSpeakerId.KERO -> "kero"
+    }
+
+    private fun String.containsUrl(): Boolean {
+        val hasUriScheme = URI_SCHEME_PATTERN.findAll(this).any { match ->
+            !match.value.substringBefore(':').equals("script", ignoreCase = true)
+        }
+        return hasUriScheme ||
+            BARE_DOMAIN_PATTERN.containsMatchIn(this) ||
+            BARE_IPV4_PATTERN.containsMatchIn(this) ||
+            LOCALHOST_PATH_PATTERN.containsMatchIn(this)
+    }
+
     private companion object {
         const val MIN_TURNS = 1
         const val MAX_TURNS = 8
@@ -177,7 +248,22 @@ class GeneratedDialogueValidator {
         const val MAX_TEXT_SCALARS = 500
         val HIGH_SURROGATE_RANGE = '\uD800'..'\uDBFF'
         val LOW_SURROGATE_RANGE = '\uDC00'..'\uDFFF'
-        val URL_PATTERN = Regex("(?:https?://|www\\.)", RegexOption.IGNORE_CASE)
+        val URI_SCHEME_PATTERN = Regex(
+            "\\b[a-z][a-z0-9+.-]{1,31}:(?://)?[^\\s]+",
+            RegexOption.IGNORE_CASE,
+        )
+        val BARE_DOMAIN_PATTERN = Regex(
+            "(?:^|[^a-z0-9_-])(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\\.)+" +
+                "[a-z]{2,63}(?::[0-9]{1,5})?(?:/[^\\s]*)?",
+            RegexOption.IGNORE_CASE,
+        )
+        val BARE_IPV4_PATTERN = Regex(
+            "(?:^|[^0-9])(?:[0-9]{1,3}\\.){3}[0-9]{1,3}(?::[0-9]{1,5})?(?:/[^\\s]*)?",
+        )
+        val LOCALHOST_PATH_PATTERN = Regex(
+            "(?:^|[^a-z0-9_-])localhost(?::[0-9]{1,5})?/[^\\s]+",
+            RegexOption.IGNORE_CASE,
+        )
         val SCRIPT_SCHEME_PATTERN = Regex("script\\s*:", RegexOption.IGNORE_CASE)
         val CHOICE_PATTERN = Regex("(?:\\([^()\\r\\n]*,[^()\\r\\n]*\\)|（[^（）\\r\\n]*,[^（）\\r\\n]*）)")
     }

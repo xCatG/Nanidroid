@@ -151,6 +151,27 @@ class GeneratedDialogueValidatorTest {
     }
 
     @Test
+    fun rejectsNonHttpSchemesAndBareDomainPathsAsUrls() {
+        val result = validator.validate(
+            GeneratedDialogue(
+                listOf(
+                    GeneratedTurn("sakura", 3, "ftp://evil.example/file"),
+                    GeneratedTurn("kero", 19, "mailto:user@example.com"),
+                    GeneratedTurn("sakura", 3, "evil.example/path"),
+                ),
+            ),
+            VALID_SURFACES,
+        )
+
+        assertNull(result.dialogue)
+        assertEquals(
+            listOf("forbidden-url", "forbidden-url", "forbidden-url"),
+            result.violations.map { it.code },
+        )
+        assertEquals(listOf(0, 1, 2), result.violations.map { it.turnIndex })
+    }
+
+    @Test
     fun acceptsAuthorizedTwoSpeakerDialogueAsTrustedSpeakerIds() {
         val result = validator.validate(
             GeneratedDialogue(

@@ -1,7 +1,9 @@
 package com.cattailsw.nanidroid.llmghost.sakura
 
+import com.cattailsw.nanidroid.llmghost.generation.GeneratedDialogueValidator
 import com.cattailsw.nanidroid.llmghost.generation.TrustedDialogue
-import com.cattailsw.nanidroid.llmghost.generation.TrustedTurn
+import com.cattailsw.nanidroid.llmghost.model.GeneratedDialogue
+import com.cattailsw.nanidroid.llmghost.model.GeneratedTurn
 import com.cattailsw.nanidroid.llmghost.model.GhostSpeakerId
 
 data class CompiledScriptViolation(
@@ -17,18 +19,19 @@ data class CompiledScriptValidation(
 
 object CompiledScriptValidator {
     fun validate(script: String): CompiledScriptValidation {
-        val turns = mutableListOf<TrustedTurn>()
+        val turns = mutableListOf<ParsedTurn>()
         var offset = 0
 
         while (offset < script.length) {
             if (script.startsWith(END_COMMAND, offset)) {
                 return if (turns.isNotEmpty() && offset + END_COMMAND.length == script.length) {
-                    success(turns)
+                    validateDialogue(turns, offset)
                 } else {
                     failure("invalid-grammar", offset, "The end command must occur exactly once at the end.")
                 }
             }
 
+            val turnOffset = offset
             val speaker = when {
                 script.startsWith(SAKURA_SCOPE, offset) -> GhostSpeakerId.SAKURA
                 script.startsWith(KERO_SCOPE, offset) -> GhostSpeakerId.KERO
@@ -62,11 +65,12 @@ object CompiledScriptValidator {
                 return failure("invalid-grammar", offset, "Wait must be a canonical non-negative integer.")
             }
             offset = wait.nextOffset
-            turns += TrustedTurn(
+            turns += ParsedTurn(
                 speaker = speaker,
                 surface = surface.value,
                 text = text.toString(),
                 waitAfterMs = wait.value,
+                offset = turnOffset,
             )
 
             if (offset >= script.length) {
@@ -74,7 +78,7 @@ object CompiledScriptValidator {
             }
             if (script.startsWith(END_COMMAND, offset)) {
                 return if (offset + END_COMMAND.length == script.length) {
-                    success(turns)
+                    validateDialogue(turns, offset)
                 } else {
                     failure("invalid-grammar", offset, "The end command must occur exactly once at the end.")
                 }
@@ -123,10 +127,41 @@ object CompiledScriptValidator {
         script.startsWith(it, offset)
     }
 
-    private fun success(turns: List<TrustedTurn>) = CompiledScriptValidation(
-        dialogue = TrustedDialogue(turns.toList()),
-        violations = emptyList(),
-    )
+    private fun validateDialogue(
+        turns: List<ParsedTurn>,
+        terminalOffset: Int,
+    ): CompiledScriptValidation {
+        val generated = GeneratedDialogue(
+            turns.map { turn ->
+                GeneratedTurn(
+                    speaker = turn.speaker.wireName(),
+                    surface = turn.surface,
+                    text = turn.text,
+                    waitAfterMs = turn.waitAfterMs,
+                )
+            },
+        )
+        val intrinsicSurfaceAuthorization = turns
+            .groupBy(ParsedTurn::speaker, ParsedTurn::surface)
+            .mapValues { (_, surfaces) -> surfaces.toSet() }
+        val validation = GeneratedDialogueValidator().validate(generated, intrinsicSurfaceAuthorization)
+        if (validation.violations.isNotEmpty()) {
+            return CompiledScriptValidation(
+                dialogue = null,
+                violations = validation.violations.map { violation ->
+                    CompiledScriptViolation(
+                        code = violation.code,
+                        offset = violation.turnIndex?.let { turns[it].offset } ?: terminalOffset,
+                        detail = violation.detail,
+                    )
+                },
+            )
+        }
+        return CompiledScriptValidation(
+            dialogue = validation.dialogue,
+            violations = emptyList(),
+        )
+    }
 
     private fun failure(code: String, offset: Int, detail: String) = CompiledScriptValidation(
         dialogue = null,
@@ -137,6 +172,19 @@ object CompiledScriptValidator {
         val value: Int?,
         val nextOffset: Int,
     )
+
+    private data class ParsedTurn(
+        val speaker: GhostSpeakerId,
+        val surface: Int,
+        val text: String,
+        val waitAfterMs: Int,
+        val offset: Int,
+    )
+
+    private fun GhostSpeakerId.wireName(): String = when (this) {
+        GhostSpeakerId.SAKURA -> "sakura"
+        GhostSpeakerId.KERO -> "kero"
+    }
 
     private const val SAKURA_SCOPE = "\\0"
     private const val KERO_SCOPE = "\\1"

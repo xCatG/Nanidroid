@@ -57,18 +57,19 @@ class GeneratedDialogueDecoder {
             return PayloadExtraction.Success(trimmed)
         }
 
-        if (trimmed.windowed(FENCE.length).count { it == FENCE } != 2) {
-            return PayloadExtraction.Failure(
-                "ambiguous-output",
-                "Output must contain exactly one fenced JSON block.",
-            )
-        }
         val match = JSON_FENCE.matchEntire(trimmed)
             ?: return PayloadExtraction.Failure(
                 "ambiguous-output",
                 "Only one complete json fence with no surrounding content is allowed.",
             )
-        return PayloadExtraction.Success(match.groupValues[1])
+        val payload = match.groupValues[1]
+        if (payload.lineSequence().any { line -> line.trim().isFenceDelimiter() }) {
+            return PayloadExtraction.Failure(
+                "ambiguous-output",
+                "Output must contain exactly one structurally complete fenced JSON block.",
+            )
+        }
+        return PayloadExtraction.Success(payload)
     }
 
     private fun completeObjectEnd(text: String, start: Int = 0): Int? {
@@ -102,6 +103,8 @@ class GeneratedDialogueDecoder {
         dialogue = null,
         error = DialogueDecodeError(code, detail),
     )
+
+    private fun String.isFenceDelimiter(): Boolean = this == FENCE || startsWith("```json")
 
     private sealed interface PayloadExtraction {
         data class Success(val payload: String) : PayloadExtraction
