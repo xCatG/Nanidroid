@@ -2,12 +2,14 @@
 
 ## Summary
 
-Build a Kotlin spike that proves a large language model can extend an installed
-ghost's authored conversations while preserving its characters, speaker roles,
-surface vocabulary, and SakuraScript presentation contract. The first subject
-is `2elf-2.46.nar`; the first inference backend is the OpenAI-compatible
-Nemotron endpoint at `http://gx10-5e5d:10101/v1`, using the supplied
-`nemotron-3-super` model ID by default. Both values remain configurable.
+Build a pure-Kotlin, Kotlin Multiplatform-compatible spike that proves a large
+language model can extend an installed ghost's authored conversations while
+preserving its characters, speaker roles, surface vocabulary, and SakuraScript
+presentation contract. The first subject is `2elf-2.46.nar`; the first
+inference backend is the OpenAI-compatible Nemotron endpoint at
+`http://gx10-5e5d:10101/v1`, using the supplied `nemotron-3-super` model ID by
+default. Both values remain configurable. Initial endpoint validation runs only
+as a desktop JVM command-line application.
 
 The spike does not replace Nanidroid's renderer, surface system, event routing,
 or SakuraScript playback. It explores a new dialogue-producing brain whose
@@ -34,10 +36,17 @@ on-device models through Gemini Nano or LiteRT-LM.
 - Keep corpus processing, request construction, result validation, and
   SakuraScript compilation independent of the initial HTTP backend so Android
   adapters can reuse them later.
+- Keep the reusable dialogue core in Kotlin Multiplatform `commonMain`, without
+  Android, JVM, Java, filesystem, archive, charset, or HTTP types in its public
+  API.
+- Provide a desktop JVM CLI for NAR loading, Shift_JIS decoding, OpenAI API
+  calls, report files, and live spike execution.
 
 ## Non-goals
 
 - Shipping LLM support in the production Android app.
+- Adding another module to Nanidroid's production Android build during the
+  spike.
 - Replacing existing SHIORI engines for installed ghosts.
 - Implementing Gemini Nano or LiteRT-LM in this spike.
 - Supporting MediaPipe LLM Inference, which is maintenance-only and superseded
@@ -70,20 +79,27 @@ NAR file
 The common boundary models generation as a lifecycle rather than an HTTP call:
 
 ```kotlin
-interface GhostModelBackend : AutoCloseable {
+interface GhostModelBackend {
     val capabilities: ModelCapabilities
 
     fun prepare(): Flow<ModelPreparation>
 
     fun generate(request: GhostGenerationRequest): Flow<GenerationEvent>
+
+    suspend fun close()
 }
 ```
 
-The spike implements `OpenAiCompatibleBackend`. It posts chat-completion
-requests to a configurable base URL and model ID, supports non-streaming or
-streaming responses as the endpoint permits, and normalizes results into
-`GenerationEvent` values. Endpoint and model configuration are command-line or
-environment inputs and are never committed.
+`Flow` is the multiplatform `kotlinx.coroutines.flow.Flow`. Common data models
+and serialized artifacts use Kotlin and `kotlinx.serialization`; they do not
+expose `java.io.File`, `java.net`, Android `Uri`, ML Kit, or LiteRT-LM types.
+
+The desktop JVM spike implements `OpenAiCompatibleBackend`. It posts
+chat-completion requests to a configurable base URL and model ID, supports
+non-streaming or streaming responses as the endpoint permits, and normalizes
+results into `GenerationEvent` values. Endpoint and model configuration are
+command-line or environment inputs and are never committed. HTTP client and
+JVM response types remain private to this adapter.
 
 The interface intentionally does not expose HTTP messages, ML Kit types, or
 LiteRT-LM conversations. A future `MlKitPromptBackend` can perform AICore
@@ -93,12 +109,64 @@ future `LiteRtLmBackend` can own a long-lived `Engine`, a ghost-scoped
 will consume the same `GhostGenerationRequest` and return the same normalized
 events.
 
+## Source Layout and Platform Separation
+
+The spike is a standalone Gradle build under `tools/llm-ghost-spike/`; it is not
+added to Nanidroid's production `settings.gradle.kts`. The repository Gradle
+wrapper can invoke it with an explicit project directory, for example
+`gradlew -p tools/llm-ghost-spike :cli:run --args="..."`. All implementation
+and test sources are Kotlin; the spike adds no Java, Python, or custom native
+code.
+
+The standalone build has two projects:
+
+```text
+tools/llm-ghost-spike/
+  core/
+    src/commonMain/kotlin/   # reusable KMP dialogue pipeline
+    src/commonTest/kotlin/   # platform-neutral behavior tests
+  cli/
+    src/main/kotlin/         # desktop JVM adapters and command line
+    src/test/kotlin/         # JVM archive, charset, HTTP, and report tests
+```
+
+The `core` project applies the Kotlin Multiplatform plugin and initially enables
+the JVM target as its compilation proof. Its `commonMain` owns:
+
+- canonical talk and ghost metadata models;
+- SATORI text-block extraction after platform decoding;
+- scenario classification and example retrieval;
+- backend-neutral generation request, capability, preparation, and event
+  contracts;
+- Japanese and English prompt construction;
+- generated-dialogue decoding and semantic validation;
+- SakuraScript compilation;
+- similarity analysis;
+- platform-neutral report models.
+
+The `cli` project is a Kotlin/JVM application. It owns:
+
+- ZIP/NAR entry access;
+- descriptor-driven Shift_JIS and UTF-8 decoding;
+- shell and descriptor materialization into common input models;
+- the OpenAI-compatible HTTP backend;
+- filesystem report persistence;
+- command-line parsing, process exit status, and live execution.
+
+The platform boundary is input-oriented: the JVM loader converts an archive
+into decoded `GhostSourceFile` and shell metadata values before calling the
+common parser. Future Android code can perform content-URI copying and charset
+decoding independently, then pass the same values to the common core. This
+avoids placing ZIP and legacy charset APIs in `commonMain` while keeping the
+actual ghost-understanding logic portable.
+
 ## Corpus Ingestion
 
-The NAR path is an explicit harness argument. The harness reads ZIP entries in
-place and detects the declared character encoding from descriptors. For 2elf,
-the relevant source is Shift_JIS text under `ghost/master/`, including the root
-dictionaries and character/event subdirectories.
+The NAR path is an explicit desktop CLI argument. The JVM loader reads ZIP
+entries in place and detects the declared character encoding from descriptors.
+For 2elf, the relevant source is Shift_JIS text under `ghost/master/`, including
+the root dictionaries and character/event subdirectories. It supplies decoded
+source values to the common parser; common code never opens the archive itself.
 
 The parser is intentionally an extraction parser, not a reimplementation of
 SATORI. It identifies useful authored talk blocks and retains:
@@ -217,8 +285,8 @@ as a separate immutable report case.
 
 ## Reports and Evaluation
 
-Reports are written beneath `build/reports/llm-ghost-spike/`, which remains
-uncommitted. Every case records:
+The desktop CLI serializes common report models and writes them beneath
+`build/reports/llm-ghost-spike/`, which remains uncommitted. Every case records:
 
 - corpus identity and entry hashes;
 - scenario, language, seed, endpoint, and model identifier;
@@ -265,27 +333,35 @@ preserved for diagnosis.
 
 ## Testing
 
-Local JVM tests cover:
+Multiplatform `commonTest` tests cover:
 
-- Shift_JIS and UTF-8 archive entry decoding;
 - talk-block extraction and speaker switching;
 - skipped unsupported SATORI constructs and diagnostics;
 - deterministic retrieval and diversity;
 - Japanese and English prompt construction;
-- backend capability mapping and streamed-response assembly using a fake
-  backend;
+- backend capability mapping and streamed-response assembly through a fake
+  common backend;
 - JSON extraction and rejection of ambiguous output;
 - speaker, surface, text, and wait validation;
 - deterministic SakuraScript compilation and escaping;
-- similarity warnings and report serialization.
+- similarity warnings and platform-neutral report construction.
 
-An opt-in live smoke command calls the configured Nemotron endpoint and runs the
-six required scenario-language combinations. Live network inference is not
-part of the normal unit-test task.
+Desktop JVM tests cover:
+
+- Shift_JIS and UTF-8 archive entry decoding;
+- NAR-to-common-input materialization;
+- OpenAI request/response mapping against a local fake HTTP server;
+- filesystem report serialization;
+- CLI arguments, failure exit codes, and cancellation.
+
+An opt-in desktop JVM CLI command calls the configured Nemotron endpoint and
+runs the six required scenario-language combinations. Live network inference
+is not part of the normal unit-test task and no Android device is involved in
+the initial API validation.
 
 ## Future Android Adapters
 
-The spike leaves two deliberate extension points:
+The KMP common core leaves two deliberate Android extension points:
 
 - **Gemini Nano through ML Kit Prompt API**: use `Generation.getClient()`,
   feature status/download handling, `warmup()`, runtime token budgeting, system
