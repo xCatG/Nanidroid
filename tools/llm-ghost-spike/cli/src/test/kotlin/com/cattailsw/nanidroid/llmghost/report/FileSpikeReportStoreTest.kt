@@ -23,6 +23,8 @@ import com.cattailsw.nanidroid.llmghost.model.SpikeCase
 import com.cattailsw.nanidroid.llmghost.model.SpikeWarning
 import com.cattailsw.nanidroid.llmghost.model.TalkCategory
 import com.cattailsw.nanidroid.llmghost.pipeline.GhostDialoguePipeline
+import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.time.Instant
@@ -39,6 +41,90 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class FileSpikeReportStoreTest {
+    @Test
+    fun summaryOrReviewWriteFailurePreservesCompletedCasesAtRecoveryLocation() {
+        listOf("summary.json", "review.md").forEach { failingName ->
+            val root = Files.createTempDirectory("write-recovery")
+            val store = FileSpikeReportStore(
+                root,
+                artifactWriter = FailingArtifactWriter(failingName),
+            )
+            val instant = Instant.parse("2026-08-07T01:02:03Z")
+            val run = store.beginRun(instant, "write-failure-${failingName.substringBefore('.')}")
+            run.writeCase(evidence(), 2)
+
+            val failure = assertFailsWith<SpikeReportPublicationException> {
+                run.finish(summary(model = "model-write"))
+            }
+
+            assertEquals("${failingName.substringBefore('.')}-write-failed", failure.failureCode)
+            assertEquals(run.recoveryDirectory, failure.recoveryDirectory)
+            assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
+            assertTrue(!Files.exists(run.directory))
+            assertTrue(Files.list(failure.recoveryDirectory).use { paths ->
+                paths.noneMatch { it.fileName.toString().endsWith(".tmp") }
+            })
+
+            val retry = FileSpikeReportStore(root).beginRun(
+                instant,
+                "write-failure-${failingName.substringBefore('.')}",
+            )
+            retry.finish(summary(model = "model-retry"))
+            assertTrue(Files.exists(retry.directory.resolve("summary.json")))
+        }
+    }
+
+    @Test
+    fun finalTargetRaceFailsClosedAndPreservesRecoveryEvidence() {
+        val root = Files.createTempDirectory("target-race")
+        val store = FileSpikeReportStore(root, runPublisher = TargetAppearingPublisher)
+        val run = store.beginRun(Instant.parse("2026-08-07T01:02:03Z"), "target-race")
+        run.writeCase(evidence(), 2)
+
+        val failure = assertFailsWith<SpikeReportPublicationException> {
+            run.finish(summary(model = "model-race"))
+        }
+
+        assertEquals("publication-target-exists", failure.failureCode)
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("summary.json")))
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("review.md")))
+        assertTrue(Files.isDirectory(run.directory))
+        assertTrue(!Files.exists(run.directory.resolve("summary.json")))
+        assertFailsWith<FileAlreadyExistsException> {
+            FileSpikeReportStore(root).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "target-race")
+        }
+    }
+
+    @Test
+    fun unsupportedAtomicRunMoveNeverFallsBackToPartialPublication() {
+        val root = Files.createTempDirectory("atomic-unsupported")
+        val store = FileSpikeReportStore(root, runPublisher = UnsupportedAtomicPublisher)
+        val run = store.beginRun(Instant.parse("2026-08-07T01:02:03Z"), "unsupported")
+        run.writeCase(evidence(), 2)
+
+        val failure = assertFailsWith<SpikeReportPublicationException> {
+            run.finish(summary(model = "model-atomic"))
+        }
+
+        assertEquals("atomic-publication-unsupported", failure.failureCode)
+        assertTrue(!Files.exists(run.directory))
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("summary.json")))
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("review.md")))
+
+        val retry = FileSpikeReportStore(root).beginRun(
+            Instant.parse("2026-08-07T01:02:03Z"),
+            "unsupported",
+        )
+        retry.finish(summary(model = "model-retry"))
+        assertTrue(Files.exists(retry.directory.resolve("summary.json")))
+        assertTrue(Files.exists(failure.recoveryDirectory.resolve("idle-english-2/case.json")))
+        assertFailsWith<FileAlreadyExistsException> {
+            FileSpikeReportStore(root).beginRun(Instant.parse("2026-08-07T01:02:03Z"), "unsupported")
+        }
+    }
+
     @Test
     fun pipelineDiagnosticDetailsAreSanitizedInEveryArtifactWhileExactEvidenceRemains() = runBlocking {
         val secret = "Bearer secret-token at http://user:password@example.test/private"
@@ -251,6 +337,14 @@ class FileSpikeReportStoreTest {
         )
     }
 
+    private fun summary(model: String) = SpikeRunSummary(
+        runId = "fixture",
+        endpoint = "http://example.test/v1",
+        model = model,
+        startedAtUtc = "2026-08-07T01:02:03Z",
+        cases = listOf(evidence()),
+    )
+
     private fun <T> race(count: Int, operation: () -> T): List<RaceResult<T>> {
         val ready = CountDownLatch(count)
         val start = CountDownLatch(1)
@@ -290,5 +384,25 @@ class FileSpikeReportStoreTest {
             throw IllegalStateException(detail)
         }
         override suspend fun close() = Unit
+    }
+
+    private class FailingArtifactWriter(private val failingName: String) : AtomicArtifactWriter {
+        override fun write(finalPath: java.nio.file.Path, value: String) {
+            if (finalPath.fileName.toString() == failingName) throw IOException("fixture write failure")
+            JvmAtomicArtifactWriter.write(finalPath, value)
+        }
+    }
+
+    private object TargetAppearingPublisher : AtomicRunPublisher {
+        override fun publish(source: java.nio.file.Path, target: java.nio.file.Path) {
+            Files.createDirectory(target)
+            throw FileAlreadyExistsException(target.toString())
+        }
+    }
+
+    private object UnsupportedAtomicPublisher : AtomicRunPublisher {
+        override fun publish(source: java.nio.file.Path, target: java.nio.file.Path) {
+            throw AtomicMoveNotSupportedException(source.toString(), target.toString(), "fixture")
+        }
     }
 }

@@ -10,6 +10,7 @@ import com.cattailsw.nanidroid.llmghost.model.ModelPreparation
 import com.cattailsw.nanidroid.llmghost.model.SpikeCaseReport
 import com.cattailsw.nanidroid.llmghost.model.SpikeFailure
 import com.cattailsw.nanidroid.llmghost.model.SpikeWarning
+import java.io.IOException
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
@@ -26,6 +27,39 @@ import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+
+internal fun interface AtomicArtifactWriter {
+    fun write(finalPath: Path, value: String)
+}
+
+internal fun interface AtomicRunPublisher {
+    fun publish(source: Path, target: Path)
+}
+
+internal object JvmAtomicArtifactWriter : AtomicArtifactWriter {
+    override fun write(finalPath: Path, value: String) {
+        val temporary = finalPath.resolveSibling(".${finalPath.fileName}.${UUID.randomUUID()}.tmp")
+        try {
+            Files.newBufferedWriter(temporary, StandardCharsets.UTF_8).use { it.write(value) }
+            JvmAtomicRunPublisher.publish(temporary, finalPath)
+        } finally {
+            Files.deleteIfExists(temporary)
+        }
+    }
+}
+
+internal object JvmAtomicRunPublisher : AtomicRunPublisher {
+    override fun publish(source: Path, target: Path) {
+        Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
+    }
+}
+
+class SpikeReportPublicationException(
+    val recoveryDirectory: Path,
+    val failureCode: String,
+) : IOException(
+    "Report publication failed ($failureCode); completed evidence remains in the recovery directory.",
+)
 
 @Serializable
 data class RetrievedExampleEvidence(
@@ -66,7 +100,23 @@ data class SpikeRunSummary(
     val preflightFailure: SpikeFailure? = null,
 )
 
-class FileSpikeReportStore(private val root: Path) {
+class FileSpikeReportStore private constructor(
+    private val root: Path,
+    private val artifactWriter: AtomicArtifactWriter,
+    private val runPublisher: AtomicRunPublisher,
+) {
+    constructor(root: Path) : this(root, JvmAtomicArtifactWriter, JvmAtomicRunPublisher)
+
+    internal constructor(
+        root: Path,
+        artifactWriter: AtomicArtifactWriter,
+    ) : this(root, artifactWriter, JvmAtomicRunPublisher)
+
+    internal constructor(
+        root: Path,
+        runPublisher: AtomicRunPublisher,
+    ) : this(root, JvmAtomicArtifactWriter, runPublisher)
+
     fun beginRun(startedAt: Instant, runId: String): OpenSpikeRun {
         Files.createDirectories(root)
         val stableRunId = stableName(runId)
@@ -78,7 +128,13 @@ class FileSpikeReportStore(private val root: Path) {
         try {
             if (Files.exists(finalDirectory)) throw FileAlreadyExistsException(finalDirectory.toString())
             workingDirectory = Files.createTempDirectory(root, ".${finalDirectory.fileName}.work-")
-            return OpenSpikeRun(finalDirectory, workingDirectory, reservation)
+            return OpenSpikeRun(
+                directory = finalDirectory,
+                workingDirectory = workingDirectory,
+                runReservation = reservation,
+                artifactWriter = artifactWriter,
+                runPublisher = runPublisher,
+            )
         } catch (exception: Exception) {
             workingDirectory?.toFile()?.deleteRecursively()
             Files.deleteIfExists(reservation)
@@ -90,8 +146,14 @@ class FileSpikeReportStore(private val root: Path) {
         val directory: Path,
         private val workingDirectory: Path,
         private val runReservation: Path,
+        private val artifactWriter: AtomicArtifactWriter,
+        private val runPublisher: AtomicRunPublisher,
     ) {
         private var state = RunState.OPEN
+
+        @get:Synchronized
+        val recoveryDirectory: Path?
+            get() = workingDirectory.takeIf { state == RunState.FAILED }
 
         @Synchronized
         fun writeCase(evidence: SpikeCaseEvidence, candidate: Int): Path {
@@ -110,7 +172,7 @@ class FileSpikeReportStore(private val root: Path) {
                     temporary.resolve(CASE_FILE),
                     StandardCharsets.UTF_8,
                 ).use { writer -> writer.write(REPORT_JSON.encodeToString(sanitized)) }
-                moveCreateOnce(temporary, finalDirectory)
+                JvmAtomicRunPublisher.publish(temporary, finalDirectory)
                 temporary = null
             } catch (exception: Exception) {
                 throw exception
@@ -127,15 +189,20 @@ class FileSpikeReportStore(private val root: Path) {
             val summaryPath = workingDirectory.resolve(SUMMARY_FILE)
             val reviewPath = workingDirectory.resolve(REVIEW_FILE)
             val sanitized = sanitizeSummary(summary)
+            var stage = PublicationStage.SUMMARY
             try {
-                writeAtomic(summaryPath, REPORT_JSON.encodeToString(sanitized))
-                writeAtomic(reviewPath, renderReview(sanitized))
-                moveCreateOnce(workingDirectory, directory)
+                artifactWriter.write(summaryPath, REPORT_JSON.encodeToString(sanitized))
+                stage = PublicationStage.REVIEW
+                artifactWriter.write(reviewPath, renderReview(sanitized))
+                stage = PublicationStage.RUN
+                runPublisher.publish(workingDirectory, directory)
                 state = RunState.PUBLISHED
             } catch (exception: Exception) {
                 state = RunState.FAILED
-                workingDirectory.toFile().deleteRecursively()
-                throw exception
+                throw SpikeReportPublicationException(
+                    recoveryDirectory = workingDirectory,
+                    failureCode = stage.failureCode(exception),
+                )
             } finally {
                 runCatching { Files.deleteIfExists(runReservation) }
             }
@@ -146,6 +213,21 @@ class FileSpikeReportStore(private val root: Path) {
         }
 
         private enum class RunState { OPEN, PUBLISHED, FAILED }
+
+        private enum class PublicationStage {
+            SUMMARY,
+            REVIEW,
+            RUN,
+            ;
+
+            fun failureCode(exception: Exception): String = when {
+                this == SUMMARY -> "summary-write-failed"
+                this == REVIEW -> "review-write-failed"
+                exception is AtomicMoveNotSupportedException -> "atomic-publication-unsupported"
+                exception is FileAlreadyExistsException -> "publication-target-exists"
+                else -> "run-publication-failed"
+            }
+        }
     }
 
     companion object {
@@ -196,32 +278,12 @@ class FileSpikeReportStore(private val root: Path) {
             }
         }
 
-        private fun writeAtomic(finalPath: Path, value: String) {
-            val temporary = finalPath.resolveSibling(".${finalPath.fileName}.${UUID.randomUUID()}.tmp")
-            try {
-                Files.newBufferedWriter(temporary, StandardCharsets.UTF_8).use { it.write(value) }
-                moveCreateOnce(temporary, finalPath)
-            } finally {
-                Files.deleteIfExists(temporary)
-            }
-        }
-
         private fun reserve(path: Path) {
             Files.newByteChannel(
                 path,
                 StandardOpenOption.CREATE_NEW,
                 StandardOpenOption.WRITE,
             ).use { }
-        }
-
-        private fun moveCreateOnce(source: Path, target: Path) {
-            try {
-                Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
-            } catch (_: AtomicMoveNotSupportedException) {
-                // The reservation protocol still gives create-once writer safety.
-                // Publication visibility is only as atomic as the provider's plain move.
-                Files.move(source, target)
-            }
         }
 
         private fun sanitizeSummary(summary: SpikeRunSummary): SpikeRunSummary = summary.copy(
