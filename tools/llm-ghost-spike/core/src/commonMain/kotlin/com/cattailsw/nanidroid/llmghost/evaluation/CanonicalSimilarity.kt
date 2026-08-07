@@ -87,7 +87,10 @@ object CanonicalSimilarity {
         return previous[columns.size]
     }
 
-    private fun Char.foldLatinCase(): Char = if (isLatinCharacter()) lowercaseChar() else this
+    private fun Char.foldLatinCase(): Char {
+        val lowercase = lowercaseChar()
+        return if (isLatinCharacter() || lowercase.isLatinCharacter()) lowercase else this
+    }
 
     private fun Char.isLatinCharacter(): Boolean = isLetter() && (
         this in 'A'..'Z' ||

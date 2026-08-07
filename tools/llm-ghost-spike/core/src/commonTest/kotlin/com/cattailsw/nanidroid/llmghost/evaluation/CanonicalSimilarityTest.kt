@@ -103,6 +103,19 @@ class CanonicalSimilarityTest {
         assertEquals(0.0, greekFinding.ratio)
     }
 
+    @Test
+    fun latin_compatibility_letter_folds_when_its_lowercase_is_latin() {
+        val finding = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "k")),
+            canonicalTalks = listOf(
+                talk("kelvin", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "\u212A"))),
+            ),
+        ).single()
+
+        assertTrue(finding.exact)
+        assertEquals(1.0, finding.ratio)
+    }
+
     private fun talk(id: String, turns: List<CanonicalTurn>) = CanonicalTalk(
         id = id,
         sourcePath = "dic/$id.txt",
