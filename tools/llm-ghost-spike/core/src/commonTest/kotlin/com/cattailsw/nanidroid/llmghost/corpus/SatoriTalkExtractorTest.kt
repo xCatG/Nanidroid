@@ -89,6 +89,62 @@ class SatoriTalkExtractorTest {
     }
 
     @Test
+    fun rejectsAllowlistedPrefixesWhenNativeWouldConsumeALongerCommandToken() {
+        val unsafeBodies = listOf(
+            "\\efoo",
+            "\\e[x]",
+            "\\w8foo",
+            "\\w8[x]",
+            "\\0foo",
+            "\\1bar",
+            "\\hello",
+            "\\u_name",
+            "\\h?tail",
+            "\\1!tail",
+            "\\e9tail",
+            "\\e*tail",
+            "\\e/tail",
+            "\\e&tail",
+        )
+        val sourceText = unsafeBodies.mapIndexed { index, body ->
+            "＊UnsafeToken$index\n：$body"
+        }.joinToString("\n")
+
+        val result = extractor.extract(input(source(sourceText)))
+
+        assertTrue(result.talks.isEmpty())
+        assertEquals(unsafeBodies.size, result.diagnostics.count { it.code == "unsupported-control" })
+    }
+
+    @Test
+    fun acceptsExactUnbracketedControlsBeforeJapanesePunctuationOrEndOfLine() {
+        val result = extractor.extract(
+            input(
+                source(
+                    "＊Exact\n：\\0日本語\n：\\1、続き\n：\\h。句点\n：\\u！感嘆\n：\\w8…待った\n：\\e\n：\\s[3]表情\n：\\s[19]foo\n",
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf("日本語", "、続き", "。句点", "！感嘆", "…待った", "表情", "foo"),
+            result.talks.single().turns.map { it.text },
+        )
+        assertEquals(19, result.talks.single().turns.last().surface)
+        assertTrue(result.diagnostics.isEmpty())
+    }
+
+    @Test
+    fun rejectsHugeNativeCommandSuffixWithoutThrowingOrScanningPastTheLineBound() {
+        val result = extractor.extract(
+            input(source("＊HugeToken\n：\\e${"a".repeat(65_534)}\n")),
+        )
+
+        assertTrue(result.talks.isEmpty())
+        assertTrue(result.diagnostics.any { it.code in setOf("unsupported-control", "malformed-control") })
+    }
+
+    @Test
     fun rejectsMalformedOrUnsafeFullWidthKakkoWithoutEvaluatingIt() {
         val unsafeTokens = listOf(
             "（）",
@@ -243,11 +299,11 @@ class SatoriTalkExtractorTest {
                     ＊OnMouseDoubleClick
                     ＞（Ｒ３）（Ｒ４）つつかれ
                     ＊0Headつつかれ
-                    ：\0First
+                    ：First
                     ＊1l-headつつかれ
-                    ：\1Second
+                    ：Second
                     ＊1l-headつつかれ
-                    ：\1Duplicate
+                    ：Duplicate
                     """.trimIndent(),
                 ),
             ),
@@ -297,15 +353,15 @@ class SatoriTalkExtractorTest {
                     ＞（Ｒ３）（Ｒ４）$tooLong
                     ＞（Ｒ3）（Ｒ4）wrongwidth
                     ＊0Head動的（call）
-                    ：\0Dynamic
+                    ：Dynamic
                     ＊0Headつつかれ
-                    ：\0Missing
+                    ：Missing
                     ＊名前のない頭つつかれ
-                    ：\0Named
+                    ：Named
                     ＊0つつかれ
-                    ：\0Empty region
+                    ：Empty region
                     ＊0Headwrongwidth
-                    ：\0Wrong-width selector
+                    ：Wrong-width selector
                     """.trimIndent(),
                 ),
             ),
@@ -331,7 +387,7 @@ class SatoriTalkExtractorTest {
                     "reaction.txt",
                     """
                     ＊0Headつつかれ
-                    ：\0Cross-file
+                    ：Cross-file
                     """.trimIndent(),
                 ),
             ),
@@ -354,7 +410,7 @@ class SatoriTalkExtractorTest {
                     ＞（Ｒ３）（Ｒ４）かれ
                     ＞（Ｒ３）（Ｒ４）つつかれ
                     ＊0Headつつかれ
-                    ：\0Ambiguous
+                    ：Ambiguous
                     """.trimIndent(),
                 ),
             ),
@@ -381,7 +437,7 @@ class SatoriTalkExtractorTest {
                         ＊OnMouseDoubleClick
                         ＞（Ｒ３）（Ｒ４）$suffix
                         ＊$heading
-                        ：\0Authored $heading
+                        ：Authored $heading
                         """.trimIndent(),
                     ),
                 ),

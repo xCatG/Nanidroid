@@ -201,12 +201,24 @@ class SatoriTalkExtractor {
                 text[index] == '\\' && index + 1 < text.length -> {
                     when (val control = text[index + 1]) {
                         '0', 'h' -> {
+                            if (!hasExactUnbracketedControlBoundary(text, index + 2)) {
+                                return ParsedDialogue.Invalid(
+                                    "unsupported-control",
+                                    "Supported speaker scope is only accepted as an exact native command token.",
+                                )
+                            }
                             flushVisible()
                             parts += DialoguePart.Scope(GhostSpeakerId.SAKURA)
                             index += 2
                         }
 
                         '1', 'u' -> {
+                            if (!hasExactUnbracketedControlBoundary(text, index + 2)) {
+                                return ParsedDialogue.Invalid(
+                                    "unsupported-control",
+                                    "Supported speaker scope is only accepted as an exact native command token.",
+                                )
+                            }
                             flushVisible()
                             parts += DialoguePart.Scope(GhostSpeakerId.KERO)
                             index += 2
@@ -249,10 +261,24 @@ class SatoriTalkExtractor {
                                     "Presentation wait must contain ASCII digits.",
                                 )
                             }
+                            if (!hasExactUnbracketedControlBoundary(text, digitIndex)) {
+                                return ParsedDialogue.Invalid(
+                                    "unsupported-control",
+                                    "Presentation wait is only accepted as an exact native command token.",
+                                )
+                            }
                             index = digitIndex
                         }
 
-                        'e' -> index += 2
+                        'e' -> {
+                            if (!hasExactUnbracketedControlBoundary(text, index + 2)) {
+                                return ParsedDialogue.Invalid(
+                                    "unsupported-control",
+                                    "Presentation end is only accepted as an exact native command token.",
+                                )
+                            }
+                            index += 2
+                        }
 
                         else -> return ParsedDialogue.Invalid(
                             "unsupported-control",
@@ -281,6 +307,23 @@ class SatoriTalkExtractor {
         flushVisible()
         return ParsedDialogue.Valid(parts)
     }
+
+    private fun hasExactUnbracketedControlBoundary(text: String, endExclusive: Int): Boolean {
+        if (endExclusive == text.length) return true
+        val next = text[endExclusive]
+        return next != '[' && !next.isNativeCommandTokenCharacter()
+    }
+
+    private fun Char.isNativeCommandTokenCharacter(): Boolean =
+        this in 'a'..'z' ||
+            this in 'A'..'Z' ||
+            this in '0'..'9' ||
+            this == '!' ||
+            this == '*' ||
+            this == '/' ||
+            this == '&' ||
+            this == '?' ||
+            this == '_'
 
     private fun parseFullWidthSurface(text: String): ParsedSurface {
         var index = 1
