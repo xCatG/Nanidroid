@@ -64,10 +64,31 @@ class NarArchiveInventoryValidatorTest {
         assertError(NarInstallError.DUPLICATE_ENTRY, validate(file("install.txt", 1), file("install.txt", 1)))
         assertError(NarInstallError.FILE_DIRECTORY_COLLISION, validate(file("ghost", 1), file("ghost/install.txt", 1)))
         assertError(NarInstallError.NORMALIZED_COLLISION, validate(file("install.txt", 1), file("INSTALL.TXT", 1)))
+        assertError(NarInstallError.MISSING_INSTALL_DESCRIPTOR, validate(file("INSTALL.TXT", 1), file("payload", 1)))
         assertError(NarInstallError.MISSING_INSTALL_DESCRIPTOR, validate(file("payload", 1)))
         assertError(NarInstallError.INVALID_LAYOUT, validate(file("a/b/install.txt", 1)))
-        assertError(NarInstallError.AMBIGUOUS_LAYOUT, validate(file("install.txt", 1), file("wrapper/install.txt", 1)))
+        assertError(NarInstallError.AMBIGUOUS_LAYOUT, validate(file("wrapper/install.txt", 1), file("other/install.txt", 1)))
         assertError(NarInstallError.MIXED_LAYOUT, validate(file("wrapper/install.txt", 1), file("outside", 1)))
+    }
+
+    @Test fun acceptsRootDescriptorWithNestedInstallDescriptors() {
+        val nestedOneLevel = validate(file("install.txt", 1), file("bundle/install.txt", 1), file("bundle/asset.png", 4))
+        assertTrue(nestedOneLevel.isSuccess())
+        assertNull(nestedOneLevel.getInventory()!!.getWrapperDirectory())
+        assertEquals(0, nestedOneLevel.getInventory()!!.getDescriptorOrdinal())
+        assertEquals(listOf("install.txt", "bundle/install.txt", "bundle/asset.png"), nestedOneLevel.getInventory()!!.getEntries().map { it.getRelativePath() })
+
+        val nestedDeep = validate(file("install.txt", 1), file("bundle/inner/install.txt", 1), file("bundle/deep.txt", 4))
+        assertTrue(nestedDeep.isSuccess())
+        assertNull(nestedDeep.getInventory()!!.getWrapperDirectory())
+        assertEquals(listOf("install.txt", "bundle/inner/install.txt", "bundle/deep.txt"), nestedDeep.getInventory()!!.getEntries().map { it.getRelativePath() })
+    }
+
+    @Test fun wrappedLayoutAllowsNestedDescriptorsInsideWrapper() {
+        val wrapped = validate(file("wrapper/install.txt", 1), file("wrapper/bundle/install.txt", 1), file("wrapper/asset.txt", 2), file("wrapper/bundle/asset.bin", 3))
+        assertTrue(wrapped.isSuccess())
+        assertEquals("wrapper", wrapped.getInventory()!!.getWrapperDirectory())
+        assertEquals(listOf("install.txt", "bundle/install.txt", "asset.txt", "bundle/asset.bin"), wrapped.getInventory()!!.getEntries().map { it.getRelativePath() })
     }
 
     @Test fun enforcesCountDepthLengthComponentAndRawNameBoundaries() {

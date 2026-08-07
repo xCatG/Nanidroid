@@ -98,6 +98,51 @@ class NarInstallPlanValidatorTest {
 
     @Test
     @Throws(Exception::class)
+    fun rootInstallDescriptorWinsOverBundledNestedShellAndBalloonDescriptors() {
+        val installRoot: File = temporaryDirectory("plan-concurrent")
+        val archive: File = zip(
+            "install.txt", descriptor("root-id", "Root Ghost"),
+            "ghost/payload.txt", bytes("ghost"),
+            "shell/install.txt", descriptor("shell-id", "Nested Shell"),
+            "shell/data.txt", bytes("shell payload"),
+            "balloon/install.txt", descriptor("balloon-id", "Nested Balloon"),
+        )
+
+        val result: com.cattailsw.nanidroid.install.NarInstallPlanResult =
+            com.cattailsw.nanidroid.install.NarInstallPlanValidator().validate(
+                archive,
+                installRoot,
+                null
+            )
+
+        Assert.assertTrue(result.isSuccess())
+        val plan: com.cattailsw.nanidroid.install.NarInstallPlan = requireNotNull(result.plan)
+        Assert.assertNull(plan.wrapperDirectory)
+        Assert.assertEquals("root-id", plan.descriptor.getTargetId())
+        Assert.assertEquals("Root Ghost", plan.descriptor.getName())
+        Assert.assertEquals(5, plan.entries.size.toLong())
+        Assert.assertEquals(
+            File(installRoot.getCanonicalFile(), "root-id"),
+            plan.targetDirectory
+        )
+
+        val descriptorEntry: com.cattailsw.nanidroid.install.NarInstallPlan.Entry =
+            requireNotNull(plan.entries.find { it.normalizedArchivePath == "install.txt" })
+        Assert.assertEquals("install.txt", descriptorEntry.relativePath)
+
+        val shellDescriptor: com.cattailsw.nanidroid.install.NarInstallPlan.Entry =
+            requireNotNull(plan.entries.find { it.normalizedArchivePath == "shell/install.txt" })
+        Assert.assertTrue(shellDescriptor.isInstallEntry)
+        Assert.assertEquals("shell/install.txt", shellDescriptor.relativePath)
+
+        val balloonDescriptor: com.cattailsw.nanidroid.install.NarInstallPlan.Entry =
+            requireNotNull(plan.entries.find { it.normalizedArchivePath == "balloon/install.txt" })
+        Assert.assertTrue(balloonDescriptor.isInstallEntry)
+        Assert.assertEquals("balloon/install.txt", balloonDescriptor.relativePath)
+    }
+
+    @Test
+    @Throws(Exception::class)
     fun returnsDetachedImmutablePlanIdentityEntriesAndMetadata() {
         val archive: File = zip(
             "install.txt", descriptor("ghost-id", "Ghost"),
