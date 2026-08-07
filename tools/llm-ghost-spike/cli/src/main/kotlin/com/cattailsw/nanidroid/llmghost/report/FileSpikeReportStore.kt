@@ -3,16 +3,21 @@ package com.cattailsw.nanidroid.llmghost.report
 import com.cattailsw.nanidroid.llmghost.model.CanonicalTalk
 import com.cattailsw.nanidroid.llmghost.model.CaseStatus
 import com.cattailsw.nanidroid.llmghost.model.CompiledScriptValidationReport
+import com.cattailsw.nanidroid.llmghost.model.GenerationEvent
 import com.cattailsw.nanidroid.llmghost.model.GhostGenerationRequest
 import com.cattailsw.nanidroid.llmghost.model.GhostIdentity
+import com.cattailsw.nanidroid.llmghost.model.ModelPreparation
 import com.cattailsw.nanidroid.llmghost.model.SpikeCaseReport
 import com.cattailsw.nanidroid.llmghost.model.SpikeFailure
+import com.cattailsw.nanidroid.llmghost.model.SpikeWarning
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -67,50 +72,80 @@ class FileSpikeReportStore(private val root: Path) {
         val stableRunId = stableName(runId)
         val timestamp = RUN_TIMESTAMP.format(startedAt)
         val finalDirectory = root.resolve("$timestamp-$stableRunId")
-        if (Files.exists(finalDirectory)) throw FileAlreadyExistsException(finalDirectory.toString())
-        val temporary = Files.createTempDirectory(root, ".$stableRunId-")
+        val reservation = root.resolve(".${finalDirectory.fileName}.reserve")
+        reserve(reservation)
+        var workingDirectory: Path? = null
         try {
-            moveAtomically(temporary, finalDirectory)
+            if (Files.exists(finalDirectory)) throw FileAlreadyExistsException(finalDirectory.toString())
+            workingDirectory = Files.createTempDirectory(root, ".${finalDirectory.fileName}.work-")
+            return OpenSpikeRun(finalDirectory, workingDirectory, reservation)
         } catch (exception: Exception) {
-            Files.deleteIfExists(temporary)
+            workingDirectory?.toFile()?.deleteRecursively()
+            Files.deleteIfExists(reservation)
             throw exception
         }
-        return OpenSpikeRun(finalDirectory)
     }
 
-    class OpenSpikeRun internal constructor(val directory: Path) {
+    class OpenSpikeRun internal constructor(
+        val directory: Path,
+        private val workingDirectory: Path,
+        private val runReservation: Path,
+    ) {
+        private var state = RunState.OPEN
+
+        @Synchronized
         fun writeCase(evidence: SpikeCaseEvidence, candidate: Int): Path {
+            requireOpen()
             require(candidate > 0) { "Candidate numbers must be positive." }
             val caseName = "${stableName(evidence.report.caseId)}-$candidate"
-            val finalDirectory = directory.resolve(caseName)
-            if (Files.exists(finalDirectory)) throw FileAlreadyExistsException(finalDirectory.toString())
-            val temporary = Files.createTempDirectory(directory, ".$caseName-")
+            val finalDirectory = workingDirectory.resolve(caseName)
+            val reservation = workingDirectory.resolve(".$caseName.reserve")
+            reserve(reservation)
+            var temporary: Path? = null
             try {
-                val sanitized = evidence.copy(endpoint = sanitizeEndpoint(evidence.endpoint))
+                if (Files.exists(finalDirectory)) throw FileAlreadyExistsException(finalDirectory.toString())
+                temporary = Files.createTempDirectory(workingDirectory, ".$caseName-")
+                val sanitized = sanitizeEvidence(evidence)
                 Files.newBufferedWriter(
                     temporary.resolve(CASE_FILE),
                     StandardCharsets.UTF_8,
                 ).use { writer -> writer.write(REPORT_JSON.encodeToString(sanitized)) }
-                moveAtomically(temporary, finalDirectory)
+                moveCreateOnce(temporary, finalDirectory)
+                temporary = null
             } catch (exception: Exception) {
-                temporary.toFile().deleteRecursively()
                 throw exception
+            } finally {
+                temporary?.toFile()?.deleteRecursively()
+                Files.deleteIfExists(reservation)
             }
             return finalDirectory
         }
 
+        @Synchronized
         fun finish(summary: SpikeRunSummary) {
-            val summaryPath = directory.resolve(SUMMARY_FILE)
-            val reviewPath = directory.resolve(REVIEW_FILE)
-            if (Files.exists(summaryPath)) throw FileAlreadyExistsException(summaryPath.toString())
-            if (Files.exists(reviewPath)) throw FileAlreadyExistsException(reviewPath.toString())
-            val sanitized = summary.copy(
-                endpoint = sanitizeEndpoint(summary.endpoint),
-                cases = summary.cases.map { it.copy(endpoint = sanitizeEndpoint(it.endpoint)) },
-            )
-            writeAtomic(summaryPath, REPORT_JSON.encodeToString(sanitized))
-            writeAtomic(reviewPath, renderReview(sanitized))
+            requireOpen()
+            val summaryPath = workingDirectory.resolve(SUMMARY_FILE)
+            val reviewPath = workingDirectory.resolve(REVIEW_FILE)
+            val sanitized = sanitizeSummary(summary)
+            try {
+                writeAtomic(summaryPath, REPORT_JSON.encodeToString(sanitized))
+                writeAtomic(reviewPath, renderReview(sanitized))
+                moveCreateOnce(workingDirectory, directory)
+                state = RunState.PUBLISHED
+            } catch (exception: Exception) {
+                state = RunState.FAILED
+                workingDirectory.toFile().deleteRecursively()
+                throw exception
+            } finally {
+                runCatching { Files.deleteIfExists(runReservation) }
+            }
         }
+
+        private fun requireOpen() {
+            if (state != RunState.OPEN) throw FileAlreadyExistsException(directory.toString())
+        }
+
+        private enum class RunState { OPEN, PUBLISHED, FAILED }
     }
 
     companion object {
@@ -162,19 +197,96 @@ class FileSpikeReportStore(private val root: Path) {
         }
 
         private fun writeAtomic(finalPath: Path, value: String) {
-            if (Files.exists(finalPath)) throw FileAlreadyExistsException(finalPath.toString())
             val temporary = finalPath.resolveSibling(".${finalPath.fileName}.${UUID.randomUUID()}.tmp")
             try {
                 Files.newBufferedWriter(temporary, StandardCharsets.UTF_8).use { it.write(value) }
-                moveAtomically(temporary, finalPath)
+                moveCreateOnce(temporary, finalPath)
             } finally {
                 Files.deleteIfExists(temporary)
             }
         }
 
-        private fun moveAtomically(source: Path, target: Path) {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
+        private fun reserve(path: Path) {
+            Files.newByteChannel(
+                path,
+                StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE,
+            ).use { }
         }
+
+        private fun moveCreateOnce(source: Path, target: Path) {
+            try {
+                Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
+            } catch (_: AtomicMoveNotSupportedException) {
+                // The reservation protocol still gives create-once writer safety.
+                // Publication visibility is only as atomic as the provider's plain move.
+                Files.move(source, target)
+            }
+        }
+
+        private fun sanitizeSummary(summary: SpikeRunSummary): SpikeRunSummary = summary.copy(
+            endpoint = sanitizeEndpoint(summary.endpoint),
+            cases = summary.cases.map(::sanitizeEvidence),
+            preflightFailure = summary.preflightFailure?.sanitized(),
+        )
+
+        private fun sanitizeEvidence(evidence: SpikeCaseEvidence): SpikeCaseEvidence {
+            val report = evidence.report.sanitized()
+            return evidence.copy(
+                entryHashes = evidence.entryHashes.toSortedMap(),
+                endpoint = sanitizeEndpoint(evidence.endpoint),
+                report = report,
+                validation = CaseValidationEvidence(report.status, report.failure),
+                tokenizerEquivalentResult = report.compiledScriptValidation,
+            )
+        }
+
+        private fun SpikeCaseReport.sanitized(): SpikeCaseReport {
+            val scriptValidation = compiledScriptValidation?.let { validation ->
+                validation.copy(violationCodes = validation.violationCodes.map(::stableDiagnosticCode))
+            }
+            return copy(
+                preparationEvents = preparationEvents.map { event ->
+                    when (event) {
+                        is ModelPreparation.Failed -> stableDiagnosticCode(event.code).let { code ->
+                            ModelPreparation.Failed(code, stableDiagnosticDetail(code))
+                        }
+                        else -> event
+                    }
+                },
+                generationEvents = generationEvents.map { event ->
+                    when (event) {
+                        is GenerationEvent.Failed -> stableDiagnosticCode(event.code).let { code ->
+                            GenerationEvent.Failed(code, stableDiagnosticDetail(code))
+                        }
+                        else -> event
+                    }
+                },
+                warnings = warnings.map { it.sanitized() },
+                compiledScriptValidation = scriptValidation,
+                failure = failure?.sanitized(),
+            )
+        }
+
+        private fun SpikeFailure.sanitized(): SpikeFailure {
+            val code = stableDiagnosticCode(code)
+            return copy(
+                code = code,
+                detail = stableDiagnosticDetail(code),
+                sourceCode = sourceCode?.let(::stableDiagnosticCode),
+            )
+        }
+
+        private fun SpikeWarning.sanitized(): SpikeWarning {
+            val code = stableDiagnosticCode(code)
+            return copy(code = code, detail = stableDiagnosticDetail(code))
+        }
+
+        private fun stableDiagnosticCode(value: String): String =
+            value.takeIf(SAFE_DIAGNOSTIC_CODES::contains) ?: REDACTED_DIAGNOSTIC_CODE
+
+        private fun stableDiagnosticDetail(code: String): String =
+            "Diagnostic detail omitted at persistence boundary; classification=$code."
 
         private fun stableName(value: String): String {
             val stable = value.lowercase(Locale.ROOT)
@@ -189,7 +301,90 @@ class FileSpikeReportStore(private val root: Path) {
         private const val SUMMARY_FILE = "summary.json"
         private const val REVIEW_FILE = "review.md"
         private const val MAX_NAME_LENGTH = 80
+        private const val REDACTED_DIAGNOSTIC_CODE = "redacted-diagnostic-code"
         private val NON_NAME = Regex("[^a-z0-9-]+")
+        private val SAFE_DIAGNOSTIC_CODES = setOf(
+            REDACTED_DIAGNOSTIC_CODE,
+            "ambiguous-output",
+            "archive-not-found",
+            "archive-size-limit",
+            "archive-unreadable",
+            "canonical-exact-copy",
+            "canonical-near-copy",
+            "compilation-exception",
+            "compiled-script-invalid",
+            "connection-failed",
+            "decoding-exception",
+            "decoding-failed",
+            "dialogue-validation-exception",
+            "dialogue-validation-failed",
+            "duplicate-entry",
+            "empty-talk",
+            "entry-count-limit",
+            "entry-read-failed",
+            "entry-size-limit",
+            "forbidden-backslash",
+            "forbidden-choice",
+            "forbidden-control",
+            "forbidden-script-scheme",
+            "forbidden-url",
+            "generation-duplicate-completion",
+            "generation-empty-output",
+            "generation-event-after-completion",
+            "generation-exception",
+            "generation-failed",
+            "generation-missing-completion",
+            "http-client-error",
+            "http-error",
+            "http-redirect",
+            "incomplete-stream",
+            "inconsistent-charset",
+            "invalid-archive",
+            "invalid-grammar",
+            "invalid-response",
+            "invalid-shell-inventory",
+            "invalid-stream-event",
+            "invalid-timeout",
+            "invalid-unicode",
+            "malformed-json",
+            "malformed-control",
+            "malformed-text",
+            "missing-authorized-surface",
+            "missing-charset",
+            "missing-continuation-example",
+            "missing-corpus",
+            "missing-dictionary",
+            "missing-identity",
+            "missing-model",
+            "missing-pointer-example",
+            "missing-shell-inventory",
+            "missing-speaker",
+            "model-not-found",
+            "preparation-exception",
+            "preparation-failed",
+            "preparation-incomplete",
+            "rate-limited",
+            "rendering-exception",
+            "request-timeout",
+            "response-too-large",
+            "runner-exception",
+            "schema-invalid",
+            "server-error",
+            "service-unavailable",
+            "similarity-exception",
+            "surface-not-allowed",
+            "text-blank",
+            "text-too-long",
+            "transport-error",
+            "turn-count",
+            "unauthorized",
+            "unknown-speaker",
+            "unsafe-entry-name",
+            "unsupported-charset",
+            "unsupported-command",
+            "unsupported-control",
+            "wait-out-of-range",
+        )
         private val RUN_TIMESTAMP = DateTimeFormatter
             .ofPattern("yyyyMMdd'T'HHmmss.SSS'Z'")
             .withZone(ZoneOffset.UTC)
