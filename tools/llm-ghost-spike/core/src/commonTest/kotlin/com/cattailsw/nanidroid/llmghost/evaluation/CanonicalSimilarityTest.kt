@@ -83,6 +83,26 @@ class CanonicalSimilarityTest {
         assertFalse(findings[1].exact)
     }
 
+    @Test
+    fun case_normalization_folds_latin_but_preserves_greek_case() {
+        val latinFinding = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "hello")),
+            canonicalTalks = listOf(
+                talk("latin", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "HELLO"))),
+            ),
+        ).single()
+        val greekFinding = CanonicalSimilarity.evaluate(
+            generatedTurns = listOf(GeneratedTurn("sakura", 0, "α")),
+            canonicalTalks = listOf(
+                talk("greek", listOf(CanonicalTurn(GhostSpeakerId.SAKURA, 0, "Α"))),
+            ),
+        ).single()
+
+        assertTrue(latinFinding.exact)
+        assertFalse(greekFinding.exact)
+        assertEquals(0.0, greekFinding.ratio)
+    }
+
     private fun talk(id: String, turns: List<CanonicalTurn>) = CanonicalTalk(
         id = id,
         sourcePath = "dic/$id.txt",

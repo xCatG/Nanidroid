@@ -5,8 +5,10 @@ import com.cattailsw.nanidroid.llmghost.evaluation.SimilarityFinding
 import com.cattailsw.nanidroid.llmghost.generation.GeneratedDialogueDecoder
 import com.cattailsw.nanidroid.llmghost.generation.GeneratedDialogueValidator
 import com.cattailsw.nanidroid.llmghost.model.CaseStatus
+import com.cattailsw.nanidroid.llmghost.model.CanonicalTalk
 import com.cattailsw.nanidroid.llmghost.model.CompiledScriptValidationReport
 import com.cattailsw.nanidroid.llmghost.model.GeneratedDialogue
+import com.cattailsw.nanidroid.llmghost.model.GeneratedTurn
 import com.cattailsw.nanidroid.llmghost.model.GenerationEvent
 import com.cattailsw.nanidroid.llmghost.model.GenerationUsage
 import com.cattailsw.nanidroid.llmghost.model.GhostModelBackend
@@ -22,6 +24,7 @@ import com.cattailsw.nanidroid.llmghost.sakura.SakuraScriptCompiler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.withContext
 
 class GhostDialoguePipeline(
@@ -31,6 +34,10 @@ class GhostDialoguePipeline(
     private val validator: GeneratedDialogueValidator = GeneratedDialogueValidator(),
     private val compiler: SakuraScriptCompiler = SakuraScriptCompiler(),
     private val nowMillis: () -> Long,
+    private val similarityEvaluator: (
+        generatedTurns: List<GeneratedTurn>,
+        canonicalTalks: List<CanonicalTalk>,
+    ) -> List<SimilarityFinding> = CanonicalSimilarity::evaluate,
 ) {
     suspend fun runCase(case: SpikeCase): SpikeCaseReport {
         val startedAtMillis = nowMillis()
@@ -39,6 +46,7 @@ class GhostDialoguePipeline(
         val rawResponse = StringBuilder()
         var renderedPrompt = RenderedPromptReport()
         var stage = PipelineStage.RENDERING
+        var usage: GenerationUsage? = null
 
         try {
             val prompt = renderer.render(case.request)
@@ -49,7 +57,12 @@ class GhostDialoguePipeline(
             )
 
             stage = PipelineStage.PREPARATION
-            backend.prepare().collect { preparationEvents += it }
+            backend.prepare()
+                .takeWhile { event ->
+                    preparationEvents += event
+                    event !is ModelPreparation.Failed
+                }
+                .collect()
             val preparationFailure = preparationEvents
                 .filterIsInstance<ModelPreparation.Failed>()
                 .firstOrNull()
@@ -79,16 +92,18 @@ class GhostDialoguePipeline(
                 )
             }
 
-            var usage: GenerationUsage? = null
             stage = PipelineStage.GENERATION
-            backend.generate(case.request).collect { event ->
-                generationEvents += event
-                when (event) {
-                    is GenerationEvent.TextDelta -> rawResponse.append(event.text)
-                    is GenerationEvent.Completed -> usage = event.usage
-                    is GenerationEvent.Failed -> Unit
+            backend.generate(case.request)
+                .takeWhile { event ->
+                    generationEvents += event
+                    when (event) {
+                        is GenerationEvent.TextDelta -> rawResponse.append(event.text)
+                        is GenerationEvent.Completed -> usage = event.usage
+                        is GenerationEvent.Failed -> Unit
+                    }
+                    event !is GenerationEvent.Failed
                 }
-            }
+                .collect()
 
             val completionIndexes = generationEvents.mapIndexedNotNull { index, event ->
                 index.takeIf { event is GenerationEvent.Completed }
@@ -220,7 +235,7 @@ class GhostDialoguePipeline(
             }
 
             stage = PipelineStage.SIMILARITY
-            val findings = CanonicalSimilarity.evaluate(decoded.turns, case.request.examples)
+            val findings = similarityEvaluator(decoded.turns, case.request.examples)
             val exactCopy = findings.firstOrNull { it.exact }
             if (exactCopy != null) {
                 return failureReport(
@@ -276,6 +291,7 @@ class GhostDialoguePipeline(
                 generationEvents = generationEvents,
                 code = stage.exceptionCode,
                 detail = exception.message ?: "Pipeline failed.",
+                usage = usage,
             )
         } finally {
             try {

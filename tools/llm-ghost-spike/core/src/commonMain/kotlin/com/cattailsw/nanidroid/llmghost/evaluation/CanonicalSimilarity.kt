@@ -42,7 +42,7 @@ object CanonicalSimilarity {
     }
 
     private fun normalize(text: String): List<Int> {
-        val compact = NORMALIZED_SEPARATORS.replace(text.lowercase(), "")
+        val compact = NORMALIZED_SEPARATORS.replace(text, "")
         val scalars = ArrayList<Int>(compact.length)
         var index = 0
         while (index < compact.length) {
@@ -52,7 +52,7 @@ object CanonicalSimilarity {
                 scalars += 0x10000 + ((first.code - 0xD800) shl 10) + (second.code - 0xDC00)
                 index += 2
             } else {
-                scalars += first.code
+                scalars += first.foldLatinCase().code
                 index++
             }
         }
@@ -86,6 +86,22 @@ object CanonicalSimilarity {
         }
         return previous[columns.size]
     }
+
+    private fun Char.foldLatinCase(): Char = if (isLatinCharacter()) lowercaseChar() else this
+
+    private fun Char.isLatinCharacter(): Boolean = isLetter() && (
+        this in 'A'..'Z' ||
+            this in 'a'..'z' ||
+            this in '\u00C0'..'\u024F' ||
+            this in '\u1D00'..'\u1D7F' ||
+            this in '\u1D80'..'\u1DBF' ||
+            this in '\u1E00'..'\u1EFF' ||
+            this in '\u2C60'..'\u2C7F' ||
+            this in '\uA720'..'\uA7FF' ||
+            this in '\uAB30'..'\uAB6F' ||
+            this in '\uFB00'..'\uFB06' ||
+            this in '\uFF21'..'\uFF5A'
+    )
 
     private val NORMALIZED_SEPARATORS = Regex("[\\p{P}\\p{Z}\\s]+")
     private val HIGH_SURROGATES = '\uD800'..'\uDBFF'

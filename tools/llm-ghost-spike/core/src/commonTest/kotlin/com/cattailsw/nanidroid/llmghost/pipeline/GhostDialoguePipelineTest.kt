@@ -151,6 +151,26 @@ class GhostDialoguePipelineTest {
     }
 
     @Test
+    fun preparation_failure_stops_collection_before_the_backend_throws() = runBlocking {
+        var continuedAfterFailure = false
+        val backend = EventBackend(
+            preparationEvents = flow {
+                emit(ModelPreparation.Downloading(75))
+                emit(ModelPreparation.Failed("prepare-terminal", "Preparation stopped."))
+                continuedAfterFailure = true
+                throw IllegalStateException("must not replace terminal failure")
+            },
+            generationEvents = emptyList(),
+        )
+
+        val report = pipeline(backend).runCase(spikeCase())
+
+        assertFailure(report, "preparation-failed", sourceCode = "prepare-terminal")
+        assertFalse(continuedAfterFailure)
+        assertEquals(2, report.preparationEvents.size)
+    }
+
+    @Test
     fun generation_cancellation_propagates_and_still_closes_the_backend() {
         val backend = EventBackend(
             generationEvents = listOf(GenerationEvent.TextDelta("partial")),
@@ -190,6 +210,41 @@ class GhostDialoguePipelineTest {
 
         assertFailure(report, "generation-exception")
         assertEquals("partial", report.rawResponse)
+    }
+
+    @Test
+    fun generation_failure_stops_collection_before_the_backend_throws() = runBlocking {
+        val backend = EventBackend(
+            generationEvents = listOf(
+                GenerationEvent.TextDelta("partial"),
+                GenerationEvent.Failed("generation-terminal", "Generation stopped."),
+            ),
+            generationFailure = IllegalStateException("must not replace terminal failure"),
+        )
+
+        val report = pipeline(backend).runCase(spikeCase())
+
+        assertFailure(report, "generation-failed", sourceCode = "generation-terminal")
+        assertEquals("partial", report.rawResponse)
+        assertEquals(2, report.generationEvents.size)
+    }
+
+    @Test
+    fun events_after_generation_failure_are_not_accepted() = runBlocking {
+        val backend = EventBackend(
+            generationEvents = listOf(
+                GenerationEvent.TextDelta("partial"),
+                GenerationEvent.Failed("generation-terminal", "Generation stopped."),
+                GenerationEvent.TextDelta("must-not-be-collected"),
+                GenerationEvent.Completed(null),
+            ),
+        )
+
+        val report = pipeline(backend).runCase(spikeCase())
+
+        assertFailure(report, "generation-failed", sourceCode = "generation-terminal")
+        assertEquals("partial", report.rawResponse)
+        assertEquals(2, report.generationEvents.size)
     }
 
     @Test
@@ -287,6 +342,25 @@ class GhostDialoguePipelineTest {
         assertEquals("canonical-near-copy", report.warnings.single().code)
         assertFalse(report.similarityFindings.single().exact)
         assertEquals(0.9, report.similarityFindings.single().ratio, absoluteTolerance = 0.000_001)
+    }
+
+    @Test
+    fun downstream_exception_after_completion_preserves_usage() = runBlocking {
+        val usage = GenerationUsage(promptTokens = 3, completionTokens = 5, totalTokens = 8)
+        val backend = EventBackend(
+            generationEvents = listOf(
+                GenerationEvent.TextDelta(validJson("A fresh thought")),
+                GenerationEvent.Completed(usage),
+            ),
+        )
+        val report = GhostDialoguePipeline(
+            backend = backend,
+            nowMillis = SequenceClock(4_000, 4_010)::now,
+            similarityEvaluator = { _, _ -> throw IllegalStateException("similarity broke") },
+        ).runCase(spikeCase())
+
+        assertFailure(report, "similarity-exception")
+        assertEquals(usage, report.usage)
     }
 
     private fun pipeline(backend: GhostModelBackend) = GhostDialoguePipeline(
