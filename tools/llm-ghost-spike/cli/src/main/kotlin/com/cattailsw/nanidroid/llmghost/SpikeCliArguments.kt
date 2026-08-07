@@ -101,8 +101,27 @@ object SpikeCliArguments {
             !uri.host.isNullOrBlank() &&
             uri.rawUserInfo == null &&
             uri.rawQuery == null &&
-            uri.rawFragment == null
+            uri.rawFragment == null &&
+            hasValidPort(uri)
     }.getOrDefault(false)
+
+    private fun hasValidPort(uri: URI): Boolean {
+        val authority = uri.rawAuthority ?: return false
+        val portText = if (authority.startsWith('[')) {
+            val bracket = authority.indexOf(']')
+            if (bracket < 0) return false
+            val remainder = authority.substring(bracket + 1)
+            if (remainder.isEmpty()) return true
+            if (!remainder.startsWith(':')) return false
+            remainder.substring(1)
+        } else {
+            val colon = authority.lastIndexOf(':')
+            if (colon < 0) return true
+            authority.substring(colon + 1)
+        }
+        return portText.isNotEmpty() && portText.all(Char::isDigit) &&
+            portText.toIntOrNull()?.let { it in 0..65_535 } == true
+    }
 
     private fun positiveInt(value: String): Int? = value.toIntOrNull()?.takeIf { it > 0 }
     private fun positiveLong(value: String): Long? = value.toLongOrNull()?.takeIf { it > 0 }

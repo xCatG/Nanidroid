@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid.llmghost
 
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,6 +10,11 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class SpikeCliArgumentsTest {
@@ -52,6 +59,22 @@ class SpikeCliArgumentsTest {
         assertEquals(1234, parsed.connectTimeoutMillis)
         assertEquals(5678, parsed.requestTimeoutMillis)
         assertEquals(Path.of("reports"), parsed.reportRoot)
+    }
+
+    @Test
+    fun acceptsMaximumUriPortAndRejectsOutOfRangeOrOverflowPorts() {
+        val accepted = SpikeCliArguments.parse(
+            listOf("--nar", "x", "--base-url", "https://example.test:65535/v1"),
+            emptyMap(),
+        )
+        assertIs<CliParseResult.Success>(accepted)
+        listOf("65536", "999999999999999999999999").forEach { port ->
+            val rejected = SpikeCliArguments.parse(
+                listOf("--nar", "x", "--base-url", "https://example.test:$port/v1"),
+                emptyMap(),
+            )
+            assertEquals("invalid-base-url", assertIs<CliParseResult.Error>(rejected).code)
+        }
     }
 
     @Test
@@ -163,5 +186,70 @@ class SpikeCliArgumentsTest {
             },
         )
         assertEquals("cancelled: Spike execution was cancelled.", cancelledError.toString().trim())
+    }
+
+    @Test
+    fun cancellationPrintsCapturedRecoveryDirectoryExactlyOnce() = runBlocking {
+        val recovery = CliCancellationRecovery()
+        val path = Path.of("reports", "recovery").toAbsolutePath().normalize()
+        val output = StringBuilder()
+        val error = StringBuilder()
+        val exit = executeCli(
+            args = listOf("--nar", "x"),
+            environment = emptyMap(),
+            stdout = output,
+            stderr = error,
+            cancellationRecovery = recovery,
+        ) {
+            recovery.record(path)
+            recovery.record(Path.of("must-not-replace"))
+            throw CancellationException("secret")
+        }
+        assertEquals(130, exit)
+        assertEquals(listOf(path.toString()), output.lines().filter(String::isNotBlank))
+        assertEquals("cancelled: Spike execution was cancelled.", error.toString().trim())
+    }
+
+    @Test
+    fun shutdownCoordinatorCancelsThenWaitsForCleanup() {
+        val root = Job()
+        val cleanupStarted = CountDownLatch(1)
+        val cleanupRelease = CountDownLatch(1)
+        CoroutineScope(Dispatchers.Default + root).launch {
+            try {
+                awaitCancellation()
+            } finally {
+                cleanupStarted.countDown()
+                cleanupRelease.await()
+            }
+        }
+        val hook = Thread { ShutdownCoordinator(root, timeoutMillis = 2_000).run() }
+        hook.start()
+        assertTrue(cleanupStarted.await(1, TimeUnit.SECONDS))
+        assertTrue(hook.isAlive, "shutdown hook returned before cleanup completed")
+        cleanupRelease.countDown()
+        hook.join(1_000)
+        assertFalse(hook.isAlive)
+    }
+
+    @Test
+    fun shutdownCoordinatorWaitIsBoundedWhenCleanupCannotComplete() {
+        val root = Job()
+        val cleanupStarted = CountDownLatch(1)
+        val cleanupRelease = CountDownLatch(1)
+        CoroutineScope(Dispatchers.Default + root).launch {
+            try {
+                awaitCancellation()
+            } finally {
+                cleanupStarted.countDown()
+                cleanupRelease.await()
+            }
+        }
+        val hook = Thread { ShutdownCoordinator(root, timeoutMillis = 50).run() }
+        hook.start()
+        assertTrue(cleanupStarted.await(1, TimeUnit.SECONDS))
+        hook.join(1_000)
+        assertFalse(hook.isAlive, "shutdown hook exceeded its bounded wait")
+        cleanupRelease.countDown()
     }
 }

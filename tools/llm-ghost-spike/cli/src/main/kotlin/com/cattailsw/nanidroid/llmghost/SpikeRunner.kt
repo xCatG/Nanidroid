@@ -44,6 +44,7 @@ class SpikeRunner(
     private val executeCase: suspend (SpikeCase, seed: Long) -> SpikeCaseExecution,
     private val now: () -> Instant,
     private val retriever: CanonicalTalkRetriever = CanonicalTalkRetriever(),
+    private val onRecovery: (Path) -> Unit = {},
 ) {
     suspend fun run(request: SpikeRunRequest): SpikeRunOutcome {
         require(request.candidateCount > 0) { "At least one candidate is required." }
@@ -126,6 +127,7 @@ class SpikeRunner(
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 runCatching { openRun.abort("run-cancelled") }
+                    .onSuccess { recovery -> runCatching { onRecovery(recovery) } }
             }
             throw cancelled
         }

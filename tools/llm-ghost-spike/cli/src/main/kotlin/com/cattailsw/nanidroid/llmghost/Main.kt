@@ -13,11 +13,13 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.coroutineContext
 import kotlin.system.exitProcess
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class CliExecutionResult(
     val exitCode: Int,
@@ -26,9 +28,10 @@ data class CliExecutionResult(
 )
 
 fun main(args: Array<String>) {
+    val cancellationRecovery = CliCancellationRecovery()
     val exitCode = runBlocking {
         val rootJob = coroutineContext[Job]!!
-        val shutdownHook = Thread({ rootJob.cancel(CancellationException("Process shutdown requested.")) }, "llm-ghost-shutdown")
+        val shutdownHook = Thread(ShutdownCoordinator(rootJob), "llm-ghost-shutdown")
         Runtime.getRuntime().addShutdownHook(shutdownHook)
         try {
             executeCli(
@@ -36,7 +39,8 @@ fun main(args: Array<String>) {
                 environment = System.getenv(),
                 stdout = System.out,
                 stderr = System.err,
-                execute = { runConfiguredSpike(it, System.err) },
+                cancellationRecovery = cancellationRecovery,
+                execute = { runConfiguredSpike(it, System.err, cancellationRecovery) },
             )
         } finally {
             runCatching { Runtime.getRuntime().removeShutdownHook(shutdownHook) }
@@ -50,6 +54,7 @@ internal suspend fun executeCli(
     environment: Map<String, String>,
     stdout: Appendable,
     stderr: Appendable,
+    cancellationRecovery: CliCancellationRecovery = CliCancellationRecovery(),
     execute: suspend (SpikeCliConfig) -> CliExecutionResult,
 ): Int = when (val parsed = SpikeCliArguments.parse(args, environment)) {
     is CliParseResult.Help -> {
@@ -67,6 +72,7 @@ internal suspend fun executeCli(
             result.failureCode?.let { stderr.appendLine("$it: Spike execution did not complete successfully.") }
             result.exitCode
         } catch (_: CancellationException) {
+            cancellationRecovery.get()?.toAbsolutePath()?.normalize()?.let { stdout.appendLine(it.toString()) }
             stderr.appendLine("cancelled: Spike execution was cancelled.")
             130
         } catch (failure: SpikeReportPublicationException) {
@@ -80,7 +86,33 @@ internal suspend fun executeCli(
     }
 }
 
-private suspend fun runConfiguredSpike(config: SpikeCliConfig, stderr: Appendable): CliExecutionResult {
+internal class CliCancellationRecovery {
+    private val path = AtomicReference<Path?>(null)
+
+    fun record(recoveryDirectory: Path) {
+        path.compareAndSet(null, recoveryDirectory)
+    }
+
+    fun get(): Path? = path.get()
+}
+
+internal class ShutdownCoordinator(
+    private val rootJob: Job,
+    private val timeoutMillis: Long = 5_000,
+) : Runnable {
+    override fun run() {
+        rootJob.cancel(CancellationException("Process shutdown requested."))
+        runBlocking {
+            withTimeoutOrNull(timeoutMillis) { rootJob.join() }
+        }
+    }
+}
+
+private suspend fun runConfiguredSpike(
+    config: SpikeCliConfig,
+    stderr: Appendable,
+    cancellationRecovery: CliCancellationRecovery,
+): CliExecutionResult {
     if (!Files.isRegularFile(config.nar) || !Files.isReadable(config.nar)) {
         return CliExecutionResult(1, failureCode = "nar-unreadable")
     }
@@ -121,6 +153,7 @@ private suspend fun runConfiguredSpike(config: SpikeCliConfig, stderr: Appendabl
                 }
             },
             now = Instant::now,
+            onRecovery = cancellationRecovery::record,
         )
         val outcome = runner.run(
             SpikeRunRequest(

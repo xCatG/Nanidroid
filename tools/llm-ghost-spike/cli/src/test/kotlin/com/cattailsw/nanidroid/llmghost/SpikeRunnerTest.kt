@@ -202,6 +202,7 @@ class SpikeRunnerTest {
         val root = Files.createTempDirectory("spike-cancel")
         val cancelled = CancellationException("stop unchanged")
         var executions = 0
+        var reportedRecovery: java.nio.file.Path? = null
         val runner = SpikeRunner(
             scenarioFactory = SpikeScenarioFactory,
             reportStore = FileSpikeReportStore(root),
@@ -218,6 +219,7 @@ class SpikeRunnerTest {
                 }
             },
             now = { Instant.parse("2026-08-07T01:02:03Z") },
+            onRecovery = { reportedRecovery = it },
         )
 
         val thrown = assertFailsWith<CancellationException> {
@@ -231,6 +233,7 @@ class SpikeRunnerTest {
         }
         assertTrue(thrown === cancelled)
         val recovery = Files.list(root).use { it.toList().single() }
+        assertEquals(recovery, reportedRecovery)
         assertTrue(Files.exists(recovery.resolve("idle-japanese-1/case.json")))
         assertTrue(Files.exists(recovery.resolve("recovery.json")))
         assertTrue(!FileSpikeReportStore.isPublishedRun(recovery))
