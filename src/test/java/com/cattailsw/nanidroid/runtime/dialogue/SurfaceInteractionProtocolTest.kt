@@ -326,6 +326,7 @@ class SurfaceInteractionProtocolTest {
         var unloads = 0
         var stops = 0
         var handoffs = 0
+        var capabilityQueries = 0
         val pointerRequests = mutableListOf<String>()
         val ghost = object : Ghost("recording") {
             override fun loadGhostInfo() = Unit
@@ -333,7 +334,11 @@ class SurfaceInteractionProtocolTest {
             override fun incrementCreateCount() = Unit
             override fun getSakuraName(): String = "Sakura"
             override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            override fun pointerEventCapabilities() = if (capabilityQueries++ == 0) {
+                PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            } else {
+                PointerEventCapabilities(Support.UNSUPPORTED, Support.SUPPORTED)
+            }
             override fun doShioriEvent(event: String, ref: Array<String>?) =
                 ShioriResponse("SHIORI/3.0 204 No Content")
             override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
@@ -360,16 +365,14 @@ class SurfaceInteractionProtocolTest {
         runner.doGhostChanging("next", "ghost", "next-path")
 
         val interaction = effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)
-        val candidateEvent = SurfaceInteractionProtocol.eventFor(
-            interaction,
-            PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED),
-        )
+        val diagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(interaction)
 
-        assertEquals("OnMouseClick", candidateEvent)
-        assertTrue(!runner.dispatchSurfaceInteraction(interaction))
+        assertEquals("OnMouseClick", diagnosticDispatch.candidateEvent)
+        assertTrue(!diagnosticDispatch.accepted)
+        assertEquals(1, capabilityQueries)
         assertEquals(
             PointerDispatchOutcome.REJECTED,
-            pointerDispatchOutcome(candidateEvent, false),
+            pointerDispatchOutcome(diagnosticDispatch.candidateEvent, diagnosticDispatch.accepted),
         )
         assertEquals(1, unloads)
         assertEquals(1, stops)

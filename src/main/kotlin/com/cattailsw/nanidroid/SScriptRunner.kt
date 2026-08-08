@@ -55,6 +55,11 @@ internal data class SScriptPlaybackHooks(
     val afterPresentationEffectCaptured: () -> Unit = {},
 )
 
+internal data class SurfaceInteractionDispatchResult(
+    val candidateEvent: String?,
+    val accepted: Boolean,
+)
+
 private class HandlerSScriptPlaybackScheduler : SScriptPlaybackScheduler {
     private val handler = Handler(Looper.getMainLooper())
 
@@ -184,18 +189,25 @@ open class SScriptRunner internal constructor(
         presentationRenderer = renderer
         if (renderer != null) currentPresentationFrame?.let(renderer::render)
     }
-    fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean = withCurrentGhost { target ->
-        val eventId = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
-            ?: return@withCurrentGhost false
+    fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean =
+        dispatchSurfaceInteractionWithDiagnostics(effect).accepted
+
+    internal fun dispatchSurfaceInteractionWithDiagnostics(
+        effect: SurfaceInteractionEffect,
+    ): SurfaceInteractionDispatchResult = withCurrentGhostGate { target, live ->
+        val candidateEvent = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
+        if (!live || candidateEvent == null) {
+            return@withCurrentGhostGate SurfaceInteractionDispatchResult(candidateEvent, false)
+        }
         val passiveSequence = runtimeModeSnapshot().passive
         if (!passiveSequence && effect.speaker.legacyReference == "1") clearMsgQueue()
-        if (!isPinnedDialogueGhost(target)) return@withCurrentGhost false
-        val response = target.requestRaw(ShioriMethod.GET, eventId, SurfaceInteractionProtocol.references(effect))
+        if (!isPinnedDialogueGhost(target)) return@withCurrentGhostGate SurfaceInteractionDispatchResult(candidateEvent, false)
+        val response = target.requestRaw(ShioriMethod.GET, candidateEvent, SurfaceInteractionProtocol.references(effect))
         if (!passiveSequence && !runtimeModeSnapshot().passive && isPinnedDialogueGhost(target)) {
             parseShioriResponseAndInsert(response)
         }
-        true
-    } ?: false
+        SurfaceInteractionDispatchResult(candidateEvent, true)
+    } ?: SurfaceInteractionDispatchResult(null, false)
     fun setGhost(newGhost: Ghost?) {
         if (!setGhostInternal(newGhost, null)) throw IllegalStateException("ghost assignment was rejected")
     }
@@ -968,16 +980,17 @@ open class SScriptRunner internal constructor(
         }
     }
 
-    private fun <T> withCurrentGhost(action: (Ghost) -> T): T? {
+    private fun <T> withCurrentGhost(action: (Ghost) -> T): T? =
+        withCurrentGhostGate { target, live -> if (live) action(target) else null }
+
+    private fun <T> withCurrentGhostGate(action: (Ghost, Boolean) -> T): T? {
         while (true) {
             val expected = synchronized(this) { g } ?: return null
             val result = sessionCoordinator.withGhostGate(expected) { live ->
                 if (!synchronized(this) { g === expected }) {
                     CurrentGhostCall<T>(false, null)
-                } else if (!live) {
-                    CurrentGhostCall(true, null)
                 } else {
-                    CurrentGhostCall(true, action(expected))
+                    CurrentGhostCall(true, action(expected, live))
                 }
             }
             if (result.matched) return result.value

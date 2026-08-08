@@ -50,7 +50,6 @@ import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
-import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
 import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
@@ -217,16 +216,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var debugLogJob: Job? = null
     private val composeStage = ComposeGhostStageHost(
         SurfaceInteractionPort { effect ->
-            val candidateEvent = SurfaceInteractionProtocol.eventFor(
-                effect,
-                currentGhost?.pointerEventCapabilities()
-                    ?: com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities(),
-            )
-            val dispatchResult = candidateEvent?.let { runner?.dispatchSurfaceInteraction(effect) }
+            val dispatch = runner?.dispatchSurfaceInteractionWithDiagnostics(effect)
+                ?: SurfaceInteractionDispatchResult(null, false)
             if (debugEnabled) {
                 lastPointerDebugEvent = effect.toPointerDebugEvent(
-                    candidateEvent,
-                    pointerDispatchOutcome(candidateEvent, dispatchResult),
+                    dispatch.candidateEvent,
+                    pointerDispatchOutcome(dispatch.candidateEvent, dispatch.accepted),
                 )
             }
         },
