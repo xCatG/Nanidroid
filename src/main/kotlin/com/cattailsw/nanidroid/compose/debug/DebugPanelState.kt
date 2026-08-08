@@ -51,7 +51,7 @@ data class SurfaceDebugSelection(
     val revision: Long,
 )
 
-data class SurfacePointerDebugEvent(
+internal data class SurfacePointerDebugEvent(
     val speaker: SurfaceSpeaker,
     val viewportX: Int,
     val viewportY: Int,
@@ -60,7 +60,8 @@ data class SurfacePointerDebugEvent(
     val collisionId: Int,
     val collisionName: String?,
     val buttonId: Int,
-    val eventName: String,
+    val candidateEvent: String?,
+    val dispatchOutcome: PointerDispatchOutcome,
     val source: String,
 )
 

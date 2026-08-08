@@ -7,6 +7,8 @@ import com.cattailsw.nanidroid.SScriptRunner
 import com.cattailsw.nanidroid.SScriptPlaybackScheduler
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import com.cattailsw.nanidroid.compose.debug.PointerDispatchOutcome
+import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -357,7 +359,18 @@ class SurfaceInteractionProtocolTest {
         runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
         runner.doGhostChanging("next", "ghost", "next-path")
 
-        assertTrue(!runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)))
+        val interaction = effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)
+        val candidateEvent = SurfaceInteractionProtocol.eventFor(
+            interaction,
+            PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED),
+        )
+
+        assertEquals("OnMouseClick", candidateEvent)
+        assertTrue(!runner.dispatchSurfaceInteraction(interaction))
+        assertEquals(
+            PointerDispatchOutcome.REJECTED,
+            pointerDispatchOutcome(candidateEvent, false),
+        )
         assertEquals(1, unloads)
         assertEquals(1, stops)
         assertEquals(1, handoffs)

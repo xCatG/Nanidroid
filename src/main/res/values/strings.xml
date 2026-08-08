@@ -100,7 +100,11 @@
   <string name="debug_surface_collision_id_label">Collision ID / name</string>
   <string name="debug_surface_pointer_button_label">Button</string>
   <string name="debug_surface_pointer_source_label">Source</string>
-  <string name="debug_surface_pointer_event_label">Event</string>
+  <string name="debug_surface_pointer_candidate_event_label">Candidate event</string>
+  <string name="debug_surface_pointer_dispatch_outcome_label">Dispatch outcome</string>
+  <string name="debug_surface_pointer_dispatch_not_resolved">Not resolved</string>
+  <string name="debug_surface_pointer_dispatch_rejected">Rejected</string>
+  <string name="debug_surface_pointer_dispatch_accepted">Accepted</string>
   <string name="debug_surface_pointer_speaker_label">Speaker</string>
   <string name="debug_surface_collision_section_title">Debug overlays</string>
   <string name="debug_surface_collision_overlay_toggle">Show collision overlay</string>

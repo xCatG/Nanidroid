@@ -95,7 +95,11 @@
   <string name="debug_surface_collision_id_label">コリジョンID / 名前</string>
   <string name="debug_surface_pointer_button_label">ボタン</string>
   <string name="debug_surface_pointer_source_label">送信元</string>
-  <string name="debug_surface_pointer_event_label">イベント</string>
+  <string name="debug_surface_pointer_candidate_event_label">候補イベント</string>
+  <string name="debug_surface_pointer_dispatch_outcome_label">ディスパッチ結果</string>
+  <string name="debug_surface_pointer_dispatch_not_resolved">未解決</string>
+  <string name="debug_surface_pointer_dispatch_rejected">拒否</string>
+  <string name="debug_surface_pointer_dispatch_accepted">受理</string>
   <string name="debug_surface_pointer_speaker_label">話者</string>
   <string name="debug_surface_collision_section_title">デバッグオーバーレイ</string>
   <string name="debug_surface_collision_overlay_toggle">衝突オーバーレイを表示</string>

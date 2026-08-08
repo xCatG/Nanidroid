@@ -40,11 +40,13 @@ import com.cattailsw.nanidroid.compose.SurfaceInteractionPort
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.debug.DebugPanelState
 import com.cattailsw.nanidroid.compose.debug.GhostDebugSurface
+import com.cattailsw.nanidroid.compose.debug.PointerDispatchOutcome
 import com.cattailsw.nanidroid.compose.debug.SurfacePointerDebugEvent
 import com.cattailsw.nanidroid.compose.debug.collisionOverlaySpeaker
 import com.cattailsw.nanidroid.compose.debug.dismissDebugSurface
 import com.cattailsw.nanidroid.compose.debug.debugSelection
 import com.cattailsw.nanidroid.compose.debug.resolveDebugPresentation
+import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
@@ -215,8 +217,18 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var debugLogJob: Job? = null
     private val composeStage = ComposeGhostStageHost(
         SurfaceInteractionPort { effect ->
-            if (debugEnabled) lastPointerDebugEvent = effect.toPointerDebugEvent()
-            runner?.dispatchSurfaceInteraction(effect)
+            val candidateEvent = SurfaceInteractionProtocol.eventFor(
+                effect,
+                currentGhost?.pointerEventCapabilities()
+                    ?: com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities(),
+            )
+            val dispatchResult = candidateEvent?.let { runner?.dispatchSurfaceInteraction(effect) }
+            if (debugEnabled) {
+                lastPointerDebugEvent = effect.toPointerDebugEvent(
+                    candidateEvent,
+                    pointerDispatchOutcome(candidateEvent, dispatchResult),
+                )
+            }
         },
     )
     private var gm: GhostMgr? = null
@@ -475,7 +487,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }
 
-    private fun SurfaceInteractionEffect.toPointerDebugEvent(): SurfacePointerDebugEvent =
+    private fun SurfaceInteractionEffect.toPointerDebugEvent(
+        candidateEvent: String?,
+        dispatchOutcome: PointerDispatchOutcome,
+    ): SurfacePointerDebugEvent =
         SurfacePointerDebugEvent(
             speaker = speaker,
             viewportX = viewportPosition.x,
@@ -485,10 +500,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             collisionId = diagnosticCollisionId ?: NO_COLLISION,
             collisionName = collisionIdentifier,
             buttonId = button,
-            eventName = SurfaceInteractionProtocol.eventFor(
-                this,
-                currentGhost?.pointerEventCapabilities() ?: com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities(),
-            ) ?: "Not dispatched",
+            candidateEvent = candidateEvent,
+            dispatchOutcome = dispatchOutcome,
             source = source.shioriReference,
         )
     private fun showProgress() {
