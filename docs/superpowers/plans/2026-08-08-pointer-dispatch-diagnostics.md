@@ -4,7 +4,7 @@
 
 **Goal:** Make the adaptive debug panel show a resolved pointer-event candidate separately from its actual runtime dispatch outcome.
 
-**Architecture:** Keep the diagnostic value immutable and local to the existing debug package. `Nanidroid` resolves the event candidate once, calls the runner once, and constructs the diagnostic record from those two facts. The debug composable only renders that record with resource-backed labels; it never infers dispatch success.
+**Architecture:** Keep the diagnostic value immutable and local to the existing debug package. The runner resolves the event candidate and dispatches it within the same live-session gate, then returns both facts to `Nanidroid` for the diagnostic record. The debug composable only renders that record with resource-backed labels; it never infers dispatch success.
 
 **Tech Stack:** Kotlin, Jetpack Compose, Android string resources, JUnit 4, Compose instrumentation tests.
 
@@ -12,7 +12,7 @@
 
 - Scope is GitHub issue #222 only; do not combine #219, #220, #223, #225, #229, or #259 work.
 - Preserve pointer routing, runner call order, session gating, and SHIORI behavior.
-- Resolve the candidate once using the same ghost capabilities passed to the diagnostic record.
+- Resolve the candidate once inside the runner's live-session gate; return that same candidate with its actual dispatch outcome for diagnostics.
 - Every user-visible outcome string belongs in `values/`, `values-ja/`, and `values-zh-rTW/` resources.
 - Follow TDD: observe each new test fail before production implementation.
 - Run `simplify` only on the #222 diff after tests are green; retain exact behavior.
@@ -75,6 +75,7 @@ Run: `git add src/main/kotlin/com/cattailsw/nanidroid/compose/debug/DebugPanelSt
 
 **Files:**
 - Modify: `src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt`
+- Modify: `src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt`
 - Modify: `src/main/kotlin/com/cattailsw/nanidroid/compose/debug/GhostDebugSurface.kt`
 - Modify: `src/main/res/values/strings.xml`
 - Modify: `src/main/res/values-ja/strings.xml`
@@ -83,7 +84,7 @@ Run: `git add src/main/kotlin/com/cattailsw/nanidroid/compose/debug/DebugPanelSt
 - Modify: `src/test/java/com/cattailsw/nanidroid/runtime/dialogue/SurfaceInteractionProtocolTest.kt`
 
 **Interfaces:**
-- Consumes: the candidate resolved by `SurfaceInteractionProtocol.eventFor` and the Boolean returned by `SScriptRunner.dispatchSurfaceInteraction`.
+- Consumes: the candidate and outcome returned together by the runner's live-session-gated dispatch operation.
 - Produces: one rendered candidate-event row and one localized dispatch-outcome row in every debug presentation.
 
 - [ ] **Step 1: Write the failing Compose regression**
@@ -98,12 +99,14 @@ Expected: compilation fails because the new record fields and outcome row do not
 
 - [ ] **Step 3: Write minimal implementation**
 
-In this task, extend `SurfacePointerDebugEvent` with nullable `candidateEvent` and non-null `dispatchOutcome`, replacing `eventName`, and update every caller. In `Nanidroid.kt`, resolve the candidate once, dispatch only when it is non-null, and record the runner Boolean afterward:
+In this task, extend `SurfacePointerDebugEvent` with nullable `candidateEvent` and non-null `dispatchOutcome`, replacing `eventName`, and update every caller. Add a runner diagnostic dispatch result that contains its gated candidate and actual outcome without changing the Boolean contract of `dispatchSurfaceInteraction`. In `Nanidroid.kt`, call that runner operation once and record its returned facts afterward:
 
 ```kotlin
-val candidateEvent = SurfaceInteractionProtocol.eventFor(effect, capabilities)
-val dispatchAccepted = candidateEvent?.let { runner?.dispatchSurfaceInteraction(effect) }
-lastPointerDebugEvent = effect.toPointerDebugEvent(candidateEvent, dispatchAccepted)
+val result = runner?.dispatchSurfaceInteractionForDebug(effect)
+lastPointerDebugEvent = effect.toPointerDebugEvent(
+    candidateEvent = result?.candidateEvent,
+    dispatchAccepted = result?.accepted,
+)
 ```
 
 In `GhostDebugSurface.kt`, render resource-backed labels for `Candidate event` and `Dispatch outcome`, plus resource-backed `Not resolved`, `Rejected`, and `Accepted` values. Add translations to all three resource files and render the empty-value resource when `candidateEvent` is null.
@@ -116,7 +119,7 @@ Expected: `GhostDebugSurfaceTest` passes, including rejected-outcome assertions.
 
 - [ ] **Step 5: Add the runner/session-gate regression**
 
-Alongside the existing rejected-Kero interaction tests, establish a resolved mouse-click candidate, take the existing session-gate rejection path, assert `dispatchSurfaceInteraction(...) == false`, then assert `pointerDispatchOutcome("OnMouseClick", false)` equals `REJECTED`.
+Alongside the existing rejected-Kero interaction tests, establish a mouse-click candidate, take the existing session-gate rejection path through the diagnostic runner operation, and assert its returned candidate/outcome faithfully report the runner's gated resolution and rejection. Add a changing-capabilities test double proving the diagnostic candidate is the same candidate used by dispatch.
 
 - [ ] **Step 6: Run relevant JVM tests**
 
