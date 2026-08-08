@@ -8,21 +8,23 @@ object SakuraScriptTokenizer {
     fun tokenize(
         script: String,
         onDiagnostic: (String) -> Unit = {},
-    ): List<DialogueContent> = tokenize(script, false, onDiagnostic)
+    ): List<DialogueContent> = tokenizeInternal(script, false, onDiagnostic).contents
 
     /**
      * Projects a source prefix consumed by playback. Incomplete anchors remain
      * plain, progressively revealed text until their closing token is reached.
      */
     @JvmStatic
-    fun tokenizeRevealed(script: String): List<DialogueContent> = tokenize(script, true) {}
+    fun tokenizeRevealed(script: String): List<DialogueContent> =
+        tokenizeInternal(script, true) {}.contents
 
-    private fun tokenize(
+    internal fun tokenizeInternal(
         script: String,
         allowIncompleteAnchorText: Boolean,
         onDiagnostic: (String) -> Unit,
-    ): List<DialogueContent> {
+    ): SakuraScriptTokenization {
         val segments = linkedMapOf<GhostSpeaker, MutableList<DialogueSegment>>()
+        val interactions = mutableListOf<SakuraScriptInteraction>()
         var speaker = GhostSpeaker.SAKURA
         var sync = false
         var scope = 0
@@ -68,6 +70,10 @@ object SakuraScriptTokenizer {
             val otherSpeaker = if (speaker == GhostSpeaker.SAKURA) GhostSpeaker.KERO else GhostSpeaker.SAKURA
             val target = segments.getOrPut(otherSpeaker) { mutableListOf() }
             if (mirror is DialogueSegment.Text) appendVisible(target, mirror.value) else target += mirror
+        }
+        fun recordChoice(action: DialogueAction, sourceEnd: Int) {
+            if (scope >= 2) return
+            interactions += SakuraScriptInteraction(sourceEnd, scope, speaker, action)
         }
         fun diagnostic(value: String) = onDiagnostic(value)
 
@@ -122,7 +128,9 @@ object SakuraScriptTokenizer {
                         index = bracket.nextIndex
                         val args = splitArguments(bracket.value)
                         if (args.size >= 2) {
-                            emit(DialogueSegment.Choice(choice(args)))
+                            val action = choice(args)
+                            recordChoice(action, index)
+                            emit(DialogueSegment.Choice(action))
                         } else diagnostic("malformed-choice")
                     }
                 }
@@ -270,7 +278,10 @@ object SakuraScriptTokenizer {
                 }
             }
         }
-        return segments.map { (owner, values) -> DialogueContent(owner, values.toList()) }
+        return SakuraScriptTokenization(
+            contents = segments.map { (owner, values) -> DialogueContent(owner, values.toList()) },
+            interactions = interactions.toList(),
+        )
     }
 
     private val DialogueAction.visibleLabel: String

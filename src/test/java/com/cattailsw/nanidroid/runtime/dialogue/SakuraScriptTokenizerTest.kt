@@ -615,6 +615,28 @@ class SakuraScriptTokenizerTest {
         )
     }
 
+    @Test
+    fun tokenizationRetainsChoiceSourceOrderAcrossSpeakerReturns() {
+        val tokenization = SakuraScriptTokenizer.tokenizeWithInteractions(
+            "\\h\\q[A,a]\\u\\q[B,b]\\h\\q[C,c]",
+        )
+
+        assertEquals(listOf("A", "B", "C"), tokenization.interactions.map { it.action.label() })
+        assertEquals(
+            listOf(GhostSpeaker.SAKURA, GhostSpeaker.KERO, GhostSpeaker.SAKURA),
+            tokenization.interactions.map { it.speaker },
+        )
+        Assert.assertTrue(tokenization.interactions.zipWithNext().all { (first, second) ->
+            first.sourceEnd < second.sourceEnd
+        })
+    }
+
     private fun tokenize(script: String, diagnostics: MutableList<String> = mutableListOf()): List<DialogueContent> =
         SakuraScriptTokenizer.tokenize(script, diagnostics::add)
+
+    private fun DialogueAction.label(): String = when (this) {
+        is DialogueAction.Normal -> label
+        is DialogueAction.DirectEvent -> label
+        is DialogueAction.Script -> label
+    }
 }
