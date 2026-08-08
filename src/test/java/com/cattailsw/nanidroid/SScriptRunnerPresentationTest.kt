@@ -736,6 +736,35 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun hiddenScopeInputDoesNotPausePublishOrBlockTrailingVisibleText() {
+        val fixture = fixture(responses = emptyList())
+        val shownInputIds = mutableListOf<String>()
+        fixture.runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) {
+                shownInputIds += id
+            }
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+
+        fixture.runner.addMsgToQueue(arrayOf("\\p2\\![open,inputbox,hidden]\\hAfter\\e"))
+        fixture.runner.run()
+
+        val state = fixture.runner.dialogueStateSnapshot()
+        Assert.assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(DialogueSegment.Text("After")),
+                ),
+            ),
+            state.contents,
+        )
+        Assert.assertEquals(null, state.pendingInput)
+        Assert.assertTrue(shownInputIds.isEmpty())
+    }
+
+    @Test
     fun speakerChangeClearDoesNotDropPriorVisibleChoice() {
         val fixture = fixture(responses = emptyList())
 
