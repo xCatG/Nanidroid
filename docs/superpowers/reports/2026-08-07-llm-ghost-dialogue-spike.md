@@ -54,6 +54,9 @@ The experiment tested five questions:
 
 The implementation is a standalone desktop harness under
 `tools/llm-ghost-spike`. It is deliberately separate from the Android app.
+The reproducible implementation is preserved on the experimental
+[`codex/llm-ghost-dialogue-spike`](https://github.com/xCatG/Nanidroid/tree/codex/llm-ghost-dialogue-spike)
+branch and is not proposed for merge into `master` by this documentation.
 
 Included:
 
