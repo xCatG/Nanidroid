@@ -89,16 +89,19 @@ fun ShellSurface.toSurfaceDefinition(): SurfaceDefinition = SurfaceDefinition(
     width = origW,
     height = origH,
     collisions = canonicalCollisions ?: collisionAreas.values
-        .map { collision ->
+        .mapNotNull { collision ->
+            val endX = inclusiveEndpointOrNull(collision.startX, collision.W) ?: return@mapNotNull null
+            val endY = inclusiveEndpointOrNull(collision.startY, collision.H) ?: return@mapNotNull null
+            val shape = CollisionShape.Rectangle.fromAuthoredOrNull(
+                collision.startX,
+                collision.startY,
+                endX,
+                endY,
+            ) ?: return@mapNotNull null
             SurfaceCollision(
                 id = collision.id,
                 identifier = collision.name.orEmpty(),
-                shape = CollisionShape.Rectangle.fromAuthored(
-                    collision.startX,
-                    collision.startY,
-                    inclusiveEndpoint(collision.startX, collision.W),
-                    inclusiveEndpoint(collision.startY, collision.H),
-                ),
+                shape = shape,
                 authoredOrder = collision.id,
             )
         },
@@ -141,6 +144,6 @@ fun ShellSurface.toSurfaceDefinition(): SurfaceDefinition = SurfaceDefinition(
     transparencyPolicy = transparencyPolicy,
 )
 
-private fun inclusiveEndpoint(start: Int, size: Int): Int = Math.toIntExact(
-    Math.addExact(start.toLong(), size.toLong() - 1L),
-)
+private fun inclusiveEndpointOrNull(start: Int, size: Int): Int? = runCatching {
+    Math.toIntExact(Math.addExact(start.toLong(), size.toLong() - 1L))
+}.getOrNull()
