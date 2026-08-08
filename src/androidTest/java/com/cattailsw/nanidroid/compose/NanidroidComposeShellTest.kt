@@ -1,5 +1,8 @@
 package com.cattailsw.nanidroid.compose
 
+import android.content.pm.ActivityInfo
+import android.os.SystemClock
+import android.view.WindowInsets
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.Button
 import androidx.compose.runtime.mutableStateOf
@@ -18,13 +21,19 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
@@ -44,6 +53,11 @@ import com.cattailsw.nanidroid.durable.OperationStatus
 class NanidroidComposeShellTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @After
+    fun restoreOrientation() {
+        composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
 
     private fun openOverflowMenu() {
         composeRule.onNodeWithTag("appbar-overflow").performClick()
@@ -959,6 +973,73 @@ class NanidroidComposeShellTest {
     }
 
     @Test
+    fun compact_landscape_user_input_keeps_cancel_and_submit_above_the_real_ime() {
+        requestLandscape()
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        showIme()
+        explicitAction("script-user-input-cancel").assertImeSafeAndTappable()
+        explicitAction("script-user-input-confirm").assertImeSafeAndTappable()
+    }
+
+    @Test
+    fun compact_landscape_user_input_cancel_is_reachable_while_the_ime_is_visible() {
+        requestLandscape()
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        showIme()
+        explicitAction("script-user-input-cancel").tap()
+        composeRule.waitForIdle()
+
+        assertEquals(1, fixture.cancelled)
+        assertEquals(emptyList<String>(), fixture.submitted)
+        assertFalse(fixture.open.value)
+    }
+
+    @Test
+    fun compact_landscape_user_input_submit_is_reachable_while_the_ime_is_visible() {
+        requestLandscape()
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        composeRule.onNodeWithTag("script-user-input").performTextReplacement("Cat")
+        showIme()
+        explicitAction("script-user-input-confirm").tap()
+        composeRule.waitForIdle()
+
+        assertEquals(0, fixture.cancelled)
+        assertEquals(listOf("name:Cat"), fixture.submitted)
+        assertFalse(fixture.open.value)
+    }
+
+    @Test
+    fun ime_done_submits_user_input_once() {
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        composeRule.onNodeWithTag("script-user-input").performTextReplacement("Cat")
+        showIme()
+        composeRule.onNodeWithTag("script-user-input").performImeAction()
+        composeRule.waitForIdle()
+
+        assertEquals(0, fixture.cancelled)
+        assertEquals(listOf("name:Cat"), fixture.submitted)
+        assertFalse(fixture.open.value)
+    }
+
+    @Test
+    fun portrait_user_input_keeps_explicit_actions_above_the_real_ime() {
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        showIme()
+        explicitAction("script-user-input-cancel").assertImeSafeAndTappable()
+        explicitAction("script-user-input-confirm").assertImeSafeAndTappable()
+    }
+
+    @Test
     fun script_input_and_choice_callbacks_remain_at_the_runner_boundary() {
         val input = mutableStateOf("")
         var submittedInput = ""
@@ -1035,6 +1116,128 @@ class NanidroidComposeShellTest {
         composeRule.onNodeWithTag("document-switch").performClick()
         composeRule.runOnIdle { assertEquals(true, switched) }
     }
+
+    private fun requestLandscape() {
+        composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        }
+    }
+
+    private fun renderUserInput(fixture: UserInputFixture) {
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = if (fixture.open.value) {
+                    NanidroidSimpleDialog.UserInput(
+                        id = "name",
+                        value = fixture.value.value,
+                        onValueChanged = { fixture.value.value = it },
+                        onSubmit = { id, value -> fixture.submitted += "$id:$value" },
+                        onCancel = { fixture.cancelled++ },
+                    )
+                } else {
+                    null
+                },
+                onDismiss = { fixture.open.value = false },
+            )
+        }
+    }
+
+    private fun showIme() {
+        composeRule.onNodeWithTag("script-user-input").performClick()
+        waitForSettledImeAndDialog()
+    }
+
+    private fun waitForSettledImeAndDialog() {
+        val deadline = SystemClock.elapsedRealtime() + 5_000
+        var previous: ImeDialogGeometry? = null
+        var matchingSamples = 0
+
+        while (SystemClock.elapsedRealtime() < deadline) {
+            composeRule.waitForIdle()
+            val current = currentImeDialogGeometry()
+            if (current != null && current.imeBottom > 0) {
+                matchingSamples = if (current == previous) matchingSamples + 1 else 1
+                if (matchingSamples >= 3) return
+                previous = current
+            } else {
+                previous = null
+                matchingSamples = 0
+            }
+            SystemClock.sleep(100)
+        }
+
+        throw AssertionError("The IME and user-input dialog did not settle within 5 seconds")
+    }
+
+    private fun currentImeDialogGeometry(): ImeDialogGeometry? {
+        val cancel = runCatching {
+            composeRule.onNodeWithTag("script-user-input-cancel")
+                .fetchSemanticsNode()
+                .boundsInWindow
+        }.getOrNull() ?: return null
+        val submit = runCatching {
+            composeRule.onNodeWithTag("script-user-input-confirm")
+                .fetchSemanticsNode()
+                .boundsInWindow
+        }.getOrNull() ?: return null
+        return ImeDialogGeometry(
+            imeBottom = imeBottomInset(),
+            cancelLeft = cancel.left.toInt(),
+            cancelTop = cancel.top.toInt(),
+            cancelRight = cancel.right.toInt(),
+            cancelBottom = cancel.bottom.toInt(),
+            submitLeft = submit.left.toInt(),
+            submitTop = submit.top.toInt(),
+            submitRight = submit.right.toInt(),
+            submitBottom = submit.bottom.toInt(),
+        )
+    }
+
+    private fun explicitAction(tag: String): SemanticsNodeInteraction = composeRule.onNodeWithTag(tag)
+        .assertIsDisplayed()
+
+    private fun SemanticsNodeInteraction.assertImeSafeAndTappable() {
+        val visible = fetchSemanticsNode().boundsInWindow
+        val safeBottom = composeRule.activity.window.decorView.height - imeBottomInset()
+        val minimumTargetHeight = (48 * composeRule.activity.resources.displayMetrics.density).toInt()
+
+        assertTrue("action has no visible bounds", visible.height > 0f)
+        assertTrue("action is covered by the IME: $visible > $safeBottom", visible.bottom <= safeBottom)
+        assertTrue("action has only ${visible.height}px visible", visible.height >= minimumTargetHeight)
+    }
+
+    private fun SemanticsNodeInteraction.tap() {
+        assertImeSafeAndTappable()
+        val bounds = fetchSemanticsNode().boundsInWindow
+        assertTrue("Could not tap explicit dialog action", uiDevice().click(bounds.center.x.toInt(), bounds.center.y.toInt()))
+    }
+
+    private fun imeBottomInset(): Int = composeRule.activity.window.decorView.rootWindowInsets
+        ?.getInsets(WindowInsets.Type.ime())
+        ?.bottom
+        ?: 0
+
+    private fun uiDevice(): UiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+
+    private class UserInputFixture {
+        val open = mutableStateOf(true)
+        val value = mutableStateOf("")
+        val submitted = mutableListOf<String>()
+        var cancelled = 0
+    }
+
+    private data class ImeDialogGeometry(
+        val imeBottom: Int,
+        val cancelLeft: Int,
+        val cancelTop: Int,
+        val cancelRight: Int,
+        val cancelBottom: Int,
+        val submitLeft: Int,
+        val submitTop: Int,
+        val submitRight: Int,
+        val submitBottom: Int,
+    )
 
     private fun stalledRecord(
         id: String,
