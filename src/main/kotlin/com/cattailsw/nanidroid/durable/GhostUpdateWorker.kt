@@ -29,10 +29,11 @@ fun interface GhostUpdateEventSink {
 
 internal class GhostBoundEventSink(
     private val expectedGhostId: String,
-    private val dispatch: (expectedGhostId: String, name: String, references: List<String>) -> Unit,
+    private val dispatch: (expectedGhostId: String, name: String, references: List<String>) -> Boolean,
+    private val onUndelivered: (name: String, references: List<String>) -> Unit = { _, _ -> },
 ) : GhostUpdateEventSink {
     override fun send(name: String, references: List<String>) {
-        dispatch(expectedGhostId, name, references)
+        if (!dispatch(expectedGhostId, name, references)) onUndelivered(name, references)
     }
 }
 
@@ -155,10 +156,25 @@ class GhostUpdateWorker(
             val runner = SScriptRunner.getInstance(applicationContext)
             val events = ShioriGhostUpdateEvents(
                 GhostBoundEventSink(
-                    ghostId,
-                ) { expected, event, references ->
-                    runner.doShioriEventForGhost(expected, ghostRoot, event, references.toTypedArray())
-                },
+                    expectedGhostId = ghostId,
+                    dispatch = { expected, event, references ->
+                        runner.doShioriEventForGhost(expected, ghostRoot, event, references.toTypedArray())
+                    },
+                    onUndelivered = { event, references ->
+                        if (event in TERMINAL_SHIORI_EVENTS) {
+                            supervisor.deferTerminalEvent(
+                                handle,
+                                binding,
+                                GhostUpdateTerminalEvent(
+                                    ghostId,
+                                    ghostRoot.canonicalFile.path,
+                                    event,
+                                    references,
+                                ),
+                            )
+                        }
+                    },
+                ),
             )
             val repository = GhostUpdateRepository(
                 network = AndroidGhostUpdateNetwork(applicationContext),
@@ -254,6 +270,30 @@ class GhostUpdateWorker(
         internal const val INPUT_BASE_URI = "ghost-update-base-uri"
         private const val NO_ATTEMPT = -1L
         private const val WORK_QUERY_TIMEOUT_MILLIS = 1_000L
+        private val TERMINAL_SHIORI_EVENTS = setOf("OnUpdateComplete", "OnUpdateFailure")
+
+        internal fun deliverPendingTerminalEvent(
+            supervisor: DurableOperationSupervisor,
+            ghostId: String,
+            ghostRoot: File,
+            dispatch: (GhostUpdateTerminalEvent) -> Boolean,
+        ): Boolean {
+            val canonicalRoot = ghostRoot.canonicalFile
+            val record = supervisor.records().singleOrNull {
+                it.id == GhostUpdateRepository.canonicalOperationIdFor(canonicalRoot) &&
+                    it.kind == OperationKind.GHOST_UPDATE &&
+                    it.pendingGhostUpdateEvent?.ghostId == ghostId &&
+                    it.pendingGhostUpdateEvent.canonicalRoot == canonicalRoot.path
+            } ?: return false
+            val event = record.pendingGhostUpdateEvent ?: return false
+            val binding = record.externalJob as? ExternalJobBinding.WorkManager ?: return false
+            if (!dispatch(event)) return false
+            return supervisor.clearTerminalEvent(
+                OperationHandle(record.id, record.attemptId),
+                binding,
+                event,
+            )
+        }
 
         internal fun execute(
             supervisor: DurableOperationSupervisor,

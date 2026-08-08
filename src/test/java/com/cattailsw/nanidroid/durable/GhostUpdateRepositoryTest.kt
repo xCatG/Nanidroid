@@ -2164,9 +2164,12 @@ class GhostUpdateRepositoryTest {
     fun `update events never cross a mid-update ghost switch`() {
         var currentGhost: String? = "ghost-a"
         val delivered = mutableListOf<String>()
-        val sink = GhostBoundEventSink("ghost-a") { expected, name, _ ->
-            if (currentGhost == expected) delivered += name
-        }
+        val sink = GhostBoundEventSink("ghost-a", { expected, name, _ ->
+            if (currentGhost != expected) false else {
+                delivered += name
+                true
+            }
+        })
 
         sink.send("OnUpdateReady", emptyList())
         currentGhost = "ghost-b"

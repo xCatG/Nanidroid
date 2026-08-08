@@ -274,6 +274,12 @@ class SharedPreferencesDurableOperationStoreTest {
                 workManager("worker-4"),
                 ExternalJobBinding.DownloadManager(12),
             ),
+            pendingGhostUpdateEvent = GhostUpdateTerminalEvent(
+                "ghost",
+                "/storage/ghost/ghost",
+                "OnUpdateFailure",
+                listOf("network failed", "ghost/master.txt"),
+            ),
         )
         assertTrue(firstStore.putIfAbsent(record))
         assertFalse(firstStore.putIfAbsent(record))

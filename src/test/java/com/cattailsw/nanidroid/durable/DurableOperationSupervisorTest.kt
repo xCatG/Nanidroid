@@ -7,6 +7,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.util.UUID
 
 class DurableOperationSupervisorTest {
@@ -14,6 +15,51 @@ class DurableOperationSupervisorTest {
     private val store = MemoryDurableOperationStore()
     private val cancellation = RecordingCancellation()
     private val supervisor = DurableOperationSupervisor(store, clock, cancellation)
+
+    @Test fun terminalGhostUpdateEventRemainsBoundToItsExactAttemptUntilDelivered() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("ghost-update-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertEquals(event, supervisor.snapshot().single().pendingGhostUpdateEvent)
+        assertFalse(supervisor.clearTerminalEvent(handle("ghost-update", 2), binding, event))
+        assertTrue(supervisor.clearTerminalEvent(handle, binding, event))
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun pendingTerminalEventDispatchesOnlyAfterItsExactGhostIsAttached() {
+        val root = File("build/terminal-event-ghost").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertFalse(
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "other", root) {
+                dispatched += it
+                true
+            },
+        )
+        assertTrue(
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(event), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
 
     @Test fun promptsAt30000WithoutCancelling() {
         supervisor.start(handle("nar-1", 1), OperationKind.NAR_INSTALL, "Extracting", 8)

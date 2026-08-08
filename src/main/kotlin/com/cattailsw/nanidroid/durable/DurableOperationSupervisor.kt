@@ -394,7 +394,33 @@ class DurableOperationSupervisor(
         true
     }
 
+    fun deferTerminalEvent(
+        handle: OperationHandle,
+        binding: ExternalJobBinding.WorkManager,
+        event: GhostUpdateTerminalEvent,
+    ): Boolean = mutate {
+        val current = activeRecord(handle) ?: return@mutate false
+        if (current.kind != OperationKind.GHOST_UPDATE || current.externalJob != binding) return@mutate false
+        store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = event))
+    }
+
+    fun clearTerminalEvent(
+        handle: OperationHandle,
+        binding: ExternalJobBinding.WorkManager,
+        event: GhostUpdateTerminalEvent,
+    ): Boolean = mutate {
+        val current = exactRecord(handle) ?: return@mutate false
+        if (
+            current.kind != OperationKind.GHOST_UPDATE ||
+            current.externalJob != binding ||
+            current.pendingGhostUpdateEvent != event
+        ) return@mutate false
+        store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = null))
+    }
+
     fun snapshot(): List<DurableOperationRecord> = attentionSnapshot().records
+
+    internal fun records(): List<DurableOperationRecord> = synchronized(operationLock) { store.read() }
 
     internal fun attentionSnapshot(): DurableAttentionSnapshot = synchronized(operationLock) {
         val now = clock.nowMillis()
@@ -504,6 +530,10 @@ class DurableOperationSupervisor(
 
     private fun activeRecord(handle: OperationHandle): DurableOperationRecord? = store.read().singleOrNull {
         it.id == handle.operationId && it.attemptId == handle.attemptId && it.status.isActive()
+    }
+
+    private fun exactRecord(handle: OperationHandle): DurableOperationRecord? = store.read().singleOrNull {
+        it.id == handle.operationId && it.attemptId == handle.attemptId
     }
 
     private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)

@@ -224,7 +224,8 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         const val QUARANTINE = "records_corruption_quarantine"
         const val RECOVERY_MARKER = "records_corruption_recovery_required"
         const val MAX_QUARANTINE_CHARS = 16_384
-        const val VERSION = "v2"
+        const val VERSION = "v3"
+        const val PREVIOUS_VERSION = "v2"
         const val LEGACY_VERSION = "v1"
         val operationLock = Any()
         val encoder = Base64.getUrlEncoder().withoutPadding()
@@ -248,6 +249,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 append('\t').append(record.status.name)
                 append('\t').append(if (record.showStallPrompt) "1" else "0")
                 append('\t').append(encoded(record.diagnostics))
+                append('\t').append(encodedTerminalEvent(record.pendingGhostUpdateEvent))
             }
         }
 
@@ -258,7 +260,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
             val lines = value.lineSequence().toList()
             val version = lines.firstOrNull()
-            if (version != VERSION && version != LEGACY_VERSION) {
+            if (version !in setOf(VERSION, PREVIOUS_VERSION, LEGACY_VERSION)) {
                 throw DurableOperationStoreCorruptionException(
                     "unsupported durable operation version: ${version ?: "missing"}",
                 )
@@ -267,6 +269,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 lines.drop(1).forEach { line ->
                     val record = when (version) {
                         VERSION -> decodeRecord(line)
+                        PREVIOUS_VERSION -> decodePreviousRecord(line)
                         LEGACY_VERSION -> decodeLegacyRecord(line)
                         else -> throw DurableOperationStoreCorruptionException(
                             "unsupported durable operation version: $version",
@@ -284,7 +287,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
 
         fun decodeRecord(line: String): DurableOperationRecord = try {
             val fields = line.split('\t')
-            if (fields.size != 11) throw IllegalArgumentException()
+            if (fields.size != 12) throw IllegalArgumentException()
             val id = decoded(fields[0]) ?: throw IllegalArgumentException()
             val binding = when (fields[3]) {
                 "-" -> if (fields[4] == "-") null else throw IllegalArgumentException()
@@ -311,7 +314,16 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 },
                 diagnostics = decodedDiagnostics(fields[10]),
                 externalJobHistory = history,
+                pendingGhostUpdateEvent = decodedTerminalEvent(fields[11]),
             )
+        } catch (_: IllegalArgumentException) {
+            throw DurableOperationStoreCorruptionException("malformed durable operation row")
+        }
+
+        fun decodePreviousRecord(line: String): DurableOperationRecord = try {
+            val fields = line.split('\t')
+            if (fields.size != 11) throw IllegalArgumentException()
+            decodeRecord("${line}\t-")
         } catch (_: IllegalArgumentException) {
             throw DurableOperationStoreCorruptionException("malformed durable operation row")
         }
@@ -371,6 +383,18 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 }
             }.sorted()
             return encoded(canonical.joinToString(","))
+        }
+
+        fun encodedTerminalEvent(event: GhostUpdateTerminalEvent?): String = event?.let {
+            (listOf(it.ghostId, it.canonicalRoot, it.name) + it.references)
+                .joinToString(",") { value -> encoded(value) }
+        } ?: "-"
+
+        fun decodedTerminalEvent(value: String): GhostUpdateTerminalEvent? {
+            if (value == "-") return null
+            val fields = value.split(',').map { field -> decoded(field) ?: throw IllegalArgumentException() }
+            if (fields.size < 3 || fields.take(3).any(String::isEmpty)) throw IllegalArgumentException()
+            return GhostUpdateTerminalEvent(fields[0], fields[1], fields[2], fields.drop(3))
         }
 
         fun decodedHistory(value: String): Set<ExternalJobBinding>? {

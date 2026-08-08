@@ -7,6 +7,8 @@ import android.os.Message
 import android.os.SystemClock
 import android.util.Log
 import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.durable.GhostUpdateWorker
+import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
@@ -263,6 +265,22 @@ open class SScriptRunner internal constructor(
             true
         } else sessionCoordinator.attach(reservation, outgoing, assign)
         if (!assigned) return false
+        newGhost?.let { attachedGhost ->
+            mCtx?.let { context ->
+                GhostUpdateWorker.deliverPendingTerminalEvent(
+                    SharedDurableOperationSupervisor.get(context),
+                    attachedGhost.getGhostId(),
+                    File(attachedGhost.getGhostPath()),
+                ) { event ->
+                    doShioriEventForGhost(
+                        event.ghostId,
+                        File(event.canonicalRoot),
+                        event.name,
+                        event.references.toTypedArray(),
+                    )
+                }
+            }
+        }
         clearedDialogueState?.let(::publishDialogueState)
         if (reservation?.reusedActive == true) return true
         try {
