@@ -11,13 +11,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.click
-import androidx.compose.ui.test.DeviceConfigurationOverride
-import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -30,8 +26,6 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.SemanticsNodeInteraction
-import androidx.compose.ui.test.then
-import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -43,6 +37,7 @@ import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Rule
 import org.junit.Test
+import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadSource
@@ -64,6 +59,7 @@ class NanidroidComposeShellTest {
     @After
     fun restoreOrientation() {
         composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        uiAutomation().executeShellCommand("wm size reset").close()
     }
 
     private fun openOverflowMenu() {
@@ -1047,15 +1043,33 @@ class NanidroidComposeShellTest {
     }
 
     @Test
-    fun user_input_outside_centered_surface_dismisses_presentation_without_cancelling() {
+    fun user_input_surface_padding_does_not_dismiss_presentation() {
         val fixture = UserInputFixture()
         renderUserInput(fixture)
 
-        val actionBounds = explicitAction("script-user-input-cancel").fetchSemanticsNode().boundsInWindow
-        assertTrue("Expected space outside the centered dialog Surface", actionBounds.left > 1f)
+        val surface = userInputSurface().fetchSemanticsNode().boundsInWindow
         assertTrue(
-            "Could not tap outside the centered dialog Surface",
-            uiDevice().click((actionBounds.left / 2f).toInt(), actionBounds.center.y.toInt()),
+            "Could not tap noninteractive Surface padding",
+            uiDevice().click((surface.left + 1f).toInt(), (surface.top + 1f).toInt()),
+        )
+        composeRule.waitForIdle()
+
+        assertTrue("Surface-padding tap dismissed the presentation", fixture.open.value)
+        assertEquals(0, fixture.cancelled)
+        assertEquals(emptyList<String>(), fixture.submitted)
+    }
+
+    @Test
+    fun user_input_dimmed_margin_dismisses_presentation_without_cancelling() {
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        val surface = userInputSurface().fetchSemanticsNode().boundsInWindow
+        val marginX = if (surface.left > 1f) surface.left - 1f else surface.right + 1f
+        assertTrue("Expected a dimmed margin around the centered dialog Surface", marginX >= 0f)
+        assertTrue(
+            "Could not tap the dimmed margin",
+            uiDevice().click(marginX.toInt(), surface.center.y.toInt()),
         )
         composeRule.waitUntil(timeoutMillis = 5_000) { !fixture.open.value }
 
@@ -1064,16 +1078,29 @@ class NanidroidComposeShellTest {
     }
 
     @Test
-    fun narrow_width_large_font_keeps_cancel_and_submit_independently_reachable() {
+    fun user_input_vertical_dimmed_margin_dismisses_presentation_without_cancelling() {
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        val surface = userInputSurface().fetchSemanticsNode().boundsInWindow
+        val marginY = if (surface.top > 1f) surface.top - 1f else surface.bottom + 1f
+        assertTrue("Expected a vertical dimmed margin around the centered dialog Surface", marginY >= 0f)
+        assertTrue(
+            "Could not tap the vertical dimmed margin",
+            uiDevice().click(surface.center.x.toInt(), marginY.toInt()),
+        )
+        composeRule.waitUntil(timeoutMillis = 5_000) { !fixture.open.value }
+
+        assertEquals(0, fixture.cancelled)
+        assertEquals(emptyList<String>(), fixture.submitted)
+    }
+    @Test
+    fun real_narrow_display_keeps_cancel_and_submit_independently_reachable() {
+        setDisplaySize(width = 360, height = 640)
         val cancelFixture = UserInputFixture()
         val activeFixture = mutableStateOf(cancelFixture)
         composeRule.setContent {
-            DeviceConfigurationOverride(
-                DeviceConfigurationOverride.WindowSize(DpSize(180.dp, 360.dp)) then
-                    DeviceConfigurationOverride.FontScale(4f),
-            ) {
-                UserInputFixtureContent(activeFixture.value)
-            }
+            UserInputFixtureContent(activeFixture.value)
         }
 
         val cancel = explicitAction("script-user-input-cancel")
@@ -1259,6 +1286,19 @@ class NanidroidComposeShellTest {
     private fun explicitAction(tag: String): SemanticsNodeInteraction = composeRule.onNodeWithTag(tag)
         .assertIsDisplayed()
 
+    private fun userInputSurface(): SemanticsNodeInteraction = composeRule.onNode(
+        SemanticsMatcher.expectValue(
+            SemanticsProperties.PaneTitle,
+            composeRule.activity.getString(R.string.user_input_dlg_title),
+        ),
+    )
+
+    private fun setDisplaySize(width: Int, height: Int) {
+        uiAutomation().executeShellCommand("wm size ${width}x${height}").close()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.activity.window.decorView.width <= width
+        }
+    }
     private fun SemanticsNodeInteraction.assertImeSafeAndTappable() {
         val visible = fetchSemanticsNode().boundsInWindow
         val safeBottom = composeRule.activity.window.decorView.height - imeBottomInset()
@@ -1300,6 +1340,8 @@ class NanidroidComposeShellTest {
         ?: 0
 
     private fun uiDevice(): UiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+
+    private fun uiAutomation() = InstrumentationRegistry.getInstrumentation().uiAutomation
 
     private class UserInputFixture {
         val open = mutableStateOf(true)

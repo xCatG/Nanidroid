@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.compose
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -142,75 +143,84 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
             decorFitsSystemWindows = false,
         ),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 // safeDrawing includes both system bars and the IME.
                 .safeDrawingPadding()
-                .padding(horizontal = 24.dp, vertical = 16.dp)
-                .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) },
-            contentAlignment = Alignment.Center,
+                .padding(vertical = 16.dp),
         ) {
-            Surface(
+            val horizontalPadding = if (maxWidth >= 160.dp) 24.dp else 0.dp
+            Box(
                 modifier = Modifier
-                    .widthIn(max = 560.dp)
-                    .fillMaxWidth()
-                    .semantics { paneTitle = title },
-                shape = AlertDialogDefaults.shape,
-                color = AlertDialogDefaults.containerColor,
-                tonalElevation = AlertDialogDefaults.TonalElevation,
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) }
+                    .padding(horizontal = horizontalPadding),
+                contentAlignment = Alignment.Center,
             ) {
-                Column(
+                Surface(
                     modifier = Modifier
+                        .widthIn(max = 560.dp)
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
+                        // Consume panel taps so only the surrounding dimmed area dismisses.
+                        .pointerInput(Unit) { detectTapGestures(onTap = {}) }
+                        .semantics { paneTitle = title },
+                    shape = AlertDialogDefaults.shape,
+                    color = AlertDialogDefaults.containerColor,
+                    tonalElevation = AlertDialogDefaults.TonalElevation,
                 ) {
                     Column(
                         modifier = Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState())
-                            .padding(top = 24.dp, bottom = 8.dp),
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
                     ) {
-                        Text(
-                            text = title,
-                            modifier = Modifier.semantics { heading() },
-                            style = MaterialTheme.typography.headlineSmall,
-                        )
-                        Spacer(Modifier.size(16.dp))
-                        OutlinedTextField(
-                            value = dialog.value,
-                            onValueChange = dialog.onValueChanged,
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState())
+                                .padding(top = 24.dp, bottom = 8.dp),
+                        ) {
+                            Text(
+                                text = title,
+                                modifier = Modifier.semantics { heading() },
+                                style = MaterialTheme.typography.headlineSmall,
+                            )
+                            Spacer(Modifier.size(16.dp))
+                            OutlinedTextField(
+                                value = dialog.value,
+                                onValueChange = dialog.onValueChanged,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .testTag("script-user-input"),
+                                label = { Text(title) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { submit() }),
+                            )
+                        }
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(focusRequester)
-                                .testTag("script-user-input"),
-                            label = { Text(title) },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = { submit() }),
-                        )
+                                .padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(
+                                onClick = ::cancel,
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .weight(1f, fill = false)
+                                    .testTag("script-user-input-cancel"),
+                            ) { Text(stringResource(android.R.string.cancel)) }
+                            TextButton(
+                                onClick = ::submit,
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .weight(1f, fill = false)
+                                    .testTag("script-user-input-confirm"),
+                            ) { Text(stringResource(android.R.string.ok)) }
+                        }
                     }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(
-                            onClick = ::cancel,
-                            modifier = Modifier
-                                .heightIn(min = 48.dp)
-                                .testTag("script-user-input-cancel"),
-                        ) { Text(stringResource(android.R.string.cancel)) }
-                        TextButton(
-                            onClick = ::submit,
-                            modifier = Modifier
-                                .heightIn(min = 48.dp)
-                                .testTag("script-user-input-confirm"),
-                        ) { Text(stringResource(android.R.string.ok)) }
-                    }
-                }
-            }
+                }            }
         }
     }
 }
