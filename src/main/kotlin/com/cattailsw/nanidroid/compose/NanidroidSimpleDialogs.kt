@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.compose
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
@@ -145,7 +147,8 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                 .fillMaxSize()
                 // safeDrawing includes both system bars and the IME.
                 .safeDrawingPadding()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) },
             contentAlignment = Alignment.Center,
         ) {
             Surface(

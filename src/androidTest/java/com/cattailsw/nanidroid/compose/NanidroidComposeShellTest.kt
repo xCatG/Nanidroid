@@ -4,15 +4,20 @@ import android.content.pm.ActivityInfo
 import android.os.SystemClock
 import android.view.WindowInsets
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.Composable
 import androidx.compose.material3.Button
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.Text
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -25,6 +30,8 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.then
+import androidx.compose.ui.test.WindowSize
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -1040,6 +1047,56 @@ class NanidroidComposeShellTest {
     }
 
     @Test
+    fun user_input_outside_centered_surface_dismisses_presentation_without_cancelling() {
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        val actionBounds = explicitAction("script-user-input-cancel").fetchSemanticsNode().boundsInWindow
+        assertTrue("Expected space outside the centered dialog Surface", actionBounds.left > 1f)
+        assertTrue(
+            "Could not tap outside the centered dialog Surface",
+            uiDevice().click((actionBounds.left / 2f).toInt(), actionBounds.center.y.toInt()),
+        )
+        composeRule.waitUntil(timeoutMillis = 5_000) { !fixture.open.value }
+
+        assertEquals(0, fixture.cancelled)
+        assertEquals(emptyList<String>(), fixture.submitted)
+    }
+
+    @Test
+    fun narrow_width_large_font_keeps_cancel_and_submit_independently_reachable() {
+        val cancelFixture = UserInputFixture()
+        val activeFixture = mutableStateOf(cancelFixture)
+        composeRule.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.WindowSize(DpSize(180.dp, 360.dp)) then
+                    DeviceConfigurationOverride.FontScale(4f),
+            ) {
+                UserInputFixtureContent(activeFixture.value)
+            }
+        }
+
+        val cancel = explicitAction("script-user-input-cancel")
+        val submit = explicitAction("script-user-input-confirm")
+        assertActionsAreIndependentlyReachable(cancel, submit)
+        cancel.tap()
+        composeRule.waitUntil(timeoutMillis = 5_000) { !cancelFixture.open.value }
+        assertEquals(1, cancelFixture.cancelled)
+        assertEquals(emptyList<String>(), cancelFixture.submitted)
+
+        val submitFixture = UserInputFixture()
+        composeRule.runOnIdle { activeFixture.value = submitFixture }
+        composeRule.waitForIdle()
+        val nextCancel = explicitAction("script-user-input-cancel")
+        val nextSubmit = explicitAction("script-user-input-confirm")
+        assertActionsAreIndependentlyReachable(nextCancel, nextSubmit)
+        nextSubmit.tap()
+        composeRule.waitUntil(timeoutMillis = 5_000) { !submitFixture.open.value }
+        assertEquals(0, submitFixture.cancelled)
+        assertEquals(listOf("name:"), submitFixture.submitted)
+    }
+
+    @Test
     fun script_input_and_choice_callbacks_remain_at_the_runner_boundary() {
         val input = mutableStateOf("")
         var submittedInput = ""
@@ -1126,6 +1183,12 @@ class NanidroidComposeShellTest {
 
     private fun renderUserInput(fixture: UserInputFixture) {
         composeRule.setContent {
+            UserInputFixtureContent(fixture)
+        }
+    }
+
+    @Composable
+    private fun UserInputFixtureContent(fixture: UserInputFixture) {
             NanidroidSimpleDialogHost(
                 dialog = if (fixture.open.value) {
                     NanidroidSimpleDialog.UserInput(
@@ -1140,7 +1203,6 @@ class NanidroidComposeShellTest {
                 },
                 onDismiss = { fixture.open.value = false },
             )
-        }
     }
 
     private fun showIme() {
@@ -1211,6 +1273,25 @@ class NanidroidComposeShellTest {
         assertImeSafeAndTappable()
         val bounds = fetchSemanticsNode().boundsInWindow
         assertTrue("Could not tap explicit dialog action", uiDevice().click(bounds.center.x.toInt(), bounds.center.y.toInt()))
+    }
+
+    private fun assertActionsAreIndependentlyReachable(
+        cancel: SemanticsNodeInteraction,
+        submit: SemanticsNodeInteraction,
+    ) {
+        cancel.assertIsDisplayed()
+        submit.assertIsDisplayed()
+        val cancelBounds = cancel.fetchSemanticsNode().boundsInWindow
+        val submitBounds = submit.fetchSemanticsNode().boundsInWindow
+        val minimumTargetHeight = 48 * composeRule.activity.resources.displayMetrics.density
+
+        assertTrue("Cancel target is too short: ${cancelBounds.height}px", cancelBounds.height >= minimumTargetHeight)
+        assertTrue("Submit target is too short: ${submitBounds.height}px", submitBounds.height >= minimumTargetHeight)
+        assertTrue(
+            "Cancel and submit targets overlap: $cancelBounds / $submitBounds",
+            cancelBounds.right <= submitBounds.left || submitBounds.right <= cancelBounds.left ||
+                cancelBounds.bottom <= submitBounds.top || submitBounds.bottom <= cancelBounds.top,
+        )
     }
 
     private fun imeBottomInset(): Int = composeRule.activity.window.decorView.rootWindowInsets
