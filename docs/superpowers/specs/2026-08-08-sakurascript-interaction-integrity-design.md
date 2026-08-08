@@ -1,6 +1,6 @@
 # SakuraScript Interaction Integrity Design
 
-**Status:** Approved design; awaiting user review of this written specification
+**Status:** Approved direction; revised after independent design review
 
 **Date:** 2026-08-08
 
@@ -10,7 +10,8 @@ Deliver one focused PR for GitHub issues #196, #218, #215, and #200. The PR
 makes every SakuraScript interaction observable through one consistent runtime
 authority: actions appear in the authored order, legacy selection callbacks
 cannot expose actions hidden from Compose, and every playback-pausing input has
-exactly one safe, recoverable host. Passive-mode execution will use the same
+exactly one safe, recoverable host; unsupported-scope input commands do not
+create a paused interaction. Passive-mode execution will use the same
 balanced command syntax that the tokenizer accepts.
 
 The implementation order is #196, #218, #215, then #200. Every behavior is
@@ -24,9 +25,10 @@ lifecycle, errors, and identity/security fencing.
    arbitrary speaker changes.
 2. Make legacy `UICallback.showUserSelection` observe the same visible choices
    as the Compose stage.
-3. Ensure a pending input command always has one actionable UI host for submit
-   or explicit cancel, including an input in an unprojected scope.
-4. Make valid quoted and escaped passive-mode command syntax execute exactly as
+3. Ensure every pending input command has one actionable UI host for submit or
+   explicit cancel, while unsupported-scope input commands remain non-pausing
+   and unprojected.
+4. Make valid quoted passive-mode command syntax execute exactly as
    the tokenizer reports it.
 5. Preserve the current action capability model: object identity for choices,
    one-of claiming, input generations, current-runner checks, and ghost/session
@@ -53,10 +55,10 @@ visible bubble content and control ownership, while `ComposeGhostStageHost`
 renders the resulting controls. `DialogueDialogBinding` binds input and legacy
 dialog actions to the exact runner and input/choice generation they displayed.
 
-The existing input dialog is deliberately transient: outside/back dismissal
-hides only its presentation, while explicit Cancel and submit both verify the
-pending generation and runner identity before resuming playback. The fallback
-in this design reuses that boundary; it must not bypass it.
+The existing supported-scope input dialog is deliberately transient:
+outside/back dismissal hides only its presentation, while explicit Cancel and
+submit both verify the pending generation and runner identity before resuming
+playback. This batch preserves that boundary unchanged.
 
 The defects arise where the same authored controls acquire independent views:
 
@@ -64,8 +66,8 @@ The defects arise where the same authored controls acquire independent views:
   contents, losing cross-speaker source order (#196).
 - The legacy selection callback scans later `\\q` commands with a regular
   expression rather than tracking scopes (#218).
-- An input command can pause legacy playback without emitting a visible
-  `InputBox` segment for a Compose bubble (#215).
+- The #215 contract needs a durable regression: an unsupported-scope input
+  command must remain unprojected and must not pause playback.
 - Runtime passive-mode execution matches one raw spelling, while the tokenizer
   accepts balanced quoted and escaped command arguments (#200).
 
@@ -73,11 +75,13 @@ The defects arise where the same authored controls acquire independent views:
 
 ### Ordered action projection (#196)
 
-Retain a bounded authored encounter order for interactive actions as the
-tokenizer/runner processes a talk. Per-speaker `DialogueContent` remains the
-authority for rendered text and ownership. Pending choices derive from the
-ordered action projection, filtering only unrevealed or retired capabilities;
-they do not derive by flattening grouped speaker content.
+Add a bounded, source-ordered interaction stream to tokenizer output. Each
+entry carries its source position, active scope, speaker, kind, and the exact
+action/spec instance. `AuthoredDialogueScript` retains this stream alongside
+the existing speaker-grouped `DialogueContent`. Per-speaker content remains the
+authority for rendered text and ownership. Pending choices derive from revealed,
+visible stream entries, filtering only retired capabilities; they do not derive
+by flattening grouped speaker content.
 
 `DialogueSpeakerOwnership` continues to associate every choice capability with
 its speaker for bubble placement. Its per-speaker lists are filtered views of
@@ -87,35 +91,40 @@ action identities remain consistent.
 ### Scope-aware legacy selection publication (#218)
 
 When the first visible choice causes the legacy callback to publish, its labels
-and IDs are collected through the same scope-aware command/projection semantics
-used for visible dialogue actions. Commands in scopes `>= 2` are consumed for
-playback compatibility but cannot be included in the callback array.
+and IDs come from a parser-backed, scope-aware remaining-script scan beginning
+at that command. It preserves the callback's intentional forward-looking
+behavior: later visible choices are included before they are revealed in the
+runtime projection. The scan uses the tokenizer's quote, escape, and scope
+rules, returns labels/IDs only (not new capability objects), and excludes
+commands in scopes `>= 2`.
 
 The callback remains a compatibility consumer. It does not own, claim, or
 reconstruct actions, and it remains published once per playback state.
 
-### Unprojected input fallback (#215)
+### Unsupported-scope input safety (#215)
 
-When playback publishes a pending input with no visible projected input control,
-the activity opens one fallback `UserInput` dialog through
-`DialogueDialogBinding`. The fallback is conditional: a supported-scope input
-with an owning bubble keeps its existing bubble-triggered route and does not
-open a duplicate dialog.
+Use #215's explicitly permitted resolution: an input command in a scope that
+does not project dialogue (`>= 2`) is consumed for playback compatibility but
+creates neither `InputBox` content nor `PendingInputState`, and it must not
+pause playback or invoke the legacy input callback. Subsequent supported-scope
+content continues normally.
 
-The fallback stores the existing `DialogueDialogRestoration` identity. Submit
-and explicit Cancel use the binding's current-runner and pending-generation
-checks before `resumeEvt()` and `submitInput`/`dismissInput`. Back/outside
-dismissal remains presentation-only. A stale host after a new input, a ghost
-change, or recreation may not resume or dispatch into a different session.
+Supported-scope input keeps the existing bubble-triggered `UserInput` dialog
+route and its `DialogueDialogBinding` generation, runner-identity, explicit
+Cancel, submit, restoration, and IME protections. This PR intentionally does
+not introduce a fallback dialog: doing so would turn a suppressed control into
+a user-visible interaction and require a new atomic pause/claim protocol to
+avoid a stale-host resume race.
 
 ### Parsed passive-mode execution (#200)
 
-Replace the raw `PASSIVE_MODE` regular-expression decision with a small named
-helper that consumes the already-balanced command arguments at the current
-playback position. It recognizes only the tokenizer's valid two-argument
-`[enter|leave,passivemode]` form after quote/escape decoding. Valid accepted
-forms update runtime passive state; malformed and unsupported commands retain
-their existing non-effect behavior.
+Extract one internal balanced bracket-and-argument parser from the tokenizer's
+current semantics and use it for both tokenization and passive execution. Its
+contract includes quoted arguments, doubled quotes, and `\\]`, `\\,`, and
+`\\\\` decoding. The executor recognizes only the parsed two-argument
+`[enter|leave,passivemode]` form. Valid accepted forms update runtime passive
+state; malformed and unsupported commands retain their existing non-effect
+behavior.
 
 This is deliberately an execution alignment, not a general playback-parser
 migration.
@@ -132,11 +141,10 @@ remaining green.
 | --- | --- | --- | --- |
 | #196a | `\\h\\q[A,a]\\u\\q[B,b]\\h\\q[C,c]` exposes `A, B, C`, not grouped order | Runner dialogue timing/observer test | Ordered pending actions retain source encounter order |
 | #196b | Alternating direct-event and `script:` choices preserve order and still claim by identity | Runner dialogue test | Order metadata does not weaken action capability checks |
-| #218 | A visible `\\q` followed by `\\p2\\q` publishes only the visible label/ID through `UICallback` | Runner callback regression | Scope-aware remaining-choice collection replaces regex-only scan |
-| #215a | `\\p2\\![open,inputbox,id]` pauses playback and opens one recoverable fallback dialog | Activity/dialog-binding test plus runner test where needed | Fallback is offered only when pending input has no projected owner |
-| #215b | Fallback submit, explicit cancel, stale generation/session, recreation, and supported-scope non-duplication remain fenced | Existing dialogue timing/binding tests | Existing generation/runner/restoration binding is reused |
-| #200a | Valid quoted passive-mode arguments alter passive runtime mode | Tokenizer/runner test | Executor consumes parsed balanced arguments |
-| #200b | Escaped argument spellings accepted by the tokenizer behave identically; malformed forms do not change state | Tokenizer/runner test | Parser and executor agree without broadening accepted syntax |
+| #218 | First visible `\\q`, text/wait, later visible `\\q`, then `\\p2\\q` publishes the two visible label/ID pairs once | Runner callback regression | Parser-backed remaining-script scan replaces regex-only scan without losing forward-looking publication |
+| #215 | `\\p2\\![open,inputbox,id]` creates no visible input or pending action, invokes no legacy callback, and does not pause trailing supported-scope text | Runner presentation/callback regression | Unsupported scope remains safely non-interactive while supported input behavior is unchanged |
+| #200a | Valid quoted `\\!["enter",passivemode]` and `\\!["leave",passivemode]` arguments alter passive runtime mode | Table-driven tokenizer/runner test | Tokenizer and executor consume the same parsed arguments |
+| #200b | Escaped/malformed forms that do not decode to the valid two arguments do not change state | Table-driven tokenizer/runner test | Shared parser agrees without broadening accepted syntax |
 
 After every Green step, run its focused test class. After the final refactor,
 run the affected JVM suite and the relevant Compose/instrumentation tests from
@@ -164,14 +172,15 @@ unrelated cleanup commit.
 ## Acceptance Criteria
 
 1. Choices from any alternating Sakura/Kero sequence display and publish in
-   authored order, while each choice remains in its original speaker bubble.
+   authored order, while each choice remains in its original speaker bubble;
+   mixed normal, direct-event, and script actions retain identity-based claims.
 2. Compose and legacy callbacks expose the same visible choices for scripts
    containing hidden scopes.
-3. Any paused input can be submitted or explicitly cancelled by a current,
-   correctly bound host; no stale, duplicate, or unsupported-scope host can
-   dispatch an action.
-4. All valid tokenizer-supported passive-mode forms update runtime passive
-   state, and invalid forms do not.
+3. Every projected pending input can be submitted or explicitly cancelled by a
+   current, correctly bound host; unsupported-scope input commands create no
+   host or paused action and allow trailing playback to continue.
+4. Valid quoted tokenizer-supported passive-mode forms update runtime passive
+   state, and invalid or malformed forms do not.
 5. Existing supported input dialog behavior, IME layout, choice claiming,
    session fencing, and unrelated dialogue/timer behavior remain covered by
    their regression suites.
