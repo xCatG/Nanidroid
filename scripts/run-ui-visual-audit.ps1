@@ -39,6 +39,7 @@ $script:results = [System.Collections.ArrayList]::new()
 $script:runFailure = $null
 $script:captureProvenance = $null
 $script:captureStartedAtUtc = $null
+$script:interactionCapture = $null
 
 function Fail([string]$Message, [string]$Code = 'validation') {
     throw [System.InvalidOperationException]::new("$Code`: $Message")
@@ -904,9 +905,63 @@ function Assert-CaptureProvenance([object]$Captured, [object]$Current) {
     }
 }
 
+function New-InteractionCaptureRecord([object]$Manifest) {
+    Assert-InteractionEvidenceManifestContract $Manifest
+    if ($null -eq $script:ownedEmulator -or $null -eq $script:ownedEmulatorStartTimeUtcTicks) { Fail 'Interaction capture requires the owned emulator session.' 'artifact' }
+    $emulatorProcessId = [int]$script:ownedEmulator.Id
+    $emulatorStartTimeUtcTicks = [long]$script:ownedEmulatorStartTimeUtcTicks
+    if (-not (Test-OwnedProcessIdentity $emulatorProcessId $emulatorStartTimeUtcTicks)) { Fail 'Interaction capture requires the live owned emulator session.' 'artifact' }
+    Assert-CaptureProvenance $script:captureProvenance $script:captureProvenance
+
+    $artifacts = [System.Collections.ArrayList]::new()
+    foreach ($evidence in @($Manifest.interactionEvidence)) {
+        $artifactPath = [string]$evidence.artifactPath
+        $artifact = Resolve-SafeReportArtifactPath $reportRoot $artifactPath $true
+        $artifacts.Add([pscustomobject][ordered]@{
+            artifactPath = $artifactPath
+            sha256 = Assert-Png $artifact
+        }) | Out-Null
+    }
+    return [pscustomobject][ordered]@{
+        session = [pscustomobject][ordered]@{
+            deviceSerial = $DeviceSerial
+            avdName = $AvdName
+            snapshotName = $SnapshotName
+            emulatorProcessId = $emulatorProcessId
+            emulatorStartTimeUtcTicks = $emulatorStartTimeUtcTicks
+        }
+        captureProvenance = $script:captureProvenance
+        artifacts = @($artifacts)
+    }
+}
+
+function Assert-InteractionCaptureRecord([object]$Manifest, [object]$Record, [object]$Session, [object]$Provenance) {
+    Assert-InteractionEvidenceManifestContract $Manifest
+    foreach ($property in @('session', 'captureProvenance', 'artifacts')) {
+        if (-not (Test-Property $Record $property)) { Fail "Interaction capture record lacks '$property'." 'artifact' }
+    }
+    foreach ($property in @('deviceSerial', 'avdName', 'snapshotName', 'emulatorProcessId', 'emulatorStartTimeUtcTicks')) {
+        if (-not (Test-Property $Record.session $property) -or -not (Test-Property $Session $property)) { Fail "Interaction capture session lacks '$property'." 'artifact' }
+        if ([string]$Record.session.$property -cne [string]$Session.$property) { Fail "Interaction capture session '$property' changed." 'artifact' }
+    }
+    Assert-CaptureProvenance $Record.captureProvenance $Provenance
+
+    $expectedEvidence = @($Manifest.interactionEvidence)
+    $artifacts = @($Record.artifacts)
+    if ($artifacts.Count -ne $expectedEvidence.Count) { Fail "Interaction capture requires exactly $($expectedEvidence.Count) artifacts." 'artifact' }
+    for ($index = 0; $index -lt $expectedEvidence.Count; $index++) {
+        $artifact = $artifacts[$index]
+        $artifactPath = [string]$expectedEvidence[$index].artifactPath
+        if (-not (Test-Property $artifact 'artifactPath') -or -not (Test-Property $artifact 'sha256')) { Fail "Interaction capture artifact $($index + 1) lacks a path or SHA-256." 'artifact' }
+        if ([string]$artifact.artifactPath -cne $artifactPath) { Fail "Interaction capture artifact $($index + 1) path changed." 'artifact' }
+        Assert-ReportPngHash $reportRoot $artifactPath ([string]$artifact.sha256) | Out-Null
+    }
+}
+
 function Write-ReportSummary([object]$Manifest, [string]$ManifestHash, [object]$OriginalState, [string]$Status) {
     if (-not $script:reportInitialized) { return }
-    $summary=[pscustomobject][ordered]@{ schemaVersion=2; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; requiredInteractionEvidenceCount=$Manifest.interactionEvidenceCount; interactionEvidenceCount=0; interactionEvidence=@(); status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; captureStartedAtUtc=$script:captureStartedAtUtc; captureProvenance=$script:captureProvenance; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
+    if ($null -ne $script:interactionCapture) { Assert-InteractionCaptureRecord $Manifest $script:interactionCapture $script:interactionCapture.session $script:captureProvenance }
+    $summary=[pscustomobject][ordered]@{ schemaVersion=2; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; requiredInteractionEvidenceCount=$Manifest.interactionEvidenceCount; interactionEvidenceCount=0; interactionEvidence=@(); interactionCapture=$script:interactionCapture; status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; captureStartedAtUtc=$script:captureStartedAtUtc; captureProvenance=$script:captureProvenance; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
     $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $reportRoot 'summary.json') -Encoding UTF8
     $lines=@('# UI visual audit summary','',"- Status: $Status","- Case set: $($Manifest.caseSetVersion)","- Manifest SHA-256: $ManifestHash","- Cases expected: $expectedCaseCount","- Results captured: $($script:results.Count)",'- Manual inspection complete: false','', '| Case | Driver | Screenshot SHA-256 | Layout SHA-256 | Requested | Measured | Stage | Result | Defect |','| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
     foreach ($case in $Manifest.cases) { $row=@($script:results | Where-Object id -eq $case.id | Select-Object -First 1); $r=if($row.Count){$row[0]}else{$null}; $lines += "| $($case.id) | $($case.sourceDriver) | $(if($r){$r.screenshotSha256}else{''}) | $(if($r){$r.layoutSha256}else{''}) | $($case.requested | ConvertTo-Json -Compress) | $(if($r){$r.measured}else{''}) | $(if($r){$r.stage}else{''}) |  |  |" }
@@ -1335,6 +1390,46 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         try { Assert-CaptureProvenance $capturedProvenance $currentProvenance } catch { $failed = $true }
         if (-not $failed) { Fail "Capture provenance $mutation probe unexpectedly passed." 'dry-run' }
     }
+    $interactionCaptureProbeRoot = Join-Path $repoRoot ".superpowers\ui-audit-interaction-capture-$([guid]::NewGuid().ToString('N'))"
+    $previousReportRoot = $script:reportRoot
+    $previousOwnedEmulator = $script:ownedEmulator
+    $previousOwnedEmulatorStartTimeUtcTicks = $script:ownedEmulatorStartTimeUtcTicks
+    $previousCaptureProvenance = $script:captureProvenance
+    $captureProbeProcess = [Diagnostics.Process]::GetCurrentProcess()
+    try {
+        $script:reportRoot = $interactionCaptureProbeRoot
+        $script:ownedEmulator = $captureProbeProcess
+        $script:ownedEmulatorStartTimeUtcTicks = $captureProbeProcess.StartTime.ToUniversalTime().Ticks
+        $script:captureProvenance = $capturedProvenance
+        foreach ($evidence in @($Manifest.interactionEvidence)) {
+            $artifactPath = Resolve-SafeReportArtifactPath $interactionCaptureProbeRoot $evidence.artifactPath $false
+            New-Item -ItemType Directory -Force -Path (Split-Path $artifactPath -Parent) | Out-Null
+            [IO.File]::WriteAllBytes($artifactPath, [byte[]](0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00))
+        }
+        $validInteractionCapture = New-InteractionCaptureRecord $Manifest
+        Assert-InteractionCaptureRecord $Manifest $validInteractionCapture $validInteractionCapture.session $capturedProvenance
+        foreach ($mutation in @('missing-artifact', 'substituted-path', 'duplicate-artifact', 'changed-hash', 'changed-session', 'changed-apk')) {
+            $mutated = $validInteractionCapture | ConvertTo-Json -Depth 16 | ConvertFrom-Json
+            switch ($mutation) {
+                'missing-artifact' { $mutated.artifacts = @($mutated.artifacts | Select-Object -First 1) }
+                'substituted-path' { $mutated.artifacts[0].artifactPath = 'interaction\substituted.png' }
+                'duplicate-artifact' { $mutated.artifacts[1].artifactPath = $mutated.artifacts[0].artifactPath }
+                'changed-hash' { $mutated.artifacts[0].sha256 = ('b' * 64) }
+                'changed-session' { $mutated.session.deviceSerial = 'emulator-9999' }
+                'changed-apk' { $mutated.captureProvenance.debugApkSha256 = ('b' * 64) }
+            }
+            $failed = $false
+            try { Assert-InteractionCaptureRecord $Manifest $mutated $validInteractionCapture.session $capturedProvenance } catch { $failed = $true }
+            if (-not $failed) { Fail "Interaction session-record $mutation probe unexpectedly passed." 'dry-run' }
+        }
+    } finally {
+        $script:reportRoot = $previousReportRoot
+        $script:ownedEmulator = $previousOwnedEmulator
+        $script:ownedEmulatorStartTimeUtcTicks = $previousOwnedEmulatorStartTimeUtcTicks
+        $script:captureProvenance = $previousCaptureProvenance
+        $captureProbeProcess.Dispose()
+        if (Test-Path -LiteralPath $interactionCaptureProbeRoot) { Remove-Item -LiteralPath $interactionCaptureProbeRoot -Recurse -Force }
+    }
     $interactionLabels = @(
         'Touch named collisions and generic transparent canvas.',
         'Mouse primary single-click and double-click.',
@@ -1574,6 +1669,9 @@ try {
         }
     }
     if($script:results.Count-ne$expectedCaseCount){Fail "Final case-count gate expected $expectedCaseCount, got $($script:results.Count)." 'report'}
+    Write-Host 'Capture the two required interaction PNGs from this owned emulator session, then press Enter.'
+    [Console]::ReadLine() | Out-Null
+    $script:interactionCapture = New-InteractionCaptureRecord $uiManifest
 }
 catch { $script:runFailure=$_.Exception.Message }
 finally {
