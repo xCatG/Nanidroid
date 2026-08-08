@@ -96,6 +96,22 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun quotedPassiveModeCommandsChangeTheRuntimeMode() {
+        val runner = SScriptRunner(null)
+        runner.setNoWaitMode(true)
+
+        runner.addMsgToQueue(arrayOf("\\![\"enter\",passivemode]\\e"))
+        runner.run()
+
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+
+        runner.addMsgToQueue(arrayOf("\\![\"leave\",passivemode]\\e"))
+        runner.run()
+
+        Assert.assertFalse(runner.runtimeModeSnapshot().passive)
+    }
+
+    @Test
     fun normalChoiceUsesExactRawHeadersAndFallsBackOnlyAfterNoTalk() {
         val fixture = fixture(responses = listOf(noContent(), noContent()))
 

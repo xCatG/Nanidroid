@@ -15,6 +15,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptCommandParser
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptInteraction
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
 import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
@@ -87,7 +88,6 @@ open class SScriptRunner internal constructor(
         @JvmField val WAIT_UNIT: Long = 50
         @JvmField val WAIT_YEN_E: Long = 1000
         private const val RUN = 42; private const val STOP = 43; private const val INC_CLOCK = 44; private const val CLOCK_STEP = 1000L
-        private val PASSIVE_MODE = Regex("""^\[(enter|leave),passivemode]""")
         @Volatile private var self: SScriptRunner? = null
         private val productionSessionCoordinator = GhostSessionCoordinator()
         private val msgQueue = ConcurrentLinkedQueue<String>()
@@ -596,12 +596,20 @@ open class SScriptRunner internal constructor(
 
     private fun handleExclaim(state: PlaybackState, publishSelection: Boolean): Boolean {
         val remaining = state.msg!!.substring(state.charIndex)
-        val passiveMatch = PASSIVE_MODE.find(remaining)
-        if (passiveMatch != null) {
-            state.charIndex += passiveMatch.value.length
+        val passiveCommand = SakuraScriptCommandParser.readBracket(remaining, 0)?.let { bracket ->
+            SakuraScriptCommandParser.splitArguments(bracket.value)
+                .takeIf { args ->
+                    args.size == 2 &&
+                        args[0] in setOf("enter", "leave") &&
+                        args[1] == "passivemode"
+                }
+                ?.let { args -> args[0] to bracket.nextIndex }
+        }
+        if (passiveCommand != null) {
+            state.charIndex += passiveCommand.second
             synchronized(this) {
                 if (playback === state && state.running) {
-                    passive = passiveMatch.groupValues[1] == "enter"
+                    passive = passiveCommand.first == "enter"
                 }
             }
             return false

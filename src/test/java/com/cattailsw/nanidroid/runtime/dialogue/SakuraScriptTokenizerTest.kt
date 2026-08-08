@@ -587,6 +587,22 @@ class SakuraScriptTokenizerTest {
     }
 
     @Test
+    fun quotedPassiveModeCommandsFollowTheSharedCommandParserContract() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.PassiveMode(entering = true),
+                        DialogueSegment.PassiveMode(entering = false),
+                    ),
+                ),
+            ),
+            tokenize("\\![\"enter\",passivemode]\\![\"leave\",passivemode]\\e"),
+        )
+    }
+
+    @Test
     fun malformedAndUnknownControlsResynchronizeWithoutLeakingOrSwallowingLaterContent() {
         val diagnostics = mutableListOf<String>()
 
