@@ -1,7 +1,7 @@
 # LLM ghost product improvements brief
 
-Date: 2026-08-08  
-Status: proposed product direction  
+Date: 2026-08-08
+Status: proposed product direction
 Related evidence: [LLM-driven ghost dialogue spike report](../reports/2026-08-07-llm-ghost-dialogue-spike.md)
 
 ## Product thesis

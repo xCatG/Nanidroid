@@ -1,7 +1,7 @@
 # LLM-driven ghost dialogue spike report
 
-Date: 2026-08-07  
-Status: complete  
+Date: 2026-08-07
+Status: complete
 Decision: continue the experiment, but do not replace SHIORI
 
 ## Executive conclusion
