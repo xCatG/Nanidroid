@@ -648,6 +648,23 @@ class SakuraScriptTokenizerTest {
         )
     }
 
+    @Test
+    fun remainingVisibleChoicesSkipsScopeCommandsInsideBalancedNonChoicePayloads() {
+        val script = "\\q[A,a]\\![open,inputbox,name,9000,\"\\p2\"]\\q[B,b]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
     private fun tokenize(script: String, diagnostics: MutableList<String> = mutableListOf()): List<DialogueContent> =
         SakuraScriptTokenizer.tokenize(script, diagnostics::add)
 

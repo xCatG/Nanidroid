@@ -59,6 +59,14 @@ object SakuraScriptTokenizer {
                         }
                     }
                 }
+                else -> {
+                    val bracket = readBracket(script, index)
+                    if (bracket != null) {
+                        index = bracket.nextIndex
+                    } else if (script.getOrNull(index) == '[') {
+                        index = resumeAfterMalformedCommand(script, index)
+                    }
+                }
             }
         }
         return choices
