@@ -20,6 +20,7 @@ import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
 import com.cattailsw.nanidroid.compose.debug.DebugPresentation
 import com.cattailsw.nanidroid.compose.debug.GhostDebugSurface
+import com.cattailsw.nanidroid.compose.debug.PointerDispatchOutcome
 import com.cattailsw.nanidroid.compose.debug.SurfaceDebugSelection
 import com.cattailsw.nanidroid.compose.debug.SurfacePointerDebugEvent
 import com.cattailsw.nanidroid.compose.debug.collisionOverlaySpeaker
@@ -238,7 +239,8 @@ private fun FixtureDebugSurface(
             collisionId = 1,
             collisionName = "Face",
             buttonId = 0,
-            eventName = "OnMouseDoubleClick",
+            candidateEvent = "OnMouseDoubleClick",
+            dispatchOutcome = PointerDispatchOutcome.ACCEPTED,
             source = "touch",
         ),
         logs = listOf(
