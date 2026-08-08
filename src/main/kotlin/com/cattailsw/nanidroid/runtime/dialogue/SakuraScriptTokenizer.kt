@@ -1,6 +1,11 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptCommandParser.parseScope
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptCommandParser.readBracket
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptCommandParser.splitArguments
+
+internal data class LegacyChoice(val label: String, val id: String)
 
 /** Incremental, bracket-balanced SakuraScript tokenizer for dialogue-only state. */
 object SakuraScriptTokenizer {
@@ -17,6 +22,47 @@ object SakuraScriptTokenizer {
     @JvmStatic
     fun tokenizeRevealed(script: String): List<DialogueContent> =
         tokenizeInternal(script, true) {}.contents
+
+    internal fun remainingVisibleChoices(
+        script: String,
+        commandStart: Int,
+        initialScope: Int,
+    ): List<LegacyChoice> {
+        val choices = mutableListOf<LegacyChoice>()
+        var scope = initialScope
+        var index = commandStart
+        while (index < script.length) {
+            if (script[index++] != '\\') continue
+            if (index >= script.length) break
+            when (script[index++]) {
+                'h', '0' -> scope = 0
+                'u', '1' -> scope = 1
+                'p' -> {
+                    val scopeResult = parseScope(script, index)
+                    if (scopeResult != null) {
+                        scope = scopeResult.first
+                        index = scopeResult.second
+                    } else if (script.getOrNull(index) == '[') {
+                        val bracket = readBracket(script, index)
+                        index = bracket?.nextIndex ?: resumeAfterMalformedCommand(script, index)
+                    }
+                }
+                'q' -> {
+                    val bracket = readBracket(script, index)
+                    if (bracket == null) {
+                        index = resumeAfterMalformedCommand(script, index)
+                    } else {
+                        index = bracket.nextIndex
+                        val args = splitArguments(bracket.value)
+                        if (scope < 2 && args.size >= 2) {
+                            choices += LegacyChoice(args[0], args[1])
+                        }
+                    }
+                }
+            }
+        }
+        return choices
+    }
 
     internal fun tokenizeInternal(
         script: String,
@@ -380,13 +426,6 @@ object SakuraScriptTokenizer {
         return InputBoxSpec(dispatch, timeout, initial, options, supplement, references, unknown)
     }
 
-    private fun parseScope(script: String, start: Int): Pair<Int, Int>? {
-        val direct = script.getOrNull(start)?.digitToIntOrNull()
-        if (direct != null) return direct to start + 1
-        val bracket = readBracket(script, start) ?: return null
-        return bracket.value.toIntOrNull()?.let { it to bracket.nextIndex }
-    }
-
     private fun consumeDirectDigit(script: String, start: Int): Int =
         if (script.getOrNull(start)?.isDigit() == true) start + 1 else start
 
@@ -470,70 +509,6 @@ object SakuraScriptTokenizer {
             }
         }
         return result.toString()
-    }
-
-    private data class Bracket(val value: String, val nextIndex: Int)
-
-    private fun readBracket(script: String, start: Int): Bracket? {
-        if (script.getOrNull(start) != '[') return null
-        val body = StringBuilder()
-        var index = start + 1
-        var depth = 1
-        var quoted = false
-        while (index < script.length) {
-            val character = script[index++]
-            if (character == '\\' && index < script.length) {
-                val escaped = script[index++]
-                body.append('\\').append(escaped)
-                continue
-            }
-            if (character == '"') {
-                if (quoted && script.getOrNull(index) == '"') {
-                    body.append("\"\"")
-                    index++
-                } else {
-                    quoted = !quoted
-                    body.append(character)
-                }
-                continue
-            }
-            if (!quoted && character == '[') depth++
-            if (!quoted && character == ']') {
-                depth--
-                if (depth == 0) return Bracket(body.toString(), index)
-            }
-            body.append(character)
-        }
-        return null
-    }
-
-    private fun splitArguments(value: String): List<String> {
-        val values = mutableListOf<String>()
-        val current = StringBuilder()
-        var quoted = false
-        var index = 0
-        while (index < value.length) {
-            val character = value[index++]
-            if (character == '\\' && index < value.length) {
-                val escaped = value[index++]
-                if (escaped in setOf(']', '\\', ',')) current.append(escaped)
-                else current.append('\\').append(escaped)
-                continue
-            }
-            if (character == '"') {
-                if (quoted && value.getOrNull(index) == '"') {
-                    current.append('"')
-                    index++
-                } else quoted = !quoted
-                continue
-            }
-            if (character == ',' && !quoted) {
-                values += current.toString()
-                current.setLength(0)
-            } else current.append(character)
-        }
-        values += current.toString()
-        return values
     }
 
     private fun unquote(value: String): String = splitArguments(value).singleOrNull() ?: value

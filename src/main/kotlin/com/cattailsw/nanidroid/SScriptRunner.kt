@@ -716,21 +716,20 @@ open class SScriptRunner internal constructor(
             ucb
         }
         if (callback == null || state.legacyChoiceCallbackPublished || !publishSelection) return false
-        val labels = arrayListOf<String>()
-        val ids = arrayListOf<String>()
-        val remainingChoices = PatternHolders.q_choice_ptrn.matcher(text)
-        if (remainingChoices.find(commandStart)) {
-            do {
-                labels += remainingChoices.group(1)
-                ids += remainingChoices.group(2)
-            } while (remainingChoices.find())
-        }
+        val remainingChoices = SakuraScriptTokenizer.remainingVisibleChoices(
+            script = text,
+            commandStart = commandStart,
+            initialScope = state.scope,
+        )
         state.legacyChoiceCallbackPublished = true
         state.wholeline = true
         playbackHooks.afterSelectionEffectCaptured()
         publishPlaybackEffect(state) {
             if (ucb !== callback) return@publishPlaybackEffect
-            callback?.showUserSelection(labels.toTypedArray(), ids.toTypedArray())
+            callback?.showUserSelection(
+                remainingChoices.map { it.label }.toTypedArray(),
+                remainingChoices.map { it.id }.toTypedArray(),
+            )
         }
         return false
     }

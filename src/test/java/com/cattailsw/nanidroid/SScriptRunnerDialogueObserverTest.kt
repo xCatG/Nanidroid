@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
 import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert.assertEquals
@@ -114,6 +115,43 @@ class SScriptRunnerDialogueObserverTest {
 
         assertFalse(observed.last().contents.isNotEmpty())
         assertEquals(observed.last(), runner.dialogueStateSnapshot())
+    }
+
+    @Test
+    fun legacyChoiceCallbackSkipsHiddenScopeChoicesBeforeLaterChoiceIsRevealed() {
+        val runner = SScriptRunner(
+            null,
+            GhostSessionCoordinator(),
+            MonotonicClock { 10_000L },
+        )
+        runner.setNoWaitMode(true)
+        val callbacks = mutableListOf<Pair<List<String>, List<String>>>()
+        val timeline = mutableListOf<String>()
+        runner.setDialogueStateObserver { state ->
+            if (state.pendingChoices.any { action -> action.choiceLabel() == "B" }) {
+                timeline += "B-revealed"
+            }
+        }
+        runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) = Unit
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
+                callbacks += textlabel.toList() to ids.toList()
+                timeline += "callback"
+            }
+        })
+
+        runner.addMsgToQueue(arrayOf("\\h\\q[A,a]\\p2\\q[H,h]\\p0before\\w1\\q[B,b]\\e"))
+        runner.run()
+
+        assertEquals(listOf(listOf("A", "B") to listOf("a", "b")), callbacks)
+        assertTrue(timeline.indexOf("callback") < timeline.indexOf("B-revealed"))
+    }
+
+    private fun DialogueAction.choiceLabel(): String = when (this) {
+        is DialogueAction.Normal -> label
+        is DialogueAction.DirectEvent -> label
+        is DialogueAction.Script -> label
     }
 
     private class NoTalkShiori : Shiori {

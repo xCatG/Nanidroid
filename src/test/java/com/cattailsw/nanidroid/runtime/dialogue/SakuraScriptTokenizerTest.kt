@@ -631,6 +631,23 @@ class SakuraScriptTokenizerTest {
         })
     }
 
+    @Test
+    fun remainingVisibleChoicesSkipsChoicesInUnsupportedScopes() {
+        val script = "\\q[A,a]\\p2\\q[H,h]\\p0\\q[B,b]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
     private fun tokenize(script: String, diagnostics: MutableList<String> = mutableListOf()): List<DialogueContent> =
         SakuraScriptTokenizer.tokenize(script, diagnostics::add)
 
