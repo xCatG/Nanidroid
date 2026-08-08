@@ -315,6 +315,9 @@ before either current on-device route is measured would add little evidence.
 
 ## Recommended product design
 
+The potential product portfolio and staged feature direction are expanded in
+the [LLM ghost product improvements brief](../specs/2026-08-08-llm-ghost-product-improvements-brief.md).
+
 Do not discard the existing conversation and do not ask the model to replace
 SHIORI. Use a layered policy:
 
