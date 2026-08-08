@@ -15,7 +15,9 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptInteraction
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
+import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
@@ -1171,13 +1173,17 @@ open class SScriptRunner internal constructor(
     private data class AuthoredDialogueScript(
         val script: String,
         val contents: List<com.cattailsw.nanidroid.runtime.dialogue.DialogueContent>,
+        val interactions: List<SakuraScriptInteraction>,
         val pendingInputs: List<PendingInputState>,
         val carriedInput: PendingInputState?,
         val talkId: Long,
     )
 
     private fun recordDialogueScript(script: String): AuthoredDialogueScript? {
-        val contents = SakuraScriptTokenizer.tokenize(script) { LegacyPlatform.debug(TAG, it) }
+        val tokenization = SakuraScriptTokenizer.tokenizeWithInteractions(script) {
+            LegacyPlatform.debug(TAG, it)
+        }
+        val contents = tokenization.contents
         val inputs = contents.asSequence()
             .flatMap { content ->
                 content.segments.asSequence().mapNotNull { segment ->
@@ -1214,6 +1220,7 @@ open class SScriptRunner internal constructor(
                 authored = AuthoredDialogueScript(
                     script,
                     contents,
+                    tokenization.interactions,
                     pendingInputs,
                     carriedInput,
                     dialogueState.talkId,
@@ -1233,19 +1240,34 @@ open class SScriptRunner internal constructor(
         authored ?: return
         val contents = projectDialogue(authored, revealed)
         val visibleSegments = visibleDialogueSegments(contents)
-        val revealedChoices = visibleSegments.mapNotNull { (it as? DialogueSegment.Choice)?.action }
+        val visibleChoiceActions = java.util.Collections.newSetFromMap(
+            IdentityHashMap<DialogueAction, Boolean>(),
+        ).apply {
+            visibleSegments.forEach { segment ->
+                (segment as? DialogueSegment.Choice)?.action?.let(::add)
+            }
+        }
+        val revealedPendingChoices = authored.interactions.asSequence()
+            .filter { interaction ->
+                interaction.sourceEnd <= revealed &&
+                    interaction.scope in 0..1 &&
+                    interaction.action in visibleChoiceActions
+            }
+            .map { it.action }
+            .toList()
         val reachedInputs = visibleSegments.asSequence()
             .mapNotNull { (it as? DialogueSegment.InputBox)?.spec }
             .toList()
         val published = synchronized(this) {
             if (playback !== state || dialogueState.talkId != authored.talkId) return
-            val choices = revealedChoices.filterNot(retiredDialogueChoices::contains)
-            pendingChoiceGeneration = choices.takeIf { it.isNotEmpty() && dialogueState.pendingChoices.isEmpty() }
+            val pendingChoices = revealedPendingChoices.filterNot(retiredDialogueChoices::contains)
+            pendingChoiceGeneration = pendingChoices
+                .takeIf { it.isNotEmpty() && dialogueState.pendingChoices.isEmpty() }
                 ?.let { ++nextChoiceGeneration } ?: pendingChoiceGeneration
             dialogueState = dialogueState.copy(
                 revision = dialogueState.revision + 1,
                 contents = contents,
-                pendingChoices = choices,
+                pendingChoices = pendingChoices,
                 pendingInput = authored.pendingInputs.firstOrNull { pending ->
                     pending.generation !in retiredInputGenerations &&
                         reachedInputs.any { it === pending.spec }

@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import java.util.IdentityHashMap
 
 /**
  * Immutable UI projection that keeps runtime-owned action instances intact.
@@ -9,7 +10,7 @@ import com.cattailsw.nanidroid.runtime.GhostSpeaker
 class DialogueSpeakerOwnership private constructor(
     private val contents: Map<GhostSpeaker, DialogueContent>,
     private val pendingChoices: List<DialogueAction>,
-    private val choiceOwners: List<Pair<DialogueAction, GhostSpeaker>>,
+    private val choiceOwners: Map<DialogueAction, GhostSpeaker>,
     private val pendingInputState: PendingInputState?,
     val pendingInputOwner: GhostSpeaker?,
 ) {
@@ -26,7 +27,7 @@ class DialogueSpeakerOwnership private constructor(
         pendingInputState?.takeIf { pendingInputOwner == speaker }
 
     private fun choiceOwner(action: DialogueAction): GhostSpeaker? =
-        choiceOwners.firstOrNull { (candidate, _) -> candidate === action }?.second
+        choiceOwners[action]
 
     companion object {
         fun from(state: DialogueRuntimeState): DialogueSpeakerOwnership {
@@ -46,11 +47,11 @@ class DialogueSpeakerOwnership private constructor(
                         },
                 )
             }
-            val choiceOwners = buildList {
+            val choiceOwners = IdentityHashMap<DialogueAction, GhostSpeaker>().apply {
                 state.contents.forEach { content ->
                     content.segments.forEach { segment ->
                         val action = (segment as? DialogueSegment.Choice)?.action ?: return@forEach
-                        add(action to content.speaker)
+                        put(action, content.speaker)
                     }
                 }
             }
