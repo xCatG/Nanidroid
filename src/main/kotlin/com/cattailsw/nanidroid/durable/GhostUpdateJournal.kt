@@ -82,52 +82,17 @@ internal object GhostUpdateJournalStore {
     }
 
     /**
-     * Persists a journal only when [file] has no existing occupant. Preparing markers live beside
-     * ghost content, so replacing a same-named file would corrupt a valid installed ghost.
+     * Creates one unique ownership record outside live ghost contents. Unlike a fixed marker
+     * name, this never replaces a user-owned file on external storage. A crash while writing it
+     * leaves only an unreadable sibling temporary, which cannot be mistaken for ownership.
      */
-    fun writeIfAbsent(file: File, journal: GhostUpdateJournal): Boolean = writeIfAbsent(
-        file,
-        journal,
-        ::publishWithoutReplacement,
-    )
-
-    /**
-     * Writes private temporary evidence before publishing it at [file] without replacing any
-     * existing occupant. A process death before publication leaves only the private temporary
-     * file; it never leaves a corrupt ownership marker at [file].
-     */
-    internal fun writeIfAbsent(
-        file: File,
-        journal: GhostUpdateJournal,
-        publish: (File, File) -> Unit,
-    ): Boolean {
+    fun createPrivateMarker(parent: File, journal: GhostUpdateJournal): File {
         if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
-        val parent = file.parentFile ?: throw IOException("journal has no parent")
         if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
             throw IOException("cannot prepare update journal directory")
         }
-        val temporary = File.createTempFile(".nanidroid-journal-", ".tmp", parent)
-        return try {
-            writeContents(temporary, journal)
-            publish(temporary, file)
-            true
-        } catch (_: java.nio.file.FileAlreadyExistsException) {
-            temporary.delete()
-            false
-        } catch (error: Exception) {
-            temporary.delete()
-            throw error
-        }
-    }
-
-    private fun publishWithoutReplacement(temporary: File, file: File) {
-        // ATOMIC_MOVE permits provider-specific replacement behavior when the target exists.
-        // A hard link instead adds the marker name only when it is absent, while keeping the
-        // fully synced temporary inode intact until publication succeeds.
-        java.nio.file.Files.createLink(file.toPath(), temporary.toPath())
-        if (!temporary.delete()) {
-            file.delete()
-            throw IOException("cannot remove private update journal temporary file")
+        return File.createTempFile(".nanidroid-update-owner-", ".tmp", parent).also { marker ->
+            writeContents(marker, journal)
         }
     }
 
@@ -195,20 +160,12 @@ internal object GhostUpdateJournalStore {
 
 internal interface GhostUpdateJournalIo {
     fun write(file: File, journal: GhostUpdateJournal)
-    fun writeIfAbsent(file: File, journal: GhostUpdateJournal): Boolean {
-        if (file.exists()) return false
-        write(file, journal)
-        return true
-    }
     fun read(file: File): GhostUpdateJournal
 
     companion object {
         val DEFAULT = object : GhostUpdateJournalIo {
             override fun write(file: File, journal: GhostUpdateJournal) =
                 GhostUpdateJournalStore.write(file, journal)
-
-            override fun writeIfAbsent(file: File, journal: GhostUpdateJournal) =
-                GhostUpdateJournalStore.writeIfAbsent(file, journal)
 
             override fun read(file: File): GhostUpdateJournal =
                 GhostUpdateJournalStore.read(file)

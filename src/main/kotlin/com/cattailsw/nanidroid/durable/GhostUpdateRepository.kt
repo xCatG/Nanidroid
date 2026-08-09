@@ -847,16 +847,12 @@ class GhostUpdateRepository internal constructor(
         if (transactionRoot.parentFile == null) return false
         val staging = stagingRoot(transactionRoot)
         val journal = preparedJournal(transactionRoot, request)
-        val marker = preparingMarker(request.ghostRoot, transactionRoot)
+        val markerParent = transactionRoot.parentFile!!
+        var marker: File? = null
         var published = false
-        var markerCreated = false
         var stagingCreated = false
         return try {
-            markerCreated = journalIo.writeIfAbsent(
-                marker,
-                journal,
-            )
-            if (!markerCreated) return false
+            marker = GhostUpdateJournalStore.createPrivateMarker(markerParent, journal)
             // A deterministic name alone is not proof of ownership: a valid ghost ID may occupy it.
             if (staging.exists() || !staging.mkdir()) return false
             stagingCreated = true
@@ -869,9 +865,9 @@ class GhostUpdateRepository internal constructor(
         } finally {
             if (!published && stagingCreated) {
                 val stagingRemoved = !staging.exists() || fileOperations.deleteTree(staging)
-                if (stagingRemoved && markerCreated && marker.exists()) marker.delete()
+                if (stagingRemoved) marker?.delete()
             }
-            if (!stagingCreated && markerCreated && marker.exists()) marker.delete()
+            if (!stagingCreated) marker?.delete()
         }
     }
 
@@ -1261,14 +1257,7 @@ class GhostUpdateRepository internal constructor(
                         entry.parentFile?.canonicalFile == storage
                 }
                 .forEach { staging -> sweepVerifiedUnpublishedStaging(storage, staging) }
-            storage.listFiles().orEmpty()
-                .filter { root ->
-                    root.isDirectory &&
-                        !root.name.startsWith(TRANSACTION_PREFIX)
-                }
-                .forEach { root ->
-                    sweepIncompleteOwnedStaging(root)
-                }
+            sweepPrivateOwnershipMarkers(storage)
         }
 
         private fun sweepVerifiedUnpublishedStaging(storage: File, staging: File) {
@@ -1303,47 +1292,39 @@ class GhostUpdateRepository internal constructor(
             }
         }
 
-        /**
-         * A preparing journal inside the live ghost is durable evidence for its exact staging
-         * sibling before the staging journal exists. It prevents a prefix-named live ghost from
-         * being mistaken for another root's residue.
-         */
-        private fun sweepIncompleteOwnedStaging(ghostRoot: File) {
-            withGhostLock(ghostRoot) {
-                val marker = preparingMarker(
-                    ghostRoot,
-                    transactionRoot(ghostRoot, canonicalOperationIdFor(ghostRoot)),
-                )
-                val journal = preparingJournalFor(ghostRoot, marker) ?: return@withGhostLock
-                val staging = stagingRoot(transactionRoot(ghostRoot, journal.operationId))
-                if (stagingJournalFor(ghostRoot.parentFile!!, staging) != null) {
-                    marker.delete()
-                    return@withGhostLock
+        /** Reclaims only authenticated private markers and their empty, exact staging roots. */
+        private fun sweepPrivateOwnershipMarkers(storage: File) {
+            storage.listFiles().orEmpty()
+                .filter { it.isFile && it.name.startsWith(PRIVATE_MARKER_PREFIX) }
+                .forEach { marker ->
+                    val journal = try {
+                        GhostUpdateJournalStore.read(marker)
+                    } catch (_: Exception) {
+                        return@forEach
+                    }
+                    val root = File(journal.ghostRoot).canonicalFile
+                    val transaction = transactionRoot(root, journal.operationId)
+                    if (
+                        root.parentFile != storage ||
+                        journal.operationId != canonicalOperationIdFor(root) ||
+                        journal.phase != CommitPhase.PREPARED ||
+                        journal.files.isNotEmpty() ||
+                        File(journal.candidateRoot).canonicalFile != File(transaction, CANDIDATE).canonicalFile ||
+                        File(journal.backupRoot).canonicalFile != File(transaction, BACKUP).canonicalFile
+                    ) return@forEach
+                    withGhostLock(root) {
+                        val staging = stagingRoot(transaction)
+                        if (stagingJournalFor(storage, staging) != null || !staging.exists()) {
+                            marker.delete()
+                        } else if (
+                            staging.isDirectory &&
+                            !Files.isSymbolicLink(staging.toPath()) &&
+                            staging.listFiles().isNullOrEmpty()
+                        ) {
+                            if (staging.delete()) marker.delete()
+                        }
+                    }
                 }
-                val stagingEmpty = staging.isDirectory &&
-                    !Files.isSymbolicLink(staging.toPath()) &&
-                    staging.listFiles().isNullOrEmpty()
-                if (stagingEmpty) staging.delete()
-                if (!staging.exists() || !stagingEmpty) marker.delete()
-            }
-        }
-
-        private fun preparingJournalFor(ghostRoot: File, marker: File): GhostUpdateJournal? {
-            if (!marker.isFile || Files.isSymbolicLink(marker.toPath())) return null
-            val journal = try {
-                GhostUpdateJournalStore.read(marker)
-            } catch (_: Exception) {
-                return null
-            }
-            val transaction = transactionRoot(ghostRoot, canonicalOperationIdFor(ghostRoot))
-            return journal.takeIf {
-                journal.operationId == canonicalOperationIdFor(ghostRoot) &&
-                    File(journal.ghostRoot).canonicalFile == ghostRoot.canonicalFile &&
-                    File(journal.candidateRoot).canonicalFile == File(transaction, CANDIDATE).canonicalFile &&
-                    File(journal.backupRoot).canonicalFile == File(transaction, BACKUP).canonicalFile &&
-                    journal.phase == CommitPhase.PREPARED &&
-                    journal.files.isEmpty()
-            }
         }
 
         private fun canBootPreparedOldLive(ghostRoot: File): Boolean {
@@ -1791,11 +1772,6 @@ class GhostUpdateRepository internal constructor(
             "$STAGING_PREFIX${transactionRoot.name.removePrefix(TRANSACTION_PREFIX)}",
         ).canonicalFile
 
-        private fun preparingMarker(ghostRoot: File, transactionRoot: File): File = File(
-            ghostRoot.canonicalFile,
-            "$PREPARING_MARKER_PREFIX${transactionRoot.name.removePrefix(TRANSACTION_PREFIX)}",
-        ).canonicalFile
-
         private fun requireDelete(file: File) {
             if (file.exists() && !file.deleteRecursively()) throw IOException("cannot clean update transaction")
         }
@@ -1871,6 +1847,6 @@ class GhostUpdateRepository internal constructor(
 
         private const val TRANSACTION_PREFIX = ".nanidroid-update-"
         private const val STAGING_PREFIX = ".nanidroid-staging-"
-        private const val PREPARING_MARKER_PREFIX = ".nanidroid-update-preparing-"
+        private const val PRIVATE_MARKER_PREFIX = ".nanidroid-update-owner-"
     }
 }

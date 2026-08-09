@@ -417,6 +417,7 @@ class GhostUpdateRepositoryTest {
         assertFalse(staging.exists())
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
         assertFalse(fixture.transactionRoot().exists())
+        assertTrue(fixture.parent.listFiles().orEmpty().none { it.name.startsWith(".nanidroid-update-owner-") })
     }
 
     @Test
@@ -450,7 +451,7 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `update never overwrites a live file at its preparing marker path`() {
+    fun `update ignores a live file at the former preparing marker path`() {
         val fixture = fixture("preparing-marker-occupant")
         fixture.writeLive("ghost/master.txt", "old")
         fixture.network.manifest("ghost/master.txt" to bytes("new"))
@@ -460,9 +461,9 @@ class GhostUpdateRepositoryTest {
         )
         write(marker, bytes("live-marker"))
 
-        assertTrue(fixture.repository().run(fixture.request()) { false } is GhostUpdateResult.Failed)
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), fixture.repository().run(fixture.request()) { false })
 
-        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
         assertBytes("live-marker", marker)
         assertFalse(fixture.transactionRoot().exists())
     }
@@ -535,6 +536,7 @@ class GhostUpdateRepositoryTest {
 
         assertFalse(staging.exists())
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertTrue(fixture.parent.listFiles().orEmpty().none { it.name.startsWith(".nanidroid-update-owner-") })
     }
 
     @Test
@@ -2263,9 +2265,8 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `interrupted preparing marker publication leaves the marker path reusable`() {
+    fun `private ownership marker does not use a fixed live-content path`() {
         val root = temporaryDirectory("interrupted-preparing-marker")
-        val marker = File(root, ".nanidroid-update-preparing-operation")
         val journal = GhostUpdateJournal(
             OperationId("operation"),
             File(root, "live").canonicalPath,
@@ -2275,17 +2276,10 @@ class GhostUpdateRepositoryTest {
             emptyList(),
         )
 
-        try {
-            GhostUpdateJournalStore.writeIfAbsent(marker, journal) { _, _ ->
-                throw SimulatedProcessDeath()
-            }
-            throw AssertionError("simulated process death was not reached")
-        } catch (_: SimulatedProcessDeath) {
-            // The owner dies after the private temporary journal is durable but before publication.
-        }
+        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal)
 
-        assertFalse(marker.exists())
-        assertTrue(GhostUpdateJournalStore.writeIfAbsent(marker, journal))
+        assertTrue(marker.parentFile == root)
+        assertTrue(marker.name.startsWith(".nanidroid-update-owner-"))
         assertEquals(journal, GhostUpdateJournalStore.read(marker))
     }
 
