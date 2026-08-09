@@ -230,6 +230,26 @@ Generated evidence is under `build/reports/ui-audit/` and must not be committed:
 - `summary.json` and `summary.md`; and
 - `manual-inspection.md`.
 
+### Live interaction checkpoint
+
+The capture command does **not** exit before the two interaction PNGs are made.
+After the automated and NAR profiles finish, it installs the audited APK, starts
+the owned emulator session, prints `Capture the two required interaction PNGs
+from this owned emulator session, then press Enter.`, and blocks at that prompt.
+Leave that terminal running. In a second terminal, interact with that same owned
+`emulator-5554` session and create these files before returning to the prompt:
+
+```powershell
+android screen capture --device=emulator-5554 -o build\reports\ui-audit\interaction\extracted-choice-surface.png
+android screen capture --device=emulator-5554 -o build\reports\ui-audit\interaction\snake-otacon-input-ime-visible.png
+```
+
+The first image must show the extracted choice surface; the second must show the
+Snake/Otacon input and IME. Do not copy older artifacts or capture a different
+emulator. Press Enter only after both paths exist: the runner immediately
+rehashes them, records `interaction-capture.json`, and cleans up its owned
+session.
+
 The capture command exits after writing `captured-awaiting-manual-inspection`;
 that status is not a passing audit. The executing reviewer owns
 `manual-inspection.md`. Open every fresh PNG at its original resolution and fill
