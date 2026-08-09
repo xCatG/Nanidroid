@@ -553,6 +553,7 @@ class NarCorpusRuntimeTest {
         private val shiori: Shiori = ShioriFactory.getInstance().getShiori(path, masterDesc, context)
 
         fun getShioriModuleName(): String? = shiori.getModuleName()
+        fun getGhostIdentity(): String = File(path).name
         fun isShioriNotSupported(): Boolean = shiori is NotSupportedShiori
 
         fun requestRaw(
@@ -839,6 +840,15 @@ class NarCorpusRuntimeTest {
             )
             .put("failure", firstFailure)
             .put("sequence", sequence)
+            .put(
+                "postInteractionEvidence",
+                JSONArray().apply {
+                    for (index in 0 until sequence.length()) {
+                        val entries = sequence.getJSONObject(index).optJSONArray("postInteractionEvidence")
+                        if (entries != null) for (entryIndex in 0 until entries.length()) put(entries.get(entryIndex))
+                    }
+                },
+            )
     }
 
     private fun snakeBootLifecycleSequence(
@@ -954,6 +964,10 @@ class NarCorpusRuntimeTest {
 
             val probe = JSONObject()
                 .put("module", shiori.getShioriModuleName() ?: JSONObject.NULL)
+                .put(
+                    "postInteractionEvidence",
+                    structuredPostInteractionEvidence(shiori, method, eventId, references),
+                )
                 .put("method", method.name)
                 .put("eventId", eventId)
                 .put(
@@ -993,6 +1007,7 @@ class NarCorpusRuntimeTest {
             probe
         } catch (error: LinkageError) {
             JSONObject()
+                .put("postInteractionEvidence", structuredPostInteractionEvidence(shiori, method, eventId, references))
                 .put("method", method.name)
                 .put("eventId", eventId)
                 .put(
@@ -1015,6 +1030,7 @@ class NarCorpusRuntimeTest {
                 .put("outcome", "native-linkage-error")
         } catch (error: Exception) {
             JSONObject()
+                .put("postInteractionEvidence", structuredPostInteractionEvidence(shiori, method, eventId, references))
                 .put("method", method.name)
                 .put("eventId", eventId)
                 .put(
@@ -1036,6 +1052,32 @@ class NarCorpusRuntimeTest {
                 .put("failure", error.stackTraceToString())
                 .put("outcome", "request-exception")
         }
+    }
+
+    private fun structuredPostInteractionEvidence(
+        shiori: TestShioriGhost,
+        method: ShioriMethod,
+        eventId: String,
+        references: List<String>,
+    ): JSONArray {
+        if (eventId !in setOf("OnChoiceSelect", "OnChoiceSelectEx", "OnUserInput")) return JSONArray()
+        return JSONArray().put(
+            JSONObject()
+                .put("ghostIdentity", shiori.getGhostIdentity())
+                .put("method", method.name)
+                .put("eventId", eventId)
+                .put("scope", "dialogue")
+                .put("coordinates", JSONObject.NULL)
+                .put("identifier", references.firstOrNull() ?: JSONObject.NULL)
+                .put("button", JSONObject.NULL)
+                .put("source", if (eventId == "OnUserInput") "input" else "choice")
+                .put(
+                    "references",
+                    JSONArray().apply {
+                        for (index in 0..6) put(references.getOrNull(index) ?: JSONObject.NULL)
+                    },
+                ),
+        )
     }
 
     private fun parseShioriSegments(

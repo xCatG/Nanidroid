@@ -380,6 +380,19 @@ function Test-SnakeBootLifecycleSequence {
     return [string]$firstStatus -ne '204' -and -not ($eventIds -contains 'OnBoot')
 }
 
+function Assert-PostInteractionEvidence([object[]]$Evidence) {
+    if (@($Evidence).Count -eq 0) { ThrowIf 'Post-interaction SHIORI evidence is missing.' }
+    foreach ($entry in @($Evidence)) {
+        foreach ($property in @('ghostIdentity', 'method', 'eventId', 'scope', 'coordinates', 'identifier', 'button', 'source', 'references')) {
+            if (-not (Has-Property -Object $entry -Name $property)) { ThrowIf "Post-interaction evidence lacks '$property'." }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$entry.ghostIdentity) -or [string]::IsNullOrWhiteSpace([string]$entry.method)) { ThrowIf 'Post-interaction evidence lacks ghost identity or method.' }
+        if ([string]$entry.eventId -notin @('OnChoiceSelect', 'OnChoiceSelectEx', 'OnUserInput')) { ThrowIf "Unexpected post-interaction event '$($entry.eventId)'." }
+        if ([string]$entry.scope -ne 'dialogue') { ThrowIf "Unexpected post-interaction scope '$($entry.scope)'." }
+        if (@($entry.references).Count -ne 7) { ThrowIf 'Post-interaction evidence must retain References 0 through 6.' }
+    }
+}
+
 function Test-OnlyExpectedTokenizerDiagnostics {
     param(
         [object]$Diagnostics
@@ -1943,6 +1956,19 @@ foreach ($arg in $ProbeArgs) {
     if (-not (Test-SnakeBootLifecycleSequence -Steps $dryRunSnakeFallback -ExpectOnBootFallback $true)) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected the 204 OnBoot fallback sequence.'
     }
+    Assert-PostInteractionEvidence @(
+        [pscustomobject]@{
+            ghostIdentity = 'snake-and-otacon'
+            method = 'GET'
+            eventId = 'OnChoiceSelect'
+            scope = 'dialogue'
+            coordinates = $null
+            identifier = 'choicefirsthehim'
+            button = $null
+            source = 'choice'
+            references = @('choicefirsthehim', $null, $null, $null, $null, $null, $null)
+        }
+    )
     Write-Host 'Dry-run Snake lifecycle sentinel probes passed.'
 
     $dryRunSnakeAggregateSteps = @(
@@ -2663,6 +2689,9 @@ $installed = $false
     }
 
     $snakeSequence = Get-NestedPropertyValue -Object $snakeResult -Path 'dialogueProbe.sequence'
+    $snakePostInteractionEvidence = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeResult -Path 'dialogueProbe.postInteractionEvidence')
+    $snakePostInteractionEvidenceValid = $true
+    try { Assert-PostInteractionEvidence $snakePostInteractionEvidence } catch { $snakePostInteractionEvidenceValid = $false }
     $snakeSequenceSteps = @()
     if ($null -ne $snakeSequence) {
         $snakeSequenceSteps = @($snakeSequence)
@@ -2851,6 +2880,7 @@ $installed = $false
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-394-surface-19-or-40' -Passed $snakeSurfaceLine394FoundForSurface19Or40 -Expected $true -Observed $snakeSurfaceLine394FoundForSurface19Or40 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 394 for surface 19 or 40.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-no-fallback-lifecycle' -Passed $snakeNoFallbackLifecycleValid -Expected 'OnFirstBoot,OnChoiceSelect,OnChoiceSelect (without OnBoot)' -Observed ($snakeSequenceSteps | ForEach-Object { Get-NestedPropertyValue -Object $_ -Path 'eventId' }) -Detail 'Expected the real Snake run to avoid the OnBoot fallback because OnFirstBoot returned a non-204 response.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-sequence-count' -Passed ($snakeSequenceCount -eq 3) -Expected 3 -Observed $snakeSequenceCount -Detail 'Expected Snake and Otacon dialogue sequence to include OnFirstBoot and two choices without OnBoot fallback.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-post-interaction-evidence' -Passed $snakePostInteractionEvidenceValid -Expected 'bounded choice/input event envelopes' -Observed $snakePostInteractionEvidence -Detail 'Expected normalized post-interaction SHIORI evidence with ghost identity, dispatch fields, and References 0 through 6.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-event-id' -Result $snakeStepOnFirstBoot -Path 'eventId' -Expected 'OnFirstBoot' -Detail 'Expected Snake and Otacon dialogue step 1 eventId OnFirstBoot.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-1-event-id' -Result $snakeStepFirstChoiceSelect -Path 'eventId' -Expected 'OnChoiceSelect' -Detail 'Expected Snake and Otacon dialogue step 2 eventId OnChoiceSelect.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-2-event-id' -Result $snakeStepSecondChoiceSelect -Path 'eventId' -Expected 'OnChoiceSelect' -Detail 'Expected Snake and Otacon dialogue step 3 eventId OnChoiceSelect.'
