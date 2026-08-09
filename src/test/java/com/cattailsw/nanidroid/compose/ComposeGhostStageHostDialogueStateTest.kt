@@ -17,6 +17,23 @@ class ComposeGhostStageHostDialogueStateTest {
     }
 
     @Test
+    fun provisionalDialogueStateDoesNotBindTheRestoredBubbleScrollSession() {
+        val host = ComposeGhostStageHost(
+            SurfaceInteractionPort { },
+            SurfacePixelAssets { null },
+        )
+
+        assertEquals("", host.bubbleScrollSessionKey)
+
+        host.updateDialogueState(DialogueRuntimeState(revision = 1L, incarnation = 41L))
+
+        assertEquals(
+            bubbleScrollSessionIdentity(41L),
+            host.bubbleScrollSessionKey,
+        )
+    }
+
+    @Test
     fun hostRejectsLateSnapshotsAcrossRevisionAndSessionIncarnationWhileAcceptingEqualValueReplacement() {
         val host = ComposeGhostStageHost(
             SurfaceInteractionPort { },

@@ -105,6 +105,7 @@ class GhostBubbleScrollMemory private constructor(
     private var unboundMemory = BubbleScrollMemory()
 
     fun memoryFor(sessionKey: String, ghostKey: String): BubbleScrollMemory {
+        if (sessionKey.isEmpty()) return unboundMemory
         if (boundSessionKey != sessionKey) {
             boundSessionKey = sessionKey
             boundGhostKey = null

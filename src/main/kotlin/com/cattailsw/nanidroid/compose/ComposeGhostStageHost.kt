@@ -55,6 +55,13 @@ class ComposeGhostStageHost private constructor(
         private set
     var dialogueState: DialogueRuntimeState by mutableStateOf(DialogueRuntimeState(), neverEqualPolicy())
         private set
+    private var hasDialogueStateSnapshot by mutableStateOf(false)
+
+    internal val bubbleScrollSessionKey: String
+        get() = dialogueState
+            .takeIf { hasDialogueStateSnapshot }
+            ?.let { bubbleScrollSessionIdentity(it.incarnation) }
+            .orEmpty()
 
     fun updateDialogueState(state: DialogueRuntimeState) {
         val current = dialogueState
@@ -63,6 +70,7 @@ class ComposeGhostStageHost private constructor(
             (state.incarnation == current.incarnation && state.revision >= current.revision)
         ) {
             dialogueState = state
+            hasDialogueStateSnapshot = true
         }
     }
     private var activeSurfaceManager: SurfaceManager? by mutableStateOf(null)
@@ -182,7 +190,7 @@ class ComposeGhostStageHost private constructor(
             keroComposedSurface = keroComposed,
             measureState = stageMeasureState,
             ghostKey = activeGhostKey,
-            bubbleScrollSessionKey = bubbleScrollSessionIdentity(dialogue.incarnation),
+            bubbleScrollSessionKey = bubbleScrollSessionKey,
             ghostIdentity = manager ?: NoGhostIdentity,
             blockingInput = blockingInput(),
             ghostIdentityProvider = { activeSurfaceManager ?: NoGhostIdentity },
