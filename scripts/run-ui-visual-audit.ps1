@@ -910,8 +910,11 @@ function Assert-CaptureProvenance([object]$Captured, [object]$Current) {
     }
 }
 
-function Get-PackageCleanupAction([string]$PackagePathOutput) {
-    if ($PackagePathOutput -match '(?m)^package:') {
+function Get-PackageCleanupAction([object]$PackagePathProbe) {
+    if ([int]$PackagePathProbe.exitCode -ne 0) {
+        throw "Package-state probe failed: exit=$($PackagePathProbe.exitCode) output=$([string]$PackagePathProbe.output) error=$([string]$PackagePathProbe.error)"
+    }
+    if ([string]$PackagePathProbe.output -match '(?m)^package:') {
         return [pscustomobject]@{ action = 'uninstall' }
     }
     return [pscustomobject]@{ action = 'skip' }
@@ -1551,8 +1554,11 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         $failed = $false
         try { Assert-AuditedApkHash $auditedApkProbePath $auditedApkProbeHash } catch { $failed = $true }
         if (-not $failed) { Fail 'Mutated audited APK hash revalidation probe unexpectedly passed.' 'dry-run' }
-        if ((Get-PackageCleanupAction '').action -ne 'skip') { Fail 'Absent package cleanup probe should skip uninstall.' 'dry-run' }
-        if ((Get-PackageCleanupAction "package:/data/app/$targetPackage/base.apk").action -ne 'uninstall') { Fail 'Installed package cleanup probe should uninstall.' 'dry-run' }
+        if ((Get-PackageCleanupAction ([pscustomobject]@{ exitCode = 0; output = ''; error = '' })).action -ne 'skip') { Fail 'Absent package cleanup probe should skip uninstall.' 'dry-run' }
+        if ((Get-PackageCleanupAction ([pscustomobject]@{ exitCode = 0; output = "package:/data/app/$targetPackage/base.apk"; error = '' })).action -ne 'uninstall') { Fail 'Installed package cleanup probe should uninstall.' 'dry-run' }
+        $failed = $false
+        try { Get-PackageCleanupAction ([pscustomobject]@{ exitCode = 1; output = ''; error = 'offline' }) | Out-Null } catch { $failed = $_.Exception.Message -match 'Package-state probe failed' }
+        if (-not $failed) { Fail 'Failed package-state cleanup probe unexpectedly skipped uninstall.' 'dry-run' }
         Assert-AuditedPackagePresence "package:/data/app/$targetPackage/base.apk" '1234'
         foreach ($packageProbe in @(@('missing-package', '', '1234'), @('not-running', "package:/data/app/$targetPackage/base.apk", ''))) {
             $failed = $false
@@ -1993,13 +1999,13 @@ finally {
             foreach ($package in @($targetPackage, $testPackage)) {
                 try {
                     $packagePath = Invoke-Adb @('shell', 'pm', 'path', $package) 30 -AllowFailure
-                    if ((Get-PackageCleanupAction $packagePath.output).action -eq 'uninstall') {
+                    if ((Get-PackageCleanupAction $packagePath).action -eq 'uninstall') {
                         $uninstall = Invoke-Adb @('uninstall', $package) 120 -AllowFailure
                         if ($uninstall.exitCode -ne 0 -or $uninstall.output.Trim() -ne 'Success') {
                             throw "exit=$($uninstall.exitCode) output=$($uninstall.output.Trim()) error=$($uninstall.error.Trim())"
                         }
                         $packagePath = Invoke-Adb @('shell', 'pm', 'path', $package) 30 -AllowFailure
-                        if ($packagePath.output -match '(?m)^package:') { throw 'package remains installed after uninstall' }
+                        if ((Get-PackageCleanupAction $packagePath).action -ne 'skip') { throw 'package remains installed after uninstall' }
                     }
                 } catch {
                     $script:cleanupErrors.Add("Uninstall $package failed: $($_.Exception.Message)") | Out-Null
