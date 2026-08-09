@@ -1820,6 +1820,61 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `failure terminal payload is persisted before rollback cleanup`() {
+        val fixture = fixture("failure-terminal-before-cleanup")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("failure-terminal-before-cleanup")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        val failBeforeBackup = object : GhostUpdateFileOperations {
+            override fun rename(source: File, destination: File): Boolean = false
+        }
+        val crashAfterClassification = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                if (journal.phase == CommitPhase.ROLLBACK_CLASSIFIED) throw SimulatedProcessDeath()
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File): GhostUpdateJournal = GhostUpdateJournalStore.read(file)
+        }
+
+        try {
+            fixture.repository(
+                fileOperations = failBeforeBackup,
+                journalIo = crashAfterClassification,
+                onRollbackJournalClassified = { journal, status ->
+                    GhostUpdateWorker.persistRollbackTerminalEvent(
+                        supervisor,
+                        handle,
+                        binding,
+                        journal,
+                        status,
+                    )
+                },
+            ).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The terminal failure record and payload must precede rollback cleanup.
+        }
+
+        assertEquals(OperationStatus.FAILED, store.read().single().status)
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                "ghost-id",
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateFailure",
+                listOf("ghost update failed", "ghost/master.txt"),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
+    }
+
+    @Test
     fun `completion payload survives process death before transaction cleanup and clears after delivery`() {
         val fixture = fixture("terminal-event-before-cleanup")
         fixture.writeLive("ghost/master.txt", "old")
@@ -2967,6 +3022,39 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `recovery retains published journal when terminal event persistence fails`() {
+        val fixture = fixture("recovery-terminal-event-persistence-failure")
+        fixture.writeLive("ghost/master.txt", "new")
+        fixture.writeTransaction("backup/ghost/master.txt", "old")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(5))
+        val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
+        fixture.writeJournal(
+            CommitPhase.PUBLISHED,
+            listOf("ghost/master.txt"),
+            handle.attemptId,
+            binding.uuid,
+            ghostId = "configured-ghost-id",
+        )
+
+        val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            store,
+            queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.FAILED },
+            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            onClassified = { _, _ -> false },
+        )
+
+        assertEquals(RecoveryResult.PublishPending(listOf("ghost/master.txt")), recovery)
+        assertTrue(File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME).isFile)
+    }
+
+    @Test
     fun `rollback classified topologies restore old tree idempotently`() {
         listOf("candidate-backup", "live-backup", "live-candidate", "live-only").forEach { topology ->
             val fixture = fixture("rollback-$topology")
@@ -3046,6 +3134,9 @@ class GhostUpdateRepositoryTest {
             onCommitClassified: (GhostUpdateResult.Completed) -> Boolean = { true },
             onRollbackClassified: (OperationStatus) -> Boolean = { true },
             commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
+            onRollbackJournalClassified: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, status ->
+                onRollbackClassified(status)
+            },
         ) = GhostUpdateRepository(
             network,
             events,
@@ -3055,6 +3146,7 @@ class GhostUpdateRepositoryTest {
             onCommitClassified,
             onRollbackClassified,
             commitGuard,
+            onRollbackJournalClassified = onRollbackJournalClassified,
         )
 
         fun transactionRoot() = GhostUpdateRepository.transactionRootFor(ghostRoot, operationId)

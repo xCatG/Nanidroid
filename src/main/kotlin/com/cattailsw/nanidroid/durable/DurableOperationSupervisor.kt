@@ -394,6 +394,35 @@ class DurableOperationSupervisor(
         true
     }
 
+    /** Atomically terminalizes an exact ghost-update attempt and retains its terminal payload. */
+    fun finishWithTerminalEvent(
+        handle: OperationHandle,
+        binding: ExternalJobBinding.WorkManager,
+        status: OperationStatus,
+        event: GhostUpdateTerminalEvent,
+        diagnostics: String? = null,
+    ): Boolean = mutate {
+        require(status.isTerminal()) { "finish requires a terminal status" }
+        val current = exactRecord(handle) ?: return@mutate false
+        if (current.kind != OperationKind.GHOST_UPDATE || current.externalJob != binding) return@mutate false
+        if (current.status.isTerminal()) {
+            return@mutate current.status == status && current.pendingGhostUpdateEvent == event
+        }
+        if (!store.compareAndSet(
+                current,
+                current.copy(
+                    status = status,
+                    showStallPrompt = false,
+                    diagnostics = diagnostics,
+                    pendingGhostUpdateEvent = event,
+                ),
+            )
+        ) return@mutate false
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
     fun deferTerminalEvent(
         handle: OperationHandle,
         binding: ExternalJobBinding.WorkManager,

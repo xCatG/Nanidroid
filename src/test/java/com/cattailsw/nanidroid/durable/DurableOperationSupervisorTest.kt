@@ -9,6 +9,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class DurableOperationSupervisorTest {
     private val clock = FakeMonotonicClock()
@@ -95,6 +98,45 @@ class DurableOperationSupervisorTest {
         )
 
         assertEquals(listOf(event), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `concurrent terminal event deliveries dispatch the exact payload once`() {
+        val root = File("build/terminal-event-concurrent").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-concurrent-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val dispatched = AtomicInteger()
+
+        val first = Thread {
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                entered.countDown()
+                assertTrue(release.await(5, TimeUnit.SECONDS))
+                dispatched.incrementAndGet()
+                true
+            }
+        }
+        val second = Thread {
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                dispatched.incrementAndGet()
+                true
+            }
+        }
+        first.start()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        second.start()
+        release.countDown()
+        first.join(5_000)
+        second.join(5_000)
+
+        assertFalse(first.isAlive)
+        assertFalse(second.isAlive)
+        assertEquals(1, dispatched.get())
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 

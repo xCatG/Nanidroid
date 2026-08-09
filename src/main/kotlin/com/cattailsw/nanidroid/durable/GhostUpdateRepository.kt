@@ -139,6 +139,9 @@ class GhostUpdateRepository internal constructor(
     private val onRollbackClassified: (OperationStatus) -> Boolean = { true },
     private val commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
     private val recoveryGuard: GhostUpdateRecoveryGuard = GhostUpdateRecoveryGuard.NONE,
+    private val onRollbackJournalClassified: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, status ->
+        onRollbackClassified(status)
+    },
 ) {
     fun run(
         request: GhostUpdateRequest,
@@ -188,7 +191,7 @@ class GhostUpdateRepository internal constructor(
                             OperationStatus.COMPLETED -> onCommitClassified(GhostUpdateResult.Completed(pending.files))
                             OperationStatus.FAILED,
                             OperationStatus.CANCELLED,
-                            -> onRollbackClassified(status)
+                            -> onRollbackJournalClassified(pending, status)
                             else -> false
                         }
                     }
@@ -379,7 +382,7 @@ class GhostUpdateRepository internal constructor(
                         OperationStatus.COMPLETED -> onCommitClassified(GhostUpdateResult.Completed(pending.files))
                         OperationStatus.FAILED,
                         OperationStatus.CANCELLED,
-                        -> onRollbackClassified(status)
+                        -> onRollbackJournalClassified(pending, status)
                         else -> false
                     }
                 },
@@ -474,7 +477,7 @@ class GhostUpdateRepository internal constructor(
                         onCommitClassified(GhostUpdateResult.Completed(pending.files))
                     OperationStatus.FAILED,
                     OperationStatus.CANCELLED,
-                    -> onRollbackClassified(status)
+                    -> onRollbackJournalClassified(pending, status)
                     else -> false
                 }
             },

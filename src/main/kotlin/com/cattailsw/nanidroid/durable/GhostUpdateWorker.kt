@@ -226,6 +226,9 @@ class GhostUpdateWorker(
                                 record.status == status
                         }
                 },
+                onRollbackJournalClassified = { journal, status ->
+                    persistRollbackTerminalEvent(supervisor, handle, binding, journal, status)
+                },
                 commitGuard = object : GhostUpdateCommitGuard {
                     override fun commit(
                         ghostId: String,
@@ -295,6 +298,7 @@ class GhostUpdateWorker(
         private const val NO_ATTEMPT = -1L
         private const val WORK_QUERY_TIMEOUT_MILLIS = 1_000L
         private val TERMINAL_SHIORI_EVENTS = setOf("OnUpdateComplete", "OnUpdateFailure")
+        private val terminalEventDeliveryLock = Any()
 
         /** Persists the completion event before the repository can remove its transaction journal. */
         internal fun persistCompletedTerminalEvent(
@@ -311,25 +315,24 @@ class GhostUpdateWorker(
                 "OnUpdateComplete",
                 listOf("changed", completed.files.joinToString(",")),
             )
-            if (!supervisor.deferTerminalEvent(handle, binding, event)) {
-                return supervisor.records().any { record ->
-                    record.id == handle.operationId &&
-                        record.kind == OperationKind.GHOST_UPDATE &&
-                        record.attemptId == handle.attemptId &&
-                        record.externalJob == binding &&
-                        record.status == OperationStatus.COMPLETED &&
-                        record.pendingGhostUpdateEvent == event
-                }
-            }
-            return supervisor.finish(handle, binding, OperationStatus.COMPLETED) ||
-                supervisor.records().any { record ->
-                    record.id == handle.operationId &&
-                        record.kind == OperationKind.GHOST_UPDATE &&
-                        record.attemptId == handle.attemptId &&
-                        record.externalJob == binding &&
-                        record.status == OperationStatus.COMPLETED &&
-                        record.pendingGhostUpdateEvent == event
-                }
+            return supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event)
+        }
+
+        internal fun persistRollbackTerminalEvent(
+            supervisor: DurableOperationSupervisor,
+            handle: OperationHandle,
+            binding: ExternalJobBinding.WorkManager,
+            journal: GhostUpdateJournal,
+            status: OperationStatus,
+        ): Boolean {
+            if (status != OperationStatus.FAILED) return supervisor.finish(handle, binding, status)
+            val event = GhostUpdateTerminalEvent(
+                journal.ghostId ?: return false,
+                File(journal.ghostRoot).canonicalFile.path,
+                "OnUpdateFailure",
+                listOf("ghost update failed", journal.files.joinToString(",")),
+            )
+            return supervisor.finishWithTerminalEvent(handle, binding, status, event)
         }
 
         /**
@@ -354,30 +357,33 @@ class GhostUpdateWorker(
             ghostRoot: File,
             dispatch: (GhostUpdateTerminalEvent) -> Boolean,
         ): Boolean {
-            val canonicalRoot = ghostRoot.canonicalFile
-            val record = supervisor.records().singleOrNull {
-                it.id == GhostUpdateRepository.canonicalOperationIdFor(canonicalRoot) &&
-                    it.kind == OperationKind.GHOST_UPDATE &&
-                    it.pendingGhostUpdateEvent?.ghostId == ghostId &&
-                    it.pendingGhostUpdateEvent.canonicalRoot == canonicalRoot.path
-            } ?: return false
-            val event = record.pendingGhostUpdateEvent ?: return false
-            val binding = record.externalJob as? ExternalJobBinding.WorkManager ?: return false
-            if (!dispatch(event)) return false
-            return supervisor.clearTerminalEvent(
-                OperationHandle(record.id, record.attemptId),
-                binding,
-                event,
-            )
+            synchronized(terminalEventDeliveryLock) {
+                val canonicalRoot = ghostRoot.canonicalFile
+                val record = supervisor.records().singleOrNull {
+                    it.id == GhostUpdateRepository.canonicalOperationIdFor(canonicalRoot) &&
+                        it.kind == OperationKind.GHOST_UPDATE &&
+                        it.pendingGhostUpdateEvent?.ghostId == ghostId &&
+                        it.pendingGhostUpdateEvent.canonicalRoot == canonicalRoot.path
+                } ?: return false
+                val event = record.pendingGhostUpdateEvent ?: return false
+                val binding = record.externalJob as? ExternalJobBinding.WorkManager ?: return false
+                if (!dispatch(event)) return false
+                return supervisor.clearTerminalEvent(
+                    OperationHandle(record.id, record.attemptId),
+                    binding,
+                    event,
+                )
+            }
         }
 
         internal fun deferRecoveredTerminalEvent(
             supervisor: DurableOperationSupervisor,
             journal: GhostUpdateJournal,
             status: OperationStatus,
-        ) {
+        ): Boolean {
             val root = File(journal.ghostRoot).canonicalFile
-            val ghostId = journal.ghostId ?: return
+            // Older journals have no stable ghost identity, so no safe terminal event exists to retain.
+            val ghostId = journal.ghostId ?: return true
             val event = when (status) {
                 OperationStatus.COMPLETED -> GhostUpdateTerminalEvent(
                     ghostId,
@@ -391,15 +397,19 @@ class GhostUpdateWorker(
                     "OnUpdateFailure",
                     listOf("ghost update recovery failed", journal.files.joinToString(",")),
                 )
-                else -> return
+                else -> return true
             }
-            val attempt = journal.attemptId ?: return
-            val uuid = journal.workManagerUuid ?: return
-            supervisor.deferTerminalEvent(
-                OperationHandle(journal.operationId, attempt),
-                ExternalJobBinding.WorkManager(uuid),
+            val attempt = journal.attemptId ?: return false
+            val uuid = journal.workManagerUuid ?: return false
+            val handle = OperationHandle(journal.operationId, attempt)
+            val binding = ExternalJobBinding.WorkManager(uuid)
+            return supervisor.deferTerminalEvent(
+                handle,
+                binding,
                 event,
-            )
+            ) || supervisor.records().any { record ->
+                record.handle() == handle && record.externalJob == binding && record.pendingGhostUpdateEvent == event
+            }
         }
 
         internal fun execute(
@@ -968,7 +978,7 @@ class GhostUpdateWorker(
             store: DurableOperationStore,
             queryWork: ((UUID) -> RecoveryWorkState)?,
             finish: (GhostUpdateJournal, OperationStatus) -> Boolean,
-            onClassified: (GhostUpdateJournal, OperationStatus) -> Unit = { _, _ -> },
+            onClassified: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, _ -> true },
         ): RecoveryResult = try {
             GhostUpdateRepository.recoverAllBeforeGhostLoad(
                 ghostStorageRoot,
@@ -1030,7 +1040,6 @@ class GhostUpdateWorker(
                     } ?: return@recoverAllBeforeGhostLoad false
                     if (record.status == status || finish(journal, status)) {
                         onClassified(journal, status)
-                        true
                     } else false
                 },
             )
