@@ -171,6 +171,29 @@ class SScriptRunnerDialogueObserverTest {
         assertEquals(listOf(listOf("A", "B") to listOf("a", "b")), callbacks)
     }
 
+    @Test
+    fun legacyChoiceCallbackSkipsChoicesInsideAnchorLabels() {
+        val runner = SScriptRunner(
+            null,
+            GhostSessionCoordinator(),
+            MonotonicClock { 10_000L },
+        )
+        runner.setNoWaitMode(true)
+        val callbacks = mutableListOf<Pair<List<String>, List<String>>>()
+        runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) = Unit
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
+                callbacks += textlabel.toList() to ids.toList()
+            }
+        })
+
+        runner.addMsgToQueue(arrayOf("\\q[A,a]\\_a[id]label \\q[Fake,fake]\\_a\\q[B,b]"))
+        runner.run()
+
+        assertEquals(listOf(listOf("A", "B") to listOf("a", "b")), callbacks)
+    }
+
     private fun DialogueAction.choiceLabel(): String = when (this) {
         is DialogueAction.Normal -> label
         is DialogueAction.DirectEvent -> label

@@ -61,10 +61,17 @@ object SakuraScriptTokenizer {
                 }
                 '_' -> {
                     if (index >= script.length) continue
-                    index++
+                    val underscoreCommand = script[index++]
                     val bracket = readBracket(script, index)
                     if (bracket != null) {
-                        index = bracket.nextIndex
+                        index = if (underscoreCommand == 'a') {
+                            findAnchorClosing(script, bracket.nextIndex)
+                                .takeIf { it >= 0 }
+                                ?.plus(3)
+                                ?: bracket.nextIndex
+                        } else {
+                            bracket.nextIndex
+                        }
                     } else if (script.getOrNull(index) == '[') {
                         index = resumeAfterMalformedCommand(script, index)
                     }

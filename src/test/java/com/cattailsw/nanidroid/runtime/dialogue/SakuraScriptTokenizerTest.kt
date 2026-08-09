@@ -698,6 +698,23 @@ class SakuraScriptTokenizerTest {
         )
     }
 
+    @Test
+    fun remainingVisibleChoicesSkipsChoicesInsideAnchorLabels() {
+        val script = "\\q[A,a]\\_a[id]label \\q[Fake,fake]\\_a\\q[B,b]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
     private fun tokenize(script: String, diagnostics: MutableList<String> = mutableListOf()): List<DialogueContent> =
         SakuraScriptTokenizer.tokenize(script, diagnostics::add)
 
