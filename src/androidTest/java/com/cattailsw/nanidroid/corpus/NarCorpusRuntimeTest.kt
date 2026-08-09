@@ -242,6 +242,29 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun snakeBootLifecycleStopsBeforeInputWhenFallbackChoiceIsUnplayable() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            val primary = eventId == "OnChoiceSelectEx"
+            requests += eventId
+            val fallback = eventId == "OnChoiceSelect"
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", if (primary || fallback) 204 else 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("hasExactValue", fallback)
+                .put("choiceIds", JSONArray())
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnChoiceSelect"),
+            requests,
+        )
+    }
+
+    @Test
     fun snakeBootLifecycleStopsBeforeFaqWhenInputOnlyHasLowercaseValueHeader() {
         val requests = mutableListOf<String>()
 
@@ -1020,19 +1043,23 @@ class NarCorpusRuntimeTest {
             return sequence
         }
 
-        fun probeChoice(label: String, id: String): JSONObject {
+        fun isPlayable(probe: JSONObject): Boolean {
+            val hasExactValue = probe.optBoolean("hasExactValue", probe.optString("value").isNotEmpty())
+            return probe.optInt("status", -1) == 200 && hasExactValue
+        }
+
+        fun probeChoice(label: String, id: String): JSONObject? {
             val primary = probe("OnChoiceSelectEx", listOf(label, id))
             sequence.put(primary)
-            val hasExactValue = primary.optBoolean("hasExactValue", primary.optString("value").isNotEmpty())
-            return if (primary.optInt("status", -1) == 200 && hasExactValue) {
+            return if (isPlayable(primary)) {
                 primary
             } else {
-                probe("OnChoiceSelect", listOf(id)).also(sequence::put)
+                probe("OnChoiceSelect", listOf(id)).also(sequence::put).takeIf(::isPlayable)
             }
         }
 
         val firstChoice = probeChoice(SNAKE_CHOICE_FIRST_HE_HIM_LABEL, SNAKE_CHOICE_FIRST_HE_HIM_ID)
-        if (firstChoice.optString("outcome") == "success") {
+        if (firstChoice != null) {
             val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE, ""))
             sequence.put(input)
             val inputChoiceIds = input.optJSONArray("choiceIds")
