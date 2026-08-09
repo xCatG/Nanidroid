@@ -45,6 +45,7 @@ class SurfaceSelector {
         val excluded = linkedSetOf<Int>()
         var work = 0L
         var exhausted = false
+        var sharedBudgetExhausted = false
         var localExhaustionReported = false
         fun charge(amount: Long): SurfaceBudgetCharge {
             if (amount < 0L || work + amount > MAX_SELECTOR_WORK) {
@@ -53,7 +54,10 @@ class SurfaceSelector {
                 return SurfaceBudgetCharge(accepted = false, report = report)
             }
             val sharedCharge = sharedBudget?.charge(amount)
-            if (sharedCharge != null && !sharedCharge.accepted) return sharedCharge
+            if (sharedCharge != null && !sharedCharge.accepted) {
+                sharedBudgetExhausted = true
+                return sharedCharge
+            }
             work += amount
             return SurfaceBudgetCharge(accepted = true)
         }
@@ -94,8 +98,13 @@ class SurfaceSelector {
                 }
             }
         }
+        val selection = if (sharedBudgetExhausted) {
+            SurfaceSelection(linkedSetOf(), emptySet())
+        } else {
+            SurfaceSelection(included, excluded)
+        }
         return SurfaceSelectorResult(
-            SurfaceSelection(included, excluded),
+            selection,
             mode,
             diagnostics,
             exhausted,
