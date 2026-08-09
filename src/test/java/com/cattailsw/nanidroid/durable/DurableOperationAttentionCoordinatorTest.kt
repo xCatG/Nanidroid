@@ -87,6 +87,34 @@ class DurableOperationAttentionCoordinatorTest {
         assertEquals(30_000L, scheduler.delayMillis)
     }
 
+    @Test fun externallyClearedPromptStartsANewObservationWindow() {
+        val otherSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+
+        assertTrue(otherSupervisor.keepWaiting(handle))
+        clock.value = 60_000L
+        scheduler.runPending()
+
+        assertTrue(notifier.last.isEmpty())
+        assertTrue(coordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(30_000L, scheduler.delayMillis)
+
+        clock.value = 89_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1L, scheduler.delayMillis)
+
+        clock.value = 90_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
     @Test fun restoredAttentionKeepsExactNotificationWhileVisuallySuppressedThenRepublishes() {
         assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
         clock.value = 30_000L

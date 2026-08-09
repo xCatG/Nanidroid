@@ -438,14 +438,15 @@ class DurableOperationSupervisor(
                     } else {
                         record.diagnostics
                     }
+                    val published = record.copy(showStallPrompt = true, diagnostics = diagnostics)
                     val updated = runCatching {
-                        store.compareAndSet(
-                            record,
-                            record.copy(showStallPrompt = true, diagnostics = diagnostics),
-                        )
+                        store.compareAndSet(record, published)
                     }.getOrDefault(false)
-                    if (updated && record.status == OperationStatus.CANCEL_REQUESTED) {
-                        revealedStoppingAttention += handle
+                    if (updated) {
+                        lastObservedRevisions[handle] = published.observationRevision()
+                        if (record.status == OperationStatus.CANCEL_REQUESTED) {
+                            revealedStoppingAttention += handle
+                        }
                     }
                     promptWriteFailed = !updated || promptWriteFailed
                 }
@@ -537,6 +538,7 @@ class DurableOperationSupervisor(
         progress = progress,
         status = status,
         externalJob = externalJob,
+        showStallPrompt = showStallPrompt,
     )
 
     private inline fun mutate(block: () -> Boolean): Boolean {
@@ -657,6 +659,7 @@ class DurableOperationSupervisor(
         val progress: OperationProgress,
         val status: OperationStatus,
         val externalJob: ExternalJobBinding?,
+        val showStallPrompt: Boolean,
     )
 }
 
