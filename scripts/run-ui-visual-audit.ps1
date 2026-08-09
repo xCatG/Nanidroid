@@ -31,6 +31,7 @@ $mainActivity = 'com.cattailsw.nanidroid/.Nanidroid'
 $expectedCaseCount = 67
 $script:adbTransportDead = $false
 $script:ownedEmulator = $null
+$script:ownedEmulatorProcessId = $null
 $script:ownedEmulatorStartTimeUtcTicks = $null
 $script:emulatorWatchdog = $null
 $script:reportInitialized = $false
@@ -40,6 +41,7 @@ $script:runFailure = $null
 $script:captureProvenance = $null
 $script:captureStartedAtUtc = $null
 $script:interactionCapture = $null
+$script:interactionCheckpointPersisted = $false
 
 function Fail([string]$Message, [string]$Code = 'validation') {
     throw [System.InvalidOperationException]::new("$Code`: $Message")
@@ -930,23 +932,48 @@ function New-InteractionCaptureRecord([object]$Manifest) {
             emulatorProcessId = $emulatorProcessId
             emulatorStartTimeUtcTicks = $emulatorStartTimeUtcTicks
         }
+        captureStartedAtUtc = $script:captureStartedAtUtc
         captureProvenance = $script:captureProvenance
         artifacts = @($artifacts)
     }
 }
 
+function Write-InteractionCaptureCheckpoint([object]$Record) {
+    if ($null -eq $Record) { Fail 'Cannot persist a missing interaction capture record.' 'artifact' }
+    $checkpointPath = Join-Path $reportRoot 'interaction-capture.json'
+    [IO.File]::WriteAllText($checkpointPath, ($Record | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+    $script:interactionCheckpointPersisted = Test-Path -LiteralPath $checkpointPath -PathType Leaf
+    if (-not $script:interactionCheckpointPersisted) { Fail 'Interaction capture checkpoint was not persisted.' 'artifact' }
+}
+
+function Assert-AuditedPackagePresence([string]$PackagePathOutput, [string]$PackagePid) {
+    if ($PackagePathOutput -notmatch '(?m)^package:.+') { Fail "Audited package '$targetPackage' is not installed at the interaction checkpoint." 'device' }
+    if ([string]::IsNullOrWhiteSpace($PackagePid)) { Fail "Audited package '$targetPackage' is not running at the interaction checkpoint." 'device' }
+}
+
+function Assert-AuditedPackageAtInteractionCheckpoint {
+    $packagePath = (Invoke-Adb @('shell','pm','path',$targetPackage)).output.Trim()
+    $packagePid = (Invoke-Adb @('shell','pidof',$targetPackage)).output.Trim()
+    Assert-AuditedPackagePresence $packagePath $packagePid
+}
+
+function Start-AuditedPackageAtInteractionCheckpoint {
+    Invoke-Adb @('shell','am','force-stop',$targetPackage) | Out-Null
+    Invoke-Adb @('shell','am','start','-W','-n',$mainActivity) | Out-Null
+    Assert-AuditedPackageAtInteractionCheckpoint
+}
+
 function Assert-InteractionCaptureRecord([object]$Manifest, [object]$Record, [object]$Session, [object]$Provenance) {
     Assert-InteractionEvidenceManifestContract $Manifest
-    foreach ($property in @('session', 'captureProvenance', 'artifacts')) {
+    foreach ($property in @('session', 'captureStartedAtUtc', 'captureProvenance', 'artifacts')) {
         if (-not (Test-Property $Record $property)) { Fail "Interaction capture record lacks '$property'." 'artifact' }
     }
     foreach ($property in @('deviceSerial', 'avdName', 'snapshotName', 'emulatorProcessId', 'emulatorStartTimeUtcTicks')) {
         if (-not (Test-Property $Record.session $property)) { Fail "Interaction capture session lacks '$property'." 'artifact' }
-        if ((Test-Property $Session $property) -and [string]$Record.session.$property -cne [string]$Session.$property) { Fail "Interaction capture session '$property' changed." 'artifact' }
-    }
-    foreach ($property in @('deviceSerial', 'avdName', 'snapshotName')) {
         if (-not (Test-Property $Session $property)) { Fail "Interaction capture verification session lacks '$property'." 'artifact' }
+        if ([string]$Record.session.$property -cne [string]$Session.$property) { Fail "Interaction capture session '$property' changed." 'artifact' }
     }
+    ConvertTo-CaptureStartedAtUtc $Record.captureStartedAtUtc | Out-Null
     Assert-CaptureProvenance $Record.captureProvenance $Provenance
 
     $expectedEvidence = @($Manifest.interactionEvidence)
@@ -964,7 +991,7 @@ function Assert-InteractionCaptureRecord([object]$Manifest, [object]$Record, [ob
 function Write-ReportSummary([object]$Manifest, [string]$ManifestHash, [object]$OriginalState, [string]$Status) {
     if (-not $script:reportInitialized) { return }
     if ($null -ne $script:interactionCapture) { Assert-InteractionCaptureRecord $Manifest $script:interactionCapture $script:interactionCapture.session $script:captureProvenance }
-    $summary=[pscustomobject][ordered]@{ schemaVersion=2; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; requiredInteractionEvidenceCount=$Manifest.interactionEvidenceCount; interactionEvidenceCount=0; interactionEvidence=@(); interactionCapture=$script:interactionCapture; status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; captureStartedAtUtc=$script:captureStartedAtUtc; captureProvenance=$script:captureProvenance; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
+    $summary=[pscustomobject][ordered]@{ schemaVersion=2; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; requiredInteractionEvidenceCount=$Manifest.interactionEvidenceCount; interactionEvidenceCount=0; interactionEvidence=@(); interactionCapture=$script:interactionCapture; status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; ownedEmulatorProcessId=$script:ownedEmulatorProcessId; ownedEmulatorStartTimeUtcTicks=$script:ownedEmulatorStartTimeUtcTicks; captureStartedAtUtc=$script:captureStartedAtUtc; captureProvenance=$script:captureProvenance; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
     $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $reportRoot 'summary.json') -Encoding UTF8
     $lines=@('# UI visual audit summary','',"- Status: $Status","- Case set: $($Manifest.caseSetVersion)","- Manifest SHA-256: $ManifestHash","- Cases expected: $expectedCaseCount","- Results captured: $($script:results.Count)",'- Manual inspection complete: false','', '| Case | Driver | Screenshot SHA-256 | Layout SHA-256 | Requested | Measured | Stage | Result | Defect |','| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
     foreach ($case in $Manifest.cases) { $row=@($script:results | Where-Object id -eq $case.id | Select-Object -First 1); $r=if($row.Count){$row[0]}else{$null}; $lines += "| $($case.id) | $($case.sourceDriver) | $(if($r){$r.screenshotSha256}else{''}) | $(if($r){$r.layoutSha256}else{''}) | $($case.requested | ConvertTo-Json -Compress) | $(if($r){$r.measured}else{''}) | $(if($r){$r.stage}else{''}) |  |  |" }
@@ -1161,13 +1188,20 @@ function Assert-InteractionEvidenceRowsMatchCaptureRecord([object[]]$Interaction
     }
 }
 
-function Assert-ManualInspectionInteractionCapture([object]$Manifest, [object]$Summary, [object[]]$InteractionRows) {
+function Assert-ManualInspectionInteractionCapture([object]$Manifest, [object]$Summary, [object]$CheckpointRecord, [object[]]$InteractionRows) {
     $session = [pscustomobject]@{
         deviceSerial = $Summary.deviceSerial
         avdName = $Summary.avdName
         snapshotName = $Summary.snapshotName
+        emulatorProcessId = $Summary.ownedEmulatorProcessId
+        emulatorStartTimeUtcTicks = $Summary.ownedEmulatorStartTimeUtcTicks
     }
     Assert-InteractionCaptureRecord $Manifest $Summary.interactionCapture $session $Summary.captureProvenance
+    Assert-InteractionCaptureRecord $Manifest $CheckpointRecord $session $Summary.captureProvenance
+    if ((Get-StringSha256 (ConvertTo-CanonicalManifestJson $Summary.interactionCapture)) -cne (Get-StringSha256 (ConvertTo-CanonicalManifestJson $CheckpointRecord))) { Fail 'Interaction capture summary differs from its persisted checkpoint.' 'manual-inspection' }
+    if (-not (Test-Property $Summary 'captureStartedAtUtc')) { Fail 'Capture summary lacks its capture-start timestamp.' 'manual-inspection' }
+    ConvertTo-CaptureStartedAtUtc $Summary.captureStartedAtUtc | Out-Null
+    if ([string]$Summary.interactionCapture.captureStartedAtUtc -cne [string]$Summary.captureStartedAtUtc) { Fail 'Interaction capture start time changed.' 'manual-inspection' }
     Assert-InteractionEvidenceRowsMatchCaptureRecord $InteractionRows $Summary.interactionCapture
 }
 
@@ -1217,7 +1251,8 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     $summaryPath = Join-Path $reportRoot 'summary.json'
     $summaryMarkdownPath = Join-Path $reportRoot 'summary.md'
     $manualPath = Join-Path $reportRoot 'manual-inspection.md'
-    foreach ($path in @($manifestPath, $manifestHashPath, $summaryPath, $summaryMarkdownPath, $manualPath)) {
+    $interactionCheckpointPath = Join-Path $reportRoot 'interaction-capture.json'
+    foreach ($path in @($manifestPath, $manifestHashPath, $summaryPath, $summaryMarkdownPath, $manualPath, $interactionCheckpointPath)) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Fail "Required audit evidence is missing: '$path'." 'manual-inspection' }
     }
 
@@ -1231,6 +1266,7 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     Assert-UiAuditManifest $capturedManifest
 
     $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
+    $interactionCheckpoint = Get-Content -LiteralPath $interactionCheckpointPath -Raw | ConvertFrom-Json
     if ($summary.schemaVersion -ne 2 -or $summary.manifestSha256 -ne $ManifestHash -or $summary.expectedCaseCount -ne $expectedCaseCount -or $summary.resultCount -ne $expectedCaseCount -or $summary.requiredInteractionEvidenceCount -ne $capturedManifest.interactionEvidenceCount) {
         Fail 'Capture summary does not describe the complete current manifest.' 'manual-inspection'
     }
@@ -1256,7 +1292,7 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     $manualRows = Get-ManualAutomatedInspectionRows $resultById $manualText
     if ($manualRows.Count -ne $expectedCaseCount) { Fail "Expected $expectedCaseCount completed manual rows, got $($manualRows.Count)." 'manual-inspection' }
 
-    Assert-ManualInspectionInteractionCapture $capturedManifest $summary $interactionEvidenceRows
+    Assert-ManualInspectionInteractionCapture $capturedManifest $summary $interactionCheckpoint $interactionEvidenceRows
     Assert-CurrentReportPngEvidence $capturedManifest $summary $manualRows $interactionEvidenceRows
 
     $expectedChecklistCount = @(Get-RequiredInteractionChecklistLabels).Count
@@ -1420,12 +1456,15 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $previousOwnedEmulator = $script:ownedEmulator
     $previousOwnedEmulatorStartTimeUtcTicks = $script:ownedEmulatorStartTimeUtcTicks
     $previousCaptureProvenance = $script:captureProvenance
+    $previousCaptureStartedAtUtc = $script:captureStartedAtUtc
+    $previousInteractionCheckpointPersisted = $script:interactionCheckpointPersisted
     $captureProbeProcess = [Diagnostics.Process]::GetCurrentProcess()
     try {
         $script:reportRoot = $interactionCaptureProbeRoot
         $script:ownedEmulator = $captureProbeProcess
         $script:ownedEmulatorStartTimeUtcTicks = $captureProbeProcess.StartTime.ToUniversalTime().Ticks
         $script:captureProvenance = $capturedProvenance
+        $script:captureStartedAtUtc = '2026-08-08T12:34:56.0000000Z'
         foreach ($evidence in @($Manifest.interactionEvidence)) {
             $artifactPath = Resolve-SafeReportArtifactPath $interactionCaptureProbeRoot $evidence.artifactPath $false
             New-Item -ItemType Directory -Force -Path (Split-Path $artifactPath -Parent) | Out-Null
@@ -1433,10 +1472,21 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         }
         $validInteractionCapture = New-InteractionCaptureRecord $Manifest
         Assert-InteractionCaptureRecord $Manifest $validInteractionCapture $validInteractionCapture.session $capturedProvenance
+        if (-not (Test-Property $validInteractionCapture 'captureStartedAtUtc') -or [string]$validInteractionCapture.captureStartedAtUtc -cne $script:captureStartedAtUtc) { Fail 'Interaction session-record lacks its capture-start timestamp.' 'dry-run' }
+        Write-InteractionCaptureCheckpoint $validInteractionCapture
+        if (-not $script:interactionCheckpointPersisted -or -not (Test-Path -LiteralPath (Join-Path $interactionCaptureProbeRoot 'interaction-capture.json') -PathType Leaf)) { Fail 'Interaction capture checkpoint was not persisted before cleanup probes.' 'dry-run' }
+        Assert-AuditedPackagePresence "package:/data/app/$targetPackage/base.apk" '1234'
+        foreach ($packageProbe in @(@('missing-package', '', '1234'), @('not-running', "package:/data/app/$targetPackage/base.apk", ''))) {
+            $failed = $false
+            try { Assert-AuditedPackagePresence $packageProbe[1] $packageProbe[2] } catch { $failed = $true }
+            if (-not $failed) { Fail "Interaction checkpoint package $($packageProbe[0]) probe unexpectedly passed." 'dry-run' }
+        }
         $manualVerificationSession = [pscustomobject]@{
             deviceSerial = $validInteractionCapture.session.deviceSerial
             avdName = $validInteractionCapture.session.avdName
             snapshotName = $validInteractionCapture.session.snapshotName
+            emulatorProcessId = $validInteractionCapture.session.emulatorProcessId
+            emulatorStartTimeUtcTicks = $validInteractionCapture.session.emulatorStartTimeUtcTicks
         }
         $failed = $false
         try { Assert-InteractionCaptureRecord $Manifest $validInteractionCapture $manualVerificationSession $capturedProvenance } catch { $failed = $true }
@@ -1468,6 +1518,9 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             deviceSerial = $validInteractionCapture.session.deviceSerial
             avdName = $validInteractionCapture.session.avdName
             snapshotName = $validInteractionCapture.session.snapshotName
+            ownedEmulatorProcessId = $validInteractionCapture.session.emulatorProcessId
+            ownedEmulatorStartTimeUtcTicks = $validInteractionCapture.session.emulatorStartTimeUtcTicks
+            captureStartedAtUtc = $validInteractionCapture.captureStartedAtUtc
         }
         $manualCompletionProbeRoot = Join-Path $repoRoot ".superpowers\ui-audit-manual-completion-$([guid]::NewGuid().ToString('N'))"
         $previousCompletionReportRoot = $script:reportRoot
@@ -1479,6 +1532,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
                 New-Item -ItemType Directory -Force -Path (Split-Path $artifactPath -Parent) | Out-Null
                 [IO.File]::WriteAllBytes($artifactPath, [byte[]](0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00))
             }
+            Write-InteractionCaptureCheckpoint $validInteractionCapture
             $capturedManifestJson = ConvertTo-CanonicalManifestJson $Manifest
             [IO.File]::WriteAllText((Join-Path $manualCompletionProbeRoot 'case-manifest.json'), $capturedManifestJson, [Text.UTF8Encoding]::new($false))
             Set-Content -LiteralPath (Join-Path $manualCompletionProbeRoot 'case-manifest.sha256') -Value $ManifestHash -Encoding Ascii
@@ -1492,20 +1546,29 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             function Resolve-Git { return 'dry-run-git' }
             function Resolve-DebugApk { return 'dry-run-debug.apk' }
             function Get-CurrentCaptureProvenance { return $manualCompletionCurrentProvenance }
-            foreach ($mutation in @('missing-record', 'changed-checkpoint-hash', 'mismatched-manual-hash')) {
+            foreach ($mutation in @('missing-record', 'changed-checkpoint-hash', 'mismatched-manual-hash', 'changed-process-id', 'changed-process-start', 'missing-capture-start', 'changed-capture-start')) {
                 $mutatedSummary = $manualCompletionSummary | ConvertTo-Json -Depth 16 | ConvertFrom-Json
                 $mutatedManualText = $manualText
                 $expectedError = switch ($mutation) {
                     'missing-record' { "Interaction capture record lacks 'session'" }
                     'changed-checkpoint-hash' { 'hash changed' }
                     'mismatched-manual-hash' { 'checkpointed-hash mismatch' }
+                    'changed-process-id' { "Interaction capture session 'emulatorProcessId' changed" }
+                    'changed-process-start' { "Interaction capture session 'emulatorStartTimeUtcTicks' changed" }
+                    'missing-capture-start' { 'Capture summary timestamp lacks an explicit UTC offset' }
+                    'changed-capture-start' { 'Interaction capture start time changed' }
                 }
                 switch ($mutation) {
                     'missing-record' { $mutatedSummary.interactionCapture = $null }
                     'changed-checkpoint-hash' { $mutatedSummary.interactionCapture.artifacts[0].sha256 = ('b' * 64) }
                     'mismatched-manual-hash' { $mutatedManualText = $mutatedManualText.Replace($checkpointedInteractionRows[0].artifactSha256, ('b' * 64)) }
+                    'changed-process-id' { $mutatedSummary.ownedEmulatorProcessId = 999999 }
+                    'changed-process-start' { $mutatedSummary.ownedEmulatorStartTimeUtcTicks = 1 }
+                    'missing-capture-start' { $mutatedSummary.PSObject.Properties.Remove('captureStartedAtUtc') }
+                    'changed-capture-start' { $mutatedSummary.captureStartedAtUtc = '2026-08-08T12:34:57.0000000Z' }
                 }
                 $results = @($Manifest.cases | ForEach-Object { [pscustomobject]@{ id = $_.id; screenshotSha256 = ('a' * 64) } })
+                $summaryCaptureStartedAtUtc = if (Test-Property $mutatedSummary 'captureStartedAtUtc') { $mutatedSummary.captureStartedAtUtc } else { $null }
                 $summary = [pscustomobject]@{
                     schemaVersion = 2
                     manifestSha256 = $ManifestHash
@@ -1520,6 +1583,9 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
                     deviceSerial = $mutatedSummary.deviceSerial
                     avdName = $mutatedSummary.avdName
                     snapshotName = $mutatedSummary.snapshotName
+                    ownedEmulatorProcessId = $mutatedSummary.ownedEmulatorProcessId
+                    ownedEmulatorStartTimeUtcTicks = $mutatedSummary.ownedEmulatorStartTimeUtcTicks
+                    captureStartedAtUtc = $summaryCaptureStartedAtUtc
                     results = $results
                     manualInspectionComplete = $false
                 }
@@ -1535,7 +1601,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             $script:reportRoot = $previousCompletionReportRoot
             if (Test-Path -LiteralPath $manualCompletionProbeRoot) { Remove-Item -LiteralPath $manualCompletionProbeRoot -Recurse -Force }
         }
-        foreach ($mutation in @('missing-artifact', 'substituted-path', 'duplicate-artifact', 'changed-hash', 'changed-session', 'changed-apk')) {
+        foreach ($mutation in @('missing-artifact', 'substituted-path', 'duplicate-artifact', 'changed-hash', 'changed-session', 'changed-process-id', 'changed-process-start', 'missing-capture-start', 'changed-apk')) {
             $mutated = $validInteractionCapture | ConvertTo-Json -Depth 16 | ConvertFrom-Json
             switch ($mutation) {
                 'missing-artifact' { $mutated.artifacts = @($mutated.artifacts | Select-Object -First 1) }
@@ -1543,6 +1609,9 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
                 'duplicate-artifact' { $mutated.artifacts[1].artifactPath = $mutated.artifacts[0].artifactPath }
                 'changed-hash' { $mutated.artifacts[0].sha256 = ('b' * 64) }
                 'changed-session' { $mutated.session.deviceSerial = 'emulator-9999' }
+                'changed-process-id' { $mutated.session.emulatorProcessId = 999999 }
+                'changed-process-start' { $mutated.session.emulatorStartTimeUtcTicks = 1 }
+                'missing-capture-start' { $mutated.PSObject.Properties.Remove('captureStartedAtUtc') }
                 'changed-apk' { $mutated.captureProvenance.debugApkSha256 = ('b' * 64) }
             }
             $failed = $false
@@ -1554,6 +1623,8 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         $script:ownedEmulator = $previousOwnedEmulator
         $script:ownedEmulatorStartTimeUtcTicks = $previousOwnedEmulatorStartTimeUtcTicks
         $script:captureProvenance = $previousCaptureProvenance
+        $script:captureStartedAtUtc = $previousCaptureStartedAtUtc
+        $script:interactionCheckpointPersisted = $previousInteractionCheckpointPersisted
         $captureProbeProcess.Dispose()
         if (Test-Path -LiteralPath $interactionCaptureProbeRoot) { Remove-Item -LiteralPath $interactionCaptureProbeRoot -Recurse -Force }
     }
@@ -1732,7 +1803,7 @@ try {
     $launch=[Diagnostics.ProcessStartInfo]::new();$launch.FileName=$script:resolvedEmulator;$launch.UseShellExecute=$false;$launch.CreateNoWindow=$true
     $launchArgs=@('-avd',$AvdName,'-snapshot',$SnapshotName,'-no-snapshot-save','-read-only','-port',[string]$port)
     if($null -ne $launch.PSObject.Properties['ArgumentList']){foreach($arg in $launchArgs){[void]$launch.ArgumentList.Add($arg)}}else{$launch.Arguments=(@($launchArgs|ForEach-Object{ConvertTo-WindowsCommandLineArgument $_}) -join ' ')}
-    $script:ownedEmulator=[Diagnostics.Process]::Start($launch); if($null -eq $script:ownedEmulator){Fail 'Failed to launch owned emulator process.' 'device'}
+    $script:ownedEmulator=[Diagnostics.Process]::Start($launch); if($null -eq $script:ownedEmulator){Fail 'Failed to launch owned emulator process.' 'device'}; $script:ownedEmulatorProcessId=$script:ownedEmulator.Id
     $script:ownedEmulatorStartTimeUtcTicks=$script:ownedEmulator.StartTime.ToUniversalTime().Ticks
     $script:emulatorWatchdog=Start-EmulatorWatchdog $script:ownedEmulator $script:ownedEmulatorStartTimeUtcTicks
     $deadline=(Get-Date).AddMinutes($BootTimeoutMinutes); do { Start-Sleep -Seconds 2; $state=Invoke-Native -FilePath $script:resolvedAdb -Arguments @('-s',$DeviceSerial,'get-state') -TimeoutSeconds 10 -AllowFailure -Transport adb; if($state.exitCode -eq 0){$boot=(Invoke-Adb @('shell','getprop','sys.boot_completed') 10 -AllowFailure).output.Trim();if($boot -eq '1'){break}} } while((Get-Date)-lt$deadline)
@@ -1768,11 +1839,6 @@ try {
         Add-Result $case $shotHash $layoutHash $measured $stage ([pscustomobject]@{apkSha256=(Get-FileHash $debugApk -Algorithm SHA256).Hash.ToLowerInvariant();uiAutomatorLayoutPath=Get-RelativePath $reportRoot $uiAutomatorLayout;uiAutomatorLayoutSha256=$uiAutomatorLayoutHash}) $annotatedHash
     }
 
-    $uninstallResult=Invoke-Adb @('uninstall',$targetPackage) 120
-    if($uninstallResult.output.Trim() -ne 'Success'){Fail "Live-capture package uninstall failed: $($uninstallResult.output) $($uninstallResult.error)" 'device'}
-    $installed=$false
-    Assert-PackageClean
-
     foreach($case in @($uiManifest.cases|Where-Object kind -eq 'fixture')){
         $source=Join-Path $fixtureRoot $case.source.referencePath;if(-not(Test-Path -LiteralPath $source -PathType Leaf)){Fail "Fixture disappeared '$source'." 'fixture'}
         $dest=Join-Path $reportRoot $case.screenshotPath;New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent)|Out-Null;Copy-Item -LiteralPath $source -Destination $dest -Force
@@ -1796,9 +1862,13 @@ try {
         }
     }
     if($script:results.Count-ne$expectedCaseCount){Fail "Final case-count gate expected $expectedCaseCount, got $($script:results.Count)." 'report'}
+    Start-AuditedPackageAtInteractionCheckpoint
     Write-Host 'Capture the two required interaction PNGs from this owned emulator session, then press Enter.'
     [Console]::ReadLine() | Out-Null
+    Assert-AuditedPackageAtInteractionCheckpoint
     $script:interactionCapture = New-InteractionCaptureRecord $uiManifest
+    Write-InteractionCaptureCheckpoint $script:interactionCapture
+    Write-ReportSummary $uiManifest $uiManifestHash $script:originalState 'captured-awaiting-manual-inspection'
 }
 catch { $script:runFailure=$_.Exception.Message }
 finally {
