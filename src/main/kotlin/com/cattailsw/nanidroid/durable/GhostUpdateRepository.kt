@@ -636,9 +636,7 @@ class GhostUpdateRepository internal constructor(
         if (!deleteFile.isFile) return DeleteApplication(false, emptyList())
         var changed = false
         val entries = mutableListOf<DeleteEntry>()
-        val bytes = readDeleteManifestBytes(deleteFile)
-        val ascii = bytes.toString(Charsets.ISO_8859_1)
-        val declared = ascii.lineSequence().firstOrNull()?.removeSuffix("\r")
+        val declared = firstDeleteManifestLine(deleteFile)?.removeSuffix("\r")
             ?.takeIf { it.startsWith("charset,", ignoreCase = true) }
             ?.substringAfter(',')
         val charset = try {
@@ -646,9 +644,9 @@ class GhostUpdateRepository internal constructor(
         } catch (_: Exception) {
             throw IOException("unsupported delete manifest charset")
         }
-        deleteManifestLines(bytes, charset).forEach { rawLine ->
+        forEachDeleteManifestLine(deleteFile, charset) parseLine@{ rawLine ->
             val line = rawLine.removeSuffix("\r")
-            if (line.isEmpty() || line.startsWith("charset,", ignoreCase = true)) return@forEach
+            if (line.isEmpty() || line.startsWith("charset,", ignoreCase = true)) return@parseLine
             if (line.startsWith('\\') || line.startsWith('/') || ':' in line) {
                 throw IOException("invalid delete path")
             }
@@ -965,30 +963,60 @@ class GhostUpdateRepository internal constructor(
         private val PERCENT_ESCAPE = Regex("%[0-9a-fA-F]{2}")
         private val processLocks = ConcurrentHashMap<String, Any>()
 
-        internal fun readDeleteManifestBytes(file: File): ByteArray {
-            FileInputStream(file).use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(COPY_BUFFER)
+        internal fun forEachDeleteManifestLine(
+            file: File,
+            charset: Charset,
+            action: (String) -> Unit,
+        ) {
+            withBoundedDeleteReader(file, charset) { reader ->
+                var lineCount = 0
                 while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    if (count == 0) continue
-                    if (output.size() + count > MAX_DELETE_BYTES) {
-                        throw IOException("delete manifest is too large")
+                    val line = reader.readLine() ?: break
+                    if (lineCount == MAX_DELETE_LINES) {
+                        throw IOException("delete manifest has too many lines")
                     }
-                    output.write(buffer, 0, count)
+                    action(line)
+                    lineCount += 1
                 }
-                return output.toByteArray()
             }
         }
 
-        internal fun deleteManifestLines(bytes: ByteArray, charset: Charset): List<String> {
-            val lines = mutableListOf<String>()
-            bytes.toString(charset).lineSequence().forEach { line ->
-                if (lines.size == MAX_DELETE_LINES) throw IOException("delete manifest has too many lines")
-                lines += line
+        private fun firstDeleteManifestLine(file: File): String? =
+            withBoundedDeleteReader(file, Charsets.ISO_8859_1) { it.readLine() }
+
+        private fun <T> withBoundedDeleteReader(
+            file: File,
+            charset: Charset,
+            action: (java.io.BufferedReader) -> T,
+        ): T = FileInputStream(file).use { input ->
+            BoundedInputStream(input, MAX_DELETE_BYTES).bufferedReader(charset).use(action)
+        }
+
+        private class BoundedInputStream(
+            private val input: InputStream,
+            private val byteLimit: Int,
+        ) : InputStream() {
+            private var bytesRead = 0
+
+            override fun read(): Int {
+                val value = input.read()
+                if (value >= 0) recordBytesRead(1)
+                return value
             }
-            return lines
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (length == 0) return 0
+                val count = input.read(buffer, offset, minOf(length, byteLimit - bytesRead + 1))
+                if (count > 0) recordBytesRead(count)
+                return count
+            }
+
+            override fun close() = input.close()
+
+            private fun recordBytesRead(count: Int) {
+                bytesRead += count
+                if (bytesRead > byteLimit) throw IOException("delete manifest is too large")
+            }
         }
 
         fun recoverBeforeGhostLoad(ghostRoot: File): RecoveryResult =
