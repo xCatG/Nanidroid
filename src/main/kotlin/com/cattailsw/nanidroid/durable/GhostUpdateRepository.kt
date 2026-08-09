@@ -216,15 +216,15 @@ class GhostUpdateRepository internal constructor(
                 copiedBytes += count
                 onProgress("Preparing candidate", copiedBytes)
             }
-            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+            stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
 
             onProgress("Fetching update manifest", 0)
             val manifestSource = readManifest(request, stopReason)
             if (manifestSource == null) {
-                stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+                stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
                 return failedBeforeJournal(transactionRoot, "update manifest not found")
             }
-            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+            stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
             val manifest = parseManifest(manifestSource)
             var comparedBytes = 0L
             val changedManifest = manifest.filter { entry ->
@@ -239,7 +239,7 @@ class GhostUpdateRepository internal constructor(
 
             var downloadedBytes = 0L
             changedManifest.forEachIndexed { index, entry ->
-                stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+                stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
                 events.downloadBegin(entry.path, index, changedManifest.lastIndex)
                 onProgress("Downloading update", downloadedBytes)
                 val target = resolveChild(candidateRoot, entry.path)
@@ -284,7 +284,7 @@ class GhostUpdateRepository internal constructor(
                 return GhostUpdateResult.NoChanges
             }
 
-            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+            stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
             val commitResult = commitGuard.commit(
                 request.ghostId,
                 ghostRoot,
@@ -301,7 +301,7 @@ class GhostUpdateRepository internal constructor(
                 },
                 shouldStop = isStopped,
                 onStopped = {
-                    stopBeforeJournal(transactionRoot, stopReason()) ?: GhostUpdateResult.Interrupted
+                    stopBeforeJournal(transactionRoot, request, stopReason()) ?: GhostUpdateResult.Interrupted
                 },
             ) {
                 onProgress("Committing update", 0)
@@ -350,7 +350,7 @@ class GhostUpdateRepository internal constructor(
             }
             return commitResult
         } catch (stopped: UpdateStoppedException) {
-            if (!journalPersisted) return stopBeforeJournal(transactionRoot, stopped.reason)
+            if (!journalPersisted) return stopBeforeJournal(transactionRoot, request, stopped.reason)
                 ?: GhostUpdateResult.Interrupted
             return when (val recovered = recoverAfterJournalFailure(
                 ghostRoot,
@@ -839,9 +839,33 @@ class GhostUpdateRepository internal constructor(
         return failed(reason, files)
     }
 
-    private fun cancelledBeforeJournal(transactionRoot: File): GhostUpdateResult {
-        fileOperations.deleteTree(transactionRoot)
-        return GhostUpdateResult.Cancelled
+    private fun cancelledBeforeJournal(
+        transactionRoot: File,
+        request: GhostUpdateRequest,
+    ): GhostUpdateResult {
+        if (fileOperations.deleteTree(transactionRoot)) return GhostUpdateResult.Cancelled
+        return try {
+            val candidateRoot = File(transactionRoot, CANDIDATE)
+            if (!candidateRoot.isDirectory && !candidateRoot.mkdirs()) {
+                throw IOException("cannot retain cancelled update staging")
+            }
+            journalIo.write(
+                File(transactionRoot, GhostUpdateJournalStore.FILE_NAME),
+                GhostUpdateJournal(
+                    operationId = request.operationId,
+                    ghostRoot = request.ghostRoot.canonicalPath,
+                    candidateRoot = candidateRoot.canonicalPath,
+                    backupRoot = File(transactionRoot, BACKUP).canonicalPath,
+                    phase = CommitPhase.PREPARED,
+                    files = emptyList(),
+                    attemptId = request.attemptId,
+                    workManagerUuid = request.workManagerUuid,
+                ),
+            )
+            GhostUpdateResult.Cancelled
+        } catch (error: Exception) {
+            failed("cannot retain cancelled update staging: ${error.message}", emptyList())
+        }
     }
 
     private fun interruptedBeforeJournal(transactionRoot: File): GhostUpdateResult {
@@ -851,10 +875,11 @@ class GhostUpdateRepository internal constructor(
 
     private fun stopBeforeJournal(
         transactionRoot: File,
+        request: GhostUpdateRequest,
         reason: GhostUpdateStopReason,
     ): GhostUpdateResult? = when (reason) {
         GhostUpdateStopReason.NONE -> null
-        GhostUpdateStopReason.USER_CANCELLED -> cancelledBeforeJournal(transactionRoot)
+        GhostUpdateStopReason.USER_CANCELLED -> cancelledBeforeJournal(transactionRoot, request)
         GhostUpdateStopReason.SYSTEM_INTERRUPTED -> interruptedBeforeJournal(transactionRoot)
     }
 

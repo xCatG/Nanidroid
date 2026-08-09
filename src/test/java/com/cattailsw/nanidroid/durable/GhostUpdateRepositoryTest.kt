@@ -212,6 +212,65 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `failed user cancellation cleanup persists exact journal for recovery`() {
+        val fixture = fixture("cancel-cleanup-ownership")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val request = fixture.request().copy(attemptId = AttemptId(3), workManagerUuid = "work-3")
+        var cancelled = false
+        fixture.network.onManifestRead = { cancelled = true }
+        val failingDelete = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile != fixture.transactionRoot().canonicalFile) {
+                    return root.deleteRecursively()
+                }
+                File(root, "candidate").deleteRecursively()
+                return false
+            }
+        }
+
+        val result = fixture.repository(fileOperations = failingDelete).run(request) { cancelled }
+
+        assertEquals(GhostUpdateResult.Cancelled, result)
+        val journal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        )
+        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertEquals(request.operationId, journal.operationId)
+        assertEquals(request.attemptId, journal.attemptId)
+        assertEquals(request.workManagerUuid, journal.workManagerUuid)
+        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+
+        val recovery = GhostUpdateRepository.recoverAllBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            authorize = { recovered, topology ->
+                when (GhostUpdateWorker.recoveryTransition(
+                    recovered.phase,
+                    topology,
+                    OperationStatus.CANCELLED,
+                    exactIdentity = true,
+                    GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED,
+                )) {
+                    GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED ->
+                        RecoveryAuthorization.ROLL_BACK_CANCELLED
+                    else -> RecoveryAuthorization.FAIL_CLOSED
+                }
+            },
+            classify = { recovered, status ->
+                recovered.operationId == request.operationId &&
+                    recovered.attemptId == request.attemptId &&
+                    recovered.workManagerUuid == request.workManagerUuid &&
+                    status == OperationStatus.CANCELLED
+            },
+        )
+
+        assertEquals(RecoveryResult.RolledBack, recovery)
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `system interruption during manifest download or digest is retryable and keeps live tree`() {
         listOf("prefetch", "manifest", "download", "digest").forEach { phase ->
             val fixture = fixture("system-interruption-$phase")
