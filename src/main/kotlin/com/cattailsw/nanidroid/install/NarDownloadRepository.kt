@@ -893,9 +893,8 @@ class NarDownloadRepository internal constructor(
         val binding = ExternalJobBinding.DownloadManager(downloadManagerId)
         return supervisor.activeBindingForExactAttempt(handle, OperationKind.REMOTE_NAR) == binding ||
             supervisor.bindExternalJob(handle, binding) ||
-            supervisor.start(
+            supervisor.startRemoteNarReacquisition(
                 handle,
-                OperationKind.REMOTE_NAR,
                 "Downloading archive",
                 0L,
                 binding,

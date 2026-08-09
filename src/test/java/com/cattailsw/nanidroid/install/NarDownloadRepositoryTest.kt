@@ -1953,6 +1953,42 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(74L), downloads.removedIds)
     }
 
+    @Test fun reconciliationReacquiresRetriedDownloadAfterCrashBeforeStart() {
+        downloads.nextDownloadId = 95L
+        val initialDownload = repository.enqueueRemote("https://example.invalid/archive.nar")
+        repository.onDownloadComplete(95L)
+        val failedInstall = store.get(initialDownload.id)!!
+        installer.failure = FileNotFoundException("download vanished")
+        repository.install(
+            failedInstall.id,
+            failedInstall.attemptId,
+            failedInstall.workManagerId!!,
+        ) { false }
+        assertEquals(OperationKind.NAR_INSTALL, operationStore.read().single().kind)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+
+        val retriedAttempt = store.update(initialDownload.id) {
+            it.copy(
+                attemptId = it.attemptId + 1L,
+                retainedUri = "file:///owned/${it.id}.nar",
+                downloadManagerId = null,
+                workManagerId = null,
+                state = NarDownloadState.Downloading,
+            )
+        }!!
+        downloads.recoveredIds[retriedAttempt.retainedUri!!] = 96L
+        downloads.statuses[96L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(NarDownloadState.Downloading, store.get(retriedAttempt.id)!!.state)
+        val recoveredOperation = operationStore.read().single()
+        assertEquals(retriedAttempt.attemptId, recoveredOperation.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, recoveredOperation.kind)
+        assertEquals(OperationStatus.RUNNING, recoveredOperation.status)
+        assertEquals(ExternalJobBinding.DownloadManager(96L), recoveredOperation.externalJob)
+    }
+
     @Test fun reconciliationSchedulesQueuedLocalArchive() {
         val item = repository.enqueueLocal("file:///owned/archive.nar")
         work.enqueuedNames.clear()
