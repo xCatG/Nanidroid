@@ -174,6 +174,7 @@ open class SScriptRunner internal constructor(
     private val retiredDialogueChoices = java.util.Collections.newSetFromMap(IdentityHashMap<DialogueAction, Boolean>())
     private var pendingChoiceGeneration: Long? = null
     private var passive = false
+    private var idleGeneration = 0L
     private val playbackScheduler = lazy(playbackSchedulerFactory)
     private val invalidationCompletions = ThreadLocal<MutableList<() -> Unit>?>()
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
@@ -266,8 +267,11 @@ open class SScriptRunner internal constructor(
         }
         return true
     }
-    @Synchronized fun addMsgToQueue(inCol: Collection<String>) { msgQueue.addAll(inCol) }
-    @Synchronized fun addMsgToQueue(msgs: Array<String>) { msgs.forEach { msgQueue.add(it) } }
+    @Synchronized fun addMsgToQueue(inCol: Collection<String>) {
+        if (inCol.isNotEmpty()) invalidateIdleGenerationLocked()
+        msgQueue.addAll(inCol)
+    }
+    fun addMsgToQueue(msgs: Array<String>) = addMsgToQueue(msgs.asList())
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
     private val clockHandler: Handler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
     fun resumeEvt() {
@@ -334,6 +338,7 @@ open class SScriptRunner internal constructor(
         val prepared = synchronized(this) {
             val state = playback
             if (state.running) return
+            invalidateIdleGenerationLocked()
             state.running = true
             reset(state)
             state.msg = getFromQueue(state)
@@ -347,7 +352,7 @@ open class SScriptRunner internal constructor(
         state.dialogueScript = script?.let(::recordDialogueScript)
     }
     private fun rewriteMsg(input:String?):String? { if(g==null||input==null)return input; return input.replace("%username",g!!.getUsername()).replace("%selfname2?",g!!.getSakuraName() ?: "null").replace("%keroname",g!!.getKeroName() ?: "null") }
-    fun clearMsgQueue(){val state=synchronized(this){msgQueue.clear();playback.msg=null;playback};stop(state)}
+    fun clearMsgQueue(){val state=synchronized(this){invalidateIdleGenerationLocked();msgQueue.clear();playback.msg=null;playback};stop(state)}
     fun stop() = stop(synchronized(this) { playback })
     private fun stop(state: PlaybackState, continueQueuedTalk: Boolean = false) {
         while (true) {
@@ -623,7 +628,9 @@ open class SScriptRunner internal constructor(
             state.charIndex += passiveCommand.second
             synchronized(this) {
                 if (playback === state && state.running) {
-                    passive = passiveCommand.first == "enter"
+                    val enteringPassive = passiveCommand.first == "enter"
+                    if (passive != enteringPassive) invalidateIdleGenerationLocked()
+                    passive = enteringPassive
                 }
             }
             return false
@@ -871,13 +878,27 @@ open class SScriptRunner internal constructor(
     private fun doPerMinuteEvent(hr: Long) { dispatchTimerEvent("OnMinuteChange", hr) }
     private fun dispatchTimerEvent(event: String, uptimeHours: Long) {
         withCurrentGhost { target ->
-            val canTalk = runtimeModeSnapshot().canTalk
+            val generation = synchronized(this) { idleGeneration.takeIf { isIdleLocked() } }
+            val canTalk = generation != null
             val method = if (canTalk) ShioriMethod.GET else ShioriMethod.NOTIFY
             val response = target.requestRaw(method, event, listOf(uptimeHours.toString(), "0", "0", if (canTalk) "1" else "0"))
-            if (canTalk && runtimeModeSnapshot().canTalk && isPinnedDialogueGhost(target)) {
-                parseShioriResponseAndInsert(response)
-            }
+            generation?.let { enqueueTimerResponseIfStillIdle(target, it, response) }
         }
+    }
+
+    private fun enqueueTimerResponseIfStillIdle(
+        target: Ghost,
+        generation: Long,
+        response: ShioriResponse?,
+    ) {
+        val value = response?.takeIf { it.getStatusCode() == 200 }?.getKey("Value") ?: return
+        val shouldRun = synchronized(this) {
+            if (g !== target || idleGeneration != generation || !isIdleLocked()) return@synchronized false
+            invalidateIdleGenerationLocked()
+            msgQueue.add(value)
+            true
+        }
+        if (shouldRun) run()
     }
     private fun perClockEvent() {
         val secondsAll = monotonicClock.nowMillis() / 1_000L
@@ -1028,6 +1049,14 @@ open class SScriptRunner internal constructor(
         )
     }
 
+    private fun isIdleLocked(): Boolean =
+        !playback.running && msgQueue.isEmpty() && playback.msg.isNullOrEmpty() &&
+            dialogueState.pendingChoices.isEmpty() && dialogueState.pendingInput == null && !passive
+
+    private fun invalidateIdleGenerationLocked() {
+        idleGeneration++
+    }
+
     internal fun activateChoice(action: DialogueAction) {
         when (action) {
             is DialogueAction.Normal -> {
@@ -1122,6 +1151,7 @@ open class SScriptRunner internal constructor(
         val pending = dialogueState.pendingInput ?: return@synchronized null
         if (pending.generation != generation) return@synchronized null
         retiredInputGenerations += generation
+        invalidateIdleGenerationLocked()
         dialogueState = dialogueState.copy(revision = dialogueState.revision + 1, pendingInput = null)
         pending
     }
@@ -1129,6 +1159,7 @@ open class SScriptRunner internal constructor(
     private fun takePendingChoice(action: DialogueAction): Boolean = synchronized(this) {
         if (dialogueState.pendingChoices.none { it === action }) return@synchronized false
         retiredDialogueChoices.addAll(dialogueState.pendingChoices)
+        invalidateIdleGenerationLocked()
         pendingChoiceGeneration = null
         dialogueState = dialogueState.copy(
             revision = dialogueState.revision + 1,

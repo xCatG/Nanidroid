@@ -179,6 +179,56 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
+    fun blockedTimerResponseIsDiscardedAfterPlaybackStartsAndFinishes() {
+        assertBlockedTimerResponseIsDiscarded { runner ->
+            runner.addMsgToQueue(arrayOf("\\hintervening playback\\e"))
+            runner.run()
+        }
+    }
+
+    @Test
+    fun blockedTimerResponseIsDiscardedAfterAnActionClearsActivity() {
+        assertBlockedTimerResponseIsDiscarded { runner ->
+            // doOnChoiceSelect clears prior activity before it sends its SHIORI event.
+            runner.clearMsgQueue()
+        }
+    }
+
+    @Test
+    fun blockedTimerResponseIsDiscardedAfterPassiveEnterAndLeave() {
+        assertBlockedTimerResponseIsDiscarded { runner ->
+            runner.addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
+            runner.run()
+            runner.addMsgToQueue(arrayOf("\\![leave,passivemode]\\e"))
+            runner.run()
+        }
+    }
+
+    @Test
+    fun blockedTimerResponsePlaysWhenTheRunnerRemainsIdle() {
+        val responseEntered = CountDownLatch(1)
+        val releaseResponse = CountDownLatch(1)
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hcontinuous idle\\e")
+            rawRequestHook = {
+                responseEntered.countDown()
+                Assert.assertTrue(releaseResponse.await(5, TimeUnit.SECONDS))
+            }
+        }
+        runner.setGhost(ghost)
+
+        val timer = Thread(runner::dispatchClockTickForTesting).apply { start() }
+        Assert.assertTrue(responseEntered.await(5, TimeUnit.SECONDS))
+        releaseResponse.countDown()
+        timer.join(5_000L)
+
+        Assert.assertFalse(timer.isAlive)
+        Assert.assertTrue(dialogueContains(runner, "continuous idle"))
+    }
+
+    @Test
     fun passiveTimerSendsNotifyAndDoesNotReplaceItsDialogueOrPendingActions() {
         val clock = FakeClock(3_600_000L + 1_000L)
         val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
@@ -890,6 +940,36 @@ class SScriptRunnerBootDispatchTest {
         override fun nowMillis(): Long = millis
     }
 
+    private fun assertBlockedTimerResponseIsDiscarded(interruptIdle: (SScriptRunner) -> Unit) {
+        val responseEntered = CountDownLatch(1)
+        val releaseResponse = CountDownLatch(1)
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hstale timer\\e")
+            rawRequestHook = {
+                responseEntered.countDown()
+                Assert.assertTrue(releaseResponse.await(5, TimeUnit.SECONDS))
+            }
+        }
+        runner.setGhost(ghost)
+
+        val timer = Thread(runner::dispatchClockTickForTesting).apply { start() }
+        Assert.assertTrue(responseEntered.await(5, TimeUnit.SECONDS))
+        interruptIdle(runner)
+        releaseResponse.countDown()
+        timer.join(5_000L)
+
+        Assert.assertFalse(timer.isAlive)
+        Assert.assertFalse(dialogueContains(runner, "stale timer"))
+    }
+
+    private fun dialogueContains(runner: SScriptRunner, text: String): Boolean =
+        runner.dialogueStateSnapshot().contents
+            .flatMap { it.segments }
+            .filterIsInstance<DialogueSegment.Text>()
+            .any { it.value.contains(text) }
+
     private fun talk(value: String): ShioriResponse = ShioriResponse(
         "SHIORI/3.0 200 OK",
         Hashtable<String, String>().apply { put("Value", value) },
@@ -1035,9 +1115,11 @@ class SScriptRunnerBootDispatchTest {
         val rawResponses = ArrayDeque<ShioriResponse>()
         val eventRequests = mutableListOf<String>()
         var eventRequestHook: ((String) -> Unit)? = null
+        var rawRequestHook: (() -> Unit)? = null
 
         override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
             rawRequests += "$method:$eventId:$references"
+            rawRequestHook?.invoke()
             return rawResponses.removeFirstOrNull() ?: ShioriResponse("SHIORI/3.0 204 No Content")
         }
 
