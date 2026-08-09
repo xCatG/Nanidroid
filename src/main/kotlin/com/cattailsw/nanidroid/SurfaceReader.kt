@@ -7,6 +7,7 @@ import com.cattailsw.nanidroid.surface.SurfaceParser
 import com.cattailsw.nanidroid.surface.SurfaceSourceDecoder
 import com.cattailsw.nanidroid.surface.SurfaceSourceInput
 import com.cattailsw.nanidroid.surface.CollisionGeometryParser
+import com.cattailsw.nanidroid.surface.CollisionShape
 import com.cattailsw.nanidroid.surface.ParsedCollision
 import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
 import com.cattailsw.nanidroid.util.AnalyticsUtils
@@ -219,6 +220,7 @@ class SurfaceReader {
 
     private fun materializeCollisions(entries: List<ParsedSurfaceEntry>): List<SurfaceCollision> {
         val firstById = linkedMapOf<Int, SurfaceCollision>()
+        var polygonVertexWork = 0
         entries.forEach { entry ->
             when (val parsed = parsedCollisionCache.getOrPut(entry) {
                 CollisionGeometryParser.parse(entry.source.text, entry.authoredOrder.toInt())
@@ -226,10 +228,15 @@ class SurfaceReader {
                 ParsedCollision.NotCollision -> Unit
                 is ParsedCollision.Invalid -> diagnoseCollision(entry, parsed.reason)
                 is ParsedCollision.Valid -> {
-                    if (firstById.containsKey(parsed.collision.id) || firstById.size >= MAX_COLLISIONS_PER_SURFACE) {
+                    val vertexCount = (parsed.collision.shape as? CollisionShape.Polygon)?.points?.size ?: 0
+                    if (firstById.containsKey(parsed.collision.id) ||
+                        firstById.size >= MAX_COLLISIONS_PER_SURFACE ||
+                        polygonVertexWork + vertexCount > MAX_POLYGON_VERTICES_PER_SURFACE
+                    ) {
                         diagnoseCollision(entry, SurfaceDiagnosticReason.ENTRY)
                     } else {
                         firstById[parsed.collision.id] = parsed.collision
+                        polygonVertexWork += vertexCount
                     }
                 }
             }
@@ -269,6 +276,8 @@ class SurfaceReader {
         const val MAX_DIAGNOSTICS = 256
         const val MAX_PNG_SURFACES = 4_096
         const val MAX_COLLISIONS_PER_SURFACE = 256
+        /** Limits a pointer miss to sixteen maximum-size polygons. */
+        const val MAX_POLYGON_VERTICES_PER_SURFACE = 4_096
         const val READ_BUFFER_SIZE = 8_192
         val SOURCE_NAME = Regex("^surfaces.*\\.txt$", RegexOption.IGNORE_CASE)
         val PNG_NAME = Regex("^surface(\\d+)\\.png$", RegexOption.IGNORE_CASE)

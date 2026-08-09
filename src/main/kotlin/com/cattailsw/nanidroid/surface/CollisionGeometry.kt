@@ -280,9 +280,8 @@ private fun containsPolygon(points: List<IntOffset>, point: IntOffset): Boolean 
         if ((ay > py) != (by > py)) {
             val ax = first.x.toLong()
             val bx = second.x.toLong()
-            val left = BigInteger.valueOf(px - ax).multiply(BigInteger.valueOf(by - ay))
-            val right = BigInteger.valueOf(bx - ax).multiply(BigInteger.valueOf(py - ay))
-            val crossesRight = if (by > ay) left < right else left > right
+            val comparison = compareProducts(px - ax, by - ay, bx - ax, py - ay)
+            val crossesRight = if (by > ay) comparison < 0 else comparison > 0
             if (crossesRight) inside = !inside
         }
     }
@@ -296,9 +295,16 @@ private fun pointOnSegment(point: IntOffset, first: IntOffset, second: IntOffset
     val ay = first.y.toLong()
     val bx = second.x.toLong()
     val by = second.y.toLong()
-    val cross = BigInteger.valueOf(px - ax).multiply(BigInteger.valueOf(by - ay))
-        .subtract(BigInteger.valueOf(py - ay).multiply(BigInteger.valueOf(bx - ax)))
-    return cross == BigInteger.ZERO && px in minOf(ax, bx)..maxOf(ax, bx) && py in minOf(ay, by)..maxOf(ay, by)
+    return compareProducts(px - ax, by - ay, py - ay, bx - ax) == 0 &&
+        px in minOf(ax, bx)..maxOf(ax, bx) && py in minOf(ay, by)..maxOf(ay, by)
+}
+
+/** Compares a×b with c×d exactly, avoiding allocation unless a Long overflows. */
+private fun compareProducts(a: Long, b: Long, c: Long, d: Long): Int = try {
+    Math.multiplyExact(a, b).compareTo(Math.multiplyExact(c, d))
+} catch (_: ArithmeticException) {
+    BigInteger.valueOf(a).multiply(BigInteger.valueOf(b))
+        .compareTo(BigInteger.valueOf(c).multiply(BigInteger.valueOf(d)))
 }
 
 private fun square(value: Long): BigInteger = BigInteger.valueOf(value).pow(2)
