@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class GhostUpdateRecoveryTest {
     @Test
-    fun recoveryWorkerRecreatesRepositoryAndRollsForwardPostBackupProcessDeath() {
+    fun recoveryWorkerUsesExactDurableWorkIdentityAfterRepositoryRecreation() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("durable_operations_v1", Context.MODE_PRIVATE)
             .edit().clear().commit()
@@ -34,26 +34,31 @@ class GhostUpdateRecoveryTest {
                 .setExecutor(SynchronousExecutor())
                 .build(),
         )
+        val fixture = fixture("worker-${UUID.randomUUID()}")
+        fixture.backup("old")
+        fixture.candidate("new")
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val expectedWorkId = durableWorkManagerId(handle, OperationKind.GHOST_UPDATE)
         val workManager = WorkManager.getInstance(context)
-        val failedWork = OneTimeWorkRequestBuilder<FailedGhostUpdateWork>().build()
+        val failedWork = OneTimeWorkRequestBuilder<FailedGhostUpdateWork>()
+            .setId(expectedWorkId)
+            .build()
         workManager.enqueue(failedWork).result.get(5, TimeUnit.SECONDS)
+        assertEquals(expectedWorkId, failedWork.id)
         assertEquals(
             WorkInfo.State.FAILED,
             workManager.getWorkInfoById(failedWork.id).get(5, TimeUnit.SECONDS)!!.state,
         )
 
-        val fixture = fixture("worker-${UUID.randomUUID()}")
-        fixture.backup("old")
-        fixture.candidate("new")
-        val attempt = AttemptId(1)
         val binding = ExternalJobBinding.WorkManager(failedWork.id.toString())
-        fixture.journal(CommitPhase.PREPARED, attemptId = attempt, workManagerUuid = binding.uuid)
+        fixture.journal(CommitPhase.PREPARED, attemptId = handle.attemptId, workManagerUuid = binding.uuid)
         val store = SharedPreferencesDurableOperationStore(context)
         val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
-        val handle = OperationHandle(fixture.operationId, attempt)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing update", 0, binding))
+        assertEquals(binding, store.read().single().externalJob)
         assertFalse(fixture.live.exists())
 
+        // The recovery worker owns fresh store, supervisor, and repository instances.
         GhostUpdateWorker.enqueueRecovery(context, fixture.parent, fixture.live)
 
         val recoveryInfo = workManager.getWorkInfosForUniqueWork(
