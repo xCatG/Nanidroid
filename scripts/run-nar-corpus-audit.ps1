@@ -443,6 +443,13 @@ function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGh
         if ([string]$Evidence[$index].eventId -cne [string]$expectedEventId -or [string]$Evidence[$index].references[0] -cne [string]$expectedReference) {
             ThrowIf 'Post-interaction SHIORI evidence is not ordered with its dialogue sequence.'
         }
+        if ([string]$expectedEventId -in @('OnChoiceSelect', 'OnChoiceSelectEx')) {
+            $identifierIndex = if ([string]$expectedEventId -ceq 'OnChoiceSelectEx') { 1 } else { 0 }
+            $expectedIdentifier = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path "references[$identifierIndex]"
+            if ([string]$Evidence[$index].references[$identifierIndex] -cne [string]$expectedIdentifier) {
+                ThrowIf 'Post-interaction choice evidence does not retain the dispatched choice identifier.'
+            }
+        }
     }
 }
 
@@ -2111,6 +2118,9 @@ foreach ($arg in $ProbeArgs) {
     $incorrectInputIdentifierEvidence[1].identifier = 'Nanidroid'
     $incorrectPrimaryChoiceIdentifierEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
     $incorrectPrimaryChoiceIdentifierEvidence[0].identifier = 'First choice'
+    $wrongPrimaryChoiceReferenceEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $wrongPrimaryChoiceReferenceEvidence[0].identifier = 'wrong-choice-id'
+    $wrongPrimaryChoiceReferenceEvidence[0].references[1] = 'wrong-choice-id'
     $incorrectFallbackChoiceIdentifierEvidence = $dryRunSnakeChoiceFallbackEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
     $incorrectFallbackChoiceIdentifierEvidence[1].identifier = 'First choice'
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $choiceOnlyEvidence; $acceptedPostInteractionRegressions += 'choice-only evidence' } catch { }
@@ -2119,6 +2129,7 @@ foreach ($arg in $ProbeArgs) {
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $missingTrailingChoiceEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'missing trailing choice evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $inputOnlyEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'input-only evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectPrimaryChoiceIdentifierEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'primary choice label identifier' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $wrongPrimaryChoiceReferenceEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'primary choice self-correlated wrong identifier' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectFallbackChoiceIdentifierEvidence -DialogueSteps $dryRunSnakeChoiceFallback; $acceptedPostInteractionRegressions += 'fallback choice label identifier' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectInputIdentifierEvidence; $acceptedPostInteractionRegressions += 'direct input text used as identifier' } catch { }
     if ($acceptedPostInteractionRegressions.Count -gt 0) {
