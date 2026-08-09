@@ -224,6 +224,27 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `collapsed surface repairs with its reduced intrinsic aspect ratio`() {
+        val measured = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 20.dp, 20.dp),
+                keroSurface = StageDpRect(9.6.dp, 9.6.dp, 10.4.dp, 10.4.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 20.dp, 20.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 20.dp, 20.dp),
+            ),
+            density = 1f,
+        )
+
+        val transform = measured.transformFor(SurfaceScope.KERO, IntSize(100, 50))
+
+        assertNotNull(transform)
+        transform ?: return
+        assertEquals(IntRect(10, 10, 12, 11), transform.renderedBounds)
+        assertEquals(0.02f, transform.scale, 0.0001f)
+    }
+
+    @Test
     fun `resize and rotation create fresh transforms without mutating prior input geometry`() {
         val first = StageLayoutPx.from(
             layout(keroSurface = StageDpRect(0.dp, 100.dp, 100.dp, 300.dp)),

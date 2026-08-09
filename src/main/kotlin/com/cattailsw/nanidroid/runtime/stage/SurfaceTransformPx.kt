@@ -781,6 +781,7 @@ private fun repairCollapsedSurface(
     if (rounded == null || rounded.width > 0 && rounded.height > 0) return rounded
     if (!canRepair || intrinsicSize.width <= 0 || intrinsicSize.height <= 0) return rounded
     val constraints = listOfNotNull(content, surfaceRegion, lane)
+    val aspectRatio = intrinsicSize.reducedAspectRatio()
     fun IntRect.isContained() = constraints.all { constraint ->
         left >= constraint.left && top >= constraint.top &&
             right <= constraint.right && bottom <= constraint.bottom
@@ -789,11 +790,11 @@ private fun repairCollapsedSurface(
         ((extent.coerceAtLeast(0).toLong() + intrinsic - 1L) / intrinsic).coerceAtLeast(1L)
 
     val multiplier = maxOf(
-        multiplier(rounded.width, intrinsicSize.width),
-        multiplier(rounded.height, intrinsicSize.height),
+        multiplier(rounded.width, aspectRatio.width),
+        multiplier(rounded.height, aspectRatio.height),
     )
-    val width = intrinsicSize.width.toLong() * multiplier
-    val height = intrinsicSize.height.toLong() * multiplier
+    val width = aspectRatio.width.toLong() * multiplier
+    val height = aspectRatio.height.toLong() * multiplier
     if (width > Int.MAX_VALUE || height > Int.MAX_VALUE) return rounded
     fun bounds(left: Long, top: Long): IntRect? {
         val right = left + width
@@ -822,6 +823,17 @@ private fun repairCollapsedSurface(
             ) ?: rounded
         }
     }
+}
+
+private fun IntSize.reducedAspectRatio(): IntSize {
+    var dividend = width
+    var divisor = height
+    while (divisor != 0) {
+        val remainder = dividend % divisor
+        dividend = divisor
+        divisor = remainder
+    }
+    return IntSize(width / dividend, height / dividend)
 }
 
 fun IntRect.positiveIntersection(other: IntRect): Boolean =
