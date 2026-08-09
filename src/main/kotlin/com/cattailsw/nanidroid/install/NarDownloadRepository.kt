@@ -549,6 +549,17 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
+    internal fun replaceLocalSourceForLiveCopyForUser(
+        itemId: String,
+        uri: String,
+    ): NarUserEnqueueResult? {
+        val previous = store.get(itemId) ?: return null
+        return replaceLocalSourceForLiveCopy(itemId, uri)?.let { replacement ->
+            userEnqueueResult(replacement, accepted = replacement.handle() != previous.handle())
+        }
+    }
+
+    @Synchronized
     fun delete(itemId: String): Boolean {
         val item = store.get(itemId) ?: return false
         if (isStopping(item)) return false

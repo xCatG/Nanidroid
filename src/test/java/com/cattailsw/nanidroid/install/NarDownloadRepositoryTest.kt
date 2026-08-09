@@ -112,6 +112,45 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.CANCEL_REQUESTED, operationStore.read().single().status)
     }
 
+    @Test fun liveGrantReselectRejectsAnUnchangedStoppingAttempt() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        assertTrue(repository.stop(item.id))
+        val closeCount = AtomicInteger()
+        val handoff = NarLiveGrantHandoff(
+            repository = repository,
+            executor = Executor { throw AssertionError("stopping replacement must not be scheduled") },
+            stage = { _, _, _ -> NarLocalArchiveStager.Result.Cancelled },
+        )
+
+        val result = handoff.enqueueForUser(
+            "content://provider/reselected.nar",
+            item.id,
+        ) { closeCountingSource(closeCount) }!!
+
+        assertTrue(!result.acceptedActive)
+        assertEquals(item, result.download)
+        assertEquals(1, closeCount.get())
+        assertEquals(OperationStatus.CANCEL_REQUESTED, operationStore.read().single().status)
+    }
+
+    @Test fun liveGrantReselectAcceptsReplacementAttempt() {
+        val item = repository.enqueueLocalCopy("content://provider/archive.nar")
+        val handoff = NarLiveGrantHandoff(
+            repository = repository,
+            executor = Executor(Runnable::run),
+            stage = { _, _, _ -> NarLocalArchiveStager.Result.Cancelled },
+        )
+
+        val result = handoff.enqueueForUser(
+            "content://provider/reselected.nar",
+            item.id,
+        ) { ByteArrayInputStream(byteArrayOf(1)) }!!
+
+        assertTrue(result.acceptedActive)
+        assertEquals(NarDownloadSource.Local("content://provider/reselected.nar"), result.download.source)
+        assertTrue(result.download.handle() != item.handle())
+    }
+
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
         downloads.nextDownloadId = 31L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
