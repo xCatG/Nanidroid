@@ -667,8 +667,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show()
             return
         }
-        narDownloads.enqueueRemote(value)
-        onUserDurableWorkAccepted()
+        val result = narDownloads.enqueueRemoteForUser(value)
+        if (result.acceptedActive) onUserDurableWorkAccepted()
     }
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
@@ -856,19 +856,19 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION,
                 )
-                if (replacementId == null) {
-                    narDownloads.enqueueLocalCopy(uri.toString())
+                val result = if (replacementId == null) {
+                    narDownloads.enqueueLocalCopyForUser(uri.toString())
                 } else {
-                    narDownloads.replaceLocalSource(replacementId, uri.toString())
+                    narDownloads.replaceLocalSourceForUser(replacementId, uri.toString())
                 }
-                onUserDurableWorkAccepted()
+                if (result?.acceptedActive == true) onUserDurableWorkAccepted()
                 return
             } catch (_: SecurityException) {
                 // Fall back to supervised staging while the temporary grant remains available.
             }
         }
 
-        val accepted = narLiveGrantHandoff.enqueue(uri.toString(), replacementId) {
+        val accepted = narLiveGrantHandoff.enqueueForUser(uri.toString(), replacementId) {
                 contentResolver.openInputStream(uri)
             }
         if (accepted == null) {
@@ -877,7 +877,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 "The selected document is no longer available.",
                 Toast.LENGTH_LONG,
             ).show()
-        } else {
+        } else if (accepted.acceptedActive) {
             onUserDurableWorkAccepted()
         }
     }

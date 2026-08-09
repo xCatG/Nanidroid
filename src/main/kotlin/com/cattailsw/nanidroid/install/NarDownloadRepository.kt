@@ -32,6 +32,12 @@ internal data class NarRemoteEnqueue(
     val retainedUri: String,
 )
 
+/** The durable enqueue outcome needed by a user-facing permission prompt. */
+internal data class NarUserEnqueueResult(
+    val download: NarDownload,
+    val acceptedActive: Boolean,
+)
+
 internal sealed interface NarRemoteDownloadStatus {
     data object InProgress : NarRemoteDownloadStatus
     data class Successful(val localUri: String?) : NarRemoteDownloadStatus
@@ -170,6 +176,10 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
+    internal fun enqueueRemoteForUser(url: String): NarUserEnqueueResult =
+        userEnqueueResult(enqueueRemote(url))
+
+    @Synchronized
     fun enqueueLocal(uri: String, retainedUri: String? = null): NarDownload {
         val item = store.create(
             NarDownload(
@@ -202,8 +212,34 @@ class NarDownloadRepository internal constructor(
     fun enqueueLocalCopy(uri: String): NarDownload = enqueueLocalCopy(uri, liveGrant = false)
 
     @Synchronized
+    internal fun enqueueLocalCopyForUser(uri: String): NarUserEnqueueResult =
+        userEnqueueResult(enqueueLocalCopy(uri))
+
+    @Synchronized
     internal fun enqueueLiveLocalCopy(uri: String): NarDownload =
         enqueueLocalCopy(uri, liveGrant = true)
+
+    @Synchronized
+    internal fun replaceLocalSourceForUser(itemId: String, uri: String): NarUserEnqueueResult? {
+        val previous = store.get(itemId) ?: return null
+        return replaceLocalSource(itemId, uri)?.let { replacement ->
+            userEnqueueResult(replacement, accepted = replacement.handle() != previous.handle())
+        }
+    }
+
+    @Synchronized
+    internal fun userEnqueueResult(
+        download: NarDownload,
+        accepted: Boolean = true,
+    ): NarUserEnqueueResult = NarUserEnqueueResult(
+        download = download,
+        acceptedActive = accepted && when (download.state) {
+            NarDownloadState.Downloading -> download.downloadManagerId != null
+            NarDownloadState.Copying,
+            NarDownloadState.Queued -> download.workManagerId != null
+            else -> false
+        },
+    )
 
     private fun enqueueLocalCopy(uri: String, liveGrant: Boolean): NarDownload {
         val item = store.create(
@@ -514,6 +550,17 @@ class NarDownloadRepository internal constructor(
         if (isStopping(item)) return item
         if (!delete(itemId)) return null
         return enqueueLiveLocalCopy(uri)
+    }
+
+    @Synchronized
+    internal fun replaceLocalSourceForLiveCopyForUser(
+        itemId: String,
+        uri: String,
+    ): NarUserEnqueueResult? {
+        val previous = store.get(itemId) ?: return null
+        return replaceLocalSourceForLiveCopy(itemId, uri)?.let { replacement ->
+            userEnqueueResult(replacement, accepted = replacement.handle() != previous.handle())
+        }
     }
 
     @Synchronized

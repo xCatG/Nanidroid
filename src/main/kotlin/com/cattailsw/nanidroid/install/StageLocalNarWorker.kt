@@ -43,25 +43,36 @@ internal class NarLiveGrantHandoff(
         uri: String,
         replacementId: String?,
         open: () -> InputStream?,
-    ): NarDownload? {
+    ): NarDownload? = enqueueForUser(uri, replacementId, open)?.download
+
+    fun enqueueForUser(
+        uri: String,
+        replacementId: String?,
+        open: () -> InputStream?,
+    ): NarUserEnqueueResult? {
         val source = try {
             open()
         } catch (_: Exception) {
             null
         } ?: return null
-        val item = if (replacementId == null) {
-            repository.enqueueLiveLocalCopy(uri)
+        val result = if (replacementId == null) {
+            repository.userEnqueueResult(repository.enqueueLiveLocalCopy(uri))
         } else {
-            repository.replaceLocalSourceForLiveCopy(replacementId, uri)
+            repository.replaceLocalSourceForLiveCopyForUser(replacementId, uri)
         }
-        if (item == null) {
+        if (result == null) {
             runCatching { source.close() }
             return null
+        }
+        val item = result.download
+        if (!result.acceptedActive) {
+            runCatching { source.close() }
+            return result
         }
         val workManagerId = item.workManagerId
         if (workManagerId == null) {
             runCatching { source.close() }
-            return item
+            return result
         }
         try {
             executor.execute {
@@ -81,8 +92,9 @@ internal class NarLiveGrantHandoff(
         } catch (_: RuntimeException) {
             runCatching { source.close() }
             repository.stop(item.id)
+            return NarUserEnqueueResult(item, acceptedActive = false)
         }
-        return item
+        return result
     }
 
     private class BorrowedInputStream(source: InputStream) : FilterInputStream(source) {
