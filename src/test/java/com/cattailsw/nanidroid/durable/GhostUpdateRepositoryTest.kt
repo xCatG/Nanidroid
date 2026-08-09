@@ -352,6 +352,34 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `startup recovery sweeps tmp-only staging journal left before ownership finalizes`() {
+        val fixture = fixture("tmp-only-staging-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        val transaction = fixture.transactionRoot()
+        val staging = File.createTempFile(".nanidroid-staging-", null, fixture.parent).apply {
+            check(delete() && mkdir())
+        }
+        val journal = GhostUpdateJournal(
+            operationId = fixture.operationId,
+            ghostRoot = fixture.ghostRoot.canonicalPath,
+            candidateRoot = File(transaction, "candidate").canonicalPath,
+            backupRoot = File(transaction, "backup").canonicalPath,
+            phase = CommitPhase.PREPARED,
+            files = emptyList(),
+        )
+        val completedJournal = File(staging, GhostUpdateJournalStore.FILE_NAME)
+        GhostUpdateJournalStore.write(completedJournal, journal)
+        val temporaryJournal = File(staging, "${GhostUpdateJournalStore.FILE_NAME}.tmp")
+        check(completedJournal.renameTo(temporaryJournal))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(staging.exists())
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(transaction.exists())
+    }
+
+    @Test
     fun `startup recovery never sweeps an installed ghost whose id uses the staging prefix`() {
         val storage = temporaryDirectory("staging-prefix-ghost")
         val ghost = File(storage, ".nanidroid-staging-valid-ghost").apply { mkdirs() }

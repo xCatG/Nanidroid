@@ -1263,7 +1263,13 @@ class GhostUpdateRepository internal constructor(
         private fun stagingJournalFor(storage: File, staging: File): GhostUpdateJournal? {
             if (Files.isSymbolicLink(staging.toPath()) || !staging.isDirectory) return null
             val journal = try {
-                GhostUpdateJournalStore.read(File(staging, GhostUpdateJournalStore.FILE_NAME))
+                val completed = File(staging, GhostUpdateJournalStore.FILE_NAME)
+                val journalFile = when {
+                    completed.isFile -> completed
+                    else -> File(staging, "${GhostUpdateJournalStore.FILE_NAME}.tmp").takeIf(File::isFile)
+                        ?: return null
+                }
+                GhostUpdateJournalStore.read(journalFile)
             } catch (_: Exception) {
                 return null
             }
