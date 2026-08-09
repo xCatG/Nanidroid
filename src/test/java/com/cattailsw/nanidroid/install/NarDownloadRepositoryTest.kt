@@ -1221,6 +1221,38 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun reconciliationRebindsRetainedLegacyWorkWhenV2BindingIsMissing() {
+        val item = store.create(
+            NarDownload(
+                id = "v2-migrated-legacy-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val v2WorkManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = v2WorkManagerId) }!!
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(
+            supervisor.bindExternalJob(
+                migrated.handle(),
+                ExternalJobBinding.WorkManager(v2WorkManagerId),
+            ),
+        )
+        val legacyWorkManagerId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        recreatedRepository().reconcile()
+
+        val rebound = store.get(item.id)!!
+        assertEquals(legacyWorkManagerId, rebound.workManagerId)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+        assertEquals(
+            ExternalJobBinding.WorkManager(legacyWorkManagerId),
+            operationStore.read().single().externalJob,
+        )
+    }
+
     @Test fun legacyWorkerRetriesUntilReconciliationPersistsItsBinding() {
         val item = store.create(
             NarDownload(

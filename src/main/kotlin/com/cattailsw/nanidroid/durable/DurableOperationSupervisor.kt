@@ -162,6 +162,33 @@ class DurableOperationSupervisor(
             true
         }
 
+    /** Replaces an obsolete durable binding after recovery identifies the retained external job. */
+    fun rebindExternalJob(
+        handle: OperationHandle,
+        expectedBinding: ExternalJobBinding,
+        replacementBinding: ExternalJobBinding,
+    ): Boolean = mutate {
+        val current = activeRecord(handle) ?: return@mutate false
+        if (current.externalJob != expectedBinding) return@mutate false
+        if (expectedBinding == replacementBinding) return@mutate true
+        if (replacementBinding in current.externalJobHistory) return@mutate false
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    externalJob = replacementBinding,
+                    externalJobHistory = current.externalJobHistory + replacementBinding,
+                ),
+            )
+        ) {
+            return@mutate false
+        }
+        if (current.status == OperationStatus.CANCEL_REQUESTED) {
+            issueCancellation(handle, current.kind, replacementBinding)
+        }
+        true
+    }
+
     fun keepWaiting(handle: OperationHandle): Boolean = mutate {
         val current = activeRecord(handle) ?: return@mutate false
         if (!store.compareAndSet(current, current.copy(showStallPrompt = false))) {

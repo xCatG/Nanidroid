@@ -1015,7 +1015,17 @@ class NarDownloadRepository internal constructor(
             markNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
             return
         }
-        if (item.workManagerId == null) {
+        val persistedWorkIsMissing = item.workManagerId?.let { workManagerId ->
+            runCatching {
+                work.ensureInstallEnqueued(
+                    item.id,
+                    item.attemptId,
+                    workManagerId,
+                    recreateIfMissing = false,
+                )
+            }.getOrNull() == NarInstallWorkRecovery.MISSING
+        } == true
+        if (item.workManagerId == null || persistedWorkIsMissing) {
             when (val legacy = rebindActiveLegacyInstallWork(item, handle)) {
                 is LegacyInstallRebinding.Rebound -> {
                     reconcileBoundInstallWork(legacy.item, recreateIfMissing = false)
@@ -1071,7 +1081,14 @@ class NarDownloadRepository internal constructor(
             return LegacyInstallRebinding.Failed
         } ?: return LegacyInstallRebinding.NotFound
         val binding = ExternalJobBinding.WorkManager(activeWorkManagerId)
-        if (!supervisor.bindExternalJob(handle, binding)) {
+        val bound = when (val currentBinding = supervisor.activeBindingForExactAttempt(
+            handle,
+            OperationKind.NAR_INSTALL,
+        )) {
+            null -> supervisor.bindExternalJob(handle, binding)
+            else -> supervisor.rebindExternalJob(handle, currentBinding, binding)
+        }
+        if (!bound) {
             failAndMarkLegacyInstallBinding(handle, binding, item)
             return LegacyInstallRebinding.Failed
         }
