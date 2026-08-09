@@ -1506,6 +1506,27 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
     }
 
+    @Test fun reconciliationCancelsExcludedEarlierDeterministicInstallBeforeKeepingCurrentAttempt() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-deterministic-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+                attemptId = 2L,
+            ),
+        )
+        val staleId = workId(item.id, 1L, OperationKind.NAR_INSTALL)
+        val currentId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        work.activeInstallWorkByItemId[item.id] = staleId
+        work.activeInstallWorkIsLegacyByItemId[item.id] = false
+
+        repository.reconcile()
+
+        assertEquals(listOf(staleId), work.cancelledStaleInstallWork)
+        assertTrue(currentId in work.installEnqueuedIds)
+    }
+
     @Test fun v1QueuedInstallMigrationRebindsLegacyWorkAcrossRestart() {
         assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("queued", NarDownloadState.Queued)
     }
@@ -2686,6 +2707,7 @@ class NarDownloadRepositoryTest {
         val enqueuedNames = mutableListOf<String>()
         val cancelledNames = mutableListOf<String>()
         val cancelledBindings = mutableListOf<String>()
+        val cancelledStaleInstallWork = mutableListOf<String>()
         val stageEnqueuedIds = mutableSetOf<String>()
         val stageRecreatedIds = mutableListOf<String>()
         val stageWorkStates = mutableMapOf<String, FakeStageWorkState>()
@@ -2759,6 +2781,10 @@ class NarDownloadRepositoryTest {
             findActiveLegacyInstallWorkFailure?.let { throw it }
             return activeInstallWorkByItemId[itemId]
                 ?.takeIf { activeInstallWorkIsLegacyByItemId[itemId] != false }
+        }
+
+        override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long) {
+            activeInstallWorkByItemId[itemId]?.let(cancelledStaleInstallWork::add)
         }
 
         override fun enqueueStage(

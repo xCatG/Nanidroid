@@ -60,6 +60,9 @@ internal interface NarInstallWorkScheduler {
     /** Returns active pre-attempt install work retained under this item's unique name. */
     fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? = null
 
+    /** Cancels active deterministic install work belonging to an earlier attempt. */
+    fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long) = Unit
+
     fun enqueue(
         itemId: String,
         attemptId: Long,
@@ -1035,7 +1038,9 @@ class NarDownloadRepository internal constructor(
                     return
                 }
                 LegacyInstallRebinding.Failed -> return
-                LegacyInstallRebinding.NotFound -> Unit
+                LegacyInstallRebinding.NotFound -> {
+                    work.cancelStaleDeterministicInstallWork(item.id, item.attemptId)
+                }
             }
         }
         if (!started) {
