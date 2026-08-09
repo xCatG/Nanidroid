@@ -677,15 +677,25 @@ function Stop-EmulatorWatchdog([object]$Watchdog) {
     try { return Stop-OwnedProcessTree -Process $Watchdog.process -ExpectedStartTimeUtcTicks $Watchdog.startTimeUtcTicks } finally { $Watchdog.process.Dispose(); Remove-Item -LiteralPath $Watchdog.readyPath -Force -ErrorAction SilentlyContinue }
 }
 
+function Get-OwnedProcessLaunch([string]$FilePath, [string[]]$Arguments) {
+    $commandLine = (@(ConvertTo-WindowsCommandLineArgument $FilePath) + @($Arguments | ForEach-Object { ConvertTo-WindowsCommandLineArgument ([string]$_) })) -join ' '
+    if ([IO.Path]::GetExtension($FilePath) -notin @('.bat', '.cmd')) {
+        return [pscustomobject]@{ applicationName = $FilePath; commandLine = $commandLine }
+    }
+    $commandInterpreter = [Environment]::GetEnvironmentVariable('ComSpec')
+    if ([string]::IsNullOrWhiteSpace($commandInterpreter) -or -not (Test-Path -LiteralPath $commandInterpreter -PathType Leaf)) { Fail 'cmd.exe is required to launch a batch command through the exact-owned process runner.' 'process' }
+    return [pscustomobject]@{ applicationName = $commandInterpreter; commandLine = "$(ConvertTo-WindowsCommandLineArgument $commandInterpreter) /d /s /c $(ConvertTo-WindowsCommandLineArgument $commandLine)" }
+}
+
 function Invoke-Native {
     param([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds = 120, [int]$DrainTimeoutSeconds = 30, [switch]$AllowFailure, [ValidateSet('normal','adb','adb-owner')][string]$Transport = 'normal')
     if ($DrainTimeoutSeconds -le 0) { Fail 'DrainTimeoutSeconds must be positive.' 'process' }
     if ($Transport -in @('adb','adb-owner') -and $script:adbTransportDead) { Fail 'ADB transport was declared dead; refusing all later ADB commands.' 'adb-timeout' }
     $ownedJob = New-OwnedProcessJob
-    $commandLine = (@(ConvertTo-WindowsCommandLineArgument $FilePath) + @($Arguments | ForEach-Object { ConvertTo-WindowsCommandLineArgument ([string]$_) })) -join ' '
+    $launch = Get-OwnedProcessLaunch $FilePath $Arguments
     $ownedProcess = $null; $stdoutReader = $null; $stderrReader = $null
     try {
-        $ownedProcess = [Nanidroid.UiAuditJobApi]::StartAssignedSuspended($FilePath, $commandLine, $ownedJob)
+        $ownedProcess = [Nanidroid.UiAuditJobApi]::StartAssignedSuspended($launch.applicationName, $launch.commandLine, $ownedJob)
         $stdoutHandle = [Microsoft.Win32.SafeHandles.SafeFileHandle]::new($ownedProcess.StdoutRead, $true)
         $stderrHandle = [Microsoft.Win32.SafeHandles.SafeFileHandle]::new($ownedProcess.StderrRead, $true)
         $stdoutReader = [IO.StreamReader]::new([IO.FileStream]::new($stdoutHandle, [IO.FileAccess]::Read), [Text.Encoding]::Default)
@@ -1571,6 +1581,8 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         if (Test-Path -LiteralPath $pngProbeRoot) { Remove-Item -LiteralPath $pngProbeRoot -Recurse -Force }
     }
     $quoted=ConvertTo-WindowsCommandLineArgument 'label with spaces'; if($quoted -ne '"label with spaces"'){Fail 'Argument quoting probe failed.' 'dry-run'}
+    $batchLaunch = Get-OwnedProcessLaunch 'C:\tools\gradlew.bat' @('assembleDebug')
+    if ($batchLaunch.applicationName -notmatch '(?i)cmd\.exe$' -or $batchLaunch.commandLine -notmatch '(?i)gradlew\.bat' -or $batchLaunch.commandLine -notmatch '(?i)/c') { Fail 'Batch launch probe did not route through cmd.exe.' 'dry-run' }
     $timeout=[Diagnostics.Stopwatch]::StartNew(); $proc=Invoke-Native -FilePath (Get-Process -Id $PID).Path -Arguments @('-NoProfile','-Command','exit 0') -TimeoutSeconds 20; $timeout.Stop(); if($proc.exitCode -ne 0 -or $timeout.Elapsed.TotalSeconds -ge 20){Fail 'Process/timeout helper probe failed.' 'dry-run'}
     $drainProbeIdentityPath = Join-Path ([IO.Path]::GetTempPath()) "nanidroid-ui-audit-drain-$([guid]::NewGuid().ToString('N')).txt"
     $drainProbeCommand="`$child=Start-Process -FilePath (Get-Process -Id `$PID).Path -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 4') -NoNewWindow -PassThru; [IO.File]::WriteAllText('$($drainProbeIdentityPath.Replace("'", "''"))', ('{0}|{1}' -f `$child.Id,`$child.StartTime.ToUniversalTime().Ticks)); Start-Sleep -Seconds 2; exit 0"
