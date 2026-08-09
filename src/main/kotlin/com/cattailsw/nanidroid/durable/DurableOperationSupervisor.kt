@@ -580,8 +580,6 @@ class DurableOperationSupervisor(
             }
         } catch (_: Exception) {
             storeCancellationFailure(handle, binding, preserveAttention)
-        } finally {
-            recordObservationRevision(handle)
         }
     }
 
@@ -601,7 +599,12 @@ class DurableOperationSupervisor(
             externalJob = repaired,
             externalJobHistory = current.externalJobHistory + binding + repaired,
         )
-        return if (store.compareAndSet(current, updated)) repaired else null
+        return if (store.compareAndSet(current, updated)) {
+            recordObservationRevision(handle, updated)
+            repaired
+        } else {
+            null
+        }
     }
 
     private fun storeCancellationFailure(
@@ -614,10 +617,13 @@ class DurableOperationSupervisor(
             if (current.status != OperationStatus.CANCEL_REQUESTED || current.externalJob != binding) return
             val failure = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
             if (current.diagnostics == failure) return
-            store.compareAndSet(
+            val updated = current.copy(showStallPrompt = preserveAttention, diagnostics = failure)
+            if (store.compareAndSet(
                 current,
-                current.copy(showStallPrompt = preserveAttention, diagnostics = failure),
-            )
+                updated,
+            )) {
+                recordObservationRevision(handle, updated)
+            }
         } catch (_: Exception) {
         }
     }
@@ -634,10 +640,13 @@ class DurableOperationSupervisor(
             current.diagnostics == null ||
             !current.isCancellationDispatchFailure()
         ) return
-        store.compareAndSet(
+        val updated = current.copy(showStallPrompt = preserveAttention, diagnostics = null)
+        if (store.compareAndSet(
             current,
-            current.copy(showStallPrompt = preserveAttention, diagnostics = null),
-        )
+            updated,
+        )) {
+            recordObservationRevision(handle, updated)
+        }
     }
 
     private fun OperationStatus.isActive() =
@@ -681,6 +690,13 @@ class DurableOperationSupervisor(
     private fun recordObservationRevision(handle: OperationHandle) {
         val current = activeRecord(handle) ?: return
         lastObservedRevisions[handle] = current.observationRevision()
+    }
+
+    private fun recordObservationRevision(
+        handle: OperationHandle,
+        record: DurableOperationRecord,
+    ) {
+        lastObservedRevisions[handle] = record.observationRevision()
     }
 }
 
