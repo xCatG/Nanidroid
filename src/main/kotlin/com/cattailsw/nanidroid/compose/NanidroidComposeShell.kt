@@ -79,7 +79,7 @@ internal fun NanidroidComposeShell(
     wallpaper: Drawable? = null,
     modifier: Modifier = Modifier,
 ) {
-    MaterialTheme {
+    NanidroidTheme {
         Surface(
             modifier = modifier
                 .fillMaxSize()

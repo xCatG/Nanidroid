@@ -1,11 +1,17 @@
 package com.cattailsw.nanidroid.compose
 
+import android.content.res.Configuration
 import android.content.pm.ActivityInfo
 import android.os.SystemClock
 import android.view.WindowInsets
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.Button
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.Text
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -26,6 +32,7 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -35,6 +42,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.After
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import com.cattailsw.nanidroid.R
@@ -60,6 +68,44 @@ class NanidroidComposeShellTest {
     fun restoreOrientation() {
         composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         uiAutomation().executeShellCommand("wm size reset").close()
+    }
+
+    @Test
+    fun shell_uses_dark_theme_for_night_mode_configuration() {
+        var observedScheme: ColorScheme? = null
+
+        composeRule.setContent {
+            val nightConfiguration = Configuration(LocalConfiguration.current).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or Configuration.UI_MODE_NIGHT_YES
+            }
+            CompositionLocalProvider(LocalConfiguration provides nightConfiguration) {
+                NanidroidComposeShell(
+                    ghostStage = {
+                        val colorScheme = MaterialTheme.colorScheme
+                        SideEffect { observedScheme = colorScheme }
+                    },
+                    loading = false,
+                    progressMessage = "",
+                    toolbarVisible = false,
+                    onListGhost = {},
+                    onUpdate = {},
+                    onPreferences = {},
+                    onHelp = {},
+                    simpleDialog = null,
+                    onDismissSimpleDialog = {},
+                )
+            }
+        }
+
+        composeRule.runOnIdle {
+            val scheme = observedScheme
+            assertNotNull("The production shell should provide a color scheme", scheme)
+            assertEquals(
+                "UI_MODE_NIGHT_YES must select the dark production scheme",
+                darkColorScheme().surface,
+                scheme!!.surface,
+            )
+        }
     }
 
     private fun openOverflowMenu() {
