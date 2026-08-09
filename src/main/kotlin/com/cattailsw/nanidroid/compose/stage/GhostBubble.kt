@@ -229,72 +229,77 @@ fun GhostBubble(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerBodyPadding(pointerDirection)
-                .verticalScroll(scrollState)
-                .onGloballyPositioned { next ->
-                    scrollCoordinates = next
-                    layoutGeneration++
-                }
-                .testTag("ghost-bubble-scroll-${state.speaker.tag}")
-                .padding(8.dp)
-                .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                val delta = when (event.key) {
-                    Key.DirectionUp -> -48f
-                    Key.DirectionDown -> 48f
-                    Key.PageUp -> -viewportHeight.toFloat()
-                    Key.PageDown -> viewportHeight.toFloat()
-                    else -> return@onPreviewKeyEvent false
-                }
-                manuallyScrolled = true
-                programmaticPosition = null
-                latestScrollChange(scrollState.value, BubbleScrollOrigin.MANUAL)
-                scrollScope.launch { scrollState.scrollBy(delta) }
-                true
-                }
-                .focusable(),
         ) {
-            state.content.segments.forEachIndexed { segmentIndex, segment ->
-                when (segment) {
-                    is DialogueSegment.Text -> SelectionContainer {
-                        Text(segment.value, color = colorResource(R.color.ghost_list_text))
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .onGloballyPositioned { next ->
+                        scrollCoordinates = next
+                        layoutGeneration++
                     }
-                    DialogueSegment.NewLine -> Spacer(Modifier.height(8.dp))
-                    else -> controls.firstOrNull { it.segmentIndex == segmentIndex }?.let { control ->
-                        key(state.talkId, state.contentRevision, control.identity) {
-                            BubbleControlButton(
-                                control = control,
-                                speaker = state.speaker,
-                                onPositioned = { child ->
-                                    coordinates[control.index] = child
-                                    layoutGeneration++
-                                },
-                                onAnchor = onAnchor,
-                                onExternalUrl = onExternalUrl,
-                                onInput = onInput,
-                                onChoose = onChoose,
-                                focusRequester = null,
-                            )
+                    .testTag("ghost-bubble-scroll-${state.speaker.tag}")
+                    .padding(8.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        val delta = when (event.key) {
+                            Key.DirectionUp -> -48f
+                            Key.DirectionDown -> 48f
+                            Key.PageUp -> -viewportHeight.toFloat()
+                            Key.PageDown -> viewportHeight.toFloat()
+                            else -> return@onPreviewKeyEvent false
+                        }
+                        manuallyScrolled = true
+                        programmaticPosition = null
+                        latestScrollChange(scrollState.value, BubbleScrollOrigin.MANUAL)
+                        scrollScope.launch { scrollState.scrollBy(delta) }
+                        true
+                    }
+                    .focusable(),
+            ) {
+                state.content.segments.forEachIndexed { segmentIndex, segment ->
+                    when (segment) {
+                        is DialogueSegment.Text -> SelectionContainer {
+                            Text(segment.value, color = colorResource(R.color.ghost_list_text))
+                        }
+                        DialogueSegment.NewLine -> Spacer(Modifier.height(8.dp))
+                        else -> controls.firstOrNull { it.segmentIndex == segmentIndex }?.let { control ->
+                            key(state.talkId, state.contentRevision, control.identity) {
+                                BubbleControlButton(
+                                    control = control,
+                                    speaker = state.speaker,
+                                    onPositioned = { child ->
+                                        coordinates[control.index] = child
+                                        layoutGeneration++
+                                    },
+                                    onAnchor = onAnchor,
+                                    onExternalUrl = onExternalUrl,
+                                    onInput = onInput,
+                                    onChoose = onChoose,
+                                    focusRequester = null,
+                                )
+                            }
                         }
                     }
                 }
-            }
-            controls.filter { it.segmentIndex == null }.forEach { control ->
-                key(state.talkId, state.contentRevision, control.identity) {
-                    BubbleControlButton(
-                        control = control,
-                        speaker = state.speaker,
-                        onPositioned = { child ->
-                            coordinates[control.index] = child
-                            layoutGeneration++
-                        },
-                        onAnchor = onAnchor,
-                        onExternalUrl = onExternalUrl,
-                        onInput = onInput,
-                        onChoose = onChoose,
-                        focusRequester = chooseFocusRequester.takeIf {
-                            control.target is BubbleInteractionTarget.Choice
-                        },
-                    )
+                controls.filter { it.segmentIndex == null }.forEach { control ->
+                    key(state.talkId, state.contentRevision, control.identity) {
+                        BubbleControlButton(
+                            control = control,
+                            speaker = state.speaker,
+                            onPositioned = { child ->
+                                coordinates[control.index] = child
+                                layoutGeneration++
+                            },
+                            onAnchor = onAnchor,
+                            onExternalUrl = onExternalUrl,
+                            onInput = onInput,
+                            onChoose = onChoose,
+                            focusRequester = chooseFocusRequester.takeIf {
+                                control.target is BubbleInteractionTarget.Choice
+                            },
+                        )
+                    }
                 }
             }
         }

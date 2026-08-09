@@ -373,6 +373,47 @@ class GhostBubbleInteractionTest {
     }
 
     @Test
+    fun measuredScrollViewportExcludesTheDownPointerStrip() {
+        val frame = BubbleRegionFence(
+            SurfaceSpeaker.SAKURA,
+            talkId = 34L,
+            contentRevision = 7L,
+            frame = IntRect(100, 20, 1100, 1220),
+        )
+        var publication: BubbleRegionSet? = null
+        composeRule.setContent {
+            CompositionLocalProvider(LocalBubbleRegionFence provides frame) {
+                GhostBubble(
+                    state = BubbleUiState(
+                        speaker = SurfaceSpeaker.SAKURA,
+                        content = DialogueContent(
+                            GhostSpeaker.SAKURA,
+                            listOf(DialogueSegment.Text("Scrollable\n".repeat(32))),
+                        ),
+                        pendingChoices = emptyList(),
+                        scrollPosition = 0,
+                        userScrolledThisTalk = false,
+                        talkId = 34L,
+                        contentRevision = 7L,
+                    ),
+                    onRegionSet = { publication = it },
+                    modifier = Modifier.size(240.dp, 160.dp),
+                )
+            }
+        }
+
+        composeRule.waitUntil(5_000) { publication?.scrollViewport != null }
+        val viewport = requireNotNull(publication?.scrollViewport)
+        val bubbleBottom = composeRule.onNodeWithTag("ghost-bubble-sakura")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .bottom
+        composeRule.runOnIdle {
+            assertTrue(viewport.bottom < frame.frame.top + floor(bubbleBottom).toInt())
+        }
+    }
+
+    @Test
     fun measuredScrollViewportPreservesTheLeftPointerInsetInStageCoordinates() {
         val frame = BubbleRegionFence(SurfaceSpeaker.KERO, 33L, 6L, IntRect(100, 20, 1100, 1220))
         var publication: BubbleRegionSet? = null
