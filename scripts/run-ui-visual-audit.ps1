@@ -515,6 +515,79 @@ function Stop-OwnedProcessTree {
     }
 }
 
+function Initialize-OwnedProcessJobApi {
+    if ($null -ne ('Nanidroid.UiAuditJobApi' -as [type])) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace Nanidroid {
+    public static class UiAuditJobApi {
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern IntPtr OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool CreateProcess(string applicationName, string commandLine, IntPtr processAttributes, IntPtr threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory, ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInformation);
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern uint ResumeThread(IntPtr thread);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool TerminateProcess(IntPtr process, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool CreatePipe(out IntPtr readPipe, out IntPtr writePipe, ref SECURITY_ATTRIBUTES attributes, uint size);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+        [DllImport("kernel32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] public struct STARTUPINFO { public uint cb; public string lpReserved; public string lpDesktop; public string lpTitle; public uint dwX; public uint dwY; public uint dwXSize; public uint dwYSize; public uint dwXCountChars; public uint dwYCountChars; public uint dwFillAttribute; public uint dwFlags; public ushort wShowWindow; public ushort cbReserved2; public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError; }
+        [StructLayout(LayoutKind.Sequential)] public struct PROCESS_INFORMATION { public IntPtr hProcess; public IntPtr hThread; public uint dwProcessId; public uint dwThreadId; }
+        [StructLayout(LayoutKind.Sequential)] public struct SECURITY_ATTRIBUTES { public int nLength; public IntPtr lpSecurityDescriptor; [MarshalAs(UnmanagedType.Bool)] public bool bInheritHandle; }
+        public sealed class OwnedProcess { public IntPtr ProcessHandle; public IntPtr StdoutRead; public IntPtr StderrRead; public uint ProcessId; }
+        public static OwnedProcess StartAssignedSuspended(string applicationName, string commandLine, IntPtr job) {
+            STARTUPINFO startupInfo = new STARTUPINFO(); startupInfo.cb = (uint)Marshal.SizeOf(typeof(STARTUPINFO));
+            SECURITY_ATTRIBUTES attributes = new SECURITY_ATTRIBUTES(); attributes.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)); attributes.bInheritHandle = true;
+            IntPtr stdoutRead = IntPtr.Zero, stdoutWrite = IntPtr.Zero, stderrRead = IntPtr.Zero, stderrWrite = IntPtr.Zero;
+            PROCESS_INFORMATION processInformation;
+            if (!CreatePipe(out stdoutRead, out stdoutWrite, ref attributes, 0) || !CreatePipe(out stderrRead, out stderrWrite, ref attributes, 0) || !SetHandleInformation(stdoutRead, 1, 0) || !SetHandleInformation(stderrRead, 1, 0)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe for owned process failed");
+            startupInfo.dwFlags = 0x00000100u; startupInfo.hStdOutput = stdoutWrite; startupInfo.hStdError = stderrWrite;
+            if (!CreateProcess(applicationName, commandLine, IntPtr.Zero, IntPtr.Zero, true, 0x00000004u | 0x08000000u, IntPtr.Zero, null, ref startupInfo, out processInformation)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "CreateProcess(CREATE_SUSPENDED) failed");
+            CloseHandle(stdoutWrite); stdoutWrite = IntPtr.Zero; CloseHandle(stderrWrite); stderrWrite = IntPtr.Zero;
+            try {
+                bool inExistingJob = false; bool querySucceeded = IsProcessInJob(processInformation.hProcess, IntPtr.Zero, out inExistingJob); int queryError = querySucceeded ? 0 : Marshal.GetLastWin32Error();
+                if (!AssignProcessToJobObject(job, processInformation.hProcess)) { int assignmentError = Marshal.GetLastWin32Error(); TerminateProcess(processInformation.hProcess, 1); throw new System.ComponentModel.Win32Exception(assignmentError, "AssignProcessToJobObject failed before resume; existingJob=" + (querySucceeded ? inExistingJob.ToString() : "unknown(" + queryError + ")")); }
+                if (ResumeThread(processInformation.hThread) == 0xFFFFFFFFu) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed after Job Object assignment");
+                CloseHandle(processInformation.hThread);
+                return new OwnedProcess { ProcessHandle = processInformation.hProcess, StdoutRead = stdoutRead, StderrRead = stderrRead, ProcessId = processInformation.dwProcessId };
+            } catch { CloseHandle(processInformation.hThread); CloseHandle(processInformation.hProcess); CloseHandle(stdoutRead); CloseHandle(stderrRead); throw; }
+            finally { if (stdoutWrite != IntPtr.Zero) CloseHandle(stdoutWrite); if (stderrWrite != IntPtr.Zero) CloseHandle(stderrWrite); }
+        }
+    }
+}
+'@
+}
+
+function New-OwnedProcessJob {
+    Initialize-OwnedProcessJobApi
+    $handle = [Nanidroid.UiAuditJobApi]::CreateJobObject([IntPtr]::Zero, $null)
+    if ($handle -eq [IntPtr]::Zero) { Fail "Could not create a retained process job: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())." 'process' }
+    return $handle
+}
+
+function Stop-OwnedProcessJob([IntPtr]$JobHandle) {
+    if ($JobHandle -eq [IntPtr]::Zero) { return $false }
+    return [Nanidroid.UiAuditJobApi]::TerminateJobObject($JobHandle, 1)
+}
+
+function Close-OwnedProcessJob([IntPtr]$JobHandle) {
+    if ($JobHandle -ne [IntPtr]::Zero) { [void][Nanidroid.UiAuditJobApi]::CloseHandle($JobHandle) }
+}
+
+function Stop-LaunchFailedOwnedProcessJob([IntPtr]$JobHandle) {
+    try {
+        if (-not (Stop-OwnedProcessJob $JobHandle)) {
+            Fail "Could not terminate the exact owned process job after launch failure: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())." 'process'
+        }
+    } finally {
+        Close-OwnedProcessJob $JobHandle
+    }
+}
+
 function New-EmulatorWatchdogInvocation {
     param(
         [int]$HostProcessId,
@@ -614,20 +687,38 @@ function Stop-EmulatorWatchdog([object]$Watchdog) {
     try { return Stop-OwnedProcessTree -Process $Watchdog.process -ExpectedStartTimeUtcTicks $Watchdog.startTimeUtcTicks } finally { $Watchdog.process.Dispose(); Remove-Item -LiteralPath $Watchdog.readyPath -Force -ErrorAction SilentlyContinue }
 }
 
+function Get-OwnedProcessLaunch([string]$FilePath, [string[]]$Arguments) {
+    $commandLine = (@(ConvertTo-WindowsCommandLineArgument $FilePath) + @($Arguments | ForEach-Object { ConvertTo-WindowsCommandLineArgument ([string]$_) })) -join ' '
+    if ([IO.Path]::GetExtension($FilePath) -notin @('.bat', '.cmd')) {
+        return [pscustomobject]@{ applicationName = $FilePath; commandLine = $commandLine }
+    }
+    $commandInterpreter = [Environment]::GetEnvironmentVariable('ComSpec')
+    if ([string]::IsNullOrWhiteSpace($commandInterpreter) -or -not (Test-Path -LiteralPath $commandInterpreter -PathType Leaf)) { Fail 'cmd.exe is required to launch a batch command through the exact-owned process runner.' 'process' }
+    return [pscustomobject]@{ applicationName = $commandInterpreter; commandLine = "$(ConvertTo-WindowsCommandLineArgument $commandInterpreter) /d /s /c `"$commandLine`"" }
+}
+
 function Invoke-Native {
     param([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds = 120, [int]$DrainTimeoutSeconds = 30, [switch]$AllowFailure, [ValidateSet('normal','adb','adb-owner')][string]$Transport = 'normal')
     if ($DrainTimeoutSeconds -le 0) { Fail 'DrainTimeoutSeconds must be positive.' 'process' }
     if ($Transport -in @('adb','adb-owner') -and $script:adbTransportDead) { Fail 'ADB transport was declared dead; refusing all later ADB commands.' 'adb-timeout' }
-    $info = [Diagnostics.ProcessStartInfo]::new(); $info.FileName=$FilePath; $info.UseShellExecute=$false; $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true; $info.CreateNoWindow=$true
-    if ($null -ne $info.PSObject.Properties['ArgumentList']) { foreach ($argument in $Arguments) { [void]$info.ArgumentList.Add([string]$argument) } }
-    else { $info.Arguments = (@($Arguments | ForEach-Object { ConvertTo-WindowsCommandLineArgument ([string]$_) }) -join ' ') }
-    $process = [Diagnostics.Process]::new(); $process.StartInfo=$info
-    if (-not $process.Start()) { $process.Dispose(); Fail "Unable to start '$FilePath'." 'process' }
-    $processStartTimeUtcTicks=$process.StartTime.ToUniversalTime().Ticks
-    $stdoutTask=$process.StandardOutput.ReadToEndAsync(); $stderrTask=$process.StandardError.ReadToEndAsync()
+    $ownedJob = New-OwnedProcessJob
+    $launch = Get-OwnedProcessLaunch $FilePath $Arguments
+    $ownedProcess = $null; $stdoutReader = $null; $stderrReader = $null
     try {
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            $terminated=Stop-OwnedProcessTree -Process $process -ExpectedStartTimeUtcTicks $processStartTimeUtcTicks
+        $ownedProcess = [Nanidroid.UiAuditJobApi]::StartAssignedSuspended($launch.applicationName, $launch.commandLine, $ownedJob)
+        $stdoutHandle = [Microsoft.Win32.SafeHandles.SafeFileHandle]::new($ownedProcess.StdoutRead, $true)
+        $stderrHandle = [Microsoft.Win32.SafeHandles.SafeFileHandle]::new($ownedProcess.StderrRead, $true)
+        $stdoutReader = [IO.StreamReader]::new([IO.FileStream]::new($stdoutHandle, [IO.FileAccess]::Read), [Text.Encoding]::Default)
+        $stderrReader = [IO.StreamReader]::new([IO.FileStream]::new($stderrHandle, [IO.FileAccess]::Read), [Text.Encoding]::Default)
+        $stdoutTask=$stdoutReader.ReadToEndAsync(); $stderrTask=$stderrReader.ReadToEndAsync()
+    } catch {
+        Stop-LaunchFailedOwnedProcessJob $ownedJob
+        $ownedJob = [IntPtr]::Zero
+        throw
+    }
+    try {
+        if ([Nanidroid.UiAuditJobApi]::WaitForSingleObject($ownedProcess.ProcessHandle, [uint32]($TimeoutSeconds * 1000)) -ne 0) {
+            $terminated=Stop-OwnedProcessJob $ownedJob
             if ($Transport -in @('adb','adb-owner')) { $script:adbTransportDead=$true }
             if (-not $terminated) { Fail "Timed out after $TimeoutSeconds seconds and could not terminate the exact owned process tree: $FilePath $($Arguments -join ' ')." 'process-timeout' }
             $drainError=$null
@@ -642,12 +733,14 @@ function Invoke-Native {
         $drainTasks=[Threading.Tasks.Task[]]@($stdoutTask,$stderrTask)
         if (-not [Threading.Tasks.Task]::WaitAll($drainTasks,$DrainTimeoutSeconds*1000)) {
             if ($Transport -in @('adb','adb-owner')) { $script:adbTransportDead=$true }
-            [void](Stop-OwnedProcessTree -Process $process -ExpectedStartTimeUtcTicks $processStartTimeUtcTicks)
+            [void](Stop-OwnedProcessJob $ownedJob)
             Fail "Process exited but inherited output handles did not close within $DrainTimeoutSeconds seconds: $FilePath $($Arguments -join ' ')." $(if ($Transport -in @('adb','adb-owner')) {'adb-timeout'} else {'process-timeout'})
         }
-        $stdout=$stdoutTask.GetAwaiter().GetResult(); $stderr=$stderrTask.GetAwaiter().GetResult(); $exit=$process.ExitCode
+        $stdout=$stdoutTask.GetAwaiter().GetResult(); $stderr=$stderrTask.GetAwaiter().GetResult(); $nativeExit=0; if (-not [Nanidroid.UiAuditJobApi]::GetExitCodeProcess($ownedProcess.ProcessHandle, [ref]$nativeExit)) { Fail "Could not read exit code for exact owned process: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())." 'process' }; $exit=[int]$nativeExit
     } finally {
-        $process.Dispose()
+        Close-OwnedProcessJob $ownedJob
+        if ($null -ne $stdoutReader) { $stdoutReader.Dispose() }; if ($null -ne $stderrReader) { $stderrReader.Dispose() }
+        if ($null -ne $ownedProcess) { [void][Nanidroid.UiAuditJobApi]::CloseHandle($ownedProcess.ProcessHandle) }
     }
     $result=[pscustomobject]@{ exitCode=$exit; output=$stdout; error=$stderr }
     if ($exit -ne 0 -and -not $AllowFailure) { Fail "Command failed ($exit): $FilePath $($Arguments -join ' ')`n$stdout`n$stderr" 'process' }
@@ -1499,12 +1592,46 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         if (Test-Path -LiteralPath $pngProbeRoot) { Remove-Item -LiteralPath $pngProbeRoot -Recurse -Force }
     }
     $quoted=ConvertTo-WindowsCommandLineArgument 'label with spaces'; if($quoted -ne '"label with spaces"'){Fail 'Argument quoting probe failed.' 'dry-run'}
+    $batchLaunch = Get-OwnedProcessLaunch 'C:\tools\gradlew.bat' @('assembleDebug')
+    if ($batchLaunch.applicationName -notmatch '(?i)cmd\.exe$' -or $batchLaunch.commandLine -notmatch '(?i)gradlew\.bat' -or $batchLaunch.commandLine -notmatch '(?i)/c') { Fail 'Batch launch probe did not route through cmd.exe.' 'dry-run' }
+    $spacedBatchLaunch = Get-OwnedProcessLaunch 'C:\work tree\gradlew.bat' @('assembleDebug')
+    if ($spacedBatchLaunch.commandLine -notmatch '(?i)/c ""C:\\work tree\\gradlew\.bat" assembleDebug"$') { Fail 'Spaced batch launch probe does not use cmd /c quoting.' 'dry-run' }
     $timeout=[Diagnostics.Stopwatch]::StartNew(); $proc=Invoke-Native -FilePath (Get-Process -Id $PID).Path -Arguments @('-NoProfile','-Command','exit 0') -TimeoutSeconds 20; $timeout.Stop(); if($proc.exitCode -ne 0 -or $timeout.Elapsed.TotalSeconds -ge 20){Fail 'Process/timeout helper probe failed.' 'dry-run'}
-    $drainProbeCommand='$child=Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @(''-NoProfile'',''-Command'',''Start-Sleep -Seconds 4'') -NoNewWindow -PassThru; exit 0'
+    $drainProbeIdentityPath = Join-Path ([IO.Path]::GetTempPath()) "nanidroid-ui-audit-drain-$([guid]::NewGuid().ToString('N')).txt"
+    $drainProbeCommand="`$child=Start-Process -FilePath (Get-Process -Id `$PID).Path -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 4') -NoNewWindow -PassThru; [IO.File]::WriteAllText('$($drainProbeIdentityPath.Replace("'", "''"))', ('{0}|{1}' -f `$child.Id,`$child.StartTime.ToUniversalTime().Ticks)); Start-Sleep -Seconds 2; exit 0"
     $drainProbeEncoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($drainProbeCommand)); $drainProbeFailed=$false; $drainProbeTimer=[Diagnostics.Stopwatch]::StartNew()
     try { Invoke-Native -FilePath (Get-Process -Id $PID).Path -Arguments @('-NoProfile','-EncodedCommand',$drainProbeEncoded) -TimeoutSeconds 10 -DrainTimeoutSeconds 1 | Out-Null } catch { $drainProbeFailed=$_.Exception.Message -match 'inherited output handles did not close' }
     $drainProbeTimer.Stop(); if(-not$drainProbeFailed-or$drainProbeTimer.Elapsed.TotalSeconds-ge 4){Fail 'Bounded normal-exit stream-drain probe failed.' 'dry-run'}
+    try {
+        if (-not (Test-Path -LiteralPath $drainProbeIdentityPath -PathType Leaf)) { Fail 'Inherited-handle drain probe did not report its child identity.' 'dry-run' }
+        $drainChildIdentity = (Get-Content -LiteralPath $drainProbeIdentityPath -Raw).Trim() -split '\|'
+        if ($drainChildIdentity.Count -ne 2) { Fail 'Inherited-handle drain probe reported an invalid child identity.' 'dry-run' }
+        if (Test-OwnedProcessIdentity ([int]$drainChildIdentity[0]) ([long]$drainChildIdentity[1])) { Fail 'Inherited-handle drain probe left its retained-job child alive.' 'dry-run' }
+    } finally { Remove-Item -LiteralPath $drainProbeIdentityPath -Force -ErrorAction SilentlyContinue }
     $pwshProbe=Resolve-PowerShell7
+    $launchFailureJob = New-OwnedProcessJob
+    $launchFailureLaunch = Get-OwnedProcessLaunch $pwshProbe @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60')
+    $launchFailureProcess = $null
+    try {
+        $launchFailureProcess = [Nanidroid.UiAuditJobApi]::StartAssignedSuspended($launchFailureLaunch.applicationName, $launchFailureLaunch.commandLine, $launchFailureJob)
+        $launchFailureIdentity = [Diagnostics.Process]::GetProcessById([int]$launchFailureProcess.ProcessId)
+        try {
+            $launchFailureProcessId = $launchFailureIdentity.Id
+            $launchFailureStartTimeUtcTicks = $launchFailureIdentity.StartTime.ToUniversalTime().Ticks
+        } finally {
+            $launchFailureIdentity.Dispose()
+        }
+        Stop-LaunchFailedOwnedProcessJob $launchFailureJob
+        $launchFailureJob = [IntPtr]::Zero
+        if (Test-OwnedProcessIdentity $launchFailureProcessId $launchFailureStartTimeUtcTicks) { Fail 'Launch-failure job cleanup left its exact owned process alive.' 'dry-run' }
+    } finally {
+        if ($null -ne $launchFailureProcess) {
+            [void][Nanidroid.UiAuditJobApi]::CloseHandle($launchFailureProcess.ProcessHandle)
+            [void][Nanidroid.UiAuditJobApi]::CloseHandle($launchFailureProcess.StdoutRead)
+            [void][Nanidroid.UiAuditJobApi]::CloseHandle($launchFailureProcess.StderrRead)
+        }
+        Close-OwnedProcessJob $launchFailureJob
+    }
     $cmdPath=[Environment]::GetEnvironmentVariable('ComSpec')
     if ([string]::IsNullOrWhiteSpace($cmdPath)) { Fail 'Timeout tree probe cannot resolve cmd.exe.' 'dry-run' }
     $probeCommand="`$child=Start-Process -FilePath '$($cmdPath.Replace("'", "''"))' -ArgumentList @('/c','timeout /t 60 /nobreak >nul') -PassThru; Write-Output ('{0}|{1}' -f `$child.Id,`$child.StartTime.ToUniversalTime().Ticks); Start-Sleep -Seconds 60"
