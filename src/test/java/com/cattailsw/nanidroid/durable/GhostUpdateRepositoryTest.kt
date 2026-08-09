@@ -33,6 +33,17 @@ private fun workManagerBinding(label: String) = ExternalJobBinding.WorkManager(
 
 class GhostUpdateRepositoryTest {
     @Test
+    fun `retryable manifest transport failure preserves the update attempt`() {
+        val fixture = fixture("retryable-manifest")
+        fixture.network.retryablePaths += "updates2.dau"
+
+        assertEquals(
+            GhostUpdateResult.Interrupted,
+            fixture.repository().run(fixture.request()) { false },
+        )
+    }
+
+    @Test
     fun `verified update publishes one complete tree and preserves untouched files`() {
         val fixture = fixture("success")
         fixture.writeLive("ghost/master.txt", "old")
@@ -2232,6 +2243,7 @@ class GhostUpdateRepositoryTest {
         var onManifestRead: () -> Unit = {}
         val openedStreams = mutableListOf<TrackingInputStream>()
         val openedPaths = mutableListOf<String>()
+        val retryablePaths = mutableSetOf<String>()
 
         fun manifest(vararg files: Pair<String, ByteArray>) {
             rawManifest(files.joinToString("\n") { (path, bytes) -> "$path\u0001${md5(bytes)}" })
@@ -2255,9 +2267,12 @@ class GhostUpdateRepositoryTest {
             content[path] = value
         }
 
-        override fun open(baseUri: Uri, relativePath: String): InputStream? {
-            if (!beforeOpen(relativePath)) return null
-            val bytes = content[relativePath] ?: return null
+        override fun open(baseUri: Uri, relativePath: String): GhostUpdateOpenResult {
+            if (relativePath in retryablePaths) {
+                return GhostUpdateOpenResult.RetryableFailure(IOException("temporary network failure"))
+            }
+            if (!beforeOpen(relativePath)) return GhostUpdateOpenResult.NotFound
+            val bytes = content[relativePath] ?: return GhostUpdateOpenResult.NotFound
             openedPaths += relativePath
             val delegate = ByteArrayInputStream(bytes)
             val stream = if (relativePath == "updates2.dau" || relativePath == "updates.txt") {
@@ -2276,7 +2291,7 @@ class GhostUpdateRepositoryTest {
                 })
             }
             openedStreams += stream
-            return stream
+            return GhostUpdateOpenResult.Found(stream)
         }
     }
 
