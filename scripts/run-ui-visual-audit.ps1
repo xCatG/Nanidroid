@@ -969,6 +969,13 @@ function Assert-NarAndInteractionCheckpointPackageOrdering([bool]$NarPackageClea
     if (-not $AuditedPackageAtCheckpoint) { Fail 'Interaction checkpoint requires the audited APK to be installed and running.' 'device' }
 }
 
+function Assert-AuditedApkHash([string]$ApkPath, [string]$ExpectedSha256) {
+    if ($ExpectedSha256 -notmatch '^[0-9a-f]{64}$') { Fail 'Audited APK provenance lacks a valid SHA-256.' 'artifact' }
+    if (-not (Test-Path -LiteralPath $ApkPath -PathType Leaf)) { Fail "Audited APK is missing before the interaction checkpoint: '$ApkPath'." 'artifact' }
+    $actualSha256 = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualSha256 -cne $ExpectedSha256) { Fail "Audited APK changed after capture: expected=$ExpectedSha256 actual=$actualSha256." 'artifact' }
+}
+
 function Assert-InteractionCaptureRecord([object]$Manifest, [object]$Record, [object]$Session, [object]$Provenance) {
     Assert-InteractionEvidenceManifestContract $Manifest
     foreach ($property in @('session', 'captureStartedAtUtc', 'captureProvenance', 'artifacts')) {
@@ -1482,6 +1489,12 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         if (-not (Test-Property $validInteractionCapture 'captureStartedAtUtc') -or [string]$validInteractionCapture.captureStartedAtUtc -cne $script:captureStartedAtUtc) { Fail 'Interaction session-record lacks its capture-start timestamp.' 'dry-run' }
         Write-InteractionCaptureCheckpoint $validInteractionCapture
         if (-not $script:interactionCheckpointPersisted -or -not (Test-Path -LiteralPath (Join-Path $interactionCaptureProbeRoot 'interaction-capture.json') -PathType Leaf)) { Fail 'Interaction capture checkpoint was not persisted before cleanup probes.' 'dry-run' }
+        $auditedApkProbePath = Resolve-SafeReportArtifactPath $interactionCaptureProbeRoot $Manifest.interactionEvidence[0].artifactPath $true
+        $auditedApkProbeHash = $validInteractionCapture.artifacts[0].sha256
+        Assert-AuditedApkHash $auditedApkProbePath $auditedApkProbeHash
+        $failed = $false
+        try { Assert-AuditedApkHash $auditedApkProbePath ('b' * 64) } catch { $failed = $true }
+        if (-not $failed) { Fail 'Audited APK hash revalidation mutation probe unexpectedly passed.' 'dry-run' }
         Assert-AuditedPackagePresence "package:/data/app/$targetPackage/base.apk" '1234'
         foreach ($packageProbe in @(@('missing-package', '', '1234'), @('not-running', "package:/data/app/$targetPackage/base.apk", ''))) {
             $failed = $false
@@ -1883,6 +1896,7 @@ try {
         }
     }
     if($script:results.Count-ne$expectedCaseCount){Fail "Final case-count gate expected $expectedCaseCount, got $($script:results.Count)." 'report'}
+    Assert-AuditedApkHash $debugApk $script:captureProvenance.debugApkSha256
     Invoke-Native -FilePath $script:resolvedAndroidCli -Arguments @('run','--debug',"--device=$DeviceSerial", "--apks=$debugApk") -TimeoutSeconds 180 -Transport adb-owner | Out-Null
     $installed=$true
     Start-AuditedPackageAtInteractionCheckpoint
