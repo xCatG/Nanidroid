@@ -462,17 +462,21 @@ class DurableOperationSupervisor(
             storedRecords.mapTo(mutableSetOf()) { it.handle() },
         )
         val nextDelay = storedRecords
-            .filter {
-                it.isRestartSuppressed() ||
-                    !it.showStallPrompt ||
-                    it.awaitingStoppingEscalation(it.handle())
-            }
             .minOfOrNull { record ->
                 val observedAt = lastProgressAt.getOrPut(record.handle()) { now }
-                (STALL_MILLIS - (now - observedAt).coerceAtLeast(0L)).coerceAtLeast(0L)
+                if (
+                    record.isRestartSuppressed() ||
+                    !record.showStallPrompt ||
+                    record.awaitingStoppingEscalation(record.handle())
+                ) {
+                    (STALL_MILLIS - (now - observedAt).coerceAtLeast(0L)).coerceAtLeast(0L)
+                } else {
+                    // Another supervisor can clear an already published prompt without waking us.
+                    STALL_MILLIS
+                }
             }
             ?.let { delay ->
-                if (promptWriteFailed && delay == 0L) PROMPT_WRITE_RETRY_MILLIS else delay
+                if (promptWriteFailed) minOf(delay, PROMPT_WRITE_RETRY_MILLIS) else delay
             }
         val presentedRecords = storedRecords.map { record ->
             if (record.isRestartSuppressed()) {
