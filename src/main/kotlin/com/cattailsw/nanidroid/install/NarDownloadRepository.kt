@@ -1284,11 +1284,18 @@ class NarDownloadRepository internal constructor(
                 workManagerId = null,
                 state = NarDownloadState.Downloading,
             )
-            val updated = store.update(itemId) { current ->
-                if (current == accepted) boundDownload else current
+            val updated = try {
+                store.update(itemId) { current ->
+                    if (current == accepted) boundDownload else current
+                }
+            } catch (_: Exception) {
+                if (removeUnpersistedRemoteRowAndFailAttempt(handle, enqueued.downloadManagerId)) {
+                    markNeedsAttentionIfCurrent(accepted, DOWNLOAD_START_FAILURE)
+                }
+                return
             }
             if (updated != boundDownload) {
-                downloads.remove(enqueued.downloadManagerId)
+                removeUnpersistedRemoteRowAndFailAttempt(handle, enqueued.downloadManagerId)
                 return
             }
             val binding = ExternalJobBinding.DownloadManager(enqueued.downloadManagerId)
@@ -1301,6 +1308,14 @@ class NarDownloadRepository internal constructor(
         } catch (_: Exception) {
             markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
         }
+    }
+
+    private fun removeUnpersistedRemoteRowAndFailAttempt(
+        handle: OperationHandle,
+        downloadManagerId: Long,
+    ): Boolean {
+        if (runCatching { downloads.remove(downloadManagerId) }.isFailure) return false
+        return supervisor.failUnboundAttempt(handle, DOWNLOAD_START_FAILURE)
     }
 
     private fun releasePersistedGrantIfUnused(item: NarDownload) {

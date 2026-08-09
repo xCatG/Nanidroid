@@ -2233,6 +2233,69 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
     }
 
+    @Test fun recreationMakesRetryActionableWhenPreviousRemoteAttemptWasTerminal() {
+        val accepted = store.create(
+            NarDownload(
+                id = "remote-retry-without-supervisor",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                attemptId = 2L,
+                retainedUri = "file:///owned/remote-retry-without-supervisor.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val previousHandle = OperationHandle(OperationId(accepted.id), AttemptId(1L))
+        assertTrue(
+            supervisor.start(
+                previousHandle,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.failUnboundAttempt(previousHandle, "prior remote failure"))
+
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        val recoveredAttempt = operationStore.read().single()
+        assertEquals(OperationKind.REMOTE_NAR, recoveredAttempt.kind)
+        assertEquals(accepted.attemptId, recoveredAttempt.attemptId.value)
+        assertEquals(OperationStatus.FAILED, recoveredAttempt.status)
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+
+        downloads.nextDownloadId = 97L
+        val retry = recreated.retry(accepted.id)!!
+
+        assertEquals(accepted.attemptId + 1L, retry.attemptId)
+        assertEquals(97L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
+    @Test fun remoteQueueWriteFailureAfterEnqueueRemovesRowAndTerminalizesExactAttempt() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-write-failure")
+        downloads.nextDownloadId = 98L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertNull(item.downloadManagerId)
+        assertEquals(listOf(98L), downloads.removedIds)
+        val operation = exactOperationStore.read().single()
+        assertEquals(item.attemptId, operation.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, operation.kind)
+        assertNull(operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
+    }
+
     @Test fun recreationRepairsItemAfterUnboundCancellationWasAlreadyPersisted() {
         val accepted = store.create(
             NarDownload(

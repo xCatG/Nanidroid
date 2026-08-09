@@ -366,7 +366,8 @@ class DurableOperationSupervisor(
                 ?: return@mutate true
             if (
                 kind != OperationKind.REMOTE_NAR ||
-                previous.kind != OperationKind.NAR_INSTALL ||
+                (previous.kind != OperationKind.NAR_INSTALL &&
+                    previous.kind != OperationKind.REMOTE_NAR) ||
                 previous.status != OperationStatus.FAILED ||
                 handle.attemptId.value <= previous.attemptId.value
             ) {
