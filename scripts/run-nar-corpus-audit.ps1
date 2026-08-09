@@ -761,6 +761,159 @@ function Invoke-AdbCommand {
     return (Invoke-Adb -Arguments $Arguments -TimeoutSeconds $TimeoutSeconds -AllowFailure:$AllowFailure)
 }
 
+function Initialize-OwnedJobLauncher {
+    if ('Nanidroid.CorpusAudit.OwnedJobLauncher' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace Nanidroid.CorpusAudit {
+    public sealed class OwnedJobProcess {
+        public int ProcessId;
+        public IntPtr JobHandle;
+    }
+
+    public static class OwnedJobLauncher {
+        private const uint CREATE_SUSPENDED = 0x00000004;
+        private const uint CREATE_NO_WINDOW = 0x08000000;
+        private const uint STARTF_USESTDHANDLES = 0x00000100;
+        private const uint HANDLE_FLAG_INHERIT = 0x00000001;
+        private const int STD_INPUT_HANDLE = -10;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct STARTUPINFO {
+            public int cb;
+            public string lpReserved;
+            public string lpDesktop;
+            public string lpTitle;
+            public int dwX;
+            public int dwY;
+            public int dwXSize;
+            public int dwYSize;
+            public int dwXCountChars;
+            public int dwYCountChars;
+            public int dwFillAttribute;
+            public uint dwFlags;
+            public short wShowWindow;
+            public short cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput;
+            public IntPtr hStdOutput;
+            public IntPtr hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_INFORMATION {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public int dwProcessId;
+            public int dwThreadId;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CreateProcess(string applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory, ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInformation);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateJobObject(IntPtr jobAttributes, string name);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint ResumeThread(IntPtr thread);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr GetStdHandle(int stdHandle);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        public static OwnedJobProcess Start(string filePath, string commandLine, string workingDirectory, string stdoutPath, string stderrPath) {
+            FileStream stdout = null;
+            FileStream stderr = null;
+            PROCESS_INFORMATION processInformation = new PROCESS_INFORMATION();
+            IntPtr job = IntPtr.Zero;
+            try {
+                stdout = new FileStream(stdoutPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+                stderr = new FileStream(stderrPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+                IntPtr stdoutHandle = stdout.SafeFileHandle.DangerousGetHandle();
+                IntPtr stderrHandle = stderr.SafeFileHandle.DangerousGetHandle();
+                if (!SetHandleInformation(stdoutHandle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) || !SetHandleInformation(stderrHandle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                job = CreateJobObject(IntPtr.Zero, null);
+                if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                STARTUPINFO startupInfo = new STARTUPINFO();
+                startupInfo.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+                startupInfo.dwFlags = STARTF_USESTDHANDLES;
+                startupInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+                startupInfo.hStdOutput = stdoutHandle;
+                startupInfo.hStdError = stderrHandle;
+                StringBuilder mutableCommandLine = new StringBuilder(commandLine);
+                if (!CreateProcess(filePath, mutableCommandLine, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NO_WINDOW, IntPtr.Zero, workingDirectory, ref startupInfo, out processInformation)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (!AssignProcessToJobObject(job, processInformation.hProcess)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (ResumeThread(processInformation.hThread) == 0xFFFFFFFF) throw new Win32Exception(Marshal.GetLastWin32Error());
+                return new OwnedJobProcess { ProcessId = processInformation.dwProcessId, JobHandle = job };
+            }
+            catch {
+                if (processInformation.hProcess != IntPtr.Zero) TerminateJobObject(job, 1);
+                if (job != IntPtr.Zero) CloseHandle(job);
+                throw;
+            }
+            finally {
+                if (processInformation.hThread != IntPtr.Zero) CloseHandle(processInformation.hThread);
+                if (processInformation.hProcess != IntPtr.Zero) CloseHandle(processInformation.hProcess);
+                if (stdout != null) stdout.Dispose();
+                if (stderr != null) stderr.Dispose();
+            }
+        }
+
+        public static bool Terminate(IntPtr job) { return job != IntPtr.Zero && TerminateJobObject(job, 1); }
+        public static void Close(IntPtr job) { if (job != IntPtr.Zero) CloseHandle(job); }
+    }
+}
+'@
+}
+
+function Start-OwnedJobProcess {
+    param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory = $repoRoot)
+    Initialize-OwnedJobLauncher
+    $stdoutPath = New-HostTempFile '.stdout'
+    $stderrPath = New-HostTempFile '.stderr'
+    try {
+        $argumentText = (Format-ProcessArguments -Arguments $Arguments) -join ' '
+        $commandLine = '"' + $FilePath + '"' + $(if ($argumentText) { ' ' + $argumentText } else { '' })
+        $nativeProcess = [Nanidroid.CorpusAudit.OwnedJobLauncher]::Start($FilePath, $commandLine, $WorkingDirectory, $stdoutPath, $stderrPath)
+        return [pscustomobject]@{
+            process = [Diagnostics.Process]::GetProcessById($nativeProcess.ProcessId)
+            jobHandle = $nativeProcess.JobHandle
+            stdoutPath = $stdoutPath
+            stderrPath = $stderrPath
+        }
+    }
+    catch {
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+        throw
+    }
+}
+
+function Stop-OwnedJobProcess {
+    param([object]$OwnedProcess)
+    if (-not [Nanidroid.CorpusAudit.OwnedJobLauncher]::Terminate($OwnedProcess.jobHandle)) {
+        return 'could not terminate owned job'
+    }
+    return $null
+}
+
+function Close-OwnedJobProcess {
+    param([object]$OwnedProcess)
+    if ($null -eq $OwnedProcess) { return }
+    if ($null -ne $OwnedProcess.process) { $OwnedProcess.process.Dispose() }
+    if ($OwnedProcess.jobHandle -ne [IntPtr]::Zero) { [Nanidroid.CorpusAudit.OwnedJobLauncher]::Close($OwnedProcess.jobHandle) }
+    Remove-Item -LiteralPath $OwnedProcess.stdoutPath, $OwnedProcess.stderrPath -Force -ErrorAction SilentlyContinue
+}
+
 function Invoke-ArgumentListProcess {
     param(
         [string]$FilePath,
@@ -783,59 +936,25 @@ function Invoke-ArgumentListProcess {
         ThrowIf 'Timeout start readiness timeout must be positive.'
     }
 
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FilePath
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    if ($null -ne $startInfo.PSObject.Properties['ArgumentList']) {
-        foreach ($arg in $Arguments) {
-            $startInfo.ArgumentList.Add($arg)
-        }
-    }
-    else {
-        $startInfo.Arguments = (Format-ProcessArguments -Arguments $Arguments) -join ' '
-    }
-
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
+    $ownedProcess = $null
+    $process = $null
     $exitCode = 0
     $stdout = $null
     $stderr = $null
 
     try {
-        $null = $process.Start()
-        $processStartTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        $ownedDescendantIds = [Collections.Generic.HashSet[int]]::new()
-        $ownedDescendants = [Collections.Generic.List[object]]::new()
+        $ownedProcess = Start-OwnedJobProcess -FilePath $FilePath -Arguments $Arguments
+        $process = $ownedProcess.process
         if ($TimeoutStartReadyPath) {
             $readyDeadline = (Get-Date).AddSeconds($TimeoutStartReadySeconds)
             while (-not (Test-Path -LiteralPath $TimeoutStartReadyPath -PathType Leaf)) {
-                try {
-                    Add-OwnedDescendantProcessIdentities -KnownIds $ownedDescendantIds -KnownDescendants $ownedDescendants -Candidates @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks)
-                }
-                catch {
-                }
                 if ((Get-Date) -ge $readyDeadline) {
-                    $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
-                    $detail = if (Test-Path -LiteralPath $taskKillPath -PathType Leaf) {
-                        Stop-OwnedProcessTreeSnapshot -TaskKillPath $taskKillPath -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks -Descendants $ownedDescendants
-                    } else {
-                        'taskkill.exe was not found'
-                    }
+                    $detail = Stop-OwnedJobProcess -OwnedProcess $ownedProcess
                     if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'owned process tree terminated' }
                     ThrowIf "Timed out waiting for process readiness marker: $TimeoutStartReadyPath ($detail)" 'process-timeout'
                 }
                 if ($process.HasExited) {
-                    $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
-                    $detail = if (Test-Path -LiteralPath $taskKillPath -PathType Leaf) {
-                        Stop-OwnedProcessTreeSnapshot -TaskKillPath $taskKillPath -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks -Descendants $ownedDescendants
-                    } else {
-                        'taskkill.exe was not found'
-                    }
+                    $detail = Stop-OwnedJobProcess -OwnedProcess $ownedProcess
                     if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'owned process tree terminated' }
                     ThrowIf "Process exited before readiness marker was created: $TimeoutStartReadyPath ($detail)" 'process-timeout'
                 }
@@ -850,25 +969,10 @@ function Invoke-ArgumentListProcess {
 
             $terminationDetail = $null
             try {
-                $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
-                if (-not (Test-Path -LiteralPath $taskKillPath -PathType Leaf)) {
-                    $terminationDetail = "taskkill.exe was not found at $taskKillPath"
+                if ($TimeoutCleanupProbeDelayMilliseconds -gt 0) {
+                    Start-Sleep -Milliseconds $TimeoutCleanupProbeDelayMilliseconds
                 }
-                else {
-                    try {
-                        Add-OwnedDescendantProcessIdentities -KnownIds $ownedDescendantIds -KnownDescendants $ownedDescendants -Candidates @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks)
-                    }
-                    catch {
-                        $terminationDetail = "could not snapshot owned descendants: $($_.Exception.Message)"
-                    }
-                    if ($TimeoutCleanupProbeDelayMilliseconds -gt 0) {
-                        Start-Sleep -Milliseconds $TimeoutCleanupProbeDelayMilliseconds
-                    }
-                    $cleanupDetail = Stop-OwnedProcessTreeSnapshot -TaskKillPath $taskKillPath -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks -Descendants $ownedDescendants
-                    if ([string]::IsNullOrWhiteSpace($terminationDetail)) {
-                        $terminationDetail = $cleanupDetail
-                    }
-                }
+                $terminationDetail = Stop-OwnedJobProcess -OwnedProcess $ownedProcess
             }
             catch {
                 $terminationDetail = $_.Exception.Message
@@ -877,12 +981,11 @@ function Invoke-ArgumentListProcess {
             if (-not $process.WaitForExit(30000) -and [string]::IsNullOrWhiteSpace($terminationDetail)) {
                 $terminationDetail = 'owned process did not exit within 30 seconds'
             }
-            $drainTasks = [Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
             $drainDetail = $null
             try {
-                if ([Threading.Tasks.Task]::WaitAll($drainTasks, $DrainTimeoutSeconds * 1000)) {
-                    $stdout = $stdoutTask.GetAwaiter().GetResult()
-                    $stderr = $stderrTask.GetAwaiter().GetResult()
+                if ($process.WaitForExit($DrainTimeoutSeconds * 1000)) {
+                    $stdout = Get-Content -LiteralPath $ownedProcess.stdoutPath -Raw -ErrorAction SilentlyContinue
+                    $stderr = Get-Content -LiteralPath $ownedProcess.stderrPath -Raw -ErrorAction SilentlyContinue
                 }
                 else {
                     $drainDetail = "redirected output did not close within $DrainTimeoutSeconds seconds"
@@ -896,16 +999,12 @@ function Invoke-ArgumentListProcess {
             ThrowIf "Timed out while executing: $FilePath $($Arguments -join ' ') ($detail)" $(if ($DisableAdbOnTimeout) { 'adb-timeout' } else { 'process-timeout' })
         }
         $process.WaitForExit()
-        $drainTasks = [Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
-        if (-not [Threading.Tasks.Task]::WaitAll($drainTasks, $DrainTimeoutSeconds * 1000)) {
-            ThrowIf "Process exited but redirected output did not close within $DrainTimeoutSeconds seconds: $FilePath $($Arguments -join ' ')" 'process-timeout'
-        }
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $stdout = Get-Content -LiteralPath $ownedProcess.stdoutPath -Raw -ErrorAction SilentlyContinue
+        $stderr = Get-Content -LiteralPath $ownedProcess.stderrPath -Raw -ErrorAction SilentlyContinue
         $exitCode = $process.ExitCode
     }
     finally {
-        $process.Dispose()
+        if ($null -ne $ownedProcess) { Close-OwnedJobProcess -OwnedProcess $ownedProcess }
     }
 
     $stdoutText = if ($null -eq $stdout) { '' } else { $stdout.TrimEnd("`r", "`n") }
@@ -2233,6 +2332,39 @@ if ($DryRun) {
     if ([string]::IsNullOrWhiteSpace($cmdPath)) {
         ThrowIf 'Dry-run timeout-tree probe cannot resolve cmd.exe.'
     }
+    $jobEarlyExitChildPath = Join-Path $hostRunTmpRoot 'timeout-tree.job-early-exit-child'
+    $jobEarlyExitCommand = @"
+`$child = Start-Process -FilePath '$($cmdPath.Replace("'", "''"))' -ArgumentList @('/c', 'timeout /t 60 /nobreak >nul') -PassThru
+[IO.File]::WriteAllText('$($jobEarlyExitChildPath.Replace("'", "''"))', ('{0}|{1}' -f `$child.Id, `$child.StartTime.ToUniversalTime().Ticks))
+"@
+    $jobEarlyExitEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($jobEarlyExitCommand))
+    $jobEarlyExitProcess = $null
+    try {
+        $jobEarlyExitProcess = Start-OwnedJobProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $jobEarlyExitEncoded)
+        $jobEarlyExitProcess.process.WaitForExit(10000) | Out-Null
+        if (-not (Test-Path -LiteralPath $jobEarlyExitChildPath -PathType Leaf)) {
+            ThrowIf 'Dry-run job-owned timeout-tree probe did not report its child identity.'
+        }
+        Stop-OwnedJobProcess -OwnedProcess $jobEarlyExitProcess
+        $jobEarlyExitIdentity = (Get-Content -LiteralPath $jobEarlyExitChildPath -Raw).Trim() -split '\|'
+        $jobEarlyExitChild = $null
+        try {
+            $jobEarlyExitChild = [Diagnostics.Process]::GetProcessById([int]$jobEarlyExitIdentity[0])
+            if (-not $jobEarlyExitChild.HasExited -and $jobEarlyExitChild.StartTime.ToUniversalTime().Ticks -eq [long]$jobEarlyExitIdentity[1]) {
+                ThrowIf 'Dry-run job-owned timeout-tree probe left a child alive after its wrapper exited before the first snapshot.'
+            }
+        }
+        catch [System.ArgumentException] {
+        }
+        finally {
+            if ($null -ne $jobEarlyExitChild) { $jobEarlyExitChild.Dispose() }
+        }
+    }
+    finally {
+        if ($null -ne $jobEarlyExitProcess) { Close-OwnedJobProcess -OwnedProcess $jobEarlyExitProcess }
+        Remove-Item -LiteralPath $jobEarlyExitChildPath -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host 'Dry-run job-owned timeout-tree cleanup probe passed.'
     $timeoutProbeReadyPath = Join-Path $hostRunTmpRoot 'timeout-tree.ready'
     $timeoutProbeWrapperExitedPath = Join-Path $hostRunTmpRoot 'timeout-tree.wrapper-exited'
     $timeoutProbeCommand = @"
