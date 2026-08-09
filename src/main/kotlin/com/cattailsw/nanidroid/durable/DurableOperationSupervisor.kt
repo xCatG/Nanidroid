@@ -463,7 +463,18 @@ class DurableOperationSupervisor(
         }
         DurableAttentionSnapshot(
             records = presentedRecords,
-            notificationRecords = storedRecords.filter(DurableOperationRecord::showStallPrompt),
+            notificationRecords = storedRecords
+                .filter(DurableOperationRecord::showStallPrompt)
+                .map { record ->
+                    if (
+                        record.isCancellationDispatchFailure() &&
+                        record.handle() !in revealedStoppingAttention
+                    ) {
+                        record.copy(diagnostics = null)
+                    } else {
+                        record
+                    }
+                },
             nextCheckDelayMillis = nextDelay,
         )
     }

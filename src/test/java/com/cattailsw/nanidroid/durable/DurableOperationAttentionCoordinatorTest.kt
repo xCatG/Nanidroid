@@ -105,6 +105,54 @@ class DurableOperationAttentionCoordinatorTest {
         assertTrue(restoredCoordinator.observeStalledOperations().value.single().showStallPrompt)
     }
 
+    @Test fun restoredFailedStopKeepsOnlyKeepWaitingNotificationUntilFreshStoppingWindowExpires() {
+        val failedCancellation = object : OperationCancellation {
+            override fun cancel(
+                handle: OperationHandle,
+                kind: OperationKind,
+                binding: ExternalJobBinding,
+            ) = error("cancellation dispatch failed")
+        }
+        val stoppingSupervisor = DurableOperationSupervisor(store, clock, failedCancellation)
+        assertTrue(
+            stoppingSupervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding),
+        )
+        clock.value = 30_000L
+        assertTrue(stoppingSupervisor.snapshot().single().showStallPrompt)
+        assertTrue(stoppingSupervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        assertTrue(store.read().single().showStallPrompt)
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, store.read().single().diagnostics)
+
+        val restoredSupervisor = DurableOperationSupervisor(store, clock, failedCancellation)
+        val restoredScheduler = FakeAttentionScheduler()
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredCoordinator = DurableOperationAttentionCoordinator(
+            restoredSupervisor,
+            restoredScheduler,
+            restoredNotifier,
+        )
+
+        restoredCoordinator.start()
+        restoredScheduler.runPending()
+
+        assertTrue(restoredCoordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertNull(restoredNotifier.last.single().diagnostics)
+        assertEquals(30_000L, restoredScheduler.delayMillis)
+
+        clock.value = 60_000L
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING, DurableAttentionAction.RETRY_STOP),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, restoredNotifier.last.single().diagnostics)
+    }
+
     @Test fun repeatedReconstructionKeepsTheSameExactPromptHandle() {
         assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
         clock.value = 30_000L
