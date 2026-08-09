@@ -421,6 +421,49 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `startup recovery reclaims owned staging with an interrupted private journal write`() {
+        val fixture = fixture("interrupted-staging-journal-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val staging = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        )
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                if (file.parentFile?.canonicalFile == staging.canonicalFile) {
+                    write(File(staging, "${GhostUpdateJournalStore.FILE_NAME}.tmp"), bytes("incomplete"))
+                    throw SimulatedProcessDeath()
+                }
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File) = GhostUpdateJournalStore.read(file)
+        }
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile == staging.canonicalFile) throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(journalIo = journalIo, fileOperations = fileOperations).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The staging journal write has created only its private temporary file.
+        }
+
+        assertTrue(staging.exists())
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(staging.exists())
+        assertTrue(fixture.parent.listFiles().orEmpty().none { it.name.startsWith(".nanidroid-update-owner-") })
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), fixture.repository().run(fixture.request()) { false })
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
     fun `startup recovery never sweeps an installed ghost whose id uses the staging prefix`() {
         val storage = temporaryDirectory("staging-prefix-ghost")
         val ghost = File(storage, ".nanidroid-staging-valid-ghost").apply { mkdirs() }

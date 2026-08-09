@@ -1319,12 +1319,23 @@ class GhostUpdateRepository internal constructor(
                         } else if (
                             staging.isDirectory &&
                             !Files.isSymbolicLink(staging.toPath()) &&
-                            staging.listFiles().isNullOrEmpty()
+                            (staging.listFiles().isNullOrEmpty() || removeIncompleteStagingJournal(staging))
                         ) {
                             if (staging.delete()) marker.delete()
                         }
                     }
                 }
+        }
+
+        /** Removes only the private temporary left by an interrupted staging journal write. */
+        private fun removeIncompleteStagingJournal(staging: File): Boolean {
+            val entries = staging.listFiles() ?: return false
+            if (entries.size != 1) return false
+            val temporary = entries.single()
+            return temporary.name == "${GhostUpdateJournalStore.FILE_NAME}.tmp" &&
+                temporary.isFile &&
+                !Files.isSymbolicLink(temporary.toPath()) &&
+                temporary.delete()
         }
 
         private fun canBootPreparedOldLive(ghostRoot: File): Boolean {
