@@ -446,6 +446,42 @@ class GhostSwitchingCharacterizationTest {
     }
 
     @Test
+    fun activeUpdateReloadPublishesARebindForTheReloadedGhost() {
+        val active = RecordingGhost("surface-rebind", null, null, 2, null, trace)
+        val observed = mutableListOf<Pair<Ghost, Boolean>>()
+        setGhost(active)
+        runner.setGhostUpdateSurfaceRebindObserver { ghost, reloaded -> observed += ghost to reloaded }
+
+        runner.withGhostUpdateCommitQuiesced(active.getGhostId(), File(active.getGhostPath())) { Unit }
+
+        Assert.assertEquals(listOf(active to true), observed)
+    }
+
+    @Test
+    fun inactiveUpdateDoesNotPublishAStageRebind() {
+        val active = RecordingGhost("active-stage", null, null, 2, null, trace)
+        val observed = mutableListOf<Pair<Ghost, Boolean>>()
+        setGhost(active)
+        runner.setGhostUpdateSurfaceRebindObserver { ghost, reloaded -> observed += ghost to reloaded }
+
+        runner.withGhostUpdateCommitQuiesced("inactive-stage", File("inactive-stage")) { Unit }
+
+        Assert.assertTrue(observed.isEmpty())
+    }
+
+    @Test
+    fun activeUpdateReloadFailurePublishesAStageClear() {
+        val active = RecordingGhost("surface-clear", null, null, 2, null, trace, failReload = true)
+        val observed = mutableListOf<Pair<Ghost, Boolean>>()
+        setGhost(active)
+        runner.setGhostUpdateSurfaceRebindObserver { ghost, reloaded -> observed += ghost to reloaded }
+
+        runner.withGhostUpdateCommitQuiesced(active.getGhostId(), File(active.getGhostPath())) { Unit }
+
+        Assert.assertEquals(listOf(active to false), observed)
+    }
+
+    @Test
     fun unreservedNativeGlobalReplacementPoisonsEveryLaterSessionOperation() {
         val active = RecordingGhost("active-poison", null, null, 2, null, trace)
         val replacement = RecordingGhost("replacement-poison", null, null, 2, null, trace)

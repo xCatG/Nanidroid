@@ -335,6 +335,7 @@ internal class GhostSessionCoordinator {
         onStopped: () -> T,
         onFailure: (Throwable) -> T,
         onActiveSessionInvalidated: (Ghost) -> Unit = {},
+        onActiveSessionReloaded: (Ghost, Boolean) -> Unit = { _, _ -> },
         action: () -> T,
     ): T {
         val root = ghostRoot.canonicalFile
@@ -408,6 +409,7 @@ internal class GhostSessionCoordinator {
                             state.active = null
                             globalMonitor.notifyAll()
                         }
+                        onActiveSessionReloaded(liveActive, reloaded)
                     }
                 }
                 return result
