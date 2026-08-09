@@ -22,6 +22,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -395,6 +396,7 @@ class GhostDebugSurfaceTest {
             CompositionLocalProvider(
                 LocalContext provides japanese,
                 LocalConfiguration provides japanese.resources.configuration,
+                LocalResources provides japanese.resources,
             ) {
                 DeviceConfigurationOverride(
                     DeviceConfigurationOverride.FontScale(1.5f),
@@ -409,9 +411,9 @@ class GhostDebugSurfaceTest {
                             viewportY = 0,
                             sourceX = 0,
                             sourceY = 0,
-                            collisionId = null,
+                            collisionId = 0,
                             collisionName = null,
-                            buttonId = null,
+                            buttonId = 0,
                             candidateEvent = null,
                             dispatchOutcome = PointerDispatchOutcome.NOT_RESOLVED,
                             source = "test",
