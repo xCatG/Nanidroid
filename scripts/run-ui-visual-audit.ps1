@@ -1161,6 +1161,16 @@ function Assert-InteractionEvidenceRowsMatchCaptureRecord([object[]]$Interaction
     }
 }
 
+function Assert-ManualInspectionInteractionCapture([object]$Manifest, [object]$Summary, [object[]]$InteractionRows) {
+    $session = [pscustomobject]@{
+        deviceSerial = $Summary.deviceSerial
+        avdName = $Summary.avdName
+        snapshotName = $Summary.snapshotName
+    }
+    Assert-InteractionCaptureRecord $Manifest $Summary.interactionCapture $session $Summary.captureProvenance
+    Assert-InteractionEvidenceRowsMatchCaptureRecord $InteractionRows $Summary.interactionCapture
+}
+
 function Assert-CurrentReportPngEvidence([object]$Manifest, [object]$Summary, [object]$ManualRows, [object[]]$InteractionRows, [string]$Root = $reportRoot) {
     $captureStartedAt = ConvertTo-CaptureStartedAtUtc $Summary.captureStartedAtUtc
     $resultById = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
@@ -1230,12 +1240,6 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     $gitPath = Resolve-Git
     $currentDebugApk = Resolve-DebugApk
     Assert-CaptureProvenance $summary.captureProvenance (Get-CurrentCaptureProvenance $gitPath $currentDebugApk)
-    $session = [pscustomobject]@{
-        deviceSerial = $summary.deviceSerial
-        avdName = $summary.avdName
-        snapshotName = $summary.snapshotName
-    }
-    Assert-InteractionCaptureRecord $capturedManifest $summary.interactionCapture $session $summary.captureProvenance
     $resultById = @{}
     foreach ($result in @($summary.results)) {
         if ($resultById.ContainsKey([string]$result.id)) { Fail "Duplicate summary result '$($result.id)'." 'manual-inspection' }
@@ -1252,7 +1256,7 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     $manualRows = Get-ManualAutomatedInspectionRows $resultById $manualText
     if ($manualRows.Count -ne $expectedCaseCount) { Fail "Expected $expectedCaseCount completed manual rows, got $($manualRows.Count)." 'manual-inspection' }
 
-    Assert-InteractionEvidenceRowsMatchCaptureRecord $interactionEvidenceRows $summary.interactionCapture
+    Assert-ManualInspectionInteractionCapture $capturedManifest $summary $interactionEvidenceRows
     Assert-CurrentReportPngEvidence $capturedManifest $summary $manualRows $interactionEvidenceRows
 
     $expectedChecklistCount = @(Get-RequiredInteractionChecklistLabels).Count
@@ -1457,6 +1461,27 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             $failed = $false
             try { Assert-InteractionEvidenceRowsMatchCaptureRecord $mutatedRows $validInteractionCapture } catch { $failed = $true }
             if (-not $failed) { Fail "Checkpointed manual interaction evidence $mutation probe unexpectedly passed." 'dry-run' }
+        }
+        $manualCompletionSummary = [pscustomobject]@{
+            interactionCapture = $validInteractionCapture
+            captureProvenance = $capturedProvenance
+            deviceSerial = $validInteractionCapture.session.deviceSerial
+            avdName = $validInteractionCapture.session.avdName
+            snapshotName = $validInteractionCapture.session.snapshotName
+        }
+        $failed = $false
+        try { Assert-ManualInspectionInteractionCapture $Manifest $manualCompletionSummary $checkpointedInteractionRows } catch { $failed = $true }
+        if ($failed) { Fail 'Manual-completion interaction capture probe rejected its valid summary.' 'dry-run' }
+        foreach ($mutation in @('missing-record', 'changed-checkpoint-hash')) {
+            $mutatedSummary = $manualCompletionSummary | ConvertTo-Json -Depth 16 | ConvertFrom-Json
+            $mutatedRows = $checkpointedInteractionRows | ConvertTo-Json -Depth 16 | ConvertFrom-Json
+            switch ($mutation) {
+                'missing-record' { $mutatedSummary.interactionCapture = $null }
+                'changed-checkpoint-hash' { $mutatedRows[0].artifactSha256 = ('b' * 64) }
+            }
+            $failed = $false
+            try { Assert-ManualInspectionInteractionCapture $Manifest $mutatedSummary $mutatedRows } catch { $failed = $true }
+            if (-not $failed) { Fail "Manual-completion interaction capture $mutation probe unexpectedly passed." 'dry-run' }
         }
         foreach ($mutation in @('missing-artifact', 'substituted-path', 'duplicate-artifact', 'changed-hash', 'changed-session', 'changed-apk')) {
             $mutated = $validInteractionCapture | ConvertTo-Json -Depth 16 | ConvertFrom-Json
