@@ -869,14 +869,31 @@ function Resolve-Git {
     return [string]$commands[0].Source
 }
 
+function Test-UntrackedAndroidBuildInput([string]$Path) {
+    $normalizedPath = $Path.Replace('\', '/').TrimStart('./').ToLowerInvariant()
+    if ($normalizedPath -in @('build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat')) { return $true }
+    return $normalizedPath -match '^(gradle|src|jni|libs)/'
+}
+
+function Assert-UntrackedBuildInputs([string[]]$StatusLines) {
+    foreach ($line in @($StatusLines)) {
+        if (-not $line.StartsWith('?? ')) { continue }
+        $path = $line.Substring(3)
+        if (Test-UntrackedAndroidBuildInput $path) { Fail "Untracked Android/Gradle build input must be committed or removed before audit capture/completion: '$path'." 'git' }
+    }
+}
+
 function Get-TrackedRepositoryState([string]$GitPath) {
     $headBefore = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'rev-parse', '--verify', 'HEAD') -TimeoutSeconds 20).output.Trim().ToLowerInvariant()
     if ($headBefore -notmatch '^[0-9a-f]{40,64}$') { Fail "git returned an invalid HEAD identity '$headBefore'." 'git' }
-    $status = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'status', '--porcelain=v1', '--untracked-files=no') -TimeoutSeconds 20).output
+    $status = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored') -TimeoutSeconds 20).output
     $headAfter = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'rev-parse', '--verify', 'HEAD') -TimeoutSeconds 20).output.Trim().ToLowerInvariant()
     if ($headBefore -cne $headAfter) { Fail "Repository HEAD changed while its audit identity was read: $headBefore -> $headAfter." 'git' }
-    if (-not [string]::IsNullOrWhiteSpace($status)) { Fail 'Tracked worktree changes must be committed or reverted before audit capture/completion.' 'git' }
-    return [pscustomobject][ordered]@{ gitHead = $headBefore; trackedWorktreeClean = $true }
+    $statusLines = @($status -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    Assert-UntrackedBuildInputs $statusLines
+    $trackedStatus = @($statusLines | Where-Object { -not $_.StartsWith('?? ') -and -not $_.StartsWith('!! ') })
+    if ($trackedStatus.Count -ne 0) { Fail 'Tracked worktree changes must be committed or reverted before audit capture/completion.' 'git' }
+    return [pscustomobject][ordered]@{ gitHead = $headBefore; trackedWorktreeClean = $true; untrackedBuildInputsClean = $true }
 }
 
 function Get-CurrentCaptureProvenance([string]$GitPath, [string]$DebugApkPath) {
@@ -887,16 +904,17 @@ function Get-CurrentCaptureProvenance([string]$GitPath, [string]$DebugApkPath) {
     return [pscustomobject][ordered]@{
         gitHead = $repository.gitHead
         trackedWorktreeClean = $repository.trackedWorktreeClean
+        untrackedBuildInputsClean = $repository.untrackedBuildInputsClean
         debugApkPath = $relativeApkPath
         debugApkSha256 = (Get-FileHash -LiteralPath $DebugApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 }
 
 function Assert-CaptureProvenance([object]$Captured, [object]$Current) {
-    foreach ($property in @('gitHead', 'trackedWorktreeClean', 'debugApkPath', 'debugApkSha256')) {
+    foreach ($property in @('gitHead', 'trackedWorktreeClean', 'untrackedBuildInputsClean', 'debugApkPath', 'debugApkSha256')) {
         if (-not (Test-Property $Captured $property) -or -not (Test-Property $Current $property)) { Fail "Capture provenance lacks '$property'." 'manual-inspection' }
     }
-    if ($Captured.trackedWorktreeClean -ne $true -or $Current.trackedWorktreeClean -ne $true) { Fail 'Capture and completion both require a clean tracked worktree.' 'manual-inspection' }
+    if ($Captured.trackedWorktreeClean -ne $true -or $Current.trackedWorktreeClean -ne $true -or $Captured.untrackedBuildInputsClean -ne $true -or $Current.untrackedBuildInputsClean -ne $true) { Fail 'Capture and completion both require clean tracked and untracked Android/Gradle build inputs.' 'manual-inspection' }
     if ([string]$Captured.gitHead -notmatch '^[0-9a-f]{40,64}$' -or [string]$Current.gitHead -notmatch '^[0-9a-f]{40,64}$') { Fail 'Capture provenance contains an invalid git HEAD.' 'manual-inspection' }
     if ([string]$Captured.debugApkSha256 -notmatch '^[0-9a-f]{64}$' -or [string]$Current.debugApkSha256 -notmatch '^[0-9a-f]{64}$') { Fail 'Capture provenance contains an invalid debug APK SHA-256.' 'manual-inspection' }
     foreach ($property in @('gitHead', 'debugApkPath', 'debugApkSha256')) {
@@ -1203,6 +1221,14 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $again=New-UiAuditManifest; $againHash=Get-StringSha256 (ConvertTo-CanonicalManifestJson $again)
     if ($ManifestHash -ne $againHash) { Fail 'Manifest generation is not deterministic.' 'dry-run' }
     Assert-InteractionEvidenceManifestContract $Manifest
+    foreach ($path in @('src/main/kotlin/com/cattailsw/nanidroid/UntrackedAuditInput.kt', 'build.gradle.kts')) {
+        $failed = $false
+        try { Assert-UntrackedBuildInputs @("?? $path") } catch { $failed = $true }
+        if (-not $failed) { Fail "Untracked build-input '$path' probe unexpectedly passed." 'dry-run' }
+    }
+    Assert-UntrackedBuildInputs @()
+    Assert-UntrackedBuildInputs @('!! build/reports/ui-audit/summary.json')
+    if (Test-UntrackedAndroidBuildInput 'C:\corpora\external.nar') { Fail 'External corpus path was classified as an Android build input.' 'dry-run' }
     foreach ($mutation in @('missing', 'substituted', 'duplicated', 'extra')) {
         $mutatedManifest = $Manifest | ConvertTo-Json -Depth 16 | ConvertFrom-Json
         switch ($mutation) {
@@ -1318,15 +1344,17 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $capturedProvenance = [pscustomobject]@{
         gitHead = '1111111111111111111111111111111111111111'
         trackedWorktreeClean = $true
+        untrackedBuildInputsClean = $true
         debugApkPath = 'build\outputs\apk\debug\nanidroid-debug.apk'
         debugApkSha256 = ('a' * 64)
     }
     Assert-CaptureProvenance $capturedProvenance $capturedProvenance
-    foreach ($mutation in @('head', 'dirty', 'missing-apk', 'apk-path', 'apk-hash')) {
+    foreach ($mutation in @('head', 'dirty', 'untracked-build-input', 'missing-apk', 'apk-path', 'apk-hash')) {
         $currentProvenance = $capturedProvenance | ConvertTo-Json | ConvertFrom-Json
         switch ($mutation) {
             'head' { $currentProvenance.gitHead = '2222222222222222222222222222222222222222' }
             'dirty' { $currentProvenance.trackedWorktreeClean = $false }
+            'untracked-build-input' { $currentProvenance.untrackedBuildInputsClean = $false }
             'missing-apk' { $currentProvenance.debugApkSha256 = $null }
             'apk-path' { $currentProvenance.debugApkPath = 'build\outputs\apk\debug\other.apk' }
             'apk-hash' { $currentProvenance.debugApkSha256 = ('b' * 64) }
