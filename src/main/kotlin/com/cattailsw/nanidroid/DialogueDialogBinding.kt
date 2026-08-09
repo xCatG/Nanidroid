@@ -67,7 +67,7 @@ internal class DialogueDialogBinding(
         restoration: DialogueDialogRestoration?,
         value: String = "",
         onValueChanged: (String) -> Unit = {},
-    ): NanidroidSimpleDialog.UserInput {
+    ): NanidroidSimpleDialog.UserInput? {
         val runner = currentRunner()
         val snapshot = runner?.dialogueDialogRuntimeSnapshot()
         val pending = snapshot?.dialogue?.pendingInput?.takeIf {
@@ -75,15 +75,17 @@ internal class DialogueDialogBinding(
                 snapshot.owner == restoration.owner &&
                 it.generation == restoration.generation
         }
-        return inputDialog(
-            id,
-            value,
-            pending?.spec?.presentation ?: InputPresentation(),
-            onValueChanged,
-            runner.takeIf { pending != null },
-            pending?.generation,
-            restoration.takeIf { pending != null },
-        )
+        return pending?.let {
+            inputDialog(
+                id,
+                value,
+                it.spec.presentation,
+                onValueChanged,
+                runner,
+                it.generation,
+                restoration,
+            )
+        }
     }
 
     fun userChoice(

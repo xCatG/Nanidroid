@@ -6,6 +6,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -45,7 +46,7 @@ class DialogueDialogBindingTest {
     }
 
     @Test
-    fun restorationDoesNotUsePresentationFromAnOldSpec() {
+    fun unmatchedRestorationDoesNotCreateARenderableInputDialog() {
         val fixture = fixture()
         val first = fixture.openInput("answer", "passwordinput")
         val binding = DialogueDialogBinding { fixture.runner }
@@ -54,7 +55,22 @@ class DialogueDialogBindingTest {
 
         val restored = binding.restoreUserInput("answer", restoration)
 
-        assertEquals(InputPresentation(), restored.presentation)
+        assertNull(restored)
+    }
+
+    @Test
+    fun matchedRestorationKeepsTheLivePresentationAndSavedValue() {
+        val fixture = fixture()
+        val pending = fixture.openInput("answer", "passwordinput")
+        val binding = DialogueDialogBinding { fixture.runner }
+        val restoration = requireNotNull(binding.userInput(pending).restoration)
+
+        val restored = binding.restoreUserInput("answer", restoration, "secret")
+
+        requireNotNull(restored).also {
+            assertSame(pending.spec.presentation, it.presentation)
+            assertEquals("secret", it.value)
+        }
     }
 
     private fun fixture(): Fixture {

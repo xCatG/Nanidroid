@@ -933,7 +933,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         id: String,
         restoration: DialogueDialogRestoration?,
         value: String,
-    ): NanidroidSimpleDialog.UserInput =
+    ): NanidroidSimpleDialog.UserInput? =
         dialogueDialogBinding.restoreUserInput(id, restoration, value, ::updateUserInputValue)
     private fun updateUserInputValue(value: String) {
         val dialog = simpleDialog as? NanidroidSimpleDialog.UserInput ?: return
