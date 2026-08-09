@@ -462,12 +462,14 @@ class NarCorpusRuntimeTest {
     @Test
     fun unexpectedShioriProbeExceptionIsRecordedAsFailedProbe() {
         val result = baseResult("test", "/test.nar", "abc", 0)
+        result.put("passed", true)
+        result.put("classification", "partiallyCompatible")
 
-        recordProbeFailure(result, IllegalStateException("adapter regression"))
+        recordProbeFailure(result, IllegalStateException("SHIORI request or tokenizer regression"))
 
         assertFalse(result.getBoolean("passed"))
         assertEquals("probe-failure", result.getString("classification"))
-        assertTrue(result.getString("error").contains("adapter regression"))
+        assertTrue(result.getString("error").contains("SHIORI request or tokenizer regression"))
     }
 
     @Test
@@ -1229,9 +1231,6 @@ class NarCorpusRuntimeTest {
         } catch (error: LinkageError) {
             probe.put("outcome", "native-linkage-error")
                 .put("failure", error.stackTraceToString())
-        } catch (error: Exception) {
-            probe.put("outcome", "request-exception")
-                .put("failure", error.stackTraceToString())
         }
     }
 
@@ -1317,29 +1316,6 @@ class NarCorpusRuntimeTest {
                 .put("inputSpecs", JSONArray())
                 .put("failure", error.stackTraceToString())
                 .put("outcome", "native-linkage-error")
-        } catch (error: Exception) {
-            JSONObject()
-                .put("postInteractionEvidence", structuredPostInteractionEvidence(shiori, method, eventId, references))
-                .put("method", method.name)
-                .put("eventId", eventId)
-                .put(
-                    "references",
-                    JSONArray().apply {
-                        references.forEach(this::put)
-                    },
-                )
-                .put("status", JSONObject.NULL)
-                .put("value", JSONObject.NULL)
-                .put("valueTruncated", false)
-                .put("observedAnchorId", JSONObject.NULL)
-                .put("observedInputId", JSONObject.NULL)
-                .put("passiveTransitions", JSONArray())
-                .put("tokenizerDiagnostics", JSONArray())
-                .put("choiceIds", JSONArray())
-                .put("anchorIds", JSONArray())
-                .put("inputSpecs", JSONArray())
-                .put("failure", error.stackTraceToString())
-                .put("outcome", "request-exception")
         }
     }
 
