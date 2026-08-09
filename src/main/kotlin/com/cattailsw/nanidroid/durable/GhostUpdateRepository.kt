@@ -846,14 +846,8 @@ class GhostUpdateRepository internal constructor(
     ): Boolean {
         if (transactionRoot.parentFile == null) return false
         val staging = stagingRoot(transactionRoot)
-        if (staging.exists()) {
-            val removed = if (Files.isSymbolicLink(staging.toPath())) {
-                staging.delete()
-            } else {
-                fileOperations.deleteTree(staging)
-            }
-            if (!removed) return false
-        }
+        // A deterministic name alone is not proof of ownership: a valid ghost ID may occupy it.
+        if (staging.exists()) return false
         if (!staging.mkdir()) return false
         return try {
             val candidateRoot = File(transactionRoot, CANDIDATE)
@@ -1437,7 +1431,10 @@ class GhostUpdateRepository internal constructor(
             }
             RecoveryAuthorization.ADOPT_PREPARED -> if (
                 journal.phase == CommitPhase.PREPARED &&
-                topologyOf(ghostRoot, candidate, backup) == GhostTreeTopology.LIVE_CANDIDATE
+                topologyOf(ghostRoot, candidate, backup) in setOf(
+                    GhostTreeTopology.LIVE_CANDIDATE,
+                    GhostTreeTopology.LIVE_ONLY,
+                )
             ) {
                 requireDelete(transactionRoot)
                 RecoveryResult.RolledBack
@@ -1537,7 +1534,10 @@ class GhostUpdateRepository internal constructor(
             ) return RecoveryResult.Failed("stale ghost update journal blocks replay")
             val topology = topologyOf(ghostRoot, File(transaction, CANDIDATE), File(transaction, BACKUP))
             val authorization = if (
-                journal.phase == CommitPhase.PREPARED && topology == GhostTreeTopology.LIVE_CANDIDATE
+                journal.phase == CommitPhase.PREPARED && topology in setOf(
+                    GhostTreeTopology.LIVE_CANDIDATE,
+                    GhostTreeTopology.LIVE_ONLY,
+                )
             ) RecoveryAuthorization.ADOPT_PREPARED else RecoveryAuthorization.ROLL_FORWARD
             return recoverLocked(ghostRoot, journalIo, authorization, classify)
         }

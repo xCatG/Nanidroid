@@ -428,6 +428,58 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `update preserves another installed ghost at its deterministic staging path`() {
+        val fixture = fixture("staging-occupant")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val occupant = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        ).apply { mkdirs() }
+        write(File(occupant, "ghost/master.txt"), bytes("other-live"))
+
+        assertTrue(fixture.repository().run(fixture.request()) { false } is GhostUpdateResult.Failed)
+
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertTrue(occupant.isDirectory)
+        assertBytes("other-live", File(occupant, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `exact replay adopts ownership journal published before candidate construction`() {
+        val fixture = fixture("published-ownership-replay")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        var published = false
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                assertTrue(source.renameTo(destination))
+                published = true
+                throw SimulatedProcessDeath()
+            }
+        }
+        val request = fixture.request().copy(attemptId = AttemptId(8), workManagerUuid = "work-8")
+
+        try {
+            fixture.repository(fileOperations = fileOperations).run(request) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The ownership journal is durable but candidate construction has not begun.
+        }
+
+        assertTrue(published)
+        assertTrue(File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME).isFile)
+        assertFalse(File(fixture.transactionRoot(), "candidate").exists())
+
+        assertEquals(
+            GhostUpdateResult.Completed(listOf("ghost/master.txt")),
+            fixture.repository().run(request) { false },
+        )
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `startup recovery waits for an active unpublished staging owner before sweeping`() {
         val fixture = fixture("active-unpublished-staging")
         fixture.writeLive("ghost/master.txt", "old")
