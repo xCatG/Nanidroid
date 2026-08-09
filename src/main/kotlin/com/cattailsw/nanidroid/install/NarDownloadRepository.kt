@@ -722,43 +722,32 @@ class NarDownloadRepository internal constructor(
                 } else {
                     null
                 }
-                val downloadManagerId = item.downloadManagerId ?: recoveredDownloadId?.takeUnless { recoveredId ->
+                val recoveredHistoricalRow = recoveredDownloadId?.let { recoveredId ->
                     supervisor.wasExternalJobUsedBefore(
                         item.handle(),
                         ExternalJobBinding.DownloadManager(recoveredId),
                     )
-                }
-                if (item.downloadManagerId == null && recoveredDownloadId != null && downloadManagerId == null) {
+                } == true
+                if (recoveredHistoricalRow) {
+                    reconcileMissingRemoteRow(item)
                     return@forEach
                 }
+                val downloadManagerId = item.downloadManagerId ?: recoveredDownloadId
                 if (downloadManagerId == null) {
-                    remoteProgress.stop(item.handle())
-                    if (
-                        supervisor.isUnboundCancellationConfirmed(
-                            item.handle(),
-                            OperationKind.REMOTE_NAR,
-                        )
-                    ) {
-                        markCancelledIfCurrent(item)
-                    } else if (cancellationRequested(item.handle())) {
-                        if (supervisor.reconcileUnboundCancellation(item.handle())) {
-                            markCancelledIfCurrent(item)
-                        }
-                    } else if (runCatching {
-                        supervisor.failOrConfirmMissingUnboundAttempt(
-                            item.handle(),
-                            OperationKind.REMOTE_NAR,
-                            DOWNLOAD_RECOVERY_FAILURE,
-                        )
-                    }.getOrDefault(false)) {
-                        markNeedsAttentionIfCurrent(item, DOWNLOAD_RECOVERY_FAILURE)
-                    }
+                    reconcileMissingRemoteRow(item)
                     return@forEach
                 }
                 val rebound = try {
                     restoreRemoteDownloadBinding(item, downloadManagerId)
                 } catch (_: Exception) {
                     return@forEach
+                }
+                if (item.downloadManagerId == null && rebound) {
+                    try {
+                        store.update(item.id) { it.copy(downloadManagerId = downloadManagerId) }
+                    } catch (_: Exception) {
+                        return@forEach
+                    }
                 }
                 if (item.downloadManagerId == null && rebound) {
                     store.update(item.id) { it.copy(downloadManagerId = downloadManagerId) }
@@ -1349,6 +1338,30 @@ class NarDownloadRepository internal constructor(
             }
         } catch (_: Exception) {
             markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
+        }
+    }
+
+    private fun reconcileMissingRemoteRow(item: NarDownload) {
+        remoteProgress.stop(item.handle())
+        if (
+            supervisor.isUnboundCancellationConfirmed(
+                item.handle(),
+                OperationKind.REMOTE_NAR,
+            )
+        ) {
+            markCancelledIfCurrent(item)
+        } else if (cancellationRequested(item.handle())) {
+            if (supervisor.reconcileUnboundCancellation(item.handle())) {
+                markCancelledIfCurrent(item)
+            }
+        } else if (runCatching {
+            supervisor.failOrConfirmMissingUnboundAttempt(
+                item.handle(),
+                OperationKind.REMOTE_NAR,
+                DOWNLOAD_RECOVERY_FAILURE,
+            )
+        }.getOrDefault(false)) {
+            markNeedsAttentionIfCurrent(item, DOWNLOAD_RECOVERY_FAILURE)
         }
     }
 
