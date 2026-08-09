@@ -122,6 +122,12 @@ class SakuraScriptTokenizerTest {
                                     InputBehavior.NO_EMPTY,
                                     InputBehavior.NO_CANCEL,
                                 ),
+                                presentation = InputPresentation(
+                                    obscured = true,
+                                    multiline = true,
+                                    requireNonEmpty = true,
+                                    allowCancel = false,
+                                ),
                                 supplement = "",
                                 extraReferences = listOf("a,b", "", "tail"),
                                 unknownOptions = listOf("future", "--flag=value"),
@@ -133,6 +139,7 @@ class SakuraScriptTokenizerTest {
                                 timeoutMillis = null,
                                 initialText = "",
                                 behaviorOptions = emptySet(),
+                                presentation = InputPresentation(),
                                 supplement = "named supplement",
                                 extraReferences = emptyList(),
                                 unknownOptions = emptyList(),
@@ -153,6 +160,20 @@ class SakuraScriptTokenizerTest {
     }
 
     @Test
+    fun inputFormsNormalizePresentationAndKeepUnsupportedOptions() {
+        val password = input(
+            "\\![open,passwordinput,pw,--option=multiline,--option=noempty,--option=nocancel]",
+        )
+        assertEquals(InputPresentation(true, true, true, false), password.presentation)
+
+        val alias = input(
+            "\\![open,inputbox,pw,--option=password,--option=future,--option=noclose]",
+        )
+        assertEquals(InputPresentation(obscured = true), alias.presentation)
+        assertEquals(listOf("future", "noclose"), alias.unknownOptions)
+    }
+
+    @Test
     fun positionalInitialTextIsRetainedWhenDisplayTimeIsOmitted() {
         assertEquals(
             listOf(
@@ -165,6 +186,7 @@ class SakuraScriptTokenizerTest {
                                 timeoutMillis = null,
                                 initialText = "prefilled",
                                 behaviorOptions = emptySet(),
+                                presentation = InputPresentation(),
                                 supplement = "",
                                 extraReferences = emptyList(),
                                 unknownOptions = emptyList(),
@@ -443,14 +465,26 @@ class SakuraScriptTokenizerTest {
                     listOf(
                         DialogueSegment.InputBox(
                             InputBoxSpec(
-                                InputDispatch.Normal("first"), null, "prefilled", emptySet(), "",
-                                emptyList(), emptyList(),
+                                dispatch = InputDispatch.Normal("first"),
+                                timeoutMillis = null,
+                                initialText = "prefilled",
+                                behaviorOptions = emptySet(),
+                                presentation = InputPresentation(),
+                                supplement = "",
+                                extraReferences = emptyList(),
+                                unknownOptions = emptyList(),
                             ),
                         ),
                         DialogueSegment.InputBox(
                             InputBoxSpec(
-                                InputDispatch.Normal("second"), 7L, "", emptySet(), "",
-                                emptyList(), listOf("--timeout=abc"),
+                                dispatch = InputDispatch.Normal("second"),
+                                timeoutMillis = 7L,
+                                initialText = "",
+                                behaviorOptions = emptySet(),
+                                presentation = InputPresentation(),
+                                supplement = "",
+                                extraReferences = emptyList(),
+                                unknownOptions = listOf("--timeout=abc"),
                             ),
                         ),
                     ),
@@ -760,6 +794,11 @@ class SakuraScriptTokenizerTest {
 
     private fun tokenize(script: String, diagnostics: MutableList<String> = mutableListOf()): List<DialogueContent> =
         SakuraScriptTokenizer.tokenize(script, diagnostics::add)
+
+    private fun input(script: String): InputBoxSpec =
+        tokenize(script).single().segments.single().let { segment ->
+            (segment as DialogueSegment.InputBox).spec
+        }
 
     private fun DialogueAction.label(): String = when (this) {
         is DialogueAction.Normal -> label

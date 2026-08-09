@@ -67,7 +67,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.GhostActionGuard
 import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
-import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
@@ -930,13 +930,13 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     } catch (_: Exception) { false }
     private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
         GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
-    private fun createUserInputDialog(id: String, generation: Long?, value: String = ""): NanidroidSimpleDialog.UserInput =
-        dialogueDialogBinding.userInput(id, generation, value, ::updateUserInputValue)
+    private fun createUserInputDialog(pending: PendingInputState, value: String = ""): NanidroidSimpleDialog.UserInput =
+        dialogueDialogBinding.userInput(pending, value, ::updateUserInputValue)
     private fun restoreUserInputDialog(
         id: String,
         restoration: DialogueDialogRestoration?,
         value: String,
-    ): NanidroidSimpleDialog.UserInput =
+    ): NanidroidSimpleDialog.UserInput? =
         dialogueDialogBinding.restoreUserInput(id, restoration, value, ::updateUserInputValue)
     private fun updateUserInputValue(value: String) {
         val dialog = simpleDialog as? NanidroidSimpleDialog.UserInput ?: return
@@ -945,11 +945,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun openDialogueInput(input: DialogueSegment.InputBox) {
         val pending = runner?.dialogueStateSnapshot()?.pendingInput ?: return
         if (pending.spec !== input.spec) return
-        val id = when (val dispatch = pending.spec.dispatch) {
-            is InputDispatch.Normal -> dispatch.id
-            is InputDispatch.DirectEvent -> dispatch.eventId
-        }
-        simpleDialog = createUserInputDialog(id, pending.generation)
+        simpleDialog = createUserInputDialog(pending)
     }
     private fun openDialogueExternalUrl(value: String) {
         val uri = try {

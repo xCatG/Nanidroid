@@ -54,6 +54,7 @@
   <string name="archive_queue_btn_text_with_count">共 %1$d 個下載</string>
 
   <string name="user_input_dlg_title">輸入</string>
+  <string name="user_input_required">必須輸入內容</string>
   <string name="dialogue_choose_action">選擇…</string>
   <string name="user_sel_dlg_title">請選擇一項</string>
   <string name="err_title">錯誤</string>
