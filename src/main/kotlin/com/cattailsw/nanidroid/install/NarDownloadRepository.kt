@@ -563,6 +563,14 @@ class NarDownloadRepository internal constructor(
         acquireGrant: () -> Boolean,
     ): NarDownload? {
         if (!acquireGrant()) return null
+        store.update(itemId) { current ->
+            if (current.pendingPersistedGrantReleaseUri == uri) {
+                current.copy(pendingPersistedGrantReleaseUri = null)
+            } else {
+                current
+            }
+        }
+        store.removePendingPersistedGrantRelease(uri)
         return replaceLocalSource(itemId, uri)
     }
 
@@ -614,7 +622,9 @@ class NarDownloadRepository internal constructor(
         runCatching { work.cancel(itemId) }
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
-        releasePendingPersistedGrantIfUnused(item)
+        if (!releasePendingPersistedGrantIfUnused(item)) {
+            store.addPendingPersistedGrantRelease(item.pendingPersistedGrantReleaseUri!!)
+        }
         store.delete(itemId)
         liveCopyAttempts -= item.handle()
         releasePersistedGrantIfUnused(item)
@@ -738,6 +748,7 @@ class NarDownloadRepository internal constructor(
             }
         store.getAll().forEach(::releaseTransferredDocumentGrantIfUnused)
         store.getAll().forEach(::releasePendingPersistedGrantIfUnused)
+        store.pendingPersistedGrantReleases().forEach(::releaseDetachedPersistedGrantIfUnused)
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
             .forEach { item ->
@@ -1343,9 +1354,9 @@ class NarDownloadRepository internal constructor(
         }
     }
 
-    private fun releasePendingPersistedGrantIfUnused(item: NarDownload) {
-        val source = item.pendingPersistedGrantReleaseUri ?: return
-        if (hasSourceReference(source, item.id)) return
+    private fun releasePendingPersistedGrantIfUnused(item: NarDownload): Boolean {
+        val source = item.pendingPersistedGrantReleaseUri ?: return true
+        if (hasSourceReference(source, item.id)) return true
         if (runCatching { ownedData.releasePersistedGrant(item.copy(retainedUri = source)) }.getOrDefault(false)) {
             store.update(item.id) { current ->
                 if (current.pendingPersistedGrantReleaseUri == source) {
@@ -1354,6 +1365,20 @@ class NarDownloadRepository internal constructor(
                     current
                 }
             }
+            return true
+        }
+        return false
+    }
+
+    private fun releaseDetachedPersistedGrantIfUnused(source: String) {
+        if (hasSourceReference(source)) return
+        val cleanup = NarDownload(
+            id = "pending-grant-release",
+            source = NarDownloadSource.Local(source),
+            retainedUri = source,
+        )
+        if (runCatching { ownedData.releasePersistedGrant(cleanup) }.getOrDefault(false)) {
+            store.removePendingPersistedGrantRelease(source)
         }
     }
 

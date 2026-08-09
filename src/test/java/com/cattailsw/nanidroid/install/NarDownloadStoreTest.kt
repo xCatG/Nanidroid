@@ -92,6 +92,14 @@ class NarDownloadStoreTest {
         )
     }
 
+    @Test fun detachedPendingGrantCleanupSurvivesRecreatingTheStore() {
+        val storage = NarDownloadStore.MemoryStorage()
+        val source = "content://provider/archive.nar"
+        NarDownloadStore(storage).addPendingPersistedGrantRelease(source)
+
+        assertEquals(setOf(source), NarDownloadStore(storage).pendingPersistedGrantReleases())
+    }
+
     @Test fun recordsAreListedInEnqueueOrder() {
         store.create(remote(id = "z"))
         store.create(remote(id = "a"))

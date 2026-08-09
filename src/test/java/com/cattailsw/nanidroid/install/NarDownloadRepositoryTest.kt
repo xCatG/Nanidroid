@@ -674,6 +674,34 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(source), ownedData.releasedUris.filter { it == source })
     }
 
+    @Test fun deletingStagedDocumentRetainsFailedGrantCleanupForReconciliation() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseSucceeds = false
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && !releaseSucceeds) {
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(repository.delete(item.id))
+        assertNull(store.get(item.id))
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+
+        releaseSucceeds = true
+        repository.reconcile()
+
+        assertEquals(listOf(source), ownedData.releasedUris.filter { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
     @Test fun replacingStagedDocumentRetriesItsFailedOriginalGrantCleanup() {
         val source = "content://provider/archive.nar"
         val replacement = "file:///owned/reselected.nar"
@@ -2066,6 +2094,32 @@ class NarDownloadRepositoryTest {
         repository.replaceLocalSource(item.id, source)
 
         assertTrue(ownedData.releasedItemIds.isEmpty())
+    }
+
+    @Test fun reselectingStagedDocumentWithTheSameUriSupersedesFailedGrantCleanup() {
+        val source = "content://provider/reselected.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseAttempts = 0
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                releaseAttempts++
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertNotNull(
+            repository.replaceWithPersistedLocalSource(item.id, source) { true },
+        )
+
+        assertEquals(1, releaseAttempts)
+        assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
     }
 
     @Test fun completedHistoryDoesNotRetainAReacquiredDocumentGrant() {
