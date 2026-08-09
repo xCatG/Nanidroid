@@ -245,6 +245,7 @@ private fun FixtureDebugSurface(
         ),
         logs = listOf(
             BoundedShioriLog.Entry(
+                id = 0L,
                 event = "OnBoot",
                 request = "GET SHIORI/3.0",
                 responseStatus = 200,
