@@ -166,7 +166,12 @@ class DurableOperationSupervisor(
             lastProgressAt[handle] = clock.nowMillis()
             lastObservedRevisions[handle] = updated.observationRevision()
             if (current.status == OperationStatus.CANCEL_REQUESTED) {
-                issueCancellation(handle, current.kind, binding)
+                issueCancellation(
+                    handle,
+                    current.kind,
+                    binding,
+                    preserveAttention = current.showStallPrompt,
+                )
             }
             true
         }
