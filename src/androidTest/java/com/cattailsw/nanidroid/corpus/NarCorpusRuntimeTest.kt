@@ -1075,7 +1075,10 @@ class NarCorpusRuntimeTest {
                 .put("eventId", eventId)
                 .put("scope", "dialogue")
                 .put("coordinates", JSONObject.NULL)
-                .put("identifier", references.firstOrNull() ?: JSONObject.NULL)
+                .put(
+                    "identifier",
+                    if (eventId == SNAKE_NAME_TEACH_ID) eventId else references.firstOrNull() ?: JSONObject.NULL,
+                )
                 .put("button", JSONObject.NULL)
                 .put("source", if (eventId == SNAKE_NAME_TEACH_ID) "input" else "choice")
                 .put(

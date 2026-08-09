@@ -380,7 +380,7 @@ function Test-SnakeBootLifecycleSequence {
     return [string]$firstStatus -ne '204' -and -not ($eventIds -contains 'OnBoot')
 }
 
-function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGhostIdentity) {
+function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGhostIdentity, [object[]]$DialogueSteps = @()) {
     if (@($Evidence).Count -eq 0) { ThrowIf 'Post-interaction SHIORI evidence is missing.' }
     if ([string]::IsNullOrWhiteSpace($ExpectedGhostIdentity)) { ThrowIf 'Post-interaction SHIORI evidence has no expected installed target identity.' }
     $hasInputEvidence = $false
@@ -392,9 +392,23 @@ function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGh
         if ([string]$entry.eventId -notin @('OnChoiceSelect', 'OnChoiceSelectEx', 'OnNameTeach')) { ThrowIf "Unexpected post-interaction event '$($entry.eventId)'." }
         if ([string]$entry.scope -ne 'dialogue') { ThrowIf "Unexpected post-interaction scope '$($entry.scope)'." }
         if (@($entry.references).Count -ne 7) { ThrowIf 'Post-interaction evidence must retain References 0 through 6.' }
-        if ([string]$entry.eventId -eq 'OnNameTeach' -and [string]$entry.source -eq 'input') { $hasInputEvidence = $true }
+        if ([string]$entry.eventId -eq 'OnNameTeach') {
+            if ([string]$entry.source -ne 'input' -or [string]$entry.identifier -cne [string]$entry.eventId) { ThrowIf 'OnNameTeach evidence must retain its direct event identifier and input source.' }
+            $hasInputEvidence = $true
+        }
+        elseif ([string]$entry.source -ne 'choice') { ThrowIf 'Choice evidence must retain source=choice.' }
     }
     if (-not $hasInputEvidence) { ThrowIf 'Post-interaction SHIORI evidence has no OnNameTeach input dispatch.' }
+    $expectedInteractionSteps = @($DialogueSteps | Where-Object { (Get-NestedPropertyValue -Object $_ -Path 'eventId') -in @('OnChoiceSelect', 'OnChoiceSelectEx', 'OnNameTeach') })
+    if ($expectedInteractionSteps.Count -eq 0) { return }
+    if (@($Evidence).Count -ne $expectedInteractionSteps.Count) { ThrowIf 'Post-interaction SHIORI evidence does not retain every dialogue interaction step.' }
+    for ($index = 0; $index -lt $expectedInteractionSteps.Count; $index++) {
+        $expectedEventId = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path 'eventId'
+        $expectedReference = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path 'references[0]'
+        if ([string]$Evidence[$index].eventId -cne [string]$expectedEventId -or [string]$Evidence[$index].references[0] -cne [string]$expectedReference) {
+            ThrowIf 'Post-interaction SHIORI evidence is not ordered with its dialogue sequence.'
+        }
+    }
 }
 
 function Test-OnlyExpectedTokenizerDiagnostics {
@@ -1961,7 +1975,7 @@ foreach ($arg in $ProbeArgs) {
     if (-not (Test-SnakeBootLifecycleSequence -Steps $dryRunSnakeFallback -ExpectOnBootFallback $true)) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected the 204 OnBoot fallback sequence.'
     }
-    Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence @(
+    $validPostInteractionEvidence = @(
         [pscustomobject]@{
             ghostIdentity = 'snake-and-otacon'
             method = 'GET'
@@ -1983,8 +1997,20 @@ foreach ($arg in $ProbeArgs) {
             button = $null
             source = 'input'
             references = @('Nanidroid', $null, $null, $null, $null, $null, $null)
+        },
+        [pscustomobject]@{
+            ghostIdentity = 'snake-and-otacon'
+            method = 'GET'
+            eventId = 'OnChoiceSelect'
+            scope = 'dialogue'
+            coordinates = $null
+            identifier = 'faq'
+            button = $null
+            source = 'choice'
+            references = @('faq', $null, $null, $null, $null, $null, $null)
         }
     )
+    Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $validPostInteractionEvidence -DialogueSteps $dryRunSnakeNoFallback
     $acceptedPostInteractionRegressions = @()
     $choiceOnlyEvidence = @(
         [pscustomobject]@{
@@ -2012,9 +2038,16 @@ foreach ($arg in $ProbeArgs) {
             references = @('Nanidroid', $null, $null, $null, $null, $null, $null)
         }
     )
+    $missingTrailingChoiceEvidence = @($validPostInteractionEvidence | Select-Object -First 2)
+    $inputOnlyEvidence = @($validPostInteractionEvidence | Select-Object -Skip 1 -First 1)
+    $incorrectInputIdentifierEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $incorrectInputIdentifierEvidence[1].identifier = 'Nanidroid'
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $choiceOnlyEvidence; $acceptedPostInteractionRegressions += 'choice-only evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $masterIdentityEvidence; $acceptedPostInteractionRegressions += 'master ghost identity' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence @([pscustomobject]@{ ghostIdentity = 'snake-and-otacon'; method = 'GET'; eventId = 'OnUserInput'; scope = 'dialogue'; coordinates = $null; identifier = 'OnNameTeach'; button = $null; source = 'input'; references = @('OnNameTeach', 'Nanidroid', $null, $null, $null, $null, $null) }); $acceptedPostInteractionRegressions += 'generic OnUserInput envelope' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $missingTrailingChoiceEvidence -DialogueSteps $dryRunSnakeNoFallback; $acceptedPostInteractionRegressions += 'missing trailing choice evidence' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $inputOnlyEvidence -DialogueSteps $dryRunSnakeNoFallback; $acceptedPostInteractionRegressions += 'input-only evidence' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectInputIdentifierEvidence; $acceptedPostInteractionRegressions += 'direct input text used as identifier' } catch { }
     if ($acceptedPostInteractionRegressions.Count -gt 0) {
         ThrowIf "Dry-run post-interaction regression accepted $($acceptedPostInteractionRegressions -join ' and ')."
     }
@@ -2747,13 +2780,13 @@ $installed = $false
     $snakeSequence = Get-NestedPropertyValue -Object $snakeResult -Path 'dialogueProbe.sequence'
     $snakePostInteractionEvidence = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeResult -Path 'dialogueProbe.postInteractionEvidence')
     $snakeInstalledTargetId = Get-NestedPropertyValue -Object $snakeResult -Path 'installedTargetId'
-    $snakePostInteractionEvidenceValid = $true
-    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity $snakeInstalledTargetId -Evidence $snakePostInteractionEvidence } catch { $snakePostInteractionEvidenceValid = $false }
     $snakeSequenceSteps = @()
     if ($null -ne $snakeSequence) {
         $snakeSequenceSteps = @($snakeSequence)
     }
     $snakeSequenceCount = $snakeSequenceSteps.Count
+    $snakePostInteractionEvidenceValid = $true
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity $snakeInstalledTargetId -Evidence $snakePostInteractionEvidence -DialogueSteps $snakeSequenceSteps } catch { $snakePostInteractionEvidenceValid = $false }
     $snakeStepOnFirstBoot = if ($snakeSequenceCount -gt 0) { $snakeSequenceSteps[0] } else { $null }
     $snakeStepFirstChoiceSelect = if ($snakeSequenceCount -gt 1) { $snakeSequenceSteps[1] } else { $null }
     $snakeStepUserInput = if ($snakeSequenceCount -gt 2) { $snakeSequenceSteps[2] } else { $null }
