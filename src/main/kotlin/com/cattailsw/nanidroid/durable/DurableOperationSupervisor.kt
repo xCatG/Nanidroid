@@ -16,6 +16,7 @@ class DurableOperationSupervisor(
     private val cancellationIssued = mutableSetOf<BoundCancellation>()
     private val revealedStoppingAttention = mutableSetOf<OperationHandle>()
     private val restartSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
+    private val keepWaitingSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
     @Volatile private var mutationListener: (() -> Unit)? = null
 
     init {
@@ -172,7 +173,10 @@ class DurableOperationSupervisor(
 
     fun keepWaiting(handle: OperationHandle): Boolean = mutate {
         val current = activeRecord(handle) ?: return@mutate false
-        val updated = current.copy(showStallPrompt = false)
+        val updated = current.copy(
+            showStallPrompt = false,
+            attentionKeepWaitingGeneration = current.attentionKeepWaitingGeneration + 1L,
+        )
         if (!store.compareAndSet(current, updated)) {
             return@mutate false
         }
@@ -209,7 +213,10 @@ class DurableOperationSupervisor(
         if (!current.showStallPrompt) return@mutate false
         when (action) {
             DurableAttentionAction.KEEP_WAITING -> {
-                val updated = current.copy(showStallPrompt = false)
+                val updated = current.copy(
+                    showStallPrompt = false,
+                    attentionKeepWaitingGeneration = current.attentionKeepWaitingGeneration + 1L,
+                )
                 if (!store.compareAndSet(current, updated)) {
                     return@mutate false
                 }
@@ -429,6 +436,12 @@ class DurableOperationSupervisor(
             if (previousRevision != null && previousRevision != revision) {
                 lastProgressAt[handle] = now
                 revealedStoppingAttention.remove(handle)
+                if (
+                    record.attentionKeepWaitingGeneration >
+                        previousRevision.attentionKeepWaitingGeneration
+                ) {
+                    keepWaitingSuppressedAttention[handle] = record
+                }
             }
             val observedAt = lastProgressAt.getOrPut(handle) { now }
             if (
@@ -436,6 +449,12 @@ class DurableOperationSupervisor(
                 now - observedAt >= STALL_MILLIS
             ) {
                 restartSuppressedAttention.remove(handle)
+            }
+            if (
+                record.isKeepWaitingSuppressed() &&
+                now - observedAt >= STALL_MILLIS
+            ) {
+                keepWaitingSuppressedAttention.remove(handle)
             }
             if (record.attentionEscalationDue(now - observedAt, handle)) {
                 if (record.showStallPrompt && record.isCancellationDispatchFailure()) {
@@ -470,6 +489,9 @@ class DurableOperationSupervisor(
         restartSuppressedAttention.keys.retainAll(
             storedRecords.mapTo(mutableSetOf()) { it.handle() },
         )
+        keepWaitingSuppressedAttention.keys.retainAll(
+            storedRecords.mapTo(mutableSetOf()) { it.handle() },
+        )
         lastObservedRevisions.keys.retainAll(
             storedRecords.mapTo(mutableSetOf()) { it.handle() },
         )
@@ -478,6 +500,7 @@ class DurableOperationSupervisor(
                 val observedAt = lastProgressAt.getOrPut(record.handle()) { now }
                 if (
                     record.isRestartSuppressed() ||
+                    record.isKeepWaitingSuppressed() ||
                     !record.showStallPrompt ||
                     record.awaitingStoppingEscalation(record.handle())
                 ) {
@@ -497,7 +520,7 @@ class DurableOperationSupervisor(
                 }
             }
         val presentedRecords = storedRecords.map { record ->
-            if (record.isRestartSuppressed()) {
+            if (record.isRestartSuppressed() || record.isKeepWaitingSuppressed()) {
                 record.copy(showStallPrompt = false)
             } else if (
                 record.showStallPrompt &&
@@ -512,7 +535,9 @@ class DurableOperationSupervisor(
         DurableAttentionSnapshot(
             records = presentedRecords,
             notificationRecords = storedRecords
-                .filter(DurableOperationRecord::showStallPrompt)
+                .filter { record ->
+                    record.showStallPrompt && !record.isKeepWaitingSuppressed()
+                }
                 .map { record ->
                     if (
                         record.isRestartSuppressed() ||
@@ -532,6 +557,9 @@ class DurableOperationSupervisor(
 
     private fun DurableOperationRecord.isRestartSuppressed(): Boolean =
         restartSuppressedAttention[handle()] == this
+
+    private fun DurableOperationRecord.isKeepWaitingSuppressed(): Boolean =
+        keepWaitingSuppressedAttention[handle()] == this
 
     private fun DurableOperationRecord.attentionEscalationDue(
         elapsedMillis: Long,
@@ -557,6 +585,7 @@ class DurableOperationSupervisor(
         externalJob = externalJob,
         showStallPrompt = showStallPrompt,
         attentionRetryGeneration = attentionRetryGeneration,
+        attentionKeepWaitingGeneration = attentionKeepWaitingGeneration,
         progressGeneration = progressGeneration,
     )
 
@@ -688,6 +717,7 @@ class DurableOperationSupervisor(
         val externalJob: ExternalJobBinding?,
         val showStallPrompt: Boolean,
         val attentionRetryGeneration: Long,
+        val attentionKeepWaitingGeneration: Long,
         val progressGeneration: Long,
     )
 

@@ -15,12 +15,13 @@ class SharedPreferencesDurableOperationStoreTest {
         val store = SharedPreferencesDurableOperationStore(storage)
         val record = record("retry", 1).copy(
             attentionRetryGeneration = 7L,
+            attentionKeepWaitingGeneration = 9L,
             progressGeneration = 11L,
         )
 
         assertTrue(store.putIfAbsent(record))
         assertEquals(record, SharedPreferencesDurableOperationStore(storage).read().single())
-        assertTrue(storage.value!!.startsWith("v4\n"))
+        assertTrue(storage.value!!.startsWith("v5\n"))
     }
 
     @Test fun emptyPresentValueCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {

@@ -115,6 +115,32 @@ class DurableOperationAttentionCoordinatorTest {
         assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
     }
 
+    @Test fun externallyClearedAndRepublishedPromptStartsANewObservationWindow() {
+        val otherSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+        otherSupervisor.attentionSnapshot()
+
+        clock.value = 31_000L
+        assertTrue(otherSupervisor.keepWaiting(handle))
+        clock.value = 61_000L
+        assertTrue(otherSupervisor.attentionSnapshot().records.single().showStallPrompt)
+
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertTrue(coordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(30_000L, scheduler.delayMillis)
+
+        clock.value = 91_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
     @Test fun localKeepWaitingDoesNotExtendTheWindowWhenReconciliationIsDelayed() {
         coordinator.start()
         scheduler.runPending()
