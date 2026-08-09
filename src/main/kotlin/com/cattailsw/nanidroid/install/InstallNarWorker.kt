@@ -97,13 +97,21 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
             attemptId: Long,
         ): Boolean =
             tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
-                (
-                    attemptId == InstallNarWorker.NO_ATTEMPT ||
-                        workManagerId != durableWorkManagerId(
-                            OperationHandle(OperationId(itemId), AttemptId(attemptId)),
-                            OperationKind.NAR_INSTALL,
-                        )
+                !isDeterministicInstallWorkId(itemId, workManagerId, attemptId)
+
+        private fun isDeterministicInstallWorkId(
+            itemId: String,
+            workManagerId: UUID,
+            latestAttemptId: Long,
+        ): Boolean {
+            if (latestAttemptId == InstallNarWorker.NO_ATTEMPT) return false
+            return (0L..latestAttemptId).any { candidateAttemptId ->
+                workManagerId == durableWorkManagerId(
+                    OperationHandle(OperationId(itemId), AttemptId(candidateAttemptId)),
+                    OperationKind.NAR_INSTALL,
                 )
+            }
+        }
     }
 
     override fun enqueue(itemId: String) {

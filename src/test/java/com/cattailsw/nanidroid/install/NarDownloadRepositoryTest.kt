@@ -1292,6 +1292,24 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun untaggedDeterministicV2WorkFromAnEarlierAttemptIsNotClassifiedAsLegacy() {
+        val itemId = "untagged-prior-v2-install-work"
+
+        (0L until 4L).forEach { earlierAttemptId ->
+            assertTrue(
+                !AndroidNarInstallWorkScheduler.isLegacyInstallWork(
+                    itemId = itemId,
+                    workManagerId = durableWorkManagerId(
+                        OperationHandle(OperationId(itemId), AttemptId(earlierAttemptId)),
+                        OperationKind.NAR_INSTALL,
+                    ),
+                    tags = emptySet(),
+                    attemptId = 4L,
+                ),
+            )
+        }
+    }
+
     @Test fun reconciliationMakesMigratedInstallActionableWhenPersistedWorkProbeThrows() {
         val item = store.create(
             NarDownload(
