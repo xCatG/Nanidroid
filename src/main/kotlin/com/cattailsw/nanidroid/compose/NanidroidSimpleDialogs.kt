@@ -1,27 +1,51 @@
 package com.cattailsw.nanidroid.compose
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.cattailsw.nanidroid.DialogueDialogRestoration
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.NarDownload
@@ -102,15 +126,103 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 
 @Composable private fun UserInputDialog(dialog: NanidroidSimpleDialog.UserInput, onDismiss: () -> Unit) {
     fun cancel() { onDismiss(); dialog.onCancel() }
-    AlertDialog(
+    fun submit() { onDismiss(); dialog.onSubmit(dialog.id, dialog.value) }
+    val title = stringResource(R.string.user_input_dlg_title)
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(dialog.id, dialog.restoration) {
+        focusRequester.requestFocus()
+    }
+
+    Dialog(
         // Back/outside dismissal hides presentation only. The runtime-owned
         // pending input remains reopenable until explicit Cancel or submit.
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.user_input_dlg_title)) },
-        text = { OutlinedTextField(value = dialog.value, onValueChange = dialog.onValueChanged, modifier = Modifier.fillMaxWidth().testTag("script-user-input"), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { onDismiss(); dialog.onSubmit(dialog.id, dialog.value) })) },
-        confirmButton = { TextButton(onClick = { onDismiss(); dialog.onSubmit(dialog.id, dialog.value) }, modifier = Modifier.testTag("script-user-input-confirm")) { Text(stringResource(android.R.string.ok)) } },
-        dismissButton = { TextButton(onClick = ::cancel, modifier = Modifier.testTag("script-user-input-cancel")) { Text(stringResource(android.R.string.cancel)) } },
-    )
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) }
+                // safeDrawing includes both system bars and the IME.
+                .safeDrawingPadding()
+                .padding(vertical = 16.dp),
+        ) {
+            val horizontalPadding = if (maxWidth >= 208.dp) 24.dp else 0.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = horizontalPadding),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .widthIn(max = 560.dp)
+                        .fillMaxWidth()
+                        // Consume panel taps so only the surrounding dimmed area dismisses.
+                        .pointerInput(Unit) { detectTapGestures(onTap = {}) }
+                        .semantics { paneTitle = title },
+                    shape = AlertDialogDefaults.shape,
+                    color = AlertDialogDefaults.containerColor,
+                    tonalElevation = AlertDialogDefaults.TonalElevation,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState())
+                                .padding(top = 24.dp, bottom = 8.dp),
+                        ) {
+                            Text(
+                                text = title,
+                                modifier = Modifier.semantics { heading() },
+                                style = MaterialTheme.typography.headlineSmall,
+                            )
+                            Spacer(Modifier.size(16.dp))
+                            OutlinedTextField(
+                                value = dialog.value,
+                                onValueChange = dialog.onValueChanged,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .testTag("script-user-input"),
+                                label = { Text(title) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { submit() }),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(
+                                onClick = ::cancel,
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .weight(1f, fill = false)
+                                    .testTag("script-user-input-cancel"),
+                            ) { Text(stringResource(android.R.string.cancel)) }
+                            TextButton(
+                                onClick = ::submit,
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .weight(1f, fill = false)
+                                    .testTag("script-user-input-confirm"),
+                            ) { Text(stringResource(android.R.string.ok)) }
+                        }
+                    }
+                }            }
+        }
+    }
 }
 
 @Composable private fun UserChoiceDialog(dialog: NanidroidSimpleDialog.UserChoice, onDismiss: () -> Unit) = AlertDialog(
