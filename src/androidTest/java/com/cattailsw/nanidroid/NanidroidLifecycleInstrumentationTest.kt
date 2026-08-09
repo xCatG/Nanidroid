@@ -89,6 +89,7 @@ class NanidroidLifecycleInstrumentationTest {
         } finally {
             retainedRunner.addMsgToQueue(arrayOf("\\![leave,passivemode]\\e"))
             retainedRunner.run()
+            retainedRunner.setNoWaitMode(false)
         }
     }
 
