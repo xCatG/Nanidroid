@@ -126,12 +126,18 @@ internal object CollisionGeometryParser {
 
     fun parse(text: String, authoredOrder: Int): ParsedCollision {
         val trimmed = text.trim()
-        if (ANIMATION_COLLISION.matches(trimmed)) return ParsedCollision.Invalid(SurfaceDiagnosticReason.UNSUPPORTED)
+        if (ANIMATION_COLLISION_PREFIX.matches(trimmed)) return ParsedCollision.Invalid(SurfaceDiagnosticReason.UNSUPPORTED)
         val fields = trimmed.split(',')
         val key = fields.firstOrNull()?.trim().orEmpty()
         val collisionEx = COLLISION_EX.matchEntire(key)
         val collision = COLLISION.matchEntire(key)
-        if (collisionEx == null && collision == null) return ParsedCollision.NotCollision
+        if (collisionEx == null && collision == null) {
+            return if (key.startsWith("collision", ignoreCase = true)) {
+                ParsedCollision.Invalid(SurfaceDiagnosticReason.ENTRY)
+            } else {
+                ParsedCollision.NotCollision
+            }
+        }
         parseCount++
         val id = (collisionEx ?: collision)!!.groupValues[1].toIntOrNull()
             ?.takeIf { it >= 0 }
@@ -149,14 +155,17 @@ internal object CollisionGeometryParser {
             coordinates[2]!!,
             coordinates[3]!!,
         ) ?: return ParsedCollision.Invalid(SurfaceDiagnosticReason.ENTRY)
+        val identifier = nonBlankIdentifier(fields.drop(5).joinToString(","))
+            ?: return ParsedCollision.Invalid(SurfaceDiagnosticReason.ENTRY)
         return ParsedCollision.Valid(
-            SurfaceCollision(id, fields.drop(5).joinToString(",").trim(), shape, authoredOrder),
+            SurfaceCollision(id, identifier, shape, authoredOrder),
         )
     }
 
     private fun parseExtended(id: Int, fields: List<String>, authoredOrder: Int): ParsedCollision {
         if (fields.size < 3) return ParsedCollision.Invalid(SurfaceDiagnosticReason.ENTRY)
-        val identifier = fields[1].trim()
+        val identifier = nonBlankIdentifier(fields[1])
+            ?: return ParsedCollision.Invalid(SurfaceDiagnosticReason.ENTRY)
         val kind = fields[2].trim().lowercase()
         val arguments = fields.drop(3).map { it.trim() }
         val shape = when (kind) {
@@ -200,9 +209,11 @@ internal object CollisionGeometryParser {
         }.getOrNull()
     }
 
+    private fun nonBlankIdentifier(value: String): String? = value.trim().takeIf { it.isNotEmpty() }
+
     private val COLLISION = Regex("collision([+-]?\\d+)", RegexOption.IGNORE_CASE)
     private val COLLISION_EX = Regex("collisionex([+-]?\\d+)", RegexOption.IGNORE_CASE)
-    private val ANIMATION_COLLISION = Regex("animation[^,]*\\.collision(?:ex)?[+-]?\\d+.*", RegexOption.IGNORE_CASE)
+    private val ANIMATION_COLLISION_PREFIX = Regex("animation[^,]*\\.collision(?:ex)?.*", RegexOption.IGNORE_CASE)
 }
 
 private fun inclusiveBoundsOrNull(x1: Int, y1: Int, x2: Int, y2: Int): IntRect? = runCatching {

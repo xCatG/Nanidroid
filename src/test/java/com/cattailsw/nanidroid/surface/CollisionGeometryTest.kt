@@ -265,6 +265,34 @@ class CollisionGeometryTest {
     }
 
     @Test
+    fun blankAndMalformedCollisionDeclarationsAreDiagnosedWithoutLosingValidSiblings() {
+        val loaded = loadSurfaceFiles(
+            "surfaces.txt" to """
+                surface0
+                {
+                collision0,0,0,1,1,ValidFirst
+                collision1,0,0,1,1,
+                collisionex2,   ,circle,4,4,2
+                collisionfoo,0,0,1,1,MalformedLegacyKey
+                collisionexfoo,MalformedExtendedKey,circle,4,4,2
+                animation0.collisionfoo,0,0,1,1,MalformedAnimationKey
+                animation0.collisionexfoo,Name,circle,4,4,2
+                collision3,5,5,6,6,ValidSibling
+                }
+            """.trimIndent(),
+        )
+        val definition = requireNotNull(loaded.manager.getSurface("0")).toSurfaceDefinition()
+
+        assertEquals(listOf(0, 3), definition.collisions.map { it.id })
+        assertEquals(SurfaceDiagnosticReason.ENTRY, loaded.reasonFor("collision1,0,0,1,1,"))
+        assertEquals(SurfaceDiagnosticReason.ENTRY, loaded.reasonFor("collisionex2,"))
+        assertEquals(SurfaceDiagnosticReason.ENTRY, loaded.reasonFor("MalformedLegacyKey"))
+        assertEquals(SurfaceDiagnosticReason.ENTRY, loaded.reasonFor("MalformedExtendedKey"))
+        assertEquals(SurfaceDiagnosticReason.UNSUPPORTED, loaded.reasonFor("animation0.collisionfoo,"))
+        assertEquals(SurfaceDiagnosticReason.UNSUPPORTED, loaded.reasonFor("animation0.collisionexfoo,"))
+    }
+
+    @Test
     fun duplicateMalformedAndUnsupportedEntriesAreDiagnosedWithoutLosingSiblings() {
         val loaded = loadSurfaceFiles(
             "surfaces.txt" to """
