@@ -1631,7 +1631,10 @@ class GhostUpdateRepository internal constructor(
             }
             RecoveryAuthorization.CLEAN_NO_CHANGES -> if (
                 journal.phase == CommitPhase.NO_CHANGES_PENDING &&
-                topologyOf(ghostRoot, candidate, backup) == GhostTreeTopology.LIVE_CANDIDATE
+                topologyOf(ghostRoot, candidate, backup) in setOf(
+                    GhostTreeTopology.LIVE_CANDIDATE,
+                    GhostTreeTopology.LIVE_ONLY,
+                )
             ) {
                 requireDelete(transactionRoot)
                 RecoveryResult.NoChangesCommit
