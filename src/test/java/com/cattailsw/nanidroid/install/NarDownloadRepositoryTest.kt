@@ -1527,6 +1527,38 @@ class NarDownloadRepositoryTest {
         assertTrue(currentId in work.installEnqueuedIds)
     }
 
+    @Test fun reconciliationMakesInstallActionableWhenStaleWorkCancellationFails() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-install-cancellation-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        work.cancelStaleDeterministicInstallWorkFailure = IllegalStateException("query failed")
+
+        repository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun taggedInstallWorkFromAnEarlierAttemptIsStale() {
+        assertTrue(
+            AndroidNarInstallWorkScheduler.isStaleAttemptTaggedInstallWork(
+                setOf("${InstallNarWorker.ATTEMPT_TAG_PREFIX}1"),
+                currentAttemptId = 2L,
+            ),
+        )
+        assertTrue(
+            !AndroidNarInstallWorkScheduler.isStaleAttemptTaggedInstallWork(
+                setOf("${InstallNarWorker.ATTEMPT_TAG_PREFIX}2"),
+                currentAttemptId = 2L,
+            ),
+        )
+    }
+
     @Test fun v1QueuedInstallMigrationRebindsLegacyWorkAcrossRestart() {
         assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("queued", NarDownloadState.Queued)
     }
@@ -2719,6 +2751,7 @@ class NarDownloadRepositoryTest {
         var installEnqueueFailure: Exception? = null
         var installQueryFailure: Exception? = null
         var findActiveLegacyInstallWorkFailure: Exception? = null
+        var cancelStaleDeterministicInstallWorkFailure: Exception? = null
         var installRecovery = NarInstallWorkRecovery.ACTIVE
         var installQueryStarted: CountDownLatch? = null
         var allowInstallQuery: CountDownLatch? = null
@@ -2784,6 +2817,7 @@ class NarDownloadRepositoryTest {
         }
 
         override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long) {
+            cancelStaleDeterministicInstallWorkFailure?.let { throw it }
             activeInstallWorkByItemId[itemId]?.let(cancelledStaleInstallWork::add)
         }
 

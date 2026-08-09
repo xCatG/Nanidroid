@@ -1039,7 +1039,12 @@ class NarDownloadRepository internal constructor(
                 }
                 LegacyInstallRebinding.Failed -> return
                 LegacyInstallRebinding.NotFound -> {
-                    work.cancelStaleDeterministicInstallWork(item.id, item.attemptId)
+                    try {
+                        work.cancelStaleDeterministicInstallWork(item.id, item.attemptId)
+                    } catch (_: Exception) {
+                        failAndMarkLegacyInstallBinding(handle, null, item)
+                        return
+                    }
                 }
             }
         }
