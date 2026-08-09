@@ -542,6 +542,48 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `failed user cancellation cleanup inside commit gate retains exact recovery journal`() {
+        val fixture = fixture("commit-gate-cancel-cleanup")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.writeLiveBytes("ghost/save.dat", ByteArray(64 * 1024) { 5 })
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val request = fixture.request().copy(attemptId = AttemptId(3), workManagerUuid = "work-3")
+        var commitStarted = false
+        var resyncPolls = 0
+        val failingDelete = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile != fixture.transactionRoot().canonicalFile) {
+                    return root.deleteRecursively()
+                }
+                File(root, "candidate").deleteRecursively()
+                return false
+            }
+        }
+
+        val result = fixture.repository(
+            fileOperations = failingDelete,
+            onProgress = { phase, _ -> if (phase == "Committing update") commitStarted = true },
+        ).runInterruptible(request) {
+            if (commitStarted && ++resyncPolls >= 3) {
+                GhostUpdateStopReason.USER_CANCELLED
+            } else {
+                GhostUpdateStopReason.NONE
+            }
+        }
+
+        assertEquals(GhostUpdateResult.Cancelled, result)
+        val journal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        )
+        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertEquals(request.operationId, journal.operationId)
+        assertEquals(request.attemptId, journal.attemptId)
+        assertEquals(request.workManagerUuid, journal.workManagerUuid)
+        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
     fun `user or system stop while awaiting commit gate removes pre-journal transaction`() {
         listOf(
             GhostUpdateStopReason.USER_CANCELLED to GhostUpdateResult.Cancelled,

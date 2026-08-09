@@ -431,8 +431,11 @@ class GhostUpdateRepository internal constructor(
     ): GhostUpdateResult {
         val stopped = error as? UpdateStoppedException
         if (!journalPersisted) {
-            fileOperations.deleteTree(transactionRoot)
             val reason = stopped?.reason ?: stopReason()
+            if (reason == GhostUpdateStopReason.USER_CANCELLED) {
+                return cancelledBeforeJournal(transactionRoot, request)
+            }
+            fileOperations.deleteTree(transactionRoot)
             return stopResult(reason)
                 ?: GhostUpdateResult.Failed(error.message ?: "ghost update failed")
         }
