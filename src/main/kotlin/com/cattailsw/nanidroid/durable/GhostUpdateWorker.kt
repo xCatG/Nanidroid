@@ -122,6 +122,7 @@ internal class GhostUpdateRecoveryWorker(
             RecoveryResult.NoJournal,
             RecoveryResult.RolledBack,
             RecoveryResult.CompletedCommit,
+            RecoveryResult.NoChangesCommit,
             -> Result.success()
         }
     }
@@ -902,6 +903,7 @@ class GhostUpdateWorker(
         internal enum class RecoveryTransition {
             WAIT,
             ROLL_FORWARD_COMPLETED,
+            CLEAN_NO_CHANGES,
             ROLL_BACK_FAILED,
             ROLL_BACK_CANCELLED,
             FAIL_CLOSED,
@@ -936,6 +938,7 @@ class GhostUpdateWorker(
                     GhostTreeTopology.LIVE_BACKUP,
                     GhostTreeTopology.LIVE_ONLY,
                 )
+                CommitPhase.NO_CHANGES_PENDING -> topology == GhostTreeTopology.LIVE_CANDIDATE
             }
             if (!validTopology) return RecoveryTransition.FAIL_CLOSED
             if (durableStatus in setOf(OperationStatus.RUNNING, OperationStatus.CANCEL_REQUESTED) &&
@@ -943,6 +946,11 @@ class GhostUpdateWorker(
             ) return RecoveryTransition.FAIL_CLOSED
             return when (durableStatus) {
                 OperationStatus.COMPLETED -> if (
+                    phase == CommitPhase.NO_CHANGES_PENDING &&
+                    topology == GhostTreeTopology.LIVE_CANDIDATE
+                ) {
+                    RecoveryTransition.CLEAN_NO_CHANGES
+                } else if (
                     phase == CommitPhase.PREPARED && topology == GhostTreeTopology.LIVE_CANDIDATE
                 ) {
                     RecoveryTransition.FAIL_CLOSED
@@ -990,7 +998,9 @@ class GhostUpdateWorker(
                     RecoveryWorkState.FAILED,
                     RecoveryWorkState.CANCELLED,
                     -> when (phase) {
-                        CommitPhase.PREPARED -> if (
+                        CommitPhase.PREPARED,
+                        CommitPhase.NO_CHANGES_PENDING,
+                        -> if (
                             durableStatus == OperationStatus.CANCEL_REQUESTED ||
                             workState == RecoveryWorkState.CANCELLED
                         ) {
@@ -1144,6 +1154,7 @@ class GhostUpdateWorker(
                     RecoveryTransition.WAIT -> RecoveryAuthorization.WAIT
                     RecoveryTransition.FAIL_CLOSED -> RecoveryAuthorization.FAIL_CLOSED
                     RecoveryTransition.ROLL_FORWARD_COMPLETED -> RecoveryAuthorization.ROLL_FORWARD
+                    RecoveryTransition.CLEAN_NO_CHANGES -> RecoveryAuthorization.CLEAN_NO_CHANGES
                     RecoveryTransition.ROLL_BACK_FAILED -> RecoveryAuthorization.ROLL_BACK_FAILED
                     RecoveryTransition.ROLL_BACK_CANCELLED -> RecoveryAuthorization.ROLL_BACK_CANCELLED
                 }

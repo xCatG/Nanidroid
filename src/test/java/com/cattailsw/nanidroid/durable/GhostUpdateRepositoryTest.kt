@@ -1538,7 +1538,7 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `failed no-change cleanup retains a prepared journal that an exact retry clears`() {
+    fun `failed no-change cleanup retains its journal phase that an exact retry clears`() {
         val fixture = fixture("no-change-cleanup-failure")
         fixture.writeLive("ghost/master.txt", "same")
         fixture.network.manifest("ghost/master.txt" to bytes("same"))
@@ -1558,7 +1558,7 @@ class GhostUpdateRepositoryTest {
         val journal = GhostUpdateJournalStore.read(
             File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
         )
-        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertEquals(CommitPhase.NO_CHANGES_PENDING, journal.phase)
         assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
 
         failCleanup = false
@@ -1595,7 +1595,12 @@ class GhostUpdateRepositoryTest {
                     )
                     throw SimulatedProcessDeath()
                 },
-            ).run(fixture.request()) { false }
+            ).run(
+                fixture.request().copy(
+                    attemptId = handle.attemptId,
+                    workManagerUuid = binding.uuid,
+                ),
+            ) { false }
             throw AssertionError("simulated process death was not reached")
         } catch (_: SimulatedProcessDeath) {
             // The durable completion record and payload must precede staging cleanup.
@@ -1612,6 +1617,32 @@ class GhostUpdateRepositoryTest {
             store.read().single().pendingGhostUpdateEvent,
         )
         assertTrue(fixture.transactionRoot().exists())
+        assertFalse(
+            GhostUpdateJournalStore.read(
+                File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+            ).phase == CommitPhase.PREPARED,
+        )
+
+        assertEquals(
+            RecoveryResult.NoChangesCommit,
+            GhostUpdateWorker.recoverBeforeGhostLoad(
+                fixture.parent,
+                fixture.ghostRoot,
+                store,
+                queryWork = { throw AssertionError("completed no-change recovery must not query WorkManager") },
+                finish = { _, _ -> throw AssertionError("completed no-change recovery must not reclassify") },
+            ),
+        )
+        assertFalse(fixture.transactionRoot().exists())
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                "configured-ghost-id",
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateComplete",
+                listOf("none", ""),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
     }
 
     @Test
@@ -3433,6 +3464,7 @@ internal class GhostUpdateTransitionTableTest(
             row("cleaned exact completion removes evidence", CommitPhase.CLEANED, GhostTreeTopology.LIVE_ONLY, OperationStatus.COMPLETED, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_FORWARD_COMPLETED),
             row("cleaned active never manufactures completion", CommitPhase.CLEANED, GhostTreeTopology.LIVE_ONLY, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("cleaned missing cancellation fails closed", CommitPhase.CLEANED, GhostTreeTopology.LIVE_ONLY, OperationStatus.CANCEL_REQUESTED, true, GhostUpdateWorker.Companion.RecoveryWorkState.MISSING, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
+            row("completed no-change staging is cleaned", CommitPhase.NO_CHANGES_PENDING, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.COMPLETED, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.CLEAN_NO_CHANGES),
             row("terminal prepared failure authorizes rollback", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.FAILED, true, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_FAILED),
             row("terminal backed cancellation authorizes rollback", CommitPhase.BACKED_UP, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.CANCELLED, true, GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED),
             row("stale attempt blocks prepared cleanup", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.FAILED, false, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),

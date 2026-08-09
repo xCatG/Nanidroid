@@ -206,6 +206,10 @@ class GhostUpdateRepository internal constructor(
                 events.complete(replayFiles)
                 return GhostUpdateResult.Completed(replayFiles)
             }
+            if (prior is RecoveryResult.NoChangesCommit) {
+                events.noChanges()
+                return GhostUpdateResult.NoChanges
+            }
             when (prior) {
                 is RecoveryResult.PublishPending -> return completePending(
                     ghostRoot, request.operationId, prior.files,
@@ -297,8 +301,10 @@ class GhostUpdateRepository internal constructor(
 
             val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
             if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
+                val journal = preparedJournal(transactionRoot, request)
+                journalIo.write(journalFile, journal.copy(phase = CommitPhase.NO_CHANGES_PENDING))
                 if (!onNoChangesClassified()) return GhostUpdateResult.NoChangesPending
-                if (!cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))) {
+                if (!cleanPreparedTransaction(transactionRoot, journal)) {
                     return failed("cannot clean no-change update transaction", emptyList())
                 }
                 events.noChanges()
@@ -392,6 +398,7 @@ class GhostUpdateRepository internal constructor(
                 },
             )) {
                 RecoveryResult.CompletedCommit -> GhostUpdateResult.Completed(manifestFiles)
+                RecoveryResult.NoChangesCommit -> GhostUpdateResult.NoChanges
                 is RecoveryResult.PublishPending -> completePending(
                     ghostRoot, request.operationId, recovered.files,
                 )
@@ -424,6 +431,10 @@ class GhostUpdateRepository internal constructor(
                     RecoveryResult.CompletedCommit -> {
                         events.complete(manifestFiles)
                         return GhostUpdateResult.Completed(manifestFiles)
+                    }
+                    RecoveryResult.NoChangesCommit -> {
+                        events.noChanges()
+                        return GhostUpdateResult.NoChanges
                     }
                     is RecoveryResult.PublishPending -> return completePending(
                         ghostRoot, request.operationId, recovered.files,
@@ -487,6 +498,7 @@ class GhostUpdateRepository internal constructor(
             },
         )) {
             RecoveryResult.CompletedCommit -> GhostUpdateResult.Completed(manifestFiles)
+            RecoveryResult.NoChangesCommit -> GhostUpdateResult.NoChanges
             is RecoveryResult.PublishPending -> completePendingWithoutEvents(
                 ghostRoot,
                 request.operationId,
@@ -1173,6 +1185,7 @@ class GhostUpdateRepository internal constructor(
                 return RecoveryResult.Failed(e.message ?: "corrupt ghost update journal")
             }
             var completedCommit = false
+            var noChangesCommit = false
             var rolledBack = false
             var commitPending = false
             var publishPending = false
@@ -1198,6 +1211,7 @@ class GhostUpdateRepository internal constructor(
                 }
                 when (recovery) {
                     RecoveryResult.CompletedCommit -> completedCommit = true
+                    RecoveryResult.NoChangesCommit -> noChangesCommit = true
                     is RecoveryResult.CommitPending -> {
                         commitPending = true
                         pendingFiles += recovery.files
@@ -1220,6 +1234,7 @@ class GhostUpdateRepository internal constructor(
                 }
                 publishPending -> RecoveryResult.PublishPending(publishPendingFiles)
                 commitPending -> RecoveryResult.CommitPending(pendingFiles)
+                noChangesCommit -> RecoveryResult.NoChangesCommit
                 completedCommit -> RecoveryResult.CompletedCommit
                 rolledBack -> RecoveryResult.RolledBack
                 else -> RecoveryResult.NoJournal
@@ -1261,7 +1276,7 @@ class GhostUpdateRepository internal constructor(
                             File(journal.candidateRoot).canonicalFile == File(expected, CANDIDATE).canonicalFile &&
                             File(journal.backupRoot).canonicalFile == File(expected, BACKUP).canonicalFile &&
                             validPersistedPaths(journal.files) &&
-                            journal.phase == CommitPhase.PREPARED &&
+                            journal.phase in setOf(CommitPhase.PREPARED, CommitPhase.NO_CHANGES_PENDING) &&
                             topologyOf(root, File(expected, CANDIDATE), File(expected, BACKUP)) ==
                             GhostTreeTopology.LIVE_CANDIDATE
                     } catch (_: Exception) {
@@ -1294,7 +1309,7 @@ class GhostUpdateRepository internal constructor(
                         File(transaction, BACKUP),
                     )
                     root.takeUnless {
-                        journal.phase == CommitPhase.PREPARED &&
+                        journal.phase in setOf(CommitPhase.PREPARED, CommitPhase.NO_CHANGES_PENDING) &&
                             topology == GhostTreeTopology.LIVE_CANDIDATE
                     }
                 }
@@ -1518,6 +1533,7 @@ class GhostUpdateRepository internal constructor(
                 }
                 when (journal.phase) {
                     CommitPhase.PREPARED -> recoverPrepared(ghostRoot, transactionRoot, candidate, backup)
+                    CommitPhase.NO_CHANGES_PENDING -> recoverNoChanges(ghostRoot, transactionRoot, candidate, backup)
                     CommitPhase.BACKED_UP -> recoverBackedUp(ghostRoot, transactionRoot, journalFile, journal, candidate, backup, journalIo)
                     CommitPhase.PUBLISHED -> recoverPublished(ghostRoot, transactionRoot, journalFile, journal, candidate, backup, journalIo)
                     CommitPhase.CLEANED -> recoverCleaned(ghostRoot, transactionRoot, candidate, backup)
@@ -1548,6 +1564,10 @@ class GhostUpdateRepository internal constructor(
                     (ghostRoot.isDirectory && !candidate.exists() && !backup.exists())
                 ) RecoveryResult.CommitPending(journal.files)
                 else RecoveryResult.Failed("ambiguous PREPARED ghost update state")
+                CommitPhase.NO_CHANGES_PENDING -> if (
+                    ghostRoot.isDirectory && candidate.isDirectory && !backup.exists()
+                ) RecoveryResult.CommitPending(journal.files)
+                else RecoveryResult.Failed("ambiguous no-change ghost update state")
                 CommitPhase.BACKED_UP -> if (
                     (!ghostRoot.exists() && candidate.isDirectory && backup.isDirectory) ||
                     (ghostRoot.isDirectory && !candidate.exists() && backup.isDirectory) ||
@@ -1594,7 +1614,20 @@ class GhostUpdateRepository internal constructor(
                     recoverCleaned(ghostRoot, transactionRoot, candidate, backup)
                 } else RecoveryResult.PublishPending(journal.files)
                 CommitPhase.ROLLBACK_CLASSIFIED -> RecoveryResult.Failed("rollback cannot roll forward")
+                CommitPhase.NO_CHANGES_PENDING -> recoverNoChanges(
+                    ghostRoot,
+                    transactionRoot,
+                    candidate,
+                    backup,
+                )
             }
+            RecoveryAuthorization.CLEAN_NO_CHANGES -> if (
+                journal.phase == CommitPhase.NO_CHANGES_PENDING &&
+                topologyOf(ghostRoot, candidate, backup) == GhostTreeTopology.LIVE_CANDIDATE
+            ) {
+                requireDelete(transactionRoot)
+                RecoveryResult.NoChangesCommit
+            } else RecoveryResult.Failed("no-change completion is not recoverable")
             RecoveryAuthorization.ROLL_BACK_FAILED -> classifyAndRollback(
                 OperationStatus.FAILED, ghostRoot, transactionRoot, journalFile, journal,
                 candidate, backup, journalIo, classify,
@@ -1777,6 +1810,20 @@ class GhostUpdateRepository internal constructor(
                 RecoveryResult.RolledBack
             }
             else -> RecoveryResult.Failed("ambiguous PREPARED ghost update state")
+        }
+
+        private fun recoverNoChanges(
+            ghostRoot: File,
+            transactionRoot: File,
+            candidate: File,
+            backup: File,
+        ): RecoveryResult = if (
+            ghostRoot.isDirectory && candidate.isDirectory && !backup.exists()
+        ) {
+            requireDelete(transactionRoot)
+            RecoveryResult.NoChangesCommit
+        } else {
+            RecoveryResult.Failed("ambiguous no-change ghost update state")
         }
 
         private fun recoverBackedUp(

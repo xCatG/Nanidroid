@@ -26,12 +26,20 @@ data class GhostUpdateJournal(
     val ghostId: String? = null,
 )
 
-enum class CommitPhase { PREPARED, BACKED_UP, PUBLISHED, CLEANED, ROLLBACK_CLASSIFIED }
+enum class CommitPhase {
+    PREPARED,
+    BACKED_UP,
+    PUBLISHED,
+    CLEANED,
+    ROLLBACK_CLASSIFIED,
+    NO_CHANGES_PENDING,
+}
 
 sealed interface RecoveryResult {
     data object NoJournal : RecoveryResult
     data object RolledBack : RecoveryResult
     data object CompletedCommit : RecoveryResult
+    data object NoChangesCommit : RecoveryResult
     data class CommitPending(val files: List<String>) : RecoveryResult
     data class PublishPending(val files: List<String>) : RecoveryResult
     data class RollbackPending(val status: OperationStatus, val files: List<String>) : RecoveryResult
@@ -42,6 +50,7 @@ internal enum class RecoveryAuthorization {
     WAIT,
     ADOPT_PREPARED,
     ROLL_FORWARD,
+    CLEAN_NO_CHANGES,
     ROLL_BACK_FAILED,
     ROLL_BACK_CANCELLED,
     FAIL_CLOSED,
