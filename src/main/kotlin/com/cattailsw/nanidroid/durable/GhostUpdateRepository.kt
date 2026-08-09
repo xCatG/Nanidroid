@@ -257,7 +257,7 @@ class GhostUpdateRepository internal constructor(
                 }
                 val digest = MessageDigest.getInstance("MD5")
                 val source = when (val opened = network.open(request.baseUri, entry.path)) {
-                    is GhostUpdateOpenResult.Found -> opened.stream
+                    is GhostUpdateOpenResult.Found -> retryableNetworkStream(opened.stream)
                     GhostUpdateOpenResult.NotFound -> throw IOException("update file not found: ${entry.path}")
                     is GhostUpdateOpenResult.RetryableFailure -> throw RetryableNetworkException(opened.error)
                 }
@@ -497,7 +497,7 @@ class GhostUpdateRepository internal constructor(
     ): ManifestSource? {
         for (name in listOf(UPDATE_V2, UPDATE_V3)) {
             val source = when (val opened = network.open(request.baseUri, name)) {
-                is GhostUpdateOpenResult.Found -> opened.stream
+                is GhostUpdateOpenResult.Found -> retryableNetworkStream(opened.stream)
                 GhostUpdateOpenResult.NotFound -> continue
                 is GhostUpdateOpenResult.RetryableFailure -> throw RetryableNetworkException(opened.error)
             }
@@ -543,6 +543,18 @@ class GhostUpdateRepository internal constructor(
         input.read(buffer)
     } catch (error: IOException) {
         throw RetryableNetworkException(error)
+    }
+
+    private fun retryableNetworkStream(source: InputStream): InputStream = object : InputStream() {
+        override fun read(): Int = source.read()
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            source.read(buffer, offset, length)
+
+        override fun close() = try {
+            source.close()
+        } catch (error: IOException) {
+            throw RetryableNetworkException(error)
+        }
     }
 
     private fun parseManifest(source: ManifestSource): List<ManifestEntry> {

@@ -285,6 +285,18 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `transport close failure during manifest or file download is retryable`() {
+        listOf("manifest", "download").forEach { phase ->
+            val fixture = fixture("transport-close-$phase")
+            fixture.writeLive("ghost/master.txt", "old")
+            fixture.network.manifest("ghost/master.txt" to bytes("new"))
+            fixture.network.closeFailures += if (phase == "manifest") "updates2.dau" else "ghost/master.txt"
+
+            assertEquals(phase, GhostUpdateResult.Interrupted, fixture.repository().run(fixture.request()) { false })
+        }
+    }
+
+    @Test
     fun `HTTP timeout throttling and server errors are retryable`() {
         listOf(408, 429, 500, 503).forEach { status ->
             assertTrue(status.toString(), isRetryableGhostUpdateStatus(status))
@@ -2275,6 +2287,7 @@ class GhostUpdateRepositoryTest {
         val openedStreams = mutableListOf<TrackingInputStream>()
         val openedPaths = mutableListOf<String>()
         val retryablePaths = mutableSetOf<String>()
+        val closeFailures = mutableSetOf<String>()
 
         fun manifest(vararg files: Pair<String, ByteArray>) {
             rawManifest(files.joinToString("\n") { (path, bytes) -> "$path\u0001${md5(bytes)}" })
@@ -2311,14 +2324,20 @@ class GhostUpdateRepositoryTest {
                     override fun read(): Int = delegate.read().also { if (it >= 0) onManifestRead() }
                     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
                         delegate.read(buffer, offset, length).also { if (it > 0) onManifestRead() }
-                    override fun close() = delegate.close()
+                    override fun close() {
+                        delegate.close()
+                        if (relativePath in closeFailures) throw IOException("connection close failed")
+                    }
                 })
             } else {
                 TrackingInputStream(object : InputStream() {
                     override fun read(): Int = delegate.read().also { if (it >= 0) onCandidateRead() }
                     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
                         delegate.read(buffer, offset, length).also { if (it > 0) onCandidateRead() }
-                    override fun close() = delegate.close()
+                    override fun close() {
+                        delegate.close()
+                        if (relativePath in closeFailures) throw IOException("connection close failed")
+                    }
                 })
             }
             openedStreams += stream
