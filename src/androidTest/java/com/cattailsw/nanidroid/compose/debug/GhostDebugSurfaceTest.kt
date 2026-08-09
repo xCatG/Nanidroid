@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasNoClickAction
@@ -402,7 +403,19 @@ class GhostDebugSurfaceTest {
                         presentation = DebugPresentation.FULL_STAGE_MODAL,
                         state = DebugPanelState(visible = true, selectedSpeaker = SurfaceSpeaker.SAKURA),
                         selection = null,
-                        lastInput = null,
+                        lastInput = SurfacePointerDebugEvent(
+                            speaker = SurfaceSpeaker.KERO,
+                            viewportX = 0,
+                            viewportY = 0,
+                            sourceX = 0,
+                            sourceY = 0,
+                            collisionId = null,
+                            collisionName = null,
+                            buttonId = null,
+                            candidateEvent = null,
+                            dispatchOutcome = PointerDispatchOutcome.NOT_RESOLVED,
+                            source = "test",
+                        ),
                         logs = emptyList(),
                         onSelectSpeaker = {},
                         onCollisionOverlayChange = {},
@@ -413,6 +426,13 @@ class GhostDebugSurfaceTest {
             }
         }
 
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SAKURA_TAG)
+            .assertContentDescriptionEquals("さくら側")
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_KERO_TAG)
+            .assertContentDescriptionEquals("ケロ側")
+        composeRule.onAllNodesWithText("ケロ側").assertCountEquals(2)
+        composeRule.onAllNodesWithText("本体側").assertCountEquals(0)
+        composeRule.onAllNodesWithText("相方側").assertCountEquals(0)
         composeRule.onNodeWithText("直近の SHIORI ログ").performScrollTo().assertIsDisplayed()
     }
 
