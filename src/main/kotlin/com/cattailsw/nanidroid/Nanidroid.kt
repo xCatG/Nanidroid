@@ -100,6 +100,15 @@ internal fun tryLaunchDialogueExternalUri(launch: () -> Unit): Boolean = try {
     false
 }
 
+internal fun allowsArchiveIntentIngress(
+    activityRunner: SScriptRunner?,
+    retainedRunner: () -> SScriptRunner,
+): Boolean {
+    val activeRunner = activityRunner ?: retainedRunner()
+    return GhostActionGuard(activeRunner.runtimeModeSnapshot())
+        .allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER)
+}
+
 internal fun <T : Any> routeGhostSwitchResult(
     result: T?,
     destroyed: Boolean,
