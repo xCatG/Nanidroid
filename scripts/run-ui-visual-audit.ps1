@@ -1028,6 +1028,13 @@ function Assert-InteractionCaptureRecord([object]$Manifest, [object]$Record, [ob
     }
 }
 
+function Get-UiAuditSummaryStatus([bool]$CleanupCompleted) {
+    if ($script:runFailure -or $script:cleanupErrors.Count -gt 0) { return 'failed' }
+    if (-not $CleanupCompleted) { return 'cleanup-pending' }
+    if ($script:results.Count -eq $expectedCaseCount) { return 'captured-awaiting-manual-inspection' }
+    return 'failed'
+}
+
 function Write-ReportSummary([object]$Manifest, [string]$ManifestHash, [object]$OriginalState, [string]$Status) {
     if (-not $script:reportInitialized) { return }
     if ($null -ne $script:interactionCapture) { Assert-InteractionCaptureRecord $Manifest $script:interactionCapture $script:interactionCapture.session $script:captureProvenance }
@@ -1363,6 +1370,7 @@ function Add-Result([object]$Case, [string]$ScreenshotSha, [string]$LayoutSha, [
 }
 
 function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
+    if ((Get-UiAuditSummaryStatus $false) -ne 'cleanup-pending') { Fail 'Interaction checkpoint summary was not held pending cleanup.' 'dry-run' }
     Assert-UiAuditManifest $Manifest
     if (Test-DryRunRequiresCorpus $true) { Fail 'HostSelfTest corpus-bypass probe unexpectedly requires a corpus.' 'dry-run' }
     if (-not (Test-DryRunRequiresCorpus $false)) { Fail 'Normal DryRun corpus-preflight probe unexpectedly bypasses the corpus.' 'dry-run' }
@@ -1590,6 +1598,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             if (-not $failed) { Fail "Checkpointed manual interaction evidence $mutation probe unexpectedly passed." 'dry-run' }
         }
         $manualCompletionSummary = [pscustomobject]@{
+            status = 'captured-awaiting-manual-inspection'
             interactionCapture = $validInteractionCapture
             captureProvenance = $capturedProvenance
             deviceSerial = $validInteractionCapture.session.deviceSerial
@@ -1623,7 +1632,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             function Resolve-Git { return 'dry-run-git' }
             function Resolve-DebugApk { return 'dry-run-debug.apk' }
             function Get-CurrentCaptureProvenance { return $manualCompletionCurrentProvenance }
-            foreach ($mutation in @('missing-record', 'changed-checkpoint-hash', 'mismatched-manual-hash', 'changed-process-id', 'changed-process-start', 'missing-capture-start', 'changed-capture-start')) {
+            foreach ($mutation in @('missing-record', 'changed-checkpoint-hash', 'mismatched-manual-hash', 'changed-process-id', 'changed-process-start', 'missing-capture-start', 'changed-capture-start', 'cleanup-pending')) {
                 $mutatedSummary = $manualCompletionSummary | ConvertTo-Json -Depth 16 | ConvertFrom-Json
                 $mutatedManualText = $manualText
                 $expectedError = switch ($mutation) {
@@ -1634,6 +1643,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
                     'changed-process-start' { "Interaction capture session 'emulatorStartTimeUtcTicks' changed" }
                     'missing-capture-start' { 'Capture summary timestamp lacks an explicit UTC offset' }
                     'changed-capture-start' { 'Interaction capture start time changed' }
+                    'cleanup-pending' { 'invalid status' }
                 }
                 switch ($mutation) {
                     'missing-record' { $mutatedSummary.interactionCapture = $null }
@@ -1643,6 +1653,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
                     'changed-process-start' { $mutatedSummary.ownedEmulatorStartTimeUtcTicks = 1 }
                     'missing-capture-start' { $mutatedSummary.PSObject.Properties.Remove('interactionCaptureStartedAtUtc') }
                     'changed-capture-start' { $mutatedSummary.interactionCaptureStartedAtUtc = '2026-08-08T12:34:57.0000000Z' }
+                    'cleanup-pending' { $mutatedSummary.status = 'cleanup-pending' }
                 }
                 $results = @($Manifest.cases | ForEach-Object { [pscustomobject]@{ id = $_.id; screenshotSha256 = ('a' * 64) } })
                 $summaryInteractionCaptureStartedAtUtc = if (Test-Property $mutatedSummary 'interactionCaptureStartedAtUtc') { $mutatedSummary.interactionCaptureStartedAtUtc } else { $null }
@@ -1654,7 +1665,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
                     requiredInteractionEvidenceCount = $Manifest.interactionEvidenceCount
                     failure = $null
                     cleanupErrors = @()
-                    status = 'captured-awaiting-manual-inspection'
+                    status = if (Test-Property $mutatedSummary 'status') { $mutatedSummary.status } else { 'captured-awaiting-manual-inspection' }
                     captureProvenance = $mutatedSummary.captureProvenance
                     interactionCapture = $mutatedSummary.interactionCapture
                     deviceSerial = $mutatedSummary.deviceSerial
@@ -1963,7 +1974,7 @@ try {
     Assert-AuditedPackageAtInteractionCheckpoint $script:captureProvenance.debugApkSha256
     $script:interactionCapture = New-InteractionCaptureRecord $uiManifest
     Write-InteractionCaptureCheckpoint $script:interactionCapture
-    Write-ReportSummary $uiManifest $uiManifestHash $script:originalState 'captured-awaiting-manual-inspection'
+    Write-ReportSummary $uiManifest $uiManifestHash $script:originalState (Get-UiAuditSummaryStatus $false)
 }
 catch { $script:runFailure=$_.Exception.Message }
 finally {
@@ -1974,7 +1985,7 @@ finally {
     }
     if($null-ne$script:ownedEmulator){try{if(-not(Stop-OwnedProcessTree -Process $script:ownedEmulator -ExpectedStartTimeUtcTicks $script:ownedEmulatorStartTimeUtcTicks)){$script:cleanupErrors.Add('Owned emulator process tree did not stop cleanly.')|Out-Null}}catch{$script:cleanupErrors.Add("Owned emulator process-tree stop failed: $($_.Exception.Message)")|Out-Null}finally{$script:ownedEmulator.Dispose()}}
     if($null-ne$script:emulatorWatchdog){try{if(-not(Stop-EmulatorWatchdog $script:emulatorWatchdog)){$script:cleanupErrors.Add('Owned-emulator cleanup watchdog did not stop cleanly.')|Out-Null}}catch{$script:cleanupErrors.Add("Owned-emulator cleanup watchdog stop failed: $($_.Exception.Message)")|Out-Null}}
-    $status=if($script:runFailure-or$script:cleanupErrors.Count-gt 0){'failed'}elseif($script:results.Count-eq$expectedCaseCount){'captured-awaiting-manual-inspection'}else{'failed'}
+    $status=Get-UiAuditSummaryStatus $true
     Write-ReportSummary $uiManifest $uiManifestHash $script:originalState $status
 }
 if($script:runFailure){throw $script:runFailure}
