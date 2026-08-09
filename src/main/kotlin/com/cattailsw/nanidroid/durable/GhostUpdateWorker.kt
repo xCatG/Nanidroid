@@ -476,7 +476,9 @@ class GhostUpdateWorker(
                     it.pendingGhostUpdateEvent == event
             } ?: return@synchronized false
             if (!dispatch(event)) return@synchronized false
+            // Clearing is durable reconciliation, not another dispatch attempt.
             supervisor.clearTerminalEvent(handle, binding, record.pendingGhostUpdateEvent!!)
+            true
         }
 
         internal fun deferRecoveredTerminalEvent(
