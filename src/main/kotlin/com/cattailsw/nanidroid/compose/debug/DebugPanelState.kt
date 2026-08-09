@@ -135,9 +135,9 @@ fun StageMeasuredSnapshot?.debugSelection(
         visibleTop = visible?.top ?: 0,
         visibleRight = visible?.right ?: 0,
         visibleBottom = visible?.bottom ?: 0,
-        animationId = presentation.animationId,
+        animationId = snapshot.activeAnimationId,
         visible = !snapshot.composedSurface.explicitlyHidden,
-        animationRunning = presentation.animationId != null,
+        animationRunning = snapshot.activeAnimationId != null,
         revision = snapshot.composedSurface.revision,
     )
 }

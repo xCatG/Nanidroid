@@ -90,6 +90,8 @@ fun GhostPresentationStage(
     keroPendingInput: PendingInputState? = null,
     dialogueTalkId: Long = 0L,
     dialogueRevision: Long = 0L,
+    sakuraActiveAnimationId: String? = null,
+    keroActiveAnimationId: String? = null,
     onDialogueChoice: (DialogueAction) -> Unit = {},
     onDialogueAnchor: (AnchorAction) -> Unit = {},
     onDialogueExternalUrl: (String) -> Unit = {},
@@ -240,6 +242,8 @@ fun GhostPresentationStage(
                     forceSakuraBalloon = sakuraPendingChoices.isNotEmpty() || sakuraPendingInput != null,
                     dialogueTalkId = dialogueTalkId,
                     dialogueRevision = dialogueRevision,
+                    sakuraActiveAnimationId = sakuraActiveAnimationId,
+                    keroActiveAnimationId = keroActiveAnimationId,
                     keroBalloon = {
                         GhostBubble(
                             state = BubbleUiState(

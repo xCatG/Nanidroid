@@ -39,6 +39,8 @@ data class StageSurfaceSnapshot(
     val speaker: SurfaceSpeaker,
     val composedSurface: ComposedSurface,
     val transform: SurfaceTransformPx,
+    /** Resolved animation currently advancing on this surface, if any. */
+    val activeAnimationId: String? = null,
 ) {
     val rendererTransform: SurfaceTransformPx get() = transform
     val pointerTransform: SurfaceTransformPx get() = transform
@@ -187,6 +189,8 @@ fun MeasuredGhostStageLayout(
     forceSakuraBalloon: Boolean = false,
     dialogueTalkId: Long = 0L,
     dialogueRevision: Long = 0L,
+    keroActiveAnimationId: String? = null,
+    sakuraActiveAnimationId: String? = null,
     keroBalloon: @Composable () -> Unit = {},
     sakuraBalloon: @Composable () -> Unit = {},
     surfaceContent: @Composable BoxScope.(StageSurfaceSnapshot) -> Unit = {},
@@ -204,8 +208,8 @@ fun MeasuredGhostStageLayout(
             previousBaseline = measureState.baseline,
         )
         val layoutPx = StageLayoutPx.from(layoutDp, environment.density, stageToRoot)
-        val keroSnapshot = kero.snapshot(SurfaceSpeaker.KERO, SurfaceScope.KERO, layoutPx)
-        val sakuraSnapshot = sakura.snapshot(SurfaceSpeaker.SAKURA, SurfaceScope.SAKURA, layoutPx)
+        val keroSnapshot = kero.snapshot(SurfaceSpeaker.KERO, SurfaceScope.KERO, layoutPx, keroActiveAnimationId)
+        val sakuraSnapshot = sakura.snapshot(SurfaceSpeaker.SAKURA, SurfaceScope.SAKURA, layoutPx, sakuraActiveAnimationId)
         val activeBubbleFences = buildMap {
             if (showKeroBalloon && (presentation.kero.balloonVisible || forceKeroBalloon)) {
                 layoutPx.keroBubble?.let { frame ->
@@ -280,11 +284,12 @@ private fun ComposedSurface?.snapshot(
     speaker: SurfaceSpeaker,
     scope: SurfaceScope,
     layout: StageLayoutPx,
+    activeAnimationId: String?,
 ): StageSurfaceSnapshot? {
     this ?: return null
     if (explicitlyHidden) return null
     val transform = layout.transformFor(scope, canvasSize) ?: return null
-    return StageSurfaceSnapshot(speaker, this, transform)
+    return StageSurfaceSnapshot(speaker, this, transform, activeAnimationId)
 }
 
 private data class MeasuredChild(

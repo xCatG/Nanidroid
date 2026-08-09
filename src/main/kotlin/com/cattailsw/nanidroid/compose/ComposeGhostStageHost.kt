@@ -202,6 +202,8 @@ class ComposeGhostStageHost private constructor(
             keroPendingInput = dialogueOwnership.pendingInput(GhostSpeaker.KERO),
             dialogueTalkId = dialogue.talkId,
             dialogueRevision = dialogue.revision,
+            sakuraActiveAnimationId = sakuraScheduler?.activeAnimationId,
+            keroActiveAnimationId = keroScheduler?.activeAnimationId,
             onDialogueChoice = onDialogueChoice,
             onDialogueAnchor = onDialogueAnchor,
             onDialogueExternalUrl = onDialogueExternalUrl,
