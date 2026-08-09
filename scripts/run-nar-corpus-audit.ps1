@@ -2428,13 +2428,18 @@ foreach ($arg in $ProbeArgs) {
     Write-Host 'Dry-run crash allowlist and transport cutoff probes passed.'
 
     $preflightTimeoutSummaryRoot = Join-Path $hostRunTmpRoot 'preflight-timeout-summary'
-    $preflightTimeoutSummary = Write-PreflightTimeoutSummary -SummaryRoot $preflightTimeoutSummaryRoot -RunId 'dry-run-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'dry-run-sha' -RunStart (Get-Date) -TimeoutEvidence 'dry-run simulated transport deadline'
+    $preflightTimeoutSummary = Write-PreflightTimeoutSummary -SummaryRoot $preflightTimeoutSummaryRoot -RunId 'dry-run-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'dry-run-sha' -RunStart (Get-Date) -TimeoutEvidence 'dry-run simulated transport deadline' -PreflightPhase 'device-gate'
     $preflightTimeoutJson = Get-Content -LiteralPath (Join-Path $preflightTimeoutSummaryRoot 'summary.json') -Raw | ConvertFrom-Json
-    if ($preflightTimeoutSummary.cleanupVerification -ne 'not-verified-device-timeout' -or
+    if ($preflightTimeoutSummary.cleanupVerification -ne 'unverified' -or
         -not $preflightTimeoutSummary.abortedDueToTimeout -or
-        $preflightTimeoutJson.cleanupVerification -ne 'not-verified-device-timeout' -or
+        $preflightTimeoutJson.status -ne 'failed' -or
+        $preflightTimeoutJson.phase -ne 'preflight' -or
+        $preflightTimeoutJson.preflightStage -ne 'device-gate' -or
+        $preflightTimeoutJson.failures.Count -ne 1 -or
+        $preflightTimeoutJson.failures[0].code -ne 'adb-timeout' -or
+        $preflightTimeoutJson.cleanupVerification -ne 'unverified' -or
         -not (Test-Path -LiteralPath (Join-Path $preflightTimeoutSummaryRoot 'summary.md'))) {
-        ThrowIf 'Dry-run preflight-timeout probe did not write a fail-closed partial summary.'
+        ThrowIf 'Dry-run preflight-timeout probe did not write the failed, cleanup-unverified preflight summary.'
     }
     Write-Host 'Dry-run preflight-timeout summary probe passed.'
 
