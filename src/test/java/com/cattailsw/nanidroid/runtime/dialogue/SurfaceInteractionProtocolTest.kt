@@ -7,6 +7,8 @@ import com.cattailsw.nanidroid.SScriptRunner
 import com.cattailsw.nanidroid.SScriptPlaybackScheduler
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import com.cattailsw.nanidroid.compose.debug.PointerDispatchOutcome
+import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -324,6 +326,7 @@ class SurfaceInteractionProtocolTest {
         var unloads = 0
         var stops = 0
         var handoffs = 0
+        var capabilityQueries = 0
         val pointerRequests = mutableListOf<String>()
         val ghost = object : Ghost("recording") {
             override fun loadGhostInfo() = Unit
@@ -331,7 +334,11 @@ class SurfaceInteractionProtocolTest {
             override fun incrementCreateCount() = Unit
             override fun getSakuraName(): String = "Sakura"
             override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            override fun pointerEventCapabilities() = if (capabilityQueries++ == 0) {
+                PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
+            } else {
+                PointerEventCapabilities(Support.UNSUPPORTED, Support.SUPPORTED)
+            }
             override fun doShioriEvent(event: String, ref: Array<String>?) =
                 ShioriResponse("SHIORI/3.0 204 No Content")
             override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
@@ -357,7 +364,16 @@ class SurfaceInteractionProtocolTest {
         runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
         runner.doGhostChanging("next", "ghost", "next-path")
 
-        assertTrue(!runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)))
+        val interaction = effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)
+        val diagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(interaction)
+
+        assertEquals("OnMouseClick", diagnosticDispatch.candidateEvent)
+        assertTrue(!diagnosticDispatch.accepted)
+        assertEquals(1, capabilityQueries)
+        assertEquals(
+            PointerDispatchOutcome.REJECTED,
+            pointerDispatchOutcome(diagnosticDispatch.candidateEvent, diagnosticDispatch.accepted),
+        )
         assertEquals(1, unloads)
         assertEquals(1, stops)
         assertEquals(1, handoffs)

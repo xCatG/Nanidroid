@@ -7,6 +7,19 @@ import org.junit.Test
 
 class DebugPanelStateTest {
     @Test
+    fun pointerDispatchOutcomeDistinguishesResolutionAndDispatchResult() {
+        assertEquals(PointerDispatchOutcome.NOT_RESOLVED, pointerDispatchOutcome(null, null))
+        assertEquals(
+            PointerDispatchOutcome.REJECTED,
+            pointerDispatchOutcome("OnMouseClick", false),
+        )
+        assertEquals(
+            PointerDispatchOutcome.ACCEPTED,
+            pointerDispatchOutcome("OnMouseClick", true),
+        )
+    }
+
+    @Test
     fun collisionOverlayRemainsObservableAfterPanelDismissal() {
         val state = DebugPanelState(
             visible = true,

@@ -95,7 +95,11 @@
   <string name="debug_surface_collision_id_label">碰撞 ID / 名稱</string>
   <string name="debug_surface_pointer_button_label">按鈕</string>
   <string name="debug_surface_pointer_source_label">來源</string>
-  <string name="debug_surface_pointer_event_label">事件</string>
+  <string name="debug_surface_pointer_candidate_event_label">候選事件</string>
+  <string name="debug_surface_pointer_dispatch_outcome_label">派送結果</string>
+  <string name="debug_surface_pointer_dispatch_not_resolved">未解析</string>
+  <string name="debug_surface_pointer_dispatch_rejected">已拒絕</string>
+  <string name="debug_surface_pointer_dispatch_accepted">已接受</string>
   <string name="debug_surface_pointer_speaker_label">角色</string>
   <string name="debug_surface_collision_section_title">除錯覆蓋</string>
   <string name="debug_surface_collision_overlay_toggle">顯示碰撞覆蓋</string>

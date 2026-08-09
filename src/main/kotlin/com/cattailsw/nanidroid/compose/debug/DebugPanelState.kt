@@ -51,7 +51,7 @@ data class SurfaceDebugSelection(
     val revision: Long,
 )
 
-data class SurfacePointerDebugEvent(
+internal data class SurfacePointerDebugEvent(
     val speaker: SurfaceSpeaker,
     val viewportX: Int,
     val viewportY: Int,
@@ -60,9 +60,25 @@ data class SurfacePointerDebugEvent(
     val collisionId: Int,
     val collisionName: String?,
     val buttonId: Int,
-    val eventName: String,
+    val candidateEvent: String?,
+    val dispatchOutcome: PointerDispatchOutcome,
     val source: String,
 )
+
+internal enum class PointerDispatchOutcome {
+    NOT_RESOLVED,
+    REJECTED,
+    ACCEPTED,
+}
+
+internal fun pointerDispatchOutcome(
+    candidateEvent: String?,
+    dispatchResult: Boolean?,
+): PointerDispatchOutcome = when {
+    candidateEvent == null -> PointerDispatchOutcome.NOT_RESOLVED
+    dispatchResult == true -> PointerDispatchOutcome.ACCEPTED
+    else -> PointerDispatchOutcome.REJECTED
+}
 
 data class DebugAvailabilityPolicy(private val isDebuggable: Boolean) {
     val showDebugIcon: Boolean get() = isDebuggable

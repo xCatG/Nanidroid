@@ -184,7 +184,7 @@ class GhostDebugSurfaceTest {
     }
 
     @Test
-    fun debug_surface_shows_surface_input_and_shiori_data() {
+    fun debug_surface_shows_resolved_candidate_and_rejected_dispatch_outcome() {
         val selection = SurfaceDebugSelection(
             speaker = SurfaceSpeaker.SAKURA,
             scope = "sakura_scope",
@@ -215,7 +215,8 @@ class GhostDebugSurfaceTest {
             collisionId = 123,
             collisionName = "bubble",
             buttonId = 1,
-            eventName = "surface-click",
+            candidateEvent = "OnMouseClick",
+            dispatchOutcome = PointerDispatchOutcome.REJECTED,
             source = "mouse",
         )
         val logs = listOf(
@@ -252,6 +253,8 @@ class GhostDebugSurfaceTest {
         composeRule.onNodeWithText("Response: OK").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Collision ID / name").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("123 / bubble").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("OnMouseClick").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Rejected").performScrollTo().assertIsDisplayed()
     }
 
     @Test

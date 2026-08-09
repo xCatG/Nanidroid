@@ -498,8 +498,20 @@ private fun GhostDebugSurfaceContent(
                     value = lastInput?.source ?: emptyValue,
                 )
                 SurfaceInfoField(
-                    label = stringResource(R.string.debug_surface_pointer_event_label),
-                    value = lastInput?.eventName ?: emptyValue,
+                    label = stringResource(R.string.debug_surface_pointer_candidate_event_label),
+                    value = lastInput?.candidateEvent ?: emptyValue,
+                )
+                SurfaceInfoField(
+                    label = stringResource(R.string.debug_surface_pointer_dispatch_outcome_label),
+                    value = lastInput?.let { input ->
+                        stringResource(
+                            when (input.dispatchOutcome) {
+                                PointerDispatchOutcome.NOT_RESOLVED -> R.string.debug_surface_pointer_dispatch_not_resolved
+                                PointerDispatchOutcome.REJECTED -> R.string.debug_surface_pointer_dispatch_rejected
+                                PointerDispatchOutcome.ACCEPTED -> R.string.debug_surface_pointer_dispatch_accepted
+                            },
+                        )
+                    } ?: emptyValue,
                 )
                 if (lastInput != null) {
                     SurfaceInfoField(
