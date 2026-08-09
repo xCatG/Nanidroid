@@ -53,6 +53,7 @@
   <string name="archive_queue_btn_text_with_count">ダウンロード (%1$d)</string>
 
   <string name="user_input_dlg_title">入力してください</string>
+  <string name="user_input_required">入力は必須です</string>
   <string name="dialogue_choose_action">選択…</string>
   <string name="user_sel_dlg_title">一つを選んってください</string>
   <string name="err_title">エラー</string>

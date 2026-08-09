@@ -132,6 +132,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 @Composable private fun UserInputDialog(dialog: NanidroidSimpleDialog.UserInput, onDismiss: () -> Unit) {
     val presentation = dialog.presentation
     val inputRequired = presentation.requireNonEmpty && dialog.value.isBlank()
+    val requiredInputError = stringResource(R.string.user_input_required)
     fun cancel() { onDismiss(); dialog.onCancel() }
     fun submit() {
         if (!inputRequired) {
@@ -205,7 +206,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
                                     .semantics {
-                                        if (inputRequired) error("Input is required")
+                                        if (inputRequired) error(requiredInputError)
                                     }
                                     .testTag("script-user-input"),
                                 label = { Text(title) },

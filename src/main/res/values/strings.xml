@@ -58,6 +58,7 @@
   <string name="archive_queue_btn_text_with_count">%1$d downloads</string>
   
   <string name="user_input_dlg_title">Input</string>
+  <string name="user_input_required">Input is required</string>
   <string name="dialogue_choose_action">Choose…</string>
   <string name="user_sel_dlg_title">Please Select One</string>
   <string name="err_title">Error</string>

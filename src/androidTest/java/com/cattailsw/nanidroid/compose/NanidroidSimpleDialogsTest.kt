@@ -2,15 +2,20 @@ package com.cattailsw.nanidroid.compose
 
 import androidx.activity.ComponentActivity
 import android.text.InputType
+import android.content.res.Configuration
+import android.os.LocaleList
 import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.view.inputmethod.EditorInfo
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
@@ -29,10 +34,12 @@ import androidx.compose.ui.test.then
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
+import com.cattailsw.nanidroid.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
+import java.util.Locale
 
 class NanidroidSimpleDialogsTest {
     @get:Rule
@@ -97,6 +104,26 @@ class NanidroidSimpleDialogsTest {
     }
 
     @Test
+    fun requiredInputErrorUsesLocalizedResource() {
+        val japanese = localizedContext(Locale.JAPANESE)
+        composeRule.setContent {
+            CompositionLocalProvider(
+                LocalContext provides japanese,
+                LocalConfiguration provides japanese.resources.configuration,
+            ) {
+                InputDialog(presentation = InputPresentation(requireNonEmpty = true))
+            }
+        }
+
+        composeRule.onNodeWithTag("script-user-input").assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.Error,
+                japanese.getString(R.string.user_input_required),
+            ),
+        )
+    }
+
+    @Test
     fun compactInputPaneAndConfirmRemainDiscoverable() = assertDialogDiscoverable(
         DeviceConfigurationOverride.WindowSize(DpSize(360.dp, 640.dp)),
     )
@@ -140,6 +167,12 @@ class NanidroidSimpleDialogsTest {
             repeat(view.childCount) { index -> yieldAll(descendants(view.getChildAt(index))) }
         }
     }
+
+    private fun localizedContext(locale: Locale) = composeRule.activity.createConfigurationContext(
+        Configuration(composeRule.activity.resources.configuration).apply {
+            setLocales(LocaleList(locale))
+        },
+    )
 
     @androidx.compose.runtime.Composable
     private fun InputDialog(
