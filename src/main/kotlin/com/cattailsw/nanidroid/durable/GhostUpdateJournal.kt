@@ -8,8 +8,11 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 data class GhostUpdateJournal(
     val operationId: OperationId,
@@ -56,6 +59,9 @@ internal object GhostUpdateJournalStore {
     private const val MAGIC = 0x4e475531
     internal const val MAX_FILES = 100_000
     private const val MAX_TEXT_BYTES = 16 * 1024
+    private const val PRIVATE_WRITING_PREFIX = ".nanidroid-update-writing-"
+    private val privateMarkerWriteLock = Any()
+    private val activePrivateMarkerWrites = mutableSetOf<String>()
 
     fun write(file: File, journal: GhostUpdateJournal) {
         if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
@@ -64,22 +70,7 @@ internal object GhostUpdateJournalStore {
             throw IOException("cannot prepare update journal directory")
         }
         val temporary = File(parent, "$FILE_NAME.tmp")
-        FileOutputStream(temporary).use { raw ->
-            DataOutputStream(BufferedOutputStream(raw)).use { output ->
-                output.writeInt(MAGIC)
-                output.writeBounded(journal.operationId.value)
-                output.writeBounded(journal.ghostRoot)
-                output.writeBounded(journal.candidateRoot)
-                output.writeBounded(journal.backupRoot)
-                output.writeInt(journal.phase.ordinal)
-                output.writeInt(journal.files.size)
-                journal.files.forEach { output.writeBounded(it) }
-                output.writeLong(journal.attemptId?.value ?: -1L)
-                output.writeBounded(journal.workManagerUuid.orEmpty())
-                output.flush()
-                raw.fd.sync()
-            }
-        }
+        writeContents(temporary, journal)
         try {
             java.nio.file.Files.move(
                 temporary.toPath(),
@@ -93,6 +84,100 @@ internal object GhostUpdateJournalStore {
                 file.toPath(),
                 StandardCopyOption.REPLACE_EXISTING,
             )
+        }
+    }
+
+    /**
+     * Creates one unique ownership record outside live ghost contents. Unlike a fixed marker
+     * name, this never replaces a user-owned file on external storage. A crash while writing it
+     * leaves only an unreadable sibling temporary, which cannot be mistaken for ownership.
+     */
+    fun createPrivateMarker(parent: File, journal: GhostUpdateJournal): File =
+        createPrivateMarker(parent, journal, {})
+
+    internal fun createPrivateMarker(
+        parent: File,
+        journal: GhostUpdateJournal,
+        duringWrite: (File) -> Unit,
+        beforePublication: (File) -> Unit = {},
+    ): File {
+        if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
+        if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
+            throw IOException("cannot prepare update journal directory")
+        }
+        val writing = synchronized(privateMarkerWriteLock) {
+            File.createTempFile(PRIVATE_WRITING_PREFIX, ".tmp", parent).also {
+                activePrivateMarkerWrites += it.canonicalPath
+            }
+        }
+        var marker: File? = null
+        try {
+            writeContents(writing, journal, duringWrite)
+            beforePublication(writing)
+            repeat(8) {
+                val candidate = File(parent, ".nanidroid-update-owner-${UUID.randomUUID()}.tmp")
+                try {
+                    java.nio.file.Files.move(
+                        writing.toPath(),
+                        candidate.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                    )
+                    marker = candidate
+                    return candidate
+                } catch (_: AtomicMoveNotSupportedException) {
+                    java.nio.file.Files.move(writing.toPath(), candidate.toPath())
+                    marker = candidate
+                    return candidate
+                } catch (_: java.nio.file.FileAlreadyExistsException) {
+                    // A user-owned file must never be replaced; choose another private name.
+                }
+            }
+            throw IOException("cannot publish private ownership marker")
+        } finally {
+            synchronized(privateMarkerWriteLock) {
+                activePrivateMarkerWrites -= writing.canonicalPath
+            }
+            if (marker == null) writing.delete()
+        }
+    }
+
+    /** A filename and unlocked state cannot authenticate a private writer, so preserve residue. */
+    fun deleteAbandonedPrivateMarkerWrite(file: File): Boolean {
+        if (
+            !file.isFile ||
+            java.nio.file.Files.isSymbolicLink(file.toPath()) ||
+            !file.name.startsWith(PRIVATE_WRITING_PREFIX) ||
+            !file.name.endsWith(".tmp")
+        ) return false
+        synchronized(privateMarkerWriteLock) {
+            if (file.canonicalPath in activePrivateMarkerWrites) return false
+        }
+        return false
+    }
+
+    private fun writeContents(
+        file: File,
+        journal: GhostUpdateJournal,
+        duringWrite: (File) -> Unit = {},
+    ) {
+        FileOutputStream(file).use { raw ->
+            raw.channel.lock().use {
+                val output = DataOutputStream(BufferedOutputStream(raw))
+                output.writeInt(MAGIC)
+                output.flush()
+                duringWrite(file)
+                output.writeBounded(journal.operationId.value)
+                output.writeBounded(journal.ghostRoot)
+                output.writeBounded(journal.candidateRoot)
+                output.writeBounded(journal.backupRoot)
+                output.writeInt(journal.phase.ordinal)
+                output.writeInt(journal.files.size)
+                journal.files.forEach { output.writeBounded(it) }
+                output.writeLong(journal.attemptId?.value ?: -1L)
+                output.writeBounded(journal.workManagerUuid.orEmpty())
+                output.flush()
+                raw.fd.sync()
+            }
         }
     }
 

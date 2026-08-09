@@ -69,6 +69,7 @@ interface GhostUpdateEvents {
 
 internal interface GhostUpdateFileOperations {
     fun rename(source: File, destination: File): Boolean = source.renameTo(destination)
+    fun publishStaging(source: File, destination: File): Boolean = source.renameTo(destination)
     fun deleteTree(root: File): Boolean = root.deleteRecursively()
 
     companion object {
@@ -216,7 +217,7 @@ class GhostUpdateRepository internal constructor(
             if (transactionRoot.exists() && !fileOperations.deleteTree(transactionRoot)) {
                 return failed("cannot clear abandoned update staging", emptyList())
             }
-            if (!transactionRoot.mkdir()) {
+            if (!createOwnedTransactionRoot(transactionRoot, request)) {
                 return failed("cannot prepare update staging", emptyList())
             }
             var copiedBytes = 0L
@@ -224,15 +225,15 @@ class GhostUpdateRepository internal constructor(
                 copiedBytes += count
                 onProgress("Preparing candidate", copiedBytes)
             }
-            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+            stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
 
             onProgress("Fetching update manifest", 0)
             val manifestSource = readManifest(request, stopReason)
             if (manifestSource == null) {
-                stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
-                return failedBeforeJournal(transactionRoot, "update manifest not found")
+                stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
+                return failedBeforeJournal(transactionRoot, request, "update manifest not found")
             }
-            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+            stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
             val manifest = parseManifest(manifestSource)
             var comparedBytes = 0L
             val changedManifest = manifest.filter { entry ->
@@ -247,7 +248,7 @@ class GhostUpdateRepository internal constructor(
 
             var downloadedBytes = 0L
             changedManifest.forEachIndexed { index, entry ->
-                stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+                stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
                 events.downloadBegin(entry.path, index, changedManifest.lastIndex)
                 onProgress("Downloading update", downloadedBytes)
                 val target = resolveChild(candidateRoot, entry.path)
@@ -283,19 +284,21 @@ class GhostUpdateRepository internal constructor(
                 events.digestCompareBegin(entry.path, entry.digest, actual)
                 if (!actual.equals(entry.digest, ignoreCase = true)) {
                     events.digestCompareFailure(entry.path, entry.digest, actual)
-                    return failedBeforeJournal(transactionRoot, "digest mismatch: ${entry.path}", manifestFiles)
+                    return failedBeforeJournal(transactionRoot, request, "digest mismatch: ${entry.path}", manifestFiles)
                 }
                 events.digestCompareComplete(entry.path, entry.digest, actual)
             }
 
             val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
             if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
-                fileOperations.deleteTree(transactionRoot)
+                if (!cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))) {
+                    return failed("cannot clean no-change update transaction", emptyList())
+                }
                 events.noChanges()
                 return GhostUpdateResult.NoChanges
             }
 
-            stopBeforeJournal(transactionRoot, stopReason())?.let { return it }
+            stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
             val commitResult = commitGuard.commit(
                 request.ghostId,
                 ghostRoot,
@@ -312,7 +315,7 @@ class GhostUpdateRepository internal constructor(
                 },
                 shouldStop = isStopped,
                 onStopped = {
-                    stopBeforeJournal(transactionRoot, stopReason()) ?: GhostUpdateResult.Interrupted
+                    stopBeforeJournal(transactionRoot, request, stopReason()) ?: GhostUpdateResult.Interrupted
                 },
             ) {
                 onProgress("Committing update", 0)
@@ -361,7 +364,7 @@ class GhostUpdateRepository internal constructor(
             }
             return commitResult
         } catch (stopped: UpdateStoppedException) {
-            if (!journalPersisted) return stopBeforeJournal(transactionRoot, stopped.reason)
+            if (!journalPersisted) return stopBeforeJournal(transactionRoot, request, stopped.reason)
                 ?: GhostUpdateResult.Interrupted
             return when (val recovered = recoverAfterJournalFailure(
                 ghostRoot,
@@ -427,7 +430,7 @@ class GhostUpdateRepository internal constructor(
                     is RecoveryResult.Failed -> return failed(recovered.diagnostic, manifestFiles)
                 }
             } else {
-                fileOperations.deleteTree(transactionRoot)
+                cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))
                 stopResult(stopReason())?.let { return it }
             }
             return failed(e.message ?: "ghost update failed", manifestFiles)
@@ -445,8 +448,11 @@ class GhostUpdateRepository internal constructor(
     ): GhostUpdateResult {
         val stopped = error as? UpdateStoppedException
         if (!journalPersisted) {
-            fileOperations.deleteTree(transactionRoot)
             val reason = stopped?.reason ?: stopReason()
+            if (reason == GhostUpdateStopReason.USER_CANCELLED) {
+                return cancelledBeforeJournal(transactionRoot, request)
+            }
+            cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))
             return stopResult(reason)
                 ?: GhostUpdateResult.Failed(error.message ?: "ghost update failed")
         }
@@ -864,18 +870,101 @@ class GhostUpdateRepository internal constructor(
         return GhostUpdateResult.Failed(reason)
     }
 
+    /**
+     * Publishes an ownership journal before the transaction name becomes visible to recovery
+     * discovery. That makes a journal-less transaction directory unambiguously stale residue.
+     */
+    private fun createOwnedTransactionRoot(
+        transactionRoot: File,
+        request: GhostUpdateRequest,
+    ): Boolean {
+        if (transactionRoot.parentFile == null) return false
+        val staging = stagingRoot(transactionRoot)
+        val journal = preparedJournal(transactionRoot, request)
+        val markerParent = transactionRoot.parentFile!!
+        var marker: File? = null
+        var published = false
+        var stagingCreated = false
+        return try {
+            marker = GhostUpdateJournalStore.createPrivateMarker(markerParent, journal)
+            // A deterministic name alone is not proof of ownership: a valid ghost ID may occupy it.
+            if (staging.exists() || !staging.mkdir()) return false
+            stagingCreated = true
+            journalIo.write(File(staging, GhostUpdateJournalStore.FILE_NAME), journal)
+            published = fileOperations.publishStaging(staging, transactionRoot)
+            if (published) marker.delete()
+            published
+        } catch (_: Exception) {
+            false
+        } finally {
+            if (!published && stagingCreated) {
+                val stagingRemoved = !staging.exists() || fileOperations.deleteTree(staging)
+                if (stagingRemoved) marker?.delete()
+            }
+            if (!stagingCreated) marker?.delete()
+        }
+    }
+
+    private fun preparedJournal(transactionRoot: File, request: GhostUpdateRequest) = GhostUpdateJournal(
+        operationId = request.operationId,
+        ghostRoot = request.ghostRoot.canonicalPath,
+        candidateRoot = File(transactionRoot, CANDIDATE).canonicalPath,
+        backupRoot = File(transactionRoot, BACKUP).canonicalPath,
+        phase = CommitPhase.PREPARED,
+        files = emptyList(),
+        attemptId = request.attemptId,
+        workManagerUuid = request.workManagerUuid,
+    )
+
+    /** Keeps recovery evidence until the candidate and transaction root are both gone. */
+    private fun cleanPreparedTransaction(transactionRoot: File, journal: GhostUpdateJournal): Boolean {
+        val candidate = File(transactionRoot, CANDIDATE)
+        val journalFile = File(transactionRoot, GhostUpdateJournalStore.FILE_NAME)
+        if (!fileOperations.deleteTree(candidate)) return false
+        if (!journalFile.delete() && journalFile.exists()) return false
+        if (!transactionRoot.exists() || transactionRoot.delete()) return true
+        journalIo.write(journalFile, journal)
+        return false
+    }
+
     private fun failedBeforeJournal(
         transactionRoot: File,
+        request: GhostUpdateRequest,
         reason: String,
         files: List<String> = emptyList(),
     ): GhostUpdateResult.Failed {
-        fileOperations.deleteTree(transactionRoot)
+        cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))
         return failed(reason, files)
     }
 
-    private fun cancelledBeforeJournal(transactionRoot: File): GhostUpdateResult {
-        fileOperations.deleteTree(transactionRoot)
-        return GhostUpdateResult.Cancelled
+    private fun cancelledBeforeJournal(
+        transactionRoot: File,
+        request: GhostUpdateRequest,
+    ): GhostUpdateResult {
+        return try {
+            val candidateRoot = File(transactionRoot, CANDIDATE)
+            val journalFile = File(transactionRoot, GhostUpdateJournalStore.FILE_NAME)
+            val journal = GhostUpdateJournal(
+                operationId = request.operationId,
+                ghostRoot = request.ghostRoot.canonicalPath,
+                candidateRoot = candidateRoot.canonicalPath,
+                backupRoot = File(transactionRoot, BACKUP).canonicalPath,
+                phase = CommitPhase.PREPARED,
+                files = emptyList(),
+                attemptId = request.attemptId,
+                workManagerUuid = request.workManagerUuid,
+            )
+            journalIo.write(
+                journalFile,
+                journal,
+            )
+            if (fileOperations.deleteTree(candidateRoot) && journalFile.delete()) {
+                if (!transactionRoot.delete()) journalIo.write(journalFile, journal)
+            }
+            GhostUpdateResult.Cancelled
+        } catch (error: Exception) {
+            failed("cannot retain cancelled update staging: ${error.message}", emptyList())
+        }
     }
 
     private fun interruptedBeforeJournal(transactionRoot: File): GhostUpdateResult {
@@ -885,10 +974,11 @@ class GhostUpdateRepository internal constructor(
 
     private fun stopBeforeJournal(
         transactionRoot: File,
+        request: GhostUpdateRequest,
         reason: GhostUpdateStopReason,
     ): GhostUpdateResult? = when (reason) {
         GhostUpdateStopReason.NONE -> null
-        GhostUpdateStopReason.USER_CANCELLED -> cancelledBeforeJournal(transactionRoot)
+        GhostUpdateStopReason.USER_CANCELLED -> cancelledBeforeJournal(transactionRoot, request)
         GhostUpdateStopReason.SYSTEM_INTERRUPTED -> interruptedBeforeJournal(transactionRoot)
     }
 
@@ -1038,22 +1128,17 @@ class GhostUpdateRepository internal constructor(
             classify: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, _ -> false },
         ): RecoveryResult {
             val canonicalStorage = ghostStorageRoot.canonicalFile
+            sweepUnpublishedStaging(canonicalStorage)
             val target = targetGhostRoot?.canonicalFile
             val journals = if (target != null) {
                 if (target.parentFile != canonicalStorage) {
                     return RecoveryResult.Failed("target ghost escapes ghost storage")
                 }
-                listOf(
-                    File(
-                        transactionRoot(target, canonicalOperationIdFor(target)),
-                        GhostUpdateJournalStore.FILE_NAME,
-                    ),
-                ).filter(File::isFile)
+                listOfNotNull(journalFileFor(transactionRoot(target, canonicalOperationIdFor(target))))
             } else {
                 canonicalStorage.listFiles().orEmpty()
                     .filter { it.isDirectory && it.name.startsWith(TRANSACTION_PREFIX) }
-                    .map { File(it, GhostUpdateJournalStore.FILE_NAME) }
-                    .filter(File::isFile)
+                    .mapNotNull(::journalFileFor)
             }
             if (journals.isEmpty()) return RecoveryResult.NoJournal
             val journalRecords = try {
@@ -1160,8 +1245,7 @@ class GhostUpdateRepository internal constructor(
                 .filter { it.isDirectory && !it.name.startsWith(TRANSACTION_PREFIX) }
                 .mapNotNull { root ->
                     val expected = transactionRoot(root, canonicalOperationIdFor(root))
-                    val journalFile = File(expected, GhostUpdateJournalStore.FILE_NAME)
-                    if (!journalFile.isFile) return@mapNotNull null
+                    val journalFile = journalFileFor(expected) ?: return@mapNotNull null
                     val safePrepared = try {
                         val journal = GhostUpdateJournalStore.read(journalFile)
                         journal.operationId == canonicalOperationIdFor(root) &&
@@ -1180,9 +1264,15 @@ class GhostUpdateRepository internal constructor(
             blocked += storage.listFiles().orEmpty()
                 .filter { it.isDirectory && it.name.startsWith(TRANSACTION_PREFIX) }
                 .mapNotNull { transaction ->
+                    val journalFile = journalFileFor(transaction)
+                        ?: return@mapNotNull if (transaction.listFiles().isNullOrEmpty()) {
+                            transaction.delete()
+                            null
+                        } else null
                     val journal = try {
-                        GhostUpdateJournalStore.read(File(transaction, GhostUpdateJournalStore.FILE_NAME))
+                        GhostUpdateJournalStore.read(journalFile)
                     } catch (_: Exception) {
+                        if (transaction.listFiles().isNullOrEmpty()) transaction.delete()
                         return@mapNotNull null
                     }
                     val root = File(journal.ghostRoot).canonicalFile
@@ -1208,9 +1298,15 @@ class GhostUpdateRepository internal constructor(
             return storage.listFiles().orEmpty()
                 .filter { it.isDirectory && it.name.startsWith(TRANSACTION_PREFIX) }
                 .mapNotNull { transaction ->
+                    val journalFile = journalFileFor(transaction)
+                        ?: return@mapNotNull if (transaction.listFiles().isNullOrEmpty()) {
+                            transaction.delete()
+                            null
+                        } else null
                     val journal = try {
-                        GhostUpdateJournalStore.read(File(transaction, GhostUpdateJournalStore.FILE_NAME))
+                        GhostUpdateJournalStore.read(journalFile)
                     } catch (_: Exception) {
+                        if (transaction.listFiles().isNullOrEmpty()) transaction.delete()
                         return@mapNotNull null
                     }
                     val root = File(journal.ghostRoot).canonicalFile
@@ -1225,6 +1321,127 @@ class GhostUpdateRepository internal constructor(
                     }
                 }
                 .toSet()
+        }
+
+        /**
+         * An unpublished staging directory owns a prepared journal which names a different live
+         * ghost and its eventual transaction root. Filename prefixes alone are not ownership:
+         * ghost IDs may use this prefix too. Sweep only a verified staging journal while holding
+         * that ghost's mutation lock, so creation cannot race discovery and deletion.
+         */
+        private fun sweepUnpublishedStaging(storage: File) {
+            storage.listFiles().orEmpty()
+                .filter { entry ->
+                    entry.name.startsWith(STAGING_PREFIX) &&
+                        entry.parentFile?.canonicalFile == storage
+                }
+                .forEach { staging -> sweepVerifiedUnpublishedStaging(storage, staging) }
+            sweepPrivateMarkerWrites(storage)
+            sweepPrivateOwnershipMarkers(storage)
+        }
+
+        /** Reclaims private marker write residue only after its writer's OS lock is released. */
+        private fun sweepPrivateMarkerWrites(storage: File) {
+            storage.listFiles().orEmpty()
+                .filter { entry ->
+                    entry.parentFile?.canonicalFile == storage &&
+                        entry.name.startsWith(PRIVATE_WRITING_PREFIX)
+                }
+                .forEach(GhostUpdateJournalStore::deleteAbandonedPrivateMarkerWrite)
+        }
+
+        private fun sweepVerifiedUnpublishedStaging(storage: File, staging: File) {
+            val journal = stagingJournalFor(storage, staging) ?: return
+            withGhostLock(File(journal.ghostRoot)) {
+                if (stagingJournalFor(storage, staging) != journal) return@withGhostLock
+                if (Files.isSymbolicLink(staging.toPath())) staging.delete() else staging.deleteRecursively()
+            }
+        }
+
+        private fun stagingJournalFor(storage: File, staging: File): GhostUpdateJournal? {
+            if (Files.isSymbolicLink(staging.toPath()) || !staging.isDirectory) return null
+            val journal = try {
+                val completed = File(staging, GhostUpdateJournalStore.FILE_NAME)
+                val journalFile = when {
+                    completed.isFile -> completed
+                    else -> File(staging, "${GhostUpdateJournalStore.FILE_NAME}.tmp").takeIf(File::isFile)
+                        ?: return null
+                }
+                GhostUpdateJournalStore.read(journalFile)
+            } catch (_: Exception) {
+                return null
+            }
+            val root = File(journal.ghostRoot).canonicalFile
+            val transaction = transactionRoot(root, journal.operationId)
+            return journal.takeIf {
+                root.parentFile == storage &&
+                    root != staging.canonicalFile &&
+                    staging.canonicalFile == stagingRoot(transaction) &&
+                    journal.phase == CommitPhase.PREPARED &&
+                    File(journal.candidateRoot).canonicalFile == File(transaction, CANDIDATE).canonicalFile &&
+                    File(journal.backupRoot).canonicalFile == File(transaction, BACKUP).canonicalFile &&
+                    hasPrivateOwnershipMarker(storage, journal)
+            }
+        }
+
+        private fun hasPrivateOwnershipMarker(storage: File, journal: GhostUpdateJournal): Boolean =
+            storage.listFiles().orEmpty().any { marker ->
+                marker.isFile &&
+                    !Files.isSymbolicLink(marker.toPath()) &&
+                    marker.name.startsWith(PRIVATE_MARKER_PREFIX) &&
+                    runCatching { GhostUpdateJournalStore.read(marker) }.getOrNull() == journal
+            }
+
+        /** Reclaims only authenticated private markers and their empty, exact staging roots. */
+        private fun sweepPrivateOwnershipMarkers(storage: File) {
+            storage.listFiles().orEmpty()
+                .filter {
+                    it.isFile &&
+                        !Files.isSymbolicLink(it.toPath()) &&
+                        it.name.startsWith(PRIVATE_MARKER_PREFIX)
+                }
+                .forEach { marker ->
+                    val journal = try {
+                        GhostUpdateJournalStore.read(marker)
+                    } catch (_: Exception) {
+                        // Prefix collisions are user-owned until a readable marker proves
+                        // otherwise; never delete storage content based on a filename alone.
+                        return@forEach
+                    }
+                    val root = File(journal.ghostRoot).canonicalFile
+                    val transaction = transactionRoot(root, journal.operationId)
+                    if (
+                        root.parentFile != storage ||
+                        journal.operationId != canonicalOperationIdFor(root) ||
+                        journal.phase != CommitPhase.PREPARED ||
+                        journal.files.isNotEmpty() ||
+                        File(journal.candidateRoot).canonicalFile != File(transaction, CANDIDATE).canonicalFile ||
+                        File(journal.backupRoot).canonicalFile != File(transaction, BACKUP).canonicalFile
+                    ) return@forEach
+                    withGhostLock(root) {
+                        val staging = stagingRoot(transaction)
+                        if (!staging.exists()) {
+                            marker.delete()
+                        } else if (
+                            staging.isDirectory &&
+                            !Files.isSymbolicLink(staging.toPath()) &&
+                            (staging.listFiles().isNullOrEmpty() || removeIncompleteStagingJournal(staging))
+                        ) {
+                            if (staging.delete()) marker.delete()
+                        }
+                    }
+                }
+        }
+
+        /** Removes only the private temporary left by an interrupted staging journal write. */
+        private fun removeIncompleteStagingJournal(staging: File): Boolean {
+            val entries = staging.listFiles() ?: return false
+            if (entries.size != 1) return false
+            val temporary = entries.single()
+            return temporary.name == "${GhostUpdateJournalStore.FILE_NAME}.tmp" &&
+                temporary.isFile &&
+                !Files.isSymbolicLink(temporary.toPath()) &&
+                temporary.delete()
         }
 
         private fun canBootPreparedOldLive(ghostRoot: File): Boolean {
@@ -1254,11 +1471,8 @@ class GhostUpdateRepository internal constructor(
             authorization: RecoveryAuthorization? = null,
             classify: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, _ -> false },
         ): RecoveryResult {
-            val journalFile = File(
-                transactionRoot(ghostRoot, canonicalOperationIdFor(ghostRoot)),
-                GhostUpdateJournalStore.FILE_NAME,
-            )
-            if (!journalFile.isFile) return RecoveryResult.NoJournal
+            val journalFile = journalFileFor(transactionRoot(ghostRoot, canonicalOperationIdFor(ghostRoot)))
+                ?: return RecoveryResult.NoJournal
             val journal = try {
                 journalIo.read(journalFile)
             } catch (e: Exception) {
@@ -1322,7 +1536,8 @@ class GhostUpdateRepository internal constructor(
             RecoveryAuthorization.WAIT -> when (journal.phase) {
                 CommitPhase.PREPARED -> if (
                     (ghostRoot.isDirectory && candidate.isDirectory && !backup.exists()) ||
-                    (!ghostRoot.exists() && candidate.isDirectory && backup.isDirectory)
+                    (!ghostRoot.exists() && candidate.isDirectory && backup.isDirectory) ||
+                    (ghostRoot.isDirectory && !candidate.exists() && !backup.exists())
                 ) RecoveryResult.CommitPending(journal.files)
                 else RecoveryResult.Failed("ambiguous PREPARED ghost update state")
                 CommitPhase.BACKED_UP -> if (
@@ -1352,7 +1567,10 @@ class GhostUpdateRepository internal constructor(
             }
             RecoveryAuthorization.ADOPT_PREPARED -> if (
                 journal.phase == CommitPhase.PREPARED &&
-                topologyOf(ghostRoot, candidate, backup) == GhostTreeTopology.LIVE_CANDIDATE
+                topologyOf(ghostRoot, candidate, backup) in setOf(
+                    GhostTreeTopology.LIVE_CANDIDATE,
+                    GhostTreeTopology.LIVE_ONLY,
+                )
             ) {
                 requireDelete(transactionRoot)
                 RecoveryResult.RolledBack
@@ -1452,7 +1670,10 @@ class GhostUpdateRepository internal constructor(
             ) return RecoveryResult.Failed("stale ghost update journal blocks replay")
             val topology = topologyOf(ghostRoot, File(transaction, CANDIDATE), File(transaction, BACKUP))
             val authorization = if (
-                journal.phase == CommitPhase.PREPARED && topology == GhostTreeTopology.LIVE_CANDIDATE
+                journal.phase == CommitPhase.PREPARED && topology in setOf(
+                    GhostTreeTopology.LIVE_CANDIDATE,
+                    GhostTreeTopology.LIVE_ONLY,
+                )
             ) RecoveryAuthorization.ADOPT_PREPARED else RecoveryAuthorization.ROLL_FORWARD
             return recoverLocked(ghostRoot, journalIo, authorization, classify)
         }
@@ -1660,6 +1881,21 @@ class GhostUpdateRepository internal constructor(
         private fun transactionRoot(ghostRoot: File, operationId: OperationId) =
             transactionRootFor(ghostRoot, operationId)
 
+        private fun stagingRoot(transactionRoot: File): File = File(
+            transactionRoot.parentFile,
+            "$STAGING_PREFIX${transactionRoot.name.removePrefix(TRANSACTION_PREFIX)}",
+        ).canonicalFile
+
+        /** A completed private write is valid recovery evidence even if publication was interrupted. */
+        private fun journalFileFor(transactionRoot: File): File? = listOf(
+            File(transactionRoot, GhostUpdateJournalStore.FILE_NAME),
+        ).firstOrNull(File::isFile) ?: File(
+            transactionRoot,
+            "${GhostUpdateJournalStore.FILE_NAME}.tmp",
+        ).takeIf { temporary ->
+            temporary.isFile && runCatching { GhostUpdateJournalStore.read(temporary) }.isSuccess
+        }
+
         private fun requireDelete(file: File) {
             if (file.exists() && !file.deleteRecursively()) throw IOException("cannot clean update transaction")
         }
@@ -1734,5 +1970,8 @@ class GhostUpdateRepository internal constructor(
         private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
         private const val TRANSACTION_PREFIX = ".nanidroid-update-"
+        private const val STAGING_PREFIX = ".nanidroid-staging-"
+        private const val PRIVATE_MARKER_PREFIX = ".nanidroid-update-owner-"
+        private const val PRIVATE_WRITING_PREFIX = ".nanidroid-update-writing-"
     }
 }

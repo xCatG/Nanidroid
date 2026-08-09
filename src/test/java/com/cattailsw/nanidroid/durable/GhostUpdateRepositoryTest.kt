@@ -25,6 +25,9 @@ import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.HttpsURLConnection
 
 private fun workManagerBinding(label: String) = ExternalJobBinding.WorkManager(
@@ -220,6 +223,501 @@ class GhostUpdateRepositoryTest {
         assertEquals(GhostUpdateResult.Cancelled, result)
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
         assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `digest mismatch cleanup retains prepared journal when candidate deletion fails`() {
+        val fixture = fixture("digest-cleanup-journal")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifestWithDigest("ghost/master.txt", "00000000000000000000000000000000", bytes("bad"))
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean =
+                root.canonicalFile != File(fixture.transactionRoot(), "candidate").canonicalFile && root.deleteRecursively()
+        }
+
+        assertTrue(fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false } is GhostUpdateResult.Failed)
+        assertEquals(CommitPhase.PREPARED, GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        ).phase)
+        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+    }
+
+    @Test
+    fun `process death during user cancellation cleanup preserves exact journal for recovery`() {
+        val fixture = fixture("cancel-cleanup-ownership")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val request = fixture.request().copy(attemptId = AttemptId(3), workManagerUuid = "work-3")
+        var cancelled = false
+        fixture.network.onManifestRead = { cancelled = true }
+        val failingDelete = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile != File(fixture.transactionRoot(), "candidate").canonicalFile) {
+                    return root.deleteRecursively()
+                }
+                root.deleteRecursively()
+                throw SimulatedProcessDeath()
+            }
+        }
+
+        try {
+            fixture.repository(fileOperations = failingDelete).run(request) { cancelled }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // A process death is not catchable by repository recovery.
+        }
+
+        val journal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        )
+        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertEquals(request.operationId, journal.operationId)
+        assertEquals(request.attemptId, journal.attemptId)
+        assertEquals(request.workManagerUuid, journal.workManagerUuid)
+        assertFalse(File(fixture.transactionRoot(), "candidate").exists())
+
+        val recovery = GhostUpdateRepository.recoverAllBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            authorize = { recovered, topology ->
+                when (GhostUpdateWorker.recoveryTransition(
+                    recovered.phase,
+                    topology,
+                    OperationStatus.CANCELLED,
+                    exactIdentity = true,
+                    GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED,
+                )) {
+                    GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED ->
+                        RecoveryAuthorization.ROLL_BACK_CANCELLED
+                    else -> RecoveryAuthorization.FAIL_CLOSED
+                }
+            },
+            classify = { recovered, status ->
+                recovered.operationId == request.operationId &&
+                    recovered.attemptId == request.attemptId &&
+                    recovered.workManagerUuid == request.workManagerUuid &&
+                    status == OperationStatus.CANCELLED
+            },
+        )
+
+        assertEquals(RecoveryResult.RolledBack, recovery)
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `journal-less empty transaction root is swept before recovery scheduling`() {
+        val fixture = fixture("empty-cancel-cleanup")
+        assertTrue(fixture.transactionRoot().mkdir())
+
+        assertTrue(GhostUpdateRepository.recoveryTargets(fixture.parent).isEmpty())
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `recovery discovery accepts a completed temporary journal after restoration interruption`() {
+        val fixture = fixture("temporary-restoration-journal")
+        fixture.writeLive("ghost/master.txt", "old")
+        val transaction = fixture.transactionRoot()
+        val journal = GhostUpdateJournal(
+            fixture.operationId,
+            fixture.ghostRoot.canonicalPath,
+            File(transaction, "candidate").canonicalPath,
+            File(transaction, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+        GhostUpdateJournalStore.write(File(transaction, "${GhostUpdateJournalStore.FILE_NAME}.tmp"), journal)
+        write(File(transaction, "residue"), bytes("keeps root nonempty"))
+
+        assertEquals(setOf(fixture.ghostRoot.canonicalFile), GhostUpdateRepository.recoveryTargets(fixture.parent))
+        assertTrue(File(transaction, "${GhostUpdateJournalStore.FILE_NAME}.tmp").isFile)
+    }
+
+    @Test
+    fun `incomplete temporary journal does not block the live ghost`() {
+        val fixture = fixture("truncated-restoration-journal")
+        fixture.writeLive("ghost/master.txt", "old")
+        val temporary = File(fixture.transactionRoot(), "${GhostUpdateJournalStore.FILE_NAME}.tmp")
+        write(temporary, bytes("truncated"))
+
+        assertTrue(GhostUpdateRepository.recoveryTargets(fixture.parent).isEmpty())
+        assertFalse(fixture.ghostRoot.canonicalFile in GhostUpdateRepository.blockedGhostRoots(fixture.parent))
+        assertTrue(temporary.isFile)
+    }
+
+    @Test
+    fun `recovery discovery preserves an active empty transaction root while stale residue is swept`() {
+        val fixture = fixture("active-empty-transaction")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val stale = File(fixture.parent, ".nanidroid-update-stale").apply { mkdir() }
+        var stagingPublished = false
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                val renamed = source.renameTo(destination)
+                if (destination.canonicalFile == fixture.transactionRoot().canonicalFile &&
+                    source.name.startsWith(".nanidroid-staging-")
+                ) {
+                    stagingPublished = true
+                    assertTrue(renamed)
+                    assertEquals(
+                        setOf(fixture.ghostRoot.canonicalFile),
+                        GhostUpdateRepository.recoveryTargets(fixture.parent),
+                    )
+                    assertTrue(fixture.transactionRoot().exists())
+                    assertFalse(stale.exists())
+                }
+                return renamed
+            }
+        }
+
+        assertEquals(
+            GhostUpdateResult.Completed(listOf("ghost/master.txt")),
+            fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false },
+        )
+        assertTrue(stagingPublished)
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery sweeps unpublished staging left by process death`() {
+        val fixture = fixture("unpublished-staging-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        var staging: File? = null
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                staging = source
+                return false
+            }
+
+            override fun deleteTree(root: File): Boolean {
+                if (root == staging) throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The staging directory is intentionally left behind as process-death residue.
+        }
+
+        val abandoned = requireNotNull(staging)
+        assertTrue(abandoned.exists())
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+        assertFalse(abandoned.exists())
+    }
+
+    @Test
+    fun `startup recovery sweeps tmp-only staging journal left before ownership finalizes`() {
+        val fixture = fixture("tmp-only-staging-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        val transaction = fixture.transactionRoot()
+        val staging = File(
+            fixture.parent,
+            ".nanidroid-staging-${transaction.name.removePrefix(".nanidroid-update-")}",
+        ).apply { check(mkdir()) }
+        val journal = GhostUpdateJournal(
+            operationId = fixture.operationId,
+            ghostRoot = fixture.ghostRoot.canonicalPath,
+            candidateRoot = File(transaction, "candidate").canonicalPath,
+            backupRoot = File(transaction, "backup").canonicalPath,
+            phase = CommitPhase.PREPARED,
+            files = emptyList(),
+        )
+        val completedJournal = File(staging, GhostUpdateJournalStore.FILE_NAME)
+        GhostUpdateJournalStore.write(completedJournal, journal)
+        GhostUpdateJournalStore.createPrivateMarker(fixture.parent, journal)
+        val temporaryJournal = File(staging, "${GhostUpdateJournalStore.FILE_NAME}.tmp")
+        check(completedJournal.renameTo(temporaryJournal))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(staging.exists())
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(transaction.exists())
+    }
+
+    @Test
+    fun `startup recovery sweeps owned staging left before journal creation begins`() {
+        val fixture = fixture("pre-journal-staging-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        assertPreJournalStagingRecovery(fixture)
+    }
+
+    @Test
+    fun `startup recovery reclaims owned staging with an interrupted private journal write`() {
+        val fixture = fixture("interrupted-staging-journal-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val staging = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        )
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                if (file.parentFile?.canonicalFile == staging.canonicalFile) {
+                    write(File(staging, "${GhostUpdateJournalStore.FILE_NAME}.tmp"), bytes("incomplete"))
+                    throw SimulatedProcessDeath()
+                }
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File) = GhostUpdateJournalStore.read(file)
+        }
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile == staging.canonicalFile) throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(journalIo = journalIo, fileOperations = fileOperations).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The staging journal write has created only its private temporary file.
+        }
+
+        assertTrue(staging.exists())
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(staging.exists())
+        assertTrue(fixture.parent.listFiles().orEmpty().none { it.name.startsWith(".nanidroid-update-owner-") })
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), fixture.repository().run(fixture.request()) { false })
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery preserves an incomplete private ownership marker`() {
+        val fixture = fixture("incomplete-private-owner-marker")
+        val marker = File.createTempFile(".nanidroid-update-owner-", ".tmp", fixture.parent)
+        write(marker, bytes("truncated"))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertTrue(marker.exists())
+    }
+
+    @Test
+    fun `startup recovery never sweeps an installed ghost whose id uses the staging prefix`() {
+        val storage = temporaryDirectory("staging-prefix-ghost")
+        val ghost = File(storage, ".nanidroid-staging-valid-ghost").apply { mkdirs() }
+        write(File(ghost, "ghost/master.txt"), bytes("live"))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(storage))
+
+        assertTrue(ghost.exists())
+        assertBytes("live", File(ghost, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery never sweeps a prefix named ghost with an unauthenticated staging journal`() {
+        val storage = temporaryDirectory("unauthenticated-staging-journal")
+        val owner = File(storage, "owner").apply { mkdirs() }
+        val operation = GhostUpdateRepository.canonicalOperationIdFor(owner)
+        val transaction = GhostUpdateRepository.transactionRootFor(owner, operation)
+        val ghost = File(
+            storage,
+            ".nanidroid-staging-${transaction.name.removePrefix(".nanidroid-update-")}",
+        ).apply { mkdirs() }
+        write(File(ghost, "ghost/master.txt"), bytes("live"))
+        GhostUpdateJournalStore.write(
+            File(ghost, GhostUpdateJournalStore.FILE_NAME),
+            GhostUpdateJournal(
+                operationId = operation,
+                ghostRoot = owner.canonicalPath,
+                candidateRoot = File(transaction, "candidate").canonicalPath,
+                backupRoot = File(transaction, "backup").canonicalPath,
+                phase = CommitPhase.PREPARED,
+                files = emptyList(),
+            ),
+        )
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(storage))
+
+        assertTrue(ghost.exists())
+        assertBytes("live", File(ghost, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `update preserves another installed ghost at its deterministic staging path`() {
+        val fixture = fixture("staging-occupant")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val occupant = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        ).apply { mkdirs() }
+        write(File(occupant, "ghost/master.txt"), bytes("other-live"))
+
+        assertTrue(fixture.repository().run(fixture.request()) { false } is GhostUpdateResult.Failed)
+
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertTrue(occupant.isDirectory)
+        assertBytes("other-live", File(occupant, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `update ignores a live file at the former preparing marker path`() {
+        val fixture = fixture("preparing-marker-occupant")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val marker = File(
+            fixture.ghostRoot,
+            ".nanidroid-update-preparing-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        )
+        write(marker, bytes("live-marker"))
+
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), fixture.repository().run(fixture.request()) { false })
+
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertBytes("live-marker", marker)
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `update leaves a live journal temporary file untouched`() {
+        val fixture = fixture("preparing-marker-journal-temporary")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("old"))
+        val temporaryJournal = File(fixture.ghostRoot, "journal.v1.tmp")
+        write(temporaryJournal, bytes("live-temporary"))
+
+        assertEquals(GhostUpdateResult.NoChanges, fixture.repository().run(fixture.request()) { false })
+
+        assertBytes("live-temporary", temporaryJournal)
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `startup recovery preserves a live ghost at another root's expected staging path`() {
+        val fixture = fixture("staging-occupant-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        val occupant = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        ).apply { mkdirs() }
+        write(File(occupant, "ghost/master.txt"), bytes("other-live"))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertTrue(occupant.isDirectory)
+        assertBytes("other-live", File(occupant, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery reclaims pre-journal staging for a prefix-named ghost`() {
+        val fixture = fixture("prefix-owner-pre-journal", ".nanidroid-staging-live-ghost")
+        fixture.writeLive("ghost/master.txt", "old")
+        assertPreJournalStagingRecovery(fixture)
+    }
+
+    private fun assertPreJournalStagingRecovery(fixture: Fixture) {
+        val staging = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        )
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                if (file.parentFile?.canonicalFile == staging.canonicalFile) {
+                    throw IOException("process died before the first staging journal write")
+                }
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File) = GhostUpdateJournalStore.read(file)
+        }
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile == staging.canonicalFile) throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(journalIo = journalIo, fileOperations = fileOperations).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The owner dies after staging creation but before its readable journal exists.
+        }
+
+        assertTrue(staging.exists())
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(staging.exists())
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+        assertTrue(fixture.parent.listFiles().orEmpty().none { it.name.startsWith(".nanidroid-update-owner-") })
+    }
+
+    @Test
+    fun `exact replay adopts ownership journal published before candidate construction`() {
+        val fixture = fixture("published-ownership-replay")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        var published = false
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                assertTrue(source.renameTo(destination))
+                published = true
+                throw SimulatedProcessDeath()
+            }
+        }
+        val request = fixture.request().copy(attemptId = AttemptId(8), workManagerUuid = "work-8")
+
+        try {
+            fixture.repository(fileOperations = fileOperations).run(request) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The ownership journal is durable but candidate construction has not begun.
+        }
+
+        assertTrue(published)
+        assertTrue(File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME).isFile)
+        assertFalse(File(fixture.transactionRoot(), "candidate").exists())
+
+        assertEquals(
+            GhostUpdateResult.Completed(listOf("ghost/master.txt")),
+            fixture.repository().run(request) { false },
+        )
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `startup recovery waits for an active unpublished staging owner before sweeping`() {
+        val fixture = fixture("active-unpublished-staging")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val recoveryStarted = CountDownLatch(1)
+        val recoveryFinished = CountDownLatch(1)
+        val recovery = AtomicReference<RecoveryResult>()
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                Thread {
+                    recoveryStarted.countDown()
+                    recovery.set(GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+                    recoveryFinished.countDown()
+                }.start()
+                assertTrue(recoveryStarted.await(5, TimeUnit.SECONDS))
+                assertFalse(recoveryFinished.await(250, TimeUnit.MILLISECONDS))
+                assertTrue(source.exists())
+                return source.renameTo(destination)
+            }
+        }
+
+        assertEquals(
+            GhostUpdateResult.Completed(listOf("ghost/master.txt")),
+            fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false },
+        )
+        assertTrue(recoveryFinished.await(5, TimeUnit.SECONDS))
+        assertEquals(RecoveryResult.NoJournal, recovery.get())
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
     }
 
     @Test
@@ -552,6 +1050,48 @@ class GhostUpdateRepositoryTest {
             assertFalse(requested.name, fixture.transactionRoot().exists())
             assertTrue(requested.name, resyncPolls >= 3)
         }
+    }
+
+    @Test
+    fun `failed user cancellation cleanup inside commit gate retains exact recovery journal`() {
+        val fixture = fixture("commit-gate-cancel-cleanup")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.writeLiveBytes("ghost/save.dat", ByteArray(64 * 1024) { 5 })
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val request = fixture.request().copy(attemptId = AttemptId(3), workManagerUuid = "work-3")
+        var commitStarted = false
+        var resyncPolls = 0
+        val failingDelete = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile != File(fixture.transactionRoot(), "candidate").canonicalFile) {
+                    return root.deleteRecursively()
+                }
+                File(root, "ghost").deleteRecursively()
+                return false
+            }
+        }
+
+        val result = fixture.repository(
+            fileOperations = failingDelete,
+            onProgress = { phase, _ -> if (phase == "Committing update") commitStarted = true },
+        ).runInterruptible(request) {
+            if (commitStarted && ++resyncPolls >= 3) {
+                GhostUpdateStopReason.USER_CANCELLED
+            } else {
+                GhostUpdateStopReason.NONE
+            }
+        }
+
+        assertEquals(GhostUpdateResult.Cancelled, result)
+        val journal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        )
+        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertEquals(request.operationId, journal.operationId)
+        assertEquals(request.attemptId, journal.attemptId)
+        assertEquals(request.workManagerUuid, journal.workManagerUuid)
+        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
     }
 
     @Test
@@ -994,6 +1534,37 @@ class GhostUpdateRepositoryTest {
         assertBytes("same", File(fixture.ghostRoot, "ghost/master.txt"))
         assertFalse(fixture.transactionRoot().exists())
         assertFalse(fixture.network.openedPaths.drop(1).contains("ghost/master.txt"))
+    }
+
+    @Test
+    fun `failed no-change cleanup retains a prepared journal that an exact retry clears`() {
+        val fixture = fixture("no-change-cleanup-failure")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        val request = fixture.request().copy(attemptId = AttemptId(9), workManagerUuid = "work-9")
+        var failCleanup = true
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (failCleanup && root.canonicalFile == File(fixture.transactionRoot(), "candidate").canonicalFile) {
+                    return false
+                }
+                return root.deleteRecursively()
+            }
+        }
+        val repository = fixture.repository(fileOperations = fileOperations)
+
+        assertTrue(repository.run(request) { false } is GhostUpdateResult.Failed)
+        val journal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        )
+        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+
+        failCleanup = false
+
+        assertEquals(GhostUpdateResult.NoChanges, repository.run(request) { false })
+        assertFalse(fixture.transactionRoot().exists())
+        assertBytes("same", File(fixture.ghostRoot, "ghost/master.txt"))
     }
 
     @Test
@@ -1875,6 +2446,79 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `private ownership marker does not use a fixed live-content path`() {
+        val root = temporaryDirectory("interrupted-preparing-marker")
+        val journal = GhostUpdateJournal(
+            OperationId("operation"),
+            File(root, "live").canonicalPath,
+            File(root, "candidate").canonicalPath,
+            File(root, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+
+        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal)
+
+        assertTrue(marker.parentFile == root)
+        assertTrue(marker.name.startsWith(".nanidroid-update-owner-"))
+        assertEquals(journal, GhostUpdateJournalStore.read(marker))
+    }
+
+    @Test
+    fun `recovery cannot reclaim a private marker while its journal is being written`() {
+        val root = temporaryDirectory("private-marker-write-race")
+        val journal = GhostUpdateJournal(
+            OperationId("operation"),
+            File(root, "live").canonicalPath,
+            File(root, "candidate").canonicalPath,
+            File(root, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+
+        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal, { writing ->
+            assertTrue(writing.name.startsWith(".nanidroid-update-writing-"))
+            assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(root))
+            assertTrue(writing.exists())
+        })
+
+        assertTrue(marker.exists())
+        assertEquals(journal, GhostUpdateJournalStore.read(marker))
+    }
+
+    @Test
+    fun `recovery cannot reclaim a private marker after writing before publication`() {
+        val root = temporaryDirectory("private-marker-publication-race")
+        val journal = GhostUpdateJournal(
+            OperationId("operation"),
+            File(root, "live").canonicalPath,
+            File(root, "candidate").canonicalPath,
+            File(root, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+
+        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal, {}, { writing ->
+            assertTrue(writing.exists())
+            assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(root))
+            assertTrue(writing.exists())
+        })
+
+        assertTrue(marker.exists())
+        assertEquals(journal, GhostUpdateJournalStore.read(marker))
+    }
+
+    @Test
+    fun `startup recovery preserves an interrupted private marker write temporary`() {
+        val root = temporaryDirectory("interrupted-private-marker-write")
+        val writing = File.createTempFile(".nanidroid-update-writing-", ".tmp", root)
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(root))
+
+        assertTrue(writing.exists())
+    }
+
+    @Test
     fun `terminal published recovery skips WorkManager observation`() {
         val fixture = fixture("terminal-no-work-query")
         fixture.writeLive("ghost/master.txt", "new")
@@ -1957,6 +2601,38 @@ class GhostUpdateRepositoryTest {
         assertEquals(OperationStatus.FAILED, store.read().single().status)
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
         assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `active or unavailable work retains cleanup-only cancellation evidence`() {
+        listOf(
+            GhostUpdateWorker.Companion.RecoveryWorkState.ACTIVE,
+            GhostUpdateWorker.Companion.RecoveryWorkState.QUERY_ERROR,
+        ).forEachIndexed { index, workState ->
+            val fixture = fixture("cleanup-only-wait-$index")
+            fixture.writeLive("ghost/master.txt", "old")
+            val store = SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            )
+            val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+            val handle = OperationHandle(fixture.operationId, AttemptId(1))
+            val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+            assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Stopping", 0, binding))
+            assertTrue(supervisor.requestStop(handle))
+            fixture.writeJournal(CommitPhase.PREPARED, emptyList(), handle.attemptId, binding.uuid)
+
+            val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+                fixture.parent,
+                fixture.ghostRoot,
+                store,
+                queryWork = { workState },
+                finish = { _, _ -> throw AssertionError("active cleanup must not terminalize") },
+            )
+
+            assertEquals(workState.name, RecoveryResult.CommitPending(emptyList()), recovery)
+            assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+            assertTrue(fixture.transactionRoot().exists())
+        }
     }
 
     @Test
@@ -2217,15 +2893,15 @@ class GhostUpdateRepositoryTest {
 
     private class SimulatedProcessDeath : Error()
 
-    private class Fixture(label: String) {
+    private class Fixture(label: String, private val ghostId: String = "ghost-id") {
         val parent: File = temporaryDirectory("ghost-update-$label")
-        val ghostRoot = File(parent, "ghost-id").apply { check(mkdir()) }
+        val ghostRoot = File(parent, ghostId).apply { check(mkdir()) }
         val operationId = GhostUpdateRepository.canonicalOperationIdFor(ghostRoot)
         val network = FakeNetwork()
 
         fun request() = GhostUpdateRequest(
             operationId = operationId,
-            ghostId = "ghost-id",
+            ghostId = ghostId,
             ghostRoot = ghostRoot,
             baseUri = mockk<Uri>(),
         )
@@ -2412,7 +3088,7 @@ class GhostUpdateRepositoryTest {
     }
 
     companion object {
-        private fun fixture(label: String) = Fixture(label)
+        private fun fixture(label: String, ghostId: String = "ghost-id") = Fixture(label, ghostId)
 
         private fun temporaryDirectory(label: String): File {
             val root = File.createTempFile(label, "")
@@ -2473,6 +3149,7 @@ internal class GhostUpdateTransitionTableTest(
             row("prepared succeeded without publish fails", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_FAILED),
             row("prepared cancellation terminalizes cancelled", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.CANCEL_REQUESTED, true, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED),
             row("prepared missing cancelled worker rolls back", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.CANCEL_REQUESTED, true, GhostUpdateWorker.Companion.RecoveryWorkState.MISSING, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED),
+            row("prepared cleanup-only missing cancelled worker rolls back", CommitPhase.PREPARED, GhostTreeTopology.LIVE_ONLY, OperationStatus.CANCEL_REQUESTED, true, GhostUpdateWorker.Companion.RecoveryWorkState.MISSING, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED),
             row("prepared after live backup commits despite failed worker", CommitPhase.PREPARED, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_FORWARD_COMPLETED),
             row("backed up commits despite cancelled worker", CommitPhase.BACKED_UP, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_FORWARD_COMPLETED),
             row("backed up published tree commits despite stop request", CommitPhase.BACKED_UP, GhostTreeTopology.LIVE_BACKUP, OperationStatus.CANCEL_REQUESTED, true, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_FORWARD_COMPLETED),
@@ -2486,7 +3163,7 @@ internal class GhostUpdateTransitionTableTest(
             row("terminal backed cancellation authorizes rollback", CommitPhase.BACKED_UP, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.CANCELLED, true, GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED),
             row("stale attempt blocks prepared cleanup", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.FAILED, false, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("stale binding blocks published cleanup", CommitPhase.PUBLISHED, GhostTreeTopology.LIVE_BACKUP, OperationStatus.COMPLETED, false, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
-            row("invalid prepared topology blocks", CommitPhase.PREPARED, GhostTreeTopology.LIVE_ONLY, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.ACTIVE, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
+            row("prepared cleanup-only state waits for active replay", CommitPhase.PREPARED, GhostTreeTopology.LIVE_ONLY, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.ACTIVE, GhostUpdateWorker.Companion.RecoveryTransition.WAIT),
             row("invalid backed topology blocks", CommitPhase.BACKED_UP, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("invalid published topology blocks", CommitPhase.PUBLISHED, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.COMPLETED, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("rollback classified exact failure continues rollback", CommitPhase.ROLLBACK_CLASSIFIED, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.FAILED, true, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_FAILED),
