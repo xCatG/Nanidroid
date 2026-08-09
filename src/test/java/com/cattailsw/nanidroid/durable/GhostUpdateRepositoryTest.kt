@@ -383,18 +383,23 @@ class GhostUpdateRepositoryTest {
     fun `startup recovery sweeps owned staging left before journal creation begins`() {
         val fixture = fixture("pre-journal-staging-recovery")
         fixture.writeLive("ghost/master.txt", "old")
-        var staging: File? = null
+        val staging = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        )
         val journalIo = object : GhostUpdateJournalIo {
             override fun write(file: File, journal: GhostUpdateJournal) {
-                staging = file.parentFile
-                throw IOException("process died before the first journal write")
+                if (file.parentFile?.canonicalFile == staging.canonicalFile) {
+                    throw IOException("process died before the first staging journal write")
+                }
+                GhostUpdateJournalStore.write(file, journal)
             }
 
             override fun read(file: File) = GhostUpdateJournalStore.read(file)
         }
         val fileOperations = object : GhostUpdateFileOperations {
             override fun deleteTree(root: File): Boolean {
-                if (root == staging) throw SimulatedProcessDeath()
+                if (root.canonicalFile == staging.canonicalFile) throw SimulatedProcessDeath()
                 return root.deleteRecursively()
             }
         }
@@ -406,11 +411,10 @@ class GhostUpdateRepositoryTest {
             // The owner dies after creating its reserved staging root but before a journal exists.
         }
 
-        val abandoned = requireNotNull(staging)
-        assertTrue(abandoned.exists())
+        assertTrue(staging.exists())
         assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
 
-        assertFalse(abandoned.exists())
+        assertFalse(staging.exists())
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
         assertFalse(fixture.transactionRoot().exists())
     }
@@ -443,6 +447,62 @@ class GhostUpdateRepositoryTest {
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
         assertTrue(occupant.isDirectory)
         assertBytes("other-live", File(occupant, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery preserves a live ghost at another root's expected staging path`() {
+        val fixture = fixture("staging-occupant-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        val occupant = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        ).apply { mkdirs() }
+        write(File(occupant, "ghost/master.txt"), bytes("other-live"))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertTrue(occupant.isDirectory)
+        assertBytes("other-live", File(occupant, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery reclaims pre-journal staging for a prefix-named ghost`() {
+        val fixture = fixture("prefix-owner-pre-journal", ".nanidroid-staging-live-ghost")
+        fixture.writeLive("ghost/master.txt", "old")
+        val staging = File(
+            fixture.parent,
+            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        )
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                if (file.parentFile?.canonicalFile == staging.canonicalFile) {
+                    throw IOException("process died before the first staging journal write")
+                }
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File) = GhostUpdateJournalStore.read(file)
+        }
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.canonicalFile == staging.canonicalFile) throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(journalIo = journalIo, fileOperations = fileOperations).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The owner dies after staging creation but before its readable journal exists.
+        }
+
+        assertTrue(staging.exists())
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(staging.exists())
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
     }
 
     @Test
@@ -2545,15 +2605,15 @@ class GhostUpdateRepositoryTest {
 
     private class SimulatedProcessDeath : Error()
 
-    private class Fixture(label: String) {
+    private class Fixture(label: String, private val ghostId: String = "ghost-id") {
         val parent: File = temporaryDirectory("ghost-update-$label")
-        val ghostRoot = File(parent, "ghost-id").apply { check(mkdir()) }
+        val ghostRoot = File(parent, ghostId).apply { check(mkdir()) }
         val operationId = GhostUpdateRepository.canonicalOperationIdFor(ghostRoot)
         val network = FakeNetwork()
 
         fun request() = GhostUpdateRequest(
             operationId = operationId,
-            ghostId = "ghost-id",
+            ghostId = ghostId,
             ghostRoot = ghostRoot,
             baseUri = mockk<Uri>(),
         )
@@ -2729,7 +2789,7 @@ class GhostUpdateRepositoryTest {
     }
 
     companion object {
-        private fun fixture(label: String) = Fixture(label)
+        private fun fixture(label: String, ghostId: String = "ghost-id") = Fixture(label, ghostId)
 
         private fun temporaryDirectory(label: String): File {
             val root = File.createTempFile(label, "")
