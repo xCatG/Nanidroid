@@ -187,6 +187,43 @@ class DurableOperationAttentionCoordinatorTest {
         )
         assertNull(restoredNotifier.last.single().diagnostics)
         assertEquals(30_000L, restoredScheduler.delayMillis)
+
+        clock.value = 90_000L
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertEquals(STOPPING_DELAY_DIAGNOSTIC, restoredNotifier.last.single().diagnostics)
+    }
+
+    @Test fun restoredStoppingDelayKeepsOnlyKeepWaitingUntilFreshStoppingWindowExpires() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        clock.value = 60_000L
+        assertEquals(STOPPING_DELAY_DIAGNOSTIC, supervisor.snapshot().single().diagnostics)
+
+        val restoredSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        val restoredScheduler = FakeAttentionScheduler()
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredCoordinator = DurableOperationAttentionCoordinator(
+            restoredSupervisor,
+            restoredScheduler,
+            restoredNotifier,
+        )
+
+        restoredCoordinator.start()
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertNull(restoredNotifier.last.single().diagnostics)
+        assertEquals(30_000L, restoredScheduler.delayMillis)
     }
 
     @Test fun repeatedReconstructionKeepsTheSameExactPromptHandle() {

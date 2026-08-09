@@ -472,8 +472,11 @@ class DurableOperationSupervisor(
                 .filter(DurableOperationRecord::showStallPrompt)
                 .map { record ->
                     if (
-                        record.isCancellationDispatchFailure() &&
-                        record.handle() !in revealedStoppingAttention
+                        record.isRestartSuppressed() ||
+                            (
+                                record.isCancellationDispatchFailure() &&
+                                    record.handle() !in revealedStoppingAttention
+                            )
                     ) {
                         record.copy(diagnostics = null)
                     } else {
