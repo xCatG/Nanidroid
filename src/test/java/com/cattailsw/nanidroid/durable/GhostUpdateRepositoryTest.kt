@@ -1989,6 +1989,38 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `active or unavailable work retains cleanup-only cancellation evidence`() {
+        listOf(
+            GhostUpdateWorker.Companion.RecoveryWorkState.ACTIVE,
+            GhostUpdateWorker.Companion.RecoveryWorkState.QUERY_ERROR,
+        ).forEachIndexed { index, workState ->
+            val fixture = fixture("cleanup-only-wait-$index")
+            fixture.writeLive("ghost/master.txt", "old")
+            val store = SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            )
+            val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+            val handle = OperationHandle(fixture.operationId, AttemptId(1))
+            val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+            assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Stopping", 0, binding))
+            assertTrue(supervisor.requestStop(handle))
+            fixture.writeJournal(CommitPhase.PREPARED, emptyList(), handle.attemptId, binding.uuid)
+
+            val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+                fixture.parent,
+                fixture.ghostRoot,
+                store,
+                queryWork = { workState },
+                finish = { _, _ -> throw AssertionError("active cleanup must not terminalize") },
+            )
+
+            assertEquals(workState.name, RecoveryResult.CommitPending(emptyList()), recovery)
+            assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+            assertTrue(fixture.transactionRoot().exists())
+        }
+    }
+
+    @Test
     fun `recovery work identity is stable and target scoped`() {
         val storage = temporaryDirectory("recovery-work-name")
         val first = File(storage, "first").apply { mkdirs() }

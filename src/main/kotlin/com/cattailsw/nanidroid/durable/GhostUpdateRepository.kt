@@ -1286,7 +1286,8 @@ class GhostUpdateRepository internal constructor(
             RecoveryAuthorization.WAIT -> when (journal.phase) {
                 CommitPhase.PREPARED -> if (
                     (ghostRoot.isDirectory && candidate.isDirectory && !backup.exists()) ||
-                    (!ghostRoot.exists() && candidate.isDirectory && backup.isDirectory)
+                    (!ghostRoot.exists() && candidate.isDirectory && backup.isDirectory) ||
+                    (ghostRoot.isDirectory && !candidate.exists() && !backup.exists())
                 ) RecoveryResult.CommitPending(journal.files)
                 else RecoveryResult.Failed("ambiguous PREPARED ghost update state")
                 CommitPhase.BACKED_UP -> if (
