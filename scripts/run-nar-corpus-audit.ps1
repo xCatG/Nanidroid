@@ -33,7 +33,10 @@ param(
     $ExpectedStageGeometryProfile,
 
     [switch]
-    $DryRun
+    $DryRun,
+
+    [switch]
+    $HostOnlyPreflightTimeoutTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -415,6 +418,57 @@ function Test-AdbTransportAvailable {
     )
 
     return -not $TransportTimedOut
+}
+
+function Write-PreflightTimeoutSummary {
+    param(
+        [string]$SummaryRoot,
+        [string]$RunId,
+        [string]$ManifestEntryName,
+        [string]$ManifestSha,
+        [datetime]$RunStart,
+        [string]$TimeoutEvidence
+    )
+
+    $sentinels = New-SentinelAccumulator
+    New-Item -ItemType Directory -Force -Path $SummaryRoot | Out-Null
+    Add-SentinelCheck -Accumulator $sentinels -Name 'no-abort' -Passed $false -Expected 'false/false' -Observed 'true/false' -Detail 'ADB timed out during preflight.'
+    Add-SentinelCheck -Accumulator $sentinels -Name 'cleanup-verified' -Passed $false -Expected 'verified' -Observed 'not-verified-device-timeout' -Detail 'No further ADB commands are safe after a transport timeout.'
+    $summary = [pscustomobject]@{
+        runId = $RunId
+        status = 'partial'
+        runStart = $RunStart.ToString('o')
+        manifest = @{ name = $ManifestEntryName; sha256 = $ManifestSha }
+        results = @()
+        failures = @()
+        abortedDueToTimeout = $true
+        abortedEntryLabel = $null
+        cleanupVerification = 'not-verified-device-timeout'
+        adbTransportTimeoutEvidence = $TimeoutEvidence
+        sentinels = $sentinels
+    }
+    $summary | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $SummaryRoot 'summary.json') -Encoding UTF8
+    @"
+# NAR corpus audit summary (partial)
+
+- Manifest: $ManifestEntryName ($ManifestSha)
+- Aborted due to timeout: True
+- Cleanup verification: not-verified-device-timeout
+- ADB transport timeout: $TimeoutEvidence
+"@ | Set-Content -Path (Join-Path $SummaryRoot 'summary.md') -Encoding UTF8
+    return $summary
+}
+
+if ($HostOnlyPreflightTimeoutTest) {
+    $testRoot = Join-Path $hostRunTmpRoot 'preflight-timeout-summary'
+    $testSummary = Write-PreflightTimeoutSummary -SummaryRoot $testRoot -RunId 'host-only-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'host-only-sha' -RunStart (Get-Date) -TimeoutEvidence 'host-only simulated transport deadline'
+    $testJson = Get-Content -LiteralPath (Join-Path $testRoot 'summary.json') -Raw | ConvertFrom-Json
+    if ($testSummary.cleanupVerification -ne 'not-verified-device-timeout' -or -not $testSummary.abortedDueToTimeout -or $testJson.status -ne 'partial' -or -not (Test-Path -LiteralPath (Join-Path $testRoot 'summary.md'))) {
+        ThrowIf 'Host-only preflight-timeout regression failed.'
+    }
+    Write-Host 'Host-only preflight-timeout regression passed.'
+    Remove-Item -LiteralPath $hostRunTmpRoot -Recurse -Force -ErrorAction SilentlyContinue
+    return
 }
 
 function Set-CanonicalArchiveCleanup {
@@ -2059,6 +2113,17 @@ foreach ($arg in $ProbeArgs) {
     }
     Write-Host 'Dry-run crash allowlist and transport cutoff probes passed.'
 
+    $preflightTimeoutSummaryRoot = Join-Path $hostRunTmpRoot 'preflight-timeout-summary'
+    $preflightTimeoutSummary = Write-PreflightTimeoutSummary -SummaryRoot $preflightTimeoutSummaryRoot -RunId 'dry-run-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'dry-run-sha' -RunStart (Get-Date) -TimeoutEvidence 'dry-run simulated transport deadline'
+    $preflightTimeoutJson = Get-Content -LiteralPath (Join-Path $preflightTimeoutSummaryRoot 'summary.json') -Raw | ConvertFrom-Json
+    if ($preflightTimeoutSummary.cleanupVerification -ne 'not-verified-device-timeout' -or
+        -not $preflightTimeoutSummary.abortedDueToTimeout -or
+        $preflightTimeoutJson.cleanupVerification -ne 'not-verified-device-timeout' -or
+        -not (Test-Path -LiteralPath (Join-Path $preflightTimeoutSummaryRoot 'summary.md'))) {
+        ThrowIf 'Dry-run preflight-timeout probe did not write a fail-closed partial summary.'
+    }
+    Write-Host 'Dry-run preflight-timeout summary probe passed.'
+
     $dryRunMarkdownHeader = Get-NarCorpusSentinelMarkdownHeader
     if ($dryRunMarkdownHeader -ne "| Name | Passed | Expected | Observed | Detail |$([Environment]::NewLine)| --- | --- | --- | --- | --- |") {
         ThrowIf 'Dry-run Markdown probe did not render the sentinel header on two lines.'
@@ -2111,9 +2176,16 @@ $AdbPath = Resolve-AdbPath
 Ensure-ExecutableExists -Path $AdbPath -Purpose 'ADB'
 
 $installed = $false
-    $networkState = $null
-    $apkInfo = $null
-    try {
+$networkState = $null
+$apkInfo = $null
+$results = [System.Collections.ArrayList]::new()
+$failures = [System.Collections.ArrayList]::new()
+$abortedDueToTimeout = $false
+$unexpectedAbort = $false
+$unexpectedAbortMetadata = $null
+$abortedEntryLabel = $null
+$cleanupVerification = 'verified'
+try {
     Check-DeviceGate
     Validate-NoPreexistingDeviceState
     $apkInfo = Build-Apks
@@ -2142,14 +2214,6 @@ $installed = $false
 
     $networkState = Snapshot-NetworkState
     Set-NetworkState -Disable $true
-
-    $results = [System.Collections.ArrayList]::new()
-    $failures = [System.Collections.ArrayList]::new()
-    $abortedDueToTimeout = $false
-    $unexpectedAbort = $false
-    $unexpectedAbortMetadata = $null
-    $abortedEntryLabel = $null
-    $cleanupVerification = 'verified'
 
     foreach ($entry in $manifest.entries) {
         $archive = $matchPlan.ArchiveByHash[$entry.sha256.ToLowerInvariant()]
@@ -3016,6 +3080,14 @@ $(
     if (-not $globalSentinels.passed -or $failures.Count -gt 0) {
         ThrowIf "Run finished with $($failures.Count) failed archives and $failedSentinelChecks sentinel failures. Check summary/failure files."
     }
+}
+catch {
+    if ($script:adbTransportTimedOut -and $results.Count -eq 0) {
+        $abortedDueToTimeout = $true
+        $cleanupVerification = 'not-verified-device-timeout'
+        Write-PreflightTimeoutSummary -SummaryRoot $reportRoot -RunId $runId -ManifestEntryName $manifestEntryName -ManifestSha $manifestSha -RunStart $runStart -TimeoutEvidence $script:adbTransportTimeoutEvidence | Out-Null
+    }
+    throw
 }
 finally {
     if (Test-AdbTransportAvailable -TransportTimedOut $script:adbTransportTimedOut) {
