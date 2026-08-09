@@ -284,6 +284,40 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `recovery discovery preserves an active empty transaction root while stale residue is swept`() {
+        val fixture = fixture("active-empty-transaction")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val stale = File(fixture.parent, ".nanidroid-update-stale").apply { mkdir() }
+        var stagingPublished = false
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                val renamed = source.renameTo(destination)
+                if (destination.canonicalFile == fixture.transactionRoot().canonicalFile &&
+                    source.name.startsWith(".nanidroid-staging-")
+                ) {
+                    stagingPublished = true
+                    assertTrue(renamed)
+                    assertEquals(
+                        setOf(fixture.ghostRoot.canonicalFile),
+                        GhostUpdateRepository.recoveryTargets(fixture.parent),
+                    )
+                    assertTrue(fixture.transactionRoot().exists())
+                    assertFalse(stale.exists())
+                }
+                return renamed
+            }
+        }
+
+        assertEquals(
+            GhostUpdateResult.Completed(listOf("ghost/master.txt")),
+            fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false },
+        )
+        assertTrue(stagingPublished)
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
     fun `system interruption during manifest download or digest is retryable and keeps live tree`() {
         listOf("prefetch", "manifest", "download", "digest").forEach { phase ->
             val fixture = fixture("system-interruption-$phase")

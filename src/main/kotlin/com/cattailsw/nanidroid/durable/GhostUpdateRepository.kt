@@ -61,6 +61,7 @@ interface GhostUpdateEvents {
 
 internal interface GhostUpdateFileOperations {
     fun rename(source: File, destination: File): Boolean = source.renameTo(destination)
+    fun publishStaging(source: File, destination: File): Boolean = source.renameTo(destination)
     fun deleteTree(root: File): Boolean = root.deleteRecursively()
 
     companion object {
@@ -208,7 +209,7 @@ class GhostUpdateRepository internal constructor(
             if (transactionRoot.exists() && !fileOperations.deleteTree(transactionRoot)) {
                 return failed("cannot clear abandoned update staging", emptyList())
             }
-            if (!transactionRoot.mkdir()) {
+            if (!createOwnedTransactionRoot(transactionRoot, request)) {
                 return failed("cannot prepare update staging", emptyList())
             }
             var copiedBytes = 0L
@@ -831,6 +832,45 @@ class GhostUpdateRepository internal constructor(
     private fun failed(reason: String, files: List<String>): GhostUpdateResult.Failed {
         events.failure(reason, files)
         return GhostUpdateResult.Failed(reason)
+    }
+
+    /**
+     * Publishes an ownership journal before the transaction name becomes visible to recovery
+     * discovery. That makes a journal-less transaction directory unambiguously stale residue.
+     */
+    private fun createOwnedTransactionRoot(
+        transactionRoot: File,
+        request: GhostUpdateRequest,
+    ): Boolean {
+        val parent = transactionRoot.parentFile ?: return false
+        val staging = try {
+            File.createTempFile(".nanidroid-staging-", null, parent).also { file ->
+                if (!file.delete() || !file.mkdir()) throw IOException("cannot create update staging")
+            }
+        } catch (_: IOException) {
+            return false
+        }
+        return try {
+            val candidateRoot = File(transactionRoot, CANDIDATE)
+            journalIo.write(
+                File(staging, GhostUpdateJournalStore.FILE_NAME),
+                GhostUpdateJournal(
+                    operationId = request.operationId,
+                    ghostRoot = request.ghostRoot.canonicalPath,
+                    candidateRoot = candidateRoot.canonicalPath,
+                    backupRoot = File(transactionRoot, BACKUP).canonicalPath,
+                    phase = CommitPhase.PREPARED,
+                    files = emptyList(),
+                    attemptId = request.attemptId,
+                    workManagerUuid = request.workManagerUuid,
+                ),
+            )
+            fileOperations.publishStaging(staging, transactionRoot)
+        } catch (_: Exception) {
+            false
+        } finally {
+            if (staging.exists()) fileOperations.deleteTree(staging)
+        }
     }
 
     private fun failedBeforeJournal(
