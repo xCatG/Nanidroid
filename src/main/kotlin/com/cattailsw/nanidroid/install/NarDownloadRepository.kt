@@ -723,10 +723,11 @@ class NarDownloadRepository internal constructor(
                     null
                 }
                 val recoveredHistoricalRow = recoveredDownloadId?.let { recoveredId ->
-                    supervisor.wasExternalJobUsedBefore(
+                    val binding = ExternalJobBinding.DownloadManager(recoveredId)
+                    supervisor.activeBindingForExactAttempt(
                         item.handle(),
-                        ExternalJobBinding.DownloadManager(recoveredId),
-                    )
+                        OperationKind.REMOTE_NAR,
+                    ) != binding && supervisor.wasExternalJobUsedBefore(item.handle(), binding)
                 } == true
                 if (recoveredHistoricalRow) {
                     reconcileMissingRemoteRow(item)

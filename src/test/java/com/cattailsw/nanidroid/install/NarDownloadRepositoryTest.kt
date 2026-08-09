@@ -2182,6 +2182,35 @@ class NarDownloadRepositoryTest {
         assertEquals(ExternalJobBinding.DownloadManager(94L), exactOperationStore.read().single().externalJob)
     }
 
+    @Test fun recreationRestoresARecoveredIdAlreadyBoundToTheCurrentAttempt() {
+        val accepted = store.create(
+            NarDownload(
+                id = "recovered-current-binding",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovered-current-binding.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val binding = ExternalJobBinding.DownloadManager(95L)
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                binding,
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 95L
+        downloads.statuses[95L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(95L, store.get(accepted.id)!!.downloadManagerId)
+        assertEquals(binding, operationStore.read().single().externalJob)
+        assertEquals(NarDownloadState.Downloading, store.get(accepted.id)!!.state)
+    }
+
     @Test fun recreationDoesNotPersistHistoricalRemoteRowWhenRecoveringReplacementAttempt() {
         val accepted = store.create(
             NarDownload(
