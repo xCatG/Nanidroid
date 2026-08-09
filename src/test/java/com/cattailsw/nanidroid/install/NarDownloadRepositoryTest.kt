@@ -1253,6 +1253,72 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun reconciliationDoesNotRebindARunningV2WorkerFromThePreviousAttempt() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-v2-install-work",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val previousWorkManagerId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        work.activeInstallWorkByItemId[item.id] = previousWorkManagerId
+        work.activeInstallWorkIsLegacyByItemId[item.id] = false
+
+        repository.reconcile()
+
+        assertEquals(
+            workId(item.id, item.attemptId, OperationKind.NAR_INSTALL),
+            store.get(item.id)!!.workManagerId,
+        )
+        assertTrue(previousWorkManagerId !in work.installEnqueuedIds)
+    }
+
+    @Test fun reconciliationMakesMigratedInstallActionableWhenPersistedWorkProbeThrows() {
+        val item = store.create(
+            NarDownload(
+                id = "migration-probe-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val workManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = workManagerId) }!!
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(supervisor.bindExternalJob(migrated.handle(), ExternalJobBinding.WorkManager(workManagerId)))
+        work.installQueryFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun reconciliationMakesMigratedInstallActionableWhenLegacyLookupThrows() {
+        val item = store.create(
+            NarDownload(
+                id = "migration-legacy-lookup-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val workManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = workManagerId) }!!
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(supervisor.bindExternalJob(migrated.handle(), ExternalJobBinding.WorkManager(workManagerId)))
+        work.activeInstallWorkByItemId[item.id] = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        work.installRecovery = NarInstallWorkRecovery.MISSING
+        work.findActiveLegacyInstallWorkFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
     @Test fun legacyWorkerRetriesUntilReconciliationPersistsItsBinding() {
         val item = store.create(
             NarDownload(
@@ -2552,6 +2618,7 @@ class NarDownloadRepositoryTest {
 
     private class FakeWorkScheduler : NarInstallWorkScheduler {
         val activeInstallWorkByItemId = mutableMapOf<String, String>()
+        val activeInstallWorkIsLegacyByItemId = mutableMapOf<String, Boolean>()
         val enqueuedNames = mutableListOf<String>()
         val cancelledNames = mutableListOf<String>()
         val cancelledBindings = mutableListOf<String>()
@@ -2565,6 +2632,7 @@ class NarDownloadRepositoryTest {
         var allowStageQuery: CountDownLatch? = null
         var installEnqueueFailure: Exception? = null
         var installQueryFailure: Exception? = null
+        var findActiveLegacyInstallWorkFailure: Exception? = null
         var installRecovery = NarInstallWorkRecovery.ACTIVE
         var installQueryStarted: CountDownLatch? = null
         var allowInstallQuery: CountDownLatch? = null
@@ -2623,8 +2691,11 @@ class NarDownloadRepositoryTest {
             return installRecovery
         }
 
-        override fun findActiveInstallWork(itemId: String): String? =
-            activeInstallWorkByItemId[itemId]
+        override fun findActiveLegacyInstallWork(itemId: String): String? {
+            findActiveLegacyInstallWorkFailure?.let { throw it }
+            return activeInstallWorkByItemId[itemId]
+                ?.takeIf { activeInstallWorkIsLegacyByItemId[itemId] != false }
+        }
 
         override fun enqueueStage(
             itemId: String,

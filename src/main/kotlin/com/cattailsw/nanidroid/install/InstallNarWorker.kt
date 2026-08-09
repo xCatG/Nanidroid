@@ -54,6 +54,7 @@ class InstallNarWorker(
         internal const val INPUT_ITEM_ID = "nar-download-item-id"
         internal const val INPUT_ATTEMPT_ID = "nar-download-attempt-id"
         private const val NO_ATTEMPT = -1L
+        internal const val ATTEMPT_TAG_PREFIX = "nar-install-attempt:"
 
         internal fun execute(
             repository: NarDownloadRepository,
@@ -103,19 +104,20 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         )
     }
 
-    override fun findActiveInstallWork(itemId: String): String? =
+    override fun findActiveLegacyInstallWork(itemId: String): String? =
         workManager.getWorkInfosForUniqueWork(NarDownloadRepository.workName(itemId)).get()
             .firstOrNull { workInfo ->
-                when (workInfo.state) {
-                    WorkInfo.State.ENQUEUED,
-                    WorkInfo.State.RUNNING,
-                    WorkInfo.State.BLOCKED,
-                    -> true
-                    WorkInfo.State.SUCCEEDED,
-                    WorkInfo.State.FAILED,
-                    WorkInfo.State.CANCELLED,
-                    -> false
-                }
+                workInfo.tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
+                    when (workInfo.state) {
+                        WorkInfo.State.ENQUEUED,
+                        WorkInfo.State.RUNNING,
+                        WorkInfo.State.BLOCKED,
+                        -> true
+                        WorkInfo.State.SUCCEEDED,
+                        WorkInfo.State.FAILED,
+                        WorkInfo.State.CANCELLED,
+                        -> false
+                    }
             }
             ?.id
             ?.toString()
@@ -177,6 +179,7 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
                 .putLong(InstallNarWorker.INPUT_ATTEMPT_ID, attemptId)
                 .build(),
         )
+        .addTag("${InstallNarWorker.ATTEMPT_TAG_PREFIX}$attemptId")
         .build()
 
     override fun enqueueStage(

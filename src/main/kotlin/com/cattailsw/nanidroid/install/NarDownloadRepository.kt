@@ -57,8 +57,8 @@ internal interface NarInstallWorkScheduler {
     fun enqueue(itemId: String)
     fun cancel(itemId: String)
 
-    /** Returns the exact active install request already retained under this item's unique name. */
-    fun findActiveInstallWork(itemId: String): String? = null
+    /** Returns active pre-attempt install work retained under this item's unique name. */
+    fun findActiveLegacyInstallWork(itemId: String): String? = null
 
     fun enqueue(
         itemId: String,
@@ -1016,14 +1016,21 @@ class NarDownloadRepository internal constructor(
             return
         }
         val persistedWorkIsMissing = item.workManagerId?.let { workManagerId ->
-            runCatching {
+            try {
                 work.ensureInstallEnqueued(
                     item.id,
                     item.attemptId,
                     workManagerId,
                     recreateIfMissing = false,
+                ) == NarInstallWorkRecovery.MISSING
+            } catch (_: Exception) {
+                failAndMarkNeedsAttentionIfCurrent(
+                    item,
+                    OperationKind.NAR_INSTALL,
+                    INSTALL_SCHEDULE_FAILURE,
                 )
-            }.getOrNull() == NarInstallWorkRecovery.MISSING
+                return
+            }
         } == true
         if (item.workManagerId == null || persistedWorkIsMissing) {
             when (val legacy = rebindActiveLegacyInstallWork(item, handle)) {
@@ -1075,7 +1082,7 @@ class NarDownloadRepository internal constructor(
         handle: OperationHandle,
     ): LegacyInstallRebinding {
         val activeWorkManagerId = try {
-            work.findActiveInstallWork(item.id)
+            work.findActiveLegacyInstallWork(item.id)
         } catch (_: Exception) {
             failAndMarkLegacyInstallBinding(handle, null, item)
             return LegacyInstallRebinding.Failed
@@ -1112,7 +1119,11 @@ class NarDownloadRepository internal constructor(
         binding: ExternalJobBinding.WorkManager?,
         item: NarDownload,
     ) {
-        if (failSchedulingAttempt(handle, binding, INSTALL_SCHEDULE_FAILURE)) {
+        val exactBinding = binding ?: supervisor.activeBindingForExactAttempt(
+            handle,
+            OperationKind.NAR_INSTALL,
+        ) as? ExternalJobBinding.WorkManager
+        if (failSchedulingAttempt(handle, exactBinding, INSTALL_SCHEDULE_FAILURE)) {
             markNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
         }
     }
