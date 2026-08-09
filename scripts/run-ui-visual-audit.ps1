@@ -702,7 +702,13 @@ function Invoke-Native {
         $stderrReader = [IO.StreamReader]::new([IO.FileStream]::new($stderrHandle, [IO.FileAccess]::Read), [Text.Encoding]::Default)
         $stdoutTask=$stdoutReader.ReadToEndAsync(); $stderrTask=$stderrReader.ReadToEndAsync()
     } catch {
-        Close-OwnedProcessJob $ownedJob
+        try {
+            if (-not (Stop-OwnedProcessJob $ownedJob)) {
+                Fail "Could not terminate the exact owned process job after launch failure: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())." 'process'
+            }
+        } finally {
+            Close-OwnedProcessJob $ownedJob
+        }
         throw
     }
     try {
