@@ -42,6 +42,7 @@ $script:captureProvenance = $null
 $script:captureStartedAtUtc = $null
 $script:interactionCapture = $null
 $script:interactionCheckpointPersisted = $false
+$script:narCorpusPackageCleanVerified = $false
 
 function Fail([string]$Message, [string]$Code = 'validation') {
     throw [System.InvalidOperationException]::new("$Code`: $Message")
@@ -963,6 +964,11 @@ function Start-AuditedPackageAtInteractionCheckpoint {
     Assert-AuditedPackageAtInteractionCheckpoint
 }
 
+function Assert-NarAndInteractionCheckpointPackageOrdering([bool]$NarPackageClean, [bool]$AuditedPackageAtCheckpoint) {
+    if (-not $NarPackageClean) { Fail 'NAR child invocation requires a clean Nanidroid package state.' 'device' }
+    if (-not $AuditedPackageAtCheckpoint) { Fail 'Interaction checkpoint requires the audited APK to be installed and running.' 'device' }
+}
+
 function Assert-InteractionCaptureRecord([object]$Manifest, [object]$Record, [object]$Session, [object]$Provenance) {
     Assert-InteractionEvidenceManifestContract $Manifest
     foreach ($property in @('session', 'captureStartedAtUtc', 'captureProvenance', 'artifacts')) {
@@ -1458,6 +1464,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $previousCaptureProvenance = $script:captureProvenance
     $previousCaptureStartedAtUtc = $script:captureStartedAtUtc
     $previousInteractionCheckpointPersisted = $script:interactionCheckpointPersisted
+    $previousNarCorpusPackageCleanVerified = $script:narCorpusPackageCleanVerified
     $captureProbeProcess = [Diagnostics.Process]::GetCurrentProcess()
     try {
         $script:reportRoot = $interactionCaptureProbeRoot
@@ -1480,6 +1487,12 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             $failed = $false
             try { Assert-AuditedPackagePresence $packageProbe[1] $packageProbe[2] } catch { $failed = $true }
             if (-not $failed) { Fail "Interaction checkpoint package $($packageProbe[0]) probe unexpectedly passed." 'dry-run' }
+        }
+        Assert-NarAndInteractionCheckpointPackageOrdering $true $true
+        foreach ($orderingProbe in @(@('installed-before-nar', $false, $true), @('missing-at-checkpoint', $true, $false))) {
+            $failed = $false
+            try { Assert-NarAndInteractionCheckpointPackageOrdering $orderingProbe[1] $orderingProbe[2] } catch { $failed = $true }
+            if (-not $failed) { Fail "NAR/checkpoint package ordering $($orderingProbe[0]) probe unexpectedly passed." 'dry-run' }
         }
         $manualVerificationSession = [pscustomobject]@{
             deviceSerial = $validInteractionCapture.session.deviceSerial
@@ -1625,6 +1638,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         $script:captureProvenance = $previousCaptureProvenance
         $script:captureStartedAtUtc = $previousCaptureStartedAtUtc
         $script:interactionCheckpointPersisted = $previousInteractionCheckpointPersisted
+        $script:narCorpusPackageCleanVerified = $previousNarCorpusPackageCleanVerified
         $captureProbeProcess.Dispose()
         if (Test-Path -LiteralPath $interactionCaptureProbeRoot) { Remove-Item -LiteralPath $interactionCaptureProbeRoot -Recurse -Force }
     }
@@ -1839,6 +1853,11 @@ try {
         Add-Result $case $shotHash $layoutHash $measured $stage ([pscustomobject]@{apkSha256=(Get-FileHash $debugApk -Algorithm SHA256).Hash.ToLowerInvariant();uiAutomatorLayoutPath=Get-RelativePath $reportRoot $uiAutomatorLayout;uiAutomatorLayoutSha256=$uiAutomatorLayoutHash}) $annotatedHash
     }
 
+    $uninstallResult=Invoke-Adb @('uninstall',$targetPackage) 120
+    if($uninstallResult.output.Trim() -ne 'Success'){Fail "Live-capture package uninstall failed: $($uninstallResult.output) $($uninstallResult.error)" 'device'}
+    $installed=$false
+    Assert-PackageClean
+
     foreach($case in @($uiManifest.cases|Where-Object kind -eq 'fixture')){
         $source=Join-Path $fixtureRoot $case.source.referencePath;if(-not(Test-Path -LiteralPath $source -PathType Leaf)){Fail "Fixture disappeared '$source'." 'fixture'}
         $dest=Join-Path $reportRoot $case.screenshotPath;New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent)|Out-Null;Copy-Item -LiteralPath $source -Destination $dest -Force
@@ -1847,6 +1866,8 @@ try {
 
     foreach($profile in @(@{name='portrait';w=360;h=720},@{name='compact-landscape';w=720;h=360},@{name='tablet';w=1280;h=800})){
         $request=[pscustomobject]@{widthDp=$profile.w;heightDp=$profile.h;density=160;fontScale=1.0};$wm=Set-DisplayProfile $request $script:originalState.wm.physicalDensity
+        Assert-PackageClean
+        $script:narCorpusPackageCleanVerified = $true
         $narChild = New-NarCorpusAuditChildInvocation -ProfileName $profile.name -ResolvedCorpusRoots $resolvedCorpusRoots -ResolvedAdbPath $script:resolvedAdb
         $narEncodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($narChild.command))
         Invoke-Native -FilePath $script:resolvedPwsh -Arguments @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$narEncodedCommand) -TimeoutSeconds ($NarProfileTimeoutMinutes*60) -Transport adb-owner | Out-Null
@@ -1862,7 +1883,10 @@ try {
         }
     }
     if($script:results.Count-ne$expectedCaseCount){Fail "Final case-count gate expected $expectedCaseCount, got $($script:results.Count)." 'report'}
+    Invoke-Native -FilePath $script:resolvedAndroidCli -Arguments @('run','--debug',"--device=$DeviceSerial", "--apks=$debugApk") -TimeoutSeconds 180 -Transport adb-owner | Out-Null
+    $installed=$true
     Start-AuditedPackageAtInteractionCheckpoint
+    Assert-NarAndInteractionCheckpointPackageOrdering $script:narCorpusPackageCleanVerified $true
     Write-Host 'Capture the two required interaction PNGs from this owned emulator session, then press Enter.'
     [Console]::ReadLine() | Out-Null
     Assert-AuditedPackageAtInteractionCheckpoint
