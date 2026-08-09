@@ -160,11 +160,9 @@ class GhostUpdateWorker(
                 GhostBoundEventSink(
                     expectedGhostId = ghostId,
                     dispatch = { expected, event, references ->
-                        runner.doShioriEventForGhost(expected, ghostRoot, event, references.toTypedArray())
-                    },
-                    onDelivered = { event, references ->
                         if (event in TERMINAL_SHIORI_EVENTS) {
-                            supervisor.clearTerminalEvent(
+                            deliverTerminalEvent(
+                                supervisor,
                                 handle,
                                 binding,
                                 GhostUpdateTerminalEvent(
@@ -173,7 +171,16 @@ class GhostUpdateWorker(
                                     event,
                                     references,
                                 ),
-                            )
+                            ) { pending ->
+                                runner.doShioriEventForGhost(
+                                    pending.ghostId,
+                                    File(pending.canonicalRoot),
+                                    pending.name,
+                                    pending.references.toTypedArray(),
+                                )
+                            }
+                        } else {
+                            runner.doShioriEventForGhost(expected, ghostRoot, event, references.toTypedArray())
                         }
                     },
                     onUndelivered = { event, references ->
@@ -367,13 +374,35 @@ class GhostUpdateWorker(
                 } ?: return false
                 val event = record.pendingGhostUpdateEvent ?: return false
                 val binding = record.externalJob as? ExternalJobBinding.WorkManager ?: return false
-                if (!dispatch(event)) return false
-                return supervisor.clearTerminalEvent(
+                return deliverTerminalEvent(
+                    supervisor,
                     OperationHandle(record.id, record.attemptId),
                     binding,
                     event,
+                    dispatch,
                 )
             }
+        }
+
+        /**
+         * Direct worker callbacks and attachment retries share one read, dispatch, and clear
+         * sequence so a newly attached ghost cannot consume the same exact terminal event.
+         */
+        internal fun deliverTerminalEvent(
+            supervisor: DurableOperationSupervisor,
+            handle: OperationHandle,
+            binding: ExternalJobBinding.WorkManager,
+            event: GhostUpdateTerminalEvent,
+            dispatch: (GhostUpdateTerminalEvent) -> Boolean,
+        ): Boolean = synchronized(terminalEventDeliveryLock) {
+            val record = supervisor.records().singleOrNull {
+                it.handle() == handle &&
+                    it.kind == OperationKind.GHOST_UPDATE &&
+                    it.externalJob == binding &&
+                    it.pendingGhostUpdateEvent == event
+            } ?: return@synchronized false
+            if (!dispatch(event)) return@synchronized false
+            supervisor.clearTerminalEvent(handle, binding, record.pendingGhostUpdateEvent!!)
         }
 
         internal fun deferRecoveredTerminalEvent(

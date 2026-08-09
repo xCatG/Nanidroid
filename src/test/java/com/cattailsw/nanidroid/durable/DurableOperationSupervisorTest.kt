@@ -140,6 +140,49 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun `attachment cannot duplicate a terminal callback already awaiting delivery`() {
+        val root = File("build/terminal-event-direct-attachment-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-direct-attachment-race-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        val directEntered = CountDownLatch(1)
+        val releaseDirect = CountDownLatch(1)
+        val dispatched = AtomicInteger()
+
+        val direct = Thread {
+            assertTrue(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                    directEntered.countDown()
+                    assertTrue(releaseDirect.await(5, TimeUnit.SECONDS))
+                    dispatched.incrementAndGet()
+                    true
+                },
+            )
+        }
+        val attachment = Thread {
+            assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+            assertFalse(
+                GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                    dispatched.incrementAndGet()
+                    true
+                },
+            )
+        }
+        direct.start()
+        attachment.start()
+        assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+        releaseDirect.countDown()
+        direct.join(5_000)
+        attachment.join(5_000)
+
+        assertFalse(direct.isAlive)
+        assertFalse(attachment.isAlive)
+        assertEquals(1, dispatched.get())
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
     @Test fun promptsAt30000WithoutCancelling() {
         supervisor.start(handle("nar-1", 1), OperationKind.NAR_INSTALL, "Extracting", 8)
 
