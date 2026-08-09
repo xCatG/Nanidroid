@@ -2018,18 +2018,18 @@ foreach ($arg in $ProbeArgs) {
     Write-Host 'Dry-run helper sentinel probes passed.'
 
     $dryRunSnakePrimaryOnly = @(
-        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200 }
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200; references = @('0') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('First choice', 'choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200; references = @('Nanidroid', '') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('FAQ', 'faq') }
     )
     $dryRunSnakeChoiceFallback = @(
-        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200 },
-        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200 }
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200; references = @('0') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('First choice', 'choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; references = @('choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200; references = @('Nanidroid', '') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('FAQ', 'faq') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; references = @('faq') }
     )
     if (-not (Get-SnakeDialogueLifecycle -Steps $dryRunSnakePrimaryOnly).valid) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-only choice sequence.'
