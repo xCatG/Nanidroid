@@ -825,6 +825,8 @@ namespace Nanidroid.CorpusAudit {
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
         [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr GetStdHandle(int stdHandle);
@@ -836,6 +838,7 @@ namespace Nanidroid.CorpusAudit {
             FileStream stderr = null;
             PROCESS_INFORMATION processInformation = new PROCESS_INFORMATION();
             IntPtr job = IntPtr.Zero;
+            bool assignedToJob = false;
             try {
                 stdout = new FileStream(stdoutPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
                 stderr = new FileStream(stderrPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
@@ -853,11 +856,15 @@ namespace Nanidroid.CorpusAudit {
                 StringBuilder mutableCommandLine = new StringBuilder(commandLine);
                 if (!CreateProcess(filePath, mutableCommandLine, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NO_WINDOW, IntPtr.Zero, workingDirectory, ref startupInfo, out processInformation)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 if (!AssignProcessToJobObject(job, processInformation.hProcess)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                assignedToJob = true;
                 if (ResumeThread(processInformation.hThread) == 0xFFFFFFFF) throw new Win32Exception(Marshal.GetLastWin32Error());
                 return new OwnedJobProcess { ProcessId = processInformation.dwProcessId, JobHandle = job };
             }
             catch {
-                if (processInformation.hProcess != IntPtr.Zero) TerminateJobObject(job, 1);
+                if (processInformation.hProcess != IntPtr.Zero) {
+                    if (assignedToJob) TerminateJobObject(job, 1);
+                    else TerminateProcess(processInformation.hProcess, 1);
+                }
                 if (job != IntPtr.Zero) CloseHandle(job);
                 throw;
             }
@@ -877,7 +884,12 @@ namespace Nanidroid.CorpusAudit {
 }
 
 function Start-OwnedJobProcess {
-    param([string]$FilePath, [string[]]$Arguments, [string]$WorkingDirectory = $repoRoot)
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments,
+        [string]$WorkingDirectory = $repoRoot,
+        [string]$TestProcessObjectAcquisitionFailureReadyPath
+    )
     Initialize-OwnedJobLauncher
     $stdoutPath = New-HostTempFile '.stdout'
     $stderrPath = New-HostTempFile '.stderr'
@@ -885,6 +897,16 @@ function Start-OwnedJobProcess {
         $argumentText = (Format-ProcessArguments -Arguments $Arguments) -join ' '
         $commandLine = '"' + $FilePath + '"' + $(if ($argumentText) { ' ' + $argumentText } else { '' })
         $nativeProcess = [Nanidroid.CorpusAudit.OwnedJobLauncher]::Start($FilePath, $commandLine, $WorkingDirectory, $stdoutPath, $stderrPath)
+        if ($TestProcessObjectAcquisitionFailureReadyPath) {
+            $readyDeadline = (Get-Date).AddSeconds(10)
+            while (-not (Test-Path -LiteralPath $TestProcessObjectAcquisitionFailureReadyPath -PathType Leaf)) {
+                if ((Get-Date) -ge $readyDeadline) {
+                    throw [TimeoutException]::new('Timed out waiting for test process-object acquisition readiness.')
+                }
+                Start-Sleep -Milliseconds 25
+            }
+            throw [InvalidOperationException]::new('Test process-object acquisition failure.')
+        }
         return [pscustomobject]@{
             process = [Diagnostics.Process]::GetProcessById($nativeProcess.ProcessId)
             jobHandle = $nativeProcess.JobHandle
@@ -893,6 +915,10 @@ function Start-OwnedJobProcess {
         }
     }
     catch {
+        if ($null -ne $nativeProcess) {
+            [Nanidroid.CorpusAudit.OwnedJobLauncher]::Terminate($nativeProcess.JobHandle) | Out-Null
+            [Nanidroid.CorpusAudit.OwnedJobLauncher]::Close($nativeProcess.JobHandle)
+        }
         Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
         throw
     }
@@ -2365,6 +2391,37 @@ if ($DryRun) {
         Remove-Item -LiteralPath $jobEarlyExitChildPath -Force -ErrorAction SilentlyContinue
     }
     Write-Host 'Dry-run job-owned timeout-tree cleanup probe passed.'
+    $jobLookupFailureChildPath = Join-Path $hostRunTmpRoot 'timeout-tree.job-lookup-failure-child'
+    $jobLookupFailureCommand = @"
+`$child = Start-Process -FilePath '$($cmdPath.Replace("'", "''"))' -ArgumentList @('/c', 'timeout /t 60 /nobreak >nul') -PassThru
+[IO.File]::WriteAllText('$($jobLookupFailureChildPath.Replace("'", "''"))', ('{0}|{1}' -f `$child.Id, `$child.StartTime.ToUniversalTime().Ticks))
+"@
+    $jobLookupFailureEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($jobLookupFailureCommand))
+    $jobLookupFailureCaught = $false
+    try {
+        Start-OwnedJobProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $jobLookupFailureEncoded) -TestProcessObjectAcquisitionFailureReadyPath $jobLookupFailureChildPath | Out-Null
+    }
+    catch {
+        $jobLookupFailureCaught = $_.Exception.Message -eq 'Test process-object acquisition failure.'
+    }
+    if (-not $jobLookupFailureCaught -or -not (Test-Path -LiteralPath $jobLookupFailureChildPath -PathType Leaf)) {
+        ThrowIf 'Dry-run job lookup-failure probe did not reach owned-job cleanup.'
+    }
+    $jobLookupFailureIdentity = (Get-Content -LiteralPath $jobLookupFailureChildPath -Raw).Trim() -split '\|'
+    $jobLookupFailureChild = $null
+    try {
+        $jobLookupFailureChild = [Diagnostics.Process]::GetProcessById([int]$jobLookupFailureIdentity[0])
+        if (-not $jobLookupFailureChild.HasExited -and $jobLookupFailureChild.StartTime.ToUniversalTime().Ticks -eq [long]$jobLookupFailureIdentity[1]) {
+            ThrowIf 'Dry-run job lookup-failure probe left a child alive after process-object acquisition failed.'
+        }
+    }
+    catch [System.ArgumentException] {
+    }
+    finally {
+        if ($null -ne $jobLookupFailureChild) { $jobLookupFailureChild.Dispose() }
+        Remove-Item -LiteralPath $jobLookupFailureChildPath -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host 'Dry-run job lookup-failure cleanup probe passed.'
     $timeoutProbeReadyPath = Join-Path $hostRunTmpRoot 'timeout-tree.ready'
     $timeoutProbeWrapperExitedPath = Join-Path $hostRunTmpRoot 'timeout-tree.wrapper-exited'
     $timeoutProbeCommand = @"
