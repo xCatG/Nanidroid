@@ -911,6 +911,7 @@ class GhostUpdateWorker(
                 RecoveryResult.NoJournal,
                 RecoveryResult.RolledBack,
                 RecoveryResult.CompletedCommit,
+                RecoveryResult.NoChangesCommit,
             )
         }
 
@@ -965,7 +966,10 @@ class GhostUpdateWorker(
                     GhostTreeTopology.LIVE_BACKUP,
                     GhostTreeTopology.LIVE_ONLY,
                 )
-                CommitPhase.NO_CHANGES_PENDING -> topology == GhostTreeTopology.LIVE_CANDIDATE
+                CommitPhase.NO_CHANGES_PENDING -> topology in setOf(
+                    GhostTreeTopology.LIVE_CANDIDATE,
+                    GhostTreeTopology.LIVE_ONLY,
+                )
             }
             if (!validTopology) return RecoveryTransition.FAIL_CLOSED
             if (durableStatus in setOf(OperationStatus.RUNNING, OperationStatus.CANCEL_REQUESTED) &&
@@ -974,7 +978,10 @@ class GhostUpdateWorker(
             return when (durableStatus) {
                 OperationStatus.COMPLETED -> if (
                     phase == CommitPhase.NO_CHANGES_PENDING &&
-                    topology == GhostTreeTopology.LIVE_CANDIDATE
+                    topology in setOf(
+                        GhostTreeTopology.LIVE_CANDIDATE,
+                        GhostTreeTopology.LIVE_ONLY,
+                    )
                 ) {
                     RecoveryTransition.CLEAN_NO_CHANGES
                 } else if (

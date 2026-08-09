@@ -307,8 +307,10 @@ class GhostUpdateRepository internal constructor(
 
             val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
             if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
-                val journal = preparedJournal(transactionRoot, request)
-                journalIo.write(journalFile, journal.copy(phase = CommitPhase.NO_CHANGES_PENDING))
+                val journal = preparedJournal(transactionRoot, request).copy(
+                    phase = CommitPhase.NO_CHANGES_PENDING,
+                )
+                journalIo.write(journalFile, journal)
                 if (!onNoChangesClassified()) return GhostUpdateResult.NoChangesPending
                 if (!cleanPreparedTransaction(transactionRoot, journal)) {
                     return failed("cannot clean no-change update transaction", emptyList())
@@ -1829,7 +1831,7 @@ class GhostUpdateRepository internal constructor(
             candidate: File,
             backup: File,
         ): RecoveryResult = if (
-            ghostRoot.isDirectory && candidate.isDirectory && !backup.exists()
+            ghostRoot.isDirectory && !backup.exists() && (candidate.isDirectory || !candidate.exists())
         ) {
             requireDelete(transactionRoot)
             RecoveryResult.NoChangesCommit

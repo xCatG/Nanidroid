@@ -1569,6 +1569,40 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `no-change cleanup recovers after candidate deletion but transaction deletion fails`() {
+        val fixture = fixture("no-change-transaction-cleanup-failure")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        val request = fixture.request().copy(attemptId = AttemptId(9), workManagerUuid = "work-9")
+        val repository = fixture.repository(
+            fileOperations = object : GhostUpdateFileOperations {
+                override fun deleteTree(root: File): Boolean {
+                    val deleted = root.deleteRecursively()
+                    if (root.canonicalFile == File(fixture.transactionRoot(), "candidate").canonicalFile) {
+                        fixture.writeTransaction("interrupted-cleanup", "keep transaction root nonempty")
+                    }
+                    return deleted
+                }
+            },
+        )
+
+        assertTrue(repository.run(request) { false } is GhostUpdateResult.Failed)
+        assertEquals(
+            CommitPhase.NO_CHANGES_PENDING,
+            GhostUpdateJournalStore.read(
+                File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+            ).phase,
+        )
+        assertFalse(File(fixture.transactionRoot(), "candidate").exists())
+
+        assertTrue(File(fixture.transactionRoot(), "interrupted-cleanup").delete())
+
+        assertEquals(GhostUpdateResult.NoChanges, repository.run(request) { false })
+        assertFalse(fixture.transactionRoot().exists())
+        assertBytes("same", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
     fun `no-change completion payload survives process death before transaction cleanup`() {
         val fixture = fixture("no-change-terminal-before-cleanup")
         fixture.writeLive("ghost/master.txt", "same")
@@ -3025,6 +3059,16 @@ class GhostUpdateRepositoryTest {
         assertEquals(1, recoveries)
         assertEquals(AttemptId(4), store.read().single().attemptId)
         assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+    }
+
+    @Test
+    fun `completed no-change recovery permits attempt rollover`() {
+        assertTrue(
+            GhostUpdateWorker.reconcileBeforeAttemptRollover(
+                OperationStatus.COMPLETED,
+                journalExists = true,
+            ) { RecoveryResult.NoChangesCommit },
+        )
     }
 
     @Test
