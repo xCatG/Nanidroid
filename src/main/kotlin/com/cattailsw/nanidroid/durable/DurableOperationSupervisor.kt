@@ -136,6 +136,7 @@ class DurableOperationSupervisor(
             val updated = current.copy(
                 progress = OperationProgress(phase, completed),
                 showStallPrompt = false,
+                progressGeneration = current.progressGeneration + 1L,
             )
             if (!store.compareAndSet(current, updated)) {
                 return@mutate false
@@ -550,6 +551,7 @@ class DurableOperationSupervisor(
         externalJob = externalJob,
         showStallPrompt = showStallPrompt,
         attentionRetryGeneration = attentionRetryGeneration,
+        progressGeneration = progressGeneration,
     )
 
     private inline fun mutate(block: () -> Boolean): Boolean {
@@ -564,21 +566,22 @@ class DurableOperationSupervisor(
         binding: ExternalJobBinding,
         preserveAttention: Boolean = false,
     ) {
-        val exactBinding = try {
-            repairMalformedWorkManagerBinding(handle, kind, binding)
+        try {
+            val exactBinding = repairMalformedWorkManagerBinding(handle, kind, binding) ?: return
+            val request = BoundCancellation(handle, exactBinding)
+            if (!cancellationIssued.add(request)) return
+            try {
+                cancellation.cancel(handle, kind, exactBinding)
+                clearCancellationFailureDiagnostic(handle, exactBinding, preserveAttention)
+                lastProgressAt[handle] = clock.nowMillis()
+            } catch (_: Exception) {
+                storeCancellationFailure(handle, exactBinding, preserveAttention)
+                cancellationIssued.remove(request)
+            }
         } catch (_: Exception) {
             storeCancellationFailure(handle, binding, preserveAttention)
-            return
-        } ?: return
-        val request = BoundCancellation(handle, exactBinding)
-        if (!cancellationIssued.add(request)) return
-        try {
-            cancellation.cancel(handle, kind, exactBinding)
-            clearCancellationFailureDiagnostic(handle, exactBinding, preserveAttention)
-            lastProgressAt[handle] = clock.nowMillis()
-        } catch (error: Exception) {
-            storeCancellationFailure(handle, exactBinding, preserveAttention)
-            cancellationIssued.remove(request)
+        } finally {
+            recordObservationRevision(handle)
         }
     }
 
@@ -672,7 +675,13 @@ class DurableOperationSupervisor(
         val externalJob: ExternalJobBinding?,
         val showStallPrompt: Boolean,
         val attentionRetryGeneration: Long,
+        val progressGeneration: Long,
     )
+
+    private fun recordObservationRevision(handle: OperationHandle) {
+        val current = activeRecord(handle) ?: return
+        lastObservedRevisions[handle] = current.observationRevision()
+    }
 }
 
 internal fun DurableOperationRecord.isCancellationDispatchFailure(): Boolean =

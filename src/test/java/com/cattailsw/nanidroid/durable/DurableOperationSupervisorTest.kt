@@ -456,6 +456,30 @@ class DurableOperationSupervisorTest {
         assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun phaseCyclingProgressFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-phase-cycle", 1)
+        val binding = workManager("shared-phase-cycle-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(
+            firstSupervisor.start(
+                handle,
+                OperationKind.GHOST_UPDATE,
+                "Downloading",
+                0,
+                binding,
+            ),
+        )
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.reportProgress(handle, binding, "Verifying", 0))
+        assertTrue(firstSupervisor.reportProgress(handle, binding, "Downloading", 0))
+
+        clock.value = 30_000
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun stopFromAnotherSupervisorStartsANewObservationWindow() {
         val handle = handle("shared-stop", 1)
         val binding = workManager("shared-stop-worker")
@@ -642,6 +666,37 @@ class DurableOperationSupervisorTest {
 
         val second = DurableOperationSupervisor(store, clock, cancellation)
         assertNull(second.snapshot().single().diagnostics)
+    }
+
+    @Test fun retryStopBindingRepairDoesNotExtendTheActionObservationWindow() {
+        val handle = handle("retry-repair", 1)
+        val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
+        val repairedBinding = ExternalJobBinding.WorkManager(
+            durableWorkManagerId(handle, OperationKind.NAR_INSTALL).toString(),
+        )
+        assertTrue(
+            store.putIfAbsent(
+                DurableOperationRecord(
+                    id = handle.operationId,
+                    attemptId = handle.attemptId,
+                    kind = OperationKind.NAR_INSTALL,
+                    externalJob = malformedBinding,
+                    progress = OperationProgress("Stopping...", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = true,
+                    diagnostics = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
+                    externalJobHistory = setOf(malformedBinding),
+                ),
+            ),
+        )
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 30_000
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        assertEquals(repairedBinding, store.read().single().externalJob)
+
+        clock.value = 59_999
+        assertEquals(1L, supervisor.attentionSnapshot().nextCheckDelayMillis)
     }
 
     @Test fun malformedBindingRepairCasLossDoesNotCancelReplacementAttempt() {

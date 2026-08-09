@@ -10,14 +10,17 @@ import org.junit.Test
 import java.util.UUID
 
 class SharedPreferencesDurableOperationStoreTest {
-    @Test fun retryGenerationRoundTripsInTheCurrentRecordFormat() {
+    @Test fun observationGenerationsRoundTripInTheCurrentRecordFormat() {
         val storage = RecordingStorage(null)
         val store = SharedPreferencesDurableOperationStore(storage)
-        val record = record("retry", 1).copy(attentionRetryGeneration = 7L)
+        val record = record("retry", 1).copy(
+            attentionRetryGeneration = 7L,
+            progressGeneration = 11L,
+        )
 
         assertTrue(store.putIfAbsent(record))
         assertEquals(record, SharedPreferencesDurableOperationStore(storage).read().single())
-        assertTrue(storage.value!!.startsWith("v3\n"))
+        assertTrue(storage.value!!.startsWith("v4\n"))
     }
 
     @Test fun emptyPresentValueCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {

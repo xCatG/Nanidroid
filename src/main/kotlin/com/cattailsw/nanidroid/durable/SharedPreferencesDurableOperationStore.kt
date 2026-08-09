@@ -224,8 +224,9 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         const val QUARANTINE = "records_corruption_quarantine"
         const val RECOVERY_MARKER = "records_corruption_recovery_required"
         const val MAX_QUARANTINE_CHARS = 16_384
-        const val VERSION = "v3"
-        const val PREVIOUS_VERSION = "v2"
+        const val VERSION = "v4"
+        const val PREVIOUS_VERSION = "v3"
+        const val PREVIOUS_PREVIOUS_VERSION = "v2"
         const val LEGACY_VERSION = "v1"
         val operationLock = Any()
         val encoder = Base64.getUrlEncoder().withoutPadding()
@@ -250,6 +251,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 append('\t').append(if (record.showStallPrompt) "1" else "0")
                 append('\t').append(encoded(record.diagnostics))
                 append('\t').append(record.attentionRetryGeneration)
+                append('\t').append(record.progressGeneration)
             }
         }
 
@@ -260,7 +262,12 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
             val lines = value.lineSequence().toList()
             val version = lines.firstOrNull()
-            if (version != VERSION && version != PREVIOUS_VERSION && version != LEGACY_VERSION) {
+            if (
+                version != VERSION &&
+                version != PREVIOUS_VERSION &&
+                version != PREVIOUS_PREVIOUS_VERSION &&
+                version != LEGACY_VERSION
+            ) {
                 throw DurableOperationStoreCorruptionException(
                     "unsupported durable operation version: ${version ?: "missing"}",
                 )
@@ -268,8 +275,9 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             return linkedMapOf<OperationId, DurableOperationRecord>().apply {
                 lines.drop(1).forEach { line ->
                     val record = when (version) {
-                        VERSION -> decodeRecord(line, hasRetryGeneration = true)
-                        PREVIOUS_VERSION -> decodeRecord(line, hasRetryGeneration = false)
+                        VERSION -> decodeRecord(line, hasRetryGeneration = true, hasProgressGeneration = true)
+                        PREVIOUS_VERSION -> decodeRecord(line, hasRetryGeneration = true, hasProgressGeneration = false)
+                        PREVIOUS_PREVIOUS_VERSION -> decodeRecord(line, hasRetryGeneration = false, hasProgressGeneration = false)
                         LEGACY_VERSION -> decodeLegacyRecord(line)
                         else -> throw DurableOperationStoreCorruptionException(
                             "unsupported durable operation version: $version",
@@ -285,9 +293,18 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
         }
 
-        fun decodeRecord(line: String, hasRetryGeneration: Boolean): DurableOperationRecord = try {
+        fun decodeRecord(
+            line: String,
+            hasRetryGeneration: Boolean,
+            hasProgressGeneration: Boolean,
+        ): DurableOperationRecord = try {
             val fields = line.split('\t')
-            if (fields.size != if (hasRetryGeneration) 12 else 11) throw IllegalArgumentException()
+            val fieldCount = when {
+                hasProgressGeneration -> 13
+                hasRetryGeneration -> 12
+                else -> 11
+            }
+            if (fields.size != fieldCount) throw IllegalArgumentException()
             val id = decoded(fields[0]) ?: throw IllegalArgumentException()
             val binding = when (fields[3]) {
                 "-" -> if (fields[4] == "-") null else throw IllegalArgumentException()
@@ -315,6 +332,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 diagnostics = decodedDiagnostics(fields[10]),
                 externalJobHistory = history,
                 attentionRetryGeneration = if (hasRetryGeneration) fields[11].toLong() else 0L,
+                progressGeneration = if (hasProgressGeneration) fields[12].toLong() else 0L,
             )
         } catch (_: IllegalArgumentException) {
             throw DurableOperationStoreCorruptionException("malformed durable operation row")
