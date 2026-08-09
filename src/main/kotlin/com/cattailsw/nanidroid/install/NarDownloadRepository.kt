@@ -737,15 +737,19 @@ class NarDownloadRepository internal constructor(
                     reconcileMissingRemoteRow(item)
                     return@forEach
                 }
-                if (item.downloadManagerId == null) {
-                    try {
+                val reboundItem = if (item.downloadManagerId == null) {
+                    val updated = try {
                         store.update(item.id) { it.copy(downloadManagerId = downloadManagerId) }
                     } catch (_: Exception) {
-                        return@forEach
+                        store.get(item.id)
                     }
+                    if (updated?.downloadManagerId != downloadManagerId) return@forEach
+                    updated
+                } else {
+                    item
                 }
                 val rebound = try {
-                    restoreRemoteDownloadBinding(item, downloadManagerId)
+                    restoreRemoteDownloadBinding(reboundItem, downloadManagerId)
                 } catch (_: Exception) {
                     return@forEach
                 }

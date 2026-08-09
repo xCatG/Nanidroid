@@ -2158,6 +2158,30 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun recreationBindsRecoveredRemoteRowWhenItsPersistedIdWriteAppliedThenFailed() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(exactOperationStore, MonotonicClock { 0L }, cancellations)
+        val accepted = queueStore.create(
+            NarDownload(
+                id = "recovered-id-applied-write",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovered-id-applied-write.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(exactSupervisor.start(accepted.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        downloads.recoveredIds[accepted.retainedUri!!] = 94L
+        downloads.statuses[94L] = NarRemoteDownloadStatus.InProgress
+
+        repositoryWith(queueStore, exactSupervisor, "unused").reconcile()
+
+        assertEquals(94L, queueStore.get(accepted.id)!!.downloadManagerId)
+        assertEquals(ExternalJobBinding.DownloadManager(94L), exactOperationStore.read().single().externalJob)
+    }
+
     @Test fun recreationDoesNotPersistHistoricalRemoteRowWhenRecoveringReplacementAttempt() {
         val accepted = store.create(
             NarDownload(
