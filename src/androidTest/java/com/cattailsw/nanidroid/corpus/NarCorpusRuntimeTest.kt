@@ -242,6 +242,33 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun snakeBootLifecycleStopsBeforeFaqWhenInputOnlyHasLowercaseValueHeader() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put(
+                    "hasExactValue",
+                    eventId != SNAKE_NAME_TEACH_ID,
+                )
+                .put(
+                    "choiceIds",
+                    JSONArray().put(SNAKE_FAQ_ID),
+                )
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach"),
+            requests,
+        )
+    }
+
+    @Test
     fun structuredChoiceEvidenceUsesTheAuthoredChoiceIdentifier() {
         assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelectEx", listOf("he/him", "choicefirsthehim")))
         assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelect", listOf("choicefirsthehim")))
@@ -1012,7 +1039,8 @@ class NarCorpusRuntimeTest {
             val inputExposesFaq = inputChoiceIds?.let { choiceIds ->
                 (0 until choiceIds.length()).any { choiceIds.optString(it) == SNAKE_FAQ_ID }
             } == true
-            if (input.optInt("status", -1) == 200 && input.optString("value").isNotEmpty() && inputExposesFaq) {
+            val inputHasExactValue = input.optBoolean("hasExactValue", input.optString("value").isNotEmpty())
+            if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesFaq) {
                 probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
             }
         }
