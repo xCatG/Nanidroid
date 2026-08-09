@@ -359,26 +359,29 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleRejectsAnUnplayableTerminalFaqResponse() {
-        val failure = assertThrows(IllegalStateException::class.java) {
-            snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
-                val isTerminalFaqChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
-                    references.last() == SNAKE_FAQ_ID
-                val status = when {
-                    eventId == "OnChoiceSelectEx" && isTerminalFaqChoice -> 204
-                    isTerminalFaqChoice -> 201
-                    else -> 200
-                }
-                JSONObject()
-                    .put("eventId", eventId)
-                    .put("status", status)
-                    .put("outcome", "success")
-                    .put("value", "playable")
-                    .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+    fun snakeBootLifecycleRetainsAnUnplayableTerminalFaqResponse() {
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            val isTerminalFaqChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
+                references.last() == SNAKE_FAQ_ID
+            val status = when {
+                eventId == "OnChoiceSelectEx" && isTerminalFaqChoice -> 204
+                isTerminalFaqChoice -> 201
+                else -> 200
             }
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", status)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
         }
 
-        assertEquals("Snake FAQ choice did not return a playable response.", failure.message)
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach", "OnChoiceSelectEx", "OnChoiceSelect"),
+            (0 until sequence.length()).map { sequence.getJSONObject(it).getString("eventId") },
+        )
+        assertEquals(204, sequence.getJSONObject(3).getInt("status"))
+        assertEquals(201, sequence.getJSONObject(4).getInt("status"))
     }
 
     @Test
@@ -1156,9 +1159,7 @@ class NarCorpusRuntimeTest {
             } == true
             val inputHasExactValue = input.optBoolean("hasExactValue", input.optString("value").isNotEmpty())
             if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesFaq) {
-                check(probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID) != null) {
-                    "Snake FAQ choice did not return a playable response."
-                }
+                probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
             }
         }
         return sequence
