@@ -1489,12 +1489,14 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         if (-not (Test-Property $validInteractionCapture 'captureStartedAtUtc') -or [string]$validInteractionCapture.captureStartedAtUtc -cne $script:captureStartedAtUtc) { Fail 'Interaction session-record lacks its capture-start timestamp.' 'dry-run' }
         Write-InteractionCaptureCheckpoint $validInteractionCapture
         if (-not $script:interactionCheckpointPersisted -or -not (Test-Path -LiteralPath (Join-Path $interactionCaptureProbeRoot 'interaction-capture.json') -PathType Leaf)) { Fail 'Interaction capture checkpoint was not persisted before cleanup probes.' 'dry-run' }
-        $auditedApkProbePath = Resolve-SafeReportArtifactPath $interactionCaptureProbeRoot $Manifest.interactionEvidence[0].artifactPath $true
-        $auditedApkProbeHash = $validInteractionCapture.artifacts[0].sha256
+        $auditedApkProbePath = Join-Path $interactionCaptureProbeRoot 'audited-apk-probe.apk'
+        [IO.File]::WriteAllBytes($auditedApkProbePath, [byte[]](0x01, 0x02, 0x03))
+        $auditedApkProbeHash = (Get-FileHash -LiteralPath $auditedApkProbePath -Algorithm SHA256).Hash.ToLowerInvariant()
         Assert-AuditedApkHash $auditedApkProbePath $auditedApkProbeHash
+        [IO.File]::WriteAllBytes($auditedApkProbePath, [byte[]](0x04, 0x05, 0x06))
         $failed = $false
-        try { Assert-AuditedApkHash $auditedApkProbePath ('b' * 64) } catch { $failed = $true }
-        if (-not $failed) { Fail 'Audited APK hash revalidation mutation probe unexpectedly passed.' 'dry-run' }
+        try { Assert-AuditedApkHash $auditedApkProbePath $auditedApkProbeHash } catch { $failed = $true }
+        if (-not $failed) { Fail 'Mutated audited APK hash revalidation probe unexpectedly passed.' 'dry-run' }
         Assert-AuditedPackagePresence "package:/data/app/$targetPackage/base.apk" '1234'
         foreach ($packageProbe in @(@('missing-package', '', '1234'), @('not-running', "package:/data/app/$targetPackage/base.apk", ''))) {
             $failed = $false
