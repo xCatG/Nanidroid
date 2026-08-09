@@ -88,7 +88,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         @Synchronized override fun writeQuarantineAndReset(value: String) {
             quarantinedValue = value.take(MAX_QUARANTINE_CHARS)
             recoveryMarker = true
-            write("v2")
+            write("v3")
         }
 
         @Synchronized override fun clearQuarantine() {
@@ -224,7 +224,8 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         const val QUARANTINE = "records_corruption_quarantine"
         const val RECOVERY_MARKER = "records_corruption_recovery_required"
         const val MAX_QUARANTINE_CHARS = 16_384
-        const val VERSION = "v2"
+        const val VERSION = "v3"
+        const val PREVIOUS_VERSION = "v2"
         const val LEGACY_VERSION = "v1"
         val operationLock = Any()
         val encoder = Base64.getUrlEncoder().withoutPadding()
@@ -248,6 +249,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 append('\t').append(record.status.name)
                 append('\t').append(if (record.showStallPrompt) "1" else "0")
                 append('\t').append(encoded(record.diagnostics))
+                append('\t').append(record.attentionRetryGeneration)
             }
         }
 
@@ -258,7 +260,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
             val lines = value.lineSequence().toList()
             val version = lines.firstOrNull()
-            if (version != VERSION && version != LEGACY_VERSION) {
+            if (version != VERSION && version != PREVIOUS_VERSION && version != LEGACY_VERSION) {
                 throw DurableOperationStoreCorruptionException(
                     "unsupported durable operation version: ${version ?: "missing"}",
                 )
@@ -266,7 +268,8 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             return linkedMapOf<OperationId, DurableOperationRecord>().apply {
                 lines.drop(1).forEach { line ->
                     val record = when (version) {
-                        VERSION -> decodeRecord(line)
+                        VERSION -> decodeRecord(line, hasRetryGeneration = true)
+                        PREVIOUS_VERSION -> decodeRecord(line, hasRetryGeneration = false)
                         LEGACY_VERSION -> decodeLegacyRecord(line)
                         else -> throw DurableOperationStoreCorruptionException(
                             "unsupported durable operation version: $version",
@@ -282,9 +285,9 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
         }
 
-        fun decodeRecord(line: String): DurableOperationRecord = try {
+        fun decodeRecord(line: String, hasRetryGeneration: Boolean): DurableOperationRecord = try {
             val fields = line.split('\t')
-            if (fields.size != 11) throw IllegalArgumentException()
+            if (fields.size != if (hasRetryGeneration) 12 else 11) throw IllegalArgumentException()
             val id = decoded(fields[0]) ?: throw IllegalArgumentException()
             val binding = when (fields[3]) {
                 "-" -> if (fields[4] == "-") null else throw IllegalArgumentException()
@@ -311,6 +314,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 },
                 diagnostics = decodedDiagnostics(fields[10]),
                 externalJobHistory = history,
+                attentionRetryGeneration = if (hasRetryGeneration) fields[11].toLong() else 0L,
             )
         } catch (_: IllegalArgumentException) {
             throw DurableOperationStoreCorruptionException("malformed durable operation row")

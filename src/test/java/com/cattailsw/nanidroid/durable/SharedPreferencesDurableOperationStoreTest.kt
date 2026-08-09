@@ -10,6 +10,16 @@ import org.junit.Test
 import java.util.UUID
 
 class SharedPreferencesDurableOperationStoreTest {
+    @Test fun retryGenerationRoundTripsInTheCurrentRecordFormat() {
+        val storage = RecordingStorage(null)
+        val store = SharedPreferencesDurableOperationStore(storage)
+        val record = record("retry", 1).copy(attentionRetryGeneration = 7L)
+
+        assertTrue(store.putIfAbsent(record))
+        assertEquals(record, SharedPreferencesDurableOperationStore(storage).read().single())
+        assertTrue(storage.value!!.startsWith("v3\n"))
+    }
+
     @Test fun emptyPresentValueCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
         val fixture = assertCorruptionRequiresRecovery("", "missing durable operation version")
 
@@ -75,7 +85,7 @@ class SharedPreferencesDurableOperationStoreTest {
         val fixture = assertCorruptionRequiresRecovery(raw, "malformed durable operation row")
         assertEquals(16_384, fixture.storage.quarantine!!.length)
         assertEquals(raw.take(16_384), fixture.storage.quarantine)
-        assertEquals("v2", fixture.storage.value)
+        assertEquals("v3", fixture.storage.value)
     }
 
     @Test fun atomicRecoveryCanBeResolvedAndWritesReenabled() {
@@ -83,7 +93,7 @@ class SharedPreferencesDurableOperationStoreTest {
 
         assertTrue(fixture.store.resolveRecovery())
         assertFalse(fixture.store.isRecoveryRequired())
-        assertEquals("v2", fixture.storage.value)
+        assertEquals("v3", fixture.storage.value)
         assertNull(fixture.storage.quarantine)
 
         val restored = record("new", 1)
@@ -312,7 +322,7 @@ class SharedPreferencesDurableOperationStoreTest {
             store.read()
         }
         assertTrue(error.message.orEmpty().contains(expectedDiagnostic))
-        assertEquals("v2", storage.value)
+        assertEquals("v3", storage.value)
         assertNotNull(storage.quarantine)
         assertEquals(storage.quarantine, raw.take(16_384))
         assertTrue(store.isRecoveryRequired())
@@ -381,7 +391,7 @@ class SharedPreferencesDurableOperationStoreTest {
             quarantine = value.take(16_384)
             recoveryMarker = true
             quarantineWriteCount += 1
-            this.value = "v2"
+            this.value = "v3"
         }
 
         override fun clearQuarantine() {

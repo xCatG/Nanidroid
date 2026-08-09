@@ -115,6 +115,92 @@ class DurableOperationAttentionCoordinatorTest {
         assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
     }
 
+    @Test fun localKeepWaitingDoesNotExtendTheWindowWhenReconciliationIsDelayed() {
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+
+        clock.value = 31_000L
+        assertTrue(supervisor.keepWaiting(handle))
+
+        clock.value = 59_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1_001L, scheduler.delayMillis)
+
+        clock.value = 60_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1L, scheduler.delayMillis)
+
+        clock.value = 61_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
+    @Test fun attentionKeepWaitingDoesNotExtendTheWindowWhenReconciliationIsDelayed() {
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+
+        clock.value = 31_000L
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.KEEP_WAITING))
+
+        clock.value = 59_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1_001L, scheduler.delayMillis)
+
+        clock.value = 60_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1L, scheduler.delayMillis)
+
+        clock.value = 61_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
+    @Test fun crossSupervisorRetryStopStartsANewStoppingObservationWindow() {
+        val retrySupervisor = DurableOperationSupervisor(store, clock) { _, _, _ ->
+            error("cancellation dispatch failed")
+        }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+
+        assertTrue(retrySupervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        clock.value = 60_000L
+        scheduler.runPending()
+        clock.value = 90_000L
+        scheduler.runPending()
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING, DurableAttentionAction.RETRY_STOP),
+            DurableAttentionNotificationPolicy.actions(coordinator.observeStalledOperations().value.single()),
+        )
+
+        assertTrue(retrySupervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        clock.value = 120_000L
+        scheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(coordinator.observeStalledOperations().value.single()),
+        )
+        assertEquals(30_000L, scheduler.delayMillis)
+    }
+
     @Test fun restoredAttentionKeepsExactNotificationWhileVisuallySuppressedThenRepublishes() {
         assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
         clock.value = 30_000L

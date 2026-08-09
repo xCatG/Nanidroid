@@ -171,10 +171,12 @@ class DurableOperationSupervisor(
 
     fun keepWaiting(handle: OperationHandle): Boolean = mutate {
         val current = activeRecord(handle) ?: return@mutate false
-        if (!store.compareAndSet(current, current.copy(showStallPrompt = false))) {
+        val updated = current.copy(showStallPrompt = false)
+        if (!store.compareAndSet(current, updated)) {
             return@mutate false
         }
         lastProgressAt[handle] = clock.nowMillis()
+        lastObservedRevisions[handle] = updated.observationRevision()
         true
     }
 
@@ -206,11 +208,13 @@ class DurableOperationSupervisor(
         if (!current.showStallPrompt) return@mutate false
         when (action) {
             DurableAttentionAction.KEEP_WAITING -> {
-                if (!store.compareAndSet(current, current.copy(showStallPrompt = false))) {
+                val updated = current.copy(showStallPrompt = false)
+                if (!store.compareAndSet(current, updated)) {
                     return@mutate false
                 }
                 restartSuppressedAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
+                lastObservedRevisions[handle] = updated.observationRevision()
             }
             DurableAttentionAction.STOP -> {
                 if (current.status != OperationStatus.RUNNING) return@mutate false
@@ -235,11 +239,16 @@ class DurableOperationSupervisor(
                 ) {
                     return@mutate false
                 }
+                val updated = current.copy(
+                    attentionRetryGeneration = current.attentionRetryGeneration + 1L,
+                )
+                if (!store.compareAndSet(current, updated)) return@mutate false
                 restartSuppressedAttention.remove(handle)
                 revealedStoppingAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
-                current.externalJob?.let {
-                    issueCancellation(handle, current.kind, it, preserveAttention = true)
+                lastObservedRevisions[handle] = updated.observationRevision()
+                updated.externalJob?.let {
+                    issueCancellation(handle, updated.kind, it, preserveAttention = true)
                 }
             }
         }
@@ -418,6 +427,7 @@ class DurableOperationSupervisor(
             val previousRevision = lastObservedRevisions.put(handle, revision)
             if (previousRevision != null && previousRevision != revision) {
                 lastProgressAt[handle] = now
+                revealedStoppingAttention.remove(handle)
             }
             val observedAt = lastProgressAt.getOrPut(handle) { now }
             if (
@@ -539,6 +549,7 @@ class DurableOperationSupervisor(
         status = status,
         externalJob = externalJob,
         showStallPrompt = showStallPrompt,
+        attentionRetryGeneration = attentionRetryGeneration,
     )
 
     private inline fun mutate(block: () -> Boolean): Boolean {
@@ -660,6 +671,7 @@ class DurableOperationSupervisor(
         val status: OperationStatus,
         val externalJob: ExternalJobBinding?,
         val showStallPrompt: Boolean,
+        val attentionRetryGeneration: Long,
     )
 }
 
