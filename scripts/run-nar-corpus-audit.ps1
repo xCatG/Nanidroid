@@ -774,6 +774,7 @@ using System.Text;
 namespace Nanidroid.CorpusAudit {
     public sealed class OwnedJobProcess {
         public int ProcessId;
+        public IntPtr ProcessHandle;
         public IntPtr JobHandle;
     }
 
@@ -832,6 +833,8 @@ namespace Nanidroid.CorpusAudit {
         private static extern IntPtr GetStdHandle(int stdHandle);
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
 
         public static OwnedJobProcess Start(string filePath, string commandLine, string workingDirectory, string stdoutPath, string stderrPath) {
             FileStream stdout = null;
@@ -858,7 +861,14 @@ namespace Nanidroid.CorpusAudit {
                 if (!AssignProcessToJobObject(job, processInformation.hProcess)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 assignedToJob = true;
                 if (ResumeThread(processInformation.hThread) == 0xFFFFFFFF) throw new Win32Exception(Marshal.GetLastWin32Error());
-                return new OwnedJobProcess { ProcessId = processInformation.dwProcessId, JobHandle = job };
+                OwnedJobProcess result = new OwnedJobProcess {
+                    ProcessId = processInformation.dwProcessId,
+                    ProcessHandle = processInformation.hProcess,
+                    JobHandle = job
+                };
+                processInformation.hProcess = IntPtr.Zero;
+                job = IntPtr.Zero;
+                return result;
             }
             catch {
                 if (processInformation.hProcess != IntPtr.Zero) {
@@ -877,7 +887,16 @@ namespace Nanidroid.CorpusAudit {
         }
 
         public static bool Terminate(IntPtr job) { return job != IntPtr.Zero && TerminateJobObject(job, 1); }
-        public static void Close(IntPtr job) { if (job != IntPtr.Zero) CloseHandle(job); }
+        public static int ExitCode(OwnedJobProcess process) {
+            uint exitCode;
+            if (process == null || process.ProcessHandle == IntPtr.Zero || !GetExitCodeProcess(process.ProcessHandle, out exitCode)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            return unchecked((int)exitCode);
+        }
+        public static void Close(OwnedJobProcess process) {
+            if (process == null) return;
+            if (process.ProcessHandle != IntPtr.Zero) CloseHandle(process.ProcessHandle);
+            if (process.JobHandle != IntPtr.Zero) CloseHandle(process.JobHandle);
+        }
     }
 }
 '@
@@ -910,6 +929,7 @@ function Start-OwnedJobProcess {
         }
         return [pscustomobject]@{
             process = [Diagnostics.Process]::GetProcessById($nativeProcess.ProcessId)
+            nativeProcess = $nativeProcess
             jobHandle = $nativeProcess.JobHandle
             stdoutPath = $stdoutPath
             stderrPath = $stderrPath
@@ -918,7 +938,7 @@ function Start-OwnedJobProcess {
     catch {
         if ($null -ne $nativeProcess) {
             [Nanidroid.CorpusAudit.OwnedJobLauncher]::Terminate($nativeProcess.JobHandle) | Out-Null
-            [Nanidroid.CorpusAudit.OwnedJobLauncher]::Close($nativeProcess.JobHandle)
+            [Nanidroid.CorpusAudit.OwnedJobLauncher]::Close($nativeProcess)
         }
         Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
         throw
@@ -937,7 +957,7 @@ function Close-OwnedJobProcess {
     param([object]$OwnedProcess)
     if ($null -eq $OwnedProcess) { return }
     if ($null -ne $OwnedProcess.process) { $OwnedProcess.process.Dispose() }
-    if ($OwnedProcess.jobHandle -ne [IntPtr]::Zero) { [Nanidroid.CorpusAudit.OwnedJobLauncher]::Close($OwnedProcess.jobHandle) }
+    if ($null -ne $OwnedProcess.nativeProcess) { [Nanidroid.CorpusAudit.OwnedJobLauncher]::Close($OwnedProcess.nativeProcess) }
     Remove-Item -LiteralPath $OwnedProcess.stdoutPath, $OwnedProcess.stderrPath -Force -ErrorAction SilentlyContinue
 }
 
@@ -1028,7 +1048,7 @@ function Invoke-ArgumentListProcess {
         $process.WaitForExit()
         $stdout = Get-Content -LiteralPath $ownedProcess.stdoutPath -Raw -ErrorAction SilentlyContinue
         $stderr = Get-Content -LiteralPath $ownedProcess.stderrPath -Raw -ErrorAction SilentlyContinue
-        $exitCode = $process.ExitCode
+        $exitCode = [Nanidroid.CorpusAudit.OwnedJobLauncher]::ExitCode($ownedProcess.nativeProcess)
     }
     finally {
         if ($null -ne $ownedProcess) { Close-OwnedJobProcess -OwnedProcess $ownedProcess }
