@@ -3118,6 +3118,56 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `all-roots recovery retries every pending terminal event root`() {
+        val fixture = fixture("all-roots-terminal-delivery")
+        val otherRoot = File(fixture.parent, "other-ghost").apply { check(mkdir()) }
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val firstHandle = OperationHandle(fixture.operationId, AttemptId(1))
+        val firstBinding = workManagerBinding("first-work")
+        assertTrue(supervisor.start(firstHandle, OperationKind.GHOST_UPDATE, "update", 0, firstBinding))
+        assertTrue(
+            supervisor.finishWithTerminalEvent(
+                firstHandle,
+                firstBinding,
+                OperationStatus.COMPLETED,
+                GhostUpdateTerminalEvent(
+                    "ghost-id",
+                    fixture.ghostRoot.canonicalPath,
+                    "OnUpdateComplete",
+                    emptyList(),
+                ),
+            ),
+        )
+        val secondHandle = OperationHandle(
+            GhostUpdateRepository.canonicalOperationIdFor(otherRoot),
+            AttemptId(1),
+        )
+        val secondBinding = workManagerBinding("second-work")
+        assertTrue(supervisor.start(secondHandle, OperationKind.GHOST_UPDATE, "update", 0, secondBinding))
+        assertTrue(
+            supervisor.finishWithTerminalEvent(
+                secondHandle,
+                secondBinding,
+                OperationStatus.FAILED,
+                GhostUpdateTerminalEvent(
+                    "other-ghost",
+                    otherRoot.canonicalPath,
+                    "OnUpdateFailure",
+                    emptyList(),
+                ),
+            ),
+        )
+
+        assertEquals(
+            setOf(fixture.ghostRoot.canonicalFile, otherRoot.canonicalFile),
+            GhostUpdateWorker.recoveryDeliveryRoots(supervisor, null).toSet(),
+        )
+    }
+
+    @Test
     fun `legacy journal without ghost identity does not defer a terminal event`() {
         val fixture = fixture("recovery-terminal-event-legacy")
         fixture.writeLive("ghost/master.txt", "new")

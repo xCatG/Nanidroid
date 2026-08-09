@@ -1113,17 +1113,35 @@ class GhostUpdateWorker(
             supervisor: DurableOperationSupervisor,
             targetGhostRoot: File?,
         ) {
-            val root = targetGhostRoot ?: return
             val runner = SScriptRunner.getInstance(context)
-            deliverPendingTerminalEventForRoot(supervisor, root) { event ->
-                runner.doShioriEventForGhost(
-                    event.ghostId,
-                    File(event.canonicalRoot),
-                    event.name,
-                    event.references.toTypedArray(),
-                )
+            recoveryDeliveryRoots(supervisor, targetGhostRoot).forEach { root ->
+                deliverPendingTerminalEventForRoot(supervisor, root) { event ->
+                    runner.doShioriEventForGhost(
+                        event.ghostId,
+                        File(event.canonicalRoot),
+                        event.name,
+                        event.references.toTypedArray(),
+                    )
+                }
             }
         }
+
+        /**
+         * An all-roots recovery can reload the current ghost without naming its root. In that
+         * case, retry every persisted terminal-event root; the runner still accepts only its
+         * exact active ghost/root pair.
+         */
+        internal fun recoveryDeliveryRoots(
+            supervisor: DurableOperationSupervisor,
+            targetGhostRoot: File?,
+        ): List<File> = targetGhostRoot?.let { listOf(it.canonicalFile) }
+            ?: supervisor.records()
+                .asSequence()
+                .filter { it.kind == OperationKind.GHOST_UPDATE }
+                .mapNotNull { it.pendingGhostUpdateEvent?.canonicalRoot }
+                .map(::File)
+                .distinctBy { it.canonicalPath }
+                .toList()
 
         internal fun recoverBeforeGhostLoad(
             ghostStorageRoot: File,
