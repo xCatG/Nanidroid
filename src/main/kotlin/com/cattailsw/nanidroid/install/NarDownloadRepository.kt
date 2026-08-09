@@ -211,6 +211,22 @@ class NarDownloadRepository internal constructor(
     @Synchronized
     fun enqueueLocalCopy(uri: String): NarDownload = enqueueLocalCopy(uri, liveGrant = false)
 
+    /**
+     * Acquires a persisted document grant and records its durable owner under one lock.
+     * A staging callback cannot release the same grant between those two steps.
+     */
+    @Synchronized
+    fun enqueuePersistedLocalCopy(uri: String, acquireGrant: () -> Boolean): NarDownload? {
+        if (!acquireGrant()) return null
+        return enqueueLocalCopy(uri, liveGrant = false)
+    }
+
+    @Synchronized
+    internal fun enqueuePersistedLocalCopyForUser(
+        uri: String,
+        acquireGrant: () -> Boolean,
+    ): NarUserEnqueueResult? = enqueuePersistedLocalCopy(uri, acquireGrant)?.let(::userEnqueueResult)
+
     @Synchronized
     internal fun enqueueLocalCopyForUser(uri: String): NarUserEnqueueResult =
         userEnqueueResult(enqueueLocalCopy(uri))
@@ -386,30 +402,33 @@ class NarDownloadRepository internal constructor(
             }
             when (result) {
                 is NarLocalArchiveStager.Result.Staged -> {
-                    val installAttempt = store.update(itemId) { latest ->
-                        if (
-                            latest.attemptId == attemptId &&
-                            latest.state == NarDownloadState.Copying
-                        ) {
-                            latest.copy(
-                                attemptId = latest.attemptId + 1L,
-                                retainedUri = result.location,
-                                workManagerId = null,
-                                state = NarDownloadState.Queued,
-                            )
-                        } else {
-                            latest
+                    val installAttempt = synchronized(this) {
+                        store.update(itemId) { latest ->
+                            if (
+                                latest.attemptId == attemptId &&
+                                latest.state == NarDownloadState.Copying
+                            ) {
+                                latest.copy(
+                                    attemptId = latest.attemptId + 1L,
+                                    retainedUri = result.location,
+                                    workManagerId = null,
+                                    state = NarDownloadState.Queued,
+                                )
+                            } else {
+                                latest
+                            }
+                        }?.takeIf {
+                            it.attemptId == attemptId + 1L &&
+                                it.state == NarDownloadState.Queued &&
+                                it.retainedUri == result.location
+                        }?.also { updated ->
+                            if (!liveGrant) releaseTransferredDocumentGrantIfUnused(updated)
                         }
-                    }?.takeIf {
-                        it.attemptId == attemptId + 1L &&
-                            it.state == NarDownloadState.Queued &&
-                            it.retainedUri == result.location
                     }
                     if (installAttempt == null) {
                         NarLocalArchiveStager.discard(result.location)
                         return true
                     }
-                    if (!liveGrant) releaseTransferredDocumentGrantIfUnused(installAttempt)
                     supervisor.finish(handle, binding, OperationStatus.COMPLETED)
                     scheduleInstall(itemId)
                 }
@@ -533,6 +552,29 @@ class NarDownloadRepository internal constructor(
         scheduleInstall(itemId)
         publish()
         return store.get(itemId)
+    }
+
+    /** Acquires a persisted replacement grant before atomically replacing its durable owner. */
+    @Synchronized
+    fun replaceWithPersistedLocalSource(
+        itemId: String,
+        uri: String,
+        acquireGrant: () -> Boolean,
+    ): NarDownload? {
+        if (!acquireGrant()) return null
+        return replaceLocalSource(itemId, uri)
+    }
+
+    @Synchronized
+    internal fun replaceWithPersistedLocalSourceForUser(
+        itemId: String,
+        uri: String,
+        acquireGrant: () -> Boolean,
+    ): NarUserEnqueueResult? {
+        val previous = store.get(itemId) ?: return null
+        return replaceWithPersistedLocalSource(itemId, uri, acquireGrant)?.let { replacement ->
+            userEnqueueResult(replacement, accepted = replacement.handle() != previous.handle())
+        }
     }
 
     @Synchronized
@@ -1276,9 +1318,9 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun releasePersistedGrantIfUnused(item: NarDownload) {
-        val location = item.retainedUri ?: return
+        val location = item.retainedUri ?: (item.source as? NarDownloadSource.Local)?.uri ?: return
         if (!hasSourceReference(location, item.id)) {
-            runCatching { ownedData.releasePersistedGrant(item) }
+            runCatching { ownedData.releasePersistedGrant(item.copy(retainedUri = location)) }
         }
     }
 

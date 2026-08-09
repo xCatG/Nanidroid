@@ -700,6 +700,87 @@ class NarDownloadRepositoryTest {
         assertTrue(ownedData.releasedUris.isEmpty())
     }
 
+    @Test fun removingLastSourceOnlySiblingReleasesItsDocumentGrant() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        val sourceOnly = repository.enqueueLocal(source)
+        repository.stageLocal(
+            copying.id,
+            copying.attemptId,
+            copying.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(repository.delete(copying.id))
+        assertTrue(ownedData.releasedUris.none { it == source })
+        assertTrue(repository.delete(sourceOnly.id))
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
+    @Test fun stagingKeepsGrantWhilePersistedSourceAcquisitionRegistersItsCopy() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        val acquired = AtomicBoolean(false)
+        val reservation = repository.enqueuePersistedLocalCopy(source) {
+            acquired.set(true)
+            true
+        }!!
+
+        repository.stageLocal(
+            copying.id,
+            copying.attemptId,
+            copying.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(ownedData.releasedUris.isEmpty())
+        assertTrue(acquired.get())
+        assertEquals(NarDownloadState.Copying, store.get(reservation.id)!!.state)
+    }
+
+    @Test fun persistedSourceAcquisitionWaitsForStagingGrantReleaseDecision() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        val releaseEntered = CountDownLatch(1)
+        val allowRelease = CountDownLatch(1)
+        val acquisitionAttempted = CountDownLatch(1)
+        val acquisitionStarted = CountDownLatch(1)
+        val acquisitionFinished = CountDownLatch(1)
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                releaseEntered.countDown()
+                assertTrue(allowRelease.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val staging = Thread {
+            repository.stageLocal(
+                copying.id,
+                copying.attemptId,
+                copying.workManagerId!!,
+                { false },
+            ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+        }.apply(Thread::start)
+        assertTrue(releaseEntered.await(5, TimeUnit.SECONDS))
+        val acquisition = Thread {
+            acquisitionAttempted.countDown()
+            repository.enqueuePersistedLocalCopy(source) {
+                acquisitionStarted.countDown()
+                true
+            }
+            acquisitionFinished.countDown()
+        }.apply(Thread::start)
+
+        assertTrue(acquisitionAttempted.await(5, TimeUnit.SECONDS))
+        assertTrue(!acquisitionStarted.await(100, TimeUnit.MILLISECONDS))
+        allowRelease.countDown()
+        staging.join(5_000)
+        acquisition.join(5_000)
+
+        assertTrue(acquisitionStarted.await(0, TimeUnit.MILLISECONDS))
+        assertTrue(acquisitionFinished.await(0, TimeUnit.MILLISECONDS))
+    }
+
     @Test fun recreatedStageWorkerCommitsHandoffWhenCopySupervisorAlreadyCompleted() {
         val item = repository.enqueueLocalCopy("content://provider/archive.nar")
         assertTrue(
@@ -2523,6 +2604,7 @@ class NarDownloadRepositoryTest {
         val releasedUris = mutableListOf<String?>()
         var retainedLocalArchiveUris = emptySet<String?>()
         var isRetainedArchiveAvailable = false
+        var onRelease: ((NarDownload) -> Unit)? = null
 
         override fun delete(download: NarDownload) {
             deletedItemIds += download.id
@@ -2531,6 +2613,7 @@ class NarDownloadRepositoryTest {
         override fun retainedArchiveAvailable(download: NarDownload) = isRetainedArchiveAvailable
 
         override fun releasePersistedGrant(download: NarDownload) {
+            onRelease?.invoke(download)
             releasedItemIds += download.id
             releasedUris += download.retainedUri
         }
