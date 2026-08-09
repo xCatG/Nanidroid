@@ -188,14 +188,14 @@ class DurableOperationAttentionCoordinatorTest {
         assertNull(restoredNotifier.last.single().diagnostics)
         assertEquals(30_000L, restoredScheduler.delayMillis)
 
-        clock.value = 90_000L
+        clock.value = 60_000L
         restoredScheduler.runPending()
 
         assertEquals(
-            listOf(DurableAttentionAction.KEEP_WAITING),
+            listOf(DurableAttentionAction.KEEP_WAITING, DurableAttentionAction.RETRY_STOP),
             DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
         )
-        assertEquals(STOPPING_DELAY_DIAGNOSTIC, restoredNotifier.last.single().diagnostics)
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, restoredNotifier.last.single().diagnostics)
     }
 
     @Test fun restoredStoppingDelayKeepsOnlyKeepWaitingUntilFreshStoppingWindowExpires() {
@@ -224,6 +224,15 @@ class DurableOperationAttentionCoordinatorTest {
         )
         assertNull(restoredNotifier.last.single().diagnostics)
         assertEquals(30_000L, restoredScheduler.delayMillis)
+
+        clock.value = 90_000L
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertEquals(STOPPING_DELAY_DIAGNOSTIC, restoredNotifier.last.single().diagnostics)
     }
 
     @Test fun repeatedReconstructionKeepsTheSameExactPromptHandle() {
