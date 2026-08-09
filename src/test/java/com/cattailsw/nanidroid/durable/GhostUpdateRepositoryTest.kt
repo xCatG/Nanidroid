@@ -264,6 +264,37 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `transport read failure during manifest or file download is retryable`() {
+        listOf("manifest", "download").forEach { phase ->
+            val fixture = fixture("transport-read-$phase")
+            fixture.writeLive("ghost/master.txt", "old")
+            fixture.network.manifest("ghost/master.txt" to bytes("new"))
+            if (phase == "manifest") {
+                fixture.network.onManifestRead = { throw IOException("connection reset") }
+            } else {
+                fixture.network.onCandidateRead = { throw IOException("connection reset") }
+            }
+
+            val result = fixture.repository().run(fixture.request()) { false }
+
+            assertEquals(phase, GhostUpdateResult.Interrupted, result)
+            assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+            assertFalse(phase, fixture.transactionRoot().exists())
+            assertTrue(phase, fixture.network.openedStreams.all { it.closed })
+        }
+    }
+
+    @Test
+    fun `HTTP timeout throttling and server errors are retryable`() {
+        listOf(408, 429, 500, 503).forEach { status ->
+            assertTrue(status.toString(), isRetryableGhostUpdateStatus(status))
+        }
+        listOf(400, 401, 403, 404).forEach { status ->
+            assertFalse(status.toString(), isRetryableGhostUpdateStatus(status))
+        }
+    }
+
+    @Test
     fun `explicit user cancellation during manifest download or digest is terminal cancellation`() {
         listOf("prefetch", "manifest", "download", "digest").forEach { phase ->
             val fixture = fixture("user-cancellation-$phase")

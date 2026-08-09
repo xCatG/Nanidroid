@@ -266,7 +266,7 @@ class GhostUpdateRepository internal constructor(
                         val buffer = ByteArray(COPY_BUFFER)
                         while (true) {
                             throwIfStopped(stopReason)
-                            val count = input.read(buffer)
+                            val count = readNetwork(input, buffer)
                             if (count < 0) break
                             if (count == 0) continue
                             output.write(buffer, 0, count)
@@ -506,7 +506,7 @@ class GhostUpdateRepository internal constructor(
                 val buffer = ByteArray(COPY_BUFFER)
                 while (true) {
                     throwIfStopped(stopReason)
-                    val count = input.read(buffer)
+                    val count = readNetwork(input, buffer)
                     if (count < 0) break
                     if (count == 0) continue
                     if (output.size() + count > MAX_MANIFEST_BYTES) throw IOException("update manifest is too large")
@@ -537,6 +537,12 @@ class GhostUpdateRepository internal constructor(
         if (!onCommitClassified(completed)) return GhostUpdateResult.PublishPending(files)
         finishPublishedTransaction(ghostRoot, operationId, journalIo)
         return completed
+    }
+
+    private fun readNetwork(input: InputStream, buffer: ByteArray): Int = try {
+        input.read(buffer)
+    } catch (error: IOException) {
+        throw RetryableNetworkException(error)
     }
 
     private fun parseManifest(source: ManifestSource): List<ManifestEntry> {

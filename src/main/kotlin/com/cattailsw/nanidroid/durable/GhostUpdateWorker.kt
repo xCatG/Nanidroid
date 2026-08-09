@@ -74,6 +74,9 @@ internal class ShioriGhostUpdateEvents(
     private fun List<String>.csv() = joinToString(",")
 }
 
+internal fun isRetryableGhostUpdateStatus(statusCode: Int): Boolean =
+    statusCode == 408 || statusCode == 429 || statusCode in 500..599
+
 internal class AndroidGhostUpdateNetwork(private val context: Context) : GhostUpdateNetwork {
     override fun open(baseUri: Uri, relativePath: String) = try {
         val builder = baseUri.buildUpon()
@@ -81,7 +84,7 @@ internal class AndroidGhostUpdateNetwork(private val context: Context) : GhostUp
         GhostUpdateOpenResult.Found(NetworkUtil.getURLStream(context, builder.build().toString()))
     } catch (error: HttpStatusException) {
         if (error.statusCode == 404) GhostUpdateOpenResult.NotFound
-        else if (error.statusCode in 500..599) GhostUpdateOpenResult.RetryableFailure(error)
+        else if (isRetryableGhostUpdateStatus(error.statusCode)) GhostUpdateOpenResult.RetryableFailure(error)
         else GhostUpdateOpenResult.NotFound
     } catch (error: IOException) {
         GhostUpdateOpenResult.RetryableFailure(error)
