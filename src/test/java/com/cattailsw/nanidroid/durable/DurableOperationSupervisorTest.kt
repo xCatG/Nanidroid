@@ -183,6 +183,50 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun `terminal deferral cannot overwrite a payload claimed by attachment delivery`() {
+        val root = File("build/terminal-event-deferral-claim-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-deferral-claim-race-worker")
+        val claimed = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        val replacement = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateFailure", listOf("failed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, claimed))
+        val directEntered = CountDownLatch(1)
+        val releaseDirect = CountDownLatch(1)
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        val direct = Thread {
+            assertTrue(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, claimed) {
+                    directEntered.countDown()
+                    assertTrue(releaseDirect.await(5, TimeUnit.SECONDS))
+                    dispatched += it
+                    true
+                },
+            )
+        }
+        val deferral = Thread {
+            assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+            assertFalse(
+                GhostUpdateWorker.deferTerminalEventAndRetryDelivery(supervisor, handle, binding, replacement) {
+                    dispatched += it
+                    true
+                },
+            )
+        }
+        direct.start()
+        assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+        deferral.start()
+        releaseDirect.countDown()
+        direct.join(5_000)
+        deferral.join(5_000)
+
+        assertFalse(direct.isAlive)
+        assertFalse(deferral.isAlive)
+        assertEquals(listOf(claimed), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
     @Test fun promptsAt30000WithoutCancelling() {
         supervisor.start(handle("nar-1", 1), OperationKind.NAR_INSTALL, "Extracting", 8)
 

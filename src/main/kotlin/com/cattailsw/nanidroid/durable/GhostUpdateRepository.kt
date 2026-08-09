@@ -35,6 +35,8 @@ private class RetryableNetworkException(cause: IOException) : IOException(cause)
 sealed interface GhostUpdateResult {
     data class Completed(val files: List<String>) : GhostUpdateResult
     data object NoChanges : GhostUpdateResult
+    /** The no-change completion payload could not be durably retained; retry before cleanup. */
+    data object NoChangesPending : GhostUpdateResult
     data object Cancelled : GhostUpdateResult
     data object Interrupted : GhostUpdateResult
     data class PublishPending(val files: List<String>) : GhostUpdateResult
@@ -136,6 +138,7 @@ class GhostUpdateRepository internal constructor(
     private val journalIo: GhostUpdateJournalIo = GhostUpdateJournalIo.DEFAULT,
     private val onProgress: (phase: String, completed: Long) -> Unit = { _, _ -> },
     private val onCommitClassified: (GhostUpdateResult.Completed) -> Boolean = { true },
+    private val onNoChangesClassified: () -> Boolean = { true },
     private val onRollbackClassified: (OperationStatus) -> Boolean = { true },
     private val commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
     private val recoveryGuard: GhostUpdateRecoveryGuard = GhostUpdateRecoveryGuard.NONE,
@@ -294,6 +297,7 @@ class GhostUpdateRepository internal constructor(
 
             val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
             if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
+                if (!onNoChangesClassified()) return GhostUpdateResult.NoChangesPending
                 if (!cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))) {
                     return failed("cannot clean no-change update transaction", emptyList())
                 }

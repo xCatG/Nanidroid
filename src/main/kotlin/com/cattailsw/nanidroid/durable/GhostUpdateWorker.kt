@@ -223,6 +223,15 @@ class GhostUpdateWorker(
                         it,
                     )
                 },
+                onNoChangesClassified = {
+                    persistNoChangesTerminalEvent(
+                        supervisor,
+                        handle,
+                        binding,
+                        ghostId,
+                        ghostRoot,
+                    )
+                },
                 onRollbackClassified = { status ->
                     supervisor.finish(handle, binding, status) ||
                         store.read().any { record ->
@@ -325,6 +334,25 @@ class GhostUpdateWorker(
             return supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event)
         }
 
+        /** Persists the no-change completion payload before removing the staging transaction. */
+        internal fun persistNoChangesTerminalEvent(
+            supervisor: DurableOperationSupervisor,
+            handle: OperationHandle,
+            binding: ExternalJobBinding.WorkManager,
+            ghostId: String,
+            ghostRoot: File,
+        ): Boolean = supervisor.finishWithTerminalEvent(
+            handle,
+            binding,
+            OperationStatus.COMPLETED,
+            GhostUpdateTerminalEvent(
+                ghostId,
+                ghostRoot.canonicalFile.path,
+                "OnUpdateComplete",
+                listOf("none", ""),
+            ),
+        )
+
         internal fun persistRollbackTerminalEvent(
             supervisor: DurableOperationSupervisor,
             handle: OperationHandle,
@@ -352,10 +380,30 @@ class GhostUpdateWorker(
             binding: ExternalJobBinding.WorkManager,
             event: GhostUpdateTerminalEvent,
             dispatch: (GhostUpdateTerminalEvent) -> Boolean,
-        ): Boolean {
-            if (!supervisor.deferTerminalEvent(handle, binding, event)) return false
-            deliverPendingTerminalEvent(supervisor, event.ghostId, File(event.canonicalRoot), dispatch)
-            return true
+        ): Boolean = synchronized(terminalEventDeliveryLock) {
+            val record = supervisor.records().singleOrNull {
+                it.handle() == handle &&
+                    it.kind == OperationKind.GHOST_UPDATE &&
+                    it.externalJob == binding
+            } ?: return@synchronized false
+            val retained = when {
+                record.pendingGhostUpdateEvent == event -> event
+                record.pendingGhostUpdateEvent == null &&
+                    (record.status == OperationStatus.RUNNING ||
+                        record.status == OperationStatus.CANCEL_REQUESTED) -> {
+                    if (!supervisor.deferTerminalEvent(handle, binding, event)) return@synchronized false
+                    event
+                }
+                else -> return@synchronized false
+            }
+            deliverTerminalEvent(
+                supervisor,
+                handle,
+                binding,
+                retained,
+                dispatch,
+            )
+            true
         }
 
         internal fun deliverPendingTerminalEvent(
@@ -475,12 +523,16 @@ class GhostUpdateWorker(
             if (result is GhostUpdateResult.PublishPending) {
                 return ListenableWorker.Result.retry()
             }
+            if (result is GhostUpdateResult.NoChangesPending) {
+                return ListenableWorker.Result.retry()
+            }
             if (result is GhostUpdateResult.RollbackPending) {
                 return ListenableWorker.Result.failure()
             }
             val status = when (result) {
                 is GhostUpdateResult.Completed -> OperationStatus.COMPLETED
                 GhostUpdateResult.NoChanges -> OperationStatus.COMPLETED
+                GhostUpdateResult.NoChangesPending -> error("no-change completion persistence handled above")
                 GhostUpdateResult.Cancelled -> OperationStatus.CANCELLED
                 GhostUpdateResult.Interrupted -> error("interrupted result handled above")
                 is GhostUpdateResult.PublishPending,

@@ -1569,6 +1569,52 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `no-change completion payload survives process death before transaction cleanup`() {
+        val fixture = fixture("no-change-terminal-before-cleanup")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("no-change-terminal-before-cleanup")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+
+        try {
+            fixture.repository(
+                onNoChangesClassified = {
+                    assertTrue(
+                        GhostUpdateWorker.persistNoChangesTerminalEvent(
+                            supervisor,
+                            handle,
+                            binding,
+                            "configured-ghost-id",
+                            fixture.ghostRoot,
+                        ),
+                    )
+                    throw SimulatedProcessDeath()
+                },
+            ).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The durable completion record and payload must precede staging cleanup.
+        }
+
+        assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                "configured-ghost-id",
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateComplete",
+                listOf("none", ""),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
+        assertTrue(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `stop during journaled commit cannot overwrite completed transaction status`() {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
@@ -3132,6 +3178,7 @@ class GhostUpdateRepositoryTest {
             journalIo: GhostUpdateJournalIo = GhostUpdateJournalIo.DEFAULT,
             onProgress: (String, Long) -> Unit = { _, _ -> },
             onCommitClassified: (GhostUpdateResult.Completed) -> Boolean = { true },
+            onNoChangesClassified: () -> Boolean = { true },
             onRollbackClassified: (OperationStatus) -> Boolean = { true },
             commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
             onRollbackJournalClassified: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, status ->
@@ -3144,6 +3191,7 @@ class GhostUpdateRepositoryTest {
             journalIo,
             onProgress,
             onCommitClassified,
+            onNoChangesClassified,
             onRollbackClassified,
             commitGuard,
             onRollbackJournalClassified = onRollbackJournalClassified,
