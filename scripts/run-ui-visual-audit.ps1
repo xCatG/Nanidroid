@@ -878,7 +878,7 @@ function ConvertTo-RepositoryRelativePath([string]$Path) {
 function Test-UntrackedAndroidBuildInput([string]$Path) {
     $normalizedPath = ConvertTo-RepositoryRelativePath $Path
     if ($normalizedPath -in @('build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat')) { return $true }
-    return $normalizedPath -match '^(gradle|src|jni|libs)/'
+    return $normalizedPath -match '^(gradle|buildsrc|src|jni|libs)/'
 }
 
 function ConvertFrom-GitPorcelainRecords([string]$Status) {
@@ -1237,7 +1237,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $again=New-UiAuditManifest; $againHash=Get-StringSha256 (ConvertTo-CanonicalManifestJson $again)
     if ($ManifestHash -ne $againHash) { Fail 'Manifest generation is not deterministic.' 'dry-run' }
     Assert-InteractionEvidenceManifestContract $Manifest
-    foreach ($path in @('src/main/kotlin/com/cattailsw/nanidroid/Untracked AuditInput.kt', 'build.gradle', 'settings.gradle')) {
+    foreach ($path in @('src/main/kotlin/com/cattailsw/nanidroid/Untracked AuditInput.kt', 'build.gradle', 'settings.gradle', 'buildSrc/src/main/kotlin/UntrackedBuildLogic.kt')) {
         $failed = $false
         try { Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "?? $path`0") } catch { $failed = $true }
         if (-not $failed) { Fail "Untracked build-input '$path' probe unexpectedly passed." 'dry-run' }
