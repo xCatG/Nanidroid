@@ -809,13 +809,18 @@ function Invoke-ArgumentListProcess {
         $processStartTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
+        $ownedDescendantIds = [Collections.Generic.HashSet[int]]::new()
+        $ownedDescendants = [Collections.Generic.List[object]]::new()
         if ($TimeoutStartReadyPath) {
             $readyDeadline = (Get-Date).AddSeconds($TimeoutStartReadySeconds)
             while (-not (Test-Path -LiteralPath $TimeoutStartReadyPath -PathType Leaf)) {
+                try {
+                    Add-OwnedDescendantProcessIdentities -KnownIds $ownedDescendantIds -KnownDescendants $ownedDescendants -Candidates @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks)
+                }
+                catch {
+                }
                 if ((Get-Date) -ge $readyDeadline) {
                     $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
-                    $ownedDescendants = @()
-                    try { $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks) } catch { }
                     $detail = if (Test-Path -LiteralPath $taskKillPath -PathType Leaf) {
                         Stop-OwnedProcessTreeSnapshot -TaskKillPath $taskKillPath -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks -Descendants $ownedDescendants
                     } else {
@@ -826,8 +831,6 @@ function Invoke-ArgumentListProcess {
                 }
                 if ($process.HasExited) {
                     $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
-                    $ownedDescendants = @()
-                    try { $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks) } catch { }
                     $detail = if (Test-Path -LiteralPath $taskKillPath -PathType Leaf) {
                         Stop-OwnedProcessTreeSnapshot -TaskKillPath $taskKillPath -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks -Descendants $ownedDescendants
                     } else {
@@ -852,9 +855,8 @@ function Invoke-ArgumentListProcess {
                     $terminationDetail = "taskkill.exe was not found at $taskKillPath"
                 }
                 else {
-                    $ownedDescendants = @()
                     try {
-                        $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks)
+                        Add-OwnedDescendantProcessIdentities -KnownIds $ownedDescendantIds -KnownDescendants $ownedDescendants -Candidates @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks)
                     }
                     catch {
                         $terminationDetail = "could not snapshot owned descendants: $($_.Exception.Message)"
@@ -930,7 +932,22 @@ function Test-ProcessCandidateMatchesCimCreation {
         [long]$ChildCreationTimeUtcTicks
     )
 
-    return $CandidateStartTimeUtcTicks -eq $ChildCreationTimeUtcTicks
+    $ticksPerMicrosecond = 10L
+    return ($CandidateStartTimeUtcTicks - ($CandidateStartTimeUtcTicks % $ticksPerMicrosecond)) -eq $ChildCreationTimeUtcTicks
+}
+
+function Add-OwnedDescendantProcessIdentities {
+    param(
+        [Collections.Generic.HashSet[int]]$KnownIds,
+        [Collections.Generic.List[object]]$KnownDescendants,
+        [object[]]$Candidates
+    )
+
+    foreach ($candidate in $Candidates) {
+        if ($KnownIds.Add([int]$candidate.processId)) {
+            $KnownDescendants.Add($candidate)
+        }
+    }
 }
 
 function Get-OwnedDescendantProcessIdentities {
@@ -2267,11 +2284,48 @@ Start-Sleep -Seconds 2
     $script:adbTransportTimedOut = $false
     $script:adbTransportTimeoutEvidence = $null
     Write-Host 'Dry-run timeout-tree cleanup probe passed.'
+
+    $earlyExitChildPath = Join-Path $hostRunTmpRoot 'timeout-tree.early-exit-child'
+    $earlyExitMissingReadyPath = Join-Path $hostRunTmpRoot 'timeout-tree.early-exit-ready'
+    $earlyExitCommand = @"
+`$child = Start-Process -FilePath '$($cmdPath.Replace("'", "''"))' -ArgumentList @('/c', 'timeout /t 60 /nobreak >nul') -PassThru
+[IO.File]::WriteAllText('$($earlyExitChildPath.Replace("'", "''"))', ('{0}|{1}' -f `$child.Id, `$child.StartTime.ToUniversalTime().Ticks))
+Start-Sleep -Seconds 1
+"@
+    $earlyExitEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($earlyExitCommand))
+    $earlyExitFailed = $false
+    try {
+        Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $earlyExitEncoded) -TimeoutSeconds 10 -DrainTimeoutSeconds 10 -TimeoutStartReadyPath $earlyExitMissingReadyPath -TimeoutStartReadySeconds 5 | Out-Null
+    }
+    catch {
+        $earlyExitFailed = $_.Exception.Message -match 'process-timeout: Process exited before readiness marker was created:'
+    }
+    if (-not $earlyExitFailed -or -not (Test-Path -LiteralPath $earlyExitChildPath -PathType Leaf)) {
+        ThrowIf 'Dry-run early-exit timeout-tree probe did not reach owned-child cleanup.'
+    }
+    $earlyExitIdentity = (Get-Content -LiteralPath $earlyExitChildPath -Raw).Trim() -split '\|'
+    $earlyExitChild = $null
+    try {
+        $earlyExitChild = [Diagnostics.Process]::GetProcessById([int]$earlyExitIdentity[0])
+        if (-not $earlyExitChild.HasExited -and $earlyExitChild.StartTime.ToUniversalTime().Ticks -eq [long]$earlyExitIdentity[1]) {
+            ThrowIf 'Dry-run early-exit timeout-tree probe left an owned child alive.'
+        }
+    }
+    catch [System.ArgumentException] {
+    }
+    finally {
+        if ($null -ne $earlyExitChild) { $earlyExitChild.Dispose() }
+    }
+    Remove-Item -LiteralPath $earlyExitChildPath -Force -ErrorAction SilentlyContinue
+    Write-Host 'Dry-run early-exit timeout-tree cleanup probe passed.'
     if (Test-ProcessCandidateMatchesCimCreation -CandidateStartTimeUtcTicks 100 -ChildCreationTimeUtcTicks 101) {
         ThrowIf 'Dry-run owned-process discovery probe accepted a PID-reused candidate with a different CIM creation time.'
     }
     if (-not (Test-ProcessCandidateMatchesCimCreation -CandidateStartTimeUtcTicks 100 -ChildCreationTimeUtcTicks 100)) {
         ThrowIf 'Dry-run owned-process discovery probe rejected a candidate matching its CIM creation time.'
+    }
+    if (-not (Test-ProcessCandidateMatchesCimCreation -CandidateStartTimeUtcTicks 109 -ChildCreationTimeUtcTicks 100)) {
+        ThrowIf 'Dry-run owned-process discovery probe rejected a candidate that matches its CIM creation time at microsecond precision.'
     }
     Write-Host 'Dry-run owned-process creation identity probe passed.'
     $invalidPathProbeTimeout = Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @(
