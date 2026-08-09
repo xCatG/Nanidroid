@@ -68,7 +68,7 @@ class DurableOperationAttentionCoordinatorTest {
         assertEquals(30_000L, scheduler.delayMillis)
     }
 
-    @Test fun restoredAttentionIsVisuallySuppressedThenRepublishedAtThirtySeconds() {
+    @Test fun restoredAttentionKeepsExactNotificationWhileVisuallySuppressedThenRepublishes() {
         assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
         clock.value = 30_000L
         assertTrue(supervisor.snapshot().single().showStallPrompt)
@@ -85,18 +85,215 @@ class DurableOperationAttentionCoordinatorTest {
         restoredScheduler.runPending()
 
         assertTrue(restoredCoordinator.observeStalledOperations().value.isEmpty())
-        assertTrue(restoredNotifier.last.isEmpty())
+        assertEquals(
+            listOf(handle),
+            restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
         assertEquals(30_000L, restoredScheduler.delayMillis)
 
         clock.value = 59_999L
         restoredScheduler.runPending()
         assertEquals(1L, restoredScheduler.delayMillis)
-        assertTrue(restoredNotifier.last.isEmpty())
+        assertEquals(
+            listOf(handle),
+            restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
 
         clock.value = 60_000L
         restoredScheduler.runPending()
         assertEquals(listOf(handle), restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) })
         assertTrue(restoredCoordinator.observeStalledOperations().value.single().showStallPrompt)
+    }
+
+    @Test fun restoredFailedStopKeepsOnlyKeepWaitingNotificationUntilFreshStoppingWindowExpires() {
+        val failedCancellation = object : OperationCancellation {
+            override fun cancel(
+                handle: OperationHandle,
+                kind: OperationKind,
+                binding: ExternalJobBinding,
+            ) = error("cancellation dispatch failed")
+        }
+        val stoppingSupervisor = DurableOperationSupervisor(store, clock, failedCancellation)
+        assertTrue(
+            stoppingSupervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding),
+        )
+        clock.value = 30_000L
+        assertTrue(stoppingSupervisor.snapshot().single().showStallPrompt)
+        assertTrue(stoppingSupervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        assertTrue(store.read().single().showStallPrompt)
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, store.read().single().diagnostics)
+
+        val restoredSupervisor = DurableOperationSupervisor(store, clock, failedCancellation)
+        val restoredScheduler = FakeAttentionScheduler()
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredCoordinator = DurableOperationAttentionCoordinator(
+            restoredSupervisor,
+            restoredScheduler,
+            restoredNotifier,
+        )
+
+        restoredCoordinator.start()
+        restoredScheduler.runPending()
+
+        assertTrue(restoredCoordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertNull(restoredNotifier.last.single().diagnostics)
+        assertEquals(30_000L, restoredScheduler.delayMillis)
+
+        clock.value = 60_000L
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING, DurableAttentionAction.RETRY_STOP),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, restoredNotifier.last.single().diagnostics)
+    }
+
+    @Test fun restartCancellationFailureRetainsAnAlreadyActionableStoppingNotification() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        assertTrue(store.read().single().showStallPrompt)
+        assertNull(store.read().single().diagnostics)
+
+        val failedCancellation = object : OperationCancellation {
+            override fun cancel(
+                handle: OperationHandle,
+                kind: OperationKind,
+                binding: ExternalJobBinding,
+            ) = error("cancellation dispatch failed")
+        }
+        val restoredSupervisor = DurableOperationSupervisor(store, clock, failedCancellation)
+        val restoredScheduler = FakeAttentionScheduler()
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredCoordinator = DurableOperationAttentionCoordinator(
+            restoredSupervisor,
+            restoredScheduler,
+            restoredNotifier,
+        )
+
+        restoredCoordinator.start()
+        restoredScheduler.runPending()
+
+        assertTrue(restoredCoordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertNull(restoredNotifier.last.single().diagnostics)
+        assertEquals(30_000L, restoredScheduler.delayMillis)
+
+        clock.value = 60_000L
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING, DurableAttentionAction.RETRY_STOP),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, restoredNotifier.last.single().diagnostics)
+    }
+
+    @Test fun restoredStoppingDelayKeepsOnlyKeepWaitingUntilFreshStoppingWindowExpires() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        clock.value = 60_000L
+        assertEquals(STOPPING_DELAY_DIAGNOSTIC, supervisor.snapshot().single().diagnostics)
+
+        val restoredSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        val restoredScheduler = FakeAttentionScheduler()
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredCoordinator = DurableOperationAttentionCoordinator(
+            restoredSupervisor,
+            restoredScheduler,
+            restoredNotifier,
+        )
+
+        restoredCoordinator.start()
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertNull(restoredNotifier.last.single().diagnostics)
+        assertEquals(30_000L, restoredScheduler.delayMillis)
+
+        clock.value = 90_000L
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertEquals(STOPPING_DELAY_DIAGNOSTIC, restoredNotifier.last.single().diagnostics)
+    }
+
+    @Test fun repeatedReconstructionKeepsTheSameExactPromptHandle() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        val firstRestart = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        val firstNotifier = RecordingAttentionNotifier()
+        val firstScheduler = FakeAttentionScheduler()
+        DurableOperationAttentionCoordinator(firstRestart, firstScheduler, firstNotifier).start()
+        firstScheduler.runPending()
+        assertEquals(
+            listOf(handle),
+            firstNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
+
+        val secondRestart = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        val secondNotifier = RecordingAttentionNotifier()
+        val secondScheduler = FakeAttentionScheduler()
+        DurableOperationAttentionCoordinator(secondRestart, secondScheduler, secondNotifier).start()
+        secondScheduler.runPending()
+        assertEquals(
+            listOf(handle),
+            secondNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
+    }
+
+    @Test fun reconstructionDoesNotReconcileStaleAttemptNotification() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.CANCELLED))
+
+        val currentHandle = handle.copy(attemptId = AttemptId(2L))
+        val currentBinding = ExternalJobBinding.DownloadManager(42L)
+        assertTrue(
+            supervisor.start(
+                currentHandle,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                currentBinding,
+            ),
+        )
+        clock.value = 60_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredScheduler = FakeAttentionScheduler()
+        DurableOperationAttentionCoordinator(
+            DurableOperationSupervisor(store, clock) { _, _, _ -> },
+            restoredScheduler,
+            restoredNotifier,
+        ).start()
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(currentHandle),
+            restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
     }
 
     @Test fun terminalMutationClearsAttentionAndReturnsToSleep() {

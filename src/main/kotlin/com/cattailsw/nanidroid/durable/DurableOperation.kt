@@ -34,6 +34,7 @@ data class DurableOperationRecord(
 
 internal data class DurableAttentionSnapshot(
     val records: List<DurableOperationRecord>,
+    val notificationRecords: List<DurableOperationRecord>,
     val nextCheckDelayMillis: Long?,
 )
 

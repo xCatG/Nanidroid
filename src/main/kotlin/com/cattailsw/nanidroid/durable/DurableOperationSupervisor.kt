@@ -23,7 +23,12 @@ class DurableOperationSupervisor(
             val handle = restored.handle()
             lastProgressAt[handle] = now
             if (restored.status == OperationStatus.CANCEL_REQUESTED && restored.externalJob != null) {
-                issueCancellation(handle, restored.kind, restored.externalJob)
+                issueCancellation(
+                    handle,
+                    restored.kind,
+                    restored.externalJob,
+                    preserveAttention = restored.showStallPrompt,
+                )
             }
         }
         store.read()
@@ -461,7 +466,25 @@ class DurableOperationSupervisor(
                 record
             }
         }
-        DurableAttentionSnapshot(presentedRecords, nextDelay)
+        DurableAttentionSnapshot(
+            records = presentedRecords,
+            notificationRecords = storedRecords
+                .filter(DurableOperationRecord::showStallPrompt)
+                .map { record ->
+                    if (
+                        record.isRestartSuppressed() ||
+                            (
+                                record.isCancellationDispatchFailure() &&
+                                    record.handle() !in revealedStoppingAttention
+                            )
+                    ) {
+                        record.copy(diagnostics = null)
+                    } else {
+                        record
+                    }
+                },
+            nextCheckDelayMillis = nextDelay,
+        )
     }
 
     private fun DurableOperationRecord.isRestartSuppressed(): Boolean =
