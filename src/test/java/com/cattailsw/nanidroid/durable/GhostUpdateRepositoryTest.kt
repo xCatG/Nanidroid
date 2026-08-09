@@ -413,6 +413,24 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `oversized delete manifest leaves the live ghost and transaction cleanup intact`() {
+        val fixture = fixture("oversized-delete-manifest")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.writeLive("ghost/obsolete.txt", "keep")
+        fixture.network.manifest(
+            "delete.txt" to ByteArray(GhostUpdateRepository.MAX_DELETE_BYTES + 1),
+            "ghost/master.txt" to bytes("new"),
+        )
+
+        val result = fixture.repository().run(fixture.request()) { false }
+
+        assertTrue(result is GhostUpdateResult.Failed)
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertBytes("keep", File(fixture.ghostRoot, "ghost/obsolete.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `cancellation requested after journal persistence cannot interrupt bounded commit`() {
         val fixture = fixture("post-journal-cancel")
         fixture.writeLive("ghost/master.txt", "old")
@@ -1458,19 +1476,20 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `delete manifest byte and line bounds accept cap and reject cap plus one`() {
+    fun `delete manifest streams bounded lines and rejects cap plus one`() {
         val root = temporaryDirectory("delete-manifest-bounds")
         val file = File(root, "delete.txt")
         write(file, ByteArray(GhostUpdateRepository.MAX_DELETE_BYTES))
 
-        assertEquals(
-            GhostUpdateRepository.MAX_DELETE_BYTES,
-            GhostUpdateRepository.readDeleteManifestBytes(file).size,
-        )
+        var byteCapLines = 0
+        GhostUpdateRepository.forEachDeleteManifestLine(file, Charsets.UTF_8) {
+            byteCapLines += 1
+        }
+        assertEquals(1, byteCapLines)
 
         write(file, ByteArray(GhostUpdateRepository.MAX_DELETE_BYTES + 1))
         try {
-            GhostUpdateRepository.readDeleteManifestBytes(file)
+            GhostUpdateRepository.forEachDeleteManifestLine(file, Charsets.UTF_8) {}
             throw AssertionError("delete manifest accepted byte cap plus one")
         } catch (_: IOException) {
             // Exact byte cap is enforced while streaming.
@@ -1479,16 +1498,19 @@ class GhostUpdateRepositoryTest {
         val atLineCap = List(GhostUpdateRepository.MAX_DELETE_LINES) { "x" }
             .joinToString("\n")
             .toByteArray()
-        assertEquals(
-            GhostUpdateRepository.MAX_DELETE_LINES,
-            GhostUpdateRepository.deleteManifestLines(atLineCap, Charsets.UTF_8).size,
-        )
+        write(file, atLineCap)
+        var lineCapCount = 0
+        GhostUpdateRepository.forEachDeleteManifestLine(file, Charsets.UTF_8) {
+            lineCapCount += 1
+        }
+        assertEquals(GhostUpdateRepository.MAX_DELETE_LINES, lineCapCount)
 
         val overLineCap = List(GhostUpdateRepository.MAX_DELETE_LINES + 1) { "x" }
             .joinToString("\n")
             .toByteArray()
         try {
-            GhostUpdateRepository.deleteManifestLines(overLineCap, Charsets.UTF_8)
+            write(file, overLineCap)
+            GhostUpdateRepository.forEachDeleteManifestLine(file, Charsets.UTF_8) {}
             throw AssertionError("delete manifest accepted line cap plus one")
         } catch (_: IOException) {
             // Exact line cap is enforced before path resolution.
