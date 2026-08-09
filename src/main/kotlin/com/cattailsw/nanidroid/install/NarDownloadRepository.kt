@@ -212,13 +212,20 @@ class NarDownloadRepository internal constructor(
     fun enqueueLocalCopy(uri: String): NarDownload = enqueueLocalCopy(uri, liveGrant = false)
 
     /**
-     * Acquires a persisted document grant and records its durable owner under one lock.
-     * A staging callback cannot release the same grant between those two steps.
+     * Durably reserves a persisted document grant before acquiring it, then records its owner.
+     * A staging callback cannot release the same grant between those steps, and recovery can
+     * release a grant left behind by process death before the copy record was committed.
      */
     @Synchronized
     fun enqueuePersistedLocalCopy(uri: String, acquireGrant: () -> Boolean): NarDownload? {
-        if (!acquireGrant()) return null
-        return enqueueLocalCopy(uri, liveGrant = false)
+        store.addPendingPersistedGrantRelease(uri)
+        if (!acquireGrant()) {
+            store.removePendingPersistedGrantRelease(uri)
+            return null
+        }
+        return enqueueLocalCopy(uri, liveGrant = false).also {
+            store.removePendingPersistedGrantRelease(uri)
+        }
     }
 
     @Synchronized
@@ -1335,7 +1342,10 @@ class NarDownloadRepository internal constructor(
     private fun releasePersistedGrantIfUnused(item: NarDownload) {
         val location = item.retainedUri ?: (item.source as? NarDownloadSource.Local)?.uri ?: return
         if (!hasSourceReference(location, item.id)) {
-            runCatching { ownedData.releasePersistedGrant(item.copy(retainedUri = location)) }
+            val released = runCatching {
+                ownedData.releasePersistedGrant(item.copy(retainedUri = location))
+            }.getOrDefault(false)
+            if (!released) store.addPendingPersistedGrantRelease(location)
         }
     }
 
@@ -1371,7 +1381,10 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun releaseDetachedPersistedGrantIfUnused(source: String) {
-        if (hasSourceReference(source)) return
+        if (hasSourceReference(source)) {
+            store.removePendingPersistedGrantRelease(source)
+            return
+        }
         val cleanup = NarDownload(
             id = "pending-grant-release",
             source = NarDownloadSource.Local(source),

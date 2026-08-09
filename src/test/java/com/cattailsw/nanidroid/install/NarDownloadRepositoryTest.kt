@@ -814,6 +814,60 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Copying, store.get(reservation.id)!!.state)
     }
 
+    @Test fun persistedSourceAcquisitionDurablyReservesItsGrantBeforeAcquiringIt() {
+        val source = "content://provider/reserved.nar"
+
+        val copied = repository.enqueuePersistedLocalCopy(source) {
+            assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+            true
+        }
+
+        assertNotNull(copied)
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun failedDirectGrantReleaseAfterDeletionIsRetainedForReconciliation() {
+        val source = "content://provider/direct-delete.nar"
+        val item = repository.enqueueLocal(source, source)
+        var releaseFails = true
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseFails) {
+                ownedData.releasePersistedGrantResult = false
+            }
+        }
+
+        assertTrue(repository.delete(item.id))
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+
+        releaseFails = false
+        ownedData.releasePersistedGrantResult = true
+        repository.reconcile()
+
+        assertEquals(listOf(source, source), ownedData.releasedUris.filter { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun failedDirectGrantReleaseAfterReplacementIsRetainedForReconciliation() {
+        val source = "content://provider/direct-replace.nar"
+        val item = repository.enqueueLocal(source, source)
+        var releaseFails = true
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseFails) {
+                ownedData.releasePersistedGrantResult = false
+            }
+        }
+
+        repository.replaceLocalSource(item.id, "file:///owned/replacement.nar")
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+
+        releaseFails = false
+        ownedData.releasePersistedGrantResult = true
+        repository.reconcile()
+
+        assertEquals(listOf(source, source), ownedData.releasedUris.filter { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
     @Test fun persistedSourceAcquisitionWaitsForStagingGrantReleaseDecision() {
         val source = "content://provider/shared.nar"
         val copying = repository.enqueueLocalCopy(source)
@@ -2743,6 +2797,7 @@ class NarDownloadRepositoryTest {
         var retainedLocalArchiveUris = emptySet<String?>()
         var isRetainedArchiveAvailable = false
         var onRelease: ((NarDownload) -> Unit)? = null
+        var releasePersistedGrantResult = true
 
         override fun delete(download: NarDownload) {
             deletedItemIds += download.id
@@ -2754,7 +2809,7 @@ class NarDownloadRepositoryTest {
             onRelease?.invoke(download)
             releasedItemIds += download.id
             releasedUris += download.retainedUri
-            return true
+            return releasePersistedGrantResult
         }
 
         override fun deleteAbandonedLocalArchives(retainedUris: Set<String>) {
