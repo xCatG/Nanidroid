@@ -153,6 +153,42 @@ class DurableOperationAttentionCoordinatorTest {
         assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, restoredNotifier.last.single().diagnostics)
     }
 
+    @Test fun restartCancellationFailureRetainsAnAlreadyActionableStoppingNotification() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        assertTrue(store.read().single().showStallPrompt)
+        assertNull(store.read().single().diagnostics)
+
+        val failedCancellation = object : OperationCancellation {
+            override fun cancel(
+                handle: OperationHandle,
+                kind: OperationKind,
+                binding: ExternalJobBinding,
+            ) = error("cancellation dispatch failed")
+        }
+        val restoredSupervisor = DurableOperationSupervisor(store, clock, failedCancellation)
+        val restoredScheduler = FakeAttentionScheduler()
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredCoordinator = DurableOperationAttentionCoordinator(
+            restoredSupervisor,
+            restoredScheduler,
+            restoredNotifier,
+        )
+
+        restoredCoordinator.start()
+        restoredScheduler.runPending()
+
+        assertTrue(restoredCoordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(restoredNotifier.last.single()),
+        )
+        assertNull(restoredNotifier.last.single().diagnostics)
+        assertEquals(30_000L, restoredScheduler.delayMillis)
+    }
+
     @Test fun repeatedReconstructionKeepsTheSameExactPromptHandle() {
         assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
         clock.value = 30_000L
