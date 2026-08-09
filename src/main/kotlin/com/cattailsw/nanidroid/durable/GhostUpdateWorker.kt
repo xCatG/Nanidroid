@@ -30,10 +30,12 @@ fun interface GhostUpdateEventSink {
 internal class GhostBoundEventSink(
     private val expectedGhostId: String,
     private val dispatch: (expectedGhostId: String, name: String, references: List<String>) -> Boolean,
+    private val onDelivered: (name: String, references: List<String>) -> Unit = { _, _ -> },
     private val onUndelivered: (name: String, references: List<String>) -> Unit = { _, _ -> },
 ) : GhostUpdateEventSink {
     override fun send(name: String, references: List<String>) {
-        if (!dispatch(expectedGhostId, name, references)) onUndelivered(name, references)
+        if (dispatch(expectedGhostId, name, references)) onDelivered(name, references)
+        else onUndelivered(name, references)
     }
 }
 
@@ -160,9 +162,9 @@ class GhostUpdateWorker(
                     dispatch = { expected, event, references ->
                         runner.doShioriEventForGhost(expected, ghostRoot, event, references.toTypedArray())
                     },
-                    onUndelivered = { event, references ->
+                    onDelivered = { event, references ->
                         if (event in TERMINAL_SHIORI_EVENTS) {
-                            supervisor.deferTerminalEvent(
+                            supervisor.clearTerminalEvent(
                                 handle,
                                 binding,
                                 GhostUpdateTerminalEvent(
@@ -174,6 +176,28 @@ class GhostUpdateWorker(
                             )
                         }
                     },
+                    onUndelivered = { event, references ->
+                        if (event in TERMINAL_SHIORI_EVENTS) {
+                            deferTerminalEventAndRetryDelivery(
+                                supervisor,
+                                handle,
+                                binding,
+                                GhostUpdateTerminalEvent(
+                                    ghostId,
+                                    ghostRoot.canonicalFile.path,
+                                    event,
+                                    references,
+                                ),
+                            ) { pending ->
+                                runner.doShioriEventForGhost(
+                                    pending.ghostId,
+                                    File(pending.canonicalRoot),
+                                    pending.name,
+                                    pending.references.toTypedArray(),
+                                )
+                            }
+                        }
+                    },
                 ),
             )
             val repository = GhostUpdateRepository(
@@ -183,14 +207,14 @@ class GhostUpdateWorker(
                     supervisor.reportProgress(handle, binding, phase, completed)
                 },
                 onCommitClassified = {
-                    supervisor.finish(handle, binding, OperationStatus.COMPLETED) ||
-                        store.read().any { record ->
-                            record.id == handle.operationId &&
-                                record.kind == OperationKind.GHOST_UPDATE &&
-                                record.attemptId == handle.attemptId &&
-                                record.externalJob == binding &&
-                                record.status == OperationStatus.COMPLETED
-                        }
+                    persistCompletedTerminalEvent(
+                        supervisor,
+                        handle,
+                        binding,
+                        ghostId,
+                        ghostRoot,
+                        it,
+                    )
                 },
                 onRollbackClassified = { status ->
                     supervisor.finish(handle, binding, status) ||
@@ -271,6 +295,58 @@ class GhostUpdateWorker(
         private const val NO_ATTEMPT = -1L
         private const val WORK_QUERY_TIMEOUT_MILLIS = 1_000L
         private val TERMINAL_SHIORI_EVENTS = setOf("OnUpdateComplete", "OnUpdateFailure")
+
+        /** Persists the completion event before the repository can remove its transaction journal. */
+        internal fun persistCompletedTerminalEvent(
+            supervisor: DurableOperationSupervisor,
+            handle: OperationHandle,
+            binding: ExternalJobBinding.WorkManager,
+            ghostId: String,
+            ghostRoot: File,
+            completed: GhostUpdateResult.Completed,
+        ): Boolean {
+            val event = GhostUpdateTerminalEvent(
+                ghostId,
+                ghostRoot.canonicalFile.path,
+                "OnUpdateComplete",
+                listOf("changed", completed.files.joinToString(",")),
+            )
+            if (!supervisor.deferTerminalEvent(handle, binding, event)) {
+                return supervisor.records().any { record ->
+                    record.id == handle.operationId &&
+                        record.kind == OperationKind.GHOST_UPDATE &&
+                        record.attemptId == handle.attemptId &&
+                        record.externalJob == binding &&
+                        record.status == OperationStatus.COMPLETED &&
+                        record.pendingGhostUpdateEvent == event
+                }
+            }
+            return supervisor.finish(handle, binding, OperationStatus.COMPLETED) ||
+                supervisor.records().any { record ->
+                    record.id == handle.operationId &&
+                        record.kind == OperationKind.GHOST_UPDATE &&
+                        record.attemptId == handle.attemptId &&
+                        record.externalJob == binding &&
+                        record.status == OperationStatus.COMPLETED &&
+                        record.pendingGhostUpdateEvent == event
+                }
+        }
+
+        /**
+         * An attachment can race between the first failed delivery and durable deferral. Once the
+         * exact event is persisted, retry it immediately so that race cannot strand the event.
+         */
+        internal fun deferTerminalEventAndRetryDelivery(
+            supervisor: DurableOperationSupervisor,
+            handle: OperationHandle,
+            binding: ExternalJobBinding.WorkManager,
+            event: GhostUpdateTerminalEvent,
+            dispatch: (GhostUpdateTerminalEvent) -> Boolean,
+        ): Boolean {
+            if (!supervisor.deferTerminalEvent(handle, binding, event)) return false
+            deliverPendingTerminalEvent(supervisor, event.ghostId, File(event.canonicalRoot), dispatch)
+            return true
+        }
 
         internal fun deliverPendingTerminalEvent(
             supervisor: DurableOperationSupervisor,

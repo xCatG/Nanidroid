@@ -1820,6 +1820,61 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `completion payload survives process death before transaction cleanup and clears after delivery`() {
+        val fixture = fixture("terminal-event-before-cleanup")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("terminal-event-before-cleanup")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        val failingDelete = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.name == "backup") throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(
+                fileOperations = failingDelete,
+                onCommitClassified = { completed ->
+                    GhostUpdateWorker.persistCompletedTerminalEvent(
+                        supervisor,
+                        handle,
+                        binding,
+                        "configured-ghost-id",
+                        fixture.ghostRoot,
+                        completed,
+                    )
+                },
+            ).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The terminal record and payload must precede the cleanup side effect.
+        }
+
+        val event = GhostUpdateTerminalEvent(
+            "configured-ghost-id",
+            fixture.ghostRoot.canonicalPath,
+            "OnUpdateComplete",
+            listOf("changed", "ghost/master.txt"),
+        )
+        assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+        assertEquals(event, store.read().single().pendingGhostUpdateEvent)
+        assertTrue(
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "configured-ghost-id", fixture.ghostRoot) {
+                assertEquals(event, it)
+                true
+            },
+        )
+        assertNull(store.read().single().pendingGhostUpdateEvent)
+    }
+
+    @Test
     fun `cold start cleans published evidence only for exact durable completion`() {
         val fixture = fixture("cold-terminal-cleanup")
         fixture.writeLive("ghost/master.txt", "new")

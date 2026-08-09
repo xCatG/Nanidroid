@@ -78,6 +78,26 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun terminalEventDeferralRetriesTheExactGhostAfterItIsPersisted() {
+        val root = File("build/terminal-event-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-race-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertTrue(
+            GhostUpdateWorker.deferTerminalEventAndRetryDelivery(supervisor, handle, binding, event) {
+                assertEquals(event, supervisor.records().single().pendingGhostUpdateEvent)
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(event), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
     @Test fun promptsAt30000WithoutCancelling() {
         supervisor.start(handle("nar-1", 1), OperationKind.NAR_INSTALL, "Extracting", 8)
 
