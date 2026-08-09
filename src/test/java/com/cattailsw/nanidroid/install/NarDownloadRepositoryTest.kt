@@ -125,6 +125,22 @@ class NarDownloadRepositoryTest {
         assertEquals(0, scheduler.pendingCount)
     }
 
+    @Test fun stoppedProgressObservationCannotRescheduleAfterItsPollRuns() {
+        downloads.nextDownloadId = 34L
+        downloads.downloadedBytes[34L] = 1L
+        downloads.statuses[34L] = NarRemoteDownloadStatus.InProgress
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+        val scheduler = FakeProgressScheduler()
+        val observer = DownloadManagerProgressObserver(downloads, supervisor, scheduler)
+
+        observer.start(item.handle(), 34L)
+        val stalePoll = scheduler.takeNext()
+        observer.stop(item.handle())
+        stalePoll.run()
+
+        assertEquals(0, scheduler.pendingCount)
+    }
+
     @Test fun cancelThenRetryUsesNewAttemptAndRejectsLateDownloadCompletion() {
         downloads.nextDownloadId = 41L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -208,6 +224,44 @@ class NarDownloadRepositoryTest {
         assertTrue(completed.await(5, TimeUnit.SECONDS))
         assertNotEquals(caller, executedOn.get())
         assertEquals("nanidroid-stop-reconciliation", executedOn.get().name)
+    }
+
+    @Test fun productionRemoteProgressPollingRunsQueriesAndPersistenceOffTheCallerThread() {
+        val progressStore = CountingOperationStore()
+        val progressSupervisor = DurableOperationSupervisor(
+            progressStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val handle = OperationHandle(OperationId("background-progress"), AttemptId(1L))
+        val binding = ExternalJobBinding.DownloadManager(32L)
+        val caller = Thread.currentThread()
+        val queriedOn = AtomicReference<Thread>()
+        val persistedOn = AtomicReference<Thread>()
+        val completed = CountDownLatch(1)
+        downloads.downloadedBytes[32L] = 1L
+        downloads.statuses[32L] = NarRemoteDownloadStatus.InProgress
+        downloads.onDownloadedBytes = { queriedOn.set(Thread.currentThread()) }
+        progressStore.onProgressUpdate = {
+            persistedOn.set(Thread.currentThread())
+            completed.countDown()
+        }
+        assertTrue(
+            progressSupervisor.start(
+                handle,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                binding,
+            ),
+        )
+
+        DownloadManagerProgressObserver(downloads, progressSupervisor).start(handle, 32L)
+
+        assertTrue(completed.await(5, TimeUnit.SECONDS))
+        assertNotEquals(caller, queriedOn.get())
+        assertEquals(queriedOn.get(), persistedOn.get())
+        assertEquals("nanidroid-download-progress", queriedOn.get().name)
     }
 
     @Test fun deleteCannotOrphanStoppingAttempt() {
@@ -1966,6 +2020,7 @@ class NarDownloadRepositoryTest {
         val recoveredIds = mutableMapOf<String, Long>()
         val removedIds = mutableListOf<Long>()
         val downloadedBytes = mutableMapOf<Long, Long>()
+        var onDownloadedBytes: (() -> Unit)? = null
 
         override fun intendedRetainedUri(itemId: String): String {
             intendedDestinationFailure?.let { throw it }
@@ -1985,7 +2040,10 @@ class NarDownloadRepositoryTest {
 
         override fun status(downloadManagerId: Long) = statuses[downloadManagerId]
 
-        override fun downloadedBytes(downloadManagerId: Long) = downloadedBytes[downloadManagerId]
+        override fun downloadedBytes(downloadManagerId: Long): Long? {
+            onDownloadedBytes?.invoke()
+            return downloadedBytes[downloadManagerId]
+        }
     }
 
     private class FakeWorkScheduler : NarInstallWorkScheduler {
@@ -2171,6 +2229,7 @@ class NarDownloadRepositoryTest {
         private var record: DurableOperationRecord? = null
         var progressUpdateCount = 0
             private set
+        var onProgressUpdate: (() -> Unit)? = null
 
         override fun read() = listOfNotNull(record)
 
@@ -2186,7 +2245,10 @@ class NarDownloadRepositoryTest {
         ): Boolean {
             if (record != expected) return false
             record = updated
-            if (expected.progress != updated.progress) progressUpdateCount += 1
+            if (expected.progress != updated.progress) {
+                progressUpdateCount += 1
+                onProgressUpdate?.invoke()
+            }
             return true
         }
     }
@@ -2353,6 +2415,8 @@ class NarDownloadRepositoryTest {
         fun runNext() {
             pending.removeFirst().run()
         }
+
+        fun takeNext(): Runnable = pending.removeFirst()
     }
 
     private class FakeStopReconciliationScheduler : NarStopReconciliationScheduler {
