@@ -69,6 +69,8 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import kotlin.math.ceil
+import kotlin.math.floor
 
 class GhostBubbleInteractionTest {
     @get:Rule
@@ -233,6 +235,7 @@ class GhostBubbleInteractionTest {
         composeRule.onNodeWithTag("ghost-bubble-choose-kero").performClick()
 
         composeRule.waitUntil(5_000) { publication != null }
+        val typedControlsViewport = measuredScrollViewport(frame, SurfaceSpeaker.KERO)
         composeRule.runOnIdle {
             assertSame(normalAnchor, activatedNormal)
             assertSame(directAnchor, activatedDirect)
@@ -261,7 +264,7 @@ class GhostBubbleInteractionTest {
                 assertTrue(region.bounds.bottom <= frame.frame.bottom)
                 assertTrue(region.bounds.width > 0 && region.bounds.height > 0)
             }
-            assertEquals(frame.frame, published.scrollViewport)
+            assertPublishedScrollViewport(frame, published, typedControlsViewport)
         }
     }
 
@@ -302,10 +305,11 @@ class GhostBubbleInteractionTest {
         }
 
         composeRule.waitUntil(5_000) { publication != null }
+        val initialViewport = measuredScrollViewport(frame, SurfaceSpeaker.SAKURA)
         composeRule.runOnIdle {
             val initial = checkNotNull(publication)
             assertEquals(frame, initial.fence)
-            assertEquals(frame.frame, initial.scrollViewport)
+            assertPublishedScrollViewport(frame, initial, initialViewport)
             assertTrue(initial.actionRegions.isNotEmpty())
             assertTrue(initial.actionRegions.size < orderedTargets.size)
             val indices = initial.actionRegions.map { orderedTargets.indexOf(it.target) }
@@ -317,13 +321,129 @@ class GhostBubbleInteractionTest {
         composeRule.waitUntil(5_000) {
             publication?.actionRegions?.any { it.target == BubbleInteractionTarget.Choice(choice) } == true
         }
+        val scrolledViewport = measuredScrollViewport(frame, SurfaceSpeaker.SAKURA)
         composeRule.runOnIdle {
             val scrolled = checkNotNull(publication)
             assertEquals(frame, scrolled.fence)
-            assertEquals(frame.frame, scrolled.scrollViewport)
+            assertPublishedScrollViewport(frame, scrolled, scrolledViewport)
             val indices = scrolled.actionRegions.map { orderedTargets.indexOf(it.target) }
             assertTrue(indices.all { it >= 0 })
             assertEquals(indices.sorted(), indices)
+        }
+    }
+
+    @Test
+    fun measuredScrollViewportReplacesTheAuthoredFrameWhenTheBubbleIsConstrained() {
+        val frame = BubbleRegionFence(
+            SurfaceSpeaker.SAKURA,
+            talkId = 32L,
+            contentRevision = 5L,
+            frame = IntRect(100, 20, 1100, 1220),
+        )
+        var publication: BubbleRegionSet? = null
+        composeRule.setContent {
+            CompositionLocalProvider(LocalBubbleRegionFence provides frame) {
+                GhostBubble(
+                    state = BubbleUiState(
+                        speaker = SurfaceSpeaker.SAKURA,
+                        content = DialogueContent(
+                            GhostSpeaker.SAKURA,
+                            listOf(DialogueSegment.Text("Long enough to scroll\n".repeat(32))),
+                        ),
+                        pendingChoices = emptyList(),
+                        scrollPosition = 0,
+                        userScrolledThisTalk = false,
+                        talkId = 32L,
+                        contentRevision = 5L,
+                    ),
+                    onRegionSet = { publication = it },
+                    modifier = Modifier.size(240.dp, 160.dp),
+                )
+            }
+        }
+
+        composeRule.waitUntil(5_000) { publication != null }
+        val constrainedViewport = measuredScrollViewport(frame, SurfaceSpeaker.SAKURA)
+        composeRule.runOnIdle {
+            val viewport = requireNotNull(requireNotNull(publication).scrollViewport)
+            assertPublishedScrollViewport(frame, requireNotNull(publication), constrainedViewport)
+            assertTrue(viewport.width < frame.frame.width)
+            assertTrue(viewport.height < frame.frame.height)
+        }
+    }
+
+    @Test
+    fun measuredScrollViewportExcludesTheDownPointerStrip() {
+        val frame = BubbleRegionFence(
+            SurfaceSpeaker.SAKURA,
+            talkId = 34L,
+            contentRevision = 7L,
+            frame = IntRect(100, 20, 1100, 1220),
+        )
+        var publication: BubbleRegionSet? = null
+        composeRule.setContent {
+            CompositionLocalProvider(LocalBubbleRegionFence provides frame) {
+                GhostBubble(
+                    state = BubbleUiState(
+                        speaker = SurfaceSpeaker.SAKURA,
+                        content = DialogueContent(
+                            GhostSpeaker.SAKURA,
+                            listOf(DialogueSegment.Text("Scrollable\n".repeat(32))),
+                        ),
+                        pendingChoices = emptyList(),
+                        scrollPosition = 0,
+                        userScrolledThisTalk = false,
+                        talkId = 34L,
+                        contentRevision = 7L,
+                    ),
+                    onRegionSet = { publication = it },
+                    modifier = Modifier.size(240.dp, 160.dp),
+                )
+            }
+        }
+
+        composeRule.waitUntil(5_000) { publication?.scrollViewport != null }
+        val viewport = requireNotNull(publication?.scrollViewport)
+        val bubbleBottom = composeRule.onNodeWithTag("ghost-bubble-sakura")
+            .fetchSemanticsNode()
+            .boundsInRoot
+            .bottom
+        composeRule.runOnIdle {
+            assertTrue(viewport.bottom < frame.frame.top + floor(bubbleBottom).toInt())
+        }
+    }
+
+    @Test
+    fun measuredScrollViewportPreservesTheLeftPointerInsetInStageCoordinates() {
+        val frame = BubbleRegionFence(SurfaceSpeaker.KERO, 33L, 6L, IntRect(100, 20, 1100, 1220))
+        var publication: BubbleRegionSet? = null
+        composeRule.setContent {
+            CompositionLocalProvider(
+                LocalBubbleRegionFence provides frame,
+                LocalBubblePointerDirection provides BubblePointerDirection.LEFT,
+            ) {
+                GhostBubble(
+                    state = BubbleUiState(
+                        speaker = SurfaceSpeaker.KERO,
+                        content = DialogueContent(GhostSpeaker.KERO, listOf(DialogueSegment.Text("Scrollable\n".repeat(32)))),
+                        pendingChoices = emptyList(),
+                        scrollPosition = 0,
+                        userScrolledThisTalk = false,
+                        talkId = 33L,
+                        contentRevision = 6L,
+                    ),
+                    onRegionSet = { publication = it },
+                    modifier = Modifier.size(240.dp, 160.dp),
+                )
+            }
+        }
+
+        composeRule.waitUntil(5_000) { publication != null }
+        val expectedViewport = measuredScrollViewport(frame, SurfaceSpeaker.KERO)
+        composeRule.runOnIdle {
+            val published = requireNotNull(publication)
+            assertPublishedScrollViewport(frame, published, expectedViewport)
+            assertTrue(requireNotNull(published.scrollViewport).left > frame.frame.left)
         }
     }
 
@@ -847,6 +967,28 @@ class GhostBubbleInteractionTest {
         val position: Int,
         val origin: BubbleScrollOrigin,
     )
+
+    private fun assertPublishedScrollViewport(
+        fence: BubbleRegionFence,
+        publication: BubbleRegionSet,
+        measured: IntRect,
+    ) {
+        val viewport = requireNotNull(publication.scrollViewport)
+        assertEquals(fence, publication.fence)
+        assertEquals(measured, viewport)
+    }
+
+    private fun measuredScrollViewport(fence: BubbleRegionFence, speaker: SurfaceSpeaker): IntRect {
+        val bounds = composeRule.onNodeWithTag("ghost-bubble-scroll-${speaker.name.lowercase()}")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        return IntRect(
+            fence.frame.left + floor(bounds.left).toInt(),
+            fence.frame.top + floor(bounds.top).toInt(),
+            fence.frame.left + ceil(bounds.right).toInt(),
+            fence.frame.top + ceil(bounds.bottom).toInt(),
+        )
+    }
 
     private fun longContent(prefix: String, extraLines: Int = 0) = DialogueContent(
         GhostSpeaker.SAKURA,

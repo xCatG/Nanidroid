@@ -111,6 +111,27 @@ class BubbleRegionStageIntegrationTest {
         assertTrue(state.publishBubbleRegions(BubbleRegionSet(replacementFence, emptyList(), frame)))
     }
 
+    @Test
+    fun `measured scroll viewport routes only within its clipped bounds`() {
+        val state = GhostStageMeasureState().also { it.resetFor(Any()) }
+        val frame = IntRect(100, 20, 220, 180)
+        val viewport = IntRect(112, 32, 208, 168)
+        val fence = BubbleRegionFence(SurfaceSpeaker.SAKURA, talkId = 14L, contentRevision = 3L, frame)
+        state.commit(snapshot(active = mapOf(SurfaceSpeaker.SAKURA to fence)))
+        assertTrue(state.publishBubbleRegions(BubbleRegionSet(fence, emptyList(), viewport)))
+
+        val published = currentStageInputSnapshot(state.latest, false, "fixture", "owner")
+
+        assertEquals(
+            StageInputTarget.Bubble(BubbleInteractionTarget.Scroll(SurfaceSpeaker.SAKURA)),
+            StageInputRouter.resolve(published, Offset(112f, 32f), PointerSource.MOUSE, 0).target,
+        )
+        assertEquals(
+            StageInputTarget.Bubble(BubbleInteractionTarget.Frame(SurfaceSpeaker.SAKURA)),
+            StageInputRouter.resolve(published, Offset(111f, 31f), PointerSource.MOUSE, 0).target,
+        )
+    }
+
     private fun snapshot(active: Map<SurfaceSpeaker, BubbleRegionFence>): StageMeasuredSnapshot {
         val content = StageDpRect(0.dp, 0.dp, 300.dp, 400.dp)
         val geometry = StageGeometryKey(

@@ -135,6 +135,9 @@ fun GhostBubble(
     var rootCoordinates by remember(state.talkId, state.contentRevision) {
         mutableStateOf<LayoutCoordinates?>(null)
     }
+    var scrollCoordinates by remember(state.talkId, state.contentRevision) {
+        mutableStateOf<LayoutCoordinates?>(null)
+    }
     var layoutGeneration by remember(state.talkId, state.contentRevision) { mutableLongStateOf(0L) }
     val latestPublication by rememberUpdatedState(onRegionSet)
     val scrollState = remember(state.scrollOwnerKey, state.talkId) {
@@ -182,32 +185,25 @@ fun GhostBubble(
     }
     LaunchedEffect(fence, controls, layoutGeneration) {
         val activeFence = fence ?: return@LaunchedEffect
-        val root = rootCoordinates?.takeIf(LayoutCoordinates::isAttached) ?: return@LaunchedEffect
-        val actionRegions = controls.mapNotNull { control ->
-            val child = coordinates[control.index]?.takeIf(LayoutCoordinates::isAttached)
-                ?: return@LaunchedEffect
-            val localBounds = root.localBoundingBoxOf(child, clipBounds = true)
-            val local = IntRect(
-                floor(localBounds.left).toInt().coerceIn(0, activeFence.frame.width),
-                floor(localBounds.top).toInt().coerceIn(0, activeFence.frame.height),
-                ceil(localBounds.right).toInt().coerceIn(0, activeFence.frame.width),
-                ceil(localBounds.bottom).toInt().coerceIn(0, activeFence.frame.height),
-            )
-            MeasuredBubbleHitRegion(
-                bounds = IntRect(
-                    activeFence.frame.left + local.left,
-                    activeFence.frame.top + local.top,
-                    activeFence.frame.left + local.right,
-                    activeFence.frame.top + local.bottom,
-                ),
-                target = control.target,
-            ).takeIf { it.bounds.width > 0 && it.bounds.height > 0 }
+        val root = rootCoordinates?.takeIf(LayoutCoordinates::isAttached)
+        if (root == null) {
+            latestPublication(BubbleRegionSet(activeFence, emptyList(), null))
+            return@LaunchedEffect
         }
+        val actionRegions = controls.mapNotNull { control ->
+            val child = coordinates[control.index]?.takeIf(LayoutCoordinates::isAttached) ?: return@mapNotNull null
+            root.rootClippedBoundsIn(activeFence.frame, child)?.let { bounds ->
+                MeasuredBubbleHitRegion(bounds, control.target)
+            }
+        }
+        val scrollViewport = scrollCoordinates
+            ?.takeIf(LayoutCoordinates::isAttached)
+            ?.let { scroll -> root.rootClippedBoundsIn(activeFence.frame, scroll) }
         latestPublication(
             BubbleRegionSet(
                 fence = activeFence,
                 actionRegions = actionRegions,
-                scrollViewport = activeFence.frame,
+                scrollViewport = scrollViewport,
             ),
         )
     }
@@ -233,72 +229,101 @@ fun GhostBubble(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerBodyPadding(pointerDirection)
-                .verticalScroll(scrollState)
-                .testTag("ghost-bubble-scroll-${state.speaker.tag}")
-                .padding(8.dp)
-                .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                val delta = when (event.key) {
-                    Key.DirectionUp -> -48f
-                    Key.DirectionDown -> 48f
-                    Key.PageUp -> -viewportHeight.toFloat()
-                    Key.PageDown -> viewportHeight.toFloat()
-                    else -> return@onPreviewKeyEvent false
-                }
-                manuallyScrolled = true
-                programmaticPosition = null
-                latestScrollChange(scrollState.value, BubbleScrollOrigin.MANUAL)
-                scrollScope.launch { scrollState.scrollBy(delta) }
-                true
-                }
-                .focusable(),
         ) {
-            state.content.segments.forEachIndexed { segmentIndex, segment ->
-                when (segment) {
-                    is DialogueSegment.Text -> SelectionContainer {
-                        Text(segment.value, color = colorResource(R.color.ghost_list_text))
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .onGloballyPositioned { next ->
+                        scrollCoordinates = next
+                        layoutGeneration++
                     }
-                    DialogueSegment.NewLine -> Spacer(Modifier.height(8.dp))
-                    else -> controls.firstOrNull { it.segmentIndex == segmentIndex }?.let { control ->
-                        key(state.talkId, state.contentRevision, control.identity) {
-                            BubbleControlButton(
-                                control = control,
-                                speaker = state.speaker,
-                                onPositioned = { child ->
-                                    coordinates[control.index] = child
-                                    layoutGeneration++
-                                },
-                                onAnchor = onAnchor,
-                                onExternalUrl = onExternalUrl,
-                                onInput = onInput,
-                                onChoose = onChoose,
-                                focusRequester = null,
-                            )
+                    .testTag("ghost-bubble-scroll-${state.speaker.tag}")
+                    .padding(8.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        val delta = when (event.key) {
+                            Key.DirectionUp -> -48f
+                            Key.DirectionDown -> 48f
+                            Key.PageUp -> -viewportHeight.toFloat()
+                            Key.PageDown -> viewportHeight.toFloat()
+                            else -> return@onPreviewKeyEvent false
+                        }
+                        manuallyScrolled = true
+                        programmaticPosition = null
+                        latestScrollChange(scrollState.value, BubbleScrollOrigin.MANUAL)
+                        scrollScope.launch { scrollState.scrollBy(delta) }
+                        true
+                    }
+                    .focusable(),
+            ) {
+                state.content.segments.forEachIndexed { segmentIndex, segment ->
+                    when (segment) {
+                        is DialogueSegment.Text -> SelectionContainer {
+                            Text(segment.value, color = colorResource(R.color.ghost_list_text))
+                        }
+                        DialogueSegment.NewLine -> Spacer(Modifier.height(8.dp))
+                        else -> controls.firstOrNull { it.segmentIndex == segmentIndex }?.let { control ->
+                            key(state.talkId, state.contentRevision, control.identity) {
+                                BubbleControlButton(
+                                    control = control,
+                                    speaker = state.speaker,
+                                    onPositioned = { child ->
+                                        coordinates[control.index] = child
+                                        layoutGeneration++
+                                    },
+                                    onAnchor = onAnchor,
+                                    onExternalUrl = onExternalUrl,
+                                    onInput = onInput,
+                                    onChoose = onChoose,
+                                    focusRequester = null,
+                                )
+                            }
                         }
                     }
                 }
-            }
-            controls.filter { it.segmentIndex == null }.forEach { control ->
-                key(state.talkId, state.contentRevision, control.identity) {
-                    BubbleControlButton(
-                        control = control,
-                        speaker = state.speaker,
-                        onPositioned = { child ->
-                            coordinates[control.index] = child
-                            layoutGeneration++
-                        },
-                        onAnchor = onAnchor,
-                        onExternalUrl = onExternalUrl,
-                        onInput = onInput,
-                        onChoose = onChoose,
-                        focusRequester = chooseFocusRequester.takeIf {
-                            control.target is BubbleInteractionTarget.Choice
-                        },
-                    )
+                controls.filter { it.segmentIndex == null }.forEach { control ->
+                    key(state.talkId, state.contentRevision, control.identity) {
+                        BubbleControlButton(
+                            control = control,
+                            speaker = state.speaker,
+                            onPositioned = { child ->
+                                coordinates[control.index] = child
+                                layoutGeneration++
+                            },
+                            onAnchor = onAnchor,
+                            onExternalUrl = onExternalUrl,
+                            onInput = onInput,
+                            onChoose = onChoose,
+                            focusRequester = chooseFocusRequester.takeIf {
+                                control.target is BubbleInteractionTarget.Choice
+                            },
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+/** Maps a measured descendant into the stage frame, clipping it to the bubble root. */
+private fun LayoutCoordinates.rootClippedBoundsIn(
+    frame: IntRect,
+    descendant: LayoutCoordinates,
+): IntRect? {
+    val localBounds = localBoundingBoxOf(descendant, clipBounds = true)
+    val local = IntRect(
+        floor(localBounds.left).toInt().coerceIn(0, frame.width),
+        floor(localBounds.top).toInt().coerceIn(0, frame.height),
+        ceil(localBounds.right).toInt().coerceIn(0, frame.width),
+        ceil(localBounds.bottom).toInt().coerceIn(0, frame.height),
+    )
+    return IntRect(
+        frame.left + local.left,
+        frame.top + local.top,
+        frame.left + local.right,
+        frame.top + local.bottom,
+    ).takeIf { it.width > 0 && it.height > 0 }
 }
 
 private fun DialogueContent.accessibleText(): String = buildString {
