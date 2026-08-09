@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.selection.toggleable
+import com.cattailsw.nanidroid.compose.NanidroidTheme
 
 /**
  * Compose replacement for the former single-item PreferenceActivity.
@@ -59,7 +60,7 @@ internal fun PreferencesScreen(
     onAnalyticsEnabledChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    MaterialTheme {
+    NanidroidTheme {
         Surface(modifier = modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier
