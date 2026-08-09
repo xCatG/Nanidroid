@@ -488,7 +488,13 @@ class DurableOperationSupervisor(
                 }
             }
             ?.let { delay ->
-                if (promptWriteFailed) minOf(delay, PROMPT_WRITE_RETRY_MILLIS) else delay
+                if (promptWriteFailed && delay == 0L) {
+                    PROMPT_WRITE_RETRY_MILLIS
+                } else if (promptWriteFailed) {
+                    minOf(delay, PROMPT_WRITE_RETRY_MILLIS)
+                } else {
+                    delay
+                }
             }
         val presentedRecords = storedRecords.map { record ->
             if (record.isRestartSuppressed()) {

@@ -29,6 +29,35 @@ class DurableOperationSupervisorTest {
         assertTrue(cancellation.requests.isEmpty())
     }
 
+    @Test fun promptWriteFailureUsesPositiveRetryDelay() {
+        var rejectPromptWrite = false
+        val retryStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean =
+                if (rejectPromptWrite && !expected.showStallPrompt && updated.showStallPrompt) {
+                    false
+                } else {
+                    delegate.compareAndSet(expected, updated)
+                }
+        }
+        val retrySupervisor = DurableOperationSupervisor(retryStore, clock, RecordingCancellation())
+        retrySupervisor.start(handle("prompt-write-retry", 1), OperationKind.GHOST_UPDATE, "Queued", 0)
+
+        clock.value = 30_000
+        rejectPromptWrite = true
+
+        assertEquals(1_000L, retrySupervisor.attentionSnapshot().nextCheckDelayMillis)
+    }
+
     @Test fun onlyRealProgressResetsTheObservationWindow() {
         val handle = handle("update-1", 1)
         val binding = workManager("worker-1")
