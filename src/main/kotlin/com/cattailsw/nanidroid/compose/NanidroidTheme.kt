@@ -7,6 +7,9 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.isSystemInDarkTheme
 
+private val LightNanidroidColorScheme = lightColorScheme()
+private val DarkNanidroidColorScheme = darkColorScheme()
+
 /** The app's Material color scheme, selected from the current system night mode. */
 @Composable
 internal fun NanidroidTheme(content: @Composable () -> Unit) {
@@ -14,4 +17,4 @@ internal fun NanidroidTheme(content: @Composable () -> Unit) {
 }
 
 internal fun nanidroidColorScheme(darkTheme: Boolean): ColorScheme =
-    if (darkTheme) darkColorScheme() else lightColorScheme()
+    if (darkTheme) DarkNanidroidColorScheme else LightNanidroidColorScheme
