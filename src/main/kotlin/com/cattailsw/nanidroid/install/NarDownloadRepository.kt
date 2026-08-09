@@ -1005,6 +1005,7 @@ class NarDownloadRepository internal constructor(
         return completed?.attemptId == attemptId && completed.state == NarDownloadState.Complete
     }
 
+    @Synchronized
     private fun cleanupCompletedInstall(item: NarDownload) {
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }

@@ -781,6 +781,43 @@ class NarDownloadRepositoryTest {
         assertTrue(acquisitionFinished.await(0, TimeUnit.MILLISECONDS))
     }
 
+    @Test fun persistedSourceAcquisitionWaitsForCompletedSourceOnlyGrantReleaseDecision() {
+        val source = "content://provider/shared.nar"
+        val sourceOnly = repository.enqueueLocal(source)
+        val releaseEntered = CountDownLatch(1)
+        val allowRelease = CountDownLatch(1)
+        val acquisitionAttempted = CountDownLatch(1)
+        val acquisitionStarted = CountDownLatch(1)
+        val acquisitionFinished = CountDownLatch(1)
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                releaseEntered.countDown()
+                assertTrue(allowRelease.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val completion = Thread {
+            repository.install(sourceOnly.id, sourceOnly.attemptId, sourceOnly.workManagerId!!) { false }
+        }.apply(Thread::start)
+        assertTrue(releaseEntered.await(5, TimeUnit.SECONDS))
+        val acquisition = Thread {
+            acquisitionAttempted.countDown()
+            repository.enqueuePersistedLocalCopy(source) {
+                acquisitionStarted.countDown()
+                true
+            }
+            acquisitionFinished.countDown()
+        }.apply(Thread::start)
+
+        assertTrue(acquisitionAttempted.await(5, TimeUnit.SECONDS))
+        assertTrue(!acquisitionStarted.await(100, TimeUnit.MILLISECONDS))
+        allowRelease.countDown()
+        completion.join(5_000)
+        acquisition.join(5_000)
+
+        assertTrue(acquisitionStarted.await(0, TimeUnit.MILLISECONDS))
+        assertTrue(acquisitionFinished.await(0, TimeUnit.MILLISECONDS))
+    }
+
     @Test fun recreatedStageWorkerCommitsHandoffWhenCopySupervisorAlreadyCompleted() {
         val item = repository.enqueueLocalCopy("content://provider/archive.nar")
         assertTrue(
