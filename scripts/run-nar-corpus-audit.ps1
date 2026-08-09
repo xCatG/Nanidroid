@@ -394,6 +394,7 @@ function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGh
         if (@($entry.references).Count -ne 7) { ThrowIf 'Post-interaction evidence must retain References 0 through 6.' }
         if ([string]$entry.eventId -eq 'OnNameTeach') {
             if ([string]$entry.source -ne 'input' -or [string]$entry.identifier -cne [string]$entry.eventId) { ThrowIf 'OnNameTeach evidence must retain its direct event identifier and input source.' }
+            if ($null -eq $entry.references[1] -or [string]$entry.references[1] -cne '') { ThrowIf 'OnNameTeach evidence must retain its empty Reference1 supplement.' }
             $hasInputEvidence = $true
         }
         elseif ([string]$entry.source -ne 'choice') { ThrowIf 'Choice evidence must retain source=choice.' }
@@ -1996,7 +1997,7 @@ foreach ($arg in $ProbeArgs) {
             identifier = 'OnNameTeach'
             button = $null
             source = 'input'
-            references = @('Nanidroid', $null, $null, $null, $null, $null, $null)
+            references = @('Nanidroid', '', $null, $null, $null, $null, $null)
         },
         [pscustomobject]@{
             ghostIdentity = 'snake-and-otacon'

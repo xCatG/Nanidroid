@@ -93,18 +93,24 @@ class NarCorpusRuntimeTest {
 
     @Test
     fun snakeBootLifecycleDoesNotFallbackWhenOnFirstBootReturnsContent() {
-        val requests = mutableListOf<String>()
+        val requests = mutableListOf<Pair<String, List<String>>>()
 
-        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
-            requests += eventId
+        snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            requests += eventId to references
             JSONObject()
                 .put("eventId", eventId)
                 .put("status", 200)
                 .put("outcome", "success")
+                .put("value", "playable")
         }
 
         assertEquals(
-            listOf("OnFirstBoot", "OnChoiceSelect", "OnChoiceSelect"),
+            listOf(
+                "OnFirstBoot" to listOf("0"),
+                "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
+                "OnNameTeach" to listOf("Nanidroid", ""),
+                "OnChoiceSelectEx" to listOf("faq", "faq"),
+            ),
             requests,
         )
     }
@@ -122,6 +128,32 @@ class NarCorpusRuntimeTest {
         }
 
         assertEquals(listOf("OnFirstBoot", "OnBoot"), requests)
+    }
+
+    @Test
+    fun snakeBootLifecycleFallsBackToLegacyChoiceOnlyAfterUnplayablePrimary() {
+        val requests = mutableListOf<Pair<String, List<String>>>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            requests += eventId to references
+            val primaryIsUnplayable = eventId == "OnChoiceSelectEx" && references[1] == "choicefirsthehim"
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", if (primaryIsUnplayable) 204 else 200)
+                .put("outcome", "success")
+                .put("value", if (primaryIsUnplayable) "" else "playable")
+        }
+
+        assertEquals(
+            listOf(
+                "OnFirstBoot" to listOf("0"),
+                "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
+                "OnChoiceSelect" to listOf("choicefirsthehim"),
+                "OnNameTeach" to listOf("Nanidroid", ""),
+                "OnChoiceSelectEx" to listOf("faq", "faq"),
+            ),
+            requests,
+        )
     }
 
     @Test
@@ -870,13 +902,22 @@ class NarCorpusRuntimeTest {
             return sequence
         }
 
-        val firstChoice = probe("OnChoiceSelect", listOf(SNAKE_CHOICE_FIRST_HE_HIM_ID))
+        fun probeChoice(label: String, id: String): JSONObject {
+            val primary = probe("OnChoiceSelectEx", listOf(label, id))
+            return if (primary.optInt("status", -1) == 200 && primary.optString("value").isNotEmpty()) {
+                primary
+            } else {
+                probe("OnChoiceSelect", listOf(id))
+            }
+        }
+
+        val firstChoice = probeChoice(SNAKE_CHOICE_FIRST_HE_HIM_LABEL, SNAKE_CHOICE_FIRST_HE_HIM_ID)
         sequence.put(firstChoice)
         if (firstChoice.optString("outcome") == "success") {
-            val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE))
+            val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE, ""))
             sequence.put(input)
             if (input.optString("outcome") == "success") {
-                sequence.put(probe("OnChoiceSelect", listOf(SNAKE_FAQ_ID)))
+                sequence.put(probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID))
             }
         }
         return sequence
@@ -2069,7 +2110,9 @@ class NarCorpusRuntimeTest {
         const val MAX_PROVENANCE_SOURCE_CHARS = 256
         const val SNAKE_AND_OTACON_LABEL = "Snake and Otacon V1.3.2"
         const val SNAKE_CHOICE_FIRST_HE_HIM_ID = "choicefirsthehim"
+        const val SNAKE_CHOICE_FIRST_HE_HIM_LABEL = "he/him"
         const val SNAKE_FAQ_ID = "faq"
+        const val SNAKE_FAQ_LABEL = "faq"
         const val SNAKE_NAME_TEACH_ID = "OnNameTeach"
         const val SNAKE_NAME_TEACH_VALUE = "Nanidroid"
         val SURFACE_SOURCE_FILE = Regex("(?i)^surfaces[^/\\\\]*\\.txt$")
