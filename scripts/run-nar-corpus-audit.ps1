@@ -765,8 +765,14 @@ function Invoke-ArgumentListProcess {
     param(
         [string]$FilePath,
         [string[]]$Arguments,
-        [int]$TimeoutSeconds = 120
+        [int]$TimeoutSeconds = 120,
+        [int]$DrainTimeoutSeconds = 30,
+        [switch]$DisableAdbOnTimeout
     )
+
+    if ($DrainTimeoutSeconds -le 0) {
+        ThrowIf 'Process output drain timeout must be positive.'
+    }
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $FilePath
@@ -774,8 +780,13 @@ function Invoke-ArgumentListProcess {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($arg in $Arguments) {
-        $startInfo.ArgumentList.Add($arg)
+    if ($null -ne $startInfo.PSObject.Properties['ArgumentList']) {
+        foreach ($arg in $Arguments) {
+            $startInfo.ArgumentList.Add($arg)
+        }
+    }
+    else {
+        $startInfo.Arguments = (Format-ProcessArguments -Arguments $Arguments) -join ' '
     }
 
     $process = [System.Diagnostics.Process]::new()
@@ -786,14 +797,74 @@ function Invoke-ArgumentListProcess {
 
     try {
         $null = $process.Start()
+        $processStartTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            $process.Kill($true)
-            $process.WaitForExit()
-            ThrowIf "Timed out while executing: $FilePath " + ($Arguments -join ' ')
+            if ($DisableAdbOnTimeout) {
+                $script:adbTransportTimedOut = $true
+                $script:adbTransportTimeoutEvidence = "instrumentation command exceeded $TimeoutSeconds seconds"
+            }
+
+            $terminationDetail = $null
+            try {
+                $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
+                if (-not (Test-Path -LiteralPath $taskKillPath -PathType Leaf)) {
+                    $terminationDetail = "taskkill.exe was not found at $taskKillPath"
+                }
+                else {
+                    $candidate = $null
+                    try {
+                        $candidate = [Diagnostics.Process]::GetProcessById($process.Id)
+                        if ($candidate.StartTime.ToUniversalTime().Ticks -ne $processStartTimeUtcTicks) {
+                            $terminationDetail = 'owned process identity changed before timeout cleanup'
+                        }
+                        elseif (-not $candidate.HasExited) {
+                            $taskKill = [Diagnostics.Process]::Start($taskKillPath, "/PID $($process.Id) /T /F")
+                            if ($null -eq $taskKill -or -not $taskKill.WaitForExit(30000)) {
+                                $terminationDetail = 'taskkill did not finish within 30 seconds'
+                            }
+                            elseif ($taskKill.ExitCode -ne 0) {
+                                $terminationDetail = "taskkill exited $($taskKill.ExitCode)"
+                            }
+                            $taskKill.Dispose()
+                        }
+                    }
+                    finally {
+                        if ($null -ne $candidate) { $candidate.Dispose() }
+                    }
+                }
+            }
+            catch {
+                $terminationDetail = $_.Exception.Message
+            }
+
+            if (-not $process.WaitForExit(30000) -and [string]::IsNullOrWhiteSpace($terminationDetail)) {
+                $terminationDetail = 'owned process did not exit within 30 seconds'
+            }
+            $drainTasks = [Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
+            $drainDetail = $null
+            try {
+                if ([Threading.Tasks.Task]::WaitAll($drainTasks, $DrainTimeoutSeconds * 1000)) {
+                    $stdout = $stdoutTask.GetAwaiter().GetResult()
+                    $stderr = $stderrTask.GetAwaiter().GetResult()
+                }
+                else {
+                    $drainDetail = "redirected output did not close within $DrainTimeoutSeconds seconds"
+                }
+            }
+            catch {
+                $drainDetail = $_.Exception.Message
+            }
+            $detail = @($terminationDetail, $drainDetail | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join '; '
+            if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'owned process tree terminated' }
+            ThrowIf "Timed out while executing: $FilePath $($Arguments -join ' ') ($detail)" $(if ($DisableAdbOnTimeout) { 'adb-timeout' } else { 'process-timeout' })
         }
         $process.WaitForExit()
+        $drainTasks = [Threading.Tasks.Task[]]@($stdoutTask, $stderrTask)
+        if (-not [Threading.Tasks.Task]::WaitAll($drainTasks, $DrainTimeoutSeconds * 1000)) {
+            ThrowIf "Process exited but redirected output did not close within $DrainTimeoutSeconds seconds: $FilePath $($Arguments -join ' ')" 'process-timeout'
+        }
         $stdout = $stdoutTask.GetAwaiter().GetResult()
         $stderr = $stderrTask.GetAwaiter().GetResult()
         $exitCode = $process.ExitCode
@@ -1575,10 +1646,10 @@ function Run-TestArchive {
         Invoke-Adb -Arguments @('shell', 'log', '-p', 'i', '-t', 'NanidroidCorpusHost', $attemptLogMarker) -TimeoutSeconds 10 | Out-Null
         $instrumentationStopwatch = [Diagnostics.Stopwatch]::StartNew()
         try {
-            $instrumentProcessResult = Invoke-ArgumentListProcess -FilePath $AdbPath -Arguments $processArguments -TimeoutSeconds ($PerArchiveTimeoutMinutes * 60)
+            $instrumentProcessResult = Invoke-ArgumentListProcess -FilePath $AdbPath -Arguments $processArguments -TimeoutSeconds ($PerArchiveTimeoutMinutes * 60) -DisableAdbOnTimeout
         }
         catch {
-            if ($_.Exception.Message -like 'Timed out while executing:*') {
+            if ($_.Exception.Message -like '*Timed out while executing:*') {
                 $script:adbTransportTimedOut = $true
                 $script:adbTransportTimeoutEvidence = "instrumentation for '$Label' exceeded $PerArchiveTimeoutMinutes minutes"
                 ThrowIf "adb timed out during instrumentation for $Label; no further ADB commands will be issued." 'adb-timeout'
@@ -1893,19 +1964,19 @@ if ($DryRun) {
         @{ context = 'run-as'; expectedArguments = @('shell', 'run-as', $targetPackage, 'ls', '-d', '/data/local/tmp/run-owned') },
         @{ context = 'output'; expectedArguments = @('shell', 'ls', '-d', '/data/local/tmp/run-owned') }
     )
-    $recordedDevicePathProbeInvocations = [System.Collections.Generic.List[hashtable]]::new()
+    $script:recordedDevicePathProbeInvocations = [System.Collections.Generic.List[hashtable]]::new()
     $recordingAdbInvoker = {
         param([hashtable]$Invocation)
-        $recordedDevicePathProbeInvocations.Add($Invocation)
+        $script:recordedDevicePathProbeInvocations.Add($Invocation)
         return @{ exitCode = 1; output = 'No such file or directory' }
-    }.GetNewClosure()
+    }
     foreach ($case in $devicePathProbeCases) {
-        $beforeCount = $recordedDevicePathProbeInvocations.Count
+        $beforeCount = $script:recordedDevicePathProbeInvocations.Count
         $presence = @(Get-DevicePathPresence -Path '/data/local/tmp/run-owned' -Context $case.context -AdbInvoker $recordingAdbInvoker)
-        if ($presence.Count -ne 0 -or $recordedDevicePathProbeInvocations.Count -ne ($beforeCount + 1)) {
+        if ($presence.Count -ne 0 -or $script:recordedDevicePathProbeInvocations.Count -ne ($beforeCount + 1)) {
             ThrowIf "Dry-run $($case.context) device-path presence probe did not invoke ADB exactly once and preserve missing-path handling."
         }
-        $invocation = $recordedDevicePathProbeInvocations[$beforeCount]
+        $invocation = $script:recordedDevicePathProbeInvocations[$beforeCount]
         if ($invocation.TimeoutSeconds -ne $DevicePathProbeTimeoutSeconds) {
             ThrowIf "Dry-run $($case.context) device-path probe did not receive the configured $DevicePathProbeTimeoutSeconds-second timeout."
         }
@@ -1967,6 +2038,54 @@ if ($DryRun) {
     if (-not $pwshPath) {
         ThrowIf 'Dry-run argument probe requires pwsh in PATH.'
     }
+    $cmdPath = [Environment]::GetEnvironmentVariable('ComSpec')
+    if ([string]::IsNullOrWhiteSpace($cmdPath)) {
+        ThrowIf 'Dry-run timeout-tree probe cannot resolve cmd.exe.'
+    }
+    $timeoutProbeReadyPath = Join-Path $hostRunTmpRoot 'timeout-tree.ready'
+    $timeoutProbeCommand = @"
+`$child = Start-Process -FilePath '$($cmdPath.Replace("'", "''"))' -ArgumentList @('/c', 'timeout /t 60 /nobreak >nul') -PassThru
+[IO.File]::WriteAllText('$($timeoutProbeReadyPath.Replace("'", "''"))', ('{0}|{1}|{2}|{3}' -f `$PID, `$([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks), `$child.Id, `$child.StartTime.ToUniversalTime().Ticks))
+Start-Sleep -Seconds 60
+"@
+    $timeoutProbeEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($timeoutProbeCommand))
+    $timeoutProbeFailed = $false
+    $timeoutProbeTimedOut = $false
+    try {
+        Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $timeoutProbeEncoded) -TimeoutSeconds 1 -DrainTimeoutSeconds 10 -DisableAdbOnTimeout | Out-Null
+    }
+    catch {
+        $timeoutProbeFailed = $_.Exception.Message -match 'adb-timeout: Timed out while executing:'
+        $timeoutProbeTimedOut = $script:adbTransportTimedOut
+    }
+    if (-not $timeoutProbeFailed -or -not $timeoutProbeTimedOut) {
+        ThrowIf 'Dry-run timeout-tree probe did not record and isolate the timed-out ADB transport.'
+    }
+    if (-not (Test-Path -LiteralPath $timeoutProbeReadyPath -PathType Leaf)) {
+        ThrowIf 'Dry-run timeout-tree probe did not report its wrapper and child identities.'
+    }
+    $timeoutProbeIdentities = (Get-Content -LiteralPath $timeoutProbeReadyPath -Raw).Trim() -split '\|'
+    if ($timeoutProbeIdentities.Count -ne 4) {
+        ThrowIf 'Dry-run timeout-tree probe reported malformed process identities.'
+    }
+    foreach ($offset in @(0, 2)) {
+        $candidate = $null
+        try {
+            $candidate = [Diagnostics.Process]::GetProcessById([int]$timeoutProbeIdentities[$offset])
+            if (-not $candidate.HasExited -and $candidate.StartTime.ToUniversalTime().Ticks -eq [long]$timeoutProbeIdentities[$offset + 1]) {
+                ThrowIf 'Dry-run timeout-tree probe left an owned wrapper or child alive.'
+            }
+        }
+        catch [System.ArgumentException] {
+        }
+        finally {
+            if ($null -ne $candidate) { $candidate.Dispose() }
+        }
+    }
+    Remove-Item -LiteralPath $timeoutProbeReadyPath -Force -ErrorAction SilentlyContinue
+    $script:adbTransportTimedOut = $false
+    $script:adbTransportTimeoutEvidence = $null
+    Write-Host 'Dry-run timeout-tree cleanup probe passed.'
     $invalidPathProbeTimeout = Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @(
         '-NoProfile',
         '-NoLogo',
