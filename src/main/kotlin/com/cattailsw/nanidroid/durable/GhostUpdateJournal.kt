@@ -8,6 +8,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.channels.OverlappingFileLockException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.util.UUID
@@ -57,6 +59,7 @@ internal object GhostUpdateJournalStore {
     private const val MAGIC = 0x4e475531
     internal const val MAX_FILES = 100_000
     private const val MAX_TEXT_BYTES = 16 * 1024
+    private const val PRIVATE_WRITING_PREFIX = ".nanidroid-update-writing-"
 
     fun write(file: File, journal: GhostUpdateJournal) {
         if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
@@ -99,7 +102,7 @@ internal object GhostUpdateJournalStore {
         if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
             throw IOException("cannot prepare update journal directory")
         }
-        val writing = File.createTempFile(".nanidroid-update-writing-", ".tmp", parent)
+        val writing = File.createTempFile(PRIVATE_WRITING_PREFIX, ".tmp", parent)
         var marker: File? = null
         try {
             writeContents(writing, journal, duringWrite)
@@ -127,13 +130,39 @@ internal object GhostUpdateJournalStore {
         }
     }
 
+    /** A live writer holds this OS lock until its temporary marker is published. */
+    fun deleteAbandonedPrivateMarkerWrite(file: File): Boolean {
+        if (
+            !file.isFile ||
+            java.nio.file.Files.isSymbolicLink(file.toPath()) ||
+            !file.name.startsWith(PRIVATE_WRITING_PREFIX) ||
+            !file.name.endsWith(".tmp")
+        ) return false
+        return try {
+            RandomAccessFile(file, "rw").use { handle ->
+                handle.channel.use { channel ->
+                    val lock = try {
+                        channel.tryLock()
+                    } catch (_: OverlappingFileLockException) {
+                        return false
+                    }
+                    lock.use { }
+                }
+            }
+            file.delete()
+        } catch (_: IOException) {
+            false
+        }
+    }
+
     private fun writeContents(
         file: File,
         journal: GhostUpdateJournal,
         duringWrite: (File) -> Unit = {},
     ) {
         FileOutputStream(file).use { raw ->
-            DataOutputStream(BufferedOutputStream(raw)).use { output ->
+            raw.channel.lock().use {
+                val output = DataOutputStream(BufferedOutputStream(raw))
                 output.writeInt(MAGIC)
                 output.flush()
                 duringWrite(file)

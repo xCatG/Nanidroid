@@ -1257,7 +1257,18 @@ class GhostUpdateRepository internal constructor(
                         entry.parentFile?.canonicalFile == storage
                 }
                 .forEach { staging -> sweepVerifiedUnpublishedStaging(storage, staging) }
+            sweepPrivateMarkerWrites(storage)
             sweepPrivateOwnershipMarkers(storage)
+        }
+
+        /** Reclaims private marker write residue only after its writer's OS lock is released. */
+        private fun sweepPrivateMarkerWrites(storage: File) {
+            storage.listFiles().orEmpty()
+                .filter { entry ->
+                    entry.parentFile?.canonicalFile == storage &&
+                        entry.name.startsWith(PRIVATE_WRITING_PREFIX)
+                }
+                .forEach(GhostUpdateJournalStore::deleteAbandonedPrivateMarkerWrite)
         }
 
         private fun sweepVerifiedUnpublishedStaging(storage: File, staging: File) {
@@ -1867,5 +1878,6 @@ class GhostUpdateRepository internal constructor(
         private const val TRANSACTION_PREFIX = ".nanidroid-update-"
         private const val STAGING_PREFIX = ".nanidroid-staging-"
         private const val PRIVATE_MARKER_PREFIX = ".nanidroid-update-owner-"
+        private const val PRIVATE_WRITING_PREFIX = ".nanidroid-update-writing-"
     }
 }

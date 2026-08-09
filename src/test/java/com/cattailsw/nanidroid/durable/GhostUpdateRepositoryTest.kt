@@ -2360,6 +2360,16 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `startup recovery reclaims an interrupted private marker write temporary`() {
+        val root = temporaryDirectory("interrupted-private-marker-write")
+        val writing = File.createTempFile(".nanidroid-update-writing-", ".tmp", root)
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(root))
+
+        assertFalse(writing.exists())
+    }
+
+    @Test
     fun `terminal published recovery skips WorkManager observation`() {
         val fixture = fixture("terminal-no-work-query")
         fixture.writeLive("ghost/master.txt", "new")
