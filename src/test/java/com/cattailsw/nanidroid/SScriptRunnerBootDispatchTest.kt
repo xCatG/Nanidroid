@@ -132,6 +132,53 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
+    fun timerDispatchesChangedElapsedBucketsAfterADelayedJump() {
+        val clock = FakeClock(59_000L)
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf())
+        runner.setGhost(ghost)
+
+        runner.dispatchClockTickForTesting()
+        clock.millis = 61_000L
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(
+            listOf(
+                "GET:OnSecondChange:[0, 0, 0, 1]",
+                "GET:OnSecondChange:[0, 0, 0, 1]",
+                "GET:OnMinuteChange:[0, 0, 0, 1]",
+            ),
+            ghost.rawRequests,
+        )
+    }
+
+    @Test
+    fun timerDispatchesEachObservedSecondAndMinuteBoundaryOnce() {
+        val clock = FakeClock(1_000L)
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf())
+        runner.setGhost(ghost)
+
+        runner.dispatchClockTickForTesting()
+        clock.millis = 2_000L
+        runner.dispatchClockTickForTesting()
+        clock.millis = 60_000L
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(
+            listOf(
+                "GET:OnSecondChange:[0, 0, 0, 1]",
+                "GET:OnSecondChange:[0, 0, 0, 1]",
+                "GET:OnSecondChange:[0, 0, 0, 1]",
+                "GET:OnMinuteChange:[0, 0, 0, 1]",
+            ),
+            ghost.rawRequests,
+        )
+    }
+
+    @Test
     fun passiveTimerSendsNotifyAndDoesNotReplaceItsDialogueOrPendingActions() {
         val clock = FakeClock(3_600_000L + 1_000L)
         val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)

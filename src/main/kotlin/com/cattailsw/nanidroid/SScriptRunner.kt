@@ -155,7 +155,9 @@ open class SScriptRunner internal constructor(
     private var noWaitMode = false
     private var playback = PlaybackState()
     private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"
-    private var lastSec = 0; private var lastMin = 0; private var lastHour = 0L; private var restore = false; private var exitPending = false; private var changingPending = false; private val bootDispatchState = BootDispatchState()
+    private var lastElapsedSecond: Long? = null
+    private var lastElapsedMinute: Long? = null
+    private var restore = false; private var exitPending = false; private var changingPending = false; private val bootDispatchState = BootDispatchState()
     private var dialogueState = DialogueRuntimeState()
     private var dialogueIncarnation = 0L
     private var nextDialogueTalkId = 0L
@@ -865,13 +867,16 @@ open class SScriptRunner internal constructor(
     }
     private fun perClockEvent() {
         val secondsAll = monotonicClock.nowMillis() / 1_000L
-        var minute = secondsAll / 60L
-        val hour = minute / 60L
-        val seconds = (secondsAll % 60L).toInt()
-        minute %= 60L
-        if (seconds - lastSec >= 1 || seconds == 0) { doPerSecondEvent(hour); lastSec = seconds }
-        if (minute - lastMin >= 1 || lastMin == 59 && minute == 0L) { doPerMinuteEvent(hour); lastMin = minute.toInt() }
-        if (hour - lastHour >= 1) lastHour = hour
+        val minutesAll = secondsAll / 60L
+        val hour = minutesAll / 60L
+        if (lastElapsedSecond != secondsAll) {
+            doPerSecondEvent(hour)
+            lastElapsedSecond = secondsAll
+        }
+        if (lastElapsedMinute != null && lastElapsedMinute != minutesAll) {
+            doPerMinuteEvent(hour)
+        }
+        lastElapsedMinute = minutesAll
     }
     internal fun dispatchClockTickForTesting() = perClockEvent()
     private fun parseShioriResponseAndInsert(res: ShioriResponse?) {
