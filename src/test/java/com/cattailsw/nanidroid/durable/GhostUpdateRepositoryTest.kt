@@ -2838,6 +2838,44 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `published recovery defers completion event for its exact terminal attempt`() {
+        val fixture = fixture("recovery-terminal-event")
+        fixture.writeLive("ghost/master.txt", "new")
+        fixture.writeTransaction("backup/ghost/master.txt", "old")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(5))
+        val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
+        fixture.writeJournal(CommitPhase.PUBLISHED, listOf("ghost/master.txt"), handle.attemptId, binding.uuid)
+
+        val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            store,
+            queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.FAILED },
+            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            onClassified = { journal, status ->
+                GhostUpdateWorker.deferRecoveredTerminalEvent(supervisor, journal, status)
+            },
+        )
+
+        assertEquals(RecoveryResult.CompletedCommit, recovery)
+        assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                fixture.ghostRoot.name,
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateComplete",
+                listOf("changed", "ghost/master.txt"),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
+    }
+
+    @Test
     fun `rollback classified topologies restore old tree idempotently`() {
         listOf("candidate-backup", "live-backup", "live-candidate", "live-only").forEach { topology ->
             val fixture = fixture("rollback-$topology")

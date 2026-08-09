@@ -295,6 +295,36 @@ class GhostUpdateWorker(
             )
         }
 
+        internal fun deferRecoveredTerminalEvent(
+            supervisor: DurableOperationSupervisor,
+            journal: GhostUpdateJournal,
+            status: OperationStatus,
+        ) {
+            val root = File(journal.ghostRoot).canonicalFile
+            val event = when (status) {
+                OperationStatus.COMPLETED -> GhostUpdateTerminalEvent(
+                    root.name,
+                    root.path,
+                    "OnUpdateComplete",
+                    listOf("changed", journal.files.joinToString(",")),
+                )
+                OperationStatus.FAILED -> GhostUpdateTerminalEvent(
+                    root.name,
+                    root.path,
+                    "OnUpdateFailure",
+                    listOf("ghost update recovery failed", journal.files.joinToString(",")),
+                )
+                else -> return
+            }
+            val attempt = journal.attemptId ?: return
+            val uuid = journal.workManagerUuid ?: return
+            supervisor.deferTerminalEvent(
+                OperationHandle(journal.operationId, attempt),
+                ExternalJobBinding.WorkManager(uuid),
+                event,
+            )
+        }
+
         internal fun execute(
             supervisor: DurableOperationSupervisor,
             handle: OperationHandle,
@@ -814,6 +844,9 @@ class GhostUpdateWorker(
                         status,
                     )
                 },
+                onClassified = { journal, status ->
+                    deferRecoveredTerminalEvent(durableSupervisor, journal, status)
+                },
             )
         } catch (e: DurableOperationStoreCorruptionException) {
             RecoveryResult.Failed(e.message ?: "corrupt durable operation store")
@@ -844,6 +877,9 @@ class GhostUpdateWorker(
                         status,
                     )
                 },
+                onClassified = { journal, status ->
+                    deferRecoveredTerminalEvent(durableSupervisor, journal, status)
+                },
             )
         } catch (e: DurableOperationStoreCorruptionException) {
             RecoveryResult.Failed(e.message ?: "corrupt durable operation store")
@@ -855,6 +891,7 @@ class GhostUpdateWorker(
             store: DurableOperationStore,
             queryWork: ((UUID) -> RecoveryWorkState)?,
             finish: (GhostUpdateJournal, OperationStatus) -> Boolean,
+            onClassified: (GhostUpdateJournal, OperationStatus) -> Unit = { _, _ -> },
         ): RecoveryResult = try {
             GhostUpdateRepository.recoverAllBeforeGhostLoad(
                 ghostStorageRoot,
@@ -914,7 +951,10 @@ class GhostUpdateWorker(
                             it.attemptId == attempt &&
                             it.externalJob == binding
                     } ?: return@recoverAllBeforeGhostLoad false
-                    record.status == status || finish(journal, status)
+                    if (record.status == status || finish(journal, status)) {
+                        onClassified(journal, status)
+                        true
+                    } else false
                 },
             )
         } catch (e: DurableOperationStoreCorruptionException) {
