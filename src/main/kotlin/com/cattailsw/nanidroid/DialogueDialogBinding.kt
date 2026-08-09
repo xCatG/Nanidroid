@@ -3,6 +3,9 @@ package com.cattailsw.nanidroid
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
+import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
+import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 
 internal data class DialogueDialogRestoration(
     val owner: String,
@@ -20,23 +23,42 @@ internal class DialogueDialogBinding(
     private val currentRunner: () -> SScriptRunner?,
 ) {
     fun userInput(
-        id: String,
-        generation: Long?,
+        pending: PendingInputState,
         value: String = "",
         onValueChanged: (String) -> Unit = {},
     ): NanidroidSimpleDialog.UserInput {
         val runner = currentRunner()
         val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val boundGeneration = generation?.takeIf {
-            snapshot?.dialogue?.pendingInput?.generation == it
+        val livePending = snapshot?.dialogue?.pendingInput?.takeIf {
+            it.generation == pending.generation && it.spec === pending.spec
         }
         return inputDialog(
+            inputId(pending),
+            value,
+            livePending?.spec?.presentation ?: InputPresentation(),
+            onValueChanged,
+            runner.takeIf { livePending != null },
+            livePending?.generation,
+            livePending?.let { DialogueDialogRestoration(requireNotNull(snapshot).owner, it.generation) },
+        )
+    }
+
+    fun userInput(
+        id: String,
+        generation: Long?,
+        value: String = "",
+        onValueChanged: (String) -> Unit = {},
+    ): NanidroidSimpleDialog.UserInput {
+        val pending = currentRunner()?.dialogueDialogRuntimeSnapshot()?.dialogue?.pendingInput
+            ?.takeIf { it.generation == generation && inputId(it) == id }
+        return pending?.let { userInput(it, value, onValueChanged) } ?: inputDialog(
             id,
             value,
+            InputPresentation(),
             onValueChanged,
-            runner.takeIf { boundGeneration != null },
-            boundGeneration,
-            boundGeneration?.let { DialogueDialogRestoration(requireNotNull(snapshot).owner, it) },
+            null,
+            null,
+            null,
         )
     }
 
@@ -48,16 +70,19 @@ internal class DialogueDialogBinding(
     ): NanidroidSimpleDialog.UserInput {
         val runner = currentRunner()
         val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val generation = restoration?.generation?.takeIf {
-            snapshot?.owner == restoration.owner && snapshot.dialogue.pendingInput?.generation == it
+        val pending = snapshot?.dialogue?.pendingInput?.takeIf {
+            restoration != null &&
+                snapshot.owner == restoration.owner &&
+                it.generation == restoration.generation
         }
         return inputDialog(
             id,
             value,
+            pending?.spec?.presentation ?: InputPresentation(),
             onValueChanged,
-            runner.takeIf { generation != null },
-            generation,
-            restoration.takeIf { generation != null },
+            runner.takeIf { pending != null },
+            pending?.generation,
+            restoration.takeIf { pending != null },
         )
     }
 
@@ -111,6 +136,7 @@ internal class DialogueDialogBinding(
     private fun inputDialog(
         id: String,
         value: String,
+        presentation: InputPresentation,
         onValueChanged: (String) -> Unit,
         runner: SScriptRunner?,
         generation: Long?,
@@ -118,6 +144,7 @@ internal class DialogueDialogBinding(
     ): NanidroidSimpleDialog.UserInput = NanidroidSimpleDialog.UserInput(
         id,
         value,
+        presentation,
         onValueChanged = onValueChanged,
         onSubmit = { _, input ->
             if (runner != null && generation != null && currentRunner() === runner) {
@@ -163,4 +190,9 @@ internal class DialogueDialogBinding(
 
     private fun List<DialogueAction>.hasSameIdentities(other: List<DialogueAction>): Boolean =
         size == other.size && indices.all { this[it] === other[it] }
+
+    private fun inputId(pending: PendingInputState): String = when (val dispatch = pending.spec.dispatch) {
+        is InputDispatch.Normal -> dispatch.id
+        is InputDispatch.DirectEvent -> dispatch.eventId
+    }
 }

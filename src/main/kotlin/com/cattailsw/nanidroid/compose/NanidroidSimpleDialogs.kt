@@ -50,6 +50,7 @@ import com.cattailsw.nanidroid.DialogueDialogRestoration
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadState
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 
 /** Compose-owned activity dialogs. State values are kept in the Activity bundle. */
 internal sealed interface NanidroidSimpleDialog {
@@ -62,6 +63,7 @@ internal sealed interface NanidroidSimpleDialog {
     data class UserInput(
         val id: String,
         val value: String,
+        val presentation: InputPresentation = InputPresentation(),
         val onValueChanged: (String) -> Unit,
         val onSubmit: (String, String) -> Unit,
         val onCancel: () -> Unit,
