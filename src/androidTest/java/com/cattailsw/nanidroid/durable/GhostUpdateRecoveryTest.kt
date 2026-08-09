@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class GhostUpdateRecoveryTest {
     @Test
-    fun recoveryWorkerUsesExactDurableWorkIdentityAfterRepositoryRecreation() {
+    fun recoveryWorkerQueriesExactDurableWorkIdentityBeforeRollingBackPreparedUpdate() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("durable_operations_v1", Context.MODE_PRIVATE)
             .edit().clear().commit()
@@ -37,7 +37,7 @@ class GhostUpdateRecoveryTest {
                 .build(),
         )
         val fixture = fixture("worker-${UUID.randomUUID()}")
-        fixture.backup("old")
+        fixture.live("old")
         fixture.candidate("new")
         val handle = OperationHandle(fixture.operationId, AttemptId(1))
         val expectedWorkId = durableWorkManagerId(handle, OperationKind.GHOST_UPDATE)
@@ -68,7 +68,7 @@ class GhostUpdateRecoveryTest {
         val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing update", 0, binding))
         assertEquals(binding, store.read().single().externalJob)
-        assertFalse(fixture.live.exists())
+        assertEquals("old", fixture.value())
 
         // The recovery worker owns fresh store, supervisor, and repository instances.
         GhostUpdateWorker.enqueueRecovery(context, fixture.parent, fixture.live)
@@ -77,9 +77,9 @@ class GhostUpdateRecoveryTest {
             GhostUpdateWorker.recoveryWorkName(fixture.parent, fixture.live),
         ).get(5, TimeUnit.SECONDS).single()
         assertEquals(WorkInfo.State.SUCCEEDED, recoveryInfo.state)
-        assertEquals("new", fixture.value())
+        assertEquals("old", fixture.value())
         assertFalse(fixture.transaction.exists())
-        assertEquals(OperationStatus.COMPLETED, SharedPreferencesDurableOperationStore(context).read().single().status)
+        assertEquals(OperationStatus.FAILED, SharedPreferencesDurableOperationStore(context).read().single().status)
     }
 
     @Test
