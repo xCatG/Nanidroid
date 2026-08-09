@@ -618,12 +618,10 @@ class DurableOperationSupervisor(
             val failure = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
             if (current.diagnostics == failure) return
             val updated = current.copy(showStallPrompt = preserveAttention, diagnostics = failure)
-            if (store.compareAndSet(
+            store.compareAndSet(
                 current,
                 updated,
-            )) {
-                recordObservationRevision(handle, updated)
-            }
+            )
         } catch (_: Exception) {
         }
     }

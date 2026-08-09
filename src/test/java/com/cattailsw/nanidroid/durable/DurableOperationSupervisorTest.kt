@@ -191,6 +191,33 @@ class DurableOperationSupervisorTest {
         assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun concurrentKeepWaitingDuringBoundCancellationFailureStartsANewObservationWindow() {
+        val handle = handle("bound-cancellation-observation", 1)
+        val binding = workManager("bound-cancellation-observation-worker")
+        val cancellation = BlockingCancellationFailure()
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertTrue(firstSupervisor.requestStop(handle))
+        clock.value = 30_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+
+        val bind = Thread { assertTrue(firstSupervisor.bindExternalJob(handle, binding)) }
+        bind.start()
+        assertTrue(cancellation.awaitCancellationStarted())
+        clock.value = 30_001
+        assertTrue(secondSupervisor.keepWaiting(handle))
+        cancellation.failCancellation()
+        bind.join(5_000)
+        assertFalse(bind.isAlive)
+
+        clock.value = 60_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 90_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun requestStopRetriesAfterPlatformCancellationThrows() {
         val cancellation = ThrowingCancellation()
         val stopHandle = handle("update-1", 1)
@@ -1761,6 +1788,23 @@ class DurableOperationSupervisorTest {
 
         fun finishRetry() {
             finishRetry.countDown()
+        }
+    }
+
+    private class BlockingCancellationFailure : OperationCancellation {
+        private val cancellationStarted = CountDownLatch(1)
+        private val finishCancellation = CountDownLatch(1)
+
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
+            cancellationStarted.countDown()
+            check(finishCancellation.await(5, TimeUnit.SECONDS))
+            throw IllegalStateException("platform cancellation failed")
+        }
+
+        fun awaitCancellationStarted(): Boolean = cancellationStarted.await(5, TimeUnit.SECONDS)
+
+        fun failCancellation() {
+            finishCancellation.countDown()
         }
     }
 
