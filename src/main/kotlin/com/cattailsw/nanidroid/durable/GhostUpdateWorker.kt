@@ -3,7 +3,9 @@ package com.cattailsw.nanidroid.durable
 import android.content.Context
 import android.net.Uri
 import androidx.work.Data
+import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.ListenableWorker
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -11,6 +13,7 @@ import androidx.work.WorkInfo
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.cattailsw.nanidroid.SScriptRunner
+import com.cattailsw.nanidroid.util.HttpStatusException
 import com.cattailsw.nanidroid.util.NetworkUtil
 import java.io.File
 import java.io.IOException
@@ -71,13 +74,20 @@ internal class ShioriGhostUpdateEvents(
     private fun List<String>.csv() = joinToString(",")
 }
 
+internal fun isRetryableGhostUpdateStatus(statusCode: Int): Boolean =
+    statusCode == 408 || statusCode == 429 || statusCode in 500..599
+
 internal class AndroidGhostUpdateNetwork(private val context: Context) : GhostUpdateNetwork {
     override fun open(baseUri: Uri, relativePath: String) = try {
         val builder = baseUri.buildUpon()
         relativePath.split('/').forEach(builder::appendPath)
-        NetworkUtil.getURLStream(context, builder.build().toString())
-    } catch (_: IOException) {
-        null
+        GhostUpdateOpenResult.Found(NetworkUtil.getURLStream(context, builder.build().toString()))
+    } catch (error: HttpStatusException) {
+        if (error.statusCode == 404) GhostUpdateOpenResult.NotFound
+        else if (isRetryableGhostUpdateStatus(error.statusCode)) GhostUpdateOpenResult.RetryableFailure(error)
+        else GhostUpdateOpenResult.NotFound
+    } catch (error: IOException) {
+        GhostUpdateOpenResult.RetryableFailure(error)
     }
 }
 
@@ -972,6 +982,9 @@ class GhostUpdateWorker(
             baseUri: Uri,
         ) = OneTimeWorkRequestBuilder<GhostUpdateWorker>()
             .setId(id)
+            .setConstraints(
+                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
+            )
             .setInputData(
                 Data.Builder()
                     .putString(INPUT_OPERATION_ID, operationId.value)

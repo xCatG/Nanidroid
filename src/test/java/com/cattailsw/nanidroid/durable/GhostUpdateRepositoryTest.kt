@@ -33,6 +33,17 @@ private fun workManagerBinding(label: String) = ExternalJobBinding.WorkManager(
 
 class GhostUpdateRepositoryTest {
     @Test
+    fun `retryable manifest transport failure preserves the update attempt`() {
+        val fixture = fixture("retryable-manifest")
+        fixture.network.retryablePaths += "updates2.dau"
+
+        assertEquals(
+            GhostUpdateResult.Interrupted,
+            fixture.repository().run(fixture.request()) { false },
+        )
+    }
+
+    @Test
     fun `verified update publishes one complete tree and preserves untouched files`() {
         val fixture = fixture("success")
         fixture.writeLive("ghost/master.txt", "old")
@@ -249,6 +260,49 @@ class GhostUpdateRepositoryTest {
             assertArrayEquals(original, File(fixture.ghostRoot, "ghost/master.txt").readBytes())
             assertFalse(phase, fixture.transactionRoot().exists())
             assertTrue(phase, fixture.network.openedStreams.all { it.closed })
+        }
+    }
+
+    @Test
+    fun `transport read failure during manifest or file download is retryable`() {
+        listOf("manifest", "download").forEach { phase ->
+            val fixture = fixture("transport-read-$phase")
+            fixture.writeLive("ghost/master.txt", "old")
+            fixture.network.manifest("ghost/master.txt" to bytes("new"))
+            if (phase == "manifest") {
+                fixture.network.onManifestRead = { throw IOException("connection reset") }
+            } else {
+                fixture.network.onCandidateRead = { throw IOException("connection reset") }
+            }
+
+            val result = fixture.repository().run(fixture.request()) { false }
+
+            assertEquals(phase, GhostUpdateResult.Interrupted, result)
+            assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+            assertFalse(phase, fixture.transactionRoot().exists())
+            assertTrue(phase, fixture.network.openedStreams.all { it.closed })
+        }
+    }
+
+    @Test
+    fun `transport close failure during manifest or file download is retryable`() {
+        listOf("manifest", "download").forEach { phase ->
+            val fixture = fixture("transport-close-$phase")
+            fixture.writeLive("ghost/master.txt", "old")
+            fixture.network.manifest("ghost/master.txt" to bytes("new"))
+            fixture.network.closeFailures += if (phase == "manifest") "updates2.dau" else "ghost/master.txt"
+
+            assertEquals(phase, GhostUpdateResult.Interrupted, fixture.repository().run(fixture.request()) { false })
+        }
+    }
+
+    @Test
+    fun `HTTP timeout throttling and server errors are retryable`() {
+        listOf(408, 429, 500, 503).forEach { status ->
+            assertTrue(status.toString(), isRetryableGhostUpdateStatus(status))
+        }
+        listOf(400, 401, 403, 404).forEach { status ->
+            assertFalse(status.toString(), isRetryableGhostUpdateStatus(status))
         }
     }
 
@@ -2232,6 +2286,8 @@ class GhostUpdateRepositoryTest {
         var onManifestRead: () -> Unit = {}
         val openedStreams = mutableListOf<TrackingInputStream>()
         val openedPaths = mutableListOf<String>()
+        val retryablePaths = mutableSetOf<String>()
+        val closeFailures = mutableSetOf<String>()
 
         fun manifest(vararg files: Pair<String, ByteArray>) {
             rawManifest(files.joinToString("\n") { (path, bytes) -> "$path\u0001${md5(bytes)}" })
@@ -2255,9 +2311,12 @@ class GhostUpdateRepositoryTest {
             content[path] = value
         }
 
-        override fun open(baseUri: Uri, relativePath: String): InputStream? {
-            if (!beforeOpen(relativePath)) return null
-            val bytes = content[relativePath] ?: return null
+        override fun open(baseUri: Uri, relativePath: String): GhostUpdateOpenResult {
+            if (relativePath in retryablePaths) {
+                return GhostUpdateOpenResult.RetryableFailure(IOException("temporary network failure"))
+            }
+            if (!beforeOpen(relativePath)) return GhostUpdateOpenResult.NotFound
+            val bytes = content[relativePath] ?: return GhostUpdateOpenResult.NotFound
             openedPaths += relativePath
             val delegate = ByteArrayInputStream(bytes)
             val stream = if (relativePath == "updates2.dau" || relativePath == "updates.txt") {
@@ -2265,18 +2324,24 @@ class GhostUpdateRepositoryTest {
                     override fun read(): Int = delegate.read().also { if (it >= 0) onManifestRead() }
                     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
                         delegate.read(buffer, offset, length).also { if (it > 0) onManifestRead() }
-                    override fun close() = delegate.close()
+                    override fun close() {
+                        delegate.close()
+                        if (relativePath in closeFailures) throw IOException("connection close failed")
+                    }
                 })
             } else {
                 TrackingInputStream(object : InputStream() {
                     override fun read(): Int = delegate.read().also { if (it >= 0) onCandidateRead() }
                     override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
                         delegate.read(buffer, offset, length).also { if (it > 0) onCandidateRead() }
-                    override fun close() = delegate.close()
+                    override fun close() {
+                        delegate.close()
+                        if (relativePath in closeFailures) throw IOException("connection close failed")
+                    }
                 })
             }
             openedStreams += stream
-            return stream
+            return GhostUpdateOpenResult.Found(stream)
         }
     }
 

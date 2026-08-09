@@ -15,6 +15,12 @@ import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
+sealed interface GhostUpdateOpenResult {
+    data class Found(val stream: InputStream) : GhostUpdateOpenResult
+    data object NotFound : GhostUpdateOpenResult
+    data class RetryableFailure(val error: IOException) : GhostUpdateOpenResult
+}
+
 data class GhostUpdateRequest(
     val operationId: OperationId,
     val ghostId: String,
@@ -23,6 +29,8 @@ data class GhostUpdateRequest(
     val attemptId: AttemptId? = null,
     val workManagerUuid: String? = null,
 )
+
+private class RetryableNetworkException(cause: IOException) : IOException(cause)
 
 sealed interface GhostUpdateResult {
     data class Completed(val files: List<String>) : GhostUpdateResult
@@ -41,7 +49,7 @@ internal enum class GhostUpdateStopReason {
 }
 
 fun interface GhostUpdateNetwork {
-    fun open(baseUri: Uri, relativePath: String): InputStream?
+    fun open(baseUri: Uri, relativePath: String): GhostUpdateOpenResult
 }
 
 interface GhostUpdateEvents {
@@ -248,14 +256,17 @@ class GhostUpdateRepository internal constructor(
                     throw IOException("cannot prepare candidate parent")
                 }
                 val digest = MessageDigest.getInstance("MD5")
-                val source = network.open(request.baseUri, entry.path)
-                    ?: throw IOException("update file not found: ${entry.path}")
+                val source = when (val opened = network.open(request.baseUri, entry.path)) {
+                    is GhostUpdateOpenResult.Found -> retryableNetworkStream(opened.stream)
+                    GhostUpdateOpenResult.NotFound -> throw IOException("update file not found: ${entry.path}")
+                    is GhostUpdateOpenResult.RetryableFailure -> throw RetryableNetworkException(opened.error)
+                }
                 source.use { input ->
                     FileOutputStream(target).use { output ->
                         val buffer = ByteArray(COPY_BUFFER)
                         while (true) {
                             throwIfStopped(stopReason)
-                            val count = input.read(buffer)
+                            val count = readNetwork(input, buffer)
                             if (count < 0) break
                             if (count == 0) continue
                             output.write(buffer, 0, count)
@@ -382,6 +393,9 @@ class GhostUpdateRepository internal constructor(
                     ?: GhostUpdateResult.Interrupted
                 is RecoveryResult.Failed -> failed(recovered.diagnostic, manifestFiles)
             }
+        } catch (error: RetryableNetworkException) {
+            if (!journalPersisted) fileOperations.deleteTree(transactionRoot)
+            return stopResult(stopReason()) ?: GhostUpdateResult.Interrupted
         } catch (e: Exception) {
             if (journalPersisted) {
                 when (val recovered = recoverAfterJournalFailure(
@@ -482,13 +496,17 @@ class GhostUpdateRepository internal constructor(
         stopReason: () -> GhostUpdateStopReason,
     ): ManifestSource? {
         for (name in listOf(UPDATE_V2, UPDATE_V3)) {
-            val source = network.open(request.baseUri, name) ?: continue
+            val source = when (val opened = network.open(request.baseUri, name)) {
+                is GhostUpdateOpenResult.Found -> retryableNetworkStream(opened.stream)
+                GhostUpdateOpenResult.NotFound -> continue
+                is GhostUpdateOpenResult.RetryableFailure -> throw RetryableNetworkException(opened.error)
+            }
             source.use { input ->
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(COPY_BUFFER)
                 while (true) {
                     throwIfStopped(stopReason)
-                    val count = input.read(buffer)
+                    val count = readNetwork(input, buffer)
                     if (count < 0) break
                     if (count == 0) continue
                     if (output.size() + count > MAX_MANIFEST_BYTES) throw IOException("update manifest is too large")
@@ -519,6 +537,24 @@ class GhostUpdateRepository internal constructor(
         if (!onCommitClassified(completed)) return GhostUpdateResult.PublishPending(files)
         finishPublishedTransaction(ghostRoot, operationId, journalIo)
         return completed
+    }
+
+    private fun readNetwork(input: InputStream, buffer: ByteArray): Int = try {
+        input.read(buffer)
+    } catch (error: IOException) {
+        throw RetryableNetworkException(error)
+    }
+
+    private fun retryableNetworkStream(source: InputStream): InputStream = object : InputStream() {
+        override fun read(): Int = source.read()
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            source.read(buffer, offset, length)
+
+        override fun close() = try {
+            source.close()
+        } catch (error: IOException) {
+            throw RetryableNetworkException(error)
+        }
     }
 
     private fun parseManifest(source: ManifestSource): List<ManifestEntry> {
