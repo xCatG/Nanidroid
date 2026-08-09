@@ -32,7 +32,7 @@ class TransientUiStateTest {
                 visible = true,
                 selectedSpeaker = SurfaceSpeaker.KERO,
                 showCollisionOverlay = true,
-                sampleQueued = false,
+                sampleFeedbackToken = 0L,
             ),
             debug.debugPanelState,
         )

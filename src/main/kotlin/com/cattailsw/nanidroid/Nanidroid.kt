@@ -45,8 +45,10 @@ import com.cattailsw.nanidroid.compose.debug.SurfacePointerDebugEvent
 import com.cattailsw.nanidroid.compose.debug.collisionOverlaySpeaker
 import com.cattailsw.nanidroid.compose.debug.dismissDebugSurface
 import com.cattailsw.nanidroid.compose.debug.debugSelection
-import com.cattailsw.nanidroid.compose.debug.resolveDebugPresentation
 import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
+import com.cattailsw.nanidroid.compose.debug.recordSampleFeedback
+import com.cattailsw.nanidroid.compose.debug.resolveDebugPresentation
+import com.cattailsw.nanidroid.compose.debug.showDebugSurface
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
@@ -131,7 +133,7 @@ internal fun restoredTransientUiSnapshot(
             selectedSpeaker = SurfaceSpeaker.entries.firstOrNull { it.name == debugSpeakerName }
                 ?: SurfaceSpeaker.SAKURA,
             showCollisionOverlay = collisionOverlayVisible,
-            sampleQueued = false,
+            sampleFeedbackToken = 0L,
         )
     } else {
         DebugPanelState()
@@ -147,7 +149,7 @@ internal fun transientUiSnapshotToSave(
 ): TransientUiSnapshot? = pending ?: if (initialized) {
     TransientUiSnapshot(
         toolbarVisible = toolbarVisible,
-        debugPanelState = debugPanelState.copy(sampleQueued = false),
+        debugPanelState = debugPanelState.copy(sampleFeedbackToken = 0L),
     )
 } else {
     null
@@ -417,10 +419,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     archiveDownloads = downloads,
                     showDebugControls = dbgBuild,
                     onDebug = {
-                        debugPanelState = debugPanelState.copy(
-                            visible = true,
-                            sampleQueued = false,
-                        )
+                        debugPanelState = debugPanelState.showDebugSurface()
                     },
                     simpleDialog = simpleDialog,
                     onDismissSimpleDialog = { simpleDialog = null },
@@ -457,7 +456,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                                     debugPanelState = debugPanelState.copy(showCollisionOverlay = it)
                                 },
                                 onNarTest = {
-                                    debugPanelState = debugPanelState.copy(sampleQueued = true)
+                                    debugPanelState = debugPanelState.recordSampleFeedback()
                                     narTest()
                                 },
                                 onDismiss = {
@@ -500,11 +499,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             source = source.shioriReference,
         )
     private fun showProgress() {
-        debugPanelState = debugPanelState.copy(
-            visible = false,
-            showCollisionOverlay = false,
-            sampleQueued = false,
-        )
+        debugPanelState = debugPanelState.dismissDebugSurface().copy(showCollisionOverlay = false)
         loading = true
     }
     private fun hideProgress() {

@@ -11,8 +11,17 @@ data class DebugPanelState(
     val visible: Boolean = false,
     val selectedSpeaker: SurfaceSpeaker = SurfaceSpeaker.SAKURA,
     val showCollisionOverlay: Boolean = false,
-    val sampleQueued: Boolean = false,
+    /** Changes for every sample activation so Compose can present fresh feedback. */
+    val sampleFeedbackToken: Long = 0L,
 )
+
+fun DebugPanelState.showDebugSurface(): DebugPanelState = copy(
+    visible = true,
+    sampleFeedbackToken = 0L,
+)
+
+fun DebugPanelState.recordSampleFeedback(): DebugPanelState =
+    copy(sampleFeedbackToken = sampleFeedbackToken + 1L)
 
 fun DebugPanelState.collisionOverlaySpeaker(
     loading: Boolean,
@@ -21,7 +30,10 @@ fun DebugPanelState.collisionOverlaySpeaker(
     !loading && debugBuild && showCollisionOverlay
 }
 
-fun DebugPanelState.dismissDebugSurface(): DebugPanelState = copy(visible = false)
+fun DebugPanelState.dismissDebugSurface(): DebugPanelState = copy(
+    visible = false,
+    sampleFeedbackToken = 0L,
+)
 
 enum class DebugPresentation {
     FULL_STAGE_MODAL,

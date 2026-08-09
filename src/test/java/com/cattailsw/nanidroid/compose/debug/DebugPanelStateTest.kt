@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.compose.debug
 
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -50,5 +51,16 @@ class DebugPanelStateTest {
                 debugBuild = true,
             ),
         )
+    }
+
+    @Test
+    fun sampleFeedbackTokenChangesForEveryActivationAndClearsWhenPanelChanges() {
+        val openPanel = DebugPanelState(visible = true)
+        val firstActivation = openPanel.recordSampleFeedback()
+        val secondActivation = firstActivation.recordSampleFeedback()
+
+        assertNotEquals(firstActivation.sampleFeedbackToken, secondActivation.sampleFeedbackToken)
+        assertEquals(0L, secondActivation.dismissDebugSurface().sampleFeedbackToken)
+        assertEquals(0L, secondActivation.showDebugSurface().sampleFeedbackToken)
     }
 }

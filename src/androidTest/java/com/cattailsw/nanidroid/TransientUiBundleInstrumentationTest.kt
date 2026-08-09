@@ -20,7 +20,7 @@ class TransientUiBundleInstrumentationTest {
                 visible = true,
                 selectedSpeaker = SurfaceSpeaker.KERO,
                 showCollisionOverlay = true,
-                sampleQueued = false,
+                sampleFeedbackToken = 0L,
             ),
         )
         val bundle = Bundle().apply { writeTransientUiSnapshot(expected) }
