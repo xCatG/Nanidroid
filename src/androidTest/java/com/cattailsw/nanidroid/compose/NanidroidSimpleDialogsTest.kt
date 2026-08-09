@@ -56,6 +56,7 @@ class NanidroidSimpleDialogsTest {
         composeRule.onNodeWithTag("script-user-input")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.ImeAction, ImeAction.Done))
+        composeRule.waitUntil(5_000) { focusedComposeViewOrNull() != null }
         composeRule.runOnIdle {
             val editorInfo = EditorInfo()
             assertNotNull(focusedComposeView().onCreateInputConnection(editorInfo))
@@ -156,10 +157,12 @@ class NanidroidSimpleDialogsTest {
             .assertIsEnabled()
     }
 
-    private fun focusedComposeView(): View = WindowInspector.getGlobalWindowViews()
+    private fun focusedComposeView(): View = requireNotNull(focusedComposeViewOrNull())
+
+    private fun focusedComposeViewOrNull(): View? = WindowInspector.getGlobalWindowViews()
         .asSequence()
         .flatMap(::descendants)
-        .first { it.javaClass.name == "androidx.compose.ui.platform.AndroidComposeView" && it.hasFocus() }
+        .firstOrNull { it.javaClass.name == "androidx.compose.ui.platform.AndroidComposeView" && it.hasFocus() }
 
     private fun descendants(view: View): Sequence<View> = sequence {
         yield(view)
