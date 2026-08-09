@@ -250,6 +250,32 @@ emulator. Press Enter only after both paths exist: the runner immediately
 rehashes them, records `interaction-capture.json`, and cleans up its owned
 session.
 
+### Snake/Otacon checkpoint setup
+
+Task 17 deliberately removes every corpus archive and app install after each
+profile. The UI-audit runner then installs only the audited APK before this
+checkpoint, so stage the pinned Snake/Otacon archive from the same corpus roots
+in the second terminal before taking the input/IME screenshot. Select the
+archive whose SHA-256 is
+`1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5`:
+
+```powershell
+$snakeNar = Get-ChildItem C:\work\src\Nanidroid\2elf-2.46.nar, C:\work\src\Nanidroid\build\ui-audit\ghosts, C:\work\src\Nanidroid\build\ui-audit\pcPets -Recurse -File -Include *.nar |
+  Where-Object { (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() -eq '1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5' } |
+  Select-Object -First 1
+if ($null -eq $snakeNar) { throw 'Pinned Snake and Otacon V1.3.2 archive was not found in the supplied corpus roots.' }
+adb -s emulator-5554 push $snakeNar.FullName /sdcard/Download/snake-and-otacon-v1.3.2.nar
+```
+
+On that owned emulator, in Nanidroid choose **List Ghosts** → **More Ghost** →
+**Install from SD card**, select
+`Download/snake-and-otacon-v1.3.2.nar`, and wait for the local install to finish.
+Open **List Ghosts** again, select Snake and Otacon, and confirm its switch. Start
+the dialogue and take the first choice to open its `OnNameTeach` input; leave its
+IME visible for `snake-otacon-input-ime-visible.png`. These steps use the app's
+normal local-import and ghost-switch flow while the audit process remains paused;
+they do not rerun the corpus harness or replace the audited APK.
+
 The capture command exits after writing `captured-awaiting-manual-inspection`;
 that status is not a passing audit. The executing reviewer owns
 `manual-inspection.md`. Open every fresh PNG at its original resolution and fill
