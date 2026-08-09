@@ -16,7 +16,7 @@ class DurableOperationSupervisor(
     private val cancellationIssued = mutableSetOf<BoundCancellation>()
     private val revealedStoppingAttention = mutableSetOf<OperationHandle>()
     private val restartSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
-    private val keepWaitingSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
+    private val keepWaitingSuppressedAttention = mutableMapOf<OperationHandle, Long>()
     @Volatile private var mutationListener: (() -> Unit)? = null
 
     init {
@@ -445,7 +445,7 @@ class DurableOperationSupervisor(
                     record.attentionKeepWaitingGeneration >
                         previousRevision.attentionKeepWaitingGeneration
                 ) {
-                    keepWaitingSuppressedAttention[handle] = record
+                    keepWaitingSuppressedAttention[handle] = record.attentionKeepWaitingGeneration
                 }
             }
             val observedAt = lastProgressAt.getOrPut(handle) { now }
@@ -564,7 +564,7 @@ class DurableOperationSupervisor(
         restartSuppressedAttention[handle()] == this
 
     private fun DurableOperationRecord.isKeepWaitingSuppressed(): Boolean =
-        keepWaitingSuppressedAttention[handle()] == this
+        keepWaitingSuppressedAttention[handle()] == attentionKeepWaitingGeneration
 
     private fun DurableOperationRecord.attentionEscalationDue(
         elapsedMillis: Long,
@@ -679,12 +679,10 @@ class DurableOperationSupervisor(
             !current.isCancellationDispatchFailure()
         ) return
         val updated = current.copy(showStallPrompt = preserveAttention, diagnostics = null)
-        if (store.compareAndSet(
+        store.compareAndSet(
             current,
             updated,
-        )) {
-            recordObservationRevision(handle, updated)
-        }
+        )
     }
 
     private fun OperationStatus.isActive() =

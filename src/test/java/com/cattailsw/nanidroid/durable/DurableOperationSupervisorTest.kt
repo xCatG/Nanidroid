@@ -247,6 +247,35 @@ class DurableOperationSupervisorTest {
         assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun concurrentKeepWaitingDuringSuccessfulCancellationRetryStartsANewObservationWindow() {
+        val handle = handle("successful-cancellation-observation", 1)
+        val binding = workManager("successful-cancellation-observation-worker")
+        val cancellation = FailingThenBlockingSuccessCancellation()
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(firstSupervisor.requestStop(handle))
+        clock.value = 30_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+
+        val retry = Thread {
+            assertTrue(firstSupervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        }
+        retry.start()
+        assertTrue(cancellation.awaitRetryStarted())
+        clock.value = 30_001
+        assertTrue(secondSupervisor.keepWaiting(handle))
+        cancellation.finishRetry()
+        retry.join(5_000)
+        assertFalse(retry.isAlive)
+
+        clock.value = 60_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 90_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun requestStopRetriesAfterPlatformCancellationThrows() {
         val cancellation = ThrowingCancellation()
         val stopHandle = handle("update-1", 1)
@@ -1834,6 +1863,25 @@ class DurableOperationSupervisorTest {
 
         fun failCancellation() {
             finishCancellation.countDown()
+        }
+    }
+
+    private class FailingThenBlockingSuccessCancellation : OperationCancellation {
+        private val retryStarted = CountDownLatch(1)
+        private val finishRetry = CountDownLatch(1)
+        private var calls = 0
+
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
+            calls++
+            if (calls == 1) throw IllegalStateException("platform cancellation failed")
+            retryStarted.countDown()
+            check(finishRetry.await(5, TimeUnit.SECONDS))
+        }
+
+        fun awaitRetryStarted(): Boolean = retryStarted.await(5, TimeUnit.SECONDS)
+
+        fun finishRetry() {
+            finishRetry.countDown()
         }
     }
 
