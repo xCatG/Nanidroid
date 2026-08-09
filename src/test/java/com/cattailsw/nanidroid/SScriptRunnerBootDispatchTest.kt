@@ -179,6 +179,66 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
+    fun timerGetDoesNotPlayAfterAnInterveningTalkReturnsIdle() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
+            rawResponseHook = {
+                runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
+                runner.run()
+            }
+            rawResponses += talk("\\hStaleTimer\\e")
+        }
+        runner.setGhost(ghost)
+
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Intervening")))),
+            runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
+    fun timerGetPlaysWhenIdleEligibilityNeverChanges() {
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hTimer\\e")
+        }
+        runner.setGhost(ghost)
+
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Timer")))),
+            runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
+    fun timerGetStillDropsWhenInterveningTalkRemainsActive() {
+        val scheduler = RecordingPlaybackScheduler()
+        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L), { scheduler })
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
+            rawResponseHook = {
+                runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
+                runner.run()
+            }
+            rawResponses += talk("\\hStaleTimer\\e")
+        }
+        runner.setGhost(ghost)
+
+        runner.dispatchClockTickForTesting()
+        scheduler.runPending()
+
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Intervening")))),
+            runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
     fun passiveTimerSendsNotifyAndDoesNotReplaceItsDialogueOrPendingActions() {
         val clock = FakeClock(3_600_000L + 1_000L)
         val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
