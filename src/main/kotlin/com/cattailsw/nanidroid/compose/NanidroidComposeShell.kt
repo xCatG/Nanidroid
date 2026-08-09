@@ -5,6 +5,8 @@ package com.cattailsw.nanidroid.compose
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,6 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import com.cattailsw.nanidroid.R
@@ -41,6 +44,7 @@ import com.cattailsw.nanidroid.compose.debug.DebugAvailabilityPolicy
 import com.cattailsw.nanidroid.compose.durable.StalledOperationPrompt
 import com.cattailsw.nanidroid.compose.durable.DurableStoreRecoveryPrompt
 import com.cattailsw.nanidroid.install.NarDownload
+import com.cattailsw.nanidroid.install.NarDownloadState
 import com.cattailsw.nanidroid.durable.DurableAttentionAction
 import com.cattailsw.nanidroid.durable.DurableOperationRecord
 import com.cattailsw.nanidroid.durable.OperationHandle
@@ -173,6 +177,8 @@ private fun NanidroidToolbar(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val debugButtonDescription = stringResource(R.string.debug_button_description)
+    val archiveQueueStatus = archiveQueueStatus(archiveDownloads)
+    val archiveQueueDescription = archiveQueueDescription(archiveQueueStatus)
     TopAppBar(
         modifier = Modifier.testTag("appbar"),
         title = {
@@ -192,13 +198,28 @@ private fun NanidroidToolbar(
             }
             TextButton(
                 onClick = { showMenu = true },
-                modifier = Modifier.testTag("appbar-overflow"),
+                modifier = Modifier
+                    .testTag("appbar-overflow")
+                    .semantics { contentDescription = archiveQueueDescription },
             ) {
-                Text(
-                    text = stringResource(R.string.more_btn_text),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                BadgedBox(
+                    badge = {
+                        if (archiveQueueStatus.count > 0) {
+                            Badge(
+                                containerColor = archiveQueueStatus.badgeColor(),
+                                modifier = Modifier.testTag("archive-queue-status"),
+                            ) {
+                                Text(archiveQueueStatus.count.toString())
+                            }
+                        }
+                    },
+                ) {
+                    Text(
+                        text = stringResource(R.string.more_btn_text),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             DropdownMenu(
                 expanded = showMenu,
@@ -271,6 +292,59 @@ private fun archiveQueueLabel(downloads: List<NarDownload>): String =
     } else {
         stringResource(R.string.archive_queue_btn_text_with_count, downloads.size)
     }
+
+private enum class ArchiveQueueStatusType {
+    Empty,
+    Active,
+    Complete,
+    NeedsAttention,
+    Other,
+}
+
+private data class ArchiveQueueStatus(
+    val type: ArchiveQueueStatusType,
+    val count: Int,
+)
+
+private fun archiveQueueStatus(downloads: List<NarDownload>): ArchiveQueueStatus {
+    val attentionCount = downloads.count { it.state is NarDownloadState.NeedsAttention }
+    if (attentionCount > 0) return ArchiveQueueStatus(ArchiveQueueStatusType.NeedsAttention, attentionCount)
+
+    val activeCount = downloads.count {
+        it.state == NarDownloadState.Copying ||
+            it.state == NarDownloadState.Queued ||
+            it.state == NarDownloadState.Downloading ||
+            it.state == NarDownloadState.Installing
+    }
+    if (activeCount > 0) return ArchiveQueueStatus(ArchiveQueueStatusType.Active, activeCount)
+
+    val completeCount = downloads.count { it.state == NarDownloadState.Complete }
+    if (completeCount > 0) return ArchiveQueueStatus(ArchiveQueueStatusType.Complete, completeCount)
+
+    return ArchiveQueueStatus(
+        type = if (downloads.isEmpty()) ArchiveQueueStatusType.Empty else ArchiveQueueStatusType.Other,
+        count = downloads.size,
+    )
+}
+
+@Composable
+private fun archiveQueueDescription(status: ArchiveQueueStatus): String = when (status.type) {
+    ArchiveQueueStatusType.Empty -> stringResource(R.string.archive_queue_overflow_empty)
+    ArchiveQueueStatusType.Active -> pluralStringResource(R.plurals.archive_queue_overflow_active, status.count, status.count)
+    ArchiveQueueStatusType.Complete -> pluralStringResource(R.plurals.archive_queue_overflow_complete, status.count, status.count)
+    ArchiveQueueStatusType.NeedsAttention -> pluralStringResource(R.plurals.archive_queue_overflow_attention, status.count, status.count)
+    ArchiveQueueStatusType.Other -> pluralStringResource(R.plurals.archive_queue_overflow_other, status.count, status.count)
+}
+
+@Composable
+private fun ArchiveQueueStatus.badgeColor(): Color = when (type) {
+    ArchiveQueueStatusType.NeedsAttention -> MaterialTheme.colorScheme.error
+    ArchiveQueueStatusType.Active -> MaterialTheme.colorScheme.tertiary
+    ArchiveQueueStatusType.Complete,
+    ArchiveQueueStatusType.Other,
+    ArchiveQueueStatusType.Empty,
+    -> MaterialTheme.colorScheme.primary
+}
 
 @Composable
 private fun LoadingOverlay(progressMessage: String) {

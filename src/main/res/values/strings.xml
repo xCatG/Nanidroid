@@ -56,6 +56,23 @@
   <string name="archive_queue_btn_text">Downloads</string>
   <string name="archive_queue_status_text">Downloads (%1$d)</string>
   <string name="archive_queue_btn_text_with_count">%1$d downloads</string>
+  <string name="archive_queue_overflow_empty">More, no archive downloads</string>
+  <plurals name="archive_queue_overflow_active">
+    <item quantity="one">More, %d download active</item>
+    <item quantity="other">More, %d downloads active</item>
+  </plurals>
+  <plurals name="archive_queue_overflow_complete">
+    <item quantity="one">More, %d download complete</item>
+    <item quantity="other">More, %d downloads complete</item>
+  </plurals>
+  <plurals name="archive_queue_overflow_attention">
+    <item quantity="one">More, %d download needs attention</item>
+    <item quantity="other">More, %d downloads need attention</item>
+  </plurals>
+  <plurals name="archive_queue_overflow_other">
+    <item quantity="one">More, %d archive download</item>
+    <item quantity="other">More, %d archive downloads</item>
+  </plurals>
   
   <string name="user_input_dlg_title">Input</string>
   <string name="user_input_required">Input is required</string>
