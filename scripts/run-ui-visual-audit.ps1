@@ -971,6 +971,15 @@ function Write-InteractionCaptureCheckpoint([object]$Record) {
     if (-not $script:interactionCheckpointPersisted) { Fail 'Interaction capture checkpoint was not persisted.' 'artifact' }
 }
 
+function Invalidate-PreviousManualInteractionCheckpoint([string]$Root = $reportRoot) {
+    foreach ($artifactName in @('summary.json', 'summary.md', 'interaction-capture.json')) {
+        $artifactPath = Join-Path $Root $artifactName
+        if (Test-Path -LiteralPath $artifactPath -PathType Leaf) {
+            Remove-Item -LiteralPath $artifactPath -Force
+        }
+    }
+}
+
 function Assert-AuditedPackagePresence([string]$PackagePathOutput, [string]$PackagePid) {
     if ($PackagePathOutput -notmatch '(?m)^package:.+') { Fail "Audited package '$targetPackage' is not installed at the interaction checkpoint." 'device' }
     if ([string]::IsNullOrWhiteSpace($PackagePid)) { Fail "Audited package '$targetPackage' is not running at the interaction checkpoint." 'device' }
@@ -1856,6 +1865,16 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     }
     $interactionPreflightRoot = Join-Path $repoRoot ".superpowers\ui-audit-interaction-preflight-$([guid]::NewGuid().ToString('N'))"
     try {
+        New-Item -ItemType Directory -Force -Path $interactionPreflightRoot | Out-Null
+        foreach ($staleEvidence in @('summary.json', 'summary.md', 'interaction-capture.json')) {
+            Set-Content -LiteralPath (Join-Path $interactionPreflightRoot $staleEvidence) -Value 'stale evidence' -Encoding UTF8
+        }
+        Invalidate-PreviousManualInteractionCheckpoint $interactionPreflightRoot
+        foreach ($staleEvidence in @('summary.json', 'summary.md', 'interaction-capture.json')) {
+            if (Test-Path -LiteralPath (Join-Path $interactionPreflightRoot $staleEvidence) -PathType Leaf) {
+                Fail "Stale interaction checkpoint artifact '$staleEvidence' was not invalidated before capture." 'dry-run'
+            }
+        }
         Assert-RequiredInteractionEvidenceAbsent $Manifest $interactionPreflightRoot
         $existingInteractionPath = Resolve-SafeReportArtifactPath $interactionPreflightRoot $Manifest.interactionEvidence[0].artifactPath $false
         New-Item -ItemType Directory -Force -Path (Split-Path $existingInteractionPath -Parent) | Out-Null
@@ -1889,6 +1908,7 @@ try {
     $resolvedCorpusRoots=Assert-CorpusInputs $narManifest
     $manualPath=Join-Path $reportRoot 'manual-inspection.md'
     if(Test-Path -LiteralPath $manualPath){$existing=Get-Content -LiteralPath $manualPath -Raw;if($existing -match '(?im)^Audit status:\s*complete\s*$' -or (Test-ManualInspectionHasRecordedResult $existing)){Fail 'Refusing completed checklist overwrite.' 'report'}}
+    Invalidate-PreviousManualInteractionCheckpoint $reportRoot
 
     $script:resolvedAdb=Resolve-SdkTool $AdbPath 'platform-tools\adb.exe' 'adb'
     $script:resolvedEmulator=Resolve-SdkTool $EmulatorPath 'emulator\emulator.exe' 'emulator'
