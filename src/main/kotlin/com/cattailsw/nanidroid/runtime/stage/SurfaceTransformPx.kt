@@ -818,8 +818,8 @@ private fun repairCollapsedSurface(
             rounded
         } else {
             bounds(
-                rounded.left.toLong().coerceIn(commonLeft, maxLeft),
-                rounded.top.toLong().coerceIn(commonTop, maxTop),
+                (rounded.left.toLong() - width / 2L).coerceIn(commonLeft, maxLeft),
+                (rounded.top.toLong() - height / 2L).coerceIn(commonTop, maxTop),
             ) ?: rounded
         }
     }

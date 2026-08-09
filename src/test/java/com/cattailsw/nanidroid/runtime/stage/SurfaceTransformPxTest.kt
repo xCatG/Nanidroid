@@ -224,6 +224,41 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `collapsed surface interior fallback centers then clamps at constraint edges`() {
+        fun transformFor(
+            surface: StageDpRect,
+            intrinsicSize: IntSize,
+            constraint: StageDpRect = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+        ): SurfaceTransformPx? = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurface = surface,
+            ).copy(
+                keroLane = constraint,
+                keroSurfaceRegion = constraint,
+            ),
+            density = 1f,
+        ).transformFor(SurfaceScope.KERO, intrinsicSize)
+
+        assertEquals(
+            IntRect(20, 90, 140, 91),
+            transformFor(
+                surface = StageDpRect(69.6.dp, 89.6.dp, 70.4.dp, 90.4.dp),
+                intrinsicSize = IntSize(120, 1),
+                constraint = StageDpRect(20.dp, 0.dp, 180.dp, 180.dp),
+            )?.renderedBounds,
+        )
+        assertEquals(
+            IntRect(90, 20, 91, 140),
+            transformFor(
+                surface = StageDpRect(89.6.dp, 69.6.dp, 90.4.dp, 70.4.dp),
+                intrinsicSize = IntSize(1, 120),
+                constraint = StageDpRect(0.dp, 20.dp, 180.dp, 180.dp),
+            )?.renderedBounds,
+        )
+    }
+
+    @Test
     fun `collapsed surface repairs with its reduced intrinsic aspect ratio`() {
         val measured = StageLayoutPx.from(
             layout(
