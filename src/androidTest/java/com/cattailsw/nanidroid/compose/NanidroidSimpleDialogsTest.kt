@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.test.DeviceConfigurationOverride
 import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.SemanticsMatcher
@@ -32,7 +33,7 @@ class NanidroidSimpleDialogsTest {
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun passwordInputUsesPasswordVisualTransformation() {
+    fun passwordInputUsesPasswordKeyboardSemantics() {
         composeRule.setContent {
             InputDialog(
                 presentation = InputPresentation(obscured = true),
@@ -41,6 +42,7 @@ class NanidroidSimpleDialogsTest {
 
         composeRule.onNodeWithTag("script-user-input")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.ImeAction, ImeAction.Done))
     }
 
     @Test
@@ -54,6 +56,8 @@ class NanidroidSimpleDialogsTest {
         }
 
         composeRule.onNodeWithTag("script-user-input").performTextInput("first\nsecond")
+        composeRule.onNodeWithTag("script-user-input")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.ImeAction, ImeAction.Default))
         composeRule.onNodeWithTag("script-user-input-confirm")
             .assertIsDisplayed()
             .performClick()
@@ -100,7 +104,11 @@ class NanidroidSimpleDialogsTest {
         composeRule.onAllNodes(
             SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Input"),
         ).assertCountEquals(1)
-        composeRule.onNodeWithTag("script-user-input-confirm").assertIsEnabled()
+        composeRule.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+            .assertCountEquals(1)
+        composeRule.onNodeWithTag("script-user-input-confirm")
+            .assertIsDisplayed()
+            .assertIsEnabled()
     }
 
     @androidx.compose.runtime.Composable
