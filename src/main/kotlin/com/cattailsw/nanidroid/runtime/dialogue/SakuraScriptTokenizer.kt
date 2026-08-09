@@ -62,6 +62,7 @@ object SakuraScriptTokenizer {
                 '_' -> {
                     if (index >= script.length) continue
                     val underscoreCommand = script[index++]
+                    if (underscoreCommand == 'q') continue
                     val bracket = readBracket(script, index)
                     if (bracket != null) {
                         index = if (underscoreCommand == 'a') {

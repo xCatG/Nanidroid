@@ -699,6 +699,23 @@ class SakuraScriptTokenizerTest {
     }
 
     @Test
+    fun remainingVisibleChoicesDoesNotConsumeBracketAfterPayloadlessUnderscoreQ() {
+        val script = "\\q[A,a]\\_q[label \\q[B,b]]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
+    @Test
     fun remainingVisibleChoicesSkipsChoicesInsideAnchorLabels() {
         val script = "\\q[A,a]\\_a[id]label \\q[Fake,fake]\\_a\\q[B,b]"
 
