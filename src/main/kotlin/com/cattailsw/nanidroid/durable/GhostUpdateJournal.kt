@@ -64,22 +64,7 @@ internal object GhostUpdateJournalStore {
             throw IOException("cannot prepare update journal directory")
         }
         val temporary = File(parent, "$FILE_NAME.tmp")
-        FileOutputStream(temporary).use { raw ->
-            DataOutputStream(BufferedOutputStream(raw)).use { output ->
-                output.writeInt(MAGIC)
-                output.writeBounded(journal.operationId.value)
-                output.writeBounded(journal.ghostRoot)
-                output.writeBounded(journal.candidateRoot)
-                output.writeBounded(journal.backupRoot)
-                output.writeInt(journal.phase.ordinal)
-                output.writeInt(journal.files.size)
-                journal.files.forEach { output.writeBounded(it) }
-                output.writeLong(journal.attemptId?.value ?: -1L)
-                output.writeBounded(journal.workManagerUuid.orEmpty())
-                output.flush()
-                raw.fd.sync()
-            }
-        }
+        writeContents(temporary, journal)
         try {
             java.nio.file.Files.move(
                 temporary.toPath(),
@@ -100,33 +85,68 @@ internal object GhostUpdateJournalStore {
      * Persists a journal only when [file] has no existing occupant. Preparing markers live beside
      * ghost content, so replacing a same-named file would corrupt a valid installed ghost.
      */
-    fun writeIfAbsent(file: File, journal: GhostUpdateJournal): Boolean {
+    fun writeIfAbsent(file: File, journal: GhostUpdateJournal): Boolean = writeIfAbsent(
+        file,
+        journal,
+        ::publishWithoutReplacement,
+    )
+
+    /**
+     * Writes private temporary evidence before publishing it at [file] without replacing any
+     * existing occupant. A process death before publication leaves only the private temporary
+     * file; it never leaves a corrupt ownership marker at [file].
+     */
+    internal fun writeIfAbsent(
+        file: File,
+        journal: GhostUpdateJournal,
+        publish: (File, File) -> Unit,
+    ): Boolean {
         if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
         val parent = file.parentFile ?: throw IOException("journal has no parent")
-        if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory || !file.createNewFile()) {
-            return false
+        if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
+            throw IOException("cannot prepare update journal directory")
         }
+        val temporary = File.createTempFile(".nanidroid-journal-", ".tmp", parent)
         return try {
-            FileOutputStream(file).use { raw ->
-                DataOutputStream(BufferedOutputStream(raw)).use { output ->
-                    output.writeInt(MAGIC)
-                    output.writeBounded(journal.operationId.value)
-                    output.writeBounded(journal.ghostRoot)
-                    output.writeBounded(journal.candidateRoot)
-                    output.writeBounded(journal.backupRoot)
-                    output.writeInt(journal.phase.ordinal)
-                    output.writeInt(journal.files.size)
-                    journal.files.forEach { output.writeBounded(it) }
-                    output.writeLong(journal.attemptId?.value ?: -1L)
-                    output.writeBounded(journal.workManagerUuid.orEmpty())
-                    output.flush()
-                    raw.fd.sync()
-                }
-            }
+            writeContents(temporary, journal)
+            publish(temporary, file)
             true
+        } catch (_: java.nio.file.FileAlreadyExistsException) {
+            temporary.delete()
+            false
         } catch (error: Exception) {
-            file.delete()
+            temporary.delete()
             throw error
+        }
+    }
+
+    private fun publishWithoutReplacement(temporary: File, file: File) {
+        // ATOMIC_MOVE permits provider-specific replacement behavior when the target exists.
+        // A hard link instead adds the marker name only when it is absent, while keeping the
+        // fully synced temporary inode intact until publication succeeds.
+        java.nio.file.Files.createLink(file.toPath(), temporary.toPath())
+        if (!temporary.delete()) {
+            file.delete()
+            throw IOException("cannot remove private update journal temporary file")
+        }
+    }
+
+    private fun writeContents(file: File, journal: GhostUpdateJournal) {
+        FileOutputStream(file).use { raw ->
+            DataOutputStream(BufferedOutputStream(raw)).use { output ->
+                output.writeInt(MAGIC)
+                output.writeBounded(journal.operationId.value)
+                output.writeBounded(journal.ghostRoot)
+                output.writeBounded(journal.candidateRoot)
+                output.writeBounded(journal.backupRoot)
+                output.writeInt(journal.phase.ordinal)
+                output.writeInt(journal.files.size)
+                journal.files.forEach { output.writeBounded(it) }
+                output.writeLong(journal.attemptId?.value ?: -1L)
+                output.writeBounded(journal.workManagerUuid.orEmpty())
+                output.flush()
+                raw.fd.sync()
+            }
         }
     }
 

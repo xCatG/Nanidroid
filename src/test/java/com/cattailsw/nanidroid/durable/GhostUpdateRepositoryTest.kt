@@ -2263,6 +2263,33 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `interrupted preparing marker publication leaves the marker path reusable`() {
+        val root = temporaryDirectory("interrupted-preparing-marker")
+        val marker = File(root, ".nanidroid-update-preparing-operation")
+        val journal = GhostUpdateJournal(
+            OperationId("operation"),
+            File(root, "live").canonicalPath,
+            File(root, "candidate").canonicalPath,
+            File(root, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+
+        try {
+            GhostUpdateJournalStore.writeIfAbsent(marker, journal) { _, _ ->
+                throw SimulatedProcessDeath()
+            }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The owner dies after the private temporary journal is durable but before publication.
+        }
+
+        assertFalse(marker.exists())
+        assertTrue(GhostUpdateJournalStore.writeIfAbsent(marker, journal))
+        assertEquals(journal, GhostUpdateJournalStore.read(marker))
+    }
+
+    @Test
     fun `terminal published recovery skips WorkManager observation`() {
         val fixture = fixture("terminal-no-work-query")
         fixture.writeLive("ghost/master.txt", "new")
