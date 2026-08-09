@@ -718,7 +718,14 @@ class NarDownloadRepository internal constructor(
                 }
                 if (downloadManagerId == null) {
                     remoteProgress.stop(item.handle())
-                    if (cancellationRequested(item.handle())) {
+                    if (
+                        supervisor.isUnboundCancellationConfirmed(
+                            item.handle(),
+                            OperationKind.REMOTE_NAR,
+                        )
+                    ) {
+                        markCancelledIfCurrent(item)
+                    } else if (cancellationRequested(item.handle())) {
                         if (supervisor.reconcileUnboundCancellation(item.handle())) {
                             markCancelledIfCurrent(item)
                         }

@@ -360,7 +360,35 @@ class DurableOperationSupervisor(
             it.id == handle.operationId &&
                 it.attemptId == handle.attemptId &&
                 it.kind == kind
-        } ?: return@mutate true
+        }
+        if (current == null) {
+            val previous = store.read().singleOrNull { it.id == handle.operationId }
+                ?: return@mutate true
+            if (
+                kind != OperationKind.REMOTE_NAR ||
+                previous.kind != OperationKind.NAR_INSTALL ||
+                previous.status != OperationStatus.FAILED ||
+                handle.attemptId.value <= previous.attemptId.value
+            ) {
+                return@mutate false
+            }
+            val history = previous.externalJobHistory + listOfNotNull(previous.externalJob)
+            val failedReacquisition = DurableOperationRecord(
+                id = handle.operationId,
+                attemptId = handle.attemptId,
+                kind = OperationKind.REMOTE_NAR,
+                externalJob = null,
+                progress = OperationProgress("Downloading archive", 0L),
+                status = OperationStatus.FAILED,
+                showStallPrompt = false,
+                diagnostics = diagnostics,
+                externalJobHistory = history,
+            )
+            if (!store.compareAndSet(previous, failedReacquisition)) return@mutate false
+            lastProgressAt.remove(previous.handle())
+            cancellationIssued.removeAll { it.handle == previous.handle() }
+            return@mutate true
+        }
         if (current.externalJob != null) return@mutate false
         if (current.status == OperationStatus.FAILED) return@mutate true
         if (current.status != OperationStatus.RUNNING) return@mutate false
@@ -379,6 +407,18 @@ class DurableOperationSupervisor(
         lastProgressAt.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
+    }
+
+    internal fun isUnboundCancellationConfirmed(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): Boolean = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind &&
+                it.externalJob == null
+        }?.status == OperationStatus.CANCELLED
     }
 
     fun failOrConfirmExactAttempt(
