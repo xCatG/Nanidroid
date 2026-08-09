@@ -21,6 +21,17 @@ import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import com.cattailsw.nanidroid.durable.AttemptId
+import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
+import com.cattailsw.nanidroid.durable.ExternalJobBinding
+import com.cattailsw.nanidroid.durable.GhostUpdateTerminalEvent
+import com.cattailsw.nanidroid.durable.GhostUpdateRepository
+import com.cattailsw.nanidroid.durable.OperationHandle
+import com.cattailsw.nanidroid.durable.OperationId
+import com.cattailsw.nanidroid.durable.OperationKind
+import com.cattailsw.nanidroid.durable.OperationStatus
+import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
+import com.cattailsw.nanidroid.durable.SharedPreferencesDurableOperationStore
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import androidx.compose.ui.unit.IntOffset
 import java.util.Hashtable
@@ -43,6 +54,7 @@ class SScriptRunnerBootDispatchTest {
         for (runner in runners) {
             runner.stopClock()
         }
+        SharedDurableOperationSupervisor.resetForTesting()
     }
 
     @Test
@@ -82,6 +94,86 @@ class SScriptRunnerBootDispatchTest {
         runner.startClock()
 
         Assert.assertEquals(mutableListOf<String?>("recreated:OnBoot:[master]"), trace)
+    }
+
+    @Test
+    fun retainedTerminalEventFollowsBootWhenItsGhostIsColdAttached() {
+        val trace = mutableListOf<String?>()
+        val root = java.io.File("build/cold-attached-terminal").canonicalFile
+        val binding = ExternalJobBinding.WorkManager("00000000-0000-0000-0000-000000000183")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "recreated",
+            canonicalRoot = root.path,
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        val supervisor = DurableOperationSupervisor(
+            SharedPreferencesDurableOperationStore(SharedPreferencesDurableOperationStore.MemoryStorage()),
+            MonotonicClock { 0L },
+            { _, _, _ -> },
+        )
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1L))
+        Assert.assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        Assert.assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        SharedDurableOperationSupervisor.replaceForTesting(supervisor)
+        val runner = SScriptRunner(mockk(relaxed = true), GhostSessionCoordinator())
+        runners += runner
+
+        runner.setGhost(RecordingGhost("recreated", "Recreated Ghost", 2, trace, root.path))
+        runner.startClock()
+
+        Assert.assertEquals(
+            listOf(
+                "recreated:OnBoot:[master]",
+                "recreated:OnUpdateComplete:[changed, ghost/master.txt]",
+            ),
+            trace,
+        )
+    }
+
+    @Test
+    fun retainedTerminalEventFollowsGhostChangedWhenItsGhostReplacesTheActiveSession() {
+        val trace = mutableListOf<String?>()
+        val root = java.io.File("build/replacement-terminal").canonicalFile
+        val binding = ExternalJobBinding.WorkManager("00000000-0000-0000-0000-000000000184")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = root.name,
+            canonicalRoot = root.path,
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        val supervisor = DurableOperationSupervisor(
+            SharedPreferencesDurableOperationStore(SharedPreferencesDurableOperationStore.MemoryStorage()),
+            MonotonicClock { 0L },
+            { _, _, _ -> },
+        )
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1L))
+        Assert.assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        Assert.assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        SharedDurableOperationSupervisor.replaceForTesting(supervisor)
+        val runner = SScriptRunner(mockk(relaxed = true), GhostSessionCoordinator())
+        runners += runner
+        val initial = RecordingGhost("initial", "Initial Ghost", 2, trace)
+
+        runner.setGhost(initial)
+        runner.startClock()
+        runner.unloadGhostForSwitchForTesting(initial)
+        Assert.assertTrue(
+            runner.attachReservedGhost(
+                runner.reserveGhostForAttachmentForTesting(
+                    RecordingGhost(root.name, "Replacement Ghost", 2, trace, root.path),
+                ),
+            ),
+        )
+
+        Assert.assertEquals(
+            listOf(
+                "initial:OnBoot:[master]",
+                "${root.name}:OnGhostChanged:[Initial Ghost, null]",
+                "${root.name}:OnUpdateComplete:[changed, ghost/master.txt]",
+            ),
+            trace,
+        )
     }
 
     @Test
@@ -1081,9 +1173,10 @@ class SScriptRunnerBootDispatchTest {
         ghostId: String,
         ghostName: String?,
         createCount: Long,
-        private val trace: MutableList<String?>
+        private val trace: MutableList<String?>,
+        ghostPath: String = ghostId,
     ) : com.cattailsw.nanidroid.Ghost(
-        ghostId
+        ghostPath
     ) {
         private val fakeGhostId = ghostId
         private val fakeGhostName = ghostName
