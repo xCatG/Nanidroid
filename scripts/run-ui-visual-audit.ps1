@@ -879,10 +879,16 @@ function ConvertFrom-GitPorcelainRecords([string]$Status) {
     return @($Status -split "`0" | Where-Object { $_.Length -ne 0 })
 }
 
+function Test-GeneratedIgnoredReportPath([string]$Path) {
+    $normalizedPath = $Path.Replace('\', '/').TrimStart('./').ToLowerInvariant()
+    return $normalizedPath -like 'build/reports/*'
+}
+
 function Assert-UntrackedBuildInputs([string[]]$StatusRecords) {
     foreach ($record in @($StatusRecords)) {
-        if (-not $record.StartsWith('?? ')) { continue }
+        if (-not ($record.StartsWith('?? ') -or $record.StartsWith('!! '))) { continue }
         $path = $record.Substring(3)
+        if ($record.StartsWith('!! ') -and (Test-GeneratedIgnoredReportPath $path)) { continue }
         if (Test-UntrackedAndroidBuildInput $path) { Fail "Untracked Android/Gradle build input must be committed or removed before audit capture/completion: '$path'." 'git' }
     }
 }
@@ -1230,6 +1236,9 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         try { Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "?? $path`0") } catch { $failed = $true }
         if (-not $failed) { Fail "Untracked build-input '$path' probe unexpectedly passed." 'dry-run' }
     }
+    $failed = $false
+    try { Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "!! src/main/assets/extra.nar`0") } catch { $failed = $true }
+    if (-not $failed) { Fail 'Ignored Android asset build-input probe unexpectedly passed.' 'dry-run' }
     Assert-UntrackedBuildInputs @()
     Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "!! build/reports/ui-audit/summary.json`0")
     if (Test-UntrackedAndroidBuildInput 'C:\corpora\external.nar') { Fail 'External corpus path was classified as an Android build input.' 'dry-run' }
