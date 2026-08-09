@@ -379,25 +379,41 @@ function Get-SnakeChoiceTransaction {
     }
 }
 
+function New-InvalidSnakeDialogueLifecycle {
+    $emptyChoice = [pscustomobject]@{
+        primary = $null
+        fallback = $null
+        effective = $null
+        identifier = $null
+    }
+    [pscustomobject]@{
+        valid = $false
+        firstBoot = $null
+        input = $null
+        firstChoice = $emptyChoice
+        nextChoice = $emptyChoice
+    }
+}
+
 function Get-SnakeDialogueLifecycle {
     param([object[]]$Steps)
 
     $items = @($Steps)
-    if ($items.Count -lt 4) { return [pscustomobject]@{ valid = $false } }
+    if ($items.Count -lt 4) { return New-InvalidSnakeDialogueLifecycle }
     $eventIds = @($items | ForEach-Object { [string](Get-NestedPropertyValue -Object $_ -Path 'eventId') })
     $firstBoot = $items[0]
     if ($eventIds[0] -cne 'OnFirstBoot' -or [string](Get-NestedPropertyValue -Object $firstBoot -Path 'status') -eq '204' -or $eventIds -contains 'OnBoot') {
-        return [pscustomobject]@{ valid = $false }
+        return New-InvalidSnakeDialogueLifecycle
     }
 
     $inputIndexes = @($eventIds | ForEach-Object -Begin { $index = 0 } -Process { if ($_ -ceq 'OnNameTeach') { $index }; [void]$index++ })
-    if ($inputIndexes.Count -ne 1) { return [pscustomobject]@{ valid = $false } }
+    if ($inputIndexes.Count -ne 1) { return New-InvalidSnakeDialogueLifecycle }
     $inputIndex = [int]$inputIndexes[0]
-    if ($inputIndex -le 1 -or $inputIndex -ge ($items.Count - 1)) { return [pscustomobject]@{ valid = $false } }
+    if ($inputIndex -le 1 -or $inputIndex -ge ($items.Count - 1)) { return New-InvalidSnakeDialogueLifecycle }
 
     $firstChoice = Get-SnakeChoiceTransaction -Steps $items[1..($inputIndex - 1)]
     $nextChoice = Get-SnakeChoiceTransaction -Steps $items[($inputIndex + 1)..($items.Count - 1)]
-    if ($null -eq $firstChoice -or $null -eq $nextChoice) { return [pscustomobject]@{ valid = $false } }
+    if ($null -eq $firstChoice -or $null -eq $nextChoice) { return New-InvalidSnakeDialogueLifecycle }
 
     [pscustomobject]@{
         valid = $true
@@ -2020,6 +2036,24 @@ foreach ($arg in $ProbeArgs) {
     }
     if (-not (Get-SnakeDialogueLifecycle -Steps $dryRunSnakeChoiceFallback).valid) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-plus-fallback choice sequence.'
+    }
+    foreach ($invalidSnakeSequence in @(
+        @([pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200 }),
+        @(
+            [pscustomobject]@{ eventId = 'OnBoot'; status = 200 },
+            [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200 },
+            [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200 },
+            [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200 }
+        )
+    )) {
+        $invalidLifecycle = Get-SnakeDialogueLifecycle -Steps $invalidSnakeSequence
+        if ($invalidLifecycle.valid -or
+            $null -ne $invalidLifecycle.firstBoot -or
+            $null -ne $invalidLifecycle.firstChoice.effective -or
+            $null -ne $invalidLifecycle.input -or
+            $null -ne $invalidLifecycle.nextChoice.effective) {
+            ThrowIf 'Dry-run invalid Snake lifecycle probe returned an aggregate-unsafe shape.'
+        }
     }
     $validPostInteractionEvidence = @(
         [pscustomobject]@{
