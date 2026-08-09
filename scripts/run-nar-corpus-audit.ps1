@@ -466,7 +466,8 @@ function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGh
     for ($index = 0; $index -lt $expectedInteractionSteps.Count; $index++) {
         $expectedEventId = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path 'eventId'
         $expectedReference = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path 'references[0]'
-        if ([string]$Evidence[$index].eventId -cne [string]$expectedEventId -or [string]$Evidence[$index].references[0] -cne [string]$expectedReference) {
+        $expectedMethod = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path 'method'
+        if ([string]$Evidence[$index].eventId -cne [string]$expectedEventId -or [string]$Evidence[$index].method -cne [string]$expectedMethod -or [string]$Evidence[$index].references[0] -cne [string]$expectedReference) {
             ThrowIf 'Post-interaction SHIORI evidence is not ordered with its dialogue sequence.'
         }
         if ([string]$expectedEventId -in @('OnChoiceSelect', 'OnChoiceSelectEx')) {
@@ -2182,6 +2183,8 @@ foreach ($arg in $ProbeArgs) {
     $pointerCoordinatesEvidence[0].coordinates = [pscustomobject]@{ x = 12; y = 34 }
     $pointerButtonEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
     $pointerButtonEvidence[0].button = 1
+    $wrongMethodEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $wrongMethodEvidence[0].method = 'POST'
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $choiceOnlyEvidence; $acceptedPostInteractionRegressions += 'choice-only evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $masterIdentityEvidence; $acceptedPostInteractionRegressions += 'master ghost identity' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence @([pscustomobject]@{ ghostIdentity = 'snake-and-otacon'; method = 'GET'; eventId = 'OnUserInput'; scope = 'dialogue'; coordinates = $null; identifier = 'OnNameTeach'; button = $null; source = 'input'; references = @('OnNameTeach', 'Nanidroid', $null, $null, $null, $null, $null) }); $acceptedPostInteractionRegressions += 'generic OnUserInput envelope' } catch { }
@@ -2193,6 +2196,7 @@ foreach ($arg in $ProbeArgs) {
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectInputIdentifierEvidence; $acceptedPostInteractionRegressions += 'direct input text used as identifier' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $pointerCoordinatesEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'pointer coordinates in dialogue evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $pointerButtonEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'pointer button in dialogue evidence' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $wrongMethodEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'method different from dispatched dialogue step' } catch { }
     if ($acceptedPostInteractionRegressions.Count -gt 0) {
         ThrowIf "Dry-run post-interaction regression accepted $($acceptedPostInteractionRegressions -join ' and ')."
     }
