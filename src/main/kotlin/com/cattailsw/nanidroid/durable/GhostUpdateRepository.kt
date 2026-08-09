@@ -849,12 +849,14 @@ class GhostUpdateRepository internal constructor(
         val journal = preparedJournal(transactionRoot, request)
         val marker = preparingMarker(request.ghostRoot, transactionRoot)
         var published = false
+        var markerCreated = false
         var stagingCreated = false
         return try {
-            journalIo.write(
+            markerCreated = journalIo.writeIfAbsent(
                 marker,
                 journal,
             )
+            if (!markerCreated) return false
             // A deterministic name alone is not proof of ownership: a valid ghost ID may occupy it.
             if (staging.exists() || !staging.mkdir()) return false
             stagingCreated = true
@@ -867,9 +869,9 @@ class GhostUpdateRepository internal constructor(
         } finally {
             if (!published && stagingCreated) {
                 val stagingRemoved = !staging.exists() || fileOperations.deleteTree(staging)
-                if (stagingRemoved && marker.exists()) marker.delete()
+                if (stagingRemoved && markerCreated && marker.exists()) marker.delete()
             }
-            if (!stagingCreated && marker.exists()) marker.delete()
+            if (!stagingCreated && markerCreated && marker.exists()) marker.delete()
         }
     }
 

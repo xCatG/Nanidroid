@@ -450,6 +450,38 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `update never overwrites a live file at its preparing marker path`() {
+        val fixture = fixture("preparing-marker-occupant")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val marker = File(
+            fixture.ghostRoot,
+            ".nanidroid-update-preparing-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
+        )
+        write(marker, bytes("live-marker"))
+
+        assertTrue(fixture.repository().run(fixture.request()) { false } is GhostUpdateResult.Failed)
+
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertBytes("live-marker", marker)
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `update leaves a live journal temporary file untouched`() {
+        val fixture = fixture("preparing-marker-journal-temporary")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("old"))
+        val temporaryJournal = File(fixture.ghostRoot, "journal.v1.tmp")
+        write(temporaryJournal, bytes("live-temporary"))
+
+        assertEquals(GhostUpdateResult.NoChanges, fixture.repository().run(fixture.request()) { false })
+
+        assertBytes("live-temporary", temporaryJournal)
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `startup recovery preserves a live ghost at another root's expected staging path`() {
         val fixture = fixture("staging-occupant-recovery")
         fixture.writeLive("ghost/master.txt", "old")

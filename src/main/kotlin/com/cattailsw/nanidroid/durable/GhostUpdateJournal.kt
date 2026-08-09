@@ -96,6 +96,40 @@ internal object GhostUpdateJournalStore {
         }
     }
 
+    /**
+     * Persists a journal only when [file] has no existing occupant. Preparing markers live beside
+     * ghost content, so replacing a same-named file would corrupt a valid installed ghost.
+     */
+    fun writeIfAbsent(file: File, journal: GhostUpdateJournal): Boolean {
+        if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
+        val parent = file.parentFile ?: throw IOException("journal has no parent")
+        if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory || !file.createNewFile()) {
+            return false
+        }
+        return try {
+            FileOutputStream(file).use { raw ->
+                DataOutputStream(BufferedOutputStream(raw)).use { output ->
+                    output.writeInt(MAGIC)
+                    output.writeBounded(journal.operationId.value)
+                    output.writeBounded(journal.ghostRoot)
+                    output.writeBounded(journal.candidateRoot)
+                    output.writeBounded(journal.backupRoot)
+                    output.writeInt(journal.phase.ordinal)
+                    output.writeInt(journal.files.size)
+                    journal.files.forEach { output.writeBounded(it) }
+                    output.writeLong(journal.attemptId?.value ?: -1L)
+                    output.writeBounded(journal.workManagerUuid.orEmpty())
+                    output.flush()
+                    raw.fd.sync()
+                }
+            }
+            true
+        } catch (error: Exception) {
+            file.delete()
+            throw error
+        }
+    }
+
     fun read(file: File): GhostUpdateJournal {
         DataInputStream(BufferedInputStream(FileInputStream(file))).use { input ->
             if (input.readInt() != MAGIC) throw IOException("invalid update journal version")
@@ -141,12 +175,20 @@ internal object GhostUpdateJournalStore {
 
 internal interface GhostUpdateJournalIo {
     fun write(file: File, journal: GhostUpdateJournal)
+    fun writeIfAbsent(file: File, journal: GhostUpdateJournal): Boolean {
+        if (file.exists()) return false
+        write(file, journal)
+        return true
+    }
     fun read(file: File): GhostUpdateJournal
 
     companion object {
         val DEFAULT = object : GhostUpdateJournalIo {
             override fun write(file: File, journal: GhostUpdateJournal) =
                 GhostUpdateJournalStore.write(file, journal)
+
+            override fun writeIfAbsent(file: File, journal: GhostUpdateJournal) =
+                GhostUpdateJournalStore.writeIfAbsent(file, journal)
 
             override fun read(file: File): GhostUpdateJournal =
                 GhostUpdateJournalStore.read(file)
