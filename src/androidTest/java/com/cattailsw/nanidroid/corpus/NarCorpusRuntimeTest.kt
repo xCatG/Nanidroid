@@ -168,6 +168,22 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun exactProbeValueUsesTheProductionValueHeaderWhenCaseVariantsCoexist() {
+        val response = ShioriResponse(
+            java.io.BufferedReader(
+                StringReader(
+                    "SHIORI/3.0 200 OK\r\n" +
+                        "Value: \\q[Exact choice,id=exact]\r\n" +
+                        "value: \\q[Lowercase choice,id=lowercase]\r\n" +
+                        "\r\n",
+                ),
+            ),
+        )
+
+        assertEquals("\\q[Exact choice,id=exact]", exactProbeValue(response))
+    }
+
+    @Test
     fun snakeBootLifecycleDoesNotProbeFaqWhenInputDoesNotExposeFaqChoice() {
         val requests = mutableListOf<String>()
 
@@ -1162,7 +1178,7 @@ class NarCorpusRuntimeTest {
             .put("failure", JSONObject.NULL)
         return try {
             val response = shiori.requestRaw(method, eventId, references)
-            val value = response.getKeyIgnoreCase("Value").orEmpty()
+            val value = exactProbeValue(response)
             val segments = SakuraScriptTokenizer.tokenize(value, diagnostics::add)
                 .flatMap(DialogueContent::segments)
             val passiveTransitions = JSONArray()
@@ -1210,6 +1226,8 @@ class NarCorpusRuntimeTest {
         }
     }
 
+    private fun exactProbeValue(response: ShioriResponse): String = response.getKey("Value").orEmpty()
+
     private fun probeShioriEvent(
         shiori: TestShioriGhost,
         method: ShioriMethod,
@@ -1219,7 +1237,7 @@ class NarCorpusRuntimeTest {
         return try {
             val diagnostics = mutableListOf<String>()
             val response = shiori.requestRaw(method, eventId, references)
-            val value = response.getKeyIgnoreCase("Value").orEmpty()
+            val value = exactProbeValue(response)
             val hasExactValue = !response.getKey("Value").isNullOrEmpty()
             val segmentEvidence = parseShioriSegments(value, diagnostics)
 

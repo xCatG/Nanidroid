@@ -2039,7 +2039,7 @@ foreach ($arg in $ProbeArgs) {
         [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; references = @('choicefirsthehim') },
         [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200; references = @('Nanidroid', '') },
         [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('FAQ', 'faq') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; references = @('faq') }
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; hasExactValue = $true; references = @('faq') }
     )
     if (-not (Get-SnakeDialogueLifecycle -Steps $dryRunSnakePrimaryOnly).valid) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-only choice sequence.'
@@ -2048,6 +2048,9 @@ foreach ($arg in $ProbeArgs) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-plus-fallback choice sequence.'
     }
     $dryRunUnplayableTerminalFaq = $dryRunSnakeChoiceFallback | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    if (-not (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalFaq[-1])) {
+        ThrowIf 'Dry-run Snake terminal FAQ fixture was not playable before its status mutation.'
+    }
     $dryRunUnplayableTerminalFaq[-1].status = 201
     if (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalFaq[-1]) {
         ThrowIf 'Dry-run Snake terminal FAQ sentinel accepted a non-200 fallback response.'
