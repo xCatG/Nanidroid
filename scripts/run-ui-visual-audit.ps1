@@ -910,7 +910,15 @@ function Assert-CaptureProvenance([object]$Captured, [object]$Current) {
     }
 }
 
+function Test-MissingPackagePathProbe([object]$PackagePathProbe) {
+    $diagnostic = "$(($PackagePathProbe.output | Out-String).Trim())`n$(($PackagePathProbe.error | Out-String).Trim())"
+    return [int]$PackagePathProbe.exitCode -eq 1 -and $diagnostic -match '(?mi)^Error:\s*package\s+\S+\s+not found\s*$'
+}
+
 function Get-PackageCleanupAction([object]$PackagePathProbe) {
+    if (Test-MissingPackagePathProbe $PackagePathProbe) {
+        return [pscustomobject]@{ action = 'skip' }
+    }
     if ([int]$PackagePathProbe.exitCode -ne 0) {
         throw "Package-state probe failed: exit=$($PackagePathProbe.exitCode) output=$([string]$PackagePathProbe.output) error=$([string]$PackagePathProbe.error)"
     }
@@ -1555,6 +1563,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         try { Assert-AuditedApkHash $auditedApkProbePath $auditedApkProbeHash } catch { $failed = $true }
         if (-not $failed) { Fail 'Mutated audited APK hash revalidation probe unexpectedly passed.' 'dry-run' }
         if ((Get-PackageCleanupAction ([pscustomobject]@{ exitCode = 0; output = ''; error = '' })).action -ne 'skip') { Fail 'Absent package cleanup probe should skip uninstall.' 'dry-run' }
+        if ((Get-PackageCleanupAction ([pscustomobject]@{ exitCode = 1; output = ''; error = "Error: package $testPackage not found" })).action -ne 'skip') { Fail 'Android missing-package cleanup probe should skip uninstall.' 'dry-run' }
         if ((Get-PackageCleanupAction ([pscustomobject]@{ exitCode = 0; output = "package:/data/app/$targetPackage/base.apk"; error = '' })).action -ne 'uninstall') { Fail 'Installed package cleanup probe should uninstall.' 'dry-run' }
         $failed = $false
         try { Get-PackageCleanupAction ([pscustomobject]@{ exitCode = 1; output = ''; error = 'offline' }) | Out-Null } catch { $failed = $_.Exception.Message -match 'Package-state probe failed' }
