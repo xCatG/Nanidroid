@@ -2296,6 +2296,52 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operation.status)
     }
 
+    @Test fun remoteBindingFailureRemovesRowAndTerminalizesExactAttempt() {
+        val exactOperationStore = FailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(store, exactSupervisor, "remote-binding-failure")
+        downloads.nextDownloadId = 99L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertEquals(99L, item.downloadManagerId)
+        assertEquals(listOf(99L), downloads.removedIds)
+        val operation = exactOperationStore.read().single()
+        assertNull(operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
+    }
+
+    @Test fun remoteQueueWriteFailureRetriesRowRemovalBeforeTerminalizingAttempt() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-remove-retry")
+        downloads.nextDownloadId = 100L
+        downloads.removeFailureCount = 1
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertNull(item.downloadManagerId)
+        assertEquals(listOf(100L), downloads.removedIds)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
     @Test fun recreationRepairsItemAfterUnboundCancellationWasAlreadyPersisted() {
         val accepted = store.create(
             NarDownload(
@@ -2546,6 +2592,7 @@ class NarDownloadRepositoryTest {
         var enqueueFailure: Exception? = null
         var intendedDestinationFailure: Exception? = null
         var findDownloadIdFailure: Exception? = null
+        var removeFailureCount = 0
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
         val removedIds = mutableListOf<Long>()
@@ -2569,6 +2616,10 @@ class NarDownloadRepositoryTest {
         }
 
         override fun remove(downloadManagerId: Long) {
+            if (removeFailureCount > 0) {
+                removeFailureCount -= 1
+                throw IllegalStateException("DownloadManager removal failed")
+            }
             removedIds += downloadManagerId
         }
 
@@ -2835,6 +2886,27 @@ class NarDownloadRepositoryTest {
             writeCount += 1
             if (writeCount == failOnWrite) throw IllegalStateException("queue write failed")
             this.value = value
+        }
+    }
+
+    private class FailRemoteBindingStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var bindingFailurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            if (bindingFailurePending && expected.externalJob == null && updated.externalJob != null) {
+                bindingFailurePending = false
+                return false
+            }
+            return delegate.compareAndSet(expected, updated)
         }
     }
 
