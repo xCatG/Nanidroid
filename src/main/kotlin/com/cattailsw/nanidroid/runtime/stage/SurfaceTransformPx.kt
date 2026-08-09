@@ -690,12 +690,22 @@ data class StageLayoutPx(
     val keroSurface: IntRect?,
     val sakuraSurface: IntRect?,
     val stageToRoot: IntOffset,
+    val keroSurfaceCanRepair: Boolean = false,
+    val sakuraSurfaceCanRepair: Boolean = false,
 ) {
     fun transformFor(scope: SurfaceScope, intrinsicSize: IntSize): SurfaceTransformPx? {
-        val bounds = when (scope) {
-            SurfaceScope.KERO -> keroSurface
-            SurfaceScope.SAKURA -> sakuraSurface
-        } ?: return null
+        val (rounded, surfaceRegion, lane, canRepair) = when (scope) {
+            SurfaceScope.KERO -> SurfaceBounds(keroSurface, keroSurfaceRegion, keroLane, keroSurfaceCanRepair)
+            SurfaceScope.SAKURA -> SurfaceBounds(sakuraSurface, sakuraSurfaceRegion, sakuraLane, sakuraSurfaceCanRepair)
+        }
+        val bounds = repairCollapsedSurface(
+            rounded = rounded,
+            content = content,
+            surfaceRegion = surfaceRegion,
+            lane = lane,
+            intrinsicSize = intrinsicSize,
+            canRepair = canRepair,
+        ) ?: return null
         if (intrinsicSize.width <= 0 || intrinsicSize.height <= 0 || bounds.width <= 0 || bounds.height <= 0) return null
         val scale = minOf(
             bounds.width.toDouble() / intrinsicSize.width.toDouble(),
@@ -735,53 +745,95 @@ data class StageLayoutPx(
                 sakuraBubble = sakuraBubble,
                 keroSurfaceRegion = keroSurfaceRegion,
                 sakuraSurfaceRegion = sakuraSurfaceRegion,
-                keroSurface = repairCollapsedSurface(
-                    authored = layout.keroSurface,
-                    rounded = layout.keroSurface.rounded(),
-                    content = content,
-                    surfaceRegion = keroSurfaceRegion,
-                    lane = keroLane,
-                ),
-                sakuraSurface = repairCollapsedSurface(
-                    authored = layout.sakuraSurface,
-                    rounded = layout.sakuraSurface.rounded(),
-                    content = content,
-                    surfaceRegion = sakuraSurfaceRegion,
-                    lane = sakuraLane,
-                ),
+                keroSurface = layout.keroSurface.rounded(),
+                sakuraSurface = layout.sakuraSurface.rounded(),
                 stageToRoot = stageToRoot,
+                keroSurfaceCanRepair = layout.keroSurface.hasPositiveArea(),
+                sakuraSurfaceCanRepair = layout.sakuraSurface.hasPositiveArea(),
             )
         }
     }
 }
 
-/** Keeps a non-empty authored surface measurable when final edge rounding collapses an axis. */
+private data class SurfaceBounds(
+    val rounded: IntRect?,
+    val surfaceRegion: IntRect?,
+    val lane: IntRect?,
+    val canRepair: Boolean,
+)
+
+private fun StageDpRect?.hasPositiveArea(): Boolean =
+    this != null && width.value > 0f && height.value > 0f
+
+/**
+ * Materializes a rounded positive authored surface only when its intrinsic canvas
+ * can still occupy an exact uniform-scale integer rectangle inside every policy
+ * constraint. The returned rectangle is the shared renderer/input/overlay transform.
+ */
 private fun repairCollapsedSurface(
-    authored: StageDpRect?,
     rounded: IntRect?,
     content: IntRect,
     surfaceRegion: IntRect?,
     lane: IntRect?,
+    intrinsicSize: IntSize,
+    canRepair: Boolean,
 ): IntRect? {
-    if (authored == null || rounded == null || authored.width.value <= 0f || authored.height.value <= 0f) {
-        return rounded
-    }
+    if (rounded == null || rounded.width > 0 && rounded.height > 0) return rounded
+    if (!canRepair || intrinsicSize.width <= 0 || intrinsicSize.height <= 0) return rounded
     val constraints = listOfNotNull(content, surfaceRegion, lane)
+    val aspectRatio = intrinsicSize.reducedAspectRatio()
     fun IntRect.isContained() = constraints.all { constraint ->
         left >= constraint.left && top >= constraint.top &&
             right <= constraint.right && bottom <= constraint.bottom
     }
-    fun IntRect.repairWidth(): IntRect? = listOfNotNull(
-        takeIf { left < Int.MAX_VALUE }?.let { IntRect(left, top, left + 1, bottom) },
-        takeIf { right > Int.MIN_VALUE }?.let { IntRect(right - 1, top, right, bottom) },
-    ).firstOrNull(IntRect::isContained)
-    fun IntRect.repairHeight(): IntRect? = listOfNotNull(
-        takeIf { bottom > Int.MIN_VALUE }?.let { IntRect(left, bottom - 1, right, bottom) },
-        takeIf { top < Int.MAX_VALUE }?.let { IntRect(left, top, right, top + 1) },
-    ).firstOrNull(IntRect::isContained)
+    fun multiplier(extent: Int, intrinsic: Int): Long =
+        ((extent.coerceAtLeast(0).toLong() + intrinsic - 1L) / intrinsic).coerceAtLeast(1L)
 
-    val widthRepaired = if (rounded.width == 0) rounded.repairWidth() ?: return rounded else rounded
-    return if (widthRepaired.height == 0) widthRepaired.repairHeight() ?: rounded else widthRepaired
+    val multiplier = maxOf(
+        multiplier(rounded.width, aspectRatio.width),
+        multiplier(rounded.height, aspectRatio.height),
+    )
+    val width = aspectRatio.width.toLong() * multiplier
+    val height = aspectRatio.height.toLong() * multiplier
+    if (width > Int.MAX_VALUE || height > Int.MAX_VALUE) return rounded
+    fun bounds(left: Long, top: Long): IntRect? {
+        val right = left + width
+        val bottom = top + height
+        if (left < Int.MIN_VALUE || top < Int.MIN_VALUE || right > Int.MAX_VALUE || bottom > Int.MAX_VALUE) return null
+        return IntRect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
+    }
+    return listOfNotNull(
+        bounds(rounded.left.toLong(), rounded.top.toLong()),
+        bounds(rounded.right.toLong() - width, rounded.top.toLong()),
+        bounds(rounded.left.toLong(), rounded.bottom.toLong() - height),
+        bounds(rounded.right.toLong() - width, rounded.bottom.toLong() - height),
+    ).firstOrNull(IntRect::isContained) ?: run {
+        val commonLeft = constraints.maxOf { it.left }.toLong()
+        val commonTop = constraints.maxOf { it.top }.toLong()
+        val commonRight = constraints.minOf { it.right }.toLong()
+        val commonBottom = constraints.minOf { it.bottom }.toLong()
+        val maxLeft = commonRight - width
+        val maxTop = commonBottom - height
+        if (maxLeft < commonLeft || maxTop < commonTop) {
+            rounded
+        } else {
+            bounds(
+                (rounded.left.toLong() + rounded.width / 2L - width / 2L).coerceIn(commonLeft, maxLeft),
+                (rounded.top.toLong() + rounded.height / 2L - height / 2L).coerceIn(commonTop, maxTop),
+            ) ?: rounded
+        }
+    }
+}
+
+private fun IntSize.reducedAspectRatio(): IntSize {
+    var dividend = width
+    var divisor = height
+    while (divisor != 0) {
+        val remainder = dividend % divisor
+        dividend = divisor
+        divisor = remainder
+    }
+    return IntSize(width / dividend, height / dividend)
 }
 
 fun IntRect.positiveIntersection(other: IntRect): Boolean =

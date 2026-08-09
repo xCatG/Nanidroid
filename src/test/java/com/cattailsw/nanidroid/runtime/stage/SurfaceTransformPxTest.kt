@@ -179,6 +179,124 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `collapsed elongated surface is not repaired into a distorted transform at supported densities`() {
+        listOf(
+            1f to StageDpRect(0.dp, 0.dp, 180.dp, 0.18.dp),
+            2f to StageDpRect(0.dp, 0.dp, 90.dp, 0.09.dp),
+        ).forEach { (density, surface) ->
+            val measured = StageLayoutPx.from(
+                layout(
+                    content = StageDpRect(0.dp, 0.dp, 360.dp, 720.dp),
+                    keroSurface = surface,
+                ).copy(
+                    keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 720.dp),
+                    keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 180.dp, 720.dp),
+                ),
+                density = density,
+            )
+
+            assertNull(
+                "density=$density",
+                measured.transformFor(SurfaceScope.KERO, IntSize(1_000, 1)),
+            )
+        }
+    }
+
+    @Test
+    fun `collapsed surface uses a valid interior placement when all corner anchors overflow`() {
+        val measured = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurface = StageDpRect(89.6.dp, 89.6.dp, 90.4.dp, 90.4.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+            ),
+            density = 1f,
+        )
+
+        val transform = measured.transformFor(SurfaceScope.KERO, IntSize(120, 1))
+
+        assertNotNull(transform)
+        transform ?: return
+        assertEquals(IntRect(30, 90, 150, 91), transform.renderedBounds)
+        assertEquals(1f, transform.scale, 0.0001f)
+    }
+
+    @Test
+    fun `collapsed surface interior fallback centers then clamps at constraint edges`() {
+        fun transformFor(
+            surface: StageDpRect,
+            intrinsicSize: IntSize,
+            constraint: StageDpRect = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+        ): SurfaceTransformPx? = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurface = surface,
+            ).copy(
+                keroLane = constraint,
+                keroSurfaceRegion = constraint,
+            ),
+            density = 1f,
+        ).transformFor(SurfaceScope.KERO, intrinsicSize)
+
+        assertEquals(
+            IntRect(20, 90, 140, 91),
+            transformFor(
+                surface = StageDpRect(69.6.dp, 89.6.dp, 70.4.dp, 90.4.dp),
+                intrinsicSize = IntSize(120, 1),
+                constraint = StageDpRect(20.dp, 0.dp, 180.dp, 180.dp),
+            )?.renderedBounds,
+        )
+        assertEquals(
+            IntRect(90, 20, 91, 140),
+            transformFor(
+                surface = StageDpRect(89.6.dp, 69.6.dp, 90.4.dp, 70.4.dp),
+                intrinsicSize = IntSize(1, 120),
+                constraint = StageDpRect(0.dp, 20.dp, 180.dp, 180.dp),
+            )?.renderedBounds,
+        )
+    }
+
+    @Test
+    fun `one-axis collapsed surface centers fallback on its full rounded bounds`() {
+        val transform = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurface = StageDpRect(66.dp, 89.6.dp, 114.dp, 90.4.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+            ),
+            density = 1f,
+        ).transformFor(SurfaceScope.KERO, IntSize(120, 1))
+
+        assertNotNull(transform)
+        assertEquals(IntRect(30, 90, 150, 91), transform?.renderedBounds)
+    }
+
+    @Test
+    fun `collapsed surface repairs with its reduced intrinsic aspect ratio`() {
+        val measured = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 20.dp, 20.dp),
+                keroSurface = StageDpRect(9.6.dp, 9.6.dp, 10.4.dp, 10.4.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 20.dp, 20.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 20.dp, 20.dp),
+            ),
+            density = 1f,
+        )
+
+        val transform = measured.transformFor(SurfaceScope.KERO, IntSize(100, 50))
+
+        assertNotNull(transform)
+        transform ?: return
+        assertEquals(IntRect(10, 10, 12, 11), transform.renderedBounds)
+        assertEquals(0.02f, transform.scale, 0.0001f)
+    }
+
+    @Test
     fun `resize and rotation create fresh transforms without mutating prior input geometry`() {
         val first = StageLayoutPx.from(
             layout(keroSurface = StageDpRect(0.dp, 100.dp, 100.dp, 300.dp)),
