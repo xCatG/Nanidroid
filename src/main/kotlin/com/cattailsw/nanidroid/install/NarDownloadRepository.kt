@@ -722,7 +722,13 @@ class NarDownloadRepository internal constructor(
                         if (supervisor.reconcileUnboundCancellation(item.handle())) {
                             markCancelledIfCurrent(item)
                         }
-                    } else if (supervisor.failUnboundAttempt(item.handle(), DOWNLOAD_RECOVERY_FAILURE)) {
+                    } else if (
+                        supervisor.failOrConfirmMissingUnboundAttempt(
+                            item.handle(),
+                            OperationKind.REMOTE_NAR,
+                            DOWNLOAD_RECOVERY_FAILURE,
+                        )
+                    ) {
                         markNeedsAttentionIfCurrent(item, DOWNLOAD_RECOVERY_FAILURE)
                     }
                     return@forEach

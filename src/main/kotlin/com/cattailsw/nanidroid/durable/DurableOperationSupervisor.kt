@@ -351,6 +351,36 @@ class DurableOperationSupervisor(
             true
         }
 
+    internal fun failOrConfirmMissingUnboundAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        diagnostics: String,
+    ): Boolean = mutate {
+        val current = store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
+        } ?: return@mutate true
+        if (current.externalJob != null) return@mutate false
+        if (current.status == OperationStatus.FAILED) return@mutate true
+        if (current.status != OperationStatus.RUNNING) return@mutate false
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    status = OperationStatus.FAILED,
+                    showStallPrompt = false,
+                    diagnostics = diagnostics,
+                ),
+            )
+        ) {
+            return@mutate false
+        }
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
     fun failOrConfirmExactAttempt(
         handle: OperationHandle,
         kind: OperationKind,
