@@ -2087,6 +2087,33 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun recreationKeepsUnboundRemoteAttemptRunningWhenRowRecoveryQueryFails() {
+        val accepted = store.create(
+            NarDownload(
+                id = "unbound-remote-query-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/unbound-remote-query-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.findDownloadIdFailure = IllegalStateException("DownloadManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertEquals(NarDownloadState.Downloading, store.get(accepted.id)!!.state)
+        val operation = operationStore.read().single()
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertNull(operation.externalJob)
+    }
+
     @Test fun recreationWithoutRemoteRowTerminalizesUnboundAttemptBeforeRetry() {
         val accepted = store.create(
             NarDownload(
@@ -2455,6 +2482,7 @@ class NarDownloadRepositoryTest {
         var onEnqueue: ((String) -> Unit)? = null
         var enqueueFailure: Exception? = null
         var intendedDestinationFailure: Exception? = null
+        var findDownloadIdFailure: Exception? = null
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
         val removedIds = mutableListOf<Long>()
@@ -2472,7 +2500,10 @@ class NarDownloadRepositoryTest {
             return NarRemoteEnqueue(nextDownloadId, "file:///owned/$itemId.nar")
         }
 
-        override fun findDownloadId(retainedUri: String) = recoveredIds[retainedUri]
+        override fun findDownloadId(retainedUri: String): Long? {
+            findDownloadIdFailure?.let { throw it }
+            return recoveredIds[retainedUri]
+        }
 
         override fun remove(downloadManagerId: Long) {
             removedIds += downloadManagerId

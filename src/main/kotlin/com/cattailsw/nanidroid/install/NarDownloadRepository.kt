@@ -711,10 +711,19 @@ class NarDownloadRepository internal constructor(
                     it.state == NarDownloadState.Downloading
             }
             .forEach { item ->
-                val downloadManagerId = item.downloadManagerId ?: item.retainedUri?.let { retainedUri ->
-                    runCatching { downloads.findDownloadId(retainedUri) }.getOrNull()?.also { recoveredId ->
-                        store.update(item.id) { it.copy(downloadManagerId = recoveredId) }
+                val recoveredDownloadId = if (item.downloadManagerId == null) {
+                    item.retainedUri?.let { retainedUri ->
+                        try {
+                            downloads.findDownloadId(retainedUri)
+                        } catch (_: Exception) {
+                            return@forEach
+                        }
                     }
+                } else {
+                    null
+                }
+                val downloadManagerId = item.downloadManagerId ?: recoveredDownloadId?.also { recoveredId ->
+                    store.update(item.id) { it.copy(downloadManagerId = recoveredId) }
                 }
                 if (downloadManagerId == null) {
                     remoteProgress.stop(item.handle())
