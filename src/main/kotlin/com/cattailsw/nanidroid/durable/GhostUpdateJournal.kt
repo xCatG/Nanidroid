@@ -141,7 +141,7 @@ internal object GhostUpdateJournalStore {
         }
     }
 
-    /** A live writer is coordinated through publication; process-death residue has no registry entry. */
+    /** A filename and unlocked state cannot authenticate a private writer, so preserve residue. */
     fun deleteAbandonedPrivateMarkerWrite(file: File): Boolean {
         if (
             !file.isFile ||
@@ -152,21 +152,7 @@ internal object GhostUpdateJournalStore {
         synchronized(privateMarkerWriteLock) {
             if (file.canonicalPath in activePrivateMarkerWrites) return false
         }
-        return try {
-            RandomAccessFile(file, "rw").use { handle ->
-                handle.channel.use { channel ->
-                    val lock = try {
-                        channel.tryLock()
-                    } catch (_: OverlappingFileLockException) {
-                        return false
-                    }
-                    lock.use { }
-                }
-            }
-            file.delete()
-        } catch (_: IOException) {
-            false
-        }
+        return false
     }
 
     private fun writeContents(
