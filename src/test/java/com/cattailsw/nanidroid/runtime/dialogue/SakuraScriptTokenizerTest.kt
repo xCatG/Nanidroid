@@ -8,6 +8,11 @@ import org.junit.Test
 /** Synthetic, ASCII-compatible grammar fixtures for structured SakuraScript. */
 class SakuraScriptTokenizerTest {
     @Test
+    fun codePointLimitDoesNotSplitSupplementaryCharacters() {
+        assertEquals("A\uD83D\uDE00", "A\uD83D\uDE00BC".takeCodePoints(2))
+    }
+
+    @Test
     fun choicesKeepSpeakerOwnershipQuotedEmptyAndDoubledQuoteReferences() {
         assertEquals(
             listOf(

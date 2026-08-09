@@ -490,14 +490,27 @@ class SScriptRunnerPresentationTest {
     @Test
     fun dialogBindingCarriesTheExactTypedInputPresentationForTheCurrentGeneration() {
         val fixture = fixture(responses = emptyList())
-        fixture.runner.addMsgToQueue(arrayOf("\\![open,passwordinput,secret,--limit=3]\\e"))
+        fixture.runner.addMsgToQueue(arrayOf("\\![open,passwordinput,secret,--text=shh,--limit=3]\\e"))
         fixture.runner.run()
         val pending = requireNotNull(fixture.runner.dialogueStateSnapshot().pendingInput)
 
         val dialog = DialogueDialogBinding { fixture.runner }.userInput("secret", pending.generation)
 
         Assert.assertEquals(InputPresentation.Password, dialog.presentation)
+        Assert.assertEquals("shh", dialog.value)
         Assert.assertEquals(3, dialog.maximumLength)
+    }
+
+    @Test
+    fun dialogBindingCarriesPositionalPasswordInputInitialText() {
+        val fixture = fixture(responses = emptyList())
+        fixture.runner.addMsgToQueue(arrayOf("\\![open,passwordinput,secret,shh]\\e"))
+        fixture.runner.run()
+        val pending = requireNotNull(fixture.runner.dialogueStateSnapshot().pendingInput)
+
+        val dialog = DialogueDialogBinding { fixture.runner }.userInput("secret", pending.generation)
+
+        Assert.assertEquals("shh", dialog.value)
     }
 
     @Test

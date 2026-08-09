@@ -53,6 +53,7 @@ import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadState
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
+import com.cattailsw.nanidroid.runtime.dialogue.takeCodePoints
 
 /** Compose-owned activity dialogs. State values are kept in the Activity bundle. */
 internal sealed interface NanidroidSimpleDialog {
@@ -136,7 +137,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
     val focusRequester = remember { FocusRequester() }
     val isPassword = dialog.presentation is InputPresentation.Password
     val onValueChange: (String) -> Unit = { value ->
-        dialog.onValueChanged(dialog.maximumLength?.let(value::take) ?: value)
+        dialog.onValueChanged(dialog.maximumLength?.let(value::takeCodePoints) ?: value)
     }
 
     LaunchedEffect(dialog.id, dialog.restoration) {

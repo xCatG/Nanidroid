@@ -43,6 +43,13 @@ sealed interface InputPresentation {
     data object Password : InputPresentation
 }
 
+/** Limits a UTF-16 string by Unicode code points without leaving a dangling surrogate. */
+internal fun String.takeCodePoints(maximumLength: Int): String {
+    require(maximumLength >= 0)
+    if (codePointCount(0, length) <= maximumLength) return this
+    return substring(0, offsetByCodePoints(0, maximumLength))
+}
+
 /**
  * SSP's post-submit visibility and text-retention options.
  *

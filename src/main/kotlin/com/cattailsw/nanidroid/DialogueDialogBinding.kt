@@ -5,6 +5,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
 import com.cattailsw.nanidroid.runtime.dialogue.InputBoxSpec
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
+import com.cattailsw.nanidroid.runtime.dialogue.takeCodePoints
 
 internal data class DialogueDialogRestoration(
     val owner: String,
@@ -24,7 +25,7 @@ internal class DialogueDialogBinding(
     fun userInput(
         id: String,
         generation: Long?,
-        value: String = "",
+        value: String? = null,
         onValueChanged: (String) -> Unit = {},
     ): NanidroidSimpleDialog.UserInput {
         val runner = currentRunner()
@@ -32,14 +33,17 @@ internal class DialogueDialogBinding(
         val boundGeneration = generation?.takeIf {
             snapshot?.dialogue?.pendingInput?.generation == it
         }
+        val spec = snapshot?.dialogue?.pendingInput?.spec?.takeIf { boundGeneration != null }
+        val initialValue = spec?.initialText.orEmpty()
+        val displayedValue = value ?: spec?.maximumLength?.let(initialValue::takeCodePoints) ?: initialValue
         return inputDialog(
             id,
-            value,
+            displayedValue,
             onValueChanged,
             runner.takeIf { boundGeneration != null },
             boundGeneration,
             boundGeneration?.let { DialogueDialogRestoration(requireNotNull(snapshot).owner, it) },
-            snapshot?.dialogue?.pendingInput?.spec?.takeIf { boundGeneration != null },
+            spec,
         )
     }
 

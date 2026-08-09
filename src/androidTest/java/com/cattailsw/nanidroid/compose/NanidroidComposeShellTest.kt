@@ -1056,6 +1056,27 @@ class NanidroidComposeShellTest {
     }
 
     @Test
+    fun user_input_limit_keeps_supplementary_characters_intact() {
+        val value = mutableStateOf("")
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = NanidroidSimpleDialog.UserInput(
+                    id = "limited",
+                    value = value.value,
+                    onValueChanged = { value.value = it },
+                    onSubmit = { _, _ -> },
+                    onCancel = {},
+                    maximumLength = 2,
+                ),
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("script-user-input").performTextReplacement("A\uD83D\uDE00BC")
+        composeRule.runOnIdle { assertEquals("A\uD83D\uDE00", value.value) }
+    }
+
+    @Test
     fun portrait_user_input_keeps_explicit_actions_above_the_real_ime() {
         val fixture = UserInputFixture()
         renderUserInput(fixture)
