@@ -269,6 +269,22 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun snakeAggregateOutcomeTreatsAPlayableFallbackAsTheChoiceResult() {
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            val failedPrimary = eventId == "OnChoiceSelectEx" && references[1] == "choicefirsthehim"
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", if (failedPrimary) 500 else 200)
+                .put("outcome", if (failedPrimary) "error-status" else "success")
+                .put("value", "playable")
+                .put("hasExactValue", true)
+                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+        }
+
+        assertEquals("success", snakeOverallOutcome(sequence))
+    }
+
+    @Test
     fun snakeBootLifecycleFallsBackWhenPrimaryOnlyHasLowercaseValueHeader() {
         val requests = mutableListOf<String>()
 
@@ -1033,26 +1049,12 @@ class NarCorpusRuntimeTest {
             )
         }
 
-        var overallOutcome = "success"
-        for (index in 0 until sequence.length()) {
-            val step = sequence.getJSONObject(index)
-            val stepOutcome = step.optString("outcome")
-            if (stepOutcome != "success") {
-                overallOutcome = stepOutcome
-                break
-            }
-        }
+        val failureIndex = firstSnakeFailureIndex(sequence)
+        val overallOutcome = failureIndex?.let { sequence.getJSONObject(it).optString("outcome") } ?: "success"
 
         val firstStep = sequence.getJSONObject(0)
         var firstFailure: Any = JSONObject.NULL
-        for (index in 0 until sequence.length()) {
-            val step = sequence.getJSONObject(index)
-            val stepOutcome = step.optString("outcome")
-            if (stepOutcome != "success") {
-                firstFailure = step.opt("failure") ?: JSONObject.NULL
-                break
-            }
-        }
+        failureIndex?.let { firstFailure = sequence.getJSONObject(it).opt("failure") ?: JSONObject.NULL }
 
         return JSONObject()
             .put("outcome", overallOutcome)
@@ -1101,6 +1103,22 @@ class NarCorpusRuntimeTest {
             )
     }
 
+    private fun snakeOverallOutcome(sequence: JSONArray): String =
+        firstSnakeFailureIndex(sequence)?.let { sequence.getJSONObject(it).optString("outcome") } ?: "success"
+
+    private fun firstSnakeFailureIndex(sequence: JSONArray): Int? =
+        (0 until sequence.length()).firstOrNull { index ->
+            sequence.getJSONObject(index).optString("outcome") != "success" &&
+                !isRecoveredSnakeChoicePrimary(sequence, index)
+        }
+
+    private fun isRecoveredSnakeChoicePrimary(sequence: JSONArray, index: Int): Boolean {
+        val primary = sequence.getJSONObject(index)
+        if (primary.optString("eventId") != "OnChoiceSelectEx" || index + 1 >= sequence.length()) return false
+        val fallback = sequence.getJSONObject(index + 1)
+        return fallback.optString("eventId") == "OnChoiceSelect" && isSnakePlayableResponse(fallback)
+    }
+
     private fun snakeBootLifecycleSequence(
         shellName: String,
         probe: (eventId: String, references: List<String>) -> JSONObject,
@@ -1114,22 +1132,17 @@ class NarCorpusRuntimeTest {
             return sequence
         }
 
-        fun isPlayable(probe: JSONObject): Boolean {
-            val hasExactValue = probe.optBoolean("hasExactValue", probe.optString("value").isNotEmpty())
-            return probe.optInt("status", -1) == 200 && hasExactValue
-        }
-
-        if (onFirstBoot.optString("outcome") != "success" || !isPlayable(onFirstBoot)) {
+        if (onFirstBoot.optString("outcome") != "success" || !isSnakePlayableResponse(onFirstBoot)) {
             return sequence
         }
 
         fun probeChoice(label: String, id: String): JSONObject? {
             val primary = probe("OnChoiceSelectEx", listOf(label, id))
             sequence.put(primary)
-            return if (isPlayable(primary)) {
+            return if (isSnakePlayableResponse(primary)) {
                 primary
             } else {
-                probe("OnChoiceSelect", listOf(id)).also(sequence::put).takeIf(::isPlayable)
+                probe("OnChoiceSelect", listOf(id)).also(sequence::put).takeIf(::isSnakePlayableResponse)
             }
         }
 
@@ -1332,6 +1345,11 @@ class NarCorpusRuntimeTest {
                 .put("failure", error.stackTraceToString())
                 .put("outcome", "request-exception")
         }
+    }
+
+    private fun isSnakePlayableResponse(probe: JSONObject): Boolean {
+        val hasExactValue = probe.optBoolean("hasExactValue", probe.optString("value").isNotEmpty())
+        return probe.optInt("status", -1) == 200 && hasExactValue
     }
 
     private fun structuredPostInteractionEvidence(

@@ -470,6 +470,12 @@ function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGh
         if ([string]$Evidence[$index].eventId -cne [string]$expectedEventId -or [string]$Evidence[$index].method -cne [string]$expectedMethod -or [string]$Evidence[$index].references[0] -cne [string]$expectedReference) {
             ThrowIf 'Post-interaction SHIORI evidence is not ordered with its dialogue sequence.'
         }
+        for ($referenceIndex = 1; $referenceIndex -lt 7; $referenceIndex++) {
+            $expectedReference = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path "references[$referenceIndex]"
+            if ($Evidence[$index].references[$referenceIndex] -cne $expectedReference) {
+                ThrowIf 'Post-interaction SHIORI evidence does not retain the dispatched reference envelope.'
+            }
+        }
         if ([string]$expectedEventId -in @('OnChoiceSelect', 'OnChoiceSelectEx')) {
             $identifierIndex = if ([string]$expectedEventId -ceq 'OnChoiceSelectEx') { 1 } else { 0 }
             $expectedIdentifier = Get-NestedPropertyValue -Object $expectedInteractionSteps[$index] -Path "references[$identifierIndex]"
@@ -2185,6 +2191,8 @@ foreach ($arg in $ProbeArgs) {
     $pointerButtonEvidence[0].button = 1
     $wrongMethodEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
     $wrongMethodEvidence[0].method = 'POST'
+    $phantomTrailingReferenceEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $phantomTrailingReferenceEvidence[0].references[2] = 'phantom'
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $choiceOnlyEvidence; $acceptedPostInteractionRegressions += 'choice-only evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $masterIdentityEvidence; $acceptedPostInteractionRegressions += 'master ghost identity' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence @([pscustomobject]@{ ghostIdentity = 'snake-and-otacon'; method = 'GET'; eventId = 'OnUserInput'; scope = 'dialogue'; coordinates = $null; identifier = 'OnNameTeach'; button = $null; source = 'input'; references = @('OnNameTeach', 'Nanidroid', $null, $null, $null, $null, $null) }); $acceptedPostInteractionRegressions += 'generic OnUserInput envelope' } catch { }
@@ -2197,6 +2205,7 @@ foreach ($arg in $ProbeArgs) {
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $pointerCoordinatesEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'pointer coordinates in dialogue evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $pointerButtonEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'pointer button in dialogue evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $wrongMethodEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'method different from dispatched dialogue step' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $phantomTrailingReferenceEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'phantom trailing dialogue reference' } catch { }
     if ($acceptedPostInteractionRegressions.Count -gt 0) {
         ThrowIf "Dry-run post-interaction regression accepted $($acceptedPostInteractionRegressions -join ' and ')."
     }
