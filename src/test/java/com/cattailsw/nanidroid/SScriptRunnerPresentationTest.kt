@@ -488,13 +488,19 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
-    fun dialogBindingCarriesTheExactTypedInputPresentationForTheCurrentGeneration() {
+    fun dialogBindingUsesAuthoredTextWhenTheActivityHasNoEditedValue() {
         val fixture = fixture(responses = emptyList())
         fixture.runner.addMsgToQueue(arrayOf("\\![open,passwordinput,secret,--text=shh,--limit=3]\\e"))
         fixture.runner.run()
         val pending = requireNotNull(fixture.runner.dialogueStateSnapshot().pendingInput)
 
-        val dialog = DialogueDialogBinding { fixture.runner }.userInput("secret", pending.generation)
+        // The activity has not rendered or edited this generation yet, so it must pass
+        // null rather than an empty replacement value to preserve authored initial text.
+        val dialog = DialogueDialogBinding { fixture.runner }.userInput(
+            "secret",
+            pending.generation,
+            value = null,
+        )
 
         Assert.assertEquals(InputPresentation.Password, dialog.presentation)
         Assert.assertEquals("shh", dialog.value)

@@ -927,7 +927,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     } catch (_: Exception) { false }
     private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
         GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
-    private fun createUserInputDialog(id: String, generation: Long?, value: String = ""): NanidroidSimpleDialog.UserInput =
+    private fun createUserInputDialog(id: String, generation: Long?, value: String? = null): NanidroidSimpleDialog.UserInput =
         dialogueDialogBinding.userInput(id, generation, value, ::updateUserInputValue)
     private fun restoreUserInputDialog(
         id: String,
