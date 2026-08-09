@@ -21,6 +21,7 @@ cancelled rollback path handles both idempotently.
 | Event | Persist first | Then | Replay |
 | --- | --- | --- | --- |
 | User cancellation | `PREPARED` journal for exact request | Delete the exact candidate, then journal and transaction root; terminal `Cancelled` | `LIVE_CANDIDATE` or `LIVE_ONLY` evidence remains retryable; journal-less empty transaction roots are swept before recovery scheduling |
+| Terminal precommit failure (missing manifest, digest mismatch, exception, or commit-gate failure) | `PREPARED` journal for exact request | Delete the exact candidate before journal/root cleanup; terminal `Failed` | Exact-identity recovery rolls back `LIVE_CANDIDATE` or `LIVE_ONLY`; incomplete cleanup remains durable rather than becoming a journal-less orphan |
 | System interruption; staging delete fails | Nothing new | Return `Interrupted` | Worker retry repeats its attempt; no user-terminal state is manufactured |
 | Journal recovery with stale/mismatched identity | Existing validation | Leave evidence blocked | Fail closed; do not delete |
 
