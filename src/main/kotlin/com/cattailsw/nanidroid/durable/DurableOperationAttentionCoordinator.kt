@@ -66,7 +66,7 @@ internal class DurableOperationAttentionCoordinator(
         val snapshot = supervisor.attentionSnapshot()
         val stalled = snapshot.records.filter(DurableOperationRecord::showStallPrompt)
         stalledOperations.value = stalled
-        notifier.reconcile(stalled)
+        notifier.reconcile(snapshot.notificationRecords)
         synchronized(coordinationLock) {
             if (!started || revision != observedRevision) return
             snapshot.nextCheckDelayMillis?.let { scheduler.schedule(it, reconcileTask) }

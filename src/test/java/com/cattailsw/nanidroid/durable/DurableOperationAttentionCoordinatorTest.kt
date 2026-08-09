@@ -68,7 +68,7 @@ class DurableOperationAttentionCoordinatorTest {
         assertEquals(30_000L, scheduler.delayMillis)
     }
 
-    @Test fun restoredAttentionIsVisuallySuppressedThenRepublishedAtThirtySeconds() {
+    @Test fun restoredAttentionKeepsExactNotificationWhileVisuallySuppressedThenRepublishes() {
         assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
         clock.value = 30_000L
         assertTrue(supervisor.snapshot().single().showStallPrompt)
@@ -85,18 +85,85 @@ class DurableOperationAttentionCoordinatorTest {
         restoredScheduler.runPending()
 
         assertTrue(restoredCoordinator.observeStalledOperations().value.isEmpty())
-        assertTrue(restoredNotifier.last.isEmpty())
+        assertEquals(
+            listOf(handle),
+            restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
         assertEquals(30_000L, restoredScheduler.delayMillis)
 
         clock.value = 59_999L
         restoredScheduler.runPending()
         assertEquals(1L, restoredScheduler.delayMillis)
-        assertTrue(restoredNotifier.last.isEmpty())
+        assertEquals(
+            listOf(handle),
+            restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
 
         clock.value = 60_000L
         restoredScheduler.runPending()
         assertEquals(listOf(handle), restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) })
         assertTrue(restoredCoordinator.observeStalledOperations().value.single().showStallPrompt)
+    }
+
+    @Test fun repeatedReconstructionKeepsTheSameExactPromptHandle() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        val firstRestart = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        val firstNotifier = RecordingAttentionNotifier()
+        val firstScheduler = FakeAttentionScheduler()
+        DurableOperationAttentionCoordinator(firstRestart, firstScheduler, firstNotifier).start()
+        firstScheduler.runPending()
+        assertEquals(
+            listOf(handle),
+            firstNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
+
+        val secondRestart = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        val secondNotifier = RecordingAttentionNotifier()
+        val secondScheduler = FakeAttentionScheduler()
+        DurableOperationAttentionCoordinator(secondRestart, secondScheduler, secondNotifier).start()
+        secondScheduler.runPending()
+        assertEquals(
+            listOf(handle),
+            secondNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
+    }
+
+    @Test fun reconstructionDoesNotReconcileStaleAttemptNotification() {
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        clock.value = 30_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.CANCELLED))
+
+        val currentHandle = handle.copy(attemptId = AttemptId(2L))
+        val currentBinding = ExternalJobBinding.DownloadManager(42L)
+        assertTrue(
+            supervisor.start(
+                currentHandle,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                currentBinding,
+            ),
+        )
+        clock.value = 60_000L
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        val restoredNotifier = RecordingAttentionNotifier()
+        val restoredScheduler = FakeAttentionScheduler()
+        DurableOperationAttentionCoordinator(
+            DurableOperationSupervisor(store, clock) { _, _, _ -> },
+            restoredScheduler,
+            restoredNotifier,
+        ).start()
+        restoredScheduler.runPending()
+
+        assertEquals(
+            listOf(currentHandle),
+            restoredNotifier.last.map { OperationHandle(it.id, it.attemptId) },
+        )
     }
 
     @Test fun terminalMutationClearsAttentionAndReturnsToSleep() {

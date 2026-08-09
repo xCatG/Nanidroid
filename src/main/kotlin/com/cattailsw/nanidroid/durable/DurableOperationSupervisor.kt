@@ -461,7 +461,11 @@ class DurableOperationSupervisor(
                 record
             }
         }
-        DurableAttentionSnapshot(presentedRecords, nextDelay)
+        DurableAttentionSnapshot(
+            records = presentedRecords,
+            notificationRecords = storedRecords.filter(DurableOperationRecord::showStallPrompt),
+            nextCheckDelayMillis = nextDelay,
+        )
     }
 
     private fun DurableOperationRecord.isRestartSuppressed(): Boolean =
