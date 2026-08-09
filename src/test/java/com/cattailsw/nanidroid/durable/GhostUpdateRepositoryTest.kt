@@ -2380,11 +2380,33 @@ class GhostUpdateRepositoryTest {
             emptyList(),
         )
 
-        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal) { writing ->
+        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal, { writing ->
             assertTrue(writing.name.startsWith(".nanidroid-update-writing-"))
             assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(root))
             assertTrue(writing.exists())
-        }
+        })
+
+        assertTrue(marker.exists())
+        assertEquals(journal, GhostUpdateJournalStore.read(marker))
+    }
+
+    @Test
+    fun `recovery cannot reclaim a private marker after writing before publication`() {
+        val root = temporaryDirectory("private-marker-publication-race")
+        val journal = GhostUpdateJournal(
+            OperationId("operation"),
+            File(root, "live").canonicalPath,
+            File(root, "candidate").canonicalPath,
+            File(root, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+
+        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal, {}, { writing ->
+            assertTrue(writing.exists())
+            assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(root))
+            assertTrue(writing.exists())
+        })
 
         assertTrue(marker.exists())
         assertEquals(journal, GhostUpdateJournalStore.read(marker))

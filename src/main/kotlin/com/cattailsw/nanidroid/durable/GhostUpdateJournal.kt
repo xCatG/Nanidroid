@@ -60,6 +60,8 @@ internal object GhostUpdateJournalStore {
     internal const val MAX_FILES = 100_000
     private const val MAX_TEXT_BYTES = 16 * 1024
     private const val PRIVATE_WRITING_PREFIX = ".nanidroid-update-writing-"
+    private val privateMarkerWriteLock = Any()
+    private val activePrivateMarkerWrites = mutableSetOf<String>()
 
     fun write(file: File, journal: GhostUpdateJournal) {
         if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
@@ -91,21 +93,27 @@ internal object GhostUpdateJournalStore {
      * leaves only an unreadable sibling temporary, which cannot be mistaken for ownership.
      */
     fun createPrivateMarker(parent: File, journal: GhostUpdateJournal): File =
-        createPrivateMarker(parent, journal) { }
+        createPrivateMarker(parent, journal, {})
 
     internal fun createPrivateMarker(
         parent: File,
         journal: GhostUpdateJournal,
         duringWrite: (File) -> Unit,
+        beforePublication: (File) -> Unit = {},
     ): File {
         if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
         if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
             throw IOException("cannot prepare update journal directory")
         }
-        val writing = File.createTempFile(PRIVATE_WRITING_PREFIX, ".tmp", parent)
+        val writing = synchronized(privateMarkerWriteLock) {
+            File.createTempFile(PRIVATE_WRITING_PREFIX, ".tmp", parent).also {
+                activePrivateMarkerWrites += it.canonicalPath
+            }
+        }
         var marker: File? = null
         try {
             writeContents(writing, journal, duringWrite)
+            beforePublication(writing)
             repeat(8) {
                 val candidate = File(parent, ".nanidroid-update-owner-${UUID.randomUUID()}.tmp")
                 try {
@@ -126,11 +134,14 @@ internal object GhostUpdateJournalStore {
             }
             throw IOException("cannot publish private ownership marker")
         } finally {
+            synchronized(privateMarkerWriteLock) {
+                activePrivateMarkerWrites -= writing.canonicalPath
+            }
             if (marker == null) writing.delete()
         }
     }
 
-    /** A live writer holds this OS lock until its temporary marker is published. */
+    /** A live writer is coordinated through publication; process-death residue has no registry entry. */
     fun deleteAbandonedPrivateMarkerWrite(file: File): Boolean {
         if (
             !file.isFile ||
@@ -138,6 +149,9 @@ internal object GhostUpdateJournalStore {
             !file.name.startsWith(PRIVATE_WRITING_PREFIX) ||
             !file.name.endsWith(".tmp")
         ) return false
+        synchronized(privateMarkerWriteLock) {
+            if (file.canonicalPath in activePrivateMarkerWrites) return false
+        }
         return try {
             RandomAccessFile(file, "rw").use { handle ->
                 handle.channel.use { channel ->
