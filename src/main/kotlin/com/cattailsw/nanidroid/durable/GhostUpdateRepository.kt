@@ -1295,11 +1295,19 @@ class GhostUpdateRepository internal constructor(
         /** Reclaims only authenticated private markers and their empty, exact staging roots. */
         private fun sweepPrivateOwnershipMarkers(storage: File) {
             storage.listFiles().orEmpty()
-                .filter { it.isFile && it.name.startsWith(PRIVATE_MARKER_PREFIX) }
+                .filter {
+                    it.isFile &&
+                        !Files.isSymbolicLink(it.toPath()) &&
+                        it.name.startsWith(PRIVATE_MARKER_PREFIX)
+                }
                 .forEach { marker ->
                     val journal = try {
                         GhostUpdateJournalStore.read(marker)
                     } catch (_: Exception) {
+                        // This namespace is created only for private ownership records. A failed
+                        // pre-publication write has no journal to authenticate, but must not
+                        // remain as storage residue that blocks bundled-ghost installation.
+                        marker.delete()
                         return@forEach
                     }
                     val root = File(journal.ghostRoot).canonicalFile

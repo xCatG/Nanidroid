@@ -464,6 +464,17 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `startup recovery reclaims an incomplete private ownership marker`() {
+        val fixture = fixture("incomplete-private-owner-marker")
+        val marker = File.createTempFile(".nanidroid-update-owner-", ".tmp", fixture.parent)
+        write(marker, bytes("truncated"))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(marker.exists())
+    }
+
+    @Test
     fun `startup recovery never sweeps an installed ghost whose id uses the staging prefix`() {
         val storage = temporaryDirectory("staging-prefix-ghost")
         val ghost = File(storage, ".nanidroid-staging-valid-ghost").apply { mkdirs() }
