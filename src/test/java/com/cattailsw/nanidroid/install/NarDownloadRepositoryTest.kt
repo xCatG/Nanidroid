@@ -2643,8 +2643,8 @@ class NarDownloadRepositoryTest {
         )
     }
 
-    @Test fun remoteQueueWriteFailureAfterEnqueueRemovesRowAndTerminalizesExactAttempt() {
-        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
+    @Test fun remoteQueueWriteFailureAfterEnqueueBindsTheAppliedExactRow() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 3))
         val exactOperationStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
         )
@@ -2658,14 +2658,49 @@ class NarDownloadRepositoryTest {
 
         val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
 
-        assertTrue(item.state is NarDownloadState.NeedsAttention)
-        assertNull(item.downloadManagerId)
-        assertEquals(listOf(98L), downloads.removedIds)
+        assertEquals(NarDownloadState.Downloading, item.state)
+        assertEquals(98L, item.downloadManagerId)
+        assertTrue(downloads.removedIds.isEmpty())
         val operation = exactOperationStore.read().single()
         assertEquals(item.attemptId, operation.attemptId.value)
         assertEquals(OperationKind.REMOTE_NAR, operation.kind)
-        assertNull(operation.externalJob)
-        assertEquals(OperationStatus.FAILED, operation.status)
+        assertEquals(ExternalJobBinding.DownloadManager(98L), operation.externalJob)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+    }
+
+    @Test fun appliedRemoteQueueWriteFailureStillBindsAndObservesTheExactRow() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactProgress = FakeRemoteProgressObserver(downloads, exactSupervisor)
+        val exactRepository = NarDownloadRepository(
+            store = queueStore,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = exactProgress,
+            nextId = { "remote-applied-write" },
+        )
+        downloads.nextDownloadId = 109L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(109L, item.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(109L),
+            exactOperationStore.read().single().externalJob,
+        )
+        assertEquals(listOf(item.handle() to 109L), exactProgress.started)
+        assertTrue(downloads.removedIds.isEmpty())
     }
 
     @Test fun thrownRemoteBindingFailureRemovesRowAndTerminalizesExactAttempt() {
@@ -2721,26 +2756,29 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
     }
 
-    @Test fun remoteQueueWriteFailureRetriesRowRemovalBeforeTerminalizingAttempt() {
-        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
-        val exactOperationStore = SharedPreferencesDurableOperationStore(
-            SharedPreferencesDurableOperationStore.MemoryStorage(),
+    @Test fun appliedQueueWriteFailureStillCleansUpWhenBindingThenFails() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = FailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
         )
         val exactSupervisor = DurableOperationSupervisor(
             exactOperationStore,
             MonotonicClock { 0L },
             cancellations,
         )
-        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-remove-retry")
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-applied-write-binding-failure")
         downloads.nextDownloadId = 100L
-        downloads.removeFailureCount = 1
 
         val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
 
         assertTrue(item.state is NarDownloadState.NeedsAttention)
-        assertNull(item.downloadManagerId)
+        assertEquals(100L, item.downloadManagerId)
         assertEquals(listOf(100L), downloads.removedIds)
-        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+        val operation = exactOperationStore.read().single()
+        assertNull(operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
     }
 
     @Test fun recreationRepairsItemAfterUnboundCancellationWasAlreadyPersisted() {
@@ -3287,6 +3325,21 @@ class NarDownloadRepositoryTest {
             writeCount += 1
             if (writeCount == failOnWrite) throw IllegalStateException("queue write failed")
             this.value = value
+        }
+    }
+
+    private class ApplyThenFailSelectedWriteStorage(
+        private val failOnWrite: Int,
+    ) : NarDownloadStore.Storage {
+        private var value: String? = null
+        private var writeCount = 0
+
+        @Synchronized override fun read(): String? = value
+
+        @Synchronized override fun write(value: String) {
+            writeCount += 1
+            this.value = value
+            if (writeCount == failOnWrite) throw IllegalStateException("queue write applied then failed")
         }
     }
 

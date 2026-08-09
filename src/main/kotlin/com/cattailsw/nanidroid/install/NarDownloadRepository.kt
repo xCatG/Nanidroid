@@ -1301,14 +1301,7 @@ class NarDownloadRepository internal constructor(
                     if (current == accepted) boundDownload else current
                 }
             } catch (_: Exception) {
-                val current = runCatching { store.get(itemId) }.getOrNull()
-                if (current?.downloadManagerId == enqueued.downloadManagerId) {
-                    return
-                }
-                if (removeUnpersistedRemoteRowAndFailAttempt(handle, enqueued.downloadManagerId)) {
-                    markNeedsAttentionIfCurrent(accepted, DOWNLOAD_START_FAILURE)
-                }
-                return
+                runCatching { store.get(itemId) }.getOrNull()
             }
             if (updated != boundDownload) {
                 removeUnpersistedRemoteRowAndFailAttempt(handle, enqueued.downloadManagerId)
