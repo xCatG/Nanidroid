@@ -399,7 +399,7 @@ class DurableOperationSupervisor(
         binding: ExternalJobBinding.WorkManager,
         event: GhostUpdateTerminalEvent,
     ): Boolean = mutate {
-        val current = activeRecord(handle) ?: return@mutate false
+        val current = exactRecord(handle) ?: return@mutate false
         if (current.kind != OperationKind.GHOST_UPDATE || current.externalJob != binding) return@mutate false
         store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = event))
     }

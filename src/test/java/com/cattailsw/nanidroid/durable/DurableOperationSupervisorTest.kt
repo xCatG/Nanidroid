@@ -34,6 +34,23 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun terminalGhostUpdateEventCanBeDeferredAfterExactCompletion() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("ghost-update-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertEquals(event, supervisor.records().single().pendingGhostUpdateEvent)
+        assertFalse(supervisor.deferTerminalEvent(handle("ghost-update", 2), binding, event))
+    }
+
     @Test fun pendingTerminalEventDispatchesOnlyAfterItsExactGhostIsAttached() {
         val root = File("build/terminal-event-ghost").canonicalFile
         val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))

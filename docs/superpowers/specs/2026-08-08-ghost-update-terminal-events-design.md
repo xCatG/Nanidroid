@@ -20,7 +20,7 @@ field is never a durable claim.
 | Trigger | Durable state | Result |
 | --- | --- | --- |
 | Terminal event with exact ghost currently loaded | No pending event | Dispatch immediately through the existing bound root/ID guard. |
-| Terminal event with no exact ghost loaded | Pending payload on the exact active operation handle | Preserve the event; do not deliver it to a different ghost. |
+| Terminal event with no exact ghost loaded | Pending payload on the exact operation handle, including its just-terminal record | Preserve the event; do not deliver it to a different ghost. |
 | Matching ghost construction or reload | Pending payload for the matching handle/root/ID | Dispatch once, then remove that payload. |
 | Process death before removal | Pending payload remains | Retry delivery only after the exact ghost is constructed. |
 | Retry, replacement, or deletion | Different current handle or no record | Old payload is never delivered. |
