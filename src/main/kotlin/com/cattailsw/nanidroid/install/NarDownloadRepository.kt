@@ -1324,6 +1324,16 @@ class NarDownloadRepository internal constructor(
             if (!bindingAccepted) {
                 if (removeUnpersistedRemoteRowAndFailAttempt(handle, enqueued.downloadManagerId)) {
                     markNeedsAttentionIfCurrent(boundDownload, DOWNLOAD_START_FAILURE)
+                } else {
+                    runCatching {
+                        store.update(itemId) { current ->
+                            if (current == boundDownload) {
+                                current.copy(downloadManagerId = null)
+                            } else {
+                                current
+                            }
+                        }
+                    }
                 }
             } else {
                 remoteProgress.start(handle, enqueued.downloadManagerId)
@@ -1338,7 +1348,9 @@ class NarDownloadRepository internal constructor(
         downloadManagerId: Long,
     ): Boolean {
         if (!removeRemoteRow(downloadManagerId)) return false
-        return supervisor.failUnboundAttempt(handle, DOWNLOAD_START_FAILURE)
+        return runCatching {
+            supervisor.failUnboundAttempt(handle, DOWNLOAD_START_FAILURE)
+        }.getOrDefault(false)
     }
 
     private fun removeRemoteRow(downloadManagerId: Long): Boolean {

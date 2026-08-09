@@ -2519,6 +2519,35 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operation.status)
     }
 
+    @Test fun remoteBindingCleanupTerminalizationFailureRemainsRecoverableOnReconciliation() {
+        val exactOperationStore = FailRemoteBindingStore(
+            FailNextTerminalWriteStore(
+                SharedPreferencesDurableOperationStore(
+                    SharedPreferencesDurableOperationStore.MemoryStorage(),
+                ),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(store, exactSupervisor, "remote-binding-terminal-write-failure")
+        downloads.nextDownloadId = 101L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(NarDownloadState.Downloading, item.state)
+        assertNull(item.downloadManagerId)
+        assertEquals(listOf(101L), downloads.removedIds)
+        assertEquals(OperationStatus.RUNNING, exactOperationStore.read().single().status)
+
+        exactRepository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
     @Test fun remoteQueueWriteFailureRetriesRowRemovalBeforeTerminalizingAttempt() {
         val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
         val exactOperationStore = SharedPreferencesDurableOperationStore(
