@@ -157,6 +157,20 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun parsedChoiceIdsPreserveChoicesAcrossSpeakerChanges() {
+        val evidence = parseShioriSegments("\\h\\q[faq,faq]\\uReply\\hAgain", mutableListOf())
+
+        assertEquals("faq", evidence.getJSONArray("choiceIds").getString(0))
+    }
+
+    @Test
+    fun parsedPassiveTransitionsSurviveDialogueClears() {
+        val evidence = parseShioriSegments("\\![enter,passivemode]\\cAfter clear", mutableListOf())
+
+        assertTrue(evidence.getJSONArray("passiveTransitions").getBoolean(0))
+    }
+
+    @Test
     fun snakeBootLifecycleRetainsFailedPrimaryAndFallbackChoiceEvidence() {
         val requests = mutableListOf<Pair<String, List<String>>>()
 
@@ -1207,14 +1221,20 @@ class NarCorpusRuntimeTest {
         var observedInputId: String? = null
 
         val dialogue = SakuraScriptTokenizer.tokenize(value, diagnostics::add)
+        dialogue.asSequence()
+            .flatMap { it.segments.asSequence() }
+            .filterIsInstance<DialogueSegment.PassiveMode>()
+            .forEach { passiveTransitions.put(it.entering) }
         val visibleSegments = GhostSpeaker.entries.flatMap { speaker ->
             dialogue
                 .asSequence()
                 .filter { it.speaker == speaker }
                 .flatMap { it.segments.asSequence() }
                 .fold(mutableListOf<DialogueSegment>()) { visible, segment ->
-                    if (segment is DialogueSegment.Clear || segment is DialogueSegment.SpeakerChangeClear) {
+                    if (segment is DialogueSegment.Clear) {
                         visible.clear()
+                    } else if (segment is DialogueSegment.SpeakerChangeClear) {
+                        visible.removeAll { it !is DialogueSegment.Choice && it !is DialogueSegment.InputBox }
                     } else {
                         visible += segment
                     }
@@ -1281,7 +1301,6 @@ class NarCorpusRuntimeTest {
                             )
                         inputSpecs.put(inputSpec)
                     }
-                    is DialogueSegment.PassiveMode -> passiveTransitions.put(segment.entering)
                     else -> {}
                 }
             }
