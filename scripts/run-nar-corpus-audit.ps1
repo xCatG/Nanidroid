@@ -2143,9 +2143,12 @@ foreach ($arg in $ProbeArgs) {
             identifier = 'OnNameTeach'
             button = $null
             source = 'input'
-            references = @('Nanidroid', $null, $null, $null, $null, $null, $null)
+            references = @('Nanidroid', '', $null, $null, $null, $null, $null)
         }
     )
+    $identityOnlyFixture = $masterIdentityEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $identityOnlyFixture[0].ghostIdentity = 'snake-and-otacon'
+    Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $identityOnlyFixture
     $missingTrailingChoiceEvidence = @($validPostInteractionEvidence | Select-Object -First 2)
     $inputOnlyEvidence = @($validPostInteractionEvidence | Select-Object -Skip 1 -First 1)
     $incorrectInputIdentifierEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
