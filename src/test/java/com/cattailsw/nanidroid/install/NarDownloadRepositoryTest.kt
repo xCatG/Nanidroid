@@ -2021,6 +2021,72 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.RUNNING, retryOperation.status)
     }
 
+    @Test fun remoteEnqueueFailureBeforeRowBindingPersistsFailedAttempt() {
+        downloads.enqueueFailure = IllegalStateException("DownloadManager unavailable")
+
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertNull(item.downloadManagerId)
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        val failed = operationStore.read().single()
+        assertEquals(item.id, failed.id.value)
+        assertEquals(item.attemptId, failed.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, failed.kind)
+        assertEquals(OperationStatus.FAILED, failed.status)
+        assertNull(failed.externalJob)
+
+        downloads.enqueueFailure = null
+        downloads.nextDownloadId = 91L
+        val retry = recreatedRepository().retry(item.id)!!
+
+        assertEquals(item.attemptId + 1L, retry.attemptId)
+        assertEquals(91L, retry.downloadManagerId)
+        val retriedOperation = operationStore.read().single()
+        assertEquals(retry.attemptId, retriedOperation.attemptId.value)
+        assertEquals(OperationStatus.RUNNING, retriedOperation.status)
+        assertEquals(ExternalJobBinding.DownloadManager(91L), retriedOperation.externalJob)
+    }
+
+    @Test fun stopDuringRemoteEnqueueCannotRebindCancelledAttempt() {
+        downloads.nextDownloadId = 92L
+        downloads.onEnqueue = { itemId -> assertTrue(repository.stop(itemId)) }
+
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.Cancelled)
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+        assertEquals(listOf(92L), downloads.removedIds)
+    }
+
+    @Test fun recreationBindsRecoveredRemoteRowAfterEnqueueBeforeBinding() {
+        val accepted = store.create(
+            NarDownload(
+                id = "unbound-remote",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/unbound-remote.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 93L
+        downloads.statuses[93L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(93L, store.get(accepted.id)!!.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(93L),
+            operationStore.read().single().externalJob,
+        )
+    }
+
     @Test fun missingRemoteRowIsTerminalizedBeforeRetryStartsNewDownloadAttempt() {
         downloads.nextDownloadId = 78L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -2242,6 +2308,7 @@ class NarDownloadRepositoryTest {
     private class FakeDownloadGateway : NarDownloadGateway {
         var nextDownloadId = 1L
         var onEnqueue: ((String) -> Unit)? = null
+        var enqueueFailure: Exception? = null
         var intendedDestinationFailure: Exception? = null
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
@@ -2256,6 +2323,7 @@ class NarDownloadRepositoryTest {
 
         override fun enqueue(itemId: String, normalizedHttpsUrl: String): NarRemoteEnqueue {
             onEnqueue?.invoke(itemId)
+            enqueueFailure?.let { throw it }
             return NarRemoteEnqueue(nextDownloadId, "file:///owned/$itemId.nar")
         }
 

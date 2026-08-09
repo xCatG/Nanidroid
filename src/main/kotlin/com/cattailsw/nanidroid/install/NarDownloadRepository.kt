@@ -1228,41 +1228,46 @@ class NarDownloadRepository internal constructor(
         reacquiringAfterInstall: Boolean = false,
     ) {
         try {
-            store.update(itemId) {
+            val accepted = store.update(itemId) {
                 it.copy(
                     retainedUri = downloads.intendedRetainedUri(itemId),
                     downloadManagerId = null,
                     state = NarDownloadState.Downloading,
                 )
-            }
-            val enqueued = downloads.enqueue(itemId, normalizeHttpsUrl(url))
-            val updated = store.update(itemId) {
-                it.copy(
-                    retainedUri = enqueued.retainedUri,
-                    downloadManagerId = enqueued.downloadManagerId,
-                    workManagerId = null,
-                    state = NarDownloadState.Downloading,
-                )
             } ?: return
-            val handle = updated.handle()
-            val binding = ExternalJobBinding.DownloadManager(enqueued.downloadManagerId)
+            val handle = accepted.handle()
             val started = if (reacquiringAfterInstall) {
-                supervisor.startRemoteNarReacquisition(
-                    handle,
-                    "Downloading archive",
-                    0L,
-                    binding,
-                )
+                supervisor.startRemoteNarReacquisition(handle, "Downloading archive", 0L)
             } else {
-                supervisor.start(
-                    handle,
-                    OperationKind.REMOTE_NAR,
-                    "Downloading archive",
-                    0L,
-                    binding,
-                )
+                supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L)
             }
             if (!started) {
+                markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
+                return
+            }
+            val enqueued = try {
+                downloads.enqueue(itemId, normalizeHttpsUrl(url))
+            } catch (_: Exception) {
+                if (supervisor.failUnboundAttempt(handle, DOWNLOAD_START_FAILURE)) {
+                    markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
+                }
+                return
+            }
+            val boundDownload = accepted.copy(
+                retainedUri = enqueued.retainedUri,
+                downloadManagerId = enqueued.downloadManagerId,
+                workManagerId = null,
+                state = NarDownloadState.Downloading,
+            )
+            val updated = store.update(itemId) { current ->
+                if (current == accepted) boundDownload else current
+            }
+            if (updated != boundDownload) {
+                downloads.remove(enqueued.downloadManagerId)
+                return
+            }
+            val binding = ExternalJobBinding.DownloadManager(enqueued.downloadManagerId)
+            if (!supervisor.bindExternalJob(handle, binding)) {
                 downloads.remove(enqueued.downloadManagerId)
                 markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
             } else {

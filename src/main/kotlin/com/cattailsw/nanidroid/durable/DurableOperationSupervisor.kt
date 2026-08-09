@@ -70,6 +70,19 @@ class DurableOperationSupervisor(
         allowRemoteNarReacquisition = true,
     )
 
+    fun startRemoteNarReacquisition(
+        handle: OperationHandle,
+        phase: String,
+        completed: Long,
+    ): Boolean = start(
+        handle = handle,
+        kind = OperationKind.REMOTE_NAR,
+        phase = phase,
+        completed = completed,
+        externalJob = null,
+        allowRemoteNarReacquisition = true,
+    )
+
     private fun start(
         handle: OperationHandle,
         kind: OperationKind,
