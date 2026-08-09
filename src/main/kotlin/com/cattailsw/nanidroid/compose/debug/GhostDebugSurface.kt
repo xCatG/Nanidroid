@@ -66,6 +66,7 @@ internal const val GHOST_DEBUG_SURFACE_SAKURA_TAG = "ghost-debug-surface-speaker
 internal const val GHOST_DEBUG_SURFACE_KERO_TAG = "ghost-debug-surface-speaker-kero"
 internal const val GHOST_DEBUG_SURFACE_COLLISION_SWITCH_TAG = "ghost-debug-surface-collision-switch"
 internal const val GHOST_DEBUG_SURFACE_NAR_TEST_TAG = "ghost-debug-surface-nar-test"
+internal const val GHOST_DEBUG_SURFACE_SAMPLE_FEEDBACK_TAG = "ghost-debug-surface-sample-feedback"
 internal const val GHOST_DEBUG_SURFACE_DISMISS_TAG = "ghost-debug-surface-dismiss"
 internal const val GHOST_DEBUG_SURFACE_EMPTY_LOG_TAG = "ghost-debug-surface-empty-log"
 internal const val GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG = "ghost-debug-surface-shiori-log"
@@ -364,8 +365,8 @@ private fun GhostDebugSurfaceContent(
     val feedbackRequester = remember { BringIntoViewRequester() }
     val scrollState = rememberScrollState()
 
-    LaunchedEffect(state.sampleQueued) {
-        if (state.sampleQueued) feedbackRequester.bringIntoView()
+    LaunchedEffect(state.sampleFeedbackToken) {
+        if (state.sampleFeedbackToken != 0L) feedbackRequester.bringIntoView()
     }
 
     Column(
@@ -566,11 +567,13 @@ private fun GhostDebugSurfaceContent(
         ) {
             Text(narLabel)
         }
-        if (state.sampleQueued) {
+        if (state.sampleFeedbackToken != 0L) {
             Text(
                 text = stringResource(R.string.debug_surface_sample_queued),
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.bringIntoViewRequester(feedbackRequester),
+                modifier = Modifier
+                    .bringIntoViewRequester(feedbackRequester)
+                    .testTag(GHOST_DEBUG_SURFACE_SAMPLE_FEEDBACK_TAG),
             )
         }
         GhostDebugSurfaceSection(

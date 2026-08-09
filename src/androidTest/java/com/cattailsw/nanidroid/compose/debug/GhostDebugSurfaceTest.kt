@@ -186,6 +186,43 @@ class GhostDebugSurfaceTest {
     }
 
     @Test
+    fun compact_scrollable_debug_surface_renews_sample_feedback_for_each_press() {
+        val state = mutableStateOf(DebugPanelState(visible = true))
+        var samplesRun = 0
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = state.value,
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {
+                    samplesRun++
+                    state.value = state.value.recordSampleFeedback()
+                },
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_NAR_TEST_TAG).performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, samplesRun)
+            assertEquals(1L, state.value.sampleFeedbackToken)
+        }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SAMPLE_FEEDBACK_TAG).assertIsDisplayed()
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_NAR_TEST_TAG).performClick()
+        composeRule.runOnIdle {
+            assertEquals(2, samplesRun)
+            assertEquals(2L, state.value.sampleFeedbackToken)
+        }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SAMPLE_FEEDBACK_TAG).assertIsDisplayed()
+    }
+
+    @Test
     fun debug_surface_shows_resolved_candidate_and_rejected_dispatch_outcome() {
         val selection = SurfaceDebugSelection(
             speaker = SurfaceSpeaker.SAKURA,
