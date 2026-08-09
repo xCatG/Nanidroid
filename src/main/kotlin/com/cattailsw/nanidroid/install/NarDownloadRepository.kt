@@ -806,8 +806,17 @@ class NarDownloadRepository internal constructor(
     }
 
     fun install(itemId: String, workManagerId: String, isStopped: () -> Boolean): Boolean {
-        val attemptId = store.get(itemId)?.attemptId ?: return true
-        return install(itemId, attemptId, workManagerId, isStopped)
+        val item = store.get(itemId) ?: return true
+        // Legacy requests carry no attempt ID. They must retry until reconciliation
+        // durably associates their WorkManager ID, rather than succeeding while the
+        // record is still unbound.
+        if (
+            item.workManagerId == null &&
+                (item.state == NarDownloadState.Queued || item.state == NarDownloadState.Installing)
+        ) {
+            return false
+        }
+        return install(itemId, item.attemptId, workManagerId, isStopped)
     }
 
     fun install(
@@ -1002,6 +1011,16 @@ class NarDownloadRepository internal constructor(
             "Installing archive",
             0L,
         )
+        if (item.workManagerId == null) {
+            when (val legacy = rebindActiveLegacyInstallWork(item, handle)) {
+                is LegacyInstallRebinding.Rebound -> {
+                    reconcileBoundInstallWork(legacy.item, recreateIfMissing = false)
+                    return
+                }
+                LegacyInstallRebinding.Failed -> return
+                LegacyInstallRebinding.NotFound -> Unit
+            }
+        }
         if (!started) {
             val recovered = if (item.workManagerId == null) {
                 persistExactActiveWorkManagerBinding(item, OperationKind.NAR_INSTALL)
@@ -1013,64 +1032,74 @@ class NarDownloadRepository internal constructor(
                 if (store.get(item.id) != item) return
                 enqueueInstallAttempt(item, handle)
             } else {
-                val recovery = runCatching {
-                    work.ensureInstallEnqueued(recovered.id, recovered.attemptId, workManagerId)
-                }.getOrNull()
-                if (recovery != NarInstallWorkRecovery.ACTIVE) {
-                    failAndMarkNeedsAttentionIfCurrent(
-                        recovered,
-                        OperationKind.NAR_INSTALL,
-                        INSTALL_SCHEDULE_FAILURE,
-                    )
-                }
+                reconcileBoundInstallWork(recovered)
             }
             return
         }
-        if (item.workManagerId == null) {
-            // v1 records have no UUID. Claim retained unique work before creating a
-            // deterministic replacement, because KEEP would otherwise discard it.
-            val activeWorkManagerId = try {
-                work.findActiveInstallWork(item.id)
-            } catch (_: Exception) {
-                if (failSchedulingAttempt(handle, null, INSTALL_SCHEDULE_FAILURE)) {
-                    markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
-                }
-                return
-            }
-            if (activeWorkManagerId != null) {
-                val binding = ExternalJobBinding.WorkManager(activeWorkManagerId)
-                val rebound = if (supervisor.bindExternalJob(handle, binding)) {
-                    store.update(item.id) { current ->
-                        if (current == item) current.copy(workManagerId = activeWorkManagerId) else current
-                    }?.takeIf { it.workManagerId == activeWorkManagerId }
-                } else {
-                    null
-                }
-                if (rebound == null) {
-                    if (failSchedulingAttempt(handle, binding, INSTALL_SCHEDULE_FAILURE)) {
-                        markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
-                    }
-                } else {
-                    val recovery = runCatching {
-                        work.ensureInstallEnqueued(
-                            rebound.id,
-                            rebound.attemptId,
-                            activeWorkManagerId,
-                            recreateIfMissing = false,
-                        )
-                    }.getOrNull()
-                    if (recovery != NarInstallWorkRecovery.ACTIVE) {
-                        failAndMarkNeedsAttentionIfCurrent(
-                            rebound,
-                            OperationKind.NAR_INSTALL,
-                            INSTALL_SCHEDULE_FAILURE,
-                        )
-                    }
-                }
-                return
-            }
-        }
         enqueueInstallAttempt(item, handle)
+    }
+
+    private fun reconcileBoundInstallWork(
+        item: NarDownload,
+        recreateIfMissing: Boolean = true,
+    ) {
+        val workManagerId = item.workManagerId ?: return
+        val recovery = runCatching {
+            work.ensureInstallEnqueued(item.id, item.attemptId, workManagerId, recreateIfMissing)
+        }.getOrNull()
+        if (recovery != NarInstallWorkRecovery.ACTIVE) {
+            failAndMarkNeedsAttentionIfCurrent(
+                item,
+                OperationKind.NAR_INSTALL,
+                INSTALL_SCHEDULE_FAILURE,
+            )
+        }
+    }
+
+    private fun rebindActiveLegacyInstallWork(
+        item: NarDownload,
+        handle: OperationHandle,
+    ): LegacyInstallRebinding {
+        val activeWorkManagerId = try {
+            work.findActiveInstallWork(item.id)
+        } catch (_: Exception) {
+            failAndMarkLegacyInstallBinding(handle, null, item)
+            return LegacyInstallRebinding.Failed
+        } ?: return LegacyInstallRebinding.NotFound
+        val binding = ExternalJobBinding.WorkManager(activeWorkManagerId)
+        if (!supervisor.bindExternalJob(handle, binding)) {
+            failAndMarkLegacyInstallBinding(handle, binding, item)
+            return LegacyInstallRebinding.Failed
+        }
+        val rebound = try {
+            store.update(item.id) { current ->
+                if (current == item) current.copy(workManagerId = activeWorkManagerId) else current
+            }?.takeIf { it.workManagerId == activeWorkManagerId }
+        } catch (_: Exception) {
+            failAndMarkLegacyInstallBinding(handle, binding, item)
+            return LegacyInstallRebinding.Failed
+        }
+        if (rebound == null) {
+            failAndMarkLegacyInstallBinding(handle, binding, item)
+            return LegacyInstallRebinding.Failed
+        }
+        return LegacyInstallRebinding.Rebound(rebound)
+    }
+
+    private fun failAndMarkLegacyInstallBinding(
+        handle: OperationHandle,
+        binding: ExternalJobBinding.WorkManager?,
+        item: NarDownload,
+    ) {
+        if (failSchedulingAttempt(handle, binding, INSTALL_SCHEDULE_FAILURE)) {
+            markNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
+        }
+    }
+
+    private sealed interface LegacyInstallRebinding {
+        data object NotFound : LegacyInstallRebinding
+        data object Failed : LegacyInstallRebinding
+        data class Rebound(val item: NarDownload) : LegacyInstallRebinding
     }
 
     private fun enqueueInstallAttempt(item: NarDownload, handle: OperationHandle) {
