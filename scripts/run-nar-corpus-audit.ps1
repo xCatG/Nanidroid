@@ -435,6 +435,7 @@ function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGh
         if ([string]$entry.ghostIdentity -cne $ExpectedGhostIdentity -or [string]::IsNullOrWhiteSpace([string]$entry.method)) { ThrowIf 'Post-interaction evidence does not match the installed target identity or lacks method.' }
         if ([string]$entry.eventId -notin @('OnChoiceSelect', 'OnChoiceSelectEx', 'OnNameTeach')) { ThrowIf "Unexpected post-interaction event '$($entry.eventId)'." }
         if ([string]$entry.scope -ne 'dialogue') { ThrowIf "Unexpected post-interaction scope '$($entry.scope)'." }
+        if ($null -ne $entry.coordinates -or $null -ne $entry.button) { ThrowIf 'Dialogue interaction evidence must retain null coordinates and button placeholders.' }
         if (@($entry.references).Count -ne 7) { ThrowIf 'Post-interaction evidence must retain References 0 through 6.' }
         if ([string]$entry.eventId -eq 'OnNameTeach') {
             if ([string]$entry.source -ne 'input' -or [string]$entry.identifier -cne [string]$entry.eventId) { ThrowIf 'OnNameTeach evidence must retain its direct event identifier and input source.' }
@@ -2160,6 +2161,10 @@ foreach ($arg in $ProbeArgs) {
     $wrongPrimaryChoiceReferenceEvidence[0].references[1] = 'wrong-choice-id'
     $incorrectFallbackChoiceIdentifierEvidence = $dryRunSnakeChoiceFallbackEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
     $incorrectFallbackChoiceIdentifierEvidence[1].identifier = 'First choice'
+    $pointerCoordinatesEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $pointerCoordinatesEvidence[0].coordinates = [pscustomobject]@{ x = 12; y = 34 }
+    $pointerButtonEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $pointerButtonEvidence[0].button = 1
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $choiceOnlyEvidence; $acceptedPostInteractionRegressions += 'choice-only evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $masterIdentityEvidence; $acceptedPostInteractionRegressions += 'master ghost identity' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence @([pscustomobject]@{ ghostIdentity = 'snake-and-otacon'; method = 'GET'; eventId = 'OnUserInput'; scope = 'dialogue'; coordinates = $null; identifier = 'OnNameTeach'; button = $null; source = 'input'; references = @('OnNameTeach', 'Nanidroid', $null, $null, $null, $null, $null) }); $acceptedPostInteractionRegressions += 'generic OnUserInput envelope' } catch { }
@@ -2169,6 +2174,8 @@ foreach ($arg in $ProbeArgs) {
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $wrongPrimaryChoiceReferenceEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'primary choice self-correlated wrong identifier' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectFallbackChoiceIdentifierEvidence -DialogueSteps $dryRunSnakeChoiceFallback; $acceptedPostInteractionRegressions += 'fallback choice label identifier' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectInputIdentifierEvidence; $acceptedPostInteractionRegressions += 'direct input text used as identifier' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $pointerCoordinatesEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'pointer coordinates in dialogue evidence' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $pointerButtonEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'pointer button in dialogue evidence' } catch { }
     if ($acceptedPostInteractionRegressions.Count -gt 0) {
         ThrowIf "Dry-run post-interaction regression accepted $($acceptedPostInteractionRegressions -join ' and ')."
     }
