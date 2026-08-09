@@ -444,6 +444,54 @@ function Get-NarCorpusSentinelMarkdownHeader {
     ) -join [Environment]::NewLine
 }
 
+function Write-PreflightTimeoutReport {
+    param(
+        [string]$ReportRoot,
+        [pscustomobject]$State,
+        [string]$TimeoutEvidence,
+        [string]$PreflightPhase
+    )
+
+    $State.cleanupVerification = 'unverified'
+    $State.failures.Add([pscustomobject]@{
+        phase = 'preflight'
+        code = 'adb-timeout'
+        message = $TimeoutEvidence
+    }) | Out-Null
+
+    $finishedAt = (Get-Date).ToUniversalTime().ToString('o')
+    $summary = [pscustomobject]@{
+        runId = $State.runId
+        status = 'failed'
+        phase = 'preflight'
+        preflightStage = $PreflightPhase
+        startedAt = $State.startedAt
+        finishedAt = $finishedAt
+        manifest = $State.manifest
+        manifestSha256 = $State.manifestSha256
+        results = @($State.results)
+        failures = @($State.failures)
+        cleanupVerification = $State.cleanupVerification
+        adbTransportTimeout = [pscustomobject]@{
+            timedOut = $true
+            evidence = $TimeoutEvidence
+        }
+    }
+
+    New-Item -ItemType Directory -Force -Path $ReportRoot | Out-Null
+    ConvertTo-NarCorpusJson -Value $summary | Set-Content -Path (Join-Path $ReportRoot 'summary.json') -Encoding UTF8
+    @"
+# NAR corpus audit summary
+
+- Run ID: $($summary.runId)
+- Status: failed during preflight
+- Preflight stage: $PreflightPhase
+- Manifest: $($summary.manifest) ($($summary.manifestSha256))
+- Cleanup verification: $($summary.cleanupVerification)
+- ADB timeout: $TimeoutEvidence
+"@ | Set-Content -Path (Join-Path $ReportRoot 'summary.md') -Encoding UTF8
+}
+
 function Truncate-Text([string]$Text, [int]$MaxChars = 4000) {
     if ([string]::IsNullOrWhiteSpace($Text)) {
         return '<empty>'
@@ -2059,6 +2107,33 @@ foreach ($arg in $ProbeArgs) {
     }
     Write-Host 'Dry-run crash allowlist and transport cutoff probes passed.'
 
+    $dryRunPreflightTimeoutRoot = Join-Path $hostRunTmpRoot 'preflight-timeout-report'
+    $dryRunPreflightState = [pscustomobject]@{
+        runId = 'preflight-timeout-probe'
+        startedAt = (Get-Date).ToUniversalTime().ToString('o')
+        manifest = 'manifest.json'
+        manifestSha256 = 'manifest-sha-probe'
+        results = [System.Collections.ArrayList]::new()
+        failures = [System.Collections.ArrayList]::new()
+        cleanupVerification = 'verified'
+    }
+    Write-PreflightTimeoutReport -ReportRoot $dryRunPreflightTimeoutRoot -State $dryRunPreflightState -TimeoutEvidence 'adb get-state exceeded 10 seconds' -PreflightPhase 'device-gate'
+    $dryRunPreflightJson = Get-Content -LiteralPath (Join-Path $dryRunPreflightTimeoutRoot 'summary.json') -Raw | ConvertFrom-Json
+    $dryRunPreflightMarkdown = Get-Content -LiteralPath (Join-Path $dryRunPreflightTimeoutRoot 'summary.md') -Raw
+    if (
+        $dryRunPreflightJson.status -ne 'failed' -or
+        $dryRunPreflightJson.phase -ne 'preflight' -or
+        $dryRunPreflightJson.preflightStage -ne 'device-gate' -or
+        $dryRunPreflightJson.cleanupVerification -ne 'unverified' -or
+        $dryRunPreflightJson.failures.Count -ne 1 -or
+        $dryRunPreflightJson.failures[0].code -ne 'adb-timeout' -or
+        $dryRunPreflightMarkdown -notmatch [regex]::Escape('Cleanup verification: unverified')
+    ) {
+        ThrowIf 'Dry-run preflight timeout report probe did not preserve the failed, cleanup-unverified partial summary contract.'
+    }
+    Remove-Item -LiteralPath $dryRunPreflightTimeoutRoot -Recurse -Force -ErrorAction Stop
+    Write-Host 'Dry-run preflight timeout report probe passed.'
+
     $dryRunMarkdownHeader = Get-NarCorpusSentinelMarkdownHeader
     if ($dryRunMarkdownHeader -ne "| Name | Passed | Expected | Observed | Detail |$([Environment]::NewLine)| --- | --- | --- | --- | --- |") {
         ThrowIf 'Dry-run Markdown probe did not render the sentinel header on two lines.'
@@ -2107,6 +2182,24 @@ foreach ($arg in $ProbeArgs) {
 Clear-RunArtifacts -FailuresRoot $failuresRoot -SummaryPathRoot $reportRoot
 Clear-ManifestLocalArtifacts -ManifestEntries $manifest.entries
 
+$results = [System.Collections.ArrayList]::new()
+$failures = [System.Collections.ArrayList]::new()
+$abortedDueToTimeout = $false
+$unexpectedAbort = $false
+$unexpectedAbortMetadata = $null
+$abortedEntryLabel = $null
+$cleanupVerification = 'verified'
+$preflightPhase = 'device-gate'
+$preflightTimeoutState = [pscustomobject]@{
+    runId = $runId
+    startedAt = $runStart.ToUniversalTime().ToString('o')
+    manifest = $manifestEntryName
+    manifestSha256 = $manifestSha
+    results = $results
+    failures = $failures
+    cleanupVerification = $cleanupVerification
+}
+
 $AdbPath = Resolve-AdbPath
 Ensure-ExecutableExists -Path $AdbPath -Purpose 'ADB'
 
@@ -2115,6 +2208,7 @@ $installed = $false
     $apkInfo = $null
     try {
     Check-DeviceGate
+    $preflightPhase = 'preexisting-state'
     Validate-NoPreexistingDeviceState
     $apkInfo = Build-Apks
 
@@ -2122,34 +2216,35 @@ $installed = $false
     Verify-DebugSignature -ApkPath $apkInfo.DebugApkPath -Label 'debug' -ApkSignerPath $apksigner | Out-Null
     Verify-DebugSignature -ApkPath $apkInfo.TestApkPath -Label 'androidTest' -ApkSignerPath $apksigner | Out-Null
 
+    $preflightPhase = 'install-debug'
     Write-Host "Installing $(Split-Path -Leaf $apkInfo.DebugApkPath)"
     Invoke-Adb -Arguments @('install', '-r', '-d', '-g', $apkInfo.DebugApkPath) -TimeoutSeconds 600 | Out-Null
     $installed = $true
+    $preflightPhase = 'install-test'
     Write-Host "Installing $(Split-Path -Leaf $apkInfo.TestApkPath)"
     Invoke-Adb -Arguments @('install', '-r', '-d', '-g', $apkInfo.TestApkPath) -TimeoutSeconds 600 | Out-Null
+    $preflightPhase = 'run-as'
     Verify-RunAs
+    $preflightPhase = 'private-data-root'
     $privateDataRoot = (Invoke-Adb -Arguments @('shell', 'run-as', $targetPackage, 'pwd') -TimeoutSeconds 20).Trim()
     if ($privateDataRoot -notmatch "^/data/(user/0|data)/$([regex]::Escape($targetPackage))$") {
         ThrowIf "Unexpected run-as private root '$privateDataRoot'."
     }
 
+    $preflightPhase = 'device-metadata'
     $deviceFingerprint = Get-AdbProperty 'ro.build.fingerprint'
     $deviceDensity = Get-DeviceDensity
     $deviceAbi = Get-AdbProperty 'ro.product.cpu.abi'
     $deviceApi = Get-AdbProperty 'ro.build.version.sdk'
 
+    $preflightPhase = 'device-storage'
     Check-DeviceStorage
 
+    $preflightPhase = 'network-state'
     $networkState = Snapshot-NetworkState
+    $preflightPhase = 'network-disable'
     Set-NetworkState -Disable $true
-
-    $results = [System.Collections.ArrayList]::new()
-    $failures = [System.Collections.ArrayList]::new()
-    $abortedDueToTimeout = $false
-    $unexpectedAbort = $false
-    $unexpectedAbortMetadata = $null
-    $abortedEntryLabel = $null
-    $cleanupVerification = 'verified'
+    $preflightPhase = $null
 
     foreach ($entry in $manifest.entries) {
         $archive = $matchPlan.ArchiveByHash[$entry.sha256.ToLowerInvariant()]
@@ -3016,6 +3111,13 @@ $(
     if (-not $globalSentinels.passed -or $failures.Count -gt 0) {
         ThrowIf "Run finished with $($failures.Count) failed archives and $failedSentinelChecks sentinel failures. Check summary/failure files."
     }
+}
+catch {
+    if ($script:adbTransportTimedOut -and $null -ne $preflightPhase) {
+        Write-PreflightTimeoutReport -ReportRoot $reportRoot -State $preflightTimeoutState -TimeoutEvidence $script:adbTransportTimeoutEvidence -PreflightPhase $preflightPhase
+        Write-Host "Summary: $(Join-Path $reportRoot 'summary.json')"
+    }
+    throw
 }
 finally {
     if (Test-AdbTransportAvailable -TransportTimedOut $script:adbTransportTimedOut) {
