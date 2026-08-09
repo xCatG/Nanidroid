@@ -910,6 +910,13 @@ function Assert-CaptureProvenance([object]$Captured, [object]$Current) {
     }
 }
 
+function Get-PackageCleanupAction([string]$PackagePathOutput) {
+    if ($PackagePathOutput -match '(?m)^package:') {
+        return [pscustomobject]@{ action = 'uninstall' }
+    }
+    return [pscustomobject]@{ action = 'skip' }
+}
+
 function Test-DryRunRequiresCorpus([bool]$HostOnly) {
     return -not $HostOnly
 }
@@ -1544,6 +1551,8 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         $failed = $false
         try { Assert-AuditedApkHash $auditedApkProbePath $auditedApkProbeHash } catch { $failed = $true }
         if (-not $failed) { Fail 'Mutated audited APK hash revalidation probe unexpectedly passed.' 'dry-run' }
+        if ((Get-PackageCleanupAction '').action -ne 'skip') { Fail 'Absent package cleanup probe should skip uninstall.' 'dry-run' }
+        if ((Get-PackageCleanupAction "package:/data/app/$targetPackage/base.apk").action -ne 'uninstall') { Fail 'Installed package cleanup probe should uninstall.' 'dry-run' }
         Assert-AuditedPackagePresence "package:/data/app/$targetPackage/base.apk" '1234'
         foreach ($packageProbe in @(@('missing-package', '', '1234'), @('not-running', "package:/data/app/$targetPackage/base.apk", ''))) {
             $failed = $false
@@ -1980,7 +1989,23 @@ catch { $script:runFailure=$_.Exception.Message }
 finally {
     if(-not$script:adbTransportDead){
         try{Restore-DeviceState $script:originalState}catch{$script:cleanupErrors.Add($_.Exception.Message)|Out-Null}
-        if($installed){foreach($package in @($targetPackage,$testPackage)){try{$uninstall=Invoke-Adb @('uninstall',$package) 120 -AllowFailure;if($uninstall.exitCode-ne 0-or$uninstall.output.Trim()-ne'Success'){throw "exit=$($uninstall.exitCode) output=$($uninstall.output.Trim()) error=$($uninstall.error.Trim())"};$packagePath=Invoke-Adb @('shell','pm','path',$package) 30 -AllowFailure;if($packagePath.output-match'(?m)^package:'){throw 'package remains installed after uninstall'}}catch{$script:cleanupErrors.Add("Uninstall $package failed: $($_.Exception.Message)")|Out-Null}}}
+        if ($installed) {
+            foreach ($package in @($targetPackage, $testPackage)) {
+                try {
+                    $packagePath = Invoke-Adb @('shell', 'pm', 'path', $package) 30 -AllowFailure
+                    if ((Get-PackageCleanupAction $packagePath.output).action -eq 'uninstall') {
+                        $uninstall = Invoke-Adb @('uninstall', $package) 120 -AllowFailure
+                        if ($uninstall.exitCode -ne 0 -or $uninstall.output.Trim() -ne 'Success') {
+                            throw "exit=$($uninstall.exitCode) output=$($uninstall.output.Trim()) error=$($uninstall.error.Trim())"
+                        }
+                        $packagePath = Invoke-Adb @('shell', 'pm', 'path', $package) 30 -AllowFailure
+                        if ($packagePath.output -match '(?m)^package:') { throw 'package remains installed after uninstall' }
+                    }
+                } catch {
+                    $script:cleanupErrors.Add("Uninstall $package failed: $($_.Exception.Message)") | Out-Null
+                }
+            }
+        }
         if($null-ne$script:ownedEmulator){try{Invoke-Adb @('emu','kill') 30 -AllowFailure|Out-Null}catch{$script:cleanupErrors.Add("Emulator stop failed: $($_.Exception.Message)")|Out-Null}}
     }
     if($null-ne$script:ownedEmulator){try{if(-not(Stop-OwnedProcessTree -Process $script:ownedEmulator -ExpectedStartTimeUtcTicks $script:ownedEmulatorStartTimeUtcTicks)){$script:cleanupErrors.Add('Owned emulator process tree did not stop cleanly.')|Out-Null}}catch{$script:cleanupErrors.Add("Owned emulator process-tree stop failed: $($_.Exception.Message)")|Out-Null}finally{$script:ownedEmulator.Dispose()}}
