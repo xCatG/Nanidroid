@@ -664,6 +664,9 @@ class NarDownloadRepository internal constructor(
                         store.update(item.id) { it.copy(downloadManagerId = recoveredId) }
                     }
                 }
+                val rebound = downloadManagerId?.let { downloadId ->
+                    restoreRemoteDownloadBinding(item, downloadId)
+                } ?: false
                 var statusQueryFailed = false
                 val status = downloadManagerId?.let { id ->
                     try {
@@ -679,7 +682,9 @@ class NarDownloadRepository internal constructor(
                 when (status) {
                     NarRemoteDownloadStatus.InProgress -> {
                         store.update(item.id) { it.copy(state = NarDownloadState.Downloading) }
-                        if (!cancellationRequested(item.handle())) {
+                        if (!rebound) {
+                            markNeedsAttention(item.id, DOWNLOAD_RECOVERY_FAILURE)
+                        } else if (!cancellationRequested(item.handle())) {
                             remoteProgress.start(item.handle(), downloadManagerId)
                         }
                     }
@@ -881,6 +886,20 @@ class NarDownloadRepository internal constructor(
             }
         }
         return installAttempt
+    }
+
+    private fun restoreRemoteDownloadBinding(item: NarDownload, downloadManagerId: Long): Boolean {
+        val handle = item.handle()
+        val binding = ExternalJobBinding.DownloadManager(downloadManagerId)
+        return supervisor.activeBindingForExactAttempt(handle, OperationKind.REMOTE_NAR) == binding ||
+            supervisor.bindExternalJob(handle, binding) ||
+            supervisor.start(
+                handle,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                binding,
+            )
     }
 
     private fun persistInstallComplete(itemId: String, attemptId: Long): Boolean {

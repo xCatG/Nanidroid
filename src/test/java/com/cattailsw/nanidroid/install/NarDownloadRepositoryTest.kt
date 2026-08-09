@@ -1925,6 +1925,34 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Downloading, store.get(item.id)!!.state)
     }
 
+    @Test fun reconciliationRebindsRecoveredDownloadBeforeProgressAndStop() {
+        val item = store.create(
+            NarDownload(
+                id = "orphaned-item",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/orphaned-item.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        downloads.recoveredIds[item.retainedUri!!] = 74L
+        downloads.statuses[74L] = NarRemoteDownloadStatus.InProgress
+        downloads.downloadedBytes[74L] = 12L
+        val recreated = recreatedRepository()
+
+        recreated.reconcile()
+
+        val recoveredOperation = operationStore.read().single()
+        assertEquals(item.handle().operationId, recoveredOperation.id)
+        assertEquals(item.handle().attemptId, recoveredOperation.attemptId)
+        assertEquals(OperationKind.REMOTE_NAR, recoveredOperation.kind)
+        assertEquals(OperationStatus.RUNNING, recoveredOperation.status)
+        assertEquals(ExternalJobBinding.DownloadManager(74L), recoveredOperation.externalJob)
+        assertTrue(recreated.observeRemoteProgress(item.id))
+        assertEquals(12L, operationStore.read().single().progress.completed)
+        assertTrue(recreated.stop(item.id))
+        assertEquals(listOf(74L), downloads.removedIds)
+    }
+
     @Test fun reconciliationSchedulesQueuedLocalArchive() {
         val item = repository.enqueueLocal("file:///owned/archive.nar")
         work.enqueuedNames.clear()
