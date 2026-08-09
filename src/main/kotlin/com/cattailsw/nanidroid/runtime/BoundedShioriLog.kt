@@ -17,6 +17,7 @@ class BoundedShioriLog(
     }
 
     data class Entry(
+        val id: Long,
         val event: String,
         val request: String,
         val responseStatus: Int,
@@ -25,6 +26,7 @@ class BoundedShioriLog(
     )
 
     private val entries = ArrayDeque<Entry>()
+    private var nextEntryId = 0L
     private val mutableEntries = MutableStateFlow<List<Entry>>(emptyList())
     val updates: StateFlow<List<Entry>> = mutableEntries.asStateFlow()
 
@@ -55,6 +57,7 @@ class BoundedShioriLog(
         if (maxEvents == 0) return
         entries.addLast(
             Entry(
+                id = nextEntryId++,
                 event = truncate(event),
                 request = truncate(request),
                 responseStatus = responseStatus,

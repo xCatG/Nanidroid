@@ -76,6 +76,14 @@ class BoundedShioriLogTest {
     }
 
     @Test
+    fun assignsMonotonicIdsThatSurviveBoundedEviction() {
+        val log = BoundedShioriLog(maxEvents = 3)
+        repeat(4) { index -> log.append("Event$index", "request", 200, "value", "response") }
+
+        assertEquals(listOf(1L, 2L, 3L), log.snapshot().map { it.id })
+    }
+
+    @Test
     fun truncatesRequestAndResponseIndependentlyWithinByteLimit() {
         val log = BoundedShioriLog(maxPayloadBytes = 24)
         log.record("Short", arrayOf("A".repeat(40)), response("ok"))

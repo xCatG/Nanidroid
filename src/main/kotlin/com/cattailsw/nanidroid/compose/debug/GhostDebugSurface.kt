@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -69,6 +69,7 @@ internal const val GHOST_DEBUG_SURFACE_NAR_TEST_TAG = "ghost-debug-surface-nar-t
 internal const val GHOST_DEBUG_SURFACE_DISMISS_TAG = "ghost-debug-surface-dismiss"
 internal const val GHOST_DEBUG_SURFACE_EMPTY_LOG_TAG = "ghost-debug-surface-empty-log"
 internal const val GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG = "ghost-debug-surface-shiori-log"
+internal const val GHOST_DEBUG_SURFACE_SHIORI_LOG_LIST_TAG = "ghost-debug-surface-shiori-log-list"
 
 @Composable
 internal fun GhostDebugSurface(
@@ -359,7 +360,7 @@ private fun GhostDebugSurfaceContent(
     val narLabel = stringResource(R.string.debug_surface_nar_test_button)
     val closeLabel = stringResource(R.string.close_btn_text)
     val emptyValue = stringResource(R.string.debug_surface_empty_value)
-    var expandedLogIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var expandedLogEntryId by rememberSaveable { mutableStateOf<Long?>(null) }
     val feedbackRequester = remember { BringIntoViewRequester() }
     val scrollState = rememberScrollState()
 
@@ -587,15 +588,19 @@ private fun GhostDebugSurfaceContent(
                             .heightIn(max = 360.dp)
                             .testTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG),
                     ) {
-                        LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                            itemsIndexed(logs) { index, log ->
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_LIST_TAG),
+                        ) {
+                            items(logs, key = { it.id }) { log ->
                                 GhostShioriLogRow(
                                     entry = log,
-                                    expanded = expandedLogIndex == index,
+                                    expanded = expandedLogEntryId == log.id,
                                     onToggleExpanded = {
-                                        expandedLogIndex = if (expandedLogIndex == index) null else index
+                                        expandedLogEntryId = if (expandedLogEntryId == log.id) null else log.id
                                     },
-                                    modifier = Modifier.testTag("ghost-debug-surface-shiori-log-$index"),
+                                    modifier = Modifier.testTag("ghost-debug-surface-shiori-log-${log.id}"),
                                 )
                                 HorizontalDivider()
                             }
@@ -764,7 +769,9 @@ private fun GhostShioriLogRow(
         if (entry.request != request || entry.response != response || expanded) {
             TextButton(
                 onClick = onToggleExpanded,
-                modifier = Modifier.heightIn(min = 48.dp),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("ghost-debug-surface-shiori-log-${entry.id}-toggle"),
             ) {
                 Text(
                     stringResource(
