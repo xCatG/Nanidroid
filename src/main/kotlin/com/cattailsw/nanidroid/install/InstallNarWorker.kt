@@ -103,6 +103,23 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         )
     }
 
+    override fun findActiveInstallWork(itemId: String): String? =
+        workManager.getWorkInfosForUniqueWork(NarDownloadRepository.workName(itemId)).get()
+            .firstOrNull { workInfo ->
+                when (workInfo.state) {
+                    WorkInfo.State.ENQUEUED,
+                    WorkInfo.State.RUNNING,
+                    WorkInfo.State.BLOCKED,
+                    -> true
+                    WorkInfo.State.SUCCEEDED,
+                    WorkInfo.State.FAILED,
+                    WorkInfo.State.CANCELLED,
+                    -> false
+                }
+            }
+            ?.id
+            ?.toString()
+
     override fun enqueue(
         itemId: String,
         attemptId: Long,

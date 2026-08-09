@@ -57,6 +57,9 @@ internal interface NarInstallWorkScheduler {
     fun enqueue(itemId: String)
     fun cancel(itemId: String)
 
+    /** Returns the exact active install request already retained under this item's unique name. */
+    fun findActiveInstallWork(itemId: String): String? = null
+
     fun enqueue(
         itemId: String,
         attemptId: Long,
@@ -1022,6 +1025,32 @@ class NarDownloadRepository internal constructor(
                 }
             }
             return
+        }
+        if (item.workManagerId == null) {
+            // v1 records have no UUID. Claim retained unique work before creating a
+            // deterministic replacement, because KEEP would otherwise discard it.
+            val activeWorkManagerId = try {
+                work.findActiveInstallWork(item.id)
+            } catch (_: Exception) {
+                if (failSchedulingAttempt(handle, null, INSTALL_SCHEDULE_FAILURE)) {
+                    markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
+                }
+                return
+            }
+            if (activeWorkManagerId != null) {
+                val binding = ExternalJobBinding.WorkManager(activeWorkManagerId)
+                val rebound = if (supervisor.bindExternalJob(handle, binding)) {
+                    store.update(item.id) { current ->
+                        if (current == item) current.copy(workManagerId = activeWorkManagerId) else current
+                    }?.takeIf { it.workManagerId == activeWorkManagerId }
+                } else {
+                    null
+                }
+                if (rebound == null && failSchedulingAttempt(handle, binding, INSTALL_SCHEDULE_FAILURE)) {
+                    markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
+                }
+                return
+            }
         }
         enqueueInstallAttempt(item, handle)
     }

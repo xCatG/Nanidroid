@@ -26,6 +26,8 @@ import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.lang.ref.WeakReference
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
@@ -1144,6 +1146,81 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationKind.NAR_INSTALL, operation.kind)
         assertEquals(OperationStatus.RUNNING, operation.status)
         assertEquals(binding, operation.externalJob)
+    }
+
+    @Test fun reconciliationRebindsActiveLegacyInstallWorkBeforePersistingMigrationBinding() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-install-migration",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "33333333-3333-3333-3333-333333333333"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        repository.reconcile()
+        val rebound = store.get(item.id)!!
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        assertEquals(legacyWorkManagerId, rebound.workManagerId)
+        assertEquals(NarDownloadState.Queued, rebound.state)
+        assertEquals(rebound, store.get(item.id))
+        assertTrue(work.installEnqueuedIds.isEmpty())
+        assertTrue(work.cancelledBindings.isEmpty())
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
+    }
+
+    @Test fun v1QueuedInstallMigrationRebindsLegacyWorkAcrossRestart() {
+        assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("queued", NarDownloadState.Queued)
+    }
+
+    @Test fun v1InstallingMigrationRebindsLegacyWorkAcrossRestart() {
+        assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("installing", NarDownloadState.Installing)
+    }
+
+    private fun assertV1InstallMigrationRebindsLegacyWorkAcrossRestart(
+        serializedState: String,
+        expectedState: NarDownloadState,
+    ) {
+        val itemId = "v1-$serializedState-install"
+        val source = "file:///owned/$serializedState.nar"
+        val legacyStorage = NarDownloadStore.MemoryStorage()
+        legacyStorage.write(
+            "v1\n${legacyEncoded(itemId)}\tlocal\t${legacyEncoded(source)}\t" +
+                "${legacyEncoded(source)}\t-\t$serializedState\t-\t0",
+        )
+        val migratedStore = NarDownloadStore(legacyStorage)
+        val migratedOperations = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val migratedSupervisor = DurableOperationSupervisor(
+            migratedOperations,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val legacyWorkManagerId = "44444444-4444-4444-4444-444444444444"
+        work.activeInstallWorkByItemId[itemId] = legacyWorkManagerId
+
+        repositoryWith(migratedStore, migratedSupervisor, itemId).reconcile()
+        val restartedSupervisor = DurableOperationSupervisor(
+            migratedOperations,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        repositoryWith(NarDownloadStore(legacyStorage), restartedSupervisor, itemId).reconcile()
+
+        val recovered = NarDownloadStore(legacyStorage).get(itemId)!!
+        assertEquals(1L, recovered.attemptId)
+        assertEquals(expectedState, recovered.state)
+        assertEquals(legacyWorkManagerId, recovered.workManagerId)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+        assertTrue(work.cancelledBindings.isEmpty())
     }
 
     @Test fun stageBindingStoreWriteFailureTerminalizesExactBoundAttempt() {
@@ -2274,6 +2351,7 @@ class NarDownloadRepositoryTest {
     }
 
     private class FakeWorkScheduler : NarInstallWorkScheduler {
+        val activeInstallWorkByItemId = mutableMapOf<String, String>()
         val enqueuedNames = mutableListOf<String>()
         val cancelledNames = mutableListOf<String>()
         val cancelledBindings = mutableListOf<String>()
@@ -2328,13 +2406,25 @@ class NarDownloadRepositoryTest {
                 check(latch.await(5, TimeUnit.SECONDS)) { "install query was not released" }
             }
             installQueryFailure?.let { throw it }
-            if (workManagerId !in installEnqueuedIds && recreateIfMissing) {
+            if (
+                workManagerId !in installEnqueuedIds &&
+                    workManagerId !in activeInstallWorkByItemId.values &&
+                    recreateIfMissing
+            ) {
                 installEnqueuedIds += workManagerId
                 enqueue(itemId)
             }
-            if (workManagerId !in installEnqueuedIds) return NarInstallWorkRecovery.MISSING
+            if (
+                workManagerId !in installEnqueuedIds &&
+                    workManagerId !in activeInstallWorkByItemId.values
+            ) {
+                return NarInstallWorkRecovery.MISSING
+            }
             return installRecovery
         }
+
+        override fun findActiveInstallWork(itemId: String): String? =
+            activeInstallWorkByItemId[itemId]
 
         override fun enqueueStage(
             itemId: String,
@@ -2594,6 +2684,9 @@ class NarDownloadRepositoryTest {
         assertTrue(!staleCallbackRan)
         assertEquals(reselected, store.get(item.id))
     }
+
+    private fun legacyEncoded(value: String): String = Base64.getUrlEncoder().withoutPadding()
+        .encodeToString(value.toByteArray(StandardCharsets.UTF_8))
 
     private class RecordingOperationCancellation(
         private val downloads: FakeDownloadGateway,
