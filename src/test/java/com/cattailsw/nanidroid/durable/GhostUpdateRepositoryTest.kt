@@ -1732,7 +1732,9 @@ class GhostUpdateRepositoryTest {
             fixture.ghostRoot,
             store,
             queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED },
-            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            finish = { journal, status ->
+                GhostUpdateWorker.finishRecoveredTerminalEvent(supervisor, journal, status)
+            },
         )
 
         assertEquals(RecoveryResult.CompletedCommit, recovered)
@@ -3050,7 +3052,9 @@ class GhostUpdateRepositoryTest {
             fixture.ghostRoot,
             store,
             queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.FAILED },
-            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            finish = { journal, status ->
+                GhostUpdateWorker.finishRecoveredTerminalEvent(supervisor, journal, status)
+            },
             onClassified = { journal, status ->
                 GhostUpdateWorker.deferRecoveredTerminalEvent(supervisor, journal, status)
             },

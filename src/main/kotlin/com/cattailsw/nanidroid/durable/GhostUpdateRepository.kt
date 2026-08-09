@@ -191,7 +191,13 @@ class GhostUpdateRepository internal constructor(
                 ) {
                     recoverForReplay(ghostRoot, request, journalIo) { pending, status ->
                         when (status) {
-                            OperationStatus.COMPLETED -> onCommitClassified(GhostUpdateResult.Completed(pending.files))
+                            OperationStatus.COMPLETED -> if (
+                                pending.phase == CommitPhase.NO_CHANGES_PENDING
+                            ) {
+                                onNoChangesClassified()
+                            } else {
+                                onCommitClassified(GhostUpdateResult.Completed(pending.files))
+                            }
                             OperationStatus.FAILED,
                             OperationStatus.CANCELLED,
                             -> onRollbackJournalClassified(pending, status)
@@ -1710,6 +1716,11 @@ class GhostUpdateRepository internal constructor(
                 journal.workManagerUuid != request.workManagerUuid
             ) return RecoveryResult.Failed("stale ghost update journal blocks replay")
             val topology = topologyOf(ghostRoot, File(transaction, CANDIDATE), File(transaction, BACKUP))
+            if (journal.phase == CommitPhase.NO_CHANGES_PENDING) {
+                if (!classify(journal, OperationStatus.COMPLETED)) {
+                    return RecoveryResult.CommitPending(journal.files)
+                }
+            }
             val authorization = if (
                 journal.phase == CommitPhase.PREPARED && topology in setOf(
                     GhostTreeTopology.LIVE_CANDIDATE,
