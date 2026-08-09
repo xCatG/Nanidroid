@@ -1265,13 +1265,23 @@ class NarDownloadRepository internal constructor(
                 )
             } ?: return
             val handle = accepted.handle()
-            val started = if (reacquiringAfterInstall) {
-                supervisor.startRemoteNarReacquisition(handle, "Downloading archive", 0L)
-            } else {
-                supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L)
-            }
+            val started = runCatching {
+                if (reacquiringAfterInstall) {
+                    supervisor.startRemoteNarReacquisition(handle, "Downloading archive", 0L)
+                } else {
+                    supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L)
+                }
+            }.getOrDefault(false)
             if (!started) {
-                markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
+                if (
+                    supervisor.failOrConfirmMissingUnboundAttempt(
+                        handle,
+                        OperationKind.REMOTE_NAR,
+                        DOWNLOAD_START_FAILURE,
+                    )
+                ) {
+                    markNeedsAttentionIfCurrent(accepted, DOWNLOAD_START_FAILURE)
+                }
                 return
             }
             val enqueued = try {

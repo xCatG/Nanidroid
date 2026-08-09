@@ -2072,6 +2072,52 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
     }
 
+    @Test fun failedReacquisitionStartPersistsTerminalRemoteAttemptForTheNextRetry() {
+        val exactOperationStore = FailFirstRemoteReacquisitionStartStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val failedInstall = store.create(
+            NarDownload(
+                id = "reacquisition-start-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/reacquisition-start-failure.nar",
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("install failed")),
+            ),
+        )
+        assertTrue(
+            exactSupervisor.start(
+                failedInstall.handle(),
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        assertTrue(exactSupervisor.failUnboundAttempt(failedInstall.handle(), "install failed"))
+        val exactRepository = repositoryWith(store, exactSupervisor, failedInstall.id)
+
+        val failedReacquisition = exactRepository.retry(failedInstall.id)!!
+
+        assertTrue(failedReacquisition.state is NarDownloadState.NeedsAttention)
+        val terminalRemoteAttempt = exactOperationStore.read().single()
+        assertEquals(failedReacquisition.attemptId, terminalRemoteAttempt.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, terminalRemoteAttempt.kind)
+        assertEquals(OperationStatus.FAILED, terminalRemoteAttempt.status)
+
+        downloads.nextDownloadId = 96L
+        val retry = exactRepository.retry(failedInstall.id)!!
+
+        assertEquals(failedReacquisition.attemptId + 1L, retry.attemptId)
+        assertEquals(96L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, exactOperationStore.read().single().status)
+    }
+
     @Test fun stopDuringRemoteEnqueueCannotRebindCancelledAttempt() {
         downloads.nextDownloadId = 92L
         downloads.onEnqueue = { itemId -> assertTrue(repository.stop(itemId)) }
@@ -3083,6 +3129,32 @@ class NarDownloadRepositoryTest {
             ) {
                 terminalWriteFailurePending = false
                 throw IllegalStateException("durable terminal write failed")
+            }
+            return delegate.compareAndSet(expected, updated)
+        }
+    }
+
+    private class FailFirstRemoteReacquisitionStartStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var failurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            if (
+                failurePending &&
+                expected.kind == OperationKind.NAR_INSTALL &&
+                updated.kind == OperationKind.REMOTE_NAR &&
+                updated.status == OperationStatus.RUNNING
+            ) {
+                failurePending = false
+                throw IllegalStateException("durable reacquisition start write failed")
             }
             return delegate.compareAndSet(expected, updated)
         }
