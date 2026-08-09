@@ -806,7 +806,22 @@ private fun repairCollapsedSurface(
         bounds(rounded.right.toLong() - width, rounded.top.toLong()),
         bounds(rounded.left.toLong(), rounded.bottom.toLong() - height),
         bounds(rounded.right.toLong() - width, rounded.bottom.toLong() - height),
-    ).firstOrNull(IntRect::isContained) ?: rounded
+    ).firstOrNull(IntRect::isContained) ?: run {
+        val commonLeft = constraints.maxOf { it.left }.toLong()
+        val commonTop = constraints.maxOf { it.top }.toLong()
+        val commonRight = constraints.minOf { it.right }.toLong()
+        val commonBottom = constraints.minOf { it.bottom }.toLong()
+        val maxLeft = commonRight - width
+        val maxTop = commonBottom - height
+        if (maxLeft < commonLeft || maxTop < commonTop) {
+            rounded
+        } else {
+            bounds(
+                rounded.left.toLong().coerceIn(commonLeft, maxLeft),
+                rounded.top.toLong().coerceIn(commonTop, maxTop),
+            ) ?: rounded
+        }
+    }
 }
 
 fun IntRect.positiveIntersection(other: IntRect): Boolean =

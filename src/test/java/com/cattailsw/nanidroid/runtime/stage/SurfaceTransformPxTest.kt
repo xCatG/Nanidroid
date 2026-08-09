@@ -203,6 +203,27 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `collapsed surface uses a valid interior placement when all corner anchors overflow`() {
+        val measured = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurface = StageDpRect(89.6.dp, 89.6.dp, 90.4.dp, 90.4.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+            ),
+            density = 1f,
+        )
+
+        val transform = measured.transformFor(SurfaceScope.KERO, IntSize(120, 1))
+
+        assertNotNull(transform)
+        transform ?: return
+        assertEquals(IntRect(30, 90, 150, 91), transform.renderedBounds)
+        assertEquals(1f, transform.scale, 0.0001f)
+    }
+
+    @Test
     fun `resize and rotation create fresh transforms without mutating prior input geometry`() {
         val first = StageLayoutPx.from(
             layout(keroSurface = StageDpRect(0.dp, 100.dp, 100.dp, 300.dp)),
