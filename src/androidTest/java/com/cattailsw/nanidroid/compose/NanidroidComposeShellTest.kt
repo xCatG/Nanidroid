@@ -1095,6 +1095,36 @@ class NanidroidComposeShellTest {
         assertEquals(emptyList<String>(), fixture.submitted)
     }
     @Test
+    fun user_input_safe_area_edge_strip_dismisses_presentation_without_cancelling() {
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        val surface = userInputSurface().fetchSemanticsNode().boundsInWindow
+        val edgeY = systemBarTopInset() + oneDpInPixels()
+        assertTrue("Expected the safe-area edge strip above the Surface", edgeY < surface.top)
+        assertTrue(
+            "Could not tap the safe-area edge strip",
+            uiDevice().click(surface.center.x.toInt(), edgeY),
+        )
+        composeRule.waitUntil(timeoutMillis = 5_000) { !fixture.open.value }
+
+        assertEquals(0, fixture.cancelled)
+        assertEquals(emptyList<String>(), fixture.submitted)
+    }
+
+    @Test
+    fun real_160dp_display_keeps_explicit_actions_at_minimum_touch_width() {
+        setDisplaySize(width = 320, height = 640)
+        val fixture = UserInputFixture()
+        renderUserInput(fixture)
+
+        assertActionsAreIndependentlyReachable(
+            explicitAction("script-user-input-cancel"),
+            explicitAction("script-user-input-confirm"),
+        )
+    }
+
+    @Test
     fun real_narrow_display_keeps_cancel_and_submit_independently_reachable() {
         setDisplaySize(width = 360, height = 640)
         val cancelFixture = UserInputFixture()
@@ -1302,11 +1332,11 @@ class NanidroidComposeShellTest {
     private fun SemanticsNodeInteraction.assertImeSafeAndTappable() {
         val visible = fetchSemanticsNode().boundsInWindow
         val safeBottom = composeRule.activity.window.decorView.height - imeBottomInset()
-        val minimumTargetHeight = (48 * composeRule.activity.resources.displayMetrics.density).toInt()
+        val minimumTargetSize = (48 * composeRule.activity.resources.displayMetrics.density).toInt()
 
         assertTrue("action has no visible bounds", visible.height > 0f)
         assertTrue("action is covered by the IME: $visible > $safeBottom", visible.bottom <= safeBottom)
-        assertTrue("action has only ${visible.height}px visible", visible.height >= minimumTargetHeight)
+        assertTrue("action has only ${visible.height}px visible", visible.height >= minimumTargetSize)
     }
 
     private fun SemanticsNodeInteraction.tap() {
@@ -1323,16 +1353,25 @@ class NanidroidComposeShellTest {
         submit.assertIsDisplayed()
         val cancelBounds = cancel.fetchSemanticsNode().boundsInWindow
         val submitBounds = submit.fetchSemanticsNode().boundsInWindow
-        val minimumTargetHeight = 48 * composeRule.activity.resources.displayMetrics.density
+        val minimumTargetSize = 48 * composeRule.activity.resources.displayMetrics.density
 
-        assertTrue("Cancel target is too short: ${cancelBounds.height}px", cancelBounds.height >= minimumTargetHeight)
-        assertTrue("Submit target is too short: ${submitBounds.height}px", submitBounds.height >= minimumTargetHeight)
+        assertTrue("Cancel target is too short: ${cancelBounds.height}px", cancelBounds.height >= minimumTargetSize)
+        assertTrue("Cancel target is too narrow: ${cancelBounds.width}px", cancelBounds.width >= minimumTargetSize)
+        assertTrue("Submit target is too short: ${submitBounds.height}px", submitBounds.height >= minimumTargetSize)
+        assertTrue("Submit target is too narrow: ${submitBounds.width}px", submitBounds.width >= minimumTargetSize)
         assertTrue(
             "Cancel and submit targets overlap: $cancelBounds / $submitBounds",
             cancelBounds.right <= submitBounds.left || submitBounds.right <= cancelBounds.left ||
                 cancelBounds.bottom <= submitBounds.top || submitBounds.bottom <= cancelBounds.top,
         )
     }
+
+    private fun systemBarTopInset(): Int = composeRule.activity.window.decorView.rootWindowInsets
+        ?.getInsets(WindowInsets.Type.systemBars())
+        ?.top
+        ?: 0
+
+    private fun oneDpInPixels(): Int = composeRule.activity.resources.displayMetrics.density.toInt()
 
     private fun imeBottomInset(): Int = composeRule.activity.window.decorView.rootWindowInsets
         ?.getInsets(WindowInsets.Type.ime())

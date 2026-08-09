@@ -146,15 +146,15 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
+                .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) }
                 // safeDrawing includes both system bars and the IME.
                 .safeDrawingPadding()
                 .padding(vertical = 16.dp),
         ) {
-            val horizontalPadding = if (maxWidth >= 160.dp) 24.dp else 0.dp
+            val horizontalPadding = if (maxWidth >= 208.dp) 24.dp else 0.dp
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) { detectTapGestures(onTap = { onDismiss() }) }
                     .padding(horizontal = horizontalPadding),
                 contentAlignment = Alignment.Center,
             ) {
