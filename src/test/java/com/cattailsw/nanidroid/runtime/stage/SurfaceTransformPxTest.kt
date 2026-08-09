@@ -259,6 +259,23 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `one-axis collapsed surface centers fallback on its full rounded bounds`() {
+        val transform = StageLayoutPx.from(
+            layout(
+                content = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurface = StageDpRect(66.dp, 89.6.dp, 114.dp, 90.4.dp),
+            ).copy(
+                keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+                keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 180.dp, 180.dp),
+            ),
+            density = 1f,
+        ).transformFor(SurfaceScope.KERO, IntSize(120, 1))
+
+        assertNotNull(transform)
+        assertEquals(IntRect(30, 90, 150, 91), transform?.renderedBounds)
+    }
+
+    @Test
     fun `collapsed surface repairs with its reduced intrinsic aspect ratio`() {
         val measured = StageLayoutPx.from(
             layout(
