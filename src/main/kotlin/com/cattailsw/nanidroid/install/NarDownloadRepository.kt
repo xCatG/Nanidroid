@@ -220,13 +220,20 @@ class NarDownloadRepository internal constructor(
         enqueueLocalCopy(uri, liveGrant = true)
 
     @Synchronized
-    internal fun replaceLocalSourceForUser(itemId: String, uri: String): NarUserEnqueueResult? =
-        replaceLocalSource(itemId, uri)?.let(::userEnqueueResult)
+    internal fun replaceLocalSourceForUser(itemId: String, uri: String): NarUserEnqueueResult? {
+        val previous = store.get(itemId) ?: return null
+        return replaceLocalSource(itemId, uri)?.let { replacement ->
+            userEnqueueResult(replacement, accepted = replacement.handle() != previous.handle())
+        }
+    }
 
     @Synchronized
-    internal fun userEnqueueResult(download: NarDownload): NarUserEnqueueResult = NarUserEnqueueResult(
+    internal fun userEnqueueResult(
+        download: NarDownload,
+        accepted: Boolean = true,
+    ): NarUserEnqueueResult = NarUserEnqueueResult(
         download = download,
-        acceptedActive = when (download.state) {
+        acceptedActive = accepted && when (download.state) {
             NarDownloadState.Downloading -> download.downloadManagerId != null
             NarDownloadState.Copying,
             NarDownloadState.Queued -> download.workManagerId != null

@@ -98,6 +98,20 @@ class NarDownloadRepositoryTest {
         assertNotNull(result.download.workManagerId)
     }
 
+    @Test fun reselectUserEnqueueRejectsAnUnchangedStoppingAttempt() {
+        val item = repository.enqueueLocal("content://provider/archive.nar")
+        assertTrue(repository.stop(item.id))
+
+        val result = repository.replaceLocalSourceForUser(
+            item.id,
+            "content://provider/reselected.nar",
+        )!!
+
+        assertTrue(!result.acceptedActive)
+        assertEquals(item, result.download)
+        assertEquals(OperationStatus.CANCEL_REQUESTED, operationStore.read().single().status)
+    }
+
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
         downloads.nextDownloadId = 31L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -1786,9 +1800,13 @@ class NarDownloadRepositoryTest {
             item.workManagerId!!,
         ) { false }
 
-        repository.replaceLocalSource(item.id, "file:///owned/reselected.nar")
+        val result = repository.replaceLocalSourceForUser(
+            item.id,
+            "file:///owned/reselected.nar",
+        )!!
+        assertTrue(result.acceptedActive)
 
-        val replaced = store.get(item.id)!!
+        val replaced = result.download
         assertEquals(NarDownloadSource.Local("file:///owned/reselected.nar"), replaced.source)
         assertEquals(NarDownloadState.Queued, replaced.state)
         assertEquals("file:///owned/reselected.nar", replaced.retainedUri)
