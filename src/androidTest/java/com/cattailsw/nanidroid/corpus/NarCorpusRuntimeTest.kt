@@ -61,6 +61,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -289,6 +290,29 @@ class NarCorpusRuntimeTest {
             listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach"),
             requests,
         )
+    }
+
+    @Test
+    fun snakeBootLifecycleRejectsAnUnplayableTerminalFaqResponse() {
+        val failure = assertThrows(IllegalStateException::class.java) {
+            snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+                val isTerminalFaqChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
+                    references.last() == SNAKE_FAQ_ID
+                val status = when {
+                    eventId == "OnChoiceSelectEx" && isTerminalFaqChoice -> 204
+                    isTerminalFaqChoice -> 201
+                    else -> 200
+                }
+                JSONObject()
+                    .put("eventId", eventId)
+                    .put("status", status)
+                    .put("outcome", "success")
+                    .put("value", "playable")
+                    .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+            }
+        }
+
+        assertEquals("Snake FAQ choice did not return a playable response.", failure.message)
     }
 
     @Test
@@ -1068,7 +1092,9 @@ class NarCorpusRuntimeTest {
             } == true
             val inputHasExactValue = input.optBoolean("hasExactValue", input.optString("value").isNotEmpty())
             if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesFaq) {
-                probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
+                check(probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID) != null) {
+                    "Snake FAQ choice did not return a playable response."
+                }
             }
         }
         return sequence
