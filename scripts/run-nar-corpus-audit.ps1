@@ -1342,6 +1342,14 @@ function Verify-DebugSignature([string]$ApkPath, [string]$Label, [string]$ApkSig
     return $true
 }
 
+function Test-DebuggableDeviceProperty {
+    param(
+        [string]$Value
+    )
+
+    return $Value -ceq '1'
+}
+
 function Check-DeviceGate {
     $serialState = Invoke-Adb -Arguments @('get-state') -TimeoutSeconds 10
     if ($serialState.Trim() -ne 'device') {
@@ -1360,8 +1368,9 @@ function Check-DeviceGate {
         ThrowIf "Unsupported ABI $abi. Supported ABIs: x86_64, arm64-v8a."
     }
     Get-DeviceDensity | Out-Null
-    if (-not (Get-AdbProperty 'ro.debuggable')) {
-        ThrowIf 'Target build must be debuggable.'
+    $debuggable = Get-AdbProperty 'ro.debuggable'
+    if (-not (Test-DebuggableDeviceProperty -Value $debuggable)) {
+        ThrowIf "Target build must be debuggable (ro.debuggable=1, observed '$debuggable')."
     }
 }
 
@@ -1871,6 +1880,15 @@ if ($DryRun) {
     Write-Host "Manifest entries: $($manifest.entries.Count)"
     Write-Host "Corpus archives discovered: $($archives.Count)"
     Write-Host "Resolved roots: $(@($resolvedCorpusRoots).Count)"
+    foreach ($debuggablePropertyCase in @(
+        @{ value = '1'; expected = $true },
+        @{ value = '0'; expected = $false }
+    )) {
+        if ((Test-DebuggableDeviceProperty -Value $debuggablePropertyCase.value) -ne $debuggablePropertyCase.expected) {
+            ThrowIf "Dry-run ro.debuggable=$($debuggablePropertyCase.value) gate classification was incorrect."
+        }
+    }
+    Write-Host 'Dry-run ro.debuggable 0/1 gate probe passed.'
     $devicePathProbeCases = @(
         @{ context = 'run-as'; expectedArguments = @('shell', 'run-as', $targetPackage, 'ls', '-d', '/data/local/tmp/run-owned') },
         @{ context = 'output'; expectedArguments = @('shell', 'ls', '-d', '/data/local/tmp/run-owned') }
