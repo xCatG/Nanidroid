@@ -267,8 +267,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             pendingUri = savedInstanceState?.getString(NAR_PENDING_INTENT_URI),
             pendingFlags = savedInstanceState?.getInt(NAR_PENDING_INTENT_FLAGS, 0) ?: 0,
         )
-        runner = SScriptRunner.getInstance(this)
-        handleIncomingIntent(intent)
+        resolveRunnerBeforeColdArchiveIngress(
+            resolveRunner = { SScriptRunner.getInstance(this) },
+            bindRunner = { runner = it },
+            handleArchiveIngress = { handleIncomingIntent(intent) },
+        )
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)

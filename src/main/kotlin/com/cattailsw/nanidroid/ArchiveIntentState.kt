@@ -11,6 +11,15 @@ internal fun allowsArchiveIngress(runtimeMode: GhostRuntimeMode?): Boolean =
         GhostActionGuard(it).allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER)
     } ?: true
 
+internal inline fun <T> resolveRunnerBeforeColdArchiveIngress(
+    resolveRunner: () -> T,
+    bindRunner: (T) -> Unit,
+    handleArchiveIngress: () -> Unit,
+) {
+    bindRunner(resolveRunner())
+    handleArchiveIngress()
+}
+
 /** Durable Activity state for archive intents that arrive before startup completes. */
 internal data class ArchiveIntentState(
     val consumedUri: String? = null,

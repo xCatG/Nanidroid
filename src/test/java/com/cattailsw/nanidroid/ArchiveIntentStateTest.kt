@@ -41,6 +41,32 @@ class ArchiveIntentStateTest {
     }
 
     @Test
+    fun coldArchiveIngressBindsRetainedPassiveRunnerBeforeHandlingArchive() {
+        val reception = receiveArchiveAtColdIngress(
+            GhostRuntimeMode(
+                playingTalk = false,
+                pendingUserAction = false,
+                passive = true,
+            ),
+        )
+
+        assertFalse(reception is ArchiveIntentState.Reception.Pending)
+    }
+
+    @Test
+    fun coldArchiveIngressBindsRetainedIdleRunnerBeforeHandlingArchive() {
+        val reception = receiveArchiveAtColdIngress(
+            GhostRuntimeMode(
+                playingTalk = false,
+                pendingUserAction = false,
+                passive = false,
+            ),
+        )
+
+        assertTrue(reception is ArchiveIntentState.Reception.Pending)
+    }
+
+    @Test
     fun receivingSecondArchiveWhileFirstIsPending_marksSecondAsConsumed() {
         val pendingFirst = ArchiveIntentState().receive("content://archives/first", 1)
             as ArchiveIntentState.Reception.Pending
@@ -83,5 +109,20 @@ class ArchiveIntentStateTest {
         } else {
             ArchiveIntentState.Reception.Ignored(state)
         }
+    }
+
+    private fun receiveArchiveAtColdIngress(
+        retainedRuntimeMode: GhostRuntimeMode,
+    ): ArchiveIntentState.Reception {
+        var boundRuntimeMode: GhostRuntimeMode? = null
+        lateinit var reception: ArchiveIntentState.Reception
+        resolveRunnerBeforeColdArchiveIngress(
+            resolveRunner = { retainedRuntimeMode },
+            bindRunner = { boundRuntimeMode = it },
+            handleArchiveIngress = {
+                reception = receiveArchiveAtIngress(boundRuntimeMode)
+            },
+        )
+        return reception
     }
 }
