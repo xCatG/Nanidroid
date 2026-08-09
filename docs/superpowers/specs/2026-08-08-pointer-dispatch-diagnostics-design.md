@@ -16,10 +16,10 @@ event resolution, session gates, or SHIORI dispatch behavior.
 
 ## Design
 
-`Nanidroid` will resolve the diagnostic candidate event from the incoming
-`SurfaceInteractionEffect`, call `SScriptRunner.dispatchSurfaceInteraction`,
-and store one immutable debug record containing both values. The candidate is
-nullable; the outcome is an explicit three-state value:
+`SScriptRunner` will resolve the diagnostic candidate event and perform the
+dispatch inside the same live-session gate. It returns those exact facts to
+`Nanidroid`, which stores one immutable debug record. The candidate is nullable;
+the outcome is an explicit three-state value:
 
 - `NOT_RESOLVED` when the interaction has no dispatchable candidate event.
 - `REJECTED` when a candidate exists but the runner returns `false`.
@@ -32,9 +32,11 @@ candidate while its status clearly says that runtime dispatch was rejected.
 ## Data Flow
 
 1. Stage input emits `SurfaceInteractionEffect` through `SurfaceInteractionPort`.
-2. `Nanidroid` resolves the candidate event using the current ghost capabilities.
-3. `Nanidroid` calls the runner and captures its Boolean result.
-4. The immutable diagnostic record is published only in debuggable builds.
+2. `Nanidroid` calls the runner's diagnostic dispatch operation.
+3. The runner resolves the candidate and dispatches it under its live-session gate,
+   returning the candidate and accepted result together.
+4. `Nanidroid` maps those returned facts into the immutable debug record, only in
+   debuggable builds.
 5. All adaptive debug presentations render the same record, preserving existing
    compact/full-stage behavior.
 
