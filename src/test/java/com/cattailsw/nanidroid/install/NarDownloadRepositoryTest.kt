@@ -2231,6 +2231,61 @@ class NarDownloadRepositoryTest {
         assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
     }
 
+    @Test fun stagingPersistedReplacementRetainsBothFailedGrantCleanups() {
+        val original = "content://provider/original.nar"
+        val replacement = "content://provider/replacement.nar"
+        val item = repository.enqueueLocalCopy(original)
+        ownedData.onRelease = { released ->
+            ownedData.releasePersistedGrantResult =
+                released.retainedUri != original && released.retainedUri != replacement
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/original-copy.nar") }
+        assertEquals(original, store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+
+        assertNotNull(repository.replaceWithPersistedLocalSource(item.id, replacement) { true })
+        val replacementCopy = store.update(item.id) { current ->
+            current.copy(
+                attemptId = current.attemptId + 1L,
+                workManagerId = "replacement-stage",
+                state = NarDownloadState.Copying,
+            )
+        }!!
+
+        repository.stageLocal(
+            replacementCopy.id,
+            replacementCopy.attemptId,
+            replacementCopy.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/replacement-copy.nar") }
+
+        assertEquals(replacement, store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+        assertEquals(setOf(original), store.pendingPersistedGrantReleases())
+
+        assertTrue(repository.delete(item.id))
+        assertEquals(setOf(original, replacement), store.pendingPersistedGrantReleases())
+
+        ownedData.releasedUris.clear()
+        ownedData.onRelease = null
+        ownedData.releasePersistedGrantResult = true
+        repository.reconcile()
+
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+        assertEquals(
+            1,
+            ownedData.releasedUris.count { it == original },
+        )
+        assertEquals(
+            1,
+            ownedData.releasedUris.count { it == replacement },
+        )
+    }
+
     @Test fun completedHistoryDoesNotRetainAReacquiredDocumentGrant() {
         val source = "content://provider/reacquired.nar"
         val completed = repository.enqueueLocal(source, source)

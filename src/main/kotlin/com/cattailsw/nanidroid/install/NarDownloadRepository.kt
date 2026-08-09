@@ -1372,8 +1372,11 @@ class NarDownloadRepository internal constructor(
         val source = (item.source as? NarDownloadSource.Local)?.uri ?: return
         if (source == item.retainedUri || !isFileUri(item.retainedUri)) return
         if (!hasSourceReference(source, item.id)) {
+            store.get(item.id)?.pendingPersistedGrantReleaseUri
+                ?.takeUnless { pending -> pending == source }
+                ?.let(store::addPendingPersistedGrantRelease)
             val pending = store.update(item.id) { current ->
-                if (current.pendingPersistedGrantReleaseUri == null) {
+                if (current.pendingPersistedGrantReleaseUri != source) {
                     current.copy(pendingPersistedGrantReleaseUri = source)
                 } else {
                     current
