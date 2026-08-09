@@ -1224,10 +1224,14 @@ function Assert-InteractionArtifactFreshness([DateTime]$LastWriteTimeUtc, [DateT
 function Assert-InteractionEvidenceRowsMatchCaptureRecord([object[]]$InteractionRows, [object]$InteractionCapture) {
     $capturedArtifacts = @($InteractionCapture.artifacts)
     if ($InteractionRows.Count -ne $capturedArtifacts.Count) { Fail "Manual interaction evidence requires exactly $($capturedArtifacts.Count) checkpointed artifacts." 'manual-inspection' }
-    for ($index = 0; $index -lt $capturedArtifacts.Count; $index++) {
-        $row = $InteractionRows[$index]
-        $artifact = $capturedArtifacts[$index]
-        if ([string]$row.artifactPath -cne [string]$artifact.artifactPath) { Fail "Manual interaction evidence '$($row.id)' has a checkpointed-path mismatch." 'manual-inspection' }
+    $artifactByPath = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($artifact in $capturedArtifacts) {
+        $artifactPath = [string]$artifact.artifactPath
+        if (-not $artifactByPath.TryAdd($artifactPath, $artifact)) { Fail "Interaction capture has a duplicate artifact path '$artifactPath'." 'manual-inspection' }
+    }
+    foreach ($row in $InteractionRows) {
+        $artifact = $null
+        if (-not $artifactByPath.TryGetValue([string]$row.artifactPath, [ref]$artifact)) { Fail "Manual interaction evidence '$($row.id)' has a checkpointed-path mismatch." 'manual-inspection' }
         if ([string]$row.artifactSha256 -cne [string]$artifact.sha256) { Fail "Manual interaction evidence '$($row.id)' has a checkpointed-hash mismatch." 'manual-inspection' }
     }
 }
@@ -1574,6 +1578,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             }
         })
         Assert-InteractionEvidenceRowsMatchCaptureRecord $checkpointedInteractionRows $validInteractionCapture
+        Assert-InteractionEvidenceRowsMatchCaptureRecord @($checkpointedInteractionRows | Sort-Object id -Descending) $validInteractionCapture
         foreach ($mutation in @('substituted-path', 'changed-hash')) {
             $mutatedRows = $checkpointedInteractionRows | ConvertTo-Json -Depth 16 | ConvertFrom-Json
             switch ($mutation) {
