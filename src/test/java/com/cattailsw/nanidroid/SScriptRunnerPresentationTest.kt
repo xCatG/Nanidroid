@@ -647,11 +647,11 @@ class SScriptRunnerPresentationTest {
         val pending = fixture.openPendingInput("answer", timeoutMillis = 1_000L)
         val binding = DialogueDialogBinding { fixture.runner }
         val presented = binding.userInput("answer", pending.generation)
-        val restored = DialogueDialogBinding { fixture.runner }.restoreUserInput(
+        val restored = requireNotNull(DialogueDialogBinding { fixture.runner }.restoreUserInput(
             "answer",
             requireNotNull(presented.restoration),
             "typed",
-        )
+        ))
 
         restored.onSubmit("answer", "typed")
 
@@ -665,10 +665,10 @@ class SScriptRunnerPresentationTest {
         val cancelPending = cancel.openPendingInput("answer", timeoutMillis = 1_000L)
         val cancelPresented = DialogueDialogBinding { cancel.runner }
             .userInput("answer", cancelPending.generation)
-        DialogueDialogBinding { cancel.runner }.restoreUserInput(
+        requireNotNull(DialogueDialogBinding { cancel.runner }.restoreUserInput(
             "answer",
             requireNotNull(cancelPresented.restoration),
-        ).onCancel()
+        )).onCancel()
 
         Assert.assertEquals(
             listOf(request("OnUserInputCancel", "answer", "close", "", "", "tail")),
@@ -752,13 +752,27 @@ class SScriptRunnerPresentationTest {
             .restoreUserInput("same-id", restoration, "stale")
         lateRunner = replacement.runner
 
-        restoredAgainstReplacement.onSubmit("same-id", "stale")
-        restoredAgainstReplacement.onCancel()
-        restoredWithoutRunner.onSubmit("same-id", "stale")
-        restoredWithoutRunner.onCancel()
+        Assert.assertNull(restoredAgainstReplacement)
+        Assert.assertNull(restoredWithoutRunner)
 
         Assert.assertEquals(replacementPending, replacement.runner.dialogueStateSnapshot().pendingInput)
         Assert.assertTrue(replacement.shiori.requests.isEmpty())
+    }
+
+    @Test
+    fun restoredInputIsDiscardedWhenItsRuntimeGenerationCannotBeValidated() {
+        val original = fixture(responses = emptyList())
+        val pending = original.openPendingInput("secret", timeoutMillis = 1_000L)
+        val presented = DialogueDialogBinding { original.runner }
+            .userInput("secret", pending.generation)
+
+        val restored = DialogueDialogBinding { null }.restoreUserInput(
+            "secret",
+            requireNotNull(presented.restoration),
+            "typed secret",
+        )
+
+        Assert.assertNull(restored)
     }
 
     @Test

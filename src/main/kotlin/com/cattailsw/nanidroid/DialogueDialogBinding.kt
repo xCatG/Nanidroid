@@ -52,20 +52,20 @@ internal class DialogueDialogBinding(
         restoration: DialogueDialogRestoration?,
         value: String = "",
         onValueChanged: (String) -> Unit = {},
-    ): NanidroidSimpleDialog.UserInput {
-        val runner = currentRunner()
-        val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val generation = restoration?.generation?.takeIf {
-            snapshot?.owner == restoration.owner && snapshot.dialogue.pendingInput?.generation == it
-        }
+    ): NanidroidSimpleDialog.UserInput? {
+        val exactRestoration = restoration ?: return null
+        val runner = currentRunner() ?: return null
+        val snapshot = runner.dialogueDialogRuntimeSnapshot()
+        val pendingInput = snapshot.dialogue.pendingInput ?: return null
+        if (snapshot.owner != exactRestoration.owner || pendingInput.generation != exactRestoration.generation) return null
         return inputDialog(
             id,
             value,
             onValueChanged,
-            runner.takeIf { generation != null },
-            generation,
-            restoration.takeIf { generation != null },
-            snapshot?.dialogue?.pendingInput?.spec?.takeIf { generation != null },
+            runner,
+            pendingInput.generation,
+            exactRestoration,
+            pendingInput.spec,
         )
     }
 
