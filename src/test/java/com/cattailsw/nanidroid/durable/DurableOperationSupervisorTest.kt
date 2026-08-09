@@ -493,6 +493,24 @@ class DurableOperationSupervisorTest {
         assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun bindingAnUnboundStalledRunningAttemptHidesPromptAndStartsANewWindow() {
+        val handle = handle("stalled-unbound-binding", 1)
+        val binding = workManager("stalled-unbound-binding-worker")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        assertTrue(supervisor.bindExternalJob(handle, binding))
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(cancellation.requests.isEmpty())
+
+        clock.value = 59_999
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun identicalSnapshotsFromAnotherSupervisorDoNotRestartObservationWindow() {
         val handle = handle("shared-unchanged", 1)
         val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)

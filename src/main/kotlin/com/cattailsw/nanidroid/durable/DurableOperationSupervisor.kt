@@ -153,9 +153,13 @@ class DurableOperationSupervisor(
             val updated = current.copy(
                 externalJob = binding,
                 externalJobHistory = current.externalJobHistory + binding,
+                showStallPrompt = current.status != OperationStatus.RUNNING && current.showStallPrompt,
             )
             if (!store.compareAndSet(current, updated)) {
                 return@mutate false
+            }
+            if (current.status == OperationStatus.RUNNING) {
+                restartSuppressedAttention.remove(handle)
             }
             lastProgressAt[handle] = clock.nowMillis()
             lastObservedRevisions[handle] = updated.observationRevision()
