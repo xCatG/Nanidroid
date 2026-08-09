@@ -749,7 +749,11 @@ class NarDownloadRepository internal constructor(
                     }
                     return@forEach
                 }
-                val rebound = restoreRemoteDownloadBinding(item, downloadManagerId)
+                val rebound = try {
+                    restoreRemoteDownloadBinding(item, downloadManagerId)
+                } catch (_: Exception) {
+                    return@forEach
+                }
                 var statusQueryFailed = false
                 val status = try {
                     downloads.status(downloadManagerId)
