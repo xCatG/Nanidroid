@@ -430,6 +430,82 @@ class DurableOperationSupervisorTest {
         assertTrue(restored.snapshot().single().showStallPrompt)
     }
 
+    @Test fun progressFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-progress", 1)
+        val binding = workManager("shared-progress-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(
+            firstSupervisor.start(
+                handle,
+                OperationKind.GHOST_UPDATE,
+                "Downloading",
+                0,
+                binding,
+            ),
+        )
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.reportProgress(handle, binding, "Downloading", 1))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 58_999
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 59_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun stopFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-stop", 1)
+        val binding = workManager("shared-stop-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Downloading", 0, binding))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.requestStop(handle))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 58_999
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 59_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
+        assertEquals(OperationStatus.CANCEL_REQUESTED, secondSupervisor.snapshot().single().status)
+    }
+
+    @Test fun bindingFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-binding", 1)
+        val binding = workManager("shared-binding-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.bindExternalJob(handle, binding))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 58_999
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 59_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun identicalSnapshotsFromAnotherSupervisorDoNotRestartObservationWindow() {
+        val handle = handle("shared-unchanged", 1)
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 30_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun recreationSuppressesPersistedPromptWithoutRevokingNotificationAction() {
         val handle = handle("stalled-restore", 1)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))

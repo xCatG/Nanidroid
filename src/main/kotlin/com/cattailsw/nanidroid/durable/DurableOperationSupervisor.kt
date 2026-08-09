@@ -12,6 +12,7 @@ class DurableOperationSupervisor(
 ) {
     private val operationLock = Any()
     private val lastProgressAt = mutableMapOf<OperationHandle, Long>()
+    private val lastObservedRevisions = mutableMapOf<OperationHandle, ObservationRevision>()
     private val cancellationIssued = mutableSetOf<BoundCancellation>()
     private val revealedStoppingAttention = mutableSetOf<OperationHandle>()
     private val restartSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
@@ -22,6 +23,7 @@ class DurableOperationSupervisor(
         store.read().filter { it.status.isActive() }.forEach { restored ->
             val handle = restored.handle()
             lastProgressAt[handle] = now
+            lastObservedRevisions[handle] = restored.observationRevision()
             if (restored.status == OperationStatus.CANCEL_REQUESTED && restored.externalJob != null) {
                 issueCancellation(
                     handle,
@@ -110,9 +112,11 @@ class DurableOperationSupervisor(
                 return@mutate false
             }
             lastProgressAt.remove(previous.handle())
+            lastObservedRevisions.remove(previous.handle())
             cancellationIssued.removeAll { it.handle == previous.handle() }
         }
         lastProgressAt[handle] = clock.nowMillis()
+        lastObservedRevisions[handle] = accepted.observationRevision()
         true
     }
 
@@ -137,6 +141,7 @@ class DurableOperationSupervisor(
                 return@mutate false
             }
             lastProgressAt[handle] = clock.nowMillis()
+            lastObservedRevisions[handle] = updated.observationRevision()
             true
         }
 
@@ -145,17 +150,15 @@ class DurableOperationSupervisor(
             val current = activeRecord(handle) ?: return@mutate false
             if (current.externalJob != null) return@mutate current.externalJob == binding
             if (binding in current.externalJobHistory) return@mutate false
-            if (
-                !store.compareAndSet(
-                    current,
-                    current.copy(
-                        externalJob = binding,
-                        externalJobHistory = current.externalJobHistory + binding,
-                    ),
-                )
-            ) {
+            val updated = current.copy(
+                externalJob = binding,
+                externalJobHistory = current.externalJobHistory + binding,
+            )
+            if (!store.compareAndSet(current, updated)) {
                 return@mutate false
             }
+            lastProgressAt[handle] = clock.nowMillis()
+            lastObservedRevisions[handle] = updated.observationRevision()
             if (current.status == OperationStatus.CANCEL_REQUESTED) {
                 issueCancellation(handle, current.kind, binding)
             }
@@ -186,6 +189,7 @@ class DurableOperationSupervisor(
             return@mutate false
         }
         lastProgressAt[handle] = clock.nowMillis()
+        lastObservedRevisions[handle] = updated.observationRevision()
         current.externalJob?.let { issueCancellation(handle, current.kind, it) }
         true
     }
@@ -215,6 +219,7 @@ class DurableOperationSupervisor(
                 restartSuppressedAttention.remove(handle)
                 revealedStoppingAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
+                lastObservedRevisions[handle] = updated.observationRevision()
                 current.externalJob?.let {
                     issueCancellation(handle, current.kind, it, preserveAttention = true)
                 }
@@ -251,6 +256,7 @@ class DurableOperationSupervisor(
             return@mutate false
         }
         lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
     }
@@ -334,6 +340,7 @@ class DurableOperationSupervisor(
                 return@mutate false
             }
             lastProgressAt.remove(handle)
+            lastObservedRevisions.remove(handle)
             cancellationIssued.removeAll { it.handle == handle }
             true
         }
@@ -370,6 +377,7 @@ class DurableOperationSupervisor(
             return@mutate false
         }
         lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
     }
@@ -390,6 +398,7 @@ class DurableOperationSupervisor(
         )
         if (!store.compareAndSet(current, updated)) return@mutate false
         lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
     }
@@ -401,6 +410,11 @@ class DurableOperationSupervisor(
         var promptWriteFailed = false
         store.read().filter { it.status.isActive() }.forEach { record ->
             val handle = record.handle()
+            val revision = record.observationRevision()
+            val previousRevision = lastObservedRevisions.put(handle, revision)
+            if (previousRevision != null && previousRevision != revision) {
+                lastProgressAt[handle] = now
+            }
             val observedAt = lastProgressAt.getOrPut(handle) { now }
             if (
                 record.isRestartSuppressed() &&
@@ -438,6 +452,9 @@ class DurableOperationSupervisor(
             .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
         revealedStoppingAttention.retainAll(storedRecords.mapTo(mutableSetOf()) { it.handle() })
         restartSuppressedAttention.keys.retainAll(
+            storedRecords.mapTo(mutableSetOf()) { it.handle() },
+        )
+        lastObservedRevisions.keys.retainAll(
             storedRecords.mapTo(mutableSetOf()) { it.handle() },
         )
         val nextDelay = storedRecords
@@ -507,6 +524,12 @@ class DurableOperationSupervisor(
     }
 
     private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
+
+    private fun DurableOperationRecord.observationRevision() = ObservationRevision(
+        progress = progress,
+        status = status,
+        externalJob = externalJob,
+    )
 
     private inline fun mutate(block: () -> Boolean): Boolean {
         val changed = synchronized(operationLock, block)
@@ -620,6 +643,12 @@ class DurableOperationSupervisor(
     private data class BoundCancellation(
         val handle: OperationHandle,
         val binding: ExternalJobBinding,
+    )
+
+    private data class ObservationRevision(
+        val progress: OperationProgress,
+        val status: OperationStatus,
+        val externalJob: ExternalJobBinding?,
     )
 }
 
