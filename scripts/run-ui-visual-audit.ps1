@@ -684,7 +684,7 @@ function Get-OwnedProcessLaunch([string]$FilePath, [string[]]$Arguments) {
     }
     $commandInterpreter = [Environment]::GetEnvironmentVariable('ComSpec')
     if ([string]::IsNullOrWhiteSpace($commandInterpreter) -or -not (Test-Path -LiteralPath $commandInterpreter -PathType Leaf)) { Fail 'cmd.exe is required to launch a batch command through the exact-owned process runner.' 'process' }
-    return [pscustomobject]@{ applicationName = $commandInterpreter; commandLine = "$(ConvertTo-WindowsCommandLineArgument $commandInterpreter) /d /s /c $(ConvertTo-WindowsCommandLineArgument $commandLine)" }
+    return [pscustomobject]@{ applicationName = $commandInterpreter; commandLine = "$(ConvertTo-WindowsCommandLineArgument $commandInterpreter) /d /s /c `"$commandLine`"" }
 }
 
 function Invoke-Native {
@@ -1583,6 +1583,8 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $quoted=ConvertTo-WindowsCommandLineArgument 'label with spaces'; if($quoted -ne '"label with spaces"'){Fail 'Argument quoting probe failed.' 'dry-run'}
     $batchLaunch = Get-OwnedProcessLaunch 'C:\tools\gradlew.bat' @('assembleDebug')
     if ($batchLaunch.applicationName -notmatch '(?i)cmd\.exe$' -or $batchLaunch.commandLine -notmatch '(?i)gradlew\.bat' -or $batchLaunch.commandLine -notmatch '(?i)/c') { Fail 'Batch launch probe did not route through cmd.exe.' 'dry-run' }
+    $spacedBatchLaunch = Get-OwnedProcessLaunch 'C:\work tree\gradlew.bat' @('assembleDebug')
+    if ($spacedBatchLaunch.commandLine -notmatch '(?i)/c ""C:\\work tree\\gradlew\.bat" assembleDebug"$') { Fail 'Spaced batch launch probe does not use cmd /c quoting.' 'dry-run' }
     $timeout=[Diagnostics.Stopwatch]::StartNew(); $proc=Invoke-Native -FilePath (Get-Process -Id $PID).Path -Arguments @('-NoProfile','-Command','exit 0') -TimeoutSeconds 20; $timeout.Stop(); if($proc.exitCode -ne 0 -or $timeout.Elapsed.TotalSeconds -ge 20){Fail 'Process/timeout helper probe failed.' 'dry-run'}
     $drainProbeIdentityPath = Join-Path ([IO.Path]::GetTempPath()) "nanidroid-ui-audit-drain-$([guid]::NewGuid().ToString('N')).txt"
     $drainProbeCommand="`$child=Start-Process -FilePath (Get-Process -Id `$PID).Path -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 4') -NoNewWindow -PassThru; [IO.File]::WriteAllText('$($drainProbeIdentityPath.Replace("'", "''"))', ('{0}|{1}' -f `$child.Id,`$child.StartTime.ToUniversalTime().Ticks)); Start-Sleep -Seconds 2; exit 0"
