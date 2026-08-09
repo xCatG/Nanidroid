@@ -826,6 +826,15 @@ class NarDownloadRepositoryTest {
         assertTrue(store.pendingPersistedGrantReleases().isEmpty())
     }
 
+    @Test fun failedPersistedAcquisitionPreservesAnOlderDetachedGrantCleanup() {
+        val source = "content://provider/older-detached-cleanup.nar"
+        store.addPendingPersistedGrantRelease(source)
+
+        assertNull(repository.enqueuePersistedLocalCopy(source) { false })
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+    }
+
     @Test fun persistedReplacementReservesGrantBeforeAcquiringIt() {
         val item = repository.enqueueLocal("content://provider/old.nar")
         val replacementSource = "content://provider/replacement.nar"
@@ -838,6 +847,16 @@ class NarDownloadRepositoryTest {
         assertNotNull(replacement)
         assertEquals(replacementSource, replacement!!.retainedUri)
         assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+    }
+
+    @Test fun failedPersistedReplacementPreservesAnOlderRecordGrantCleanup() {
+        val source = "content://provider/older-record-cleanup.nar"
+        val item = repository.enqueueLocal(source, source)
+        store.update(item.id) { current -> current.copy(pendingPersistedGrantReleaseUri = source) }
+
+        assertNull(repository.replaceWithPersistedLocalSource(item.id, source) { false })
+
+        assertEquals(source, store.get(item.id)!!.pendingPersistedGrantReleaseUri)
     }
 
     @Test fun failedDirectGrantReleaseAfterDeletionIsRetainedForReconciliation() {

@@ -218,9 +218,10 @@ class NarDownloadRepository internal constructor(
      */
     @Synchronized
     fun enqueuePersistedLocalCopy(uri: String, acquireGrant: () -> Boolean): NarDownload? {
+        val alreadyReserved = uri in store.pendingPersistedGrantReleases()
         store.addPendingPersistedGrantRelease(uri)
         if (!acquireGrant()) {
-            store.removePendingPersistedGrantRelease(uri)
+            if (!alreadyReserved) store.removePendingPersistedGrantRelease(uri)
             return null
         }
         return enqueueLocalCopy(uri, liveGrant = false).also {
@@ -582,6 +583,7 @@ class NarDownloadRepository internal constructor(
         uri: String,
         acquireGrant: () -> Boolean,
     ): NarDownload? {
+        val alreadyReserved = store.get(itemId)?.pendingPersistedGrantReleaseUri == uri
         val reserved = store.update(itemId) { current ->
             if (
                 current.source is NarDownloadSource.Local &&
@@ -596,11 +598,13 @@ class NarDownloadRepository internal constructor(
         } ?: return null
         if (reserved.pendingPersistedGrantReleaseUri != uri) return null
         if (!acquireGrant()) {
-            store.update(itemId) { current ->
-                if (current.pendingPersistedGrantReleaseUri == uri) {
-                    current.copy(pendingPersistedGrantReleaseUri = null)
-                } else {
-                    current
+            if (!alreadyReserved) {
+                store.update(itemId) { current ->
+                    if (current.pendingPersistedGrantReleaseUri == uri) {
+                        current.copy(pendingPersistedGrantReleaseUri = null)
+                    } else {
+                        current
+                    }
                 }
             }
             return null
@@ -1728,6 +1732,13 @@ private class AndroidNarManagedFiles(context: Context) :
         val location = download.retainedUri ?: return true
         val uri = runCatching { Uri.parse(location) }.getOrNull() ?: return false
         if (!uri.scheme.equals("content", ignoreCase = true)) return true
+        if (
+            appContext.contentResolver.persistedUriPermissions.none { permission ->
+                permission.uri == uri && permission.isReadPermission
+            }
+        ) {
+            return true
+        }
         return runCatching {
             appContext.contentResolver.releasePersistableUriPermission(
                 uri,
