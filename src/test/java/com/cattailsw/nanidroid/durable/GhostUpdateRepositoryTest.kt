@@ -515,14 +515,14 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `startup recovery reclaims an incomplete private ownership marker`() {
+    fun `startup recovery preserves an incomplete private ownership marker`() {
         val fixture = fixture("incomplete-private-owner-marker")
         val marker = File.createTempFile(".nanidroid-update-owner-", ".tmp", fixture.parent)
         write(marker, bytes("truncated"))
 
         assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
 
-        assertFalse(marker.exists())
+        assertTrue(marker.exists())
     }
 
     @Test

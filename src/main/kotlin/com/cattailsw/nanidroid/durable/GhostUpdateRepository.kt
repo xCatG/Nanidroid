@@ -1340,10 +1340,8 @@ class GhostUpdateRepository internal constructor(
                     val journal = try {
                         GhostUpdateJournalStore.read(marker)
                     } catch (_: Exception) {
-                        // This namespace is created only for private ownership records. A failed
-                        // pre-publication write has no journal to authenticate, but must not
-                        // remain as storage residue that blocks bundled-ghost installation.
-                        marker.delete()
+                        // Prefix collisions are user-owned until a readable marker proves
+                        // otherwise; never delete storage content based on a filename alone.
                         return@forEach
                     }
                     val root = File(journal.ghostRoot).canonicalFile
