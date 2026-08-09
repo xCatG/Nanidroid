@@ -447,6 +447,29 @@ class DurableOperationSupervisor(
         store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = null))
     }
 
+    /**
+     * Holds the operation transition lock across an exact terminal-event delivery. This prevents
+     * a newer attempt from replacing the terminal record between claiming its payload and
+     * reconciling that exact payload after a successful callback.
+     */
+    internal fun deliverTerminalEvent(
+        handle: OperationHandle,
+        binding: ExternalJobBinding.WorkManager,
+        event: GhostUpdateTerminalEvent,
+        dispatch: (GhostUpdateTerminalEvent) -> Boolean,
+    ): Boolean = mutate {
+        val current = exactRecord(handle) ?: return@mutate false
+        if (
+            current.kind != OperationKind.GHOST_UPDATE ||
+            current.externalJob != binding ||
+            current.pendingGhostUpdateEvent != event
+        ) return@mutate false
+        if (!dispatch(event)) return@mutate false
+        // A failed durable clear is retried after process restart, but never re-dispatches here.
+        store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = null))
+        true
+    }
+
     fun snapshot(): List<DurableOperationRecord> = attentionSnapshot().records
 
     internal fun records(): List<DurableOperationRecord> = synchronized(operationLock) { store.read() }

@@ -469,16 +469,7 @@ class GhostUpdateWorker(
             event: GhostUpdateTerminalEvent,
             dispatch: (GhostUpdateTerminalEvent) -> Boolean,
         ): Boolean = synchronized(terminalEventDeliveryLock) {
-            val record = supervisor.records().singleOrNull {
-                it.handle() == handle &&
-                    it.kind == OperationKind.GHOST_UPDATE &&
-                    it.externalJob == binding &&
-                    it.pendingGhostUpdateEvent == event
-            } ?: return@synchronized false
-            if (!dispatch(event)) return@synchronized false
-            // Clearing is durable reconciliation, not another dispatch attempt.
-            supervisor.clearTerminalEvent(handle, binding, record.pendingGhostUpdateEvent!!)
-            true
+            supervisor.deliverTerminalEvent(handle, binding, event, dispatch)
         }
 
         internal fun deferRecoveredTerminalEvent(

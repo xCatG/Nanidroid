@@ -252,6 +252,54 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun `next update cannot replace a terminal record while its event is being dispatched`() {
+        val root = File("build/terminal-event-rollover-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-rollover-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        val dispatchEntered = CountDownLatch(1)
+        val releaseDispatch = CountDownLatch(1)
+        val rolloverFinished = CountDownLatch(1)
+        var rolloverAccepted = false
+
+        val delivery = Thread {
+            assertTrue(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                    dispatchEntered.countDown()
+                    assertTrue(releaseDispatch.await(5, TimeUnit.SECONDS))
+                    true
+                },
+            )
+        }
+        val rollover = Thread {
+            assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+            rolloverAccepted = supervisor.start(
+                handle.copy(attemptId = AttemptId(2)),
+                OperationKind.GHOST_UPDATE,
+                "Updating",
+                0,
+                workManager("terminal-event-rollover-next-worker"),
+            )
+            rolloverFinished.countDown()
+        }
+
+        delivery.start()
+        rollover.start()
+        assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+        assertFalse(rolloverFinished.await(100, TimeUnit.MILLISECONDS))
+        releaseDispatch.countDown()
+        delivery.join(5_000)
+        rollover.join(5_000)
+
+        assertFalse(delivery.isAlive)
+        assertFalse(rollover.isAlive)
+        assertTrue(rolloverAccepted)
+        assertEquals(AttemptId(2), supervisor.records().single().attemptId)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
     @Test fun `terminal deferral cannot overwrite a payload claimed by attachment delivery`() {
         val root = File("build/terminal-event-deferral-claim-race").canonicalFile
         val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
