@@ -15,7 +15,10 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptCommandParser
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptInteraction
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
+import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
@@ -85,7 +88,6 @@ open class SScriptRunner internal constructor(
         @JvmField val WAIT_UNIT: Long = 50
         @JvmField val WAIT_YEN_E: Long = 1000
         private const val RUN = 42; private const val STOP = 43; private const val INC_CLOCK = 44; private const val CLOCK_STEP = 1000L
-        private val PASSIVE_MODE = Regex("""^\[(enter|leave),passivemode]""")
         @Volatile private var self: SScriptRunner? = null
         private val productionSessionCoordinator = GhostSessionCoordinator()
         private val msgQueue = ConcurrentLinkedQueue<String>()
@@ -594,12 +596,20 @@ open class SScriptRunner internal constructor(
 
     private fun handleExclaim(state: PlaybackState, publishSelection: Boolean): Boolean {
         val remaining = state.msg!!.substring(state.charIndex)
-        val passiveMatch = PASSIVE_MODE.find(remaining)
-        if (passiveMatch != null) {
-            state.charIndex += passiveMatch.value.length
+        val passiveCommand = SakuraScriptCommandParser.readBracket(remaining, 0)?.let { bracket ->
+            SakuraScriptCommandParser.splitArguments(bracket.value)
+                .takeIf { args ->
+                    args.size == 2 &&
+                        args[0] in setOf("enter", "leave") &&
+                        args[1] == "passivemode"
+                }
+                ?.let { args -> args[0] to bracket.nextIndex }
+        }
+        if (passiveCommand != null) {
+            state.charIndex += passiveCommand.second
             synchronized(this) {
                 if (playback === state && state.running) {
-                    passive = passiveMatch.groupValues[1] == "enter"
+                    passive = passiveCommand.first == "enter"
                 }
             }
             return false
@@ -714,21 +724,20 @@ open class SScriptRunner internal constructor(
             ucb
         }
         if (callback == null || state.legacyChoiceCallbackPublished || !publishSelection) return false
-        val labels = arrayListOf<String>()
-        val ids = arrayListOf<String>()
-        val remainingChoices = PatternHolders.q_choice_ptrn.matcher(text)
-        if (remainingChoices.find(commandStart)) {
-            do {
-                labels += remainingChoices.group(1)
-                ids += remainingChoices.group(2)
-            } while (remainingChoices.find())
-        }
+        val remainingChoices = SakuraScriptTokenizer.remainingVisibleChoices(
+            script = text,
+            commandStart = commandStart,
+            initialScope = state.scope,
+        )
         state.legacyChoiceCallbackPublished = true
         state.wholeline = true
         playbackHooks.afterSelectionEffectCaptured()
         publishPlaybackEffect(state) {
             if (ucb !== callback) return@publishPlaybackEffect
-            callback?.showUserSelection(labels.toTypedArray(), ids.toTypedArray())
+            callback?.showUserSelection(
+                remainingChoices.map { it.label }.toTypedArray(),
+                remainingChoices.map { it.id }.toTypedArray(),
+            )
         }
         return false
     }
@@ -1171,13 +1180,17 @@ open class SScriptRunner internal constructor(
     private data class AuthoredDialogueScript(
         val script: String,
         val contents: List<com.cattailsw.nanidroid.runtime.dialogue.DialogueContent>,
+        val interactions: List<SakuraScriptInteraction>,
         val pendingInputs: List<PendingInputState>,
         val carriedInput: PendingInputState?,
         val talkId: Long,
     )
 
     private fun recordDialogueScript(script: String): AuthoredDialogueScript? {
-        val contents = SakuraScriptTokenizer.tokenize(script) { LegacyPlatform.debug(TAG, it) }
+        val tokenization = SakuraScriptTokenizer.tokenizeWithInteractions(script) {
+            LegacyPlatform.debug(TAG, it)
+        }
+        val contents = tokenization.contents
         val inputs = contents.asSequence()
             .flatMap { content ->
                 content.segments.asSequence().mapNotNull { segment ->
@@ -1214,6 +1227,7 @@ open class SScriptRunner internal constructor(
                 authored = AuthoredDialogueScript(
                     script,
                     contents,
+                    tokenization.interactions,
                     pendingInputs,
                     carriedInput,
                     dialogueState.talkId,
@@ -1233,19 +1247,34 @@ open class SScriptRunner internal constructor(
         authored ?: return
         val contents = projectDialogue(authored, revealed)
         val visibleSegments = visibleDialogueSegments(contents)
-        val revealedChoices = visibleSegments.mapNotNull { (it as? DialogueSegment.Choice)?.action }
+        val visibleChoiceActions = java.util.Collections.newSetFromMap(
+            IdentityHashMap<DialogueAction, Boolean>(),
+        ).apply {
+            visibleSegments.forEach { segment ->
+                (segment as? DialogueSegment.Choice)?.action?.let(::add)
+            }
+        }
+        val revealedPendingChoices = authored.interactions.asSequence()
+            .filter { interaction ->
+                interaction.sourceEnd <= revealed &&
+                    interaction.scope in 0..1 &&
+                    interaction.action in visibleChoiceActions
+            }
+            .map { it.action }
+            .toList()
         val reachedInputs = visibleSegments.asSequence()
             .mapNotNull { (it as? DialogueSegment.InputBox)?.spec }
             .toList()
         val published = synchronized(this) {
             if (playback !== state || dialogueState.talkId != authored.talkId) return
-            val choices = revealedChoices.filterNot(retiredDialogueChoices::contains)
-            pendingChoiceGeneration = choices.takeIf { it.isNotEmpty() && dialogueState.pendingChoices.isEmpty() }
+            val pendingChoices = revealedPendingChoices.filterNot(retiredDialogueChoices::contains)
+            pendingChoiceGeneration = pendingChoices
+                .takeIf { it.isNotEmpty() && dialogueState.pendingChoices.isEmpty() }
                 ?.let { ++nextChoiceGeneration } ?: pendingChoiceGeneration
             dialogueState = dialogueState.copy(
                 revision = dialogueState.revision + 1,
                 contents = contents,
-                pendingChoices = choices,
+                pendingChoices = pendingChoices,
                 pendingInput = authored.pendingInputs.firstOrNull { pending ->
                     pending.generation !in retiredInputGenerations &&
                         reachedInputs.any { it === pending.spec }

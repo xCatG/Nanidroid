@@ -96,6 +96,41 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun quotedPassiveModeCommandsChangeTheRuntimeMode() {
+        val runner = SScriptRunner(null)
+        runner.setNoWaitMode(true)
+
+        runner.addMsgToQueue(arrayOf("\\![\"enter\",passivemode]\\e"))
+        runner.run()
+
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+
+        runner.addMsgToQueue(arrayOf("\\![\"leave\",passivemode]\\e"))
+        runner.run()
+
+        Assert.assertFalse(runner.runtimeModeSnapshot().passive)
+    }
+
+    @Test
+    fun malformedAndEscapedPassiveModeLeavesDoNotDisablePassiveMode() {
+        val runner = SScriptRunner(null)
+        runner.setNoWaitMode(true)
+
+        runner.addMsgToQueue(arrayOf("\\![\"enter\",passivemode]\\e"))
+        runner.run()
+
+        runner.addMsgToQueue(arrayOf("\\![leave,passivemode,unexpected]\\e"))
+        runner.run()
+
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+
+        runner.addMsgToQueue(arrayOf("\\![leave\\,passivemode]\\e"))
+        runner.run()
+
+        Assert.assertTrue(runner.runtimeModeSnapshot().passive)
+    }
+
+    @Test
     fun normalChoiceUsesExactRawHeadersAndFallsBackOnlyAfterNoTalk() {
         val fixture = fixture(responses = listOf(noContent(), noContent()))
 
@@ -736,6 +771,35 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun hiddenScopeInputDoesNotPausePublishOrBlockTrailingVisibleText() {
+        val fixture = fixture(responses = emptyList())
+        val shownInputIds = mutableListOf<String>()
+        fixture.runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) {
+                shownInputIds += id
+            }
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+
+        fixture.runner.addMsgToQueue(arrayOf("\\p2\\![open,inputbox,hidden]\\hAfter\\e"))
+        fixture.runner.run()
+
+        val state = fixture.runner.dialogueStateSnapshot()
+        Assert.assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(DialogueSegment.Text("After")),
+                ),
+            ),
+            state.contents,
+        )
+        Assert.assertEquals(null, state.pendingInput)
+        Assert.assertTrue(shownInputIds.isEmpty())
+    }
+
+    @Test
     fun speakerChangeClearDoesNotDropPriorVisibleChoice() {
         val fixture = fixture(responses = emptyList())
 
@@ -748,6 +812,42 @@ class SScriptRunnerPresentationTest {
             listOf(request("OnChoiceSelectEx", "Pick", "id"), request("OnChoiceSelect", "id")),
             fixture.shiori.requests,
         )
+    }
+
+    @Test
+    fun legacyChoiceCallbackIncludesChoicesAfterUnderscoreCommandPayload() {
+        val fixture = fixture(responses = emptyList())
+        var callbackChoices: Pair<List<String>, List<String>>? = null
+        fixture.runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) = Unit
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
+                callbackChoices = textlabel.toList() to ids.toList()
+            }
+        })
+
+        fixture.runner.addMsgToQueue(arrayOf("\\q[A,a]\\_l[half,\\p2]\\q[B,b]\\e"))
+        fixture.runner.run()
+
+        Assert.assertEquals(listOf("A", "B") to listOf("a", "b"), callbackChoices)
+    }
+
+    @Test
+    fun legacyChoiceCallbackIncludesChoiceInsideBracketAfterPayloadlessUnderscoreQ() {
+        val fixture = fixture(responses = emptyList())
+        var callbackChoices: Pair<List<String>, List<String>>? = null
+        fixture.runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) = Unit
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
+                callbackChoices = textlabel.toList() to ids.toList()
+            }
+        })
+
+        fixture.runner.addMsgToQueue(arrayOf("\\q[A,a]\\_q[label \\q[B,b]]\\e"))
+        fixture.runner.run()
+
+        Assert.assertEquals(listOf("A", "B") to listOf("a", "b"), callbackChoices)
     }
 
     @Test

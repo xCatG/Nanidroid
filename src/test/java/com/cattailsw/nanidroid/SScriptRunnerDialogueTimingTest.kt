@@ -137,6 +137,29 @@ class SScriptRunnerDialogueTimingTest {
     }
 
     @Test
+    fun pendingChoicesKeepAlternatingSpeakerSourceOrderAndIdentityClaims() {
+        val scheduler = RecordingScheduler()
+        val ghost = RecordingGhost()
+        val runner = runner(scheduler)
+        runner.setGhost(ghost)
+        runner.setNoWaitMode(true)
+        runner.addMsgToQueue(arrayOf("\\h\\q[A,a]\\u\\q[B,OnB]\\h\\q[C,script:\\hDone]\\e"))
+        runner.run()
+
+        val presented = runner.dialogueStateSnapshot().pendingChoices
+        assertEquals(listOf("A", "B", "C"), presented.map(::choiceLabel))
+
+        runner.activateChoice(presented[1])
+
+        assertTrue(runner.dialogueStateSnapshot().pendingChoices.isEmpty())
+        assertEquals(1, ghost.requestCount)
+
+        runner.activateChoice(presented[1])
+
+        assertEquals(1, ghost.requestCount)
+    }
+
+    @Test
     fun authoredInputsPublishInOrderWithDistinctGenerationsAsPlaybackReachesEachOne() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
@@ -262,6 +285,12 @@ class SScriptRunnerDialogueTimingTest {
 
     private fun List<DialogueSegment>.text(): String = buildString {
         this@text.forEach { segment -> if (segment is DialogueSegment.Text) append(segment.value) }
+    }
+
+    private fun choiceLabel(action: DialogueAction): String = when (action) {
+        is DialogueAction.Normal -> action.label
+        is DialogueAction.DirectEvent -> action.label
+        is DialogueAction.Script -> action.label
     }
 
     private fun com.cattailsw.nanidroid.runtime.dialogue.PendingInputState.normalInputId(): String =

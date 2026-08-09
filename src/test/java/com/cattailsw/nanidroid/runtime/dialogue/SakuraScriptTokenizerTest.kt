@@ -587,6 +587,22 @@ class SakuraScriptTokenizerTest {
     }
 
     @Test
+    fun quotedPassiveModeCommandsFollowTheSharedCommandParserContract() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.PassiveMode(entering = true),
+                        DialogueSegment.PassiveMode(entering = false),
+                    ),
+                ),
+            ),
+            tokenize("\\![\"enter\",passivemode]\\![\"leave\",passivemode]\\e"),
+        )
+    }
+
+    @Test
     fun malformedAndUnknownControlsResynchronizeWithoutLeakingOrSwallowingLaterContent() {
         val diagnostics = mutableListOf<String>()
 
@@ -615,6 +631,113 @@ class SakuraScriptTokenizerTest {
         )
     }
 
+    @Test
+    fun tokenizationRetainsChoiceSourceOrderAcrossSpeakerReturns() {
+        val tokenization = SakuraScriptTokenizer.tokenizeWithInteractions(
+            "\\h\\q[A,a]\\u\\q[B,b]\\h\\q[C,c]",
+        )
+
+        assertEquals(listOf("A", "B", "C"), tokenization.interactions.map { it.action.label() })
+        assertEquals(
+            listOf(GhostSpeaker.SAKURA, GhostSpeaker.KERO, GhostSpeaker.SAKURA),
+            tokenization.interactions.map { it.speaker },
+        )
+        Assert.assertTrue(tokenization.interactions.zipWithNext().all { (first, second) ->
+            first.sourceEnd < second.sourceEnd
+        })
+    }
+
+    @Test
+    fun remainingVisibleChoicesSkipsChoicesInUnsupportedScopes() {
+        val script = "\\q[A,a]\\p2\\q[H,h]\\p0\\q[B,b]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun remainingVisibleChoicesSkipsScopeCommandsInsideBalancedNonChoicePayloads() {
+        val script = "\\q[A,a]\\![open,inputbox,name,9000,\"\\p2\"]\\q[B,b]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun remainingVisibleChoicesSkipsScopeCommandsInsideUnderscoreCommandPayloads() {
+        val script = "\\q[A,a]\\_l[half,\\p2]\\q[B,b]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun remainingVisibleChoicesDoesNotConsumeBracketAfterPayloadlessUnderscoreQ() {
+        val script = "\\q[A,a]\\_q[label \\q[B,b]]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun remainingVisibleChoicesSkipsChoicesInsideAnchorLabels() {
+        val script = "\\q[A,a]\\_a[id]label \\q[Fake,fake]\\_a\\q[B,b]"
+
+        assertEquals(
+            listOf(
+                LegacyChoice("A", "a"),
+                LegacyChoice("B", "b"),
+            ),
+            SakuraScriptTokenizer.remainingVisibleChoices(
+                script = script,
+                commandStart = 0,
+                initialScope = 0,
+            ),
+        )
+    }
+
     private fun tokenize(script: String, diagnostics: MutableList<String> = mutableListOf()): List<DialogueContent> =
         SakuraScriptTokenizer.tokenize(script, diagnostics::add)
+
+    private fun DialogueAction.label(): String = when (this) {
+        is DialogueAction.Normal -> label
+        is DialogueAction.DirectEvent -> label
+        is DialogueAction.Script -> label
+    }
 }
