@@ -39,6 +39,8 @@ $script:results = [System.Collections.ArrayList]::new()
 $script:runFailure = $null
 $script:captureProvenance = $null
 $script:captureStartedAtUtc = $null
+$script:interactionCaptureSession = $null
+$script:capturedInteractionEvidence = [System.Collections.ArrayList]::new()
 
 function Fail([string]$Message, [string]$Code = 'validation') {
     throw [System.InvalidOperationException]::new("$Code`: $Message")
@@ -904,9 +906,43 @@ function Assert-CaptureProvenance([object]$Captured, [object]$Current) {
     }
 }
 
+function New-InteractionCaptureSession {
+    param(
+        [string]$DeviceSerial,
+        [int]$OwnedEmulatorProcessId,
+        [long]$OwnedEmulatorStartTimeUtcTicks,
+        [object]$CaptureProvenance,
+        [string]$InstalledPackageApkSha256,
+        [string]$StartedAtUtc
+    )
+    return [pscustomobject][ordered]@{
+        schemaVersion = 1
+        sessionId = [guid]::NewGuid().ToString()
+        deviceSerial = $DeviceSerial
+        ownedEmulatorProcessId = $OwnedEmulatorProcessId
+        ownedEmulatorStartTimeUtcTicks = $OwnedEmulatorStartTimeUtcTicks
+        packageName = $targetPackage
+        debugApkSha256 = $CaptureProvenance.debugApkSha256
+        installedPackageApkSha256 = $InstalledPackageApkSha256
+        checkpointStartedAtUtc = $StartedAtUtc
+    }
+}
+
+function Assert-InteractionCaptureSession([object]$Session, [object]$CaptureProvenance) {
+    foreach ($property in @('schemaVersion', 'sessionId', 'deviceSerial', 'ownedEmulatorProcessId', 'ownedEmulatorStartTimeUtcTicks', 'packageName', 'debugApkSha256', 'installedPackageApkSha256', 'checkpointStartedAtUtc')) {
+        if (-not (Test-Property $Session $property)) { Fail "Interaction capture session lacks '$property'." 'manual-inspection' }
+    }
+    if ($Session.schemaVersion -ne 1 -or [string]$Session.sessionId -notmatch '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') { Fail 'Interaction capture session has an invalid identity.' 'manual-inspection' }
+    if ([string]$Session.deviceSerial -notmatch '^emulator-\d+$' -or [int]$Session.ownedEmulatorProcessId -le 0 -or [long]$Session.ownedEmulatorStartTimeUtcTicks -le 0) { Fail 'Interaction capture session is not bound to an owned emulator identity.' 'manual-inspection' }
+    if ([string]$Session.packageName -cne $targetPackage) { Fail 'Interaction capture session has a substituted package name.' 'manual-inspection' }
+    if ([string]$Session.debugApkSha256 -notmatch '^[0-9a-f]{64}$' -or [string]$Session.installedPackageApkSha256 -notmatch '^[0-9a-f]{64}$') { Fail 'Interaction capture session lacks valid APK hashes.' 'manual-inspection' }
+    if ([string]$Session.debugApkSha256 -cne [string]$CaptureProvenance.debugApkSha256 -or [string]$Session.installedPackageApkSha256 -cne [string]$CaptureProvenance.debugApkSha256) { Fail 'Interaction capture session APK does not match the built debug APK.' 'manual-inspection' }
+    [void](ConvertTo-CaptureStartedAtUtc $Session.checkpointStartedAtUtc)
+}
+
 function Write-ReportSummary([object]$Manifest, [string]$ManifestHash, [object]$OriginalState, [string]$Status) {
     if (-not $script:reportInitialized) { return }
-    $summary=[pscustomobject][ordered]@{ schemaVersion=2; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; requiredInteractionEvidenceCount=$Manifest.interactionEvidenceCount; interactionEvidenceCount=0; interactionEvidence=@(); status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; captureStartedAtUtc=$script:captureStartedAtUtc; captureProvenance=$script:captureProvenance; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
+    $summary=[pscustomobject][ordered]@{ schemaVersion=2; caseSetVersion=$Manifest.caseSetVersion; manifestSha256=$ManifestHash; expectedCaseCount=$expectedCaseCount; resultCount=$script:results.Count; requiredInteractionEvidenceCount=$Manifest.interactionEvidenceCount; interactionEvidenceCount=0; interactionEvidence=@(); interactionCaptureSession=$script:interactionCaptureSession; capturedInteractionEvidence=@($script:capturedInteractionEvidence); status=$Status; failure=$script:runFailure; deviceSerial=$DeviceSerial; avdName=$AvdName; snapshotName=$SnapshotName; captureStartedAtUtc=$script:captureStartedAtUtc; captureProvenance=$script:captureProvenance; originalState=$OriginalState; cleanupErrors=@($script:cleanupErrors); manualInspectionComplete=$false; results=@($script:results) }
     $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $reportRoot 'summary.json') -Encoding UTF8
     $lines=@('# UI visual audit summary','',"- Status: $Status","- Case set: $($Manifest.caseSetVersion)","- Manifest SHA-256: $ManifestHash","- Cases expected: $expectedCaseCount","- Results captured: $($script:results.Count)",'- Manual inspection complete: false','', '| Case | Driver | Screenshot SHA-256 | Layout SHA-256 | Requested | Measured | Stage | Result | Defect |','| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
     foreach ($case in $Manifest.cases) { $row=@($script:results | Where-Object id -eq $case.id | Select-Object -First 1); $r=if($row.Count){$row[0]}else{$null}; $lines += "| $($case.id) | $($case.sourceDriver) | $(if($r){$r.screenshotSha256}else{''}) | $(if($r){$r.layoutSha256}else{''}) | $($case.requested | ConvertTo-Json -Compress) | $(if($r){$r.measured}else{''}) | $(if($r){$r.stage}else{''}) |  |  |" }
@@ -1060,6 +1096,72 @@ function Assert-RequiredInteractionEvidenceAbsent([object]$Manifest, [string]$Ro
     }
 }
 
+function Get-InstalledAuditPackageApkSha256 {
+    $packagePaths = @((Invoke-Adb @('shell', 'pm', 'path', $targetPackage) 30).output -split "`r?`n" | Where-Object { $_ -match '^package:' } | ForEach-Object { $_.Substring('package:'.Length).Trim() })
+    $baseApkPaths = @($packagePaths | Where-Object { $_ -match '/base\.apk$' })
+    if ($baseApkPaths.Count -ne 1) { Fail "Expected exactly one installed base APK for '$targetPackage', found $($baseApkPaths.Count)." 'manual-inspection' }
+    $hashOutput = (Invoke-Adb @('shell', 'sha256sum', $baseApkPaths[0]) 60).output.Trim().ToLowerInvariant()
+    if ($hashOutput -notmatch '^(?<hash>[0-9a-f]{64})\s+') { Fail "Installed package APK hash is invalid: '$hashOutput'." 'manual-inspection' }
+    return $matches.hash
+}
+
+function Assert-CapturedInteractionEvidence([object]$Manifest, [object[]]$CapturedEvidence, [object]$Session, [object]$CaptureProvenance) {
+    Assert-InteractionEvidenceManifestContract $Manifest
+    Assert-InteractionCaptureSession $Session $CaptureProvenance
+    $expectedById = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($evidence in $Manifest.interactionEvidence) { $expectedById.Add([string]$evidence.id, $evidence) }
+    if (@($CapturedEvidence).Count -ne $expectedById.Count) { Fail "Expected $($expectedById.Count) in-session interaction captures, got $(@($CapturedEvidence).Count)." 'manual-inspection' }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($captured in @($CapturedEvidence)) {
+        foreach ($property in @('id', 'artifactPath', 'artifactSha256', 'sessionId')) {
+            if (-not (Test-Property $captured $property)) { Fail "Captured interaction evidence lacks '$property'." 'manual-inspection' }
+        }
+        $id = [string]$captured.id
+        if (-not $expectedById.ContainsKey($id) -or -not $seen.Add($id)) { Fail "Captured interaction evidence has a substituted or duplicate identity '$id'." 'manual-inspection' }
+        $expected = $expectedById[$id]
+        if ([string]$captured.artifactPath -cne [string]$expected.artifactPath -or [string]$captured.artifactSha256 -notmatch '^[0-9a-f]{64}$' -or [string]$captured.sessionId -cne [string]$Session.sessionId) { Fail "Captured interaction evidence '$id' is not bound to its expected artifact and session." 'manual-inspection' }
+    }
+}
+
+function Update-ManualInteractionEvidenceHashes([object[]]$CapturedEvidence) {
+    $manualPath = Join-Path $reportRoot 'manual-inspection.md'
+    $manualText = Get-Content -LiteralPath $manualPath -Raw
+    foreach ($captured in @($CapturedEvidence)) {
+        $id = [regex]::Escape([string]$captured.id)
+        $path = [regex]::Escape([string]$captured.artifactPath)
+        $pattern = "(?m)^(\\| $id \\| $path \\|)\\s*(\\|)"
+        if ($manualText -notmatch $pattern) { Fail "Manual interaction evidence row '$($captured.id)' is missing." 'manual-inspection' }
+        $manualText = [regex]::Replace($manualText, $pattern, ('$1 ' + $captured.artifactSha256 + ' $2'), 1)
+    }
+    Set-Content -LiteralPath $manualPath -Value $manualText -Encoding UTF8
+}
+
+function Invoke-ManualInteractionCaptureCheckpoint([object]$Manifest) {
+    $installedApkSha256 = Get-InstalledAuditPackageApkSha256
+    $checkpointStartedAtUtc = [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)
+    $session = New-InteractionCaptureSession -DeviceSerial $DeviceSerial -OwnedEmulatorProcessId $script:ownedEmulator.Id -OwnedEmulatorStartTimeUtcTicks $script:ownedEmulatorStartTimeUtcTicks -CaptureProvenance $script:captureProvenance -InstalledPackageApkSha256 $installedApkSha256 -StartedAtUtc $checkpointStartedAtUtc
+    Assert-InteractionCaptureSession $session $script:captureProvenance
+    $script:interactionCaptureSession = $session
+
+    foreach ($evidence in $Manifest.interactionEvidence) {
+        Write-Host "Manual interaction checkpoint: arrange '$($evidence.id)' on the owned emulator ($DeviceSerial), then press Enter to capture it from the installed audit APK."
+        Read-Host 'Press Enter when the required state is visible' | Out-Null
+        if (-not (Test-OwnedProcessIdentity $session.ownedEmulatorProcessId $session.ownedEmulatorStartTimeUtcTicks)) { Fail 'Owned emulator identity changed during the manual interaction checkpoint.' 'manual-inspection' }
+        if ((Get-InstalledAuditPackageApkSha256) -cne $session.installedPackageApkSha256) { Fail 'Installed audit APK changed during the manual interaction checkpoint.' 'manual-inspection' }
+        $artifactPath = Resolve-SafeReportArtifactPath $reportRoot $evidence.artifactPath $false
+        New-Item -ItemType Directory -Force -Path (Split-Path -LiteralPath $artifactPath -Parent) | Out-Null
+        Invoke-Native -FilePath $script:resolvedAndroidCli -Arguments @('screen', 'capture', "--device=$DeviceSerial", '-o', $artifactPath) -TimeoutSeconds 60 -Transport adb-owner | Out-Null
+        $script:capturedInteractionEvidence.Add([pscustomobject][ordered]@{
+            id = $evidence.id
+            artifactPath = $evidence.artifactPath
+            artifactSha256 = Assert-Png $artifactPath
+            sessionId = $session.sessionId
+        }) | Out-Null
+    }
+    Assert-CapturedInteractionEvidence $Manifest @($script:capturedInteractionEvidence) $session $script:captureProvenance
+    Update-ManualInteractionEvidenceHashes @($script:capturedInteractionEvidence)
+}
+
 function New-ManualInspectionTemplate([object]$Manifest, [string]$ManifestHash) {
     $path=Join-Path $reportRoot 'manual-inspection.md'
     if (Test-Path -LiteralPath $path) {
@@ -1173,6 +1275,13 @@ function Complete-ManualInspectionAudit([object]$Manifest, [string]$ManifestHash
     if ($manualText -notmatch '(?im)^Audit status:\s*complete\s*$') { Fail 'Manual inspection must explicitly set Audit status: complete.' 'manual-inspection' }
     if ($manualText -notmatch "(?im)^Manifest SHA-256:\s*$([regex]::Escape($ManifestHash))\s*$") { Fail 'Manual inspection manifest hash is missing or stale.' 'manual-inspection' }
     $interactionEvidenceRows = @(Get-ManualInteractionEvidenceRows $capturedManifest $manualText)
+    Assert-InteractionCaptureSession $summary.interactionCaptureSession $summary.captureProvenance
+    if ([string]$summary.deviceSerial -cne [string]$summary.interactionCaptureSession.deviceSerial) { Fail 'Interaction capture session device does not match the report device.' 'manual-inspection' }
+    Assert-CapturedInteractionEvidence $capturedManifest @($summary.capturedInteractionEvidence) $summary.interactionCaptureSession $summary.captureProvenance
+    foreach ($row in $interactionEvidenceRows) {
+        $captured = @($summary.capturedInteractionEvidence | Where-Object { $_.id -ceq $row.id })
+        if ($captured.Count -ne 1 -or [string]$captured[0].artifactPath -cne [string]$row.artifactPath -or [string]$captured[0].artifactSha256 -cne [string]$row.artifactSha256) { Fail "Manual interaction evidence '$($row.id)' does not match its in-session capture." 'manual-inspection' }
+    }
 
     $manualRows = Get-ManualAutomatedInspectionRows $resultById $manualText
     if ($manualRows.Count -ne $expectedCaseCount) { Fail "Expected $expectedCaseCount completed manual rows, got $($manualRows.Count)." 'manual-inspection' }
@@ -1322,6 +1431,34 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         debugApkSha256 = ('a' * 64)
     }
     Assert-CaptureProvenance $capturedProvenance $capturedProvenance
+    $interactionSession = New-InteractionCaptureSession -DeviceSerial 'emulator-5554' -OwnedEmulatorProcessId 23456 -OwnedEmulatorStartTimeUtcTicks 638000000000000001 -CaptureProvenance $capturedProvenance -InstalledPackageApkSha256 ('a' * 64) -StartedAtUtc '2026-08-05T05:17:50.9318003Z'
+    Assert-InteractionCaptureSession $interactionSession $capturedProvenance
+    foreach ($mutation in @('device', 'package', 'installed-apk', 'missing-session-id')) {
+        $mutatedSession = $interactionSession | ConvertTo-Json | ConvertFrom-Json
+        switch ($mutation) {
+            'device' { $mutatedSession.deviceSerial = 'physical-device' }
+            'package' { $mutatedSession.packageName = 'substituted.package' }
+            'installed-apk' { $mutatedSession.installedPackageApkSha256 = ('b' * 64) }
+            'missing-session-id' { $mutatedSession.sessionId = $null }
+        }
+        $failed = $false
+        try { Assert-InteractionCaptureSession $mutatedSession $capturedProvenance } catch { $failed = $true }
+        if (-not $failed) { Fail "Interaction capture session $mutation probe unexpectedly passed." 'dry-run' }
+    }
+    $capturedInteractionEvidence = @($Manifest.interactionEvidence | ForEach-Object { [pscustomobject]@{ id = $_.id; artifactPath = $_.artifactPath; artifactSha256 = ('a' * 64); sessionId = $interactionSession.sessionId } })
+    Assert-CapturedInteractionEvidence $Manifest $capturedInteractionEvidence $interactionSession $capturedProvenance
+    foreach ($mutation in @('missing', 'substituted-path', 'substituted-session', 'substituted-hash')) {
+        $mutatedEvidence = @($capturedInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
+        switch ($mutation) {
+            'missing' { $mutatedEvidence = @($mutatedEvidence | Select-Object -First 1) }
+            'substituted-path' { $mutatedEvidence[0].artifactPath = 'interaction\\substituted.png' }
+            'substituted-session' { $mutatedEvidence[0].sessionId = [guid]::NewGuid().ToString() }
+            'substituted-hash' { $mutatedEvidence[0].artifactSha256 = 'not-a-hash' }
+        }
+        $failed = $false
+        try { Assert-CapturedInteractionEvidence $Manifest $mutatedEvidence $interactionSession $capturedProvenance } catch { $failed = $true }
+        if (-not $failed) { Fail "Captured interaction evidence $mutation probe unexpectedly passed." 'dry-run' }
+    }
     foreach ($mutation in @('head', 'dirty', 'missing-apk', 'apk-path', 'apk-hash')) {
         $currentProvenance = $capturedProvenance | ConvertTo-Json | ConvertFrom-Json
         switch ($mutation) {
@@ -1545,6 +1682,8 @@ try {
         $measured=[pscustomobject]@{widthPx=$windowBounds.width;heightPx=$windowBounds.height;density=$wm.effectiveDensity;widthDp=[Math]::Round($windowBounds.width*160/$wm.effectiveDensity,2);heightDp=[Math]::Round($windowBounds.height*160/$wm.effectiveDensity,2);fontScale=$case.requested.fontScale}
         Add-Result $case $shotHash $layoutHash $measured $stage ([pscustomobject]@{apkSha256=(Get-FileHash $debugApk -Algorithm SHA256).Hash.ToLowerInvariant();uiAutomatorLayoutPath=Get-RelativePath $reportRoot $uiAutomatorLayout;uiAutomatorLayoutSha256=$uiAutomatorLayoutHash}) $annotatedHash
     }
+
+    Invoke-ManualInteractionCaptureCheckpoint $uiManifest
 
     $uninstallResult=Invoke-Adb @('uninstall',$targetPackage) 120
     if($uninstallResult.output.Trim() -ne 'Success'){Fail "Live-capture package uninstall failed: $($uninstallResult.output) $($uninstallResult.error)" 'device'}

@@ -225,18 +225,25 @@ Generated evidence is under `build/reports/ui-audit/` and must not be committed:
 - `live/`, `fixtures/`, and `nar/<profile>/` screenshots, annotations, layouts,
   retained Task 17 summaries, and per-representative result evidence;
 - `interaction/extracted-choice-surface.png` and
-  `interaction/snake-otacon-input-ime-visible.png`, captured manually after the
-  automated run at the exact manifest-declared paths;
+  `interaction/snake-otacon-input-ime-visible.png`, captured at the runner's
+  explicit in-session manual checkpoint at the exact manifest-declared paths;
 - `summary.json` and `summary.md`; and
 - `manual-inspection.md`.
 
-The capture command exits after writing `captured-awaiting-manual-inspection`;
-that status is not a passing audit. The executing reviewer owns
+After the live profiles, before the runner uninstalls the app or cleans up its
+owned emulator, it pauses twice: arrange each required interaction state and
+press Enter. The runner then captures the PNG itself from that exact owned
+emulator. It records the emulator PID/start-time identity, device serial,
+package name, and both the built and installed APK hashes in `summary.json`.
+The checkpoint has no automatic cancellation; Ctrl-C or any capture/hash
+mismatch fails the audit and cleanup still runs. The capture command exits after
+writing `captured-awaiting-manual-inspection`; that status is not a passing
+audit. The executing reviewer owns
 `manual-inspection.md`. Open every fresh PNG at its original resolution and fill
 one result row per automated manifest case, including the exact screenshot
 SHA-256 and the requested/measured window and stage evidence. An automated row
-marked `pass` must have an empty Defect cell. Capture the two
-required interaction PNGs from the current build, then fill their exact manifest
+marked `pass` must have an empty Defect cell. The checkpoint captures the two
+required interaction PNGs from the current build; review their exact manifest
 identity, path, SHA-256, invariant text, explicit `pass`, and empty Defect cell
 in the separate interaction-evidence table. Set `Audit status: complete` only
 after all 67 automated rows and both interaction rows are explicit passes. Then complete the
@@ -248,8 +255,8 @@ case-count mismatch or any unresolved visual/interaction result; automated pixel
 comparison is supporting evidence, not a substitute for this inspection.
 
 Capture and completion both require a clean tracked worktree. The capture summary
-records the exact git HEAD, resolved debug APK path and SHA-256, and capture start
-time. Before report initialization, capture preflights both required interaction
+records the exact git HEAD, resolved debug APK path and SHA-256, capture start
+time, and in-session interaction capture provenance. Before report initialization, capture preflights both required interaction
 paths; an accidental rerun with either artifact already present aborts without
 rewriting the prior summary in `finally`. Finish with the fail-closed verifier. It requires the same current HEAD and
 APK, rehashes the exact current report PNG set (67 screenshots, 12 annotations,
