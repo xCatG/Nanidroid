@@ -1469,19 +1469,71 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
             avdName = $validInteractionCapture.session.avdName
             snapshotName = $validInteractionCapture.session.snapshotName
         }
-        $failed = $false
-        try { Assert-ManualInspectionInteractionCapture $Manifest $manualCompletionSummary $checkpointedInteractionRows } catch { $failed = $true }
-        if ($failed) { Fail 'Manual-completion interaction capture probe rejected its valid summary.' 'dry-run' }
-        foreach ($mutation in @('missing-record', 'changed-checkpoint-hash')) {
-            $mutatedSummary = $manualCompletionSummary | ConvertTo-Json -Depth 16 | ConvertFrom-Json
-            $mutatedRows = $checkpointedInteractionRows | ConvertTo-Json -Depth 16 | ConvertFrom-Json
-            switch ($mutation) {
-                'missing-record' { $mutatedSummary.interactionCapture = $null }
-                'changed-checkpoint-hash' { $mutatedRows[0].artifactSha256 = ('b' * 64) }
+        $manualCompletionProbeRoot = Join-Path $repoRoot ".superpowers\ui-audit-manual-completion-$([guid]::NewGuid().ToString('N'))"
+        $previousCompletionReportRoot = $script:reportRoot
+        try {
+            $script:reportRoot = $manualCompletionProbeRoot
+            New-Item -ItemType Directory -Force -Path $manualCompletionProbeRoot | Out-Null
+            foreach ($evidence in @($Manifest.interactionEvidence)) {
+                $artifactPath = Resolve-SafeReportArtifactPath $manualCompletionProbeRoot $evidence.artifactPath $false
+                New-Item -ItemType Directory -Force -Path (Split-Path $artifactPath -Parent) | Out-Null
+                [IO.File]::WriteAllBytes($artifactPath, [byte[]](0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00))
             }
-            $failed = $false
-            try { Assert-ManualInspectionInteractionCapture $Manifest $mutatedSummary $mutatedRows } catch { $failed = $true }
-            if (-not $failed) { Fail "Manual-completion interaction capture $mutation probe unexpectedly passed." 'dry-run' }
+            $capturedManifestJson = ConvertTo-CanonicalManifestJson $Manifest
+            [IO.File]::WriteAllText((Join-Path $manualCompletionProbeRoot 'case-manifest.json'), $capturedManifestJson, [Text.UTF8Encoding]::new($false))
+            Set-Content -LiteralPath (Join-Path $manualCompletionProbeRoot 'case-manifest.sha256') -Value $ManifestHash -Encoding Ascii
+            Set-Content -LiteralPath (Join-Path $manualCompletionProbeRoot 'summary.md') -Value "- Status: captured-awaiting-manual-inspection`n- Manual inspection complete: false" -Encoding UTF8
+            $manualText = @('Audit status: complete', "Manifest SHA-256: $ManifestHash", '', '| Case | Artifact SHA-256 | Requested / measured window and stage | Density / font / theme / locale | Expected invariants | Result | Defect |', '| --- | --- | --- | --- | --- | --- | --- |')
+            foreach ($case in @($Manifest.cases)) { $manualText += "| $($case.id) | $('a' * 64) | requested / measured | environment | invariants | pass |  |" }
+            $manualText += @('', '| Interaction evidence | Artifact path | Artifact SHA-256 | Expected invariants | Result | Defect |', '| --- | --- | --- | --- | --- | --- |')
+            foreach ($row in $checkpointedInteractionRows) { $manualText += "| $($row.id) | $($row.artifactPath) | $($row.artifactSha256) | $(($Manifest.interactionEvidence | Where-Object id -ceq $row.id | Select-Object -First 1).expectedInvariants -join ', ') | pass |  |" }
+            $manualText = $manualText -join "`n"
+            $manualCompletionCurrentProvenance = $capturedProvenance
+            function Resolve-Git { return 'dry-run-git' }
+            function Resolve-DebugApk { return 'dry-run-debug.apk' }
+            function Get-CurrentCaptureProvenance { return $manualCompletionCurrentProvenance }
+            foreach ($mutation in @('missing-record', 'changed-checkpoint-hash', 'mismatched-manual-hash')) {
+                $mutatedSummary = $manualCompletionSummary | ConvertTo-Json -Depth 16 | ConvertFrom-Json
+                $mutatedManualText = $manualText
+                $expectedError = switch ($mutation) {
+                    'missing-record' { "Interaction capture record lacks 'session'" }
+                    'changed-checkpoint-hash' { 'hash changed' }
+                    'mismatched-manual-hash' { 'checkpointed-hash mismatch' }
+                }
+                switch ($mutation) {
+                    'missing-record' { $mutatedSummary.interactionCapture = $null }
+                    'changed-checkpoint-hash' { $mutatedSummary.interactionCapture.artifacts[0].sha256 = ('b' * 64) }
+                    'mismatched-manual-hash' { $mutatedManualText = $mutatedManualText.Replace($checkpointedInteractionRows[0].artifactSha256, ('b' * 64)) }
+                }
+                $results = @($Manifest.cases | ForEach-Object { [pscustomobject]@{ id = $_.id; screenshotSha256 = ('a' * 64) } })
+                $summary = [pscustomobject]@{
+                    schemaVersion = 2
+                    manifestSha256 = $ManifestHash
+                    expectedCaseCount = $expectedCaseCount
+                    resultCount = $expectedCaseCount
+                    requiredInteractionEvidenceCount = $Manifest.interactionEvidenceCount
+                    failure = $null
+                    cleanupErrors = @()
+                    status = 'captured-awaiting-manual-inspection'
+                    captureProvenance = $mutatedSummary.captureProvenance
+                    interactionCapture = $mutatedSummary.interactionCapture
+                    deviceSerial = $mutatedSummary.deviceSerial
+                    avdName = $mutatedSummary.avdName
+                    snapshotName = $mutatedSummary.snapshotName
+                    results = $results
+                    manualInspectionComplete = $false
+                }
+                $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $manualCompletionProbeRoot 'summary.json') -Encoding UTF8
+                Set-Content -LiteralPath (Join-Path $manualCompletionProbeRoot 'manual-inspection.md') -Value $mutatedManualText -Encoding UTF8
+                $failure = $null
+                try { Complete-ManualInspectionAudit $Manifest $ManifestHash } catch { $failure = $_.Exception.Message }
+                if ([string]::IsNullOrWhiteSpace($failure) -or $failure -notmatch [regex]::Escape($expectedError)) { Fail "Manual-completion $mutation probe did not report '$expectedError': $failure" 'dry-run' }
+                $postFailureSummary = Get-Content -LiteralPath (Join-Path $manualCompletionProbeRoot 'summary.json') -Raw | ConvertFrom-Json
+                if ($postFailureSummary.status -eq 'complete' -or $postFailureSummary.manualInspectionComplete) { Fail "Manual-completion $mutation probe wrote a completed summary." 'dry-run' }
+            }
+        } finally {
+            $script:reportRoot = $previousCompletionReportRoot
+            if (Test-Path -LiteralPath $manualCompletionProbeRoot) { Remove-Item -LiteralPath $manualCompletionProbeRoot -Recurse -Force }
         }
         foreach ($mutation in @('missing-artifact', 'substituted-path', 'duplicate-artifact', 'changed-hash', 'changed-session', 'changed-apk')) {
             $mutated = $validInteractionCapture | ConvertTo-Json -Depth 16 | ConvertFrom-Json
