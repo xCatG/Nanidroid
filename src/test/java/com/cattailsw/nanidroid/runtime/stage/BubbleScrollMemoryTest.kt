@@ -151,4 +151,18 @@ class BubbleScrollMemoryTest {
 
         assertEquals(BubbleScrollSnapshot.FollowNewest, firstNewProcessTalk)
     }
+
+    @Test
+    fun newDialogueSessionIncarnationDoesNotReuseRestoredScrollForTheSameGhostAndTalk() {
+        val talk = BubbleScrollKey(SurfaceSpeaker.SAKURA, 1L)
+        val originalSession = bubbleScrollSessionIdentity(7L)
+        val original = GhostBubbleScrollMemory.forContext(originalSession, "ghost-a")
+        original.memoryFor(originalSession, "ghost-a").update(talk, 19, BubbleScrollOrigin.MANUAL)
+        val restored = GhostBubbleScrollMemory.restoreValues(original.saveValues())
+
+        val replacementSession = bubbleScrollSessionIdentity(8L)
+        val firstReplacementTalk = restored.memoryFor(replacementSession, "ghost-a").snapshot(talk)
+
+        assertEquals(BubbleScrollSnapshot.FollowNewest, firstReplacementTalk)
+    }
 }

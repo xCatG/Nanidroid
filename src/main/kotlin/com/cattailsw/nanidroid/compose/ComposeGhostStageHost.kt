@@ -21,6 +21,7 @@ import com.cattailsw.nanidroid.runtime.KotlinGhostPresentationRuntime
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.RenderedSurfaceLayer
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
+import com.cattailsw.nanidroid.runtime.stage.bubbleScrollSessionIdentity
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
@@ -181,6 +182,7 @@ class ComposeGhostStageHost private constructor(
             keroComposedSurface = keroComposed,
             measureState = stageMeasureState,
             ghostKey = activeGhostKey,
+            bubbleScrollSessionKey = bubbleScrollSessionIdentity(dialogue.incarnation),
             ghostIdentity = manager ?: NoGhostIdentity,
             blockingInput = blockingInput(),
             ghostIdentityProvider = { activeSurfaceManager ?: NoGhostIdentity },

@@ -171,3 +171,7 @@ class GhostBubbleScrollMemory private constructor(
 object BubbleScrollProcessSession {
     val key: String = UUID.randomUUID().toString()
 }
+
+/** Survives host recreation but cannot cross a runner's dialogue-session reset. */
+fun bubbleScrollSessionIdentity(dialogueIncarnation: Long): String =
+    "${BubbleScrollProcessSession.key}:$dialogueIncarnation"

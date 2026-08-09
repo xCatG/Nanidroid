@@ -253,6 +253,51 @@ class GhostStageRestorationTest {
     }
 
     @Test
+    fun recreation_while_auto_following_keeps_following_the_newest_dialogue() {
+        val restoredGhostKey = mutableStateOf("")
+        var compositionGeneration = 0
+        val restoration = StateRestorationTester(composeRule)
+        val longText = (0 until 80).joinToString("\n") { "auto follow line $it" }
+        restoration.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                val generation = remember { ++compositionGeneration }
+                GhostPresentationStage(
+                    presentation = GhostPresentationReducer.snapshot(
+                        sakuraText = "Sakura",
+                        sakuraSurfaceId = "0",
+                        sakuraAnimationId = null,
+                        sakuraBalloonId = "0",
+                        keroText = "",
+                        keroSurfaceId = "10",
+                        keroAnimationId = null,
+                        keroBalloonId = "-1",
+                    ),
+                    sakuraComposedSurface = null,
+                    keroComposedSurface = null,
+                    measureState = remember { GhostStageMeasureState() },
+                    ghostKey = if (generation == 1) "auto-follow-restoration" else restoredGhostKey.value,
+                    bubbleScrollSessionKey = "session-a",
+                    showSakuraBalloon = true,
+                    showKeroBalloon = false,
+                    sakuraDialogue = DialogueContent(
+                        GhostSpeaker.SAKURA,
+                        listOf(DialogueSegment.Text(longText)),
+                    ),
+                    dialogueTalkId = 41L,
+                    modifier = Modifier.requiredSize(360.dp, 720.dp),
+                )
+            }
+        }
+        waitForScrollableBubble("sakura")
+        composeRule.waitUntil(5_000) { scrollValue("sakura") == scrollMax("sakura") }
+
+        restoration.emulateSavedInstanceStateRestore()
+        composeRule.runOnIdle { restoredGhostKey.value = "auto-follow-restoration" }
+
+        composeRule.waitUntil(5_000) { scrollValue("sakura") == scrollMax("sakura") }
+    }
+
+    @Test
     fun repeated_process_sessions_do_not_accumulate_nested_scroll_saved_state() {
         var compositionGeneration = 0
         var savedRegistrySize = 0
