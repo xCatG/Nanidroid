@@ -1275,6 +1275,23 @@ class NarDownloadRepositoryTest {
         assertTrue(previousWorkManagerId !in work.installEnqueuedIds)
     }
 
+    @Test fun untaggedDeterministicV2InstallWorkIsNotClassifiedAsLegacy() {
+        val itemId = "untagged-v2-install-work"
+        val attemptId = 4L
+
+        assertTrue(
+            !AndroidNarInstallWorkScheduler.isLegacyInstallWork(
+                itemId = itemId,
+                workManagerId = durableWorkManagerId(
+                    OperationHandle(OperationId(itemId), AttemptId(attemptId)),
+                    OperationKind.NAR_INSTALL,
+                ),
+                tags = emptySet(),
+                attemptId = attemptId,
+            ),
+        )
+    }
+
     @Test fun reconciliationMakesMigratedInstallActionableWhenPersistedWorkProbeThrows() {
         val item = store.create(
             NarDownload(
@@ -1317,6 +1334,35 @@ class NarDownloadRepositoryTest {
 
         assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
         assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun reconciliationTerminalizesReboundSupervisorBindingWhenPersistedWorkProbeThrows() {
+        val item = store.create(
+            NarDownload(
+                id = "migration-probe-rebound-binding-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val obsoleteWorkManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = obsoleteWorkManagerId) }!!
+        val legacyWorkManagerId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(
+            supervisor.bindExternalJob(
+                migrated.handle(),
+                ExternalJobBinding.WorkManager(legacyWorkManagerId),
+            ),
+        )
+        work.installQueryFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        val operation = operationStore.read().single()
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
     }
 
     @Test fun legacyWorkerRetriesUntilReconciliationPersistsItsBinding() {
@@ -2691,7 +2737,7 @@ class NarDownloadRepositoryTest {
             return installRecovery
         }
 
-        override fun findActiveLegacyInstallWork(itemId: String): String? {
+        override fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? {
             findActiveLegacyInstallWorkFailure?.let { throw it }
             return activeInstallWorkByItemId[itemId]
                 ?.takeIf { activeInstallWorkIsLegacyByItemId[itemId] != false }

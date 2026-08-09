@@ -58,7 +58,7 @@ internal interface NarInstallWorkScheduler {
     fun cancel(itemId: String)
 
     /** Returns active pre-attempt install work retained under this item's unique name. */
-    fun findActiveLegacyInstallWork(itemId: String): String? = null
+    fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? = null
 
     fun enqueue(
         itemId: String,
@@ -1024,11 +1024,7 @@ class NarDownloadRepository internal constructor(
                     recreateIfMissing = false,
                 ) == NarInstallWorkRecovery.MISSING
             } catch (_: Exception) {
-                failAndMarkNeedsAttentionIfCurrent(
-                    item,
-                    OperationKind.NAR_INSTALL,
-                    INSTALL_SCHEDULE_FAILURE,
-                )
+                failAndMarkLegacyInstallBinding(handle, null, item)
                 return
             }
         } == true
@@ -1082,7 +1078,7 @@ class NarDownloadRepository internal constructor(
         handle: OperationHandle,
     ): LegacyInstallRebinding {
         val activeWorkManagerId = try {
-            work.findActiveLegacyInstallWork(item.id)
+            work.findActiveLegacyInstallWork(item.id, item.attemptId)
         } catch (_: Exception) {
             failAndMarkLegacyInstallBinding(handle, null, item)
             return LegacyInstallRebinding.Failed

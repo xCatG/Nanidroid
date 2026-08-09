@@ -53,7 +53,7 @@ class InstallNarWorker(
     companion object {
         internal const val INPUT_ITEM_ID = "nar-download-item-id"
         internal const val INPUT_ATTEMPT_ID = "nar-download-attempt-id"
-        private const val NO_ATTEMPT = -1L
+        internal const val NO_ATTEMPT = -1L
         internal const val ATTEMPT_TAG_PREFIX = "nar-install-attempt:"
 
         internal fun execute(
@@ -89,6 +89,23 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
     private val applicationContext = context.applicationContext
     private val workManager by lazy { WorkManager.getInstance(applicationContext) }
 
+    companion object {
+        internal fun isLegacyInstallWork(
+            itemId: String,
+            workManagerId: UUID,
+            tags: Set<String>,
+            attemptId: Long,
+        ): Boolean =
+            tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
+                (
+                    attemptId == InstallNarWorker.NO_ATTEMPT ||
+                        workManagerId != durableWorkManagerId(
+                            OperationHandle(OperationId(itemId), AttemptId(attemptId)),
+                            OperationKind.NAR_INSTALL,
+                        )
+                )
+    }
+
     override fun enqueue(itemId: String) {
         val request = OneTimeWorkRequestBuilder<InstallNarWorker>()
             .setInputData(
@@ -104,10 +121,15 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         )
     }
 
-    override fun findActiveLegacyInstallWork(itemId: String): String? =
+    override fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? =
         workManager.getWorkInfosForUniqueWork(NarDownloadRepository.workName(itemId)).get()
             .firstOrNull { workInfo ->
-                workInfo.tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
+                isLegacyInstallWork(
+                    itemId = itemId,
+                    workManagerId = workInfo.id,
+                    tags = workInfo.tags,
+                    attemptId = attemptId,
+                ) &&
                     when (workInfo.state) {
                         WorkInfo.State.ENQUEUED,
                         WorkInfo.State.RUNNING,
