@@ -1148,6 +1148,7 @@ class GhostUpdateRepository internal constructor(
                     val journal = try {
                         GhostUpdateJournalStore.read(File(transaction, GhostUpdateJournalStore.FILE_NAME))
                     } catch (_: Exception) {
+                        if (transaction.listFiles().isNullOrEmpty()) transaction.delete()
                         return@mapNotNull null
                     }
                     val root = File(journal.ghostRoot).canonicalFile
@@ -1176,6 +1177,7 @@ class GhostUpdateRepository internal constructor(
                     val journal = try {
                         GhostUpdateJournalStore.read(File(transaction, GhostUpdateJournalStore.FILE_NAME))
                     } catch (_: Exception) {
+                        if (transaction.listFiles().isNullOrEmpty()) transaction.delete()
                         return@mapNotNull null
                     }
                     val root = File(journal.ghostRoot).canonicalFile

@@ -4,7 +4,7 @@
 
 **Goal:** Preserve exact cleanup ownership when user cancellation cannot remove pre-commit ghost-update staging.
 
-**Architecture:** Reuse the existing `PREPARED` journal and its cancelled rollback recovery. The repository writes that journal only after deletion fails, using the request's operation, attempt, and WorkManager identities; recovery already validates and deletes the matching transaction root.
+**Architecture:** Reuse the existing `PREPARED` journal and its cancelled rollback recovery. The repository writes that journal before candidate deletion, using the request's operation, attempt, and WorkManager identities; it then deletes the candidate and cleans journal/root when possible. Recovery validates journal-bearing transactions, while scheduling sweeps journal-less empty transaction roots left by an interrupted final delete.
 
 **Tech Stack:** Kotlin, JUnit 4 local JVM tests, existing durable-operation journal.
 
@@ -24,12 +24,12 @@
 
 **Interfaces:**
 - Consumes: `GhostUpdateRequest`, `GhostUpdateFileOperations`, `GhostUpdateJournalIo`.
-- Produces: a `PREPARED` journal with the request identities if `deleteTree(transactionRoot)` fails during user cancellation.
+- Produces: a `PREPARED` journal with the request identities before user-cancellation candidate cleanup begins.
 
 - [ ] **Step 1: Write the failing test**
 
 ```kotlin
-val result = fixture.repository(fileOperations = failingDelete).run(fixture.request()) { cancelled }
+val result = fixture.repository(fileOperations = cleanup).run(fixture.request()) { cancelled }
 assertEquals(GhostUpdateResult.Cancelled, result)
 assertTrue(File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME).isFile)
 ```
@@ -38,18 +38,17 @@ assertTrue(File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME).is
 
 Run: `./gradlew.bat testDebugUnitTest --tests com.cattailsw.nanidroid.durable.GhostUpdateRepositoryTest`
 
-Expected: failure because cancellation removes no durable evidence after its staging deletion fails.
+Expected: failure because successful candidate cleanup removes the only durable evidence before recovery can own final transaction cleanup.
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```kotlin
-if (!fileOperations.deleteTree(transactionRoot)) {
-    persistPreparedCleanupJournal(transactionRoot, request)
-}
+persistPreparedCleanupJournal(transactionRoot, request)
+fileOperations.deleteTree(candidateRoot)
 return GhostUpdateResult.Cancelled
 ```
 
-The helper creates only the existing canonical candidate/backup paths and writes an empty-file `PREPARED` journal.
+The helper writes the existing canonical `PREPARED` journal before candidate cleanup, restores it if final root deletion reports failure, and lets recovery scheduling sweep only journal-less empty roots from interrupted final deletion.
 
 - [ ] **Step 4: Run the focused test and recovery regression tests**
 

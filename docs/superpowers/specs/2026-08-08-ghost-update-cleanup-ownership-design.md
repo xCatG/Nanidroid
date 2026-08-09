@@ -20,7 +20,7 @@ cancelled rollback path handles both idempotently.
 
 | Event | Persist first | Then | Replay |
 | --- | --- | --- | --- |
-| User cancellation | `PREPARED` journal for exact request | Delete the exact candidate, then journal and transaction root; terminal `Cancelled` | `LIVE_CANDIDATE` or `LIVE_ONLY` evidence remains retryable until cleanup completes |
+| User cancellation | `PREPARED` journal for exact request | Delete the exact candidate, then journal and transaction root; terminal `Cancelled` | `LIVE_CANDIDATE` or `LIVE_ONLY` evidence remains retryable; journal-less empty transaction roots are swept before recovery scheduling |
 | System interruption; staging delete fails | Nothing new | Return `Interrupted` | Worker retry repeats its attempt; no user-terminal state is manufactured |
 | Journal recovery with stale/mismatched identity | Existing validation | Leave evidence blocked | Fail closed; do not delete |
 
@@ -30,9 +30,10 @@ Only `transactionRoot(ghostRoot, operationId)` is deleted, with candidate
 cleanup scoped to that transaction. The live ghost, other operation
 directories, and unrelated storage are never cleanup targets. The journal is
 written before candidate deletion and restored if final transaction-root
-deletion fails. A journal-write failure returns a non-terminal failure,
-retaining both the staging directory and the durable record for diagnosis
-rather than claiming cancellation is clean.
+deletion reports failure. A journal-less empty transaction root from an
+interrupted final deletion is swept before recovery scheduling. A journal-write
+failure returns a non-terminal failure, retaining both the staging directory
+and the durable record for diagnosis rather than claiming cancellation is clean.
 
 ## Simplification
 
