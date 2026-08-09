@@ -1046,8 +1046,26 @@ class NarDownloadRepository internal constructor(
                 } else {
                     null
                 }
-                if (rebound == null && failSchedulingAttempt(handle, binding, INSTALL_SCHEDULE_FAILURE)) {
-                    markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
+                if (rebound == null) {
+                    if (failSchedulingAttempt(handle, binding, INSTALL_SCHEDULE_FAILURE)) {
+                        markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
+                    }
+                } else {
+                    val recovery = runCatching {
+                        work.ensureInstallEnqueued(
+                            rebound.id,
+                            rebound.attemptId,
+                            activeWorkManagerId,
+                            recreateIfMissing = false,
+                        )
+                    }.getOrNull()
+                    if (recovery != NarInstallWorkRecovery.ACTIVE) {
+                        failAndMarkNeedsAttentionIfCurrent(
+                            rebound,
+                            OperationKind.NAR_INSTALL,
+                            INSTALL_SCHEDULE_FAILURE,
+                        )
+                    }
                 }
                 return
             }

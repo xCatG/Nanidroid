@@ -1176,6 +1176,27 @@ class NarDownloadRepositoryTest {
         assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
     }
 
+    @Test fun reconciliationMakesLegacyInstallWorkActionableWhenItCompletesDuringRebinding() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-install-completes-during-rebinding",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "55555555-5555-5555-5555-555555555555"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+        work.installRecovery = NarInstallWorkRecovery.SUCCEEDED
+
+        repository.reconcile()
+
+        val recovered = store.get(item.id)!!
+        assertEquals(legacyWorkManagerId, recovered.workManagerId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
     @Test fun v1QueuedInstallMigrationRebindsLegacyWorkAcrossRestart() {
         assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("queued", NarDownloadState.Queued)
     }
