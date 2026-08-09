@@ -1070,17 +1070,11 @@ class GhostUpdateRepository internal constructor(
                 if (target.parentFile != canonicalStorage) {
                     return RecoveryResult.Failed("target ghost escapes ghost storage")
                 }
-                listOf(
-                    File(
-                        transactionRoot(target, canonicalOperationIdFor(target)),
-                        GhostUpdateJournalStore.FILE_NAME,
-                    ),
-                ).filter(File::isFile)
+                listOfNotNull(journalFileFor(transactionRoot(target, canonicalOperationIdFor(target))))
             } else {
                 canonicalStorage.listFiles().orEmpty()
                     .filter { it.isDirectory && it.name.startsWith(TRANSACTION_PREFIX) }
-                    .map { File(it, GhostUpdateJournalStore.FILE_NAME) }
-                    .filter(File::isFile)
+                    .mapNotNull(::journalFileFor)
             }
             if (journals.isEmpty()) return RecoveryResult.NoJournal
             val journalRecords = try {
@@ -1187,8 +1181,7 @@ class GhostUpdateRepository internal constructor(
                 .filter { it.isDirectory && !it.name.startsWith(TRANSACTION_PREFIX) }
                 .mapNotNull { root ->
                     val expected = transactionRoot(root, canonicalOperationIdFor(root))
-                    val journalFile = File(expected, GhostUpdateJournalStore.FILE_NAME)
-                    if (!journalFile.isFile) return@mapNotNull null
+                    val journalFile = journalFileFor(expected) ?: return@mapNotNull null
                     val safePrepared = try {
                         val journal = GhostUpdateJournalStore.read(journalFile)
                         journal.operationId == canonicalOperationIdFor(root) &&
@@ -1207,8 +1200,13 @@ class GhostUpdateRepository internal constructor(
             blocked += storage.listFiles().orEmpty()
                 .filter { it.isDirectory && it.name.startsWith(TRANSACTION_PREFIX) }
                 .mapNotNull { transaction ->
+                    val journalFile = journalFileFor(transaction)
+                        ?: return@mapNotNull if (transaction.listFiles().isNullOrEmpty()) {
+                            transaction.delete()
+                            null
+                        } else null
                     val journal = try {
-                        GhostUpdateJournalStore.read(File(transaction, GhostUpdateJournalStore.FILE_NAME))
+                        GhostUpdateJournalStore.read(journalFile)
                     } catch (_: Exception) {
                         if (transaction.listFiles().isNullOrEmpty()) transaction.delete()
                         return@mapNotNull null
@@ -1236,8 +1234,13 @@ class GhostUpdateRepository internal constructor(
             return storage.listFiles().orEmpty()
                 .filter { it.isDirectory && it.name.startsWith(TRANSACTION_PREFIX) }
                 .mapNotNull { transaction ->
+                    val journalFile = journalFileFor(transaction)
+                        ?: return@mapNotNull if (transaction.listFiles().isNullOrEmpty()) {
+                            transaction.delete()
+                            null
+                        } else null
                     val journal = try {
-                        GhostUpdateJournalStore.read(File(transaction, GhostUpdateJournalStore.FILE_NAME))
+                        GhostUpdateJournalStore.read(journalFile)
                     } catch (_: Exception) {
                         if (transaction.listFiles().isNullOrEmpty()) transaction.delete()
                         return@mapNotNull null
@@ -1406,11 +1409,8 @@ class GhostUpdateRepository internal constructor(
             authorization: RecoveryAuthorization? = null,
             classify: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, _ -> false },
         ): RecoveryResult {
-            val journalFile = File(
-                transactionRoot(ghostRoot, canonicalOperationIdFor(ghostRoot)),
-                GhostUpdateJournalStore.FILE_NAME,
-            )
-            if (!journalFile.isFile) return RecoveryResult.NoJournal
+            val journalFile = journalFileFor(transactionRoot(ghostRoot, canonicalOperationIdFor(ghostRoot)))
+                ?: return RecoveryResult.NoJournal
             val journal = try {
                 journalIo.read(journalFile)
             } catch (e: Exception) {
@@ -1823,6 +1823,12 @@ class GhostUpdateRepository internal constructor(
             transactionRoot.parentFile,
             "$STAGING_PREFIX${transactionRoot.name.removePrefix(TRANSACTION_PREFIX)}",
         ).canonicalFile
+
+        /** A completed private write is valid recovery evidence even if publication was interrupted. */
+        private fun journalFileFor(transactionRoot: File): File? = listOf(
+            File(transactionRoot, GhostUpdateJournalStore.FILE_NAME),
+            File(transactionRoot, "${GhostUpdateJournalStore.FILE_NAME}.tmp"),
+        ).firstOrNull(File::isFile)
 
         private fun requireDelete(file: File) {
             if (file.exists() && !file.deleteRecursively()) throw IOException("cannot clean update transaction")

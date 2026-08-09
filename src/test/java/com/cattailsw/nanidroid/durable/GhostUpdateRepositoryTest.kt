@@ -304,6 +304,26 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `recovery discovery accepts a completed temporary journal after restoration interruption`() {
+        val fixture = fixture("temporary-restoration-journal")
+        fixture.writeLive("ghost/master.txt", "old")
+        val transaction = fixture.transactionRoot()
+        val journal = GhostUpdateJournal(
+            fixture.operationId,
+            fixture.ghostRoot.canonicalPath,
+            File(transaction, "candidate").canonicalPath,
+            File(transaction, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+        GhostUpdateJournalStore.write(File(transaction, "${GhostUpdateJournalStore.FILE_NAME}.tmp"), journal)
+        write(File(transaction, "residue"), bytes("keeps root nonempty"))
+
+        assertEquals(setOf(fixture.ghostRoot.canonicalFile), GhostUpdateRepository.recoveryTargets(fixture.parent))
+        assertTrue(File(transaction, "${GhostUpdateJournalStore.FILE_NAME}.tmp").isFile)
+    }
+
+    @Test
     fun `recovery discovery preserves an active empty transaction root while stale residue is swept`() {
         val fixture = fixture("active-empty-transaction")
         fixture.writeLive("ghost/master.txt", "old")
