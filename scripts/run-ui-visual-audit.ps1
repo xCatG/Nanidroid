@@ -1123,16 +1123,21 @@ function Assert-CapturedInteractionEvidence([object]$Manifest, [object[]]$Captur
     }
 }
 
-function Update-ManualInteractionEvidenceHashes([object[]]$CapturedEvidence) {
-    $manualPath = Join-Path $reportRoot 'manual-inspection.md'
-    $manualText = Get-Content -LiteralPath $manualPath -Raw
+function Update-ManualInteractionEvidenceHashText([string]$ManualText, [object[]]$CapturedEvidence) {
     foreach ($captured in @($CapturedEvidence)) {
         $id = [regex]::Escape([string]$captured.id)
         $path = [regex]::Escape([string]$captured.artifactPath)
-        $pattern = "(?m)^(\\| $id \\| $path \\|)\\s*(\\|)"
-        if ($manualText -notmatch $pattern) { Fail "Manual interaction evidence row '$($captured.id)' is missing." 'manual-inspection' }
-        $manualText = [regex]::Replace($manualText, $pattern, ('$1 ' + $captured.artifactSha256 + ' $2'), 1)
+        $pattern = "(?m)^(\| $id \| $path \|)\s*(\|)"
+        if ($ManualText -notmatch $pattern) { Fail "Manual interaction evidence row '$($captured.id)' is missing." 'manual-inspection' }
+        $ManualText = [regex]::Replace($ManualText, $pattern, ('$1 ' + $captured.artifactSha256 + ' $2'), 1)
     }
+    return $ManualText
+}
+
+function Update-ManualInteractionEvidenceHashes([object[]]$CapturedEvidence) {
+    $manualPath = Join-Path $reportRoot 'manual-inspection.md'
+    $manualText = Get-Content -LiteralPath $manualPath -Raw
+    $manualText = Update-ManualInteractionEvidenceHashText -ManualText $manualText -CapturedEvidence $CapturedEvidence
     Set-Content -LiteralPath $manualPath -Value $manualText -Encoding UTF8
 }
 
@@ -1343,6 +1348,20 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         try { Get-ManualInteractionEvidenceRows $Manifest ((@($interactionEvidenceHeader, '| --- | --- | --- | --- | --- | --- |') + $mutatedRows) -join "`n") | Out-Null } catch { $failed = $true }
         if (-not $failed) { Fail "Manual interaction evidence $mutation probe unexpectedly passed." 'dry-run' }
     }
+    $capturedInteraction = [pscustomobject]@{
+        id = [string]$Manifest.interactionEvidence[0].id
+        artifactPath = [string]$Manifest.interactionEvidence[0].artifactPath
+        artifactSha256 = ('b' * 64)
+    }
+    $pendingInteractionEvidenceRows = @($Manifest.interactionEvidence | ForEach-Object { "| $($_.id) | $($_.artifactPath) |  | $($_.expectedInvariants -join ', ') |  |  |" })
+    $pendingInteractionEvidenceTable = (@($interactionEvidenceHeader, '| --- | --- | --- | --- | --- | --- |') + $pendingInteractionEvidenceRows) -join "`n"
+    $updatedInteractionEvidence = Update-ManualInteractionEvidenceHashText -ManualText $pendingInteractionEvidenceTable -CapturedEvidence @($capturedInteraction)
+    if ($updatedInteractionEvidence -notmatch [regex]::Escape("| $($capturedInteraction.id) | $($capturedInteraction.artifactPath) | $($capturedInteraction.artifactSha256) |")) {
+        Fail 'Valid manual interaction-evidence checkpoint row did not receive its captured hash.' 'dry-run'
+    }
+    $failed = $false
+    try { Update-ManualInteractionEvidenceHashText -ManualText ($pendingInteractionEvidenceTable.Replace([string]$Manifest.interactionEvidence[0].artifactPath, 'interaction\substituted.png')) -CapturedEvidence @($capturedInteraction) | Out-Null } catch { $failed = $true }
+    if (-not $failed) { Fail 'Malformed manual interaction-evidence checkpoint row unexpectedly accepted a captured hash.' 'dry-run' }
     $bounds=ConvertFrom-LayoutBounds '[1,2][3,5]'; if ($bounds.width -ne 2 -or $bounds.height -ne 3) { Fail 'Bounds parser probe failed.' 'dry-run' }
     foreach($bad in @('..\escape.png','C:\escape.png','bad path.png')) { $failed=$false; try { Assert-SafeReportRelativePath $bad } catch { $failed=$true }; if(-not $failed){Fail "Unsafe path probe unexpectedly passed '$bad'." 'dry-run'} }
     $pngProbeRoot = Join-Path $repoRoot ".superpowers\ui-audit-png-probe-$([guid]::NewGuid().ToString('N'))"
