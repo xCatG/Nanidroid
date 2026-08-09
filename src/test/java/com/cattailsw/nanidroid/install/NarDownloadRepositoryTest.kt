@@ -24,6 +24,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
+import java.io.InputStream
 import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
@@ -1527,6 +1528,89 @@ class NarDownloadRepositoryTest {
         assertTrue(supervisedProgressObserved.get())
         assertEquals(1, sourceCloseCount.get())
         NarLocalArchiveStager.discard(staged.retainedUri!!)
+        privateImports.delete()
+    }
+
+    @Test fun deletingLiveGrantCopyCancelsItsActiveCopyPredicate() {
+        val item = repository.enqueueLiveLocalCopy("content://provider/delete-live-copy.nar")
+        val copyEntered = CountDownLatch(1)
+        val allowCancellationCheck = CountDownLatch(1)
+        val copyFinished = CountDownLatch(1)
+        val sawCancellation = AtomicBoolean(false)
+
+        Thread {
+            repository.stageLiveLocal(
+                item.id,
+                item.attemptId,
+                item.workManagerId!!,
+                { false },
+            ) { _, isCancelled, _ ->
+                copyEntered.countDown()
+                assertTrue(allowCancellationCheck.await(5, TimeUnit.SECONDS))
+                sawCancellation.set(isCancelled())
+                if (isCancelled()) NarLocalArchiveStager.Result.Cancelled
+                else NarLocalArchiveStager.Result.Failed("copy was not cancelled")
+            }
+            copyFinished.countDown()
+        }.start()
+
+        assertTrue(copyEntered.await(5, TimeUnit.SECONDS))
+        assertTrue(repository.delete(item.id))
+        allowCancellationCheck.countDown()
+        assertTrue(copyFinished.await(5, TimeUnit.SECONDS))
+
+        assertTrue("deleting the queue item must cancel the live copy", sawCancellation.get())
+        assertNull(store.get(item.id))
+    }
+
+    @Test fun deletingLiveGrantQueueItemStopsItsHandoffBeforeTheNextProviderRead() {
+        val privateImports = File.createTempFile("nar-live-delete", "").also {
+            assertTrue(it.delete())
+            assertTrue(it.mkdir())
+        }
+        val firstReadEntered = CountDownLatch(1)
+        val allowFirstRead = CountDownLatch(1)
+        val closed = CountDownLatch(1)
+        val reads = AtomicInteger()
+        val handoff = NarLiveGrantHandoff(
+            repository = repository,
+            executor = Executor { task -> Thread(task, "nar-live-delete").start() },
+            stage = { source, isCancelled, onProgress ->
+                NarLocalArchiveStager.stage(
+                    directory = privateImports,
+                    open = { source },
+                    isCancelled = isCancelled,
+                    onProgress = { completed -> onProgress("Copying archive", completed) },
+                )
+            },
+        )
+        val source = object : InputStream() {
+            override fun read(): Int = error("stager uses buffered reads")
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                val read = reads.incrementAndGet()
+                if (read == 1) {
+                    firstReadEntered.countDown()
+                    assertTrue(allowFirstRead.await(5, TimeUnit.SECONDS))
+                    buffer[offset] = 1
+                    return 1
+                }
+                return 1
+            }
+
+            override fun close() {
+                closed.countDown()
+            }
+        }
+
+        val item = handoff.enqueue("content://provider/delete-before-eof.nar", null) { source }!!
+        assertTrue(firstReadEntered.await(5, TimeUnit.SECONDS))
+        assertTrue(repository.delete(item.id))
+        allowFirstRead.countDown()
+        assertTrue(closed.await(5, TimeUnit.SECONDS))
+
+        assertEquals("the provider must not be read through EOF after deletion", 1, reads.get())
+        assertNull(store.get(item.id))
         privateImports.delete()
     }
 
