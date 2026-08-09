@@ -177,6 +177,12 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun structuredChoiceEvidenceUsesTheAuthoredChoiceIdentifier() {
+        assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelectEx", listOf("he/him", "choicefirsthehim")))
+        assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelect", listOf("choicefirsthehim")))
+    }
+
+    @Test
     fun namedCollisionProbeDoesNotCountAnOverlappingWrongTargetAsDirect() {
         assertEquals(
             0,
@@ -1138,7 +1144,7 @@ class NarCorpusRuntimeTest {
                 .put("coordinates", JSONObject.NULL)
                 .put(
                     "identifier",
-                    if (eventId == SNAKE_NAME_TEACH_ID) eventId else references.firstOrNull() ?: JSONObject.NULL,
+                    postInteractionIdentifier(eventId, references) ?: JSONObject.NULL,
                 )
                 .put("button", JSONObject.NULL)
                 .put("source", if (eventId == SNAKE_NAME_TEACH_ID) "input" else "choice")
@@ -1150,6 +1156,13 @@ class NarCorpusRuntimeTest {
                 ),
         )
     }
+
+    private fun postInteractionIdentifier(eventId: String, references: List<String>): String? =
+        when (eventId) {
+            SNAKE_NAME_TEACH_ID -> eventId
+            "OnChoiceSelectEx" -> references.getOrNull(1)
+            else -> references.firstOrNull()
+        }
 
     private fun parseShioriSegments(
         value: String,

@@ -426,6 +426,12 @@ function Assert-PostInteractionEvidence([object[]]$Evidence, [string]$ExpectedGh
             $hasInputEvidence = $true
         }
         elseif ([string]$entry.source -ne 'choice') { ThrowIf 'Choice evidence must retain source=choice.' }
+        else {
+            $choiceIdentifierIndex = if ([string]$entry.eventId -ceq 'OnChoiceSelectEx') { 1 } else { 0 }
+            if ([string]$entry.identifier -cne [string]$entry.references[$choiceIdentifierIndex]) {
+                ThrowIf 'Choice evidence must retain the authored choice identifier.'
+            }
+        }
     }
     if (-not $hasInputEvidence) { ThrowIf 'Post-interaction SHIORI evidence has no OnNameTeach input dispatch.' }
     $expectedInteractionSteps = @($DialogueSteps | Where-Object { (Get-NestedPropertyValue -Object $_ -Path 'eventId') -in @('OnChoiceSelect', 'OnChoiceSelectEx', 'OnNameTeach') })
@@ -2103,11 +2109,17 @@ foreach ($arg in $ProbeArgs) {
     $inputOnlyEvidence = @($validPostInteractionEvidence | Select-Object -Skip 1 -First 1)
     $incorrectInputIdentifierEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
     $incorrectInputIdentifierEvidence[1].identifier = 'Nanidroid'
+    $incorrectPrimaryChoiceIdentifierEvidence = $validPostInteractionEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $incorrectPrimaryChoiceIdentifierEvidence[0].identifier = 'First choice'
+    $incorrectFallbackChoiceIdentifierEvidence = $dryRunSnakeChoiceFallbackEvidence | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $incorrectFallbackChoiceIdentifierEvidence[1].identifier = 'First choice'
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $choiceOnlyEvidence; $acceptedPostInteractionRegressions += 'choice-only evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $masterIdentityEvidence; $acceptedPostInteractionRegressions += 'master ghost identity' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence @([pscustomobject]@{ ghostIdentity = 'snake-and-otacon'; method = 'GET'; eventId = 'OnUserInput'; scope = 'dialogue'; coordinates = $null; identifier = 'OnNameTeach'; button = $null; source = 'input'; references = @('OnNameTeach', 'Nanidroid', $null, $null, $null, $null, $null) }); $acceptedPostInteractionRegressions += 'generic OnUserInput envelope' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $missingTrailingChoiceEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'missing trailing choice evidence' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $inputOnlyEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'input-only evidence' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectPrimaryChoiceIdentifierEvidence -DialogueSteps $dryRunSnakePrimaryOnly; $acceptedPostInteractionRegressions += 'primary choice label identifier' } catch { }
+    try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectFallbackChoiceIdentifierEvidence -DialogueSteps $dryRunSnakeChoiceFallback; $acceptedPostInteractionRegressions += 'fallback choice label identifier' } catch { }
     try { Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $incorrectInputIdentifierEvidence; $acceptedPostInteractionRegressions += 'direct input text used as identifier' } catch { }
     if ($acceptedPostInteractionRegressions.Count -gt 0) {
         ThrowIf "Dry-run post-interaction regression accepted $($acceptedPostInteractionRegressions -join ' and ')."
