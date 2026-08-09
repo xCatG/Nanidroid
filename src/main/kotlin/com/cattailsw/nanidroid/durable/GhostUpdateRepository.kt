@@ -280,7 +280,7 @@ class GhostUpdateRepository internal constructor(
 
             val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
             if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
-                if (!fileOperations.deleteTree(transactionRoot)) {
+                if (!cleanNoChangeTransaction(transactionRoot, preparedJournal(transactionRoot, request))) {
                     return failed("cannot clean no-change update transaction", emptyList())
                 }
                 events.noChanges()
@@ -857,8 +857,8 @@ class GhostUpdateRepository internal constructor(
             if (staging.exists() || !staging.mkdir()) return false
             stagingCreated = true
             journalIo.write(File(staging, GhostUpdateJournalStore.FILE_NAME), journal)
-            if (!marker.delete() && marker.exists()) return false
             published = fileOperations.publishStaging(staging, transactionRoot)
+            if (published) marker.delete()
             published
         } catch (_: Exception) {
             false
@@ -881,6 +881,17 @@ class GhostUpdateRepository internal constructor(
         attemptId = request.attemptId,
         workManagerUuid = request.workManagerUuid,
     )
+
+    /** Keeps recovery evidence until the candidate and transaction root are both gone. */
+    private fun cleanNoChangeTransaction(transactionRoot: File, journal: GhostUpdateJournal): Boolean {
+        val candidate = File(transactionRoot, CANDIDATE)
+        val journalFile = File(transactionRoot, GhostUpdateJournalStore.FILE_NAME)
+        if (!fileOperations.deleteTree(candidate)) return false
+        if (!journalFile.delete() && journalFile.exists()) return false
+        if (transactionRoot.delete()) return true
+        journalIo.write(journalFile, journal)
+        return false
+    }
 
     private fun failedBeforeJournal(
         transactionRoot: File,
@@ -1297,11 +1308,21 @@ class GhostUpdateRepository internal constructor(
             return journal.takeIf {
                 root.parentFile == storage &&
                     root != staging.canonicalFile &&
+                    staging.canonicalFile == stagingRoot(transaction) &&
                     journal.phase == CommitPhase.PREPARED &&
                     File(journal.candidateRoot).canonicalFile == File(transaction, CANDIDATE).canonicalFile &&
-                    File(journal.backupRoot).canonicalFile == File(transaction, BACKUP).canonicalFile
+                    File(journal.backupRoot).canonicalFile == File(transaction, BACKUP).canonicalFile &&
+                    hasPrivateOwnershipMarker(storage, journal)
             }
         }
+
+        private fun hasPrivateOwnershipMarker(storage: File, journal: GhostUpdateJournal): Boolean =
+            storage.listFiles().orEmpty().any { marker ->
+                marker.isFile &&
+                    !Files.isSymbolicLink(marker.toPath()) &&
+                    marker.name.startsWith(PRIVATE_MARKER_PREFIX) &&
+                    runCatching { GhostUpdateJournalStore.read(marker) }.getOrNull() == journal
+            }
 
         /** Reclaims only authenticated private markers and their empty, exact staging roots. */
         private fun sweepPrivateOwnershipMarkers(storage: File) {
@@ -1333,7 +1354,7 @@ class GhostUpdateRepository internal constructor(
                     ) return@forEach
                     withGhostLock(root) {
                         val staging = stagingRoot(transaction)
-                        if (stagingJournalFor(storage, staging) != null || !staging.exists()) {
+                        if (!staging.exists()) {
                             marker.delete()
                         } else if (
                             staging.isDirectory &&

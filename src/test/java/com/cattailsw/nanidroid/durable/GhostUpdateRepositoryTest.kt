@@ -356,9 +356,10 @@ class GhostUpdateRepositoryTest {
         val fixture = fixture("tmp-only-staging-recovery")
         fixture.writeLive("ghost/master.txt", "old")
         val transaction = fixture.transactionRoot()
-        val staging = File.createTempFile(".nanidroid-staging-", null, fixture.parent).apply {
-            check(delete() && mkdir())
-        }
+        val staging = File(
+            fixture.parent,
+            ".nanidroid-staging-${transaction.name.removePrefix(".nanidroid-update-")}",
+        ).apply { check(mkdir()) }
         val journal = GhostUpdateJournal(
             operationId = fixture.operationId,
             ghostRoot = fixture.ghostRoot.canonicalPath,
@@ -369,6 +370,7 @@ class GhostUpdateRepositoryTest {
         )
         val completedJournal = File(staging, GhostUpdateJournalStore.FILE_NAME)
         GhostUpdateJournalStore.write(completedJournal, journal)
+        GhostUpdateJournalStore.createPrivateMarker(fixture.parent, journal)
         val temporaryJournal = File(staging, "${GhostUpdateJournalStore.FILE_NAME}.tmp")
         check(completedJournal.renameTo(temporaryJournal))
 
@@ -479,6 +481,35 @@ class GhostUpdateRepositoryTest {
         val storage = temporaryDirectory("staging-prefix-ghost")
         val ghost = File(storage, ".nanidroid-staging-valid-ghost").apply { mkdirs() }
         write(File(ghost, "ghost/master.txt"), bytes("live"))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(storage))
+
+        assertTrue(ghost.exists())
+        assertBytes("live", File(ghost, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery never sweeps a prefix named ghost with an unauthenticated staging journal`() {
+        val storage = temporaryDirectory("unauthenticated-staging-journal")
+        val owner = File(storage, "owner").apply { mkdirs() }
+        val operation = GhostUpdateRepository.canonicalOperationIdFor(owner)
+        val transaction = GhostUpdateRepository.transactionRootFor(owner, operation)
+        val ghost = File(
+            storage,
+            ".nanidroid-staging-${transaction.name.removePrefix(".nanidroid-update-")}",
+        ).apply { mkdirs() }
+        write(File(ghost, "ghost/master.txt"), bytes("live"))
+        GhostUpdateJournalStore.write(
+            File(ghost, GhostUpdateJournalStore.FILE_NAME),
+            GhostUpdateJournal(
+                operationId = operation,
+                ghostRoot = owner.canonicalPath,
+                candidateRoot = File(transaction, "candidate").canonicalPath,
+                backupRoot = File(transaction, "backup").canonicalPath,
+                phase = CommitPhase.PREPARED,
+                files = emptyList(),
+            ),
+        )
 
         assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(storage))
 
@@ -1422,7 +1453,7 @@ class GhostUpdateRepositoryTest {
         var failCleanup = true
         val fileOperations = object : GhostUpdateFileOperations {
             override fun deleteTree(root: File): Boolean {
-                if (failCleanup && root.canonicalFile == fixture.transactionRoot().canonicalFile) {
+                if (failCleanup && root.canonicalFile == File(fixture.transactionRoot(), "candidate").canonicalFile) {
                     return false
                 }
                 return root.deleteRecursively()
