@@ -539,18 +539,31 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
-    fun replaceLocalSource(itemId: String, uri: String): NarDownload? {
+    fun replaceLocalSource(itemId: String, uri: String): NarDownload? =
+        replaceLocalSource(itemId, uri, reservedPersistedGrantUri = null)
+
+    private fun replaceLocalSource(
+        itemId: String,
+        uri: String,
+        reservedPersistedGrantUri: String?,
+    ): NarDownload? {
         val item = store.get(itemId) ?: return null
         if (item.source !is NarDownloadSource.Local) return null
         if (isStopping(item)) return item
         runCatching { work.cancel(itemId) }
         runCatching { ownedData.delete(item) }
-        releasePendingPersistedGrantIfUnused(item)
+        if (item.pendingPersistedGrantReleaseUri != reservedPersistedGrantUri) {
+            releasePendingPersistedGrantIfUnused(item)
+        }
         store.update(itemId) {
             it.copy(
                 attemptId = it.attemptId + 1L,
                 source = NarDownloadSource.Local(uri),
                 retainedUri = uri,
+                pendingPersistedGrantReleaseUri =
+                    it.pendingPersistedGrantReleaseUri.takeUnless { pending ->
+                        pending == reservedPersistedGrantUri
+                    },
                 downloadManagerId = null,
                 workManagerId = null,
                 state = NarDownloadState.Queued,
@@ -562,23 +575,37 @@ class NarDownloadRepository internal constructor(
         return store.get(itemId)
     }
 
-    /** Acquires a persisted replacement grant before atomically replacing its durable owner. */
+    /** Reserves a persisted replacement grant before acquiring it, then records its new owner. */
     @Synchronized
     fun replaceWithPersistedLocalSource(
         itemId: String,
         uri: String,
         acquireGrant: () -> Boolean,
     ): NarDownload? {
-        if (!acquireGrant()) return null
-        store.update(itemId) { current ->
-            if (current.pendingPersistedGrantReleaseUri == uri) {
-                current.copy(pendingPersistedGrantReleaseUri = null)
+        val reserved = store.update(itemId) { current ->
+            if (
+                current.source is NarDownloadSource.Local &&
+                !isStopping(current) &&
+                (current.pendingPersistedGrantReleaseUri == null ||
+                    current.pendingPersistedGrantReleaseUri == uri)
+            ) {
+                current.copy(pendingPersistedGrantReleaseUri = uri)
             } else {
                 current
             }
+        } ?: return null
+        if (reserved.pendingPersistedGrantReleaseUri != uri) return null
+        if (!acquireGrant()) {
+            store.update(itemId) { current ->
+                if (current.pendingPersistedGrantReleaseUri == uri) {
+                    current.copy(pendingPersistedGrantReleaseUri = null)
+                } else {
+                    current
+                }
+            }
+            return null
         }
-        store.removePendingPersistedGrantRelease(uri)
-        return replaceLocalSource(itemId, uri)
+        return replaceLocalSource(itemId, uri, reservedPersistedGrantUri = uri)
     }
 
     @Synchronized
