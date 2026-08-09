@@ -1827,8 +1827,12 @@ class GhostUpdateRepository internal constructor(
         /** A completed private write is valid recovery evidence even if publication was interrupted. */
         private fun journalFileFor(transactionRoot: File): File? = listOf(
             File(transactionRoot, GhostUpdateJournalStore.FILE_NAME),
-            File(transactionRoot, "${GhostUpdateJournalStore.FILE_NAME}.tmp"),
-        ).firstOrNull(File::isFile)
+        ).firstOrNull(File::isFile) ?: File(
+            transactionRoot,
+            "${GhostUpdateJournalStore.FILE_NAME}.tmp",
+        ).takeIf { temporary ->
+            temporary.isFile && runCatching { GhostUpdateJournalStore.read(temporary) }.isSuccess
+        }
 
         private fun requireDelete(file: File) {
             if (file.exists() && !file.deleteRecursively()) throw IOException("cannot clean update transaction")

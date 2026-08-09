@@ -324,6 +324,18 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `incomplete temporary journal does not block the live ghost`() {
+        val fixture = fixture("truncated-restoration-journal")
+        fixture.writeLive("ghost/master.txt", "old")
+        val temporary = File(fixture.transactionRoot(), "${GhostUpdateJournalStore.FILE_NAME}.tmp")
+        write(temporary, bytes("truncated"))
+
+        assertTrue(GhostUpdateRepository.recoveryTargets(fixture.parent).isEmpty())
+        assertFalse(fixture.ghostRoot.canonicalFile in GhostUpdateRepository.blockedGhostRoots(fixture.parent))
+        assertTrue(temporary.isFile)
+    }
+
+    @Test
     fun `recovery discovery preserves an active empty transaction root while stale residue is swept`() {
         val fixture = fixture("active-empty-transaction")
         fixture.writeLive("ghost/master.txt", "old")
