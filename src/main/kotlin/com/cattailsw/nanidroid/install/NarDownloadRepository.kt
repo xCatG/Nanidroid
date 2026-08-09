@@ -584,33 +584,20 @@ class NarDownloadRepository internal constructor(
         acquireGrant: () -> Boolean,
     ): NarDownload? {
         val previous = store.get(itemId) ?: return null
-        val reserved = store.update(itemId) { current ->
-            if (
-                current.source is NarDownloadSource.Local &&
-                !isStopping(current) &&
-                (current.pendingPersistedGrantReleaseUri == null ||
-                    current.pendingPersistedGrantReleaseUri == uri)
-            ) {
-                current.copy(
-                    pendingPersistedGrantReleaseUri = uri,
-                    state = if (current.state is NarDownloadState.NeedsAttention) {
-                        NarDownloadState.Queued
-                    } else {
-                        current.state
-                    },
-                )
-            } else {
-                current
-            }
-        } ?: return null
-        if (reserved.pendingPersistedGrantReleaseUri != uri) return null
+        if (previous.source !is NarDownloadSource.Local || isStopping(previous)) return null
+        val alreadyReserved = uri in store.pendingPersistedGrantReleases()
+        store.addPendingPersistedGrantRelease(uri)
         if (!acquireGrant()) {
-            store.update(itemId) { current ->
-                if (current == reserved) previous else current
-            }
+            if (!alreadyReserved) store.removePendingPersistedGrantRelease(uri)
             return null
         }
-        return replaceLocalSource(itemId, uri, reservedPersistedGrantUri = uri)
+        return replaceLocalSource(
+            itemId,
+            uri,
+            reservedPersistedGrantUri = uri,
+        ).also { replacement ->
+            if (replacement != null) store.removePendingPersistedGrantRelease(uri)
+        }
     }
 
     @Synchronized

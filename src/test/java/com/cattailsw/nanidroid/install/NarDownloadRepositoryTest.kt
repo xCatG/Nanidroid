@@ -840,7 +840,7 @@ class NarDownloadRepositoryTest {
         val replacementSource = "content://provider/replacement.nar"
 
         val replacement = repository.replaceWithPersistedLocalSource(item.id, replacementSource) {
-            assertEquals(replacementSource, store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+            assertEquals(setOf(replacementSource), store.pendingPersistedGrantReleases())
             true
         }
 
@@ -862,8 +862,8 @@ class NarDownloadRepositoryTest {
 
         val replacement = repository.replaceWithPersistedLocalSource(item.id, replacementSource) {
             val reserved = store.get(item.id)!!
-            assertEquals(NarDownloadState.Queued, reserved.state)
-            assertEquals(replacementSource, reserved.pendingPersistedGrantReleaseUri)
+            assertTrue(reserved.state is NarDownloadState.NeedsAttention)
+            assertEquals(setOf(replacementSource), store.pendingPersistedGrantReleases())
             true
         }
 
