@@ -134,6 +134,40 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun snakeBootLifecycleStopsBeforeFirstChoiceWhenBootResponseIsUnplayable() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 201)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("hasExactValue", true)
+        }
+
+        assertEquals(listOf("OnFirstBoot"), requests)
+    }
+
+    @Test
+    fun snakeBootLifecycleStopsBeforeFirstChoiceWhenBootOnlyHasLowercaseValueHeader() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("hasExactValue", false)
+        }
+
+        assertEquals(listOf("OnFirstBoot"), requests)
+    }
+
+    @Test
     fun snakeBootLifecycleDoesNotProbeFaqWhenInputDoesNotExposeFaqChoice() {
         val requests = mutableListOf<String>()
 
@@ -1063,13 +1097,14 @@ class NarCorpusRuntimeTest {
             sequence.put(probe("OnBoot", listOf(shellName)))
             return sequence
         }
-        if (onFirstBoot.optString("outcome") != "success") {
-            return sequence
-        }
 
         fun isPlayable(probe: JSONObject): Boolean {
             val hasExactValue = probe.optBoolean("hasExactValue", probe.optString("value").isNotEmpty())
             return probe.optInt("status", -1) == 200 && hasExactValue
+        }
+
+        if (onFirstBoot.optString("outcome") != "success" || !isPlayable(onFirstBoot)) {
+            return sequence
         }
 
         fun probeChoice(label: String, id: String): JSONObject? {
