@@ -1541,7 +1541,15 @@ class GhostUpdateRepository internal constructor(
                 }
                 when (journal.phase) {
                     CommitPhase.PREPARED -> recoverPrepared(ghostRoot, transactionRoot, candidate, backup)
-                    CommitPhase.NO_CHANGES_PENDING -> recoverNoChanges(ghostRoot, transactionRoot, candidate, backup)
+                    CommitPhase.NO_CHANGES_PENDING -> recoverNoChanges(
+                        ghostRoot,
+                        transactionRoot,
+                        journalFile,
+                        journal,
+                        candidate,
+                        backup,
+                        journalIo,
+                    )
                     CommitPhase.BACKED_UP -> recoverBackedUp(ghostRoot, transactionRoot, journalFile, journal, candidate, backup, journalIo)
                     CommitPhase.PUBLISHED -> recoverPublished(ghostRoot, transactionRoot, journalFile, journal, candidate, backup, journalIo)
                     CommitPhase.CLEANED -> recoverCleaned(ghostRoot, transactionRoot, candidate, backup)
@@ -1625,8 +1633,11 @@ class GhostUpdateRepository internal constructor(
                 CommitPhase.NO_CHANGES_PENDING -> recoverNoChanges(
                     ghostRoot,
                     transactionRoot,
+                    journalFile,
+                    journal,
                     candidate,
                     backup,
+                    journalIo,
                 )
             }
             RecoveryAuthorization.CLEAN_NO_CHANGES -> if (
@@ -1636,8 +1647,18 @@ class GhostUpdateRepository internal constructor(
                     GhostTreeTopology.LIVE_ONLY,
                 )
             ) {
-                requireDelete(transactionRoot)
-                RecoveryResult.NoChangesCommit
+                if (cleanNoChangesRecoveryTransaction(
+                        transactionRoot,
+                        journalFile,
+                        journal,
+                        candidate,
+                        journalIo,
+                    )
+                ) {
+                    RecoveryResult.NoChangesCommit
+                } else {
+                    RecoveryResult.Failed("cannot clean no-change update transaction")
+                }
             } else RecoveryResult.Failed("no-change completion is not recoverable")
             RecoveryAuthorization.ROLL_BACK_FAILED -> classifyAndRollback(
                 OperationStatus.FAILED, ghostRoot, transactionRoot, journalFile, journal,
@@ -1831,13 +1852,26 @@ class GhostUpdateRepository internal constructor(
         private fun recoverNoChanges(
             ghostRoot: File,
             transactionRoot: File,
+            journalFile: File,
+            journal: GhostUpdateJournal,
             candidate: File,
             backup: File,
+            journalIo: GhostUpdateJournalIo,
         ): RecoveryResult = if (
             ghostRoot.isDirectory && !backup.exists() && (candidate.isDirectory || !candidate.exists())
         ) {
-            requireDelete(transactionRoot)
-            RecoveryResult.NoChangesCommit
+            if (cleanNoChangesRecoveryTransaction(
+                    transactionRoot,
+                    journalFile,
+                    journal,
+                    candidate,
+                    journalIo,
+                )
+            ) {
+                RecoveryResult.NoChangesCommit
+            } else {
+                RecoveryResult.Failed("cannot clean no-change update transaction")
+            }
         } else {
             RecoveryResult.Failed("ambiguous no-change ghost update state")
         }
@@ -1965,6 +1999,20 @@ class GhostUpdateRepository internal constructor(
             "${GhostUpdateJournalStore.FILE_NAME}.tmp",
         ).takeIf { temporary ->
             temporary.isFile && runCatching { GhostUpdateJournalStore.read(temporary) }.isSuccess
+        }
+
+        internal fun cleanNoChangesRecoveryTransaction(
+            transactionRoot: File,
+            journalFile: File,
+            journal: GhostUpdateJournal,
+            candidate: File,
+            journalIo: GhostUpdateJournalIo = GhostUpdateJournalIo.DEFAULT,
+        ): Boolean {
+            if (candidate.exists() && !candidate.deleteRecursively()) return false
+            if (!journalFile.delete() && journalFile.exists()) return false
+            if (!transactionRoot.exists() || transactionRoot.delete()) return true
+            journalIo.write(journalFile, journal)
+            return false
         }
 
         private fun requireDelete(file: File) {

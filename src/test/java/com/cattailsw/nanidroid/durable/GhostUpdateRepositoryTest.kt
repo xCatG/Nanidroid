@@ -3168,6 +3168,27 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `no-change recovery cleanup retains its journal after partial deletion`() {
+        val fixture = fixture("no-change-recovery-partial-cleanup")
+        fixture.writeTransaction("candidate/ghost/tmp.txt", "stale")
+        fixture.writeTransaction("residual", "blocks root delete")
+        fixture.writeJournal(CommitPhase.NO_CHANGES_PENDING, emptyList())
+        val transaction = fixture.transactionRoot()
+        val journalFile = File(transaction, GhostUpdateJournalStore.FILE_NAME)
+        val journal = GhostUpdateJournalStore.read(journalFile)
+
+        assertFalse(
+            GhostUpdateRepository.cleanNoChangesRecoveryTransaction(
+                transaction,
+                journalFile,
+                journal,
+                File(transaction, "candidate"),
+            ),
+        )
+        assertEquals(CommitPhase.NO_CHANGES_PENDING, GhostUpdateJournalStore.read(journalFile).phase)
+    }
+
+    @Test
     fun `legacy journal without ghost identity does not defer a terminal event`() {
         val fixture = fixture("recovery-terminal-event-legacy")
         fixture.writeLive("ghost/master.txt", "new")
