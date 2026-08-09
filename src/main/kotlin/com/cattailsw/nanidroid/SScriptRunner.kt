@@ -201,8 +201,11 @@ open class SScriptRunner internal constructor(
     internal fun dispatchSurfaceInteractionWithDiagnostics(
         effect: SurfaceInteractionEffect,
     ): SurfaceInteractionDispatchResult = withCurrentGhostGate { target, live ->
+        if (!live) {
+            return@withCurrentGhostGate SurfaceInteractionDispatchResult(null, false)
+        }
         val candidateEvent = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
-        if (!live || candidateEvent == null) {
+        if (candidateEvent == null) {
             return@withCurrentGhostGate SurfaceInteractionDispatchResult(candidateEvent, false)
         }
         val passiveSequence = runtimeModeSnapshot().passive

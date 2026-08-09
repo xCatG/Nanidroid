@@ -384,6 +384,52 @@ class SurfaceInteractionProtocolTest {
         assertEquals(2, stops)
         assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
     }
+
+    @Test
+    fun `unloaded session does not fabricate a pointer diagnostic candidate`() {
+        var unloaded = false
+        var capabilityQueries = 0
+        val ghost = object : Ghost("recording") {
+            override fun loadGhostInfo() = Unit
+            override fun getCreateCount(): Long = 1L
+            override fun incrementCreateCount() = Unit
+            override fun getSakuraName(): String = "Sakura"
+            override fun getKeroName(): String = "Kero"
+            override fun pointerEventCapabilities(): PointerEventCapabilities {
+                capabilityQueries++
+                return if (unloaded) {
+                    PointerEventCapabilities()
+                } else {
+                    PointerEventCapabilities(Support.UNSUPPORTED, Support.UNSUPPORTED)
+                }
+            }
+            override fun doShioriEvent(event: String, ref: Array<String>?) =
+                ShioriResponse("SHIORI/3.0 204 No Content")
+            override fun unload() {
+                unloaded = true
+            }
+        }
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        runner.setNoWaitMode(true)
+        runner.setGhost(ghost)
+        val liveDiagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
+
+        assertEquals(null, liveDiagnosticDispatch.candidateEvent)
+        assertTrue(!liveDiagnosticDispatch.accepted)
+        assertEquals(1, capabilityQueries)
+        assertTrue(runner.unloadGhostForSwitchForTesting(ghost))
+
+        assertTrue(unloaded)
+        val diagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
+
+        assertEquals(null, diagnosticDispatch.candidateEvent)
+        assertTrue(!diagnosticDispatch.accepted)
+        assertEquals(1, capabilityQueries)
+        assertEquals(
+            PointerDispatchOutcome.NOT_RESOLVED,
+            pointerDispatchOutcome(diagnosticDispatch.candidateEvent, diagnosticDispatch.accepted),
+        )
+    }
 }
 
 private class RecordingScheduler : SScriptPlaybackScheduler {
