@@ -61,7 +61,7 @@ internal interface NarInstallWorkScheduler {
     fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? = null
 
     /** Cancels active deterministic install work belonging to an earlier attempt. */
-    fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long) = Unit
+    fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long): Boolean = true
 
     fun enqueue(
         itemId: String,
@@ -1039,9 +1039,12 @@ class NarDownloadRepository internal constructor(
                 }
                 LegacyInstallRebinding.Failed -> return
                 LegacyInstallRebinding.NotFound -> {
-                    try {
+                    val staleWorkCancelled = try {
                         work.cancelStaleDeterministicInstallWork(item.id, item.attemptId)
                     } catch (_: Exception) {
+                        false
+                    }
+                    if (!staleWorkCancelled) {
                         failAndMarkLegacyInstallBinding(handle, null, item)
                         return
                     }

@@ -162,7 +162,7 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
             ?.id
             ?.toString()
 
-    override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long) {
+    override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long): Boolean {
         val currentId = durableWorkManagerId(
             OperationHandle(OperationId(itemId), AttemptId(attemptId)),
             OperationKind.NAR_INSTALL,
@@ -183,7 +183,8 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
                         WorkInfo.State.BLOCKED,
                     )
             }
-            .forEach { workManager.cancelWorkById(it.id) }
+            .forEach { workManager.cancelWorkById(it.id).result.get() }
+        return true
     }
 
     override fun enqueue(

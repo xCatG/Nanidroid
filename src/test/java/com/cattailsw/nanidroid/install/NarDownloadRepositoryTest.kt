@@ -1544,6 +1544,26 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
     }
 
+    @Test fun reconciliationDoesNotKeepCurrentInstallWhenStaleCancellationIsIncomplete() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-install-cancellation-incomplete",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        work.activeInstallWorkByItemId[item.id] = workId(item.id, 1L, OperationKind.NAR_INSTALL)
+        work.activeInstallWorkIsLegacyByItemId[item.id] = false
+        work.cancelStaleDeterministicInstallWorkCompletes = false
+
+        repository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+    }
+
     @Test fun taggedInstallWorkFromAnEarlierAttemptIsStale() {
         assertTrue(
             AndroidNarInstallWorkScheduler.isStaleAttemptTaggedInstallWork(
@@ -2752,6 +2772,7 @@ class NarDownloadRepositoryTest {
         var installQueryFailure: Exception? = null
         var findActiveLegacyInstallWorkFailure: Exception? = null
         var cancelStaleDeterministicInstallWorkFailure: Exception? = null
+        var cancelStaleDeterministicInstallWorkCompletes = true
         var installRecovery = NarInstallWorkRecovery.ACTIVE
         var installQueryStarted: CountDownLatch? = null
         var allowInstallQuery: CountDownLatch? = null
@@ -2816,9 +2837,10 @@ class NarDownloadRepositoryTest {
                 ?.takeIf { activeInstallWorkIsLegacyByItemId[itemId] != false }
         }
 
-        override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long) {
+        override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long): Boolean {
             cancelStaleDeterministicInstallWorkFailure?.let { throw it }
             activeInstallWorkByItemId[itemId]?.let(cancelledStaleInstallWork::add)
+            return cancelStaleDeterministicInstallWorkCompletes
         }
 
         override fun enqueueStage(
