@@ -357,6 +357,21 @@ class CollisionGeometryTest {
     }
 
     @Test
+    fun legacyCollisionAreaFallbackSkipsUnrepresentableBoundsAndKeepsValidSiblings() {
+        val shell = ShellSurface()
+        shell.collisionAreas[7] = shell.CollisionArea(7, 1, 2, 11, 22, "Legacy")
+        shell.collisionAreas[8] = shell.CollisionArea(8, 0, 0, 0, 0, "Overflow").apply {
+            startX = Int.MAX_VALUE
+            W = 1
+        }
+
+        val collision = shell.toSurfaceDefinition().collisions.single()
+
+        assertEquals(7, collision.id)
+        assertEquals(IntRect(1, 2, 12, 23), collision.shape.bounds)
+    }
+
+    @Test
     fun collisionBudgetRejectsEntriesAfterTheFirst256() {
         val collisions = buildString {
             repeat(257) { id -> appendLine("collision$id,$id,0,$id,0,Hit$id") }
