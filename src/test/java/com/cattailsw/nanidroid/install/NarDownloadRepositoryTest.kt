@@ -2047,6 +2047,31 @@ class NarDownloadRepositoryTest {
         assertEquals(ExternalJobBinding.DownloadManager(91L), retriedOperation.externalJob)
     }
 
+    @Test fun remoteEnqueueFailureKeepsAttemptRecoverableWhenFailurePersistenceThrows() {
+        val exactOperationStore = FailNextTerminalWriteStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(store, exactSupervisor, "remote-enqueue-terminal-write-failure")
+        downloads.enqueueFailure = IllegalStateException("DownloadManager unavailable")
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(NarDownloadState.Downloading, item.state)
+        assertEquals(OperationStatus.RUNNING, exactOperationStore.read().single().status)
+
+        exactRepository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
     @Test fun stopDuringRemoteEnqueueCannotRebindCancelledAttempt() {
         downloads.nextDownloadId = 92L
         downloads.onEnqueue = { itemId -> assertTrue(repository.stop(itemId)) }
@@ -2144,6 +2169,50 @@ class NarDownloadRepositoryTest {
         assertEquals(accepted.attemptId + 1L, retry.attemptId)
         assertEquals(94L, retry.downloadManagerId)
         assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
+    @Test fun missingRowPersistenceFailureDoesNotAbortRemainingRemoteReconciliation() {
+        val exactOperationStore = FailNextTerminalWriteStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val first = store.create(
+            NarDownload(
+                id = "missing-row-persistence-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/first.nar"),
+                retainedUri = "file:///owned/missing-row-persistence-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val second = store.create(
+            NarDownload(
+                id = "missing-row-after-persistence-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/second.nar"),
+                retainedUri = "file:///owned/missing-row-after-persistence-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(exactSupervisor.start(first.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        assertTrue(exactSupervisor.start(second.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        val exactRepository = repositoryWith(store, exactSupervisor, "unused")
+
+        exactRepository.reconcile()
+
+        assertEquals(NarDownloadState.Downloading, store.get(first.id)!!.state)
+        assertEquals(OperationStatus.RUNNING, exactOperationStore.read().single { it.id.value == first.id }.status)
+        assertTrue(store.get(second.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single { it.id.value == second.id }.status)
+
+        exactRepository.reconcile()
+
+        assertTrue(store.get(first.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single { it.id.value == first.id }.status)
     }
 
     @Test fun recreationWithoutRemoteRowMakesAttemptActionableWhenSupervisorStartWasNotPersisted() {
@@ -2989,6 +3058,31 @@ class NarDownloadRepositoryTest {
             if (bindingFailurePending && expected.externalJob == null && updated.externalJob != null) {
                 bindingFailurePending = false
                 throw IllegalStateException("durable binding write failed")
+            }
+            return delegate.compareAndSet(expected, updated)
+        }
+    }
+
+    private class FailNextTerminalWriteStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var terminalWriteFailurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            if (
+                terminalWriteFailurePending &&
+                expected.status == OperationStatus.RUNNING &&
+                updated.status == OperationStatus.FAILED
+            ) {
+                terminalWriteFailurePending = false
+                throw IllegalStateException("durable terminal write failed")
             }
             return delegate.compareAndSet(expected, updated)
         }

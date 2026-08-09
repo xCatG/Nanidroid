@@ -738,13 +738,13 @@ class NarDownloadRepository internal constructor(
                         if (supervisor.reconcileUnboundCancellation(item.handle())) {
                             markCancelledIfCurrent(item)
                         }
-                    } else if (
+                    } else if (runCatching {
                         supervisor.failOrConfirmMissingUnboundAttempt(
                             item.handle(),
                             OperationKind.REMOTE_NAR,
                             DOWNLOAD_RECOVERY_FAILURE,
                         )
-                    ) {
+                    }.getOrDefault(false)) {
                         markNeedsAttentionIfCurrent(item, DOWNLOAD_RECOVERY_FAILURE)
                     }
                     return@forEach
@@ -1277,7 +1277,10 @@ class NarDownloadRepository internal constructor(
             val enqueued = try {
                 downloads.enqueue(itemId, normalizeHttpsUrl(url))
             } catch (_: Exception) {
-                if (supervisor.failUnboundAttempt(handle, DOWNLOAD_START_FAILURE)) {
+                val terminalized = runCatching {
+                    supervisor.failUnboundAttempt(handle, DOWNLOAD_START_FAILURE)
+                }.getOrDefault(false)
+                if (terminalized) {
                     markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
                 }
                 return
