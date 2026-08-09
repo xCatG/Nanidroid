@@ -135,6 +135,9 @@ fun GhostBubble(
     var rootCoordinates by remember(state.talkId, state.contentRevision) {
         mutableStateOf<LayoutCoordinates?>(null)
     }
+    var scrollCoordinates by remember(state.talkId, state.contentRevision) {
+        mutableStateOf<LayoutCoordinates?>(null)
+    }
     var layoutGeneration by remember(state.talkId, state.contentRevision) { mutableLongStateOf(0L) }
     val latestPublication by rememberUpdatedState(onRegionSet)
     val scrollState = remember(state.scrollOwnerKey, state.talkId) {
@@ -182,32 +185,25 @@ fun GhostBubble(
     }
     LaunchedEffect(fence, controls, layoutGeneration) {
         val activeFence = fence ?: return@LaunchedEffect
-        val root = rootCoordinates?.takeIf(LayoutCoordinates::isAttached) ?: return@LaunchedEffect
-        val actionRegions = controls.mapNotNull { control ->
-            val child = coordinates[control.index]?.takeIf(LayoutCoordinates::isAttached)
-                ?: return@LaunchedEffect
-            val localBounds = root.localBoundingBoxOf(child, clipBounds = true)
-            val local = IntRect(
-                floor(localBounds.left).toInt().coerceIn(0, activeFence.frame.width),
-                floor(localBounds.top).toInt().coerceIn(0, activeFence.frame.height),
-                ceil(localBounds.right).toInt().coerceIn(0, activeFence.frame.width),
-                ceil(localBounds.bottom).toInt().coerceIn(0, activeFence.frame.height),
-            )
-            MeasuredBubbleHitRegion(
-                bounds = IntRect(
-                    activeFence.frame.left + local.left,
-                    activeFence.frame.top + local.top,
-                    activeFence.frame.left + local.right,
-                    activeFence.frame.top + local.bottom,
-                ),
-                target = control.target,
-            ).takeIf { it.bounds.width > 0 && it.bounds.height > 0 }
+        val root = rootCoordinates?.takeIf(LayoutCoordinates::isAttached)
+        if (root == null) {
+            latestPublication(BubbleRegionSet(activeFence, emptyList(), null))
+            return@LaunchedEffect
         }
+        val actionRegions = controls.mapNotNull { control ->
+            val child = coordinates[control.index]?.takeIf(LayoutCoordinates::isAttached) ?: return@mapNotNull null
+            root.rootClippedBoundsIn(activeFence.frame, child)?.let { bounds ->
+                MeasuredBubbleHitRegion(bounds, control.target)
+            }
+        }
+        val scrollViewport = scrollCoordinates
+            ?.takeIf(LayoutCoordinates::isAttached)
+            ?.let { scroll -> root.rootClippedBoundsIn(activeFence.frame, scroll) }
         latestPublication(
             BubbleRegionSet(
                 fence = activeFence,
                 actionRegions = actionRegions,
-                scrollViewport = activeFence.frame,
+                scrollViewport = scrollViewport,
             ),
         )
     }
@@ -234,6 +230,10 @@ fun GhostBubble(
                 .fillMaxSize()
                 .pointerBodyPadding(pointerDirection)
                 .verticalScroll(scrollState)
+                .onGloballyPositioned { next ->
+                    scrollCoordinates = next
+                    layoutGeneration++
+                }
                 .testTag("ghost-bubble-scroll-${state.speaker.tag}")
                 .padding(8.dp)
                 .onPreviewKeyEvent { event ->
@@ -299,6 +299,26 @@ fun GhostBubble(
             }
         }
     }
+}
+
+/** Maps a measured descendant into the stage frame, clipping it to the bubble root. */
+private fun LayoutCoordinates.rootClippedBoundsIn(
+    frame: IntRect,
+    descendant: LayoutCoordinates,
+): IntRect? {
+    val localBounds = localBoundingBoxOf(descendant, clipBounds = true)
+    val local = IntRect(
+        floor(localBounds.left).toInt().coerceIn(0, frame.width),
+        floor(localBounds.top).toInt().coerceIn(0, frame.height),
+        ceil(localBounds.right).toInt().coerceIn(0, frame.width),
+        ceil(localBounds.bottom).toInt().coerceIn(0, frame.height),
+    )
+    return IntRect(
+        frame.left + local.left,
+        frame.top + local.top,
+        frame.left + local.right,
+        frame.top + local.bottom,
+    ).takeIf { it.width > 0 && it.height > 0 }
 }
 
 private fun DialogueContent.accessibleText(): String = buildString {
