@@ -10,6 +10,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 data class GhostUpdateJournal(
     val operationId: OperationId,
@@ -86,20 +87,56 @@ internal object GhostUpdateJournalStore {
      * name, this never replaces a user-owned file on external storage. A crash while writing it
      * leaves only an unreadable sibling temporary, which cannot be mistaken for ownership.
      */
-    fun createPrivateMarker(parent: File, journal: GhostUpdateJournal): File {
+    fun createPrivateMarker(parent: File, journal: GhostUpdateJournal): File =
+        createPrivateMarker(parent, journal) { }
+
+    internal fun createPrivateMarker(
+        parent: File,
+        journal: GhostUpdateJournal,
+        duringWrite: (File) -> Unit,
+    ): File {
         if (journal.files.size > MAX_FILES) throw IOException("too many update journal files")
         if ((!parent.exists() && !parent.mkdirs()) || !parent.isDirectory) {
             throw IOException("cannot prepare update journal directory")
         }
-        return File.createTempFile(".nanidroid-update-owner-", ".tmp", parent).also { marker ->
-            writeContents(marker, journal)
+        val writing = File.createTempFile(".nanidroid-update-writing-", ".tmp", parent)
+        var marker: File? = null
+        try {
+            writeContents(writing, journal, duringWrite)
+            repeat(8) {
+                val candidate = File(parent, ".nanidroid-update-owner-${UUID.randomUUID()}.tmp")
+                try {
+                    java.nio.file.Files.move(
+                        writing.toPath(),
+                        candidate.toPath(),
+                        StandardCopyOption.ATOMIC_MOVE,
+                    )
+                    marker = candidate
+                    return candidate
+                } catch (_: AtomicMoveNotSupportedException) {
+                    java.nio.file.Files.move(writing.toPath(), candidate.toPath())
+                    marker = candidate
+                    return candidate
+                } catch (_: java.nio.file.FileAlreadyExistsException) {
+                    // A user-owned file must never be replaced; choose another private name.
+                }
+            }
+            throw IOException("cannot publish private ownership marker")
+        } finally {
+            if (marker == null) writing.delete()
         }
     }
 
-    private fun writeContents(file: File, journal: GhostUpdateJournal) {
+    private fun writeContents(
+        file: File,
+        journal: GhostUpdateJournal,
+        duringWrite: (File) -> Unit = {},
+    ) {
         FileOutputStream(file).use { raw ->
             DataOutputStream(BufferedOutputStream(raw)).use { output ->
                 output.writeInt(MAGIC)
+                output.flush()
+                duringWrite(file)
                 output.writeBounded(journal.operationId.value)
                 output.writeBounded(journal.ghostRoot)
                 output.writeBounded(journal.candidateRoot)

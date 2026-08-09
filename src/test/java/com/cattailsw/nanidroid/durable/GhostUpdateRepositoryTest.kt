@@ -2338,6 +2338,28 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `recovery cannot reclaim a private marker while its journal is being written`() {
+        val root = temporaryDirectory("private-marker-write-race")
+        val journal = GhostUpdateJournal(
+            OperationId("operation"),
+            File(root, "live").canonicalPath,
+            File(root, "candidate").canonicalPath,
+            File(root, "backup").canonicalPath,
+            CommitPhase.PREPARED,
+            emptyList(),
+        )
+
+        val marker = GhostUpdateJournalStore.createPrivateMarker(root, journal) { writing ->
+            assertTrue(writing.name.startsWith(".nanidroid-update-writing-"))
+            assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(root))
+            assertTrue(writing.exists())
+        }
+
+        assertTrue(marker.exists())
+        assertEquals(journal, GhostUpdateJournalStore.read(marker))
+    }
+
+    @Test
     fun `terminal published recovery skips WorkManager observation`() {
         val fixture = fixture("terminal-no-work-query")
         fixture.writeLive("ghost/master.txt", "new")
