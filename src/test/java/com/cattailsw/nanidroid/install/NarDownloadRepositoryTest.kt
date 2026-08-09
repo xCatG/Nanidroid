@@ -2087,6 +2087,38 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun recreationWithoutRemoteRowTerminalizesUnboundAttemptBeforeRetry() {
+        val accepted = store.create(
+            NarDownload(
+                id = "unbound-remote-without-row",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/unbound-remote-without-row.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+
+        downloads.nextDownloadId = 94L
+        val retry = recreated.retry(accepted.id)!!
+
+        assertEquals(accepted.attemptId + 1L, retry.attemptId)
+        assertEquals(94L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
     @Test fun missingRemoteRowIsTerminalizedBeforeRetryStartsNewDownloadAttempt() {
         downloads.nextDownloadId = 78L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")

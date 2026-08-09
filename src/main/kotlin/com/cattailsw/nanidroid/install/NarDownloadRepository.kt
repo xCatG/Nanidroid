@@ -716,17 +716,24 @@ class NarDownloadRepository internal constructor(
                         store.update(item.id) { it.copy(downloadManagerId = recoveredId) }
                     }
                 }
-                val rebound = downloadManagerId?.let { downloadId ->
-                    restoreRemoteDownloadBinding(item, downloadId)
-                } ?: false
-                var statusQueryFailed = false
-                val status = downloadManagerId?.let { id ->
-                    try {
-                        downloads.status(id)
-                    } catch (_: Exception) {
-                        statusQueryFailed = true
-                        null
+                if (downloadManagerId == null) {
+                    remoteProgress.stop(item.handle())
+                    if (cancellationRequested(item.handle())) {
+                        if (supervisor.reconcileUnboundCancellation(item.handle())) {
+                            markCancelledIfCurrent(item)
+                        }
+                    } else if (supervisor.failUnboundAttempt(item.handle(), DOWNLOAD_RECOVERY_FAILURE)) {
+                        markNeedsAttentionIfCurrent(item, DOWNLOAD_RECOVERY_FAILURE)
                     }
+                    return@forEach
+                }
+                val rebound = restoreRemoteDownloadBinding(item, downloadManagerId)
+                var statusQueryFailed = false
+                val status = try {
+                    downloads.status(downloadManagerId)
+                } catch (_: Exception) {
+                    statusQueryFailed = true
+                    null
                 }
                 if (statusQueryFailed && cancellationRequested(item.handle())) {
                     return@forEach
@@ -751,26 +758,22 @@ class NarDownloadRepository internal constructor(
                     null -> {
                         remoteProgress.stop(item.handle())
                         if (cancellationRequested(item.handle()) && status == null) {
-                            downloadManagerId?.let { bindingId ->
-                                if (
-                                    supervisor.finish(
-                                        item.handle(),
-                                        ExternalJobBinding.DownloadManager(bindingId),
-                                        OperationStatus.CANCELLED,
-                                    )
-                                ) {
-                                    markCancelledIfCurrent(item)
-                                }
-                            }
-                        } else {
-                            downloadManagerId?.let { bindingId ->
+                            if (
                                 supervisor.finish(
                                     item.handle(),
-                                    ExternalJobBinding.DownloadManager(bindingId),
-                                    OperationStatus.FAILED,
-                                    DOWNLOAD_RECOVERY_FAILURE,
+                                    ExternalJobBinding.DownloadManager(downloadManagerId),
+                                    OperationStatus.CANCELLED,
                                 )
+                            ) {
+                                markCancelledIfCurrent(item)
                             }
+                        } else {
+                            supervisor.finish(
+                                item.handle(),
+                                ExternalJobBinding.DownloadManager(downloadManagerId),
+                                OperationStatus.FAILED,
+                                DOWNLOAD_RECOVERY_FAILURE,
+                            )
                             markNeedsAttention(item.id, DOWNLOAD_RECOVERY_FAILURE)
                         }
                     }
