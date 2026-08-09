@@ -578,6 +578,16 @@ function Close-OwnedProcessJob([IntPtr]$JobHandle) {
     if ($JobHandle -ne [IntPtr]::Zero) { [void][Nanidroid.UiAuditJobApi]::CloseHandle($JobHandle) }
 }
 
+function Stop-LaunchFailedOwnedProcessJob([IntPtr]$JobHandle) {
+    try {
+        if (-not (Stop-OwnedProcessJob $JobHandle)) {
+            Fail "Could not terminate the exact owned process job after launch failure: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())." 'process'
+        }
+    } finally {
+        Close-OwnedProcessJob $JobHandle
+    }
+}
+
 function New-EmulatorWatchdogInvocation {
     param(
         [int]$HostProcessId,
@@ -702,13 +712,8 @@ function Invoke-Native {
         $stderrReader = [IO.StreamReader]::new([IO.FileStream]::new($stderrHandle, [IO.FileAccess]::Read), [Text.Encoding]::Default)
         $stdoutTask=$stdoutReader.ReadToEndAsync(); $stderrTask=$stderrReader.ReadToEndAsync()
     } catch {
-        try {
-            if (-not (Stop-OwnedProcessJob $ownedJob)) {
-                Fail "Could not terminate the exact owned process job after launch failure: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())." 'process'
-            }
-        } finally {
-            Close-OwnedProcessJob $ownedJob
-        }
+        Stop-LaunchFailedOwnedProcessJob $ownedJob
+        $ownedJob = [IntPtr]::Zero
         throw
     }
     try {
@@ -1604,6 +1609,29 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         if (Test-OwnedProcessIdentity ([int]$drainChildIdentity[0]) ([long]$drainChildIdentity[1])) { Fail 'Inherited-handle drain probe left its retained-job child alive.' 'dry-run' }
     } finally { Remove-Item -LiteralPath $drainProbeIdentityPath -Force -ErrorAction SilentlyContinue }
     $pwshProbe=Resolve-PowerShell7
+    $launchFailureJob = New-OwnedProcessJob
+    $launchFailureLaunch = Get-OwnedProcessLaunch $pwshProbe @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60')
+    $launchFailureProcess = $null
+    try {
+        $launchFailureProcess = [Nanidroid.UiAuditJobApi]::StartAssignedSuspended($launchFailureLaunch.applicationName, $launchFailureLaunch.commandLine, $launchFailureJob)
+        $launchFailureIdentity = [Diagnostics.Process]::GetProcessById([int]$launchFailureProcess.ProcessId)
+        try {
+            $launchFailureProcessId = $launchFailureIdentity.Id
+            $launchFailureStartTimeUtcTicks = $launchFailureIdentity.StartTime.ToUniversalTime().Ticks
+        } finally {
+            $launchFailureIdentity.Dispose()
+        }
+        Stop-LaunchFailedOwnedProcessJob $launchFailureJob
+        $launchFailureJob = [IntPtr]::Zero
+        if (Test-OwnedProcessIdentity $launchFailureProcessId $launchFailureStartTimeUtcTicks) { Fail 'Launch-failure job cleanup left its exact owned process alive.' 'dry-run' }
+    } finally {
+        if ($null -ne $launchFailureProcess) {
+            [void][Nanidroid.UiAuditJobApi]::CloseHandle($launchFailureProcess.ProcessHandle)
+            [void][Nanidroid.UiAuditJobApi]::CloseHandle($launchFailureProcess.StdoutRead)
+            [void][Nanidroid.UiAuditJobApi]::CloseHandle($launchFailureProcess.StderrRead)
+        }
+        Close-OwnedProcessJob $launchFailureJob
+    }
     $cmdPath=[Environment]::GetEnvironmentVariable('ComSpec')
     if ([string]::IsNullOrWhiteSpace($cmdPath)) { Fail 'Timeout tree probe cannot resolve cmd.exe.' 'dry-run' }
     $probeCommand="`$child=Start-Process -FilePath '$($cmdPath.Replace("'", "''"))' -ArgumentList @('/c','timeout /t 60 /nobreak >nul') -PassThru; Write-Output ('{0}|{1}' -f `$child.Id,`$child.StartTime.ToUniversalTime().Ticks); Start-Sleep -Seconds 60"
