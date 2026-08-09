@@ -20,6 +20,7 @@ import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.DescReader
+import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.ShioriFactory
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.SurfaceReader
@@ -146,6 +147,13 @@ class NarCorpusRuntimeTest {
         }
 
         assertEquals(listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach"), requests)
+    }
+
+    @Test
+    fun parsedChoiceIdsExcludeChoicesClearedFromVisibleDialogue() {
+        val evidence = parseShioriSegments("\\q[faq,faq]\\cAfter clear", mutableListOf())
+
+        assertEquals(0, evidence.getJSONArray("choiceIds").length())
     }
 
     @Test
@@ -1198,8 +1206,22 @@ class NarCorpusRuntimeTest {
         var observedAnchorId: String? = null
         var observedInputId: String? = null
 
-        SakuraScriptTokenizer.tokenize(value, diagnostics::add)
-            .flatMap(DialogueContent::segments)
+        val dialogue = SakuraScriptTokenizer.tokenize(value, diagnostics::add)
+        val visibleSegments = GhostSpeaker.entries.flatMap { speaker ->
+            dialogue
+                .asSequence()
+                .filter { it.speaker == speaker }
+                .flatMap { it.segments.asSequence() }
+                .fold(mutableListOf<DialogueSegment>()) { visible, segment ->
+                    if (segment is DialogueSegment.Clear || segment is DialogueSegment.SpeakerChangeClear) {
+                        visible.clear()
+                    } else {
+                        visible += segment
+                    }
+                    visible
+                }
+        }
+        visibleSegments
             .forEach { segment ->
                 when (segment) {
                     is DialogueSegment.Choice -> {
