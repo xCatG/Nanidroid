@@ -2296,7 +2296,7 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operation.status)
     }
 
-    @Test fun remoteBindingFailureRemovesRowAndTerminalizesExactAttempt() {
+    @Test fun thrownRemoteBindingFailureRemovesRowAndTerminalizesExactAttempt() {
         val exactOperationStore = FailRemoteBindingStore(
             SharedPreferencesDurableOperationStore(
                 SharedPreferencesDurableOperationStore.MemoryStorage(),
@@ -2904,7 +2904,7 @@ class NarDownloadRepositoryTest {
         ): Boolean {
             if (bindingFailurePending && expected.externalJob == null && updated.externalJob != null) {
                 bindingFailurePending = false
-                return false
+                throw IllegalStateException("durable binding write failed")
             }
             return delegate.compareAndSet(expected, updated)
         }

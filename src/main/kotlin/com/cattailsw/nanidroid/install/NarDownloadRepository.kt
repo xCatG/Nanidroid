@@ -1299,7 +1299,12 @@ class NarDownloadRepository internal constructor(
                 return
             }
             val binding = ExternalJobBinding.DownloadManager(enqueued.downloadManagerId)
-            if (!supervisor.bindExternalJob(handle, binding)) {
+            val bindingAccepted = try {
+                supervisor.bindExternalJob(handle, binding)
+            } catch (_: Exception) {
+                false
+            }
+            if (!bindingAccepted) {
                 if (removeUnpersistedRemoteRowAndFailAttempt(handle, enqueued.downloadManagerId)) {
                     markNeedsAttentionIfCurrent(boundDownload, DOWNLOAD_START_FAILURE)
                 }
