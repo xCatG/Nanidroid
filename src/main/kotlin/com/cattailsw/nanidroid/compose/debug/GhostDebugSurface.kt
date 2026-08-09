@@ -65,6 +65,7 @@ internal const val GHOST_DEBUG_SURFACE_SIDE_PANEL_TAG = "ghost-debug-surface-sid
 internal const val GHOST_DEBUG_SURFACE_SAKURA_TAG = "ghost-debug-surface-speaker-sakura"
 internal const val GHOST_DEBUG_SURFACE_KERO_TAG = "ghost-debug-surface-speaker-kero"
 internal const val GHOST_DEBUG_SURFACE_COLLISION_SWITCH_TAG = "ghost-debug-surface-collision-switch"
+internal const val GHOST_DEBUG_SURFACE_SHOW_ON_STAGE_TAG = "ghost-debug-surface-show-on-stage"
 internal const val GHOST_DEBUG_SURFACE_NAR_TEST_TAG = "ghost-debug-surface-nar-test"
 internal const val GHOST_DEBUG_SURFACE_SAMPLE_FEEDBACK_TAG = "ghost-debug-surface-sample-feedback"
 internal const val GHOST_DEBUG_SURFACE_DISMISS_TAG = "ghost-debug-surface-dismiss"
@@ -83,6 +84,7 @@ internal fun GhostDebugSurface(
     onCollisionOverlayChange: (Boolean) -> Unit,
     onNarTest: () -> Unit,
     onDismiss: () -> Unit,
+    onShowCollisionOverlayOnStage: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     staticPreview: Boolean = false,
 ) {
@@ -98,6 +100,7 @@ internal fun GhostDebugSurface(
             onCollisionOverlayChange = onCollisionOverlayChange,
             onNarTest = onNarTest,
             onDismiss = onDismiss,
+            onShowCollisionOverlayOnStage = onShowCollisionOverlayOnStage,
             modifier = modifier,
         ) else FullStageGhostDebugSurface(
             state = state,
@@ -108,6 +111,7 @@ internal fun GhostDebugSurface(
             onCollisionOverlayChange = onCollisionOverlayChange,
             onNarTest = onNarTest,
             onDismiss = onDismiss,
+            onShowCollisionOverlayOnStage = onShowCollisionOverlayOnStage,
             modifier = modifier,
         )
         DebugPresentation.BOTTOM_SHEET -> if (staticPreview) StaticBottomSheetGhostDebugSurface(
@@ -156,6 +160,7 @@ private fun StaticFullStageGhostDebugSurface(
     onCollisionOverlayChange: (Boolean) -> Unit,
     onNarTest: () -> Unit,
     onDismiss: () -> Unit,
+    onShowCollisionOverlayOnStage: (() -> Unit)?,
     modifier: Modifier,
 ) {
     Box(
@@ -180,6 +185,7 @@ private fun StaticFullStageGhostDebugSurface(
                 onCollisionOverlayChange = onCollisionOverlayChange,
                 onNarTest = onNarTest,
                 onDismiss = onDismiss,
+                onShowCollisionOverlayOnStage = onShowCollisionOverlayOnStage,
             )
         }
     }
@@ -236,6 +242,7 @@ private fun FullStageGhostDebugSurface(
     onCollisionOverlayChange: (Boolean) -> Unit,
     onNarTest: () -> Unit,
     onDismiss: () -> Unit,
+    onShowCollisionOverlayOnStage: (() -> Unit)?,
     modifier: Modifier,
 ) {
     Dialog(
@@ -260,6 +267,7 @@ private fun FullStageGhostDebugSurface(
                 onCollisionOverlayChange = onCollisionOverlayChange,
                 onNarTest = onNarTest,
                 onDismiss = onDismiss,
+                onShowCollisionOverlayOnStage = onShowCollisionOverlayOnStage,
             )
         }
     }
@@ -351,6 +359,7 @@ private fun GhostDebugSurfaceContent(
     onCollisionOverlayChange: (Boolean) -> Unit,
     onNarTest: () -> Unit,
     onDismiss: () -> Unit,
+    onShowCollisionOverlayOnStage: (() -> Unit)? = null,
 ) {
     val selectedSpeakerText = if (state.selectedSpeaker == SurfaceSpeaker.SAKURA) {
         stringResource(R.string.debug_surface_sakura_speaker_label)
@@ -359,6 +368,7 @@ private fun GhostDebugSurfaceContent(
     }
     val collisionOverlayLabel = stringResource(R.string.debug_surface_collision_overlay_toggle)
     val narLabel = stringResource(R.string.debug_surface_nar_test_button)
+    val showOnStageLabel = stringResource(R.string.debug_surface_show_on_stage)
     val closeLabel = stringResource(R.string.close_btn_text)
     val emptyValue = stringResource(R.string.debug_surface_empty_value)
     var expandedLogEntryId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -552,6 +562,16 @@ private fun GhostDebugSurfaceContent(
                                 contentDescription = collisionOverlayLabel
                             },
                     )
+                }
+                if (state.showCollisionOverlay && onShowCollisionOverlayOnStage != null) {
+                    TextButton(
+                        onClick = onShowCollisionOverlayOnStage,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag(GHOST_DEBUG_SURFACE_SHOW_ON_STAGE_TAG),
+                    ) {
+                        Text(showOnStageLabel)
+                    }
                 }
             },
         )

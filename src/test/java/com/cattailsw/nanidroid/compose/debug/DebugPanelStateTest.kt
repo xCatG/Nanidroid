@@ -85,12 +85,30 @@ class DebugPanelStateTest {
     }
 
     @Test
-    fun collisionOverlayRemainsObservableAfterPanelDismissal() {
+    fun ordinaryPanelDismissalClearsCollisionOverlay() {
         val state = DebugPanelState(
             visible = true,
             selectedSpeaker = SurfaceSpeaker.KERO,
             showCollisionOverlay = true,
         ).dismissDebugSurface()
+
+        assertEquals(false, state.visible)
+        assertEquals(false, state.showCollisionOverlay)
+        assertNull(
+            state.collisionOverlaySpeaker(
+                loading = false,
+                debugBuild = true,
+            ),
+        )
+    }
+
+    @Test
+    fun showOnStageDismissesPanelWhileKeepingSelectedOverlayVisible() {
+        val state = DebugPanelState(
+            visible = true,
+            selectedSpeaker = SurfaceSpeaker.KERO,
+            showCollisionOverlay = true,
+        ).showCollisionOverlayOnStage()
 
         assertEquals(false, state.visible)
         assertEquals(true, state.showCollisionOverlay)

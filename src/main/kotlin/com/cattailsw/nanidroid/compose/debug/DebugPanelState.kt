@@ -30,7 +30,15 @@ fun DebugPanelState.collisionOverlaySpeaker(
     !loading && debugBuild && showCollisionOverlay
 }
 
+/** Ordinary dismissal ends the temporary inspection and clears its overlay. */
 fun DebugPanelState.dismissDebugSurface(): DebugPanelState = copy(
+    visible = false,
+    showCollisionOverlay = false,
+    sampleFeedbackToken = 0L,
+)
+
+/** Leaves the stage unobscured while preserving an explicitly enabled overlay. */
+fun DebugPanelState.showCollisionOverlayOnStage(): DebugPanelState = copy(
     visible = false,
     sampleFeedbackToken = 0L,
 )

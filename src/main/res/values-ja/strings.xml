@@ -106,6 +106,7 @@
   <string name="debug_surface_pointer_speaker_label">話者</string>
   <string name="debug_surface_collision_section_title">デバッグオーバーレイ</string>
   <string name="debug_surface_collision_overlay_toggle">当たり判定オーバーレイを表示</string>
+  <string name="debug_surface_show_on_stage">ステージで表示</string>
   <string name="debug_surface_nar_test_button">SakuraScript サンプルを実行</string>
   <string name="debug_surface_sample_queued">サンプルをキューに登録しました</string>
   <string name="debug_surface_pointer_scope_label">入力スコープ</string>

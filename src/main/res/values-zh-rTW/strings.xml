@@ -106,6 +106,7 @@
   <string name="debug_surface_pointer_speaker_label">角色</string>
   <string name="debug_surface_collision_section_title">除錯覆蓋</string>
   <string name="debug_surface_collision_overlay_toggle">顯示碰撞覆蓋</string>
+  <string name="debug_surface_show_on_stage">在舞台上顯示</string>
   <string name="debug_surface_nar_test_button">執行 SakuraScript 範例</string>
   <string name="debug_surface_sample_queued">樣本已加入佇列</string>
   <string name="debug_surface_pointer_scope_label">輸入範圍</string>
