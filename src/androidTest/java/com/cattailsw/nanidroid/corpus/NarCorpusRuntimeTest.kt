@@ -460,6 +460,7 @@ class NarCorpusRuntimeTest {
                     try {
                         shioriGhost = loadShiori(
                             installed.installedPath,
+                            installed.targetId ?: "corpus-${expectedSha256.take(16)}",
                             loadGhostDesc(installed.installedPath),
                             context,
                         )
@@ -547,13 +548,14 @@ class NarCorpusRuntimeTest {
 
     private class TestShioriGhost(
         private val path: String,
+        private val ghostIdentity: String,
         masterDesc: Map<String, String>,
         context: Context?,
     ) {
         private val shiori: Shiori = ShioriFactory.getInstance().getShiori(path, masterDesc, context)
 
         fun getShioriModuleName(): String? = shiori.getModuleName()
-        fun getGhostIdentity(): String = File(path).name
+        fun getGhostIdentity(): String = ghostIdentity
         fun isShioriNotSupported(): Boolean = shiori is NotSupportedShiori
 
         fun requestRaw(
@@ -751,9 +753,10 @@ class NarCorpusRuntimeTest {
 
     private fun loadShiori(
         installedPath: String,
+        ghostIdentity: String,
         ghostDesc: Map<String, String>,
         context: Context?,
-    ): TestShioriGhost = TestShioriGhost("$installedPath/ghost/master/", ghostDesc, context)
+    ): TestShioriGhost = TestShioriGhost("$installedPath/ghost/master/", ghostIdentity, ghostDesc, context)
 
     private fun setCheckpoint(result: JSONObject, phase: String) {
         result.put("checkpointPhase", phase)
@@ -870,7 +873,11 @@ class NarCorpusRuntimeTest {
         val firstChoice = probe("OnChoiceSelect", listOf(SNAKE_CHOICE_FIRST_HE_HIM_ID))
         sequence.put(firstChoice)
         if (firstChoice.optString("outcome") == "success") {
-            sequence.put(probe("OnChoiceSelect", listOf(SNAKE_FAQ_ID)))
+            val input = probe("OnUserInput", listOf(SNAKE_NAME_TEACH_ID, SNAKE_NAME_TEACH_VALUE))
+            sequence.put(input)
+            if (input.optString("outcome") == "success") {
+                sequence.put(probe("OnChoiceSelect", listOf(SNAKE_FAQ_ID)))
+            }
         }
         return sequence
     }
@@ -2060,6 +2067,8 @@ class NarCorpusRuntimeTest {
         const val SNAKE_AND_OTACON_LABEL = "Snake and Otacon V1.3.2"
         const val SNAKE_CHOICE_FIRST_HE_HIM_ID = "choicefirsthehim"
         const val SNAKE_FAQ_ID = "faq"
+        const val SNAKE_NAME_TEACH_ID = "OnNameTeach"
+        const val SNAKE_NAME_TEACH_VALUE = "Nanidroid"
         val SURFACE_SOURCE_FILE = Regex("(?i)^surfaces[^/\\\\]*\\.txt$")
         val PRODUCTION_SURFACE_READER_SURFACE_IDS = listOf(0, 8, 9, 19, 40)
         val DIC_FILE = Regex("(?i)^.+\\.dic$")
