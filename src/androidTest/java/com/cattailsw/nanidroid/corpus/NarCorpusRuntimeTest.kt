@@ -68,11 +68,13 @@ import org.junit.Test
 import org.junit.Rule
 import org.junit.runner.RunWith
 import java.io.BufferedInputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.StringReader
 import java.io.IOException
+import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -92,6 +94,16 @@ class NarCorpusRuntimeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
     private val probeContent = NarCorpusProbeContent()
+
+    @Test
+    fun boundedReadKeepsOnlyTheLimitAndOverflowSentinel() {
+        val bytes = ByteArray(10) { it.toByte() }
+
+        assertEquals(
+            bytes.copyOf(5).toList(),
+            readBoundedBytes(ByteArrayInputStream(bytes), maxBytes = 4).toList(),
+        )
+    }
 
     @Test
     fun snakeBootLifecycleDoesNotFallbackWhenOnFirstBootReturnsContent() {
@@ -1643,7 +1655,9 @@ class NarCorpusRuntimeTest {
         require(descriptor.size in 0..MAX_DESCRIPTOR_BYTES.toLong()) {
             "install.txt exceeds the bounded descriptor limit: ${descriptor.size}"
         }
-        val bytes = zip.getInputStream(descriptor).use { it.readNBytes(MAX_DESCRIPTOR_BYTES + 1) }
+        val bytes = zip.getInputStream(descriptor).use {
+            readBoundedBytes(it, maxBytes = MAX_DESCRIPTOR_BYTES)
+        }
         require(bytes.size <= MAX_DESCRIPTOR_BYTES) { "install.txt exceeds the bounded descriptor limit" }
         val text = bytes.toString(StandardCharsets.ISO_8859_1)
         TYPE_LINE.find(text)?.groupValues?.get(1)?.trim()?.lowercase(Locale.ROOT)
@@ -1857,9 +1871,9 @@ class NarCorpusRuntimeTest {
         if (maxBytes <= 0) return SourceReadResult(ByteArray(0), truncated = false, failed = false)
         return try {
             Files.newInputStream(path).use { input ->
-                val readBytes = input.readNBytes(maxBytes + 1)
+                val readBytes = readBoundedBytes(input, maxBytes)
                 SourceReadResult(
-                    bytes = readBytes.take(minOf(maxBytes, readBytes.size)).toByteArray(),
+                    bytes = readBytes.copyOf(minOf(maxBytes, readBytes.size)),
                     truncated = readBytes.size > maxBytes,
                     failed = false,
                 )
@@ -2399,4 +2413,15 @@ class NarCorpusRuntimeTest {
         val TYPE_LINE = Regex("(?im)^\\s*type\\s*,\\s*([^\\r\\n]+)")
         const val LOG_TAG = "NarCorpusProbe"
     }
+}
+
+private fun readBoundedBytes(input: InputStream, maxBytes: Int): ByteArray {
+    val buffer = ByteArray(maxBytes + 1)
+    var size = 0
+    while (size < buffer.size) {
+        val read = input.read(buffer, size, buffer.size - size)
+        if (read <= 0) break
+        size += read
+    }
+    return buffer.copyOf(size)
 }
