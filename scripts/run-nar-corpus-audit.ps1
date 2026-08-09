@@ -924,6 +924,15 @@ function Test-ChildProcessCreationAfterParentStart {
     return $ChildCreationUtcTicks -ge $ParentStartUtcTicks
 }
 
+function Test-ProcessCandidateMatchesCimCreation {
+    param(
+        [long]$CandidateStartTimeUtcTicks,
+        [long]$ChildCreationTimeUtcTicks
+    )
+
+    return $CandidateStartTimeUtcTicks -eq $ChildCreationTimeUtcTicks
+}
+
 function Get-OwnedDescendantProcessIdentities {
     param(
         [int]$RootProcessId,
@@ -963,6 +972,9 @@ function Get-OwnedDescendantProcessIdentities {
                 }
 
                 $candidateStartTimeUtcTicks = $candidate.StartTime.ToUniversalTime().Ticks
+                if (-not (Test-ProcessCandidateMatchesCimCreation -CandidateStartTimeUtcTicks $candidateStartTimeUtcTicks -ChildCreationTimeUtcTicks $childCreationTimeUtcTicks)) {
+                    continue
+                }
                 $ownedProcessStartTimes.Add($processId, $candidateStartTimeUtcTicks)
                 $descendants.Add([pscustomobject]@{
                     processId = $processId
@@ -2255,6 +2267,13 @@ Start-Sleep -Seconds 2
     $script:adbTransportTimedOut = $false
     $script:adbTransportTimeoutEvidence = $null
     Write-Host 'Dry-run timeout-tree cleanup probe passed.'
+    if (Test-ProcessCandidateMatchesCimCreation -CandidateStartTimeUtcTicks 100 -ChildCreationTimeUtcTicks 101) {
+        ThrowIf 'Dry-run owned-process discovery probe accepted a PID-reused candidate with a different CIM creation time.'
+    }
+    if (-not (Test-ProcessCandidateMatchesCimCreation -CandidateStartTimeUtcTicks 100 -ChildCreationTimeUtcTicks 100)) {
+        ThrowIf 'Dry-run owned-process discovery probe rejected a candidate matching its CIM creation time.'
+    }
+    Write-Host 'Dry-run owned-process creation identity probe passed.'
     $invalidPathProbeTimeout = Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @(
         '-NoProfile',
         '-NoLogo',
