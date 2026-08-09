@@ -220,6 +220,23 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun keroStartedSynchronizedOutputProjectsTextAndNewlinesToBothSpeakersLikePlayback() {
+        val fixture = fixture(responses = listOf(noContent()))
+
+        fixture.runner.addMsgToQueue(arrayOf("\\u\\_sKero\\nBoth\\_s\\e"))
+        fixture.runner.run()
+
+        val expected = listOf(
+            DialogueSegment.Text("Kero"),
+            DialogueSegment.NewLine,
+            DialogueSegment.Text("Both"),
+        )
+        val ownership = DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+        Assert.assertEquals(expected, ownership.content(GhostSpeaker.SAKURA).segments)
+        Assert.assertEquals(expected, ownership.content(GhostSpeaker.KERO).segments)
+    }
+
+    @Test
     fun inputBeforeLaterSpeakerReentryRemainsCanonicalWhenPlaybackPauses() {
         val fixture = fixture(responses = emptyList())
         fixture.runner.setUICallback(object : SScriptRunner.UICallback {

@@ -329,6 +329,32 @@ class SakuraScriptTokenizerTest {
     }
 
     @Test
+    fun keroStartedSynchronizedOutputMirrorsTextAndNewlinesToBothSpeakers() {
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.KERO,
+                    listOf(
+                        DialogueSegment.SpeakerChangeClear,
+                        DialogueSegment.Text("Kero"),
+                        DialogueSegment.NewLine,
+                        DialogueSegment.Text("Both"),
+                    ),
+                ),
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(
+                        DialogueSegment.Text("Kero"),
+                        DialogueSegment.NewLine,
+                        DialogueSegment.Text("Both"),
+                    ),
+                ),
+            ),
+            tokenize("\\u\\_sKero\\nBoth\\_s\\e"),
+        )
+    }
+
+    @Test
     fun completedSynchronizedAnchorKeepsOtherSpeakerLabelWithoutDuplicatingCapability() {
         val revealed = SakuraScriptTokenizer.tokenizeRevealed("\\h\\_s\\_a[id]Link")
         val complete = tokenize("\\h\\_s\\_a[id]Link\\_a\\_s\\e")
