@@ -409,6 +409,7 @@ class NarDownloadRepository internal constructor(
                         NarLocalArchiveStager.discard(result.location)
                         return true
                     }
+                    if (!liveGrant) releaseTransferredDocumentGrantIfUnused(installAttempt)
                     supervisor.finish(handle, binding, OperationStatus.COMPLETED)
                     scheduleInstall(itemId)
                 }
@@ -691,6 +692,7 @@ class NarDownloadRepository internal constructor(
                     )
                 }
             }
+        store.getAll().forEach(::releaseTransferredDocumentGrantIfUnused)
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
             .forEach { item ->
@@ -1280,11 +1282,26 @@ class NarDownloadRepository internal constructor(
         }
     }
 
+    private fun releaseTransferredDocumentGrantIfUnused(item: NarDownload) {
+        val source = (item.source as? NarDownloadSource.Local)?.uri ?: return
+        if (source == item.retainedUri || !isFileUri(item.retainedUri)) return
+        if (!hasSourceReference(source, item.id)) {
+            runCatching {
+                ownedData.releasePersistedGrant(item.copy(retainedUri = source))
+            }
+        }
+    }
+
+    private fun isFileUri(location: String?) = runCatching {
+        URI(location).scheme.equals("file", ignoreCase = true)
+    }.getOrDefault(false)
+
     private fun hasSourceReference(location: String, excludedItemId: String? = null) =
         store.getAll().any { other ->
             other.id != excludedItemId && other.state != NarDownloadState.Complete && (
                 other.retainedUri == location ||
-                    (other.source as? NarDownloadSource.Local)?.uri == location
+                    ((other.source as? NarDownloadSource.Local)?.uri == location &&
+                        other.retainedUri == location)
                 )
         }
 
