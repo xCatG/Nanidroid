@@ -654,6 +654,7 @@ class GhostUpdateWorker(
                 CommitPhase.PREPARED -> topology in setOf(
                     GhostTreeTopology.LIVE_CANDIDATE,
                     GhostTreeTopology.CANDIDATE_BACKUP,
+                    GhostTreeTopology.LIVE_ONLY,
                 )
                 CommitPhase.BACKED_UP -> topology in setOf(
                     GhostTreeTopology.CANDIDATE_BACKUP,

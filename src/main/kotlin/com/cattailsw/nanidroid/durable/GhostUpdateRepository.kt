@@ -846,14 +846,11 @@ class GhostUpdateRepository internal constructor(
         transactionRoot: File,
         request: GhostUpdateRequest,
     ): GhostUpdateResult {
-        if (fileOperations.deleteTree(transactionRoot)) return GhostUpdateResult.Cancelled
         return try {
             val candidateRoot = File(transactionRoot, CANDIDATE)
-            if (!candidateRoot.isDirectory && !candidateRoot.mkdirs()) {
-                throw IOException("cannot retain cancelled update staging")
-            }
+            val journalFile = File(transactionRoot, GhostUpdateJournalStore.FILE_NAME)
             journalIo.write(
-                File(transactionRoot, GhostUpdateJournalStore.FILE_NAME),
+                journalFile,
                 GhostUpdateJournal(
                     operationId = request.operationId,
                     ghostRoot = request.ghostRoot.canonicalPath,
@@ -865,6 +862,9 @@ class GhostUpdateRepository internal constructor(
                     workManagerUuid = request.workManagerUuid,
                 ),
             )
+            if (fileOperations.deleteTree(candidateRoot) && journalFile.delete()) {
+                transactionRoot.delete()
+            }
             GhostUpdateResult.Cancelled
         } catch (error: Exception) {
             failed("cannot retain cancelled update staging: ${error.message}", emptyList())

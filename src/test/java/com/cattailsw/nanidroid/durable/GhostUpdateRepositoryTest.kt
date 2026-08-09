@@ -212,7 +212,7 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `failed user cancellation cleanup persists exact journal for recovery`() {
+    fun `process death during user cancellation cleanup preserves exact journal for recovery`() {
         val fixture = fixture("cancel-cleanup-ownership")
         fixture.writeLive("ghost/master.txt", "old")
         fixture.network.manifest("ghost/master.txt" to bytes("new"))
@@ -221,17 +221,21 @@ class GhostUpdateRepositoryTest {
         fixture.network.onManifestRead = { cancelled = true }
         val failingDelete = object : GhostUpdateFileOperations {
             override fun deleteTree(root: File): Boolean {
-                if (root.canonicalFile != fixture.transactionRoot().canonicalFile) {
+                if (root.canonicalFile != File(fixture.transactionRoot(), "candidate").canonicalFile) {
                     return root.deleteRecursively()
                 }
-                File(root, "candidate").deleteRecursively()
-                return false
+                root.deleteRecursively()
+                throw SimulatedProcessDeath()
             }
         }
 
-        val result = fixture.repository(fileOperations = failingDelete).run(request) { cancelled }
+        try {
+            fixture.repository(fileOperations = failingDelete).run(request) { cancelled }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // A process death is not catchable by repository recovery.
+        }
 
-        assertEquals(GhostUpdateResult.Cancelled, result)
         val journal = GhostUpdateJournalStore.read(
             File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
         )
@@ -239,7 +243,7 @@ class GhostUpdateRepositoryTest {
         assertEquals(request.operationId, journal.operationId)
         assertEquals(request.attemptId, journal.attemptId)
         assertEquals(request.workManagerUuid, journal.workManagerUuid)
-        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+        assertFalse(File(fixture.transactionRoot(), "candidate").exists())
 
         val recovery = GhostUpdateRepository.recoverAllBeforeGhostLoad(
             fixture.parent,
@@ -552,10 +556,10 @@ class GhostUpdateRepositoryTest {
         var resyncPolls = 0
         val failingDelete = object : GhostUpdateFileOperations {
             override fun deleteTree(root: File): Boolean {
-                if (root.canonicalFile != fixture.transactionRoot().canonicalFile) {
+                if (root.canonicalFile != File(fixture.transactionRoot(), "candidate").canonicalFile) {
                     return root.deleteRecursively()
                 }
-                File(root, "candidate").deleteRecursively()
+                File(root, "ghost").deleteRecursively()
                 return false
             }
         }
@@ -2500,7 +2504,7 @@ internal class GhostUpdateTransitionTableTest(
             row("terminal backed cancellation authorizes rollback", CommitPhase.BACKED_UP, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.CANCELLED, true, GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED),
             row("stale attempt blocks prepared cleanup", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.FAILED, false, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("stale binding blocks published cleanup", CommitPhase.PUBLISHED, GhostTreeTopology.LIVE_BACKUP, OperationStatus.COMPLETED, false, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
-            row("invalid prepared topology blocks", CommitPhase.PREPARED, GhostTreeTopology.LIVE_ONLY, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.ACTIVE, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
+            row("prepared cleanup-only state waits for active replay", CommitPhase.PREPARED, GhostTreeTopology.LIVE_ONLY, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.ACTIVE, GhostUpdateWorker.Companion.RecoveryTransition.WAIT),
             row("invalid backed topology blocks", CommitPhase.BACKED_UP, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("invalid published topology blocks", CommitPhase.PUBLISHED, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.COMPLETED, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("rollback classified exact failure continues rollback", CommitPhase.ROLLBACK_CLASSIFIED, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.FAILED, true, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_FAILED),
