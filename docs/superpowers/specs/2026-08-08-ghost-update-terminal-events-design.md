@@ -24,6 +24,7 @@ field is never a durable claim.
 | Matching ghost construction or reload | Pending payload for the matching handle/root/ID | Dispatch once, then remove that payload. |
 | Process death before removal | Pending payload remains | Retry delivery only after the exact ghost is constructed. |
 | Retry, replacement, or deletion | Different current handle or no record | Old payload is never delivered. |
+| Recovery of a journal created before ghost identity was recorded | No pending payload | Complete/rollback recovery normally; do not guess an identity from its path. |
 
 ## Boundaries and failure handling
 

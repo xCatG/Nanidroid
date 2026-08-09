@@ -11,6 +11,7 @@ import io.mockk.verify
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -2849,7 +2850,13 @@ class GhostUpdateRepositoryTest {
         val handle = OperationHandle(fixture.operationId, AttemptId(5))
         val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
-        fixture.writeJournal(CommitPhase.PUBLISHED, listOf("ghost/master.txt"), handle.attemptId, binding.uuid)
+        fixture.writeJournal(
+            CommitPhase.PUBLISHED,
+            listOf("ghost/master.txt"),
+            handle.attemptId,
+            binding.uuid,
+            ghostId = "configured-ghost-id",
+        )
 
         val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
             fixture.parent,
@@ -2866,13 +2873,42 @@ class GhostUpdateRepositoryTest {
         assertEquals(OperationStatus.COMPLETED, store.read().single().status)
         assertEquals(
             GhostUpdateTerminalEvent(
-                fixture.ghostRoot.name,
+                "configured-ghost-id",
                 fixture.ghostRoot.canonicalPath,
                 "OnUpdateComplete",
                 listOf("changed", "ghost/master.txt"),
             ),
             store.read().single().pendingGhostUpdateEvent,
         )
+    }
+
+    @Test
+    fun `legacy journal without ghost identity does not defer a terminal event`() {
+        val fixture = fixture("recovery-terminal-event-legacy")
+        fixture.writeLive("ghost/master.txt", "new")
+        fixture.writeTransaction("backup/ghost/master.txt", "old")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(5))
+        val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
+        fixture.writeJournal(CommitPhase.PUBLISHED, listOf("ghost/master.txt"), handle.attemptId, binding.uuid)
+
+        val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            store,
+            queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.FAILED },
+            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            onClassified = { journal, status ->
+                GhostUpdateWorker.deferRecoveredTerminalEvent(supervisor, journal, status)
+            },
+        )
+
+        assertEquals(RecoveryResult.CompletedCommit, recovery)
+        assertNull(store.read().single().pendingGhostUpdateEvent)
     }
 
     @Test
@@ -2980,6 +3016,7 @@ class GhostUpdateRepositoryTest {
             files: List<String>,
             attemptId: AttemptId? = null,
             workManagerUuid: String? = null,
+            ghostId: String? = null,
         ) {
             GhostUpdateJournalStore.write(
                 File(transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
@@ -2992,6 +3029,7 @@ class GhostUpdateRepositoryTest {
                     files = files,
                     attemptId = attemptId,
                     workManagerUuid = workManagerUuid,
+                    ghostId = ghostId,
                 ),
             )
         }

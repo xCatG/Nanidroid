@@ -337,6 +337,7 @@ class GhostUpdateRepository internal constructor(
                     files = manifestFiles,
                     attemptId = request.attemptId,
                     workManagerUuid = request.workManagerUuid,
+                    ghostId = request.ghostId,
                 )
                 journalIo.write(journalFile, journal)
                 journalPersisted = true

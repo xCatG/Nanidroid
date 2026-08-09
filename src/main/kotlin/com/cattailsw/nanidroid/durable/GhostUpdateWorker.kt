@@ -301,15 +301,16 @@ class GhostUpdateWorker(
             status: OperationStatus,
         ) {
             val root = File(journal.ghostRoot).canonicalFile
+            val ghostId = journal.ghostId ?: return
             val event = when (status) {
                 OperationStatus.COMPLETED -> GhostUpdateTerminalEvent(
-                    root.name,
+                    ghostId,
                     root.path,
                     "OnUpdateComplete",
                     listOf("changed", journal.files.joinToString(",")),
                 )
                 OperationStatus.FAILED -> GhostUpdateTerminalEvent(
-                    root.name,
+                    ghostId,
                     root.path,
                     "OnUpdateFailure",
                     listOf("ghost update recovery failed", journal.files.joinToString(",")),
