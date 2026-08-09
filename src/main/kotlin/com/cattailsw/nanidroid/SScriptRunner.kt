@@ -51,6 +51,7 @@ internal class MainLooperSScriptLifecycleDispatcher(
 internal data class SScriptPlaybackHooks(
     val afterRunPrepared: () -> Unit = {},
     val afterRunClaimed: () -> Unit = {},
+    val beforeTimerResponseAdmission: () -> Unit = {},
     val afterStopClaimed: () -> Unit = {},
     val afterSurfaceChangeCaptured: () -> Unit = {},
     val afterInputEffectCaptured: () -> Unit = {},
@@ -895,9 +896,19 @@ open class SScriptRunner internal constructor(
             }
             val method = if (wasIdle) ShioriMethod.GET else ShioriMethod.NOTIFY
             val response = target.requestRaw(method, event, listOf(uptimeHours.toString(), "0", "0", if (wasIdle) "1" else "0"))
-            if (wasIdle && timerResponseIsEligible(target, capturedGeneration)) {
-                parseShioriResponseAndInsert(response)
+            if (!wasIdle) return@withCurrentGhost
+            val value = response.takeIf { it.getStatusCode() == 200 }?.getKey("Value") ?: return@withCurrentGhost
+            playbackHooks.beforeTimerResponseAdmission()
+            val shouldRun = synchronized(this) {
+                if (!timerResponseIsEligible(target, capturedGeneration)) {
+                    false
+                } else {
+                    msgQueue.add(value)
+                    runtimeModeGeneration++
+                    !playback.running
+                }
             }
+            if (shouldRun) run()
         }
     }
     private fun perClockEvent() {
@@ -1194,11 +1205,11 @@ open class SScriptRunner internal constructor(
     private fun isPinnedDialogueGhost(target: Ghost): Boolean =
         synchronized(this) { g === target } && sessionCoordinator.withGhostGate(target) { it }
 
-    private fun timerResponseIsEligible(target: Ghost, capturedGeneration: Long): Boolean = synchronized(this) {
+    /** Called with the runner lock held; withCurrentGhost keeps the target session live. */
+    private fun timerResponseIsEligible(target: Ghost, capturedGeneration: Long): Boolean =
         runtimeModeSnapshot().canTalk &&
             runtimeModeGeneration == capturedGeneration &&
-            isPinnedDialogueGhost(target)
-    }
+            g === target
 
     private fun enqueueLocalDialogueScript(claim: () -> Boolean, script: String) {
         var shouldRun = false

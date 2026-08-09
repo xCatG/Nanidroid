@@ -200,6 +200,35 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
+    fun timerGetDoesNotPlayWhenInteractionFinishesAfterEligibilityCheck() {
+        lateinit var runner: SScriptRunner
+        val hooks = SScriptPlaybackHooks(
+            beforeTimerResponseAdmission = {
+                runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
+                runner.run()
+            },
+        )
+        runner = SScriptRunner(
+            null,
+            GhostSessionCoordinator(),
+            FakeClock(1_000L),
+            playbackHooks = hooks,
+        )
+        runner.setNoWaitMode(true)
+        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
+            rawResponses += talk("\\hStaleTimer\\e")
+        }
+        runner.setGhost(ghost)
+
+        runner.dispatchClockTickForTesting()
+
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Intervening")))),
+            runner.dialogueStateSnapshot().contents,
+        )
+    }
+
+    @Test
     fun timerGetPlaysWhenIdleEligibilityNeverChanges() {
         val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
         runner.setNoWaitMode(true)
@@ -1093,11 +1122,13 @@ class SScriptRunnerBootDispatchTest {
     ) : RecordingGhost(ghostId, ghostName, createCount, trace) {
         val rawRequests = mutableListOf<String>()
         val rawResponses = ArrayDeque<ShioriResponse>()
+        var rawResponseHook: (() -> Unit)? = null
         val eventRequests = mutableListOf<String>()
         var eventRequestHook: ((String) -> Unit)? = null
 
         override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
             rawRequests += "$method:$eventId:$references"
+            rawResponseHook?.invoke()
             return rawResponses.removeFirstOrNull() ?: ShioriResponse("SHIORI/3.0 204 No Content")
         }
 
