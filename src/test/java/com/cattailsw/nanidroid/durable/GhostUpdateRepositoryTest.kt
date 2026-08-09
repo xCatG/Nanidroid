@@ -1651,11 +1651,11 @@ class GhostUpdateRepositoryTest {
             store.read().single().pendingGhostUpdateEvent,
         )
         assertTrue(fixture.transactionRoot().exists())
-        assertFalse(
-            GhostUpdateJournalStore.read(
-                File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
-            ).phase == CommitPhase.PREPARED,
+        val retainedJournal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
         )
+        assertEquals(CommitPhase.NO_CHANGES_PENDING, retainedJournal.phase)
+        assertEquals("ghost-id", retainedJournal.ghostId)
 
         assertEquals(
             RecoveryResult.NoChangesCommit,
@@ -3168,7 +3168,7 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `no-change recovery cleanup retains its journal after partial deletion`() {
+    fun `no-change recovery cleanup removes authenticated residual files`() {
         val fixture = fixture("no-change-recovery-partial-cleanup")
         fixture.writeTransaction("candidate/ghost/tmp.txt", "stale")
         fixture.writeTransaction("residual", "blocks root delete")
@@ -3177,7 +3177,7 @@ class GhostUpdateRepositoryTest {
         val journalFile = File(transaction, GhostUpdateJournalStore.FILE_NAME)
         val journal = GhostUpdateJournalStore.read(journalFile)
 
-        assertFalse(
+        assertTrue(
             GhostUpdateRepository.cleanNoChangesRecoveryTransaction(
                 transaction,
                 journalFile,
@@ -3185,7 +3185,7 @@ class GhostUpdateRepositoryTest {
                 File(transaction, "candidate"),
             ),
         )
-        assertEquals(CommitPhase.NO_CHANGES_PENDING, GhostUpdateJournalStore.read(journalFile).phase)
+        assertFalse(transaction.exists())
     }
 
     @Test

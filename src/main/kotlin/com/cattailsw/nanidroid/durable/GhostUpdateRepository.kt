@@ -935,6 +935,7 @@ class GhostUpdateRepository internal constructor(
 
     private fun preparedJournal(transactionRoot: File, request: GhostUpdateRequest) = GhostUpdateJournal(
         operationId = request.operationId,
+        ghostId = request.ghostId,
         ghostRoot = request.ghostRoot.canonicalPath,
         candidateRoot = File(transactionRoot, CANDIDATE).canonicalPath,
         backupRoot = File(transactionRoot, BACKUP).canonicalPath,
@@ -2006,9 +2007,17 @@ class GhostUpdateRepository internal constructor(
             journalFile: File,
             journal: GhostUpdateJournal,
             candidate: File,
-            journalIo: GhostUpdateJournalIo = GhostUpdateJournalIo.DEFAULT,
+        journalIo: GhostUpdateJournalIo = GhostUpdateJournalIo.DEFAULT,
         ): Boolean {
             if (candidate.exists() && !candidate.deleteRecursively()) return false
+            if (transactionRoot.exists()) {
+                val journalPath = journalFile.canonicalPath
+                val residuals = transactionRoot.listFiles() ?: return false
+                if (residuals.any { residual ->
+                        residual.canonicalPath != journalPath && !residual.deleteRecursively()
+                    }
+                ) return false
+            }
             if (!journalFile.delete() && journalFile.exists()) return false
             if (!transactionRoot.exists() || transactionRoot.delete()) return true
             journalIo.write(journalFile, journal)
