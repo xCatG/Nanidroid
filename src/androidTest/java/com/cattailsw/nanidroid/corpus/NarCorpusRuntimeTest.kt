@@ -102,6 +102,7 @@ class NarCorpusRuntimeTest {
                 .put("status", 200)
                 .put("outcome", "success")
                 .put("value", "playable")
+                .put("choiceIds", JSONArray().put("faq"))
         }
 
         assertEquals(
@@ -131,6 +132,23 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun snakeBootLifecycleDoesNotProbeFaqWhenInputDoesNotExposeFaqChoice() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("choiceIds", JSONArray())
+        }
+
+        assertEquals(listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach"), requests)
+    }
+
+    @Test
     fun snakeBootLifecycleRetainsFailedPrimaryAndFallbackChoiceEvidence() {
         val requests = mutableListOf<Pair<String, List<String>>>()
 
@@ -142,6 +160,7 @@ class NarCorpusRuntimeTest {
                 .put("status", if (primaryIsUnplayable) 204 else 200)
                 .put("outcome", "success")
                 .put("value", if (primaryIsUnplayable) "" else "playable")
+                .put("choiceIds", JSONArray().put("faq"))
         }
 
         assertEquals(
@@ -942,7 +961,11 @@ class NarCorpusRuntimeTest {
         if (firstChoice.optString("outcome") == "success") {
             val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE, ""))
             sequence.put(input)
-            if (input.optString("outcome") == "success") {
+            val inputChoiceIds = input.optJSONArray("choiceIds")
+            val inputExposesFaq = inputChoiceIds?.let { choiceIds ->
+                (0 until choiceIds.length()).any { choiceIds.optString(it) == SNAKE_FAQ_ID }
+            } == true
+            if (input.optInt("status", -1) == 200 && input.optString("value").isNotEmpty() && inputExposesFaq) {
                 probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
             }
         }
