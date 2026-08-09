@@ -639,7 +639,11 @@ open class SScriptRunner internal constructor(
 
     /** Consumes exactly one bracket command; a later input command must remain for the next step. */
     private fun consumeOpenInputCommand(remaining: String): OpenInputCommand? {
-        if (!remaining.startsWith("[open,inputbox,")) return null
+        val prefix = when {
+            remaining.startsWith("[open,inputbox,") -> "[open,inputbox,"
+            remaining.startsWith("[open,passwordinput,") -> "[open,passwordinput,"
+            else -> return null
+        }
         var quote: Char? = null
         var escaped = false
         var depth = 0
@@ -661,7 +665,7 @@ open class SScriptRunner internal constructor(
             }
         }
         if (end < 0) return null
-        val payload = remaining.substring("[open,inputbox,".length, end)
+        val payload = remaining.substring(prefix.length, end)
         quote = null
         escaped = false
         var separator = payload.length

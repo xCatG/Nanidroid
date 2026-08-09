@@ -8,6 +8,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.InputPersistence
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.shiori.Shiori
@@ -255,6 +256,38 @@ class SScriptRunnerPresentationTest {
             pending,
             DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
                 .pendingInput(GhostSpeaker.SAKURA),
+        )
+    }
+
+    @Test
+    fun passwordInputPausesLivePlaybackWithItsTypedOptionsAndOwner() {
+        val fixture = fixture(responses = emptyList())
+        val shownInputIds = mutableListOf<String>()
+        fixture.runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) {
+                shownInputIds += id
+            }
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+
+        fixture.runner.addMsgToQueue(
+            arrayOf("\\hBefore\\![open,passwordinput,secret,--text=shh,--option=noclose,--limit=3]\\hAfter\\e"),
+        )
+        fixture.runner.run()
+
+        val pending = requireNotNull(fixture.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertEquals(listOf("secret"), shownInputIds)
+        Assert.assertEquals(InputPresentation.Password, pending.spec.presentation)
+        Assert.assertEquals("shh", pending.spec.initialText)
+        Assert.assertEquals(3, pending.spec.maximumLength)
+        Assert.assertEquals(InputPersistence.KEEP_OPEN, pending.spec.persistence)
+        Assert.assertEquals(GhostSpeaker.SAKURA, pending.owner)
+        Assert.assertEquals(
+            listOf(DialogueSegment.Text("Before"), DialogueSegment.InputBox(pending.spec)),
+            DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
+                .content(GhostSpeaker.SAKURA)
+                .segments,
         )
     }
 
