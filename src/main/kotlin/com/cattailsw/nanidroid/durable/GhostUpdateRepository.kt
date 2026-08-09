@@ -280,7 +280,9 @@ class GhostUpdateRepository internal constructor(
 
             val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
             if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
-                fileOperations.deleteTree(transactionRoot)
+                if (!fileOperations.deleteTree(transactionRoot)) {
+                    return failed("cannot clean no-change update transaction", emptyList())
+                }
                 events.noChanges()
                 return GhostUpdateResult.NoChanges
             }
@@ -844,7 +846,7 @@ class GhostUpdateRepository internal constructor(
     ): Boolean {
         val parent = transactionRoot.parentFile ?: return false
         val staging = try {
-            File.createTempFile(".nanidroid-staging-", null, parent).also { file ->
+            File.createTempFile(STAGING_PREFIX, null, parent).also { file ->
                 if (!file.delete() || !file.mkdir()) throw IOException("cannot create update staging")
             }
         } catch (_: IOException) {
@@ -1043,6 +1045,7 @@ class GhostUpdateRepository internal constructor(
             classify: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, _ -> false },
         ): RecoveryResult {
             val canonicalStorage = ghostStorageRoot.canonicalFile
+            sweepUnpublishedStaging(canonicalStorage)
             val target = targetGhostRoot?.canonicalFile
             val journals = if (target != null) {
                 if (target.parentFile != canonicalStorage) {
@@ -1232,6 +1235,27 @@ class GhostUpdateRepository internal constructor(
                     }
                 }
                 .toSet()
+        }
+
+        /**
+         * A staging directory has not published a transaction name or journal yet. It is
+         * therefore never an active transaction and can only be residue from an interrupted
+         * createOwnedTransactionRoot call. Keep this prefix disjoint from TRANSACTION_PREFIX so
+         * recovery never removes a published transaction while sweeping it.
+         */
+        private fun sweepUnpublishedStaging(storage: File) {
+            storage.listFiles().orEmpty()
+                .filter { entry ->
+                    entry.name.startsWith(STAGING_PREFIX) &&
+                        entry.parentFile?.canonicalFile == storage
+                }
+                .forEach { staging ->
+                    if (Files.isSymbolicLink(staging.toPath())) {
+                        staging.delete()
+                    } else {
+                        staging.deleteRecursively()
+                    }
+                }
         }
 
         private fun canBootPreparedOldLive(ghostRoot: File): Boolean {
@@ -1742,5 +1766,6 @@ class GhostUpdateRepository internal constructor(
         private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
         private const val TRANSACTION_PREFIX = ".nanidroid-update-"
+        private const val STAGING_PREFIX = ".nanidroid-staging-"
     }
 }

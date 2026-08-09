@@ -318,6 +318,37 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `startup recovery sweeps unpublished staging left by process death`() {
+        val fixture = fixture("unpublished-staging-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        var staging: File? = null
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                staging = source
+                return false
+            }
+
+            override fun deleteTree(root: File): Boolean {
+                if (root == staging) throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The staging directory is intentionally left behind as process-death residue.
+        }
+
+        val abandoned = requireNotNull(staging)
+        assertTrue(abandoned.exists())
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+        assertFalse(abandoned.exists())
+    }
+
+    @Test
     fun `system interruption during manifest download or digest is retryable and keeps live tree`() {
         listOf("prefetch", "manifest", "download", "digest").forEach { phase ->
             val fixture = fixture("system-interruption-$phase")
@@ -1070,6 +1101,37 @@ class GhostUpdateRepositoryTest {
         assertBytes("same", File(fixture.ghostRoot, "ghost/master.txt"))
         assertFalse(fixture.transactionRoot().exists())
         assertFalse(fixture.network.openedPaths.drop(1).contains("ghost/master.txt"))
+    }
+
+    @Test
+    fun `failed no-change cleanup retains a prepared journal that an exact retry clears`() {
+        val fixture = fixture("no-change-cleanup-failure")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        val request = fixture.request().copy(attemptId = AttemptId(9), workManagerUuid = "work-9")
+        var failCleanup = true
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (failCleanup && root.canonicalFile == fixture.transactionRoot().canonicalFile) {
+                    return false
+                }
+                return root.deleteRecursively()
+            }
+        }
+        val repository = fixture.repository(fileOperations = fileOperations)
+
+        assertTrue(repository.run(request) { false } is GhostUpdateResult.Failed)
+        val journal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        )
+        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+
+        failCleanup = false
+
+        assertEquals(GhostUpdateResult.NoChanges, repository.run(request) { false })
+        assertFalse(fixture.transactionRoot().exists())
+        assertBytes("same", File(fixture.ghostRoot, "ghost/master.txt"))
     }
 
     @Test
