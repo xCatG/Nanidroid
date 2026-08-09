@@ -1980,7 +1980,7 @@ catch { $script:runFailure=$_.Exception.Message }
 finally {
     if(-not$script:adbTransportDead){
         try{Restore-DeviceState $script:originalState}catch{$script:cleanupErrors.Add($_.Exception.Message)|Out-Null}
-        if($installed){foreach($package in @($targetPackage,$testPackage)){try{Invoke-Adb @('uninstall',$package) 120 -AllowFailure|Out-Null}catch{$script:cleanupErrors.Add("Uninstall $package failed: $($_.Exception.Message)")|Out-Null}}}
+        if($installed){foreach($package in @($targetPackage,$testPackage)){try{$uninstall=Invoke-Adb @('uninstall',$package) 120 -AllowFailure;if($uninstall.exitCode-ne 0-or$uninstall.output.Trim()-ne'Success'){throw "exit=$($uninstall.exitCode) output=$($uninstall.output.Trim()) error=$($uninstall.error.Trim())"};$packagePath=Invoke-Adb @('shell','pm','path',$package) 30 -AllowFailure;if($packagePath.output-match'(?m)^package:'){throw 'package remains installed after uninstall'}}catch{$script:cleanupErrors.Add("Uninstall $package failed: $($_.Exception.Message)")|Out-Null}}}
         if($null-ne$script:ownedEmulator){try{Invoke-Adb @('emu','kill') 30 -AllowFailure|Out-Null}catch{$script:cleanupErrors.Add("Emulator stop failed: $($_.Exception.Message)")|Out-Null}}
     }
     if($null-ne$script:ownedEmulator){try{if(-not(Stop-OwnedProcessTree -Process $script:ownedEmulator -ExpectedStartTimeUtcTicks $script:ownedEmulatorStartTimeUtcTicks)){$script:cleanupErrors.Add('Owned emulator process tree did not stop cleanly.')|Out-Null}}catch{$script:cleanupErrors.Add("Owned emulator process-tree stop failed: $($_.Exception.Message)")|Out-Null}finally{$script:ownedEmulator.Dispose()}}
