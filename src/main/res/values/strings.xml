@@ -101,6 +101,8 @@
   <string name="debug_surface_title">Ghost debug</string>
   <string name="debug_surface_selected_speaker_label">Selected speaker: %1$s</string>
   <string name="debug_surface_speaker_label">Speaker</string>
+  <string name="debug_surface_sakura_speaker_label">Sakura side</string>
+  <string name="debug_surface_kero_speaker_label">Kero side</string>
   <string name="debug_surface_surface_section_title">Surface details</string>
   <string name="debug_surface_surface_id_label">Surface ID</string>
   <string name="debug_surface_scope_label">Scope</string>
@@ -120,7 +122,7 @@
   <string name="debug_surface_pointer_source_label">Source</string>
   <string name="debug_surface_pointer_candidate_event_label">Candidate event</string>
   <string name="debug_surface_pointer_dispatch_outcome_label">Dispatch outcome</string>
-  <string name="debug_surface_pointer_dispatch_not_resolved">Not resolved</string>
+  <string name="debug_surface_pointer_dispatch_not_resolved">Not dispatched</string>
   <string name="debug_surface_pointer_dispatch_rejected">Rejected</string>
   <string name="debug_surface_pointer_dispatch_accepted">Accepted</string>
   <string name="debug_surface_pointer_speaker_label">Speaker</string>
@@ -129,7 +131,7 @@
   <string name="debug_surface_nar_test_button">Run SakuraScript sample</string>
   <string name="debug_surface_sample_queued">Sample queued</string>
   <string name="debug_surface_pointer_scope_label">Input scope</string>
-  <string name="debug_surface_shiori_section_title">Bounded SHIORI log</string>
+  <string name="debug_surface_shiori_section_title">Recent SHIORI log</string>
   <string name="debug_surface_empty_log">No SHIORI events yet.</string>
   <string name="debug_surface_empty_value">—</string>
   <string name="debug_surface_value_true">Yes</string>

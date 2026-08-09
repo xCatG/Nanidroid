@@ -353,9 +353,9 @@ private fun GhostDebugSurfaceContent(
     onDismiss: () -> Unit,
 ) {
     val selectedSpeakerText = if (state.selectedSpeaker == SurfaceSpeaker.SAKURA) {
-        stringResource(R.string.sakura_character_description)
+        stringResource(R.string.debug_surface_sakura_speaker_label)
     } else {
-        stringResource(R.string.kero_character_description)
+        stringResource(R.string.debug_surface_kero_speaker_label)
     }
     val collisionOverlayLabel = stringResource(R.string.debug_surface_collision_overlay_toggle)
     val narLabel = stringResource(R.string.debug_surface_nar_test_button)
