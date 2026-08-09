@@ -849,21 +849,22 @@ class GhostUpdateRepository internal constructor(
         return try {
             val candidateRoot = File(transactionRoot, CANDIDATE)
             val journalFile = File(transactionRoot, GhostUpdateJournalStore.FILE_NAME)
+            val journal = GhostUpdateJournal(
+                operationId = request.operationId,
+                ghostRoot = request.ghostRoot.canonicalPath,
+                candidateRoot = candidateRoot.canonicalPath,
+                backupRoot = File(transactionRoot, BACKUP).canonicalPath,
+                phase = CommitPhase.PREPARED,
+                files = emptyList(),
+                attemptId = request.attemptId,
+                workManagerUuid = request.workManagerUuid,
+            )
             journalIo.write(
                 journalFile,
-                GhostUpdateJournal(
-                    operationId = request.operationId,
-                    ghostRoot = request.ghostRoot.canonicalPath,
-                    candidateRoot = candidateRoot.canonicalPath,
-                    backupRoot = File(transactionRoot, BACKUP).canonicalPath,
-                    phase = CommitPhase.PREPARED,
-                    files = emptyList(),
-                    attemptId = request.attemptId,
-                    workManagerUuid = request.workManagerUuid,
-                ),
+                journal,
             )
             if (fileOperations.deleteTree(candidateRoot) && journalFile.delete()) {
-                transactionRoot.delete()
+                if (!transactionRoot.delete()) journalIo.write(journalFile, journal)
             }
             GhostUpdateResult.Cancelled
         } catch (error: Exception) {

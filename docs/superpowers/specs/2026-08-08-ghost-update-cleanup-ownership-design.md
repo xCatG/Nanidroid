@@ -13,25 +13,26 @@ cancellation.
 The source of truth is the existing `journal.v1` in the exact transaction root
 derived from the canonical ghost root and operation ID. It carries the same
 operation ID, attempt ID, and WorkManager UUID as the request. A cleanup-only
-record uses the existing `PREPARED` phase: the topology is `LIVE_CANDIDATE`, so
-the existing exact-identity cancelled rollback path is already the correct
-idempotent cleanup operation.
+record uses the existing `PREPARED` phase: the topology is `LIVE_CANDIDATE`
+while candidate cleanup is incomplete, or `LIVE_ONLY` after candidate deletion
+but before journal/root cleanup completes. The existing exact-identity
+cancelled rollback path handles both idempotently.
 
 | Event | Persist first | Then | Replay |
 | --- | --- | --- | --- |
-| User cancellation; staging delete succeeds | Nothing | Delete exact transaction root; terminal `Cancelled` | No evidence remains |
-| User cancellation; staging delete fails | `PREPARED` journal for exact request | Return `Cancelled` while retaining staging | Classify exact cancelled attempt, remove only transaction root |
+| User cancellation | `PREPARED` journal for exact request | Delete the exact candidate, then journal and transaction root; terminal `Cancelled` | `LIVE_CANDIDATE` or `LIVE_ONLY` evidence remains retryable until cleanup completes |
 | System interruption; staging delete fails | Nothing new | Return `Interrupted` | Worker retry repeats its attempt; no user-terminal state is manufactured |
 | Journal recovery with stale/mismatched identity | Existing validation | Leave evidence blocked | Fail closed; do not delete |
 
 ## Ownership and safety
 
-Only `transactionRoot(ghostRoot, operationId)` is deleted. The live ghost,
-other operation directories, and unrelated storage are never cleanup targets.
-The journal is written only after the initial delete has reported failure, so
-normal cancellation adds no persistence work. A journal-write failure returns
-a non-terminal failure, retaining both the staging directory and the durable
-record for diagnosis rather than claiming cancellation is clean.
+Only `transactionRoot(ghostRoot, operationId)` is deleted, with candidate
+cleanup scoped to that transaction. The live ghost, other operation
+directories, and unrelated storage are never cleanup targets. The journal is
+written before candidate deletion and restored if final transaction-root
+deletion fails. A journal-write failure returns a non-terminal failure,
+retaining both the staging directory and the durable record for diagnosis
+rather than claiming cancellation is clean.
 
 ## Simplification
 
