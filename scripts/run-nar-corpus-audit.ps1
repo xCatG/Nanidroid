@@ -926,6 +926,8 @@ function Start-OwnedJobProcess {
         $argumentText = (Format-ProcessArguments -Arguments $Arguments) -join ' '
         $commandLine = '"' + $FilePath + '"' + $(if ($argumentText) { ' ' + $argumentText } else { '' })
         $nativeProcess = [Nanidroid.CorpusAudit.OwnedJobLauncher]::Start($FilePath, $commandLine, $WorkingDirectory, $stdoutPath, $stderrPath)
+        $process = [Diagnostics.Process]::GetProcessById($nativeProcess.ProcessId)
+        [Nanidroid.CorpusAudit.OwnedJobLauncher]::Resume($nativeProcess)
         if ($TestProcessObjectAcquisitionFailureReadyPath) {
             $readyDeadline = (Get-Date).AddSeconds(10)
             while (-not (Test-Path -LiteralPath $TestProcessObjectAcquisitionFailureReadyPath -PathType Leaf)) {
@@ -936,8 +938,6 @@ function Start-OwnedJobProcess {
             }
             throw [InvalidOperationException]::new('Test process-object acquisition failure.')
         }
-        $process = [Diagnostics.Process]::GetProcessById($nativeProcess.ProcessId)
-        [Nanidroid.CorpusAudit.OwnedJobLauncher]::Resume($nativeProcess)
         return [pscustomobject]@{
             process = $process
             nativeProcess = $nativeProcess
