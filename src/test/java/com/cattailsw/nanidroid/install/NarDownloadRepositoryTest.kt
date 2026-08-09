@@ -849,6 +849,28 @@ class NarDownloadRepositoryTest {
         assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
     }
 
+    @Test fun persistedReplacementFromAttentionReservesBeforeAcquiringItsGrant() {
+        val item = store.create(
+            NarDownload(
+                id = "attention-persisted-replacement",
+                source = NarDownloadSource.Local("content://provider/old.nar"),
+                retainedUri = "content://provider/old.nar",
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("retry required")),
+            ),
+        )
+        val replacementSource = "content://provider/reselected.nar"
+
+        val replacement = repository.replaceWithPersistedLocalSource(item.id, replacementSource) {
+            val reserved = store.get(item.id)!!
+            assertEquals(NarDownloadState.Queued, reserved.state)
+            assertEquals(replacementSource, reserved.pendingPersistedGrantReleaseUri)
+            true
+        }
+
+        assertNotNull(replacement)
+        assertEquals(replacementSource, replacement!!.retainedUri)
+    }
+
     @Test fun failedPersistedReplacementPreservesAnOlderRecordGrantCleanup() {
         val source = "content://provider/older-record-cleanup.nar"
         val item = repository.enqueueLocal(source, source)

@@ -583,7 +583,7 @@ class NarDownloadRepository internal constructor(
         uri: String,
         acquireGrant: () -> Boolean,
     ): NarDownload? {
-        val alreadyReserved = store.get(itemId)?.pendingPersistedGrantReleaseUri == uri
+        val previous = store.get(itemId) ?: return null
         val reserved = store.update(itemId) { current ->
             if (
                 current.source is NarDownloadSource.Local &&
@@ -591,21 +591,22 @@ class NarDownloadRepository internal constructor(
                 (current.pendingPersistedGrantReleaseUri == null ||
                     current.pendingPersistedGrantReleaseUri == uri)
             ) {
-                current.copy(pendingPersistedGrantReleaseUri = uri)
+                current.copy(
+                    pendingPersistedGrantReleaseUri = uri,
+                    state = if (current.state is NarDownloadState.NeedsAttention) {
+                        NarDownloadState.Queued
+                    } else {
+                        current.state
+                    },
+                )
             } else {
                 current
             }
         } ?: return null
         if (reserved.pendingPersistedGrantReleaseUri != uri) return null
         if (!acquireGrant()) {
-            if (!alreadyReserved) {
-                store.update(itemId) { current ->
-                    if (current.pendingPersistedGrantReleaseUri == uri) {
-                        current.copy(pendingPersistedGrantReleaseUri = null)
-                    } else {
-                        current
-                    }
-                }
+            store.update(itemId) { current ->
+                if (current == reserved) previous else current
             }
             return null
         }
