@@ -44,6 +44,7 @@ import com.cattailsw.nanidroid.compose.debug.PointerDispatchOutcome
 import com.cattailsw.nanidroid.compose.debug.SurfacePointerDebugEvent
 import com.cattailsw.nanidroid.compose.debug.collisionOverlaySpeaker
 import com.cattailsw.nanidroid.compose.debug.dismissDebugSurface
+import com.cattailsw.nanidroid.compose.debug.showCollisionOverlayOnStage
 import com.cattailsw.nanidroid.compose.debug.debugSelection
 import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
 import com.cattailsw.nanidroid.compose.debug.recordSampleFeedback
@@ -519,6 +520,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                                 },
                                 onDismiss = {
                                     debugPanelState = debugPanelState.dismissDebugSurface()
+                                },
+                                onShowCollisionOverlayOnStage = {
+                                    debugPanelState = debugPanelState.showCollisionOverlayOnStage()
                                 },
                             )
                         }

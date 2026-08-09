@@ -234,6 +234,39 @@ class GhostDebugSurfaceTest {
     }
 
     @Test
+    fun fullStageCollisionInspectionDismissesModalWhileKeepingEnabledOverlay() {
+        val panel = mutableStateOf(DebugPanelState(visible = true))
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = panel.value,
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = { panel.value = panel.value.copy(showCollisionOverlay = it) },
+                onShowCollisionOverlayOnStage = {
+                    panel.value = panel.value.showCollisionOverlayOnStage()
+                },
+                onNarTest = {},
+                onDismiss = {},
+            )
+        }
+
+        assertNoNodeWithTag(GHOST_DEBUG_SURFACE_SHOW_ON_STAGE_TAG)
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_COLLISION_SWITCH_TAG)
+            .performScrollTo()
+            .performClick()
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SHOW_ON_STAGE_TAG)
+            .performScrollTo()
+            .performClick()
+        composeRule.waitForIdle()
+        assertNoNodeWithTag(GHOST_DEBUG_SURFACE_FULL_STAGE_MODAL_TAG)
+        composeRule.runOnIdle { assertEquals(true, panel.value.showCollisionOverlay) }
+    }
+
+    @Test
     fun debug_surface_shows_resolved_candidate_and_rejected_dispatch_outcome() {
         val selection = SurfaceDebugSelection(
             speaker = SurfaceSpeaker.SAKURA,
