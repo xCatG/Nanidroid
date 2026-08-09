@@ -380,6 +380,42 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `startup recovery sweeps owned staging left before journal creation begins`() {
+        val fixture = fixture("pre-journal-staging-recovery")
+        fixture.writeLive("ghost/master.txt", "old")
+        var staging: File? = null
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                staging = file.parentFile
+                throw IOException("process died before the first journal write")
+            }
+
+            override fun read(file: File) = GhostUpdateJournalStore.read(file)
+        }
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root == staging) throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(journalIo = journalIo, fileOperations = fileOperations).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The owner dies after creating its reserved staging root but before a journal exists.
+        }
+
+        val abandoned = requireNotNull(staging)
+        assertTrue(abandoned.exists())
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+
+        assertFalse(abandoned.exists())
+        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `startup recovery never sweeps an installed ghost whose id uses the staging prefix`() {
         val storage = temporaryDirectory("staging-prefix-ghost")
         val ghost = File(storage, ".nanidroid-staging-valid-ghost").apply { mkdirs() }

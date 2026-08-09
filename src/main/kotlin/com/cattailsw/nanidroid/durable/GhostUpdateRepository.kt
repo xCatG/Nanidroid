@@ -844,14 +844,17 @@ class GhostUpdateRepository internal constructor(
         transactionRoot: File,
         request: GhostUpdateRequest,
     ): Boolean {
-        val parent = transactionRoot.parentFile ?: return false
-        val staging = try {
-            File.createTempFile(STAGING_PREFIX, null, parent).also { file ->
-                if (!file.delete() || !file.mkdir()) throw IOException("cannot create update staging")
+        if (transactionRoot.parentFile == null) return false
+        val staging = stagingRoot(transactionRoot)
+        if (staging.exists()) {
+            val removed = if (Files.isSymbolicLink(staging.toPath())) {
+                staging.delete()
+            } else {
+                fileOperations.deleteTree(staging)
             }
-        } catch (_: IOException) {
-            return false
+            if (!removed) return false
         }
+        if (!staging.mkdir()) return false
         return try {
             val candidateRoot = File(transactionRoot, CANDIDATE)
             journalIo.write(
@@ -1250,6 +1253,16 @@ class GhostUpdateRepository internal constructor(
                         entry.parentFile?.canonicalFile == storage
                 }
                 .forEach { staging -> sweepVerifiedUnpublishedStaging(storage, staging) }
+            storage.listFiles().orEmpty()
+                .filter { root ->
+                    root.isDirectory &&
+                        !root.name.startsWith(TRANSACTION_PREFIX) &&
+                        !root.name.startsWith(STAGING_PREFIX)
+                }
+                .forEach { root ->
+                    val expected = stagingRoot(transactionRoot(root, canonicalOperationIdFor(root)))
+                    if (expected.exists()) sweepIncompleteOwnedStaging(root, expected)
+                }
         }
 
         private fun sweepVerifiedUnpublishedStaging(storage: File, staging: File) {
@@ -1281,6 +1294,20 @@ class GhostUpdateRepository internal constructor(
                     journal.phase == CommitPhase.PREPARED &&
                     File(journal.candidateRoot).canonicalFile == File(transaction, CANDIDATE).canonicalFile &&
                     File(journal.backupRoot).canonicalFile == File(transaction, BACKUP).canonicalFile
+            }
+        }
+
+        /**
+         * The staging name is derived from its live root before that directory is created. This
+         * lets recovery prove and remove a process-death residue even when creation did not reach
+         * the first journal write; the root lock keeps an active creator from being swept.
+         */
+        private fun sweepIncompleteOwnedStaging(ghostRoot: File, staging: File) {
+            withGhostLock(ghostRoot) {
+                if (!staging.exists() || stagingJournalFor(ghostRoot.parentFile!!, staging) != null) {
+                    return@withGhostLock
+                }
+                if (Files.isSymbolicLink(staging.toPath())) staging.delete() else staging.deleteRecursively()
             }
         }
 
@@ -1717,6 +1744,11 @@ class GhostUpdateRepository internal constructor(
 
         private fun transactionRoot(ghostRoot: File, operationId: OperationId) =
             transactionRootFor(ghostRoot, operationId)
+
+        private fun stagingRoot(transactionRoot: File): File = File(
+            transactionRoot.parentFile,
+            "$STAGING_PREFIX${transactionRoot.name.removePrefix(TRANSACTION_PREFIX)}",
+        ).canonicalFile
 
         private fun requireDelete(file: File) {
             if (file.exists() && !file.deleteRecursively()) throw IOException("cannot clean update transaction")
