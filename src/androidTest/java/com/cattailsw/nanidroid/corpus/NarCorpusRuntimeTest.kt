@@ -873,7 +873,7 @@ class NarCorpusRuntimeTest {
         val firstChoice = probe("OnChoiceSelect", listOf(SNAKE_CHOICE_FIRST_HE_HIM_ID))
         sequence.put(firstChoice)
         if (firstChoice.optString("outcome") == "success") {
-            val input = probe("OnUserInput", listOf(SNAKE_NAME_TEACH_ID, SNAKE_NAME_TEACH_VALUE))
+            val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE))
             sequence.put(input)
             if (input.optString("outcome") == "success") {
                 sequence.put(probe("OnChoiceSelect", listOf(SNAKE_FAQ_ID)))
@@ -1067,7 +1067,7 @@ class NarCorpusRuntimeTest {
         eventId: String,
         references: List<String>,
     ): JSONArray {
-        if (eventId !in setOf("OnChoiceSelect", "OnChoiceSelectEx", "OnUserInput")) return JSONArray()
+        if (eventId !in setOf("OnChoiceSelect", "OnChoiceSelectEx", SNAKE_NAME_TEACH_ID)) return JSONArray()
         return JSONArray().put(
             JSONObject()
                 .put("ghostIdentity", shiori.getGhostIdentity())
@@ -1077,7 +1077,7 @@ class NarCorpusRuntimeTest {
                 .put("coordinates", JSONObject.NULL)
                 .put("identifier", references.firstOrNull() ?: JSONObject.NULL)
                 .put("button", JSONObject.NULL)
-                .put("source", if (eventId == "OnUserInput") "input" else "choice")
+                .put("source", if (eventId == SNAKE_NAME_TEACH_ID) "input" else "choice")
                 .put(
                     "references",
                     JSONArray().apply {
