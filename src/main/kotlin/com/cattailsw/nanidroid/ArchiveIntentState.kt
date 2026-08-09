@@ -1,5 +1,25 @@
 package com.cattailsw.nanidroid
 
+import com.cattailsw.nanidroid.runtime.dialogue.ActionOrigin
+import com.cattailsw.nanidroid.runtime.dialogue.GhostActionGuard
+import com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode
+import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
+
+/** The archive-import eligibility decision applied before the Activity receives archive state. */
+internal fun allowsArchiveIngress(runtimeMode: GhostRuntimeMode?): Boolean =
+    runtimeMode?.let {
+        GhostActionGuard(it).allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER)
+    } ?: true
+
+internal inline fun <T> resolveRunnerBeforeColdArchiveIngress(
+    resolveRunner: () -> T,
+    bindRunner: (T) -> Unit,
+    handleArchiveIngress: () -> Unit,
+) {
+    bindRunner(resolveRunner())
+    handleArchiveIngress()
+}
+
 /** Durable Activity state for archive intents that arrive before startup completes. */
 internal data class ArchiveIntentState(
     val consumedUri: String? = null,
