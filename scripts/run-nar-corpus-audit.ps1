@@ -893,6 +893,7 @@ function Start-OwnedJobProcess {
     Initialize-OwnedJobLauncher
     $stdoutPath = New-HostTempFile '.stdout'
     $stderrPath = New-HostTempFile '.stderr'
+    $nativeProcess = $null
     try {
         $argumentText = (Format-ProcessArguments -Arguments $Arguments) -join ' '
         $commandLine = '"' + $FilePath + '"' + $(if ($argumentText) { ' ' + $argumentText } else { '' })
@@ -2391,6 +2392,17 @@ if ($DryRun) {
         Remove-Item -LiteralPath $jobEarlyExitChildPath -Force -ErrorAction SilentlyContinue
     }
     Write-Host 'Dry-run job-owned timeout-tree cleanup probe passed.'
+    $jobLauncherFailureCaught = $false
+    try {
+        Start-OwnedJobProcess -FilePath (Join-Path $hostRunTmpRoot 'missing-owned-job-launcher.exe') -Arguments @() | Out-Null
+    }
+    catch {
+        $jobLauncherFailureCaught = $_.Exception.InnerException -is [ComponentModel.Win32Exception]
+    }
+    if (-not $jobLauncherFailureCaught) {
+        ThrowIf 'Dry-run owned-job launcher-failure probe did not preserve the launcher error.'
+    }
+    Write-Host 'Dry-run owned-job launcher-failure cleanup probe passed.'
     $jobLookupFailureChildPath = Join-Path $hostRunTmpRoot 'timeout-tree.job-lookup-failure-child'
     $jobLookupFailureCommand = @"
 `$child = Start-Process -FilePath '$($cmdPath.Replace("'", "''"))' -ArgumentList @('/c', 'timeout /t 60 /nobreak >nul') -PassThru
