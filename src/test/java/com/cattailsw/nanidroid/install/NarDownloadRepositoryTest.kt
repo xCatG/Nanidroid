@@ -1279,6 +1279,37 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operation.status)
     }
 
+    @Test fun reconciliationMakesUnboundLegacyInstallActionableAfterItsBoundAttemptAlreadyFailed() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-binding-terminal-crash-window",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "99999999-9999-9999-9999-999999999999"
+        val binding = ExternalJobBinding.WorkManager(legacyWorkManagerId)
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+        assertTrue(supervisor.start(item.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(supervisor.bindExternalJob(item.handle(), binding))
+        assertTrue(
+            supervisor.finish(
+                item.handle(),
+                binding,
+                OperationStatus.FAILED,
+                "Unable to schedule installation.",
+            ),
+        )
+
+        recreatedRepository().reconcile()
+
+        val recovered = store.get(item.id)!!
+        assertNull(recovered.workManagerId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
     @Test fun v1QueuedInstallMigrationRebindsLegacyWorkAcrossRestart() {
         assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("queued", NarDownloadState.Queued)
     }

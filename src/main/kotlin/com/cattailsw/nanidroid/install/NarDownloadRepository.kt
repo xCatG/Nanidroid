@@ -1011,6 +1011,10 @@ class NarDownloadRepository internal constructor(
             "Installing archive",
             0L,
         )
+        if (!started && supervisor.isFailedAttempt(handle, OperationKind.NAR_INSTALL)) {
+            markNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
+            return
+        }
         if (item.workManagerId == null) {
             when (val legacy = rebindActiveLegacyInstallWork(item, handle)) {
                 is LegacyInstallRebinding.Rebound -> {
