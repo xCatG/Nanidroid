@@ -33,6 +33,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 candidate.copy(
                     source = current.source,
                     retainedUri = current.retainedUri,
+                    pendingPersistedGrantReleaseUri = current.pendingPersistedGrantReleaseUri,
                     downloadManagerId = current.downloadManagerId,
                     workManagerId = current.workManagerId,
                 )
@@ -92,7 +93,8 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
     private companion object {
         const val PREFERENCES = "nar-download-queue"
         const val RECORDS = "records-v1"
-        const val VERSION = "v2"
+        const val VERSION = "v3"
+        const val PREVIOUS_VERSION = "v2"
         const val LEGACY_VERSION = "v1"
         val operationLock = Any()
         val encoder = Base64.getUrlEncoder().withoutPadding()
@@ -123,23 +125,27 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 append('\t').append(download.createdAtMillis)
                 append('\t').append(download.attemptId)
                 append('\t').append(encoded(download.workManagerId))
+                append('\t').append(encoded(download.pendingPersistedGrantReleaseUri))
             }
         }
 
         fun decode(value: String?): MutableMap<String, NarDownload> {
             if (value.isNullOrEmpty()) return linkedMapOf()
-            val version = value.lineSequence().firstOrNull()
-            if (version != VERSION && version != LEGACY_VERSION) return linkedMapOf()
+            val version = value.lineSequence().firstOrNull() ?: return linkedMapOf()
+            if (version !in setOf(VERSION, PREVIOUS_VERSION, LEGACY_VERSION)) return linkedMapOf()
             return linkedMapOf<String, NarDownload>().apply {
                 value.lineSequence().drop(1).forEach { line ->
-                    decodeRecord(line, version == VERSION)?.let { put(it.id, it) }
+                    decodeRecord(line, version)?.let { put(it.id, it) }
                 }
             }
         }
 
-        fun decodeRecord(line: String, currentVersion: Boolean = true): NarDownload? = try {
+        fun decodeRecord(line: String, version: String): NarDownload? = try {
             val fields = line.split('\t')
-            if (currentVersion && fields.size != 10) return null
+            val currentVersion = version != LEGACY_VERSION
+            val hasPendingGrantCleanup = version == VERSION
+            if (hasPendingGrantCleanup && fields.size != 11) return null
+            if (!hasPendingGrantCleanup && currentVersion && fields.size != 10) return null
             if (!currentVersion && fields.size !in 6..8) return null
             val hasDownloadManagerId = fields.size >= 7
             val stateIndex = if (hasDownloadManagerId) 5 else 4
@@ -170,6 +176,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 id = decoded(fields[0]) ?: return null,
                 source = source,
                 retainedUri = decoded(fields[3]),
+                pendingPersistedGrantReleaseUri = if (hasPendingGrantCleanup) decoded(fields[10]) else null,
                 downloadManagerId = downloadManagerId,
                 workManagerId = if (currentVersion) decoded(fields[9]) else null,
                 createdAtMillis = fields.getOrNull(7)?.toLongOrNull() ?: 0,

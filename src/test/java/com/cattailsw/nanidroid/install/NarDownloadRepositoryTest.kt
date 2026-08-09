@@ -651,6 +651,53 @@ class NarDownloadRepositoryTest {
         assertEquals(1, ownedData.releasedUris.count { it == source })
     }
 
+    @Test fun deletingStagedDocumentRetriesItsFailedOriginalGrantCleanup() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseAttempts = 0
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseAttempts++ == 0) {
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(repository.delete(item.id))
+
+        assertEquals(2, releaseAttempts)
+        assertEquals(listOf(source), ownedData.releasedUris.filter { it == source })
+    }
+
+    @Test fun replacingStagedDocumentRetriesItsFailedOriginalGrantCleanup() {
+        val source = "content://provider/archive.nar"
+        val replacement = "file:///owned/reselected.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseAttempts = 0
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseAttempts++ == 0) {
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        repository.replaceLocalSource(item.id, replacement)
+
+        assertEquals(2, releaseAttempts)
+        assertEquals(listOf(source), ownedData.releasedUris.filter { it == source })
+    }
+
     @Test fun reconciliationReleasesGrantAfterRecoveredStagingHandoff() {
         val source = "content://provider/archive.nar"
         val item = repository.enqueueLocalCopy(source)
@@ -2649,10 +2696,11 @@ class NarDownloadRepositoryTest {
 
         override fun retainedArchiveAvailable(download: NarDownload) = isRetainedArchiveAvailable
 
-        override fun releasePersistedGrant(download: NarDownload) {
+        override fun releasePersistedGrant(download: NarDownload): Boolean {
             onRelease?.invoke(download)
             releasedItemIds += download.id
             releasedUris += download.retainedUri
+            return true
         }
 
         override fun deleteAbandonedLocalArchives(retainedUris: Set<String>) {

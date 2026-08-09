@@ -125,7 +125,7 @@ internal interface NarArchiveInstaller {
 internal interface NarOwnedDownloadData {
     fun delete(download: NarDownload)
     fun retainedArchiveAvailable(download: NarDownload): Boolean = false
-    fun releasePersistedGrant(download: NarDownload) = Unit
+    fun releasePersistedGrant(download: NarDownload): Boolean = true
     fun deleteAbandonedLocalArchives(retainedUris: Set<String>) = Unit
 }
 
@@ -538,6 +538,7 @@ class NarDownloadRepository internal constructor(
         if (isStopping(item)) return item
         runCatching { work.cancel(itemId) }
         runCatching { ownedData.delete(item) }
+        releasePendingPersistedGrantIfUnused(item)
         store.update(itemId) {
             it.copy(
                 attemptId = it.attemptId + 1L,
@@ -613,6 +614,7 @@ class NarDownloadRepository internal constructor(
         runCatching { work.cancel(itemId) }
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
+        releasePendingPersistedGrantIfUnused(item)
         store.delete(itemId)
         liveCopyAttempts -= item.handle()
         releasePersistedGrantIfUnused(item)
@@ -735,6 +737,7 @@ class NarDownloadRepository internal constructor(
                 }
             }
         store.getAll().forEach(::releaseTransferredDocumentGrantIfUnused)
+        store.getAll().forEach(::releasePendingPersistedGrantIfUnused)
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
             .forEach { item ->
@@ -1329,8 +1332,27 @@ class NarDownloadRepository internal constructor(
         val source = (item.source as? NarDownloadSource.Local)?.uri ?: return
         if (source == item.retainedUri || !isFileUri(item.retainedUri)) return
         if (!hasSourceReference(source, item.id)) {
-            runCatching {
-                ownedData.releasePersistedGrant(item.copy(retainedUri = source))
+            val pending = store.update(item.id) { current ->
+                if (current.pendingPersistedGrantReleaseUri == null) {
+                    current.copy(pendingPersistedGrantReleaseUri = source)
+                } else {
+                    current
+                }
+            }
+            pending?.let(::releasePendingPersistedGrantIfUnused)
+        }
+    }
+
+    private fun releasePendingPersistedGrantIfUnused(item: NarDownload) {
+        val source = item.pendingPersistedGrantReleaseUri ?: return
+        if (hasSourceReference(source, item.id)) return
+        if (runCatching { ownedData.releasePersistedGrant(item.copy(retainedUri = source)) }.getOrDefault(false)) {
+            store.update(item.id) { current ->
+                if (current.pendingPersistedGrantReleaseUri == source) {
+                    current.copy(pendingPersistedGrantReleaseUri = null)
+                } else {
+                    current
+                }
             }
         }
     }
@@ -1637,16 +1659,17 @@ private class AndroidNarManagedFiles(context: Context) :
     override fun retainedArchiveAvailable(download: NarDownload): Boolean =
         managedFile(download.retainedUri)?.isFile == true
 
-    override fun releasePersistedGrant(download: NarDownload) {
-        val location = download.retainedUri ?: return
-        val uri = runCatching { Uri.parse(location) }.getOrNull() ?: return
-        if (!uri.scheme.equals("content", ignoreCase = true)) return
-        runCatching {
+    override fun releasePersistedGrant(download: NarDownload): Boolean {
+        val location = download.retainedUri ?: return true
+        val uri = runCatching { Uri.parse(location) }.getOrNull() ?: return false
+        if (!uri.scheme.equals("content", ignoreCase = true)) return true
+        return runCatching {
             appContext.contentResolver.releasePersistableUriPermission(
                 uri,
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
-        }
+            true
+        }.getOrDefault(false)
     }
 
     override fun deleteAbandonedLocalArchives(retainedUris: Set<String>) {

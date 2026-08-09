@@ -74,6 +74,24 @@ class NarDownloadStoreTest {
         assertEquals(NarDownloadState.Copying, NarDownloadStore(storage).get("a")!!.state)
     }
 
+    @Test fun pendingGrantCleanupSurvivesRecreatingTheStore() {
+        val storage = NarDownloadStore.MemoryStorage()
+        val source = "content://provider/archive.nar"
+        NarDownloadStore(storage).create(
+            NarDownload(
+                id = "a",
+                source = NarDownloadSource.Local(source),
+                retainedUri = "file:///owned/archive.nar",
+                pendingPersistedGrantReleaseUri = source,
+            ),
+        )
+
+        assertEquals(
+            source,
+            NarDownloadStore(storage).get("a")!!.pendingPersistedGrantReleaseUri,
+        )
+    }
+
     @Test fun recordsAreListedInEnqueueOrder() {
         store.create(remote(id = "z"))
         store.create(remote(id = "a"))
