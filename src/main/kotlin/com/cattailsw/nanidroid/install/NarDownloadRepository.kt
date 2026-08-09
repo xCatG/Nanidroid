@@ -722,8 +722,14 @@ class NarDownloadRepository internal constructor(
                 } else {
                     null
                 }
-                val downloadManagerId = item.downloadManagerId ?: recoveredDownloadId?.also { recoveredId ->
-                    store.update(item.id) { it.copy(downloadManagerId = recoveredId) }
+                val downloadManagerId = item.downloadManagerId ?: recoveredDownloadId?.takeUnless { recoveredId ->
+                    supervisor.wasExternalJobUsedBefore(
+                        item.handle(),
+                        ExternalJobBinding.DownloadManager(recoveredId),
+                    )
+                }
+                if (item.downloadManagerId == null && recoveredDownloadId != null && downloadManagerId == null) {
+                    return@forEach
                 }
                 if (downloadManagerId == null) {
                     remoteProgress.stop(item.handle())
@@ -753,6 +759,9 @@ class NarDownloadRepository internal constructor(
                     restoreRemoteDownloadBinding(item, downloadManagerId)
                 } catch (_: Exception) {
                     return@forEach
+                }
+                if (item.downloadManagerId == null && rebound) {
+                    store.update(item.id) { it.copy(downloadManagerId = downloadManagerId) }
                 }
                 var statusQueryFailed = false
                 val status = try {

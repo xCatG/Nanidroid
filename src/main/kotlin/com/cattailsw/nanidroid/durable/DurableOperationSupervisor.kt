@@ -304,6 +304,15 @@ class DurableOperationSupervisor(
         }?.status
     }
 
+    internal fun wasExternalJobUsedBefore(
+        handle: OperationHandle,
+        binding: ExternalJobBinding,
+    ): Boolean = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId && it.attemptId == handle.attemptId
+        }?.externalJobHistory?.contains(binding) == true
+    }
+
     internal fun cancellationRequestedForExactAttempt(
         handle: OperationHandle,
         kind: OperationKind,
