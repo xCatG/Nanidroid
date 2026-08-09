@@ -38,10 +38,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -127,8 +130,15 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 }
 
 @Composable private fun UserInputDialog(dialog: NanidroidSimpleDialog.UserInput, onDismiss: () -> Unit) {
+    val presentation = dialog.presentation
+    val inputRequired = presentation.requireNonEmpty && dialog.value.isBlank()
     fun cancel() { onDismiss(); dialog.onCancel() }
-    fun submit() { onDismiss(); dialog.onSubmit(dialog.id, dialog.value) }
+    fun submit() {
+        if (!inputRequired) {
+            onDismiss()
+            dialog.onSubmit(dialog.id, dialog.value)
+        }
+    }
     val title = stringResource(R.string.user_input_dlg_title)
     val focusRequester = remember { FocusRequester() }
 
@@ -194,10 +204,35 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
+                                    .semantics {
+                                        if (inputRequired) error("Input is required")
+                                    }
                                     .testTag("script-user-input"),
                                 label = { Text(title) },
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(onDone = { submit() }),
+                                isError = inputRequired,
+                                singleLine = !presentation.multiline,
+                                visualTransformation = if (presentation.obscured) {
+                                    PasswordVisualTransformation()
+                                } else {
+                                    VisualTransformation.None
+                                },
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = if (presentation.obscured) {
+                                        KeyboardType.Password
+                                    } else {
+                                        KeyboardType.Text
+                                    },
+                                    imeAction = if (presentation.multiline) {
+                                        ImeAction.Default
+                                    } else {
+                                        ImeAction.Done
+                                    },
+                                ),
+                                keyboardActions = if (presentation.multiline) {
+                                    KeyboardActions()
+                                } else {
+                                    KeyboardActions(onDone = { submit() })
+                                },
                             )
                         }
                         Row(
@@ -206,15 +241,18 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                                 .padding(bottom = 8.dp),
                             horizontalArrangement = Arrangement.End,
                         ) {
-                            TextButton(
-                                onClick = ::cancel,
-                                modifier = Modifier
-                                    .heightIn(min = 48.dp)
-                                    .weight(1f, fill = false)
-                                    .testTag("script-user-input-cancel"),
-                            ) { Text(stringResource(android.R.string.cancel)) }
+                            if (presentation.allowCancel) {
+                                TextButton(
+                                    onClick = ::cancel,
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .weight(1f, fill = false)
+                                        .testTag("script-user-input-cancel"),
+                                ) { Text(stringResource(android.R.string.cancel)) }
+                            }
                             TextButton(
                                 onClick = ::submit,
+                                enabled = !inputRequired,
                                 modifier = Modifier
                                     .heightIn(min = 48.dp)
                                     .weight(1f, fill = false)
