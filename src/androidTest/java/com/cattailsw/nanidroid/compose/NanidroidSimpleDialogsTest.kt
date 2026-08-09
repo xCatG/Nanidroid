@@ -1,6 +1,11 @@
 package com.cattailsw.nanidroid.compose
 
 import androidx.activity.ComponentActivity
+import android.text.InputType
+import android.view.View
+import android.view.ViewGroup
+import android.view.inspector.WindowInspector
+import android.view.inputmethod.EditorInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +30,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 
@@ -43,6 +49,18 @@ class NanidroidSimpleDialogsTest {
         composeRule.onNodeWithTag("script-user-input")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.ImeAction, ImeAction.Done))
+        composeRule.runOnIdle {
+            val editorInfo = EditorInfo()
+            assertNotNull(focusedComposeView().onCreateInputConnection(editorInfo))
+            assertEquals(
+                InputType.TYPE_CLASS_TEXT,
+                editorInfo.inputType and InputType.TYPE_MASK_CLASS,
+            )
+            assertEquals(
+                InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                editorInfo.inputType and InputType.TYPE_MASK_VARIATION,
+            )
+        }
     }
 
     @Test
@@ -109,6 +127,18 @@ class NanidroidSimpleDialogsTest {
         composeRule.onNodeWithTag("script-user-input-confirm")
             .assertIsDisplayed()
             .assertIsEnabled()
+    }
+
+    private fun focusedComposeView(): View = WindowInspector.getGlobalWindowViews()
+        .asSequence()
+        .flatMap(::descendants)
+        .first { it.javaClass.name == "androidx.compose.ui.platform.AndroidComposeView" && it.hasFocus() }
+
+    private fun descendants(view: View): Sequence<View> = sequence {
+        yield(view)
+        if (view is ViewGroup) {
+            repeat(view.childCount) { index -> yieldAll(descendants(view.getChildAt(index))) }
+        }
     }
 
     @androidx.compose.runtime.Composable
