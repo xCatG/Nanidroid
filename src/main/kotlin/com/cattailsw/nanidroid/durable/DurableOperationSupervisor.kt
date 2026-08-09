@@ -308,9 +308,13 @@ class DurableOperationSupervisor(
         handle: OperationHandle,
         binding: ExternalJobBinding,
     ): Boolean = synchronized(operationLock) {
-        store.read().singleOrNull {
+        val records = store.read().filter { it.id == handle.operationId }
+        val currentOrPredecessor = records.singleOrNull {
             it.id == handle.operationId && it.attemptId == handle.attemptId
-        }?.externalJobHistory?.contains(binding) == true
+        } ?: records
+            .filter { it.attemptId.value < handle.attemptId.value }
+            .maxByOrNull { it.attemptId.value }
+        currentOrPredecessor?.externalJobHistory?.contains(binding) == true
     }
 
     internal fun cancellationRequestedForExactAttempt(

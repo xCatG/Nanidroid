@@ -2249,6 +2249,45 @@ class NarDownloadRepositoryTest {
         assertNull(operation.externalJob)
     }
 
+    @Test fun recreationMakesReplacementAttemptActionableWhenOnlyPredecessorHistoryRemains() {
+        val accepted = store.create(
+            NarDownload(
+                id = "replacement-remote-predecessor-only",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/replacement-remote-predecessor-only.nar",
+                state = NarDownloadState.Downloading,
+                attemptId = 2L,
+            ),
+        )
+        val predecessor = accepted.handle().copy(attemptId = AttemptId(1L))
+        val historicalBinding = ExternalJobBinding.DownloadManager(95L)
+        assertTrue(
+            supervisor.start(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                historicalBinding,
+            ),
+        )
+        assertTrue(
+            supervisor.failOrConfirmExactAttempt(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                historicalBinding,
+                "previous attempt failed",
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 95L
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        val operation = operationStore.read().single { it.attemptId == accepted.handle().attemptId }
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertNull(operation.externalJob)
+    }
+
     @Test fun recreationContinuesAfterRecoveredRemoteIdPersistenceFails() {
         val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
         val exactOperationStore = SharedPreferencesDurableOperationStore(
