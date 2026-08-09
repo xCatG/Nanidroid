@@ -1,7 +1,5 @@
 package com.cattailsw.nanidroid.install
 
-import android.os.Handler
-import android.os.Looper
 import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
 import com.cattailsw.nanidroid.durable.ExternalJobBinding
 import com.cattailsw.nanidroid.durable.OperationHandle
@@ -61,23 +59,42 @@ internal class BackgroundStopReconciliationScheduler : NarStopReconciliationSche
     )
 }
 
-private class MainLooperProgressScheduler : NarProgressScheduler {
-    private val handler by lazy { Handler(Looper.getMainLooper()) }
+private class BackgroundProgressScheduler : NarProgressScheduler {
+    private val executor = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "nanidroid-download-progress").apply { isDaemon = true }
+    }
+    private val pending = mutableMapOf<Runnable, PendingProgressTask>()
 
+    @Synchronized
     override fun post(task: Runnable, delayMillis: Long) {
-        handler.postDelayed(task, delayMillis)
+        pending.remove(task)?.future?.cancel(false)
+        val token = Any()
+        val future = executor.schedule(run@{
+            synchronized(this) {
+                if (pending[task]?.token !== token) return@run
+                pending.remove(task)
+            }
+            task.run()
+        }, delayMillis, TimeUnit.MILLISECONDS)
+        pending[task] = PendingProgressTask(token, future)
     }
 
+    @Synchronized
     override fun cancel(task: Runnable) {
-        handler.removeCallbacks(task)
+        pending.remove(task)?.future?.cancel(false)
     }
+
+    private data class PendingProgressTask(
+        val token: Any,
+        val future: ScheduledFuture<*>,
+    )
 }
 
 /** Publishes progress from one exact DownloadManager row. */
 internal class DownloadManagerProgressObserver(
     private val downloads: NarDownloadGateway,
     private val supervisor: DurableOperationSupervisor,
-    private val scheduler: NarProgressScheduler = MainLooperProgressScheduler(),
+    private val scheduler: NarProgressScheduler = BackgroundProgressScheduler(),
 ) : NarRemoteProgressObserver {
     private val observations = mutableMapOf<OperationHandle, Runnable>()
 
