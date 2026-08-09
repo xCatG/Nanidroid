@@ -79,6 +79,8 @@
   <string name="debug_surface_title">偽人格除錯</string>
   <string name="debug_surface_selected_speaker_label">已選擇角色: %1$s</string>
   <string name="debug_surface_speaker_label">角色</string>
+  <string name="debug_surface_sakura_speaker_label">Sakura 側</string>
+  <string name="debug_surface_kero_speaker_label">Kero 側</string>
   <string name="debug_surface_surface_section_title">畫面資訊</string>
   <string name="debug_surface_surface_id_label">Surface ID</string>
   <string name="debug_surface_scope_label">範圍</string>
@@ -98,7 +100,7 @@
   <string name="debug_surface_pointer_source_label">來源</string>
   <string name="debug_surface_pointer_candidate_event_label">候選事件</string>
   <string name="debug_surface_pointer_dispatch_outcome_label">派送結果</string>
-  <string name="debug_surface_pointer_dispatch_not_resolved">未解析</string>
+  <string name="debug_surface_pointer_dispatch_not_resolved">未派送</string>
   <string name="debug_surface_pointer_dispatch_rejected">已拒絕</string>
   <string name="debug_surface_pointer_dispatch_accepted">已接受</string>
   <string name="debug_surface_pointer_speaker_label">角色</string>
@@ -107,7 +109,7 @@
   <string name="debug_surface_nar_test_button">執行 SakuraScript 範例</string>
   <string name="debug_surface_sample_queued">樣本已加入佇列</string>
   <string name="debug_surface_pointer_scope_label">輸入範圍</string>
-  <string name="debug_surface_shiori_section_title">限制版 SHIORI 紀錄</string>
+  <string name="debug_surface_shiori_section_title">近期 SHIORI 紀錄</string>
   <string name="debug_surface_empty_log">尚未有 SHIORI 事件。</string>
   <string name="debug_surface_empty_value">—</string>
   <string name="debug_surface_value_true">是</string>

@@ -353,9 +353,9 @@ private fun GhostDebugSurfaceContent(
     onDismiss: () -> Unit,
 ) {
     val selectedSpeakerText = if (state.selectedSpeaker == SurfaceSpeaker.SAKURA) {
-        stringResource(R.string.sakura_character_description)
+        stringResource(R.string.debug_surface_sakura_speaker_label)
     } else {
-        stringResource(R.string.kero_character_description)
+        stringResource(R.string.debug_surface_kero_speaker_label)
     }
     val collisionOverlayLabel = stringResource(R.string.debug_surface_collision_overlay_toggle)
     val narLabel = stringResource(R.string.debug_surface_nar_test_button)
@@ -524,9 +524,9 @@ private fun GhostDebugSurfaceContent(
                         label = stringResource(R.string.debug_surface_pointer_speaker_label),
                         value = stringResource(
                             if (lastInput.speaker == SurfaceSpeaker.SAKURA) {
-                                R.string.sakura_character_description
+                                R.string.debug_surface_sakura_speaker_label
                             } else {
-                                R.string.kero_character_description
+                                R.string.debug_surface_kero_speaker_label
                             },
                         ),
                     )
@@ -679,8 +679,8 @@ private fun GhostSurfaceSpeakerSection(
     selectedSpeaker: SurfaceSpeaker,
     onSelectSpeaker: (SurfaceSpeaker) -> Unit,
 ) {
-    val sakuraLabel = stringResource(R.string.sakura_character_description)
-    val keroLabel = stringResource(R.string.kero_character_description)
+    val sakuraLabel = stringResource(R.string.debug_surface_sakura_speaker_label)
+    val keroLabel = stringResource(R.string.debug_surface_kero_speaker_label)
 
     Surface(
         modifier = Modifier

@@ -1,8 +1,14 @@
 package com.cattailsw.nanidroid.compose.debug
 
 import androidx.activity.ComponentActivity
+import android.content.Context
+import android.content.res.Configuration
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasNoClickAction
@@ -14,14 +20,19 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog.Entry
+import java.util.Locale
 
 class GhostDebugSurfaceTest {
     @get:Rule
@@ -285,7 +296,7 @@ class GhostDebugSurfaceTest {
         composeRule.onNodeWithText("surface-01").assertIsDisplayed()
         composeRule.onNodeWithText("9,10 to 409,270").assertExists()
         composeRule.onNodeWithText("X=13, Y=14").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Bounded SHIORI log").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Recent SHIORI log").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("ghost-debug-surface-shiori-log-0").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Event: OnTest").performScrollTo().assertIsDisplayed()
@@ -362,6 +373,72 @@ class GhostDebugSurfaceTest {
     }
 
     @Test
+    fun debug_surface_japanese_copy_uses_ghost_terms_and_recent_shiori_history_at_large_font_scale() {
+        val english = composeRule.activity.localized(Locale.US)
+        assertEquals("Not dispatched", english.getString(R.string.debug_surface_pointer_dispatch_not_resolved))
+        assertEquals("Recent SHIORI log", english.getString(R.string.debug_surface_shiori_section_title))
+
+        val japanese = composeRule.activity.localized(Locale.JAPAN)
+
+        assertEquals("当たり判定ID / 名前", japanese.getString(R.string.debug_surface_collision_id_label))
+        assertEquals("入力元", japanese.getString(R.string.debug_surface_pointer_source_label))
+        assertEquals("未送信", japanese.getString(R.string.debug_surface_pointer_dispatch_not_resolved))
+        assertEquals("当たり判定オーバーレイを表示", japanese.getString(R.string.debug_surface_collision_overlay_toggle))
+        assertEquals("直近の SHIORI ログ", japanese.getString(R.string.debug_surface_shiori_section_title))
+        assertEquals("さくら側", japanese.getString(R.string.debug_surface_sakura_speaker_label))
+        assertEquals("ケロ側", japanese.getString(R.string.debug_surface_kero_speaker_label))
+
+        val traditionalChinese = composeRule.activity.localized(Locale.forLanguageTag("zh-TW"))
+        assertEquals("未派送", traditionalChinese.getString(R.string.debug_surface_pointer_dispatch_not_resolved))
+        assertEquals("近期 SHIORI 紀錄", traditionalChinese.getString(R.string.debug_surface_shiori_section_title))
+
+        composeRule.setContent {
+            CompositionLocalProvider(
+                LocalContext provides japanese,
+                LocalConfiguration provides japanese.resources.configuration,
+                LocalResources provides japanese.resources,
+            ) {
+                DeviceConfigurationOverride(
+                    DeviceConfigurationOverride.FontScale(1.5f),
+                ) {
+                    GhostDebugSurface(
+                        presentation = DebugPresentation.FULL_STAGE_MODAL,
+                        state = DebugPanelState(visible = true, selectedSpeaker = SurfaceSpeaker.SAKURA),
+                        selection = null,
+                        lastInput = SurfacePointerDebugEvent(
+                            speaker = SurfaceSpeaker.KERO,
+                            viewportX = 0,
+                            viewportY = 0,
+                            sourceX = 0,
+                            sourceY = 0,
+                            collisionId = 0,
+                            collisionName = null,
+                            buttonId = 0,
+                            candidateEvent = null,
+                            dispatchOutcome = PointerDispatchOutcome.NOT_RESOLVED,
+                            source = "test",
+                        ),
+                        logs = emptyList(),
+                        onSelectSpeaker = {},
+                        onCollisionOverlayChange = {},
+                        onNarTest = {},
+                        onDismiss = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SAKURA_TAG)
+            .assertContentDescriptionEquals("さくら側")
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_KERO_TAG)
+            .assertContentDescriptionEquals("ケロ側")
+        composeRule.onAllNodesWithText("ケロ側").assertCountEquals(2)
+        composeRule.onAllNodesWithText("本体側").assertCountEquals(0)
+        composeRule.onAllNodesWithText("相方側").assertCountEquals(0)
+        composeRule.onNodeWithText("直近の SHIORI ログ").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
     fun debug_surface_old_legacy_tags_are_absent() {
         composeRule.setContent {
             GhostDebugSurface(
@@ -383,4 +460,9 @@ class GhostDebugSurfaceTest {
         assertNoNodeWithTag("debug-run", true)
         assertNoNodeWithTag("debug-nar", true)
     }
+}
+
+private fun Context.localized(locale: Locale): Context {
+    val localized = Configuration(resources.configuration).apply { setLocale(locale) }
+    return createConfigurationContext(localized)
 }
