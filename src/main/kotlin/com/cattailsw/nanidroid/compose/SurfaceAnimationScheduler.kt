@@ -351,6 +351,9 @@ class SurfaceAnimationScheduler(
     var state: SurfaceAnimationScheduleState = SurfaceAnimationScheduleState.Idle
         private set
 
+    /** Resolved animation that remains active after a presentation request is consumed. */
+    val activeAnimationId: String? get() = state.active?.animationId
+
     /**
      * Advances an active frame on every render tick. Hosts can defer periodic
      * rarely/sometimes selection until their first full clock interval while

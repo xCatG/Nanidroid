@@ -68,6 +68,8 @@ class ComposeGhostStageHost private constructor(
     private var activeGhostKey: String by mutableStateOf("")
     private var sakuraFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var keroFrame: SurfaceRenderFrame? by mutableStateOf(null)
+    private var sakuraActiveAnimationId: String? by mutableStateOf(null)
+    private var keroActiveAnimationId: String? by mutableStateOf(null)
     private var sakuraScheduler: SurfaceAnimationScheduler? = null
     private var keroScheduler: SurfaceAnimationScheduler? = null
     /* A SurfaceManager describes immutable ghost assets. Cache both the parsed
@@ -104,6 +106,8 @@ class ComposeGhostStageHost private constructor(
             keroScheduler = null
             sakuraFrame = null
             keroFrame = null
+            sakuraActiveAnimationId = null
+            keroActiveAnimationId = null
             schedulerSurfaceIds.clear()
             nextPeriodicTicks.clear()
             speakerSurfaces.clear()
@@ -202,6 +206,8 @@ class ComposeGhostStageHost private constructor(
             keroPendingInput = dialogueOwnership.pendingInput(GhostSpeaker.KERO),
             dialogueTalkId = dialogue.talkId,
             dialogueRevision = dialogue.revision,
+            sakuraActiveAnimationId = sakuraActiveAnimationId,
+            keroActiveAnimationId = keroActiveAnimationId,
             onDialogueChoice = onDialogueChoice,
             onDialogueAnchor = onDialogueAnchor,
             onDialogueExternalUrl = onDialogueExternalUrl,
@@ -305,6 +311,7 @@ class ComposeGhostStageHost private constructor(
             .lastOrNull()
             ?.frame
             ?.also { frame -> if (speaker == GhostSpeaker.SAKURA) sakuraFrame = frame else keroFrame = frame }
+        publishActiveAnimationId(speaker, scheduler.activeAnimationId)
     }
 
     /* Scheduler has no plan getter by design; retaining the selected surface id
@@ -327,6 +334,7 @@ class ComposeGhostStageHost private constructor(
     private fun SurfaceAnimationScheduler.tickForHost(speaker: GhostSpeaker, nowMillis: Long) {
         val periodicSelectionDue = nowMillis >= (nextPeriodicTicks[this] ?: Long.MAX_VALUE)
         tick(allowPeriodicSelection = periodicSelectionDue).applyFrames(speaker)
+        publishActiveAnimationId(speaker, activeAnimationId)
         if (periodicSelectionDue) nextPeriodicTicks[this] = nowMillis + PERIODIC_ANIMATION_INTERVAL_MILLIS
     }
     private fun rearmPeriodicTicks() {
@@ -337,6 +345,10 @@ class ComposeGhostStageHost private constructor(
         this?.filterIsInstance<SurfaceAnimationScheduleEffect.Frame>()?.lastOrNull()?.frame?.let {
             if (speaker == GhostSpeaker.SAKURA) sakuraFrame = it else keroFrame = it
         }
+    }
+
+    private fun publishActiveAnimationId(speaker: GhostSpeaker, animationId: String?) {
+        if (speaker == GhostSpeaker.SAKURA) sakuraActiveAnimationId = animationId else keroActiveAnimationId = animationId
     }
 
     private fun SurfaceManager?.speakerSurface(id: String, sakura: Boolean): SpeakerSurface {

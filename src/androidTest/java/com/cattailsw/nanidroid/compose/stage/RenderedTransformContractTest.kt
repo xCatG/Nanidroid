@@ -712,6 +712,71 @@ class RenderedTransformContractTest {
     }
 
     @Test
+    fun productionHostPublishesAnimationSwitchForEqualResetFramesWithoutRecomposingSurface() {
+        val assets = SurfacePixelAssets { path ->
+            when (path) {
+                "sakura" -> SurfacePixelImage.of(7, 5, IntArray(35) { Color.Red.toArgb() })
+                "kero" -> SurfacePixelImage.of(1, 1, intArrayOf(Color.Blue.toArgb()))
+                else -> null
+            }
+        }
+        val sakura = shellSurface(0, 7, 5, "sakura", collisionId = 1).apply {
+            animationTable = mutableMapOf(
+                "7" to Animation("7", ShellSurface.A_TYPE_RUNONCE).apply {
+                    frames = mutableListOf(AnimationFrame().apply {
+                        frameType = ShellSurface.TYPE_RESET
+                        time = 10_000
+                    })
+                },
+                "8" to Animation("8", ShellSurface.A_TYPE_RUNONCE).apply {
+                    frames = mutableListOf(AnimationFrame().apply {
+                        frameType = ShellSurface.TYPE_RESET
+                        time = 10_000
+                    })
+                },
+            )
+        }
+        val manager = SurfaceManager("animation-switch-fixture").apply {
+            addSurface("0", sakura)
+            addSurface("10", shellSurface(10, 1, 1, "kero", collisionId = 10))
+        }
+        val host = ComposeGhostStageHost(SurfaceInteractionPort { }, assets).apply {
+            setSurfaceManager(manager, "animation-switch-fixture")
+        }
+        composeRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(Modifier.requiredSize(360.dp, 720.dp)) {
+                    host.Stage(Modifier.fillMaxSize())
+                }
+            }
+        }
+
+        fun render(animationId: String) {
+            host.renderer.render(
+                GhostPresentationFrame(
+                    GhostPresentationFrame.Speaker("", "0", animationId, "-1"),
+                    GhostPresentationFrame.Speaker("", "10", null, "-1"),
+                    false,
+                ),
+            )
+        }
+
+        composeRule.runOnIdle { render("7") }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            host.latestMeasuredSnapshot?.sakura?.activeAnimationId == "7"
+        }
+        val firstSurface = requireNotNull(host.latestMeasuredSnapshot?.sakura).composedSurface
+
+        composeRule.runOnIdle { render("8") }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            host.latestMeasuredSnapshot?.sakura?.activeAnimationId == "8"
+        }
+        composeRule.runOnIdle {
+            assertSame(firstSurface, requireNotNull(host.latestMeasuredSnapshot?.sakura).composedSurface)
+        }
+    }
+
+    @Test
     fun collisionGeometryChangeDuringAnInProgressTapCancelsTheGesture() {
         val current = mutableStateOf(surface(10, 10, 1, collisionId = 31))
         val effects = mutableListOf<SurfaceInteractionEffect>()
