@@ -81,6 +81,26 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun recoveredTerminalEventDispatchesForItsExactRootAfterReload() {
+        val root = File("build/terminal-event-recovered-reload").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-recovered-reload-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateFailure", listOf("recovered", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.FAILED, event))
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertTrue(
+            GhostUpdateWorker.deliverPendingTerminalEventForRoot(supervisor, root) {
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(event), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
     @Test fun terminalEventDeferralRetriesTheExactGhostAfterItIsPersisted() {
         val root = File("build/terminal-event-race").canonicalFile
         val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
@@ -224,6 +244,32 @@ class DurableOperationSupervisorTest {
         assertFalse(direct.isAlive)
         assertFalse(deferral.isAlive)
         assertEquals(listOf(claimed), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `terminal callback delivers an already retained rollback payload`() {
+        val root = File("build/terminal-event-retained-rollback").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-retained-rollback-worker")
+        val retained = GhostUpdateTerminalEvent(
+            "ghost",
+            root.path,
+            "OnUpdateFailure",
+            listOf("ghost update failed", "ghost/master.txt"),
+        )
+        val concreteCallback = retained.copy(references = listOf("network response was invalid", "ghost/master.txt"))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.FAILED, retained))
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertTrue(
+            GhostUpdateWorker.deferTerminalEventAndRetryDelivery(supervisor, handle, binding, concreteCallback) {
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(retained), dispatched)
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 

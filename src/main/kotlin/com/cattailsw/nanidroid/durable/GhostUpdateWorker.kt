@@ -388,9 +388,9 @@ class GhostUpdateWorker(
             } ?: return@synchronized false
             val retained = when {
                 record.pendingGhostUpdateEvent == event -> event
-                record.pendingGhostUpdateEvent == null &&
-                    (record.status == OperationStatus.RUNNING ||
-                        record.status == OperationStatus.CANCEL_REQUESTED) -> {
+                record.pendingGhostUpdateEvent != null -> record.pendingGhostUpdateEvent
+                record.status == OperationStatus.RUNNING ||
+                    record.status == OperationStatus.CANCEL_REQUESTED -> {
                     if (!supervisor.deferTerminalEvent(handle, binding, event)) return@synchronized false
                     event
                 }
@@ -430,6 +430,32 @@ class GhostUpdateWorker(
                     dispatch,
                 )
             }
+        }
+
+        /**
+         * Recovery can quiesce and reload an already active ghost without passing through the
+         * normal attachment hook. Offer an exact-root terminal event after that reload instead.
+         */
+        internal fun deliverPendingTerminalEventForRoot(
+            supervisor: DurableOperationSupervisor,
+            ghostRoot: File,
+            dispatch: (GhostUpdateTerminalEvent) -> Boolean,
+        ): Boolean = synchronized(terminalEventDeliveryLock) {
+            val canonicalRoot = ghostRoot.canonicalFile
+            val record = supervisor.records().singleOrNull {
+                it.id == GhostUpdateRepository.canonicalOperationIdFor(canonicalRoot) &&
+                    it.kind == OperationKind.GHOST_UPDATE &&
+                    it.pendingGhostUpdateEvent?.canonicalRoot == canonicalRoot.path
+            } ?: return@synchronized false
+            val event = record.pendingGhostUpdateEvent ?: return@synchronized false
+            val binding = record.externalJob as? ExternalJobBinding.WorkManager ?: return@synchronized false
+            deliverTerminalEvent(
+                supervisor,
+                OperationHandle(record.id, record.attemptId),
+                binding,
+                event,
+                dispatch,
+            )
         }
 
         /**
@@ -998,7 +1024,7 @@ class GhostUpdateWorker(
         ): RecoveryResult = try {
             val store = SharedPreferencesDurableOperationStore(context.applicationContext)
             val durableSupervisor = supervisor(context)
-            recoverBeforeGhostLoad(
+            val recovery = recoverBeforeGhostLoad(
                 ghostStorageRoot,
                 targetGhostRoot,
                 store,
@@ -1016,6 +1042,8 @@ class GhostUpdateWorker(
                     deferRecoveredTerminalEvent(durableSupervisor, journal, status)
                 },
             )
+            retryRecoveredTerminalDelivery(context, durableSupervisor, targetGhostRoot)
+            recovery
         } catch (e: DurableOperationStoreCorruptionException) {
             RecoveryResult.Failed(e.message ?: "corrupt durable operation store")
         }
@@ -1027,7 +1055,7 @@ class GhostUpdateWorker(
         ): RecoveryResult = try {
             val store = SharedPreferencesDurableOperationStore(context.applicationContext)
             val durableSupervisor = supervisor(context)
-            recoverBeforeGhostLoad(
+            val recovery = recoverBeforeGhostLoad(
                 ghostStorageRoot,
                 targetGhostRoot,
                 store,
@@ -1049,8 +1077,27 @@ class GhostUpdateWorker(
                     deferRecoveredTerminalEvent(durableSupervisor, journal, status)
                 },
             )
+            retryRecoveredTerminalDelivery(context, durableSupervisor, targetGhostRoot)
+            recovery
         } catch (e: DurableOperationStoreCorruptionException) {
             RecoveryResult.Failed(e.message ?: "corrupt durable operation store")
+        }
+
+        private fun retryRecoveredTerminalDelivery(
+            context: Context,
+            supervisor: DurableOperationSupervisor,
+            targetGhostRoot: File?,
+        ) {
+            val root = targetGhostRoot ?: return
+            val runner = SScriptRunner.getInstance(context)
+            deliverPendingTerminalEventForRoot(supervisor, root) { event ->
+                runner.doShioriEventForGhost(
+                    event.ghostId,
+                    File(event.canonicalRoot),
+                    event.name,
+                    event.references.toTypedArray(),
+                )
+            }
         }
 
         internal fun recoverBeforeGhostLoad(
