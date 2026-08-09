@@ -871,14 +871,18 @@ function Resolve-Git {
 
 function Test-UntrackedAndroidBuildInput([string]$Path) {
     $normalizedPath = $Path.Replace('\', '/').TrimStart('./').ToLowerInvariant()
-    if ($normalizedPath -in @('build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat')) { return $true }
+    if ($normalizedPath -in @('build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat')) { return $true }
     return $normalizedPath -match '^(gradle|src|jni|libs)/'
 }
 
-function Assert-UntrackedBuildInputs([string[]]$StatusLines) {
-    foreach ($line in @($StatusLines)) {
-        if (-not $line.StartsWith('?? ')) { continue }
-        $path = $line.Substring(3)
+function ConvertFrom-GitPorcelainRecords([string]$Status) {
+    return @($Status -split "`0" | Where-Object { $_.Length -ne 0 })
+}
+
+function Assert-UntrackedBuildInputs([string[]]$StatusRecords) {
+    foreach ($record in @($StatusRecords)) {
+        if (-not $record.StartsWith('?? ')) { continue }
+        $path = $record.Substring(3)
         if (Test-UntrackedAndroidBuildInput $path) { Fail "Untracked Android/Gradle build input must be committed or removed before audit capture/completion: '$path'." 'git' }
     }
 }
@@ -886,12 +890,12 @@ function Assert-UntrackedBuildInputs([string[]]$StatusLines) {
 function Get-TrackedRepositoryState([string]$GitPath) {
     $headBefore = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'rev-parse', '--verify', 'HEAD') -TimeoutSeconds 20).output.Trim().ToLowerInvariant()
     if ($headBefore -notmatch '^[0-9a-f]{40,64}$') { Fail "git returned an invalid HEAD identity '$headBefore'." 'git' }
-    $status = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored') -TimeoutSeconds 20).output
+    $status = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored') -TimeoutSeconds 20).output
     $headAfter = (Invoke-Native -FilePath $GitPath -Arguments @('-C', $repoRoot, 'rev-parse', '--verify', 'HEAD') -TimeoutSeconds 20).output.Trim().ToLowerInvariant()
     if ($headBefore -cne $headAfter) { Fail "Repository HEAD changed while its audit identity was read: $headBefore -> $headAfter." 'git' }
-    $statusLines = @($status -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    Assert-UntrackedBuildInputs $statusLines
-    $trackedStatus = @($statusLines | Where-Object { -not $_.StartsWith('?? ') -and -not $_.StartsWith('!! ') })
+    $statusRecords = ConvertFrom-GitPorcelainRecords $status
+    Assert-UntrackedBuildInputs $statusRecords
+    $trackedStatus = @($statusRecords | Where-Object { -not $_.StartsWith('?? ') -and -not $_.StartsWith('!! ') })
     if ($trackedStatus.Count -ne 0) { Fail 'Tracked worktree changes must be committed or reverted before audit capture/completion.' 'git' }
     return [pscustomobject][ordered]@{ gitHead = $headBefore; trackedWorktreeClean = $true; untrackedBuildInputsClean = $true }
 }
@@ -1221,13 +1225,13 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $again=New-UiAuditManifest; $againHash=Get-StringSha256 (ConvertTo-CanonicalManifestJson $again)
     if ($ManifestHash -ne $againHash) { Fail 'Manifest generation is not deterministic.' 'dry-run' }
     Assert-InteractionEvidenceManifestContract $Manifest
-    foreach ($path in @('src/main/kotlin/com/cattailsw/nanidroid/UntrackedAuditInput.kt', 'build.gradle.kts')) {
+    foreach ($path in @('src/main/kotlin/com/cattailsw/nanidroid/Untracked AuditInput.kt', 'build.gradle', 'settings.gradle')) {
         $failed = $false
-        try { Assert-UntrackedBuildInputs @("?? $path") } catch { $failed = $true }
+        try { Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "?? $path`0") } catch { $failed = $true }
         if (-not $failed) { Fail "Untracked build-input '$path' probe unexpectedly passed." 'dry-run' }
     }
     Assert-UntrackedBuildInputs @()
-    Assert-UntrackedBuildInputs @('!! build/reports/ui-audit/summary.json')
+    Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "!! build/reports/ui-audit/summary.json`0")
     if (Test-UntrackedAndroidBuildInput 'C:\corpora\external.nar') { Fail 'External corpus path was classified as an Android build input.' 'dry-run' }
     foreach ($mutation in @('missing', 'substituted', 'duplicated', 'extra')) {
         $mutatedManifest = $Manifest | ConvertTo-Json -Depth 16 | ConvertFrom-Json
