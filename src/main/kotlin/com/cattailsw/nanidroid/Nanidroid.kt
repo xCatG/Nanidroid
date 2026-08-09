@@ -773,7 +773,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }.execute()
     }
     private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
-        if (!allowsArchiveIngress(runner?.runtimeModeSnapshot())) return
+        if (!allowsArchiveIntentIngress(runner) { SScriptRunner.getInstance(this) }) return
         val resolvedMimeType = incoming?.type ?: runCatching {
             incoming?.data?.let(contentResolver::getType)
         }.getOrNull()
