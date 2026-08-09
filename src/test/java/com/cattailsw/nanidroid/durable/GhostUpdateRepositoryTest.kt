@@ -25,6 +25,9 @@ import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.HttpsURLConnection
 
 private fun workManagerBinding(label: String) = ExternalJobBinding.WorkManager(
@@ -346,6 +349,49 @@ class GhostUpdateRepositoryTest {
         assertTrue(abandoned.exists())
         assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
         assertFalse(abandoned.exists())
+    }
+
+    @Test
+    fun `startup recovery never sweeps an installed ghost whose id uses the staging prefix`() {
+        val storage = temporaryDirectory("staging-prefix-ghost")
+        val ghost = File(storage, ".nanidroid-staging-valid-ghost").apply { mkdirs() }
+        write(File(ghost, "ghost/master.txt"), bytes("live"))
+
+        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(storage))
+
+        assertTrue(ghost.exists())
+        assertBytes("live", File(ghost, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `startup recovery waits for an active unpublished staging owner before sweeping`() {
+        val fixture = fixture("active-unpublished-staging")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val recoveryStarted = CountDownLatch(1)
+        val recoveryFinished = CountDownLatch(1)
+        val recovery = AtomicReference<RecoveryResult>()
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun publishStaging(source: File, destination: File): Boolean {
+                Thread {
+                    recoveryStarted.countDown()
+                    recovery.set(GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
+                    recoveryFinished.countDown()
+                }.start()
+                assertTrue(recoveryStarted.await(5, TimeUnit.SECONDS))
+                assertFalse(recoveryFinished.await(250, TimeUnit.MILLISECONDS))
+                assertTrue(source.exists())
+                return source.renameTo(destination)
+            }
+        }
+
+        assertEquals(
+            GhostUpdateResult.Completed(listOf("ghost/master.txt")),
+            fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false },
+        )
+        assertTrue(recoveryFinished.await(5, TimeUnit.SECONDS))
+        assertEquals(RecoveryResult.NoJournal, recovery.get())
+        assertBytes("new", File(fixture.ghostRoot, "ghost/master.txt"))
     }
 
     @Test

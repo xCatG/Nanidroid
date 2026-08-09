@@ -1238,10 +1238,10 @@ class GhostUpdateRepository internal constructor(
         }
 
         /**
-         * A staging directory has not published a transaction name or journal yet. It is
-         * therefore never an active transaction and can only be residue from an interrupted
-         * createOwnedTransactionRoot call. Keep this prefix disjoint from TRANSACTION_PREFIX so
-         * recovery never removes a published transaction while sweeping it.
+         * An unpublished staging directory owns a prepared journal which names a different live
+         * ghost and its eventual transaction root. Filename prefixes alone are not ownership:
+         * ghost IDs may use this prefix too. Sweep only a verified staging journal while holding
+         * that ghost's mutation lock, so creation cannot race discovery and deletion.
          */
         private fun sweepUnpublishedStaging(storage: File) {
             storage.listFiles().orEmpty()
@@ -1249,13 +1249,33 @@ class GhostUpdateRepository internal constructor(
                     entry.name.startsWith(STAGING_PREFIX) &&
                         entry.parentFile?.canonicalFile == storage
                 }
-                .forEach { staging ->
-                    if (Files.isSymbolicLink(staging.toPath())) {
-                        staging.delete()
-                    } else {
-                        staging.deleteRecursively()
-                    }
-                }
+                .forEach { staging -> sweepVerifiedUnpublishedStaging(storage, staging) }
+        }
+
+        private fun sweepVerifiedUnpublishedStaging(storage: File, staging: File) {
+            val journal = stagingJournalFor(storage, staging) ?: return
+            withGhostLock(File(journal.ghostRoot)) {
+                if (stagingJournalFor(storage, staging) != journal) return@withGhostLock
+                if (Files.isSymbolicLink(staging.toPath())) staging.delete() else staging.deleteRecursively()
+            }
+        }
+
+        private fun stagingJournalFor(storage: File, staging: File): GhostUpdateJournal? {
+            if (Files.isSymbolicLink(staging.toPath()) || !staging.isDirectory) return null
+            val journal = try {
+                GhostUpdateJournalStore.read(File(staging, GhostUpdateJournalStore.FILE_NAME))
+            } catch (_: Exception) {
+                return null
+            }
+            val root = File(journal.ghostRoot).canonicalFile
+            val transaction = transactionRoot(root, journal.operationId)
+            return journal.takeIf {
+                root.parentFile == storage &&
+                    root != staging.canonicalFile &&
+                    journal.phase == CommitPhase.PREPARED &&
+                    File(journal.candidateRoot).canonicalFile == File(transaction, CANDIDATE).canonicalFile &&
+                    File(journal.backupRoot).canonicalFile == File(transaction, BACKUP).canonicalFile
+            }
         }
 
         private fun canBootPreparedOldLive(ghostRoot: File): Boolean {
