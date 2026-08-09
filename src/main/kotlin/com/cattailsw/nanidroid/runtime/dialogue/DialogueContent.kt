@@ -39,15 +39,42 @@ sealed interface InputDispatch {
 
 enum class InputBehavior { PASSWORD, MULTILINE, NO_EMPTY, NO_CANCEL }
 
+data class InputPresentation(
+    val obscured: Boolean = false,
+    val multiline: Boolean = false,
+    val requireNonEmpty: Boolean = false,
+    val allowCancel: Boolean = true,
+)
+
 data class InputBoxSpec(
     val dispatch: InputDispatch,
     val timeoutMillis: Long?,
     val initialText: String,
     val behaviorOptions: Set<InputBehavior>,
+    val presentation: InputPresentation = InputPresentation(),
     val supplement: String,
     val extraReferences: List<String>,
     val unknownOptions: List<String>,
-)
+) {
+    constructor(
+        dispatch: InputDispatch,
+        timeoutMillis: Long?,
+        initialText: String,
+        behaviorOptions: Set<InputBehavior>,
+        supplement: String,
+        extraReferences: List<String>,
+        unknownOptions: List<String>,
+    ) : this(
+        dispatch = dispatch,
+        timeoutMillis = timeoutMillis,
+        initialText = initialText,
+        behaviorOptions = behaviorOptions,
+        presentation = InputPresentation(),
+        supplement = supplement,
+        extraReferences = extraReferences,
+        unknownOptions = unknownOptions,
+    )
+}
 
 sealed interface DialogueSegment {
     data class Text(val value: String) : DialogueSegment

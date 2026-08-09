@@ -1,9 +1,71 @@
 package com.cattailsw.nanidroid
 
+import com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ArchiveIntentStateTest {
+    @Test
+    fun unresolvedRunnerCharacteristicallyAdmitsArchiveIngress() {
+        val reception = receiveArchiveAtIngress(runtimeMode = null)
+
+        assertTrue(reception is ArchiveIntentState.Reception.Pending)
+    }
+
+    @Test
+    fun retainedPassiveRunnerRejectsArchiveIngress() {
+        val reception = receiveArchiveAtIngress(
+            GhostRuntimeMode(
+                playingTalk = false,
+                pendingUserAction = false,
+                passive = true,
+            ),
+        )
+
+        assertFalse(reception is ArchiveIntentState.Reception.Pending)
+    }
+
+    @Test
+    fun recreatedIdleRunnerAcceptsArchiveIngress() {
+        val reception = receiveArchiveAtIngress(
+            GhostRuntimeMode(
+                playingTalk = false,
+                pendingUserAction = false,
+                passive = false,
+            ),
+        )
+
+        assertTrue(reception is ArchiveIntentState.Reception.Pending)
+    }
+
+    @Test
+    fun coldArchiveIngressBindsRetainedPassiveRunnerBeforeHandlingArchive() {
+        val reception = receiveArchiveAtColdIngress(
+            GhostRuntimeMode(
+                playingTalk = false,
+                pendingUserAction = false,
+                passive = true,
+            ),
+        )
+
+        assertFalse(reception is ArchiveIntentState.Reception.Pending)
+    }
+
+    @Test
+    fun coldArchiveIngressBindsRetainedIdleRunnerBeforeHandlingArchive() {
+        val reception = receiveArchiveAtColdIngress(
+            GhostRuntimeMode(
+                playingTalk = false,
+                pendingUserAction = false,
+                passive = false,
+            ),
+        )
+
+        assertTrue(reception is ArchiveIntentState.Reception.Pending)
+    }
+
     @Test
     fun receivingSecondArchiveWhileFirstIsPending_marksSecondAsConsumed() {
         val pendingFirst = ArchiveIntentState().receive("content://archives/first", 1)
@@ -36,5 +98,31 @@ class ArchiveIntentStateTest {
             ),
             repeated,
         )
+    }
+
+    private fun receiveArchiveAtIngress(
+        runtimeMode: GhostRuntimeMode?,
+    ): ArchiveIntentState.Reception {
+        val state = ArchiveIntentState()
+        return if (allowsArchiveIngress(runtimeMode)) {
+            state.receive("content://archives/recreated-archive.nar", 1)
+        } else {
+            ArchiveIntentState.Reception.Ignored(state)
+        }
+    }
+
+    private fun receiveArchiveAtColdIngress(
+        retainedRuntimeMode: GhostRuntimeMode,
+    ): ArchiveIntentState.Reception {
+        var boundRuntimeMode: GhostRuntimeMode? = null
+        lateinit var reception: ArchiveIntentState.Reception
+        resolveRunnerBeforeColdArchiveIngress(
+            resolveRunner = { retainedRuntimeMode },
+            bindRunner = { boundRuntimeMode = it },
+            handleArchiveIngress = {
+                reception = receiveArchiveAtIngress(boundRuntimeMode)
+            },
+        )
+        return reception
     }
 }

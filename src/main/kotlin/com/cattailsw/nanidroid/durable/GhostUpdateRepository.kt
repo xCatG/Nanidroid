@@ -15,6 +15,12 @@ import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
+sealed interface GhostUpdateOpenResult {
+    data class Found(val stream: InputStream) : GhostUpdateOpenResult
+    data object NotFound : GhostUpdateOpenResult
+    data class RetryableFailure(val error: IOException) : GhostUpdateOpenResult
+}
+
 data class GhostUpdateRequest(
     val operationId: OperationId,
     val ghostId: String,
@@ -23,6 +29,8 @@ data class GhostUpdateRequest(
     val attemptId: AttemptId? = null,
     val workManagerUuid: String? = null,
 )
+
+private class RetryableNetworkException(cause: IOException) : IOException(cause)
 
 sealed interface GhostUpdateResult {
     data class Completed(val files: List<String>) : GhostUpdateResult
@@ -41,7 +49,7 @@ internal enum class GhostUpdateStopReason {
 }
 
 fun interface GhostUpdateNetwork {
-    fun open(baseUri: Uri, relativePath: String): InputStream?
+    fun open(baseUri: Uri, relativePath: String): GhostUpdateOpenResult
 }
 
 interface GhostUpdateEvents {
@@ -248,14 +256,17 @@ class GhostUpdateRepository internal constructor(
                     throw IOException("cannot prepare candidate parent")
                 }
                 val digest = MessageDigest.getInstance("MD5")
-                val source = network.open(request.baseUri, entry.path)
-                    ?: throw IOException("update file not found: ${entry.path}")
+                val source = when (val opened = network.open(request.baseUri, entry.path)) {
+                    is GhostUpdateOpenResult.Found -> retryableNetworkStream(opened.stream)
+                    GhostUpdateOpenResult.NotFound -> throw IOException("update file not found: ${entry.path}")
+                    is GhostUpdateOpenResult.RetryableFailure -> throw RetryableNetworkException(opened.error)
+                }
                 source.use { input ->
                     FileOutputStream(target).use { output ->
                         val buffer = ByteArray(COPY_BUFFER)
                         while (true) {
                             throwIfStopped(stopReason)
-                            val count = input.read(buffer)
+                            val count = readNetwork(input, buffer)
                             if (count < 0) break
                             if (count == 0) continue
                             output.write(buffer, 0, count)
@@ -382,6 +393,9 @@ class GhostUpdateRepository internal constructor(
                     ?: GhostUpdateResult.Interrupted
                 is RecoveryResult.Failed -> failed(recovered.diagnostic, manifestFiles)
             }
+        } catch (error: RetryableNetworkException) {
+            if (!journalPersisted) fileOperations.deleteTree(transactionRoot)
+            return stopResult(stopReason()) ?: GhostUpdateResult.Interrupted
         } catch (e: Exception) {
             if (journalPersisted) {
                 when (val recovered = recoverAfterJournalFailure(
@@ -482,13 +496,17 @@ class GhostUpdateRepository internal constructor(
         stopReason: () -> GhostUpdateStopReason,
     ): ManifestSource? {
         for (name in listOf(UPDATE_V2, UPDATE_V3)) {
-            val source = network.open(request.baseUri, name) ?: continue
+            val source = when (val opened = network.open(request.baseUri, name)) {
+                is GhostUpdateOpenResult.Found -> retryableNetworkStream(opened.stream)
+                GhostUpdateOpenResult.NotFound -> continue
+                is GhostUpdateOpenResult.RetryableFailure -> throw RetryableNetworkException(opened.error)
+            }
             source.use { input ->
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(COPY_BUFFER)
                 while (true) {
                     throwIfStopped(stopReason)
-                    val count = input.read(buffer)
+                    val count = readNetwork(input, buffer)
                     if (count < 0) break
                     if (count == 0) continue
                     if (output.size() + count > MAX_MANIFEST_BYTES) throw IOException("update manifest is too large")
@@ -519,6 +537,24 @@ class GhostUpdateRepository internal constructor(
         if (!onCommitClassified(completed)) return GhostUpdateResult.PublishPending(files)
         finishPublishedTransaction(ghostRoot, operationId, journalIo)
         return completed
+    }
+
+    private fun readNetwork(input: InputStream, buffer: ByteArray): Int = try {
+        input.read(buffer)
+    } catch (error: IOException) {
+        throw RetryableNetworkException(error)
+    }
+
+    private fun retryableNetworkStream(source: InputStream): InputStream = object : InputStream() {
+        override fun read(): Int = source.read()
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            source.read(buffer, offset, length)
+
+        override fun close() = try {
+            source.close()
+        } catch (error: IOException) {
+            throw RetryableNetworkException(error)
+        }
     }
 
     private fun parseManifest(source: ManifestSource): List<ManifestEntry> {
@@ -600,9 +636,7 @@ class GhostUpdateRepository internal constructor(
         if (!deleteFile.isFile) return DeleteApplication(false, emptyList())
         var changed = false
         val entries = mutableListOf<DeleteEntry>()
-        val bytes = readDeleteManifestBytes(deleteFile)
-        val ascii = bytes.toString(Charsets.ISO_8859_1)
-        val declared = ascii.lineSequence().firstOrNull()?.removeSuffix("\r")
+        val declared = firstDeleteManifestLine(deleteFile)?.removeSuffix("\r")
             ?.takeIf { it.startsWith("charset,", ignoreCase = true) }
             ?.substringAfter(',')
         val charset = try {
@@ -610,9 +644,9 @@ class GhostUpdateRepository internal constructor(
         } catch (_: Exception) {
             throw IOException("unsupported delete manifest charset")
         }
-        deleteManifestLines(bytes, charset).forEach { rawLine ->
+        forEachDeleteManifestLine(deleteFile, charset) parseLine@{ rawLine ->
             val line = rawLine.removeSuffix("\r")
-            if (line.isEmpty() || line.startsWith("charset,", ignoreCase = true)) return@forEach
+            if (line.isEmpty() || line.startsWith("charset,", ignoreCase = true)) return@parseLine
             if (line.startsWith('\\') || line.startsWith('/') || ':' in line) {
                 throw IOException("invalid delete path")
             }
@@ -929,30 +963,60 @@ class GhostUpdateRepository internal constructor(
         private val PERCENT_ESCAPE = Regex("%[0-9a-fA-F]{2}")
         private val processLocks = ConcurrentHashMap<String, Any>()
 
-        internal fun readDeleteManifestBytes(file: File): ByteArray {
-            FileInputStream(file).use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(COPY_BUFFER)
+        internal fun forEachDeleteManifestLine(
+            file: File,
+            charset: Charset,
+            action: (String) -> Unit,
+        ) {
+            withBoundedDeleteReader(file, charset) { reader ->
+                var lineCount = 0
                 while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    if (count == 0) continue
-                    if (output.size() + count > MAX_DELETE_BYTES) {
-                        throw IOException("delete manifest is too large")
+                    val line = reader.readLine() ?: break
+                    if (lineCount == MAX_DELETE_LINES) {
+                        throw IOException("delete manifest has too many lines")
                     }
-                    output.write(buffer, 0, count)
+                    action(line)
+                    lineCount += 1
                 }
-                return output.toByteArray()
             }
         }
 
-        internal fun deleteManifestLines(bytes: ByteArray, charset: Charset): List<String> {
-            val lines = mutableListOf<String>()
-            bytes.toString(charset).lineSequence().forEach { line ->
-                if (lines.size == MAX_DELETE_LINES) throw IOException("delete manifest has too many lines")
-                lines += line
+        private fun firstDeleteManifestLine(file: File): String? =
+            withBoundedDeleteReader(file, Charsets.ISO_8859_1) { it.readLine() }
+
+        private fun <T> withBoundedDeleteReader(
+            file: File,
+            charset: Charset,
+            action: (java.io.BufferedReader) -> T,
+        ): T = FileInputStream(file).use { input ->
+            BoundedInputStream(input, MAX_DELETE_BYTES).bufferedReader(charset).use(action)
+        }
+
+        private class BoundedInputStream(
+            private val input: InputStream,
+            private val byteLimit: Int,
+        ) : InputStream() {
+            private var bytesRead = 0
+
+            override fun read(): Int {
+                val value = input.read()
+                if (value >= 0) recordBytesRead(1)
+                return value
             }
-            return lines
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (length == 0) return 0
+                val count = input.read(buffer, offset, minOf(length, byteLimit - bytesRead + 1))
+                if (count > 0) recordBytesRead(count)
+                return count
+            }
+
+            override fun close() = input.close()
+
+            private fun recordBytesRead(count: Int) {
+                bytesRead += count
+                if (bytesRead > byteLimit) throw IOException("delete manifest is too large")
+            }
         }
 
         fun recoverBeforeGhostLoad(ghostRoot: File): RecoveryResult =

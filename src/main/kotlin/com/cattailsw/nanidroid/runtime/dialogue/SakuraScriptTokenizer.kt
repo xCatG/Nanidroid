@@ -397,8 +397,8 @@ object SakuraScriptTokenizer {
             emit(DialogueSegment.PassiveMode(args[0] == "enter"))
             return
         }
-        if (args.size >= 3 && args[0] == "open" && args[1] == "inputbox") {
-            emit(DialogueSegment.InputBox(inputBox(args.drop(2))))
+        if (args.size >= 3 && args[0] == "open" && args[1] in setOf("inputbox", "passwordinput")) {
+            emit(DialogueSegment.InputBox(inputBox(args.drop(2), args[1] == "passwordinput")))
             return
         }
         if (args.firstOrNull() in setOf("enter", "leave")) {
@@ -408,7 +408,7 @@ object SakuraScriptTokenizer {
         }
     }
 
-    private fun inputBox(args: List<String>): InputBoxSpec {
+    private fun inputBox(args: List<String>, forceObscured: Boolean = false): InputBoxSpec {
         val id = args.firstOrNull().orEmpty()
         var cursor = 1
         var timeout: Long? = null
@@ -449,7 +449,21 @@ object SakuraScriptTokenizer {
             }
         }
         val dispatch = if (id.startsWith("On")) InputDispatch.DirectEvent(id) else InputDispatch.Normal(id)
-        return InputBoxSpec(dispatch, timeout, initial, options, supplement, references, unknown)
+        return InputBoxSpec(
+            dispatch = dispatch,
+            timeoutMillis = timeout,
+            initialText = initial,
+            behaviorOptions = options,
+            presentation = InputPresentation(
+                obscured = forceObscured || InputBehavior.PASSWORD in options,
+                multiline = InputBehavior.MULTILINE in options,
+                requireNonEmpty = InputBehavior.NO_EMPTY in options,
+                allowCancel = InputBehavior.NO_CANCEL !in options,
+            ),
+            supplement = supplement,
+            extraReferences = references,
+            unknownOptions = unknown,
+        )
     }
 
     private fun consumeDirectDigit(script: String, start: Int): Int =

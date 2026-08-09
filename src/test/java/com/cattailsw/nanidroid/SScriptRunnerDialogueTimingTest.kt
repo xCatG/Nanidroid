@@ -4,6 +4,7 @@ import com.cattailsw.nanidroid.di.MonotonicClock
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -267,6 +268,31 @@ class SScriptRunnerDialogueTimingTest {
         val pending = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
         assertEquals(GhostSpeaker.SAKURA, runner.dialogueStateSnapshot().contents.single().speaker)
         assertTrue(runner.dialogueStateSnapshot().contents.single().segments.any { it is DialogueSegment.InputBox })
+
+        runner.resumeEvt()
+        runner.submitInput(pending.generation, "value")
+        scheduler.runUntil {
+            runner.dialogueStateSnapshot().contents.single().segments.text() == "After"
+        }
+        assertNull(runner.dialogueStateSnapshot().pendingInput)
+    }
+
+    @Test
+    fun passwordInputPublishesObscuredPendingInputAndPausesBeforeTrailingText() {
+        val scheduler = RecordingScheduler()
+        val runner = runner(scheduler)
+        runner.setGhost(RecordingGhost())
+        runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) = Unit
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+        })
+        runner.addMsgToQueue(arrayOf("\\0\\![open,passwordinput,password]After\\e"))
+        runner.run()
+
+        scheduler.runNext()
+        val pending = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
+        assertEquals(InputPresentation(obscured = true), pending.spec.presentation)
+        assertEquals("", runner.dialogueStateSnapshot().contents.single().segments.text())
 
         runner.resumeEvt()
         runner.submitInput(pending.generation, "value")

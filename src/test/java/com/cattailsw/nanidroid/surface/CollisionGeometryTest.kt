@@ -420,6 +420,73 @@ class CollisionGeometryTest {
     }
 
     @Test
+    fun aggregatePolygonVertexBudgetRejectsLaterPolygonsButRetainsCheapCollisions() {
+        val polygon = (0 until CollisionShape.MAX_POLYGON_VERTICES).joinToString(",") { index ->
+            "$index,${index % 2}"
+        }
+        val collisions = buildString {
+            repeat(17) { id -> appendLine("collisionex$id,Polygon$id,polygon,$polygon") }
+            appendLine("collisionex99,Cheap,circle,2,2,1")
+        }
+
+        val loaded = loadSurfaceFiles(
+            "surfaces.txt" to """
+                surface0
+                {
+                $collisions
+                }
+            """.trimIndent(),
+        )
+        val definition = requireNotNull(loaded.manager.getSurface("0")).toSurfaceDefinition()
+
+        assertEquals((0 until 16).toList() + 99, definition.collisions.map { it.id })
+        assertTrue(loaded.reader.diagnostics.any { it.source.startsWith("collisionex16,") })
+        assertEquals(
+            SurfaceHitTarget.Collision(99, "Cheap"),
+            findSurfaceHit(definition, 2, 2) { _, _ -> false },
+        )
+    }
+
+    @Test
+    fun aggregatePolygonVertexBudgetBoundsHostilePointerMisses() {
+        val polygon = (0 until CollisionShape.MAX_POLYGON_VERTICES).joinToString(",") { index ->
+            "$index,${index % 2}"
+        }
+        val collisions = buildString {
+            repeat(256) { id -> appendLine("collisionex$id,Polygon$id,polygon,$polygon") }
+        }
+        val loaded = loadSurfaceFiles(
+            "surfaces.txt" to """
+                surface0
+                {
+                $collisions
+                }
+            """.trimIndent(),
+        )
+        val definition = requireNotNull(loaded.manager.getSurface("0")).toSurfaceDefinition()
+
+        assertEquals(16, definition.collisions.size)
+        assertEquals(
+            SurfaceHitTarget.TransparentPixel,
+            findSurfaceHit(definition, -1, -1) { _, _ -> false },
+        )
+    }
+
+    @Test
+    fun polygonOverflowFallbackRetainsExactExtremeCoordinateMembership() {
+        val polygon = CollisionShape.Polygon(
+            listOf(
+                IntOffset(Int.MIN_VALUE + 1, Int.MIN_VALUE + 1),
+                IntOffset(Int.MAX_VALUE - 1, Int.MIN_VALUE + 2),
+                IntOffset(Int.MIN_VALUE + 2, Int.MAX_VALUE - 1),
+            ),
+        )
+
+        assertTrue(polygon.contains(IntOffset(0, 0)))
+        assertFalse(polygon.contains(IntOffset(Int.MAX_VALUE - 1, Int.MAX_VALUE - 1)))
+    }
+
+    @Test
     fun hugeCanonicalShapeSurvivesWhenLegacyAreaProjectionCannotRepresentItsSpan() {
         val loaded = loadSurfaceFiles(
             "surfaces.txt" to """

@@ -51,6 +51,7 @@ internal class MainLooperSScriptLifecycleDispatcher(
 internal data class SScriptPlaybackHooks(
     val afterRunPrepared: () -> Unit = {},
     val afterRunClaimed: () -> Unit = {},
+    val beforeTimerResponseAdmission: () -> Unit = {},
     val afterStopClaimed: () -> Unit = {},
     val afterSurfaceChangeCaptured: () -> Unit = {},
     val afterInputEffectCaptured: () -> Unit = {},
@@ -119,6 +120,9 @@ open class SScriptRunner internal constructor(
                     onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
                     onFailure = onFailure,
                     onActiveSessionInvalidated = { runner?.invalidateForSessionUnload(it) },
+                    onActiveSessionReloaded = { ghost, reloaded ->
+                        runner?.notifyGhostUpdateSurfaceRebind(ghost, reloaded)
+                    },
                     action = action,
                 )
             }
@@ -153,6 +157,7 @@ open class SScriptRunner internal constructor(
     }
 
     private var presentationRenderer: GhostPresentationRenderer? = null
+    private var ghostUpdateSurfaceRebindObserver: ((Ghost, Boolean) -> Unit)? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
     private var g: Ghost? = null
     private val mCtx = ctx?.applicationContext
@@ -174,6 +179,7 @@ open class SScriptRunner internal constructor(
     private val retiredDialogueChoices = java.util.Collections.newSetFromMap(IdentityHashMap<DialogueAction, Boolean>())
     private var pendingChoiceGeneration: Long? = null
     private var passive = false
+    private var runtimeModeGeneration: Long = 0L
     private val playbackScheduler = lazy(playbackSchedulerFactory)
     private val invalidationCompletions = ThreadLocal<MutableList<() -> Unit>?>()
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
@@ -193,14 +199,20 @@ open class SScriptRunner internal constructor(
         presentationRenderer = renderer
         if (renderer != null) currentPresentationFrame?.let(renderer::render)
     }
+    internal fun setGhostUpdateSurfaceRebindObserver(observer: ((Ghost, Boolean) -> Unit)?) = synchronized(this) {
+        ghostUpdateSurfaceRebindObserver = observer
+    }
     fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean =
         dispatchSurfaceInteractionWithDiagnostics(effect).accepted
 
     internal fun dispatchSurfaceInteractionWithDiagnostics(
         effect: SurfaceInteractionEffect,
     ): SurfaceInteractionDispatchResult = withCurrentGhostGate { target, live ->
+        if (!live) {
+            return@withCurrentGhostGate SurfaceInteractionDispatchResult(null, false)
+        }
         val candidateEvent = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
-        if (!live || candidateEvent == null) {
+        if (candidateEvent == null) {
             return@withCurrentGhostGate SurfaceInteractionDispatchResult(candidateEvent, false)
         }
         val passiveSequence = runtimeModeSnapshot().passive
@@ -224,7 +236,10 @@ open class SScriptRunner internal constructor(
     internal fun unloadGhostForSwitchForTesting(ghost: Ghost): Boolean =
         sessionCoordinator.markActiveUnloaded(ghost).also { unloaded ->
             if (unloaded) synchronized(this) {
-                if (g === ghost) passive = false
+                if (g === ghost) {
+                    passive = false
+                    runtimeModeGeneration++
+                }
             }
         }
     private fun setGhostInternal(newGhost: Ghost?, reservation: ReservedGhost?): Boolean {
@@ -235,6 +250,7 @@ open class SScriptRunner internal constructor(
         val assign = {
             synchronized(this) {
                 outgoingName = g?.getGhostName()
+                if (g !== newGhost) runtimeModeGeneration++
                 g = newGhost
                 if (outgoing != null && outgoing !== newGhost) {
                     clearedDialogueState = clearDialogueStateLocked().state
@@ -266,8 +282,14 @@ open class SScriptRunner internal constructor(
         }
         return true
     }
-    @Synchronized fun addMsgToQueue(inCol: Collection<String>) { msgQueue.addAll(inCol) }
-    @Synchronized fun addMsgToQueue(msgs: Array<String>) { msgs.forEach { msgQueue.add(it) } }
+    @Synchronized fun addMsgToQueue(inCol: Collection<String>) {
+        if (inCol.isNotEmpty()) runtimeModeGeneration++
+        msgQueue.addAll(inCol)
+    }
+    @Synchronized fun addMsgToQueue(msgs: Array<String>) {
+        if (msgs.isNotEmpty()) runtimeModeGeneration++
+        msgs.forEach { msgQueue.add(it) }
+    }
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
     private val clockHandler: Handler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
     fun resumeEvt() {
@@ -335,6 +357,7 @@ open class SScriptRunner internal constructor(
             val state = playback
             if (state.running) return
             state.running = true
+            runtimeModeGeneration++
             reset(state)
             state.msg = getFromQueue(state)
             state to (state.msg == null)
@@ -347,7 +370,7 @@ open class SScriptRunner internal constructor(
         state.dialogueScript = script?.let(::recordDialogueScript)
     }
     private fun rewriteMsg(input:String?):String? { if(g==null||input==null)return input; return input.replace("%username",g!!.getUsername()).replace("%selfname2?",g!!.getSakuraName() ?: "null").replace("%keroname",g!!.getKeroName() ?: "null") }
-    fun clearMsgQueue(){val state=synchronized(this){msgQueue.clear();playback.msg=null;playback};stop(state)}
+    fun clearMsgQueue(){val state=synchronized(this){msgQueue.clear();playback.msg=null;runtimeModeGeneration++;playback};stop(state)}
     fun stop() = stop(synchronized(this) { playback })
     private fun stop(state: PlaybackState, continueQueuedTalk: Boolean = false) {
         while (true) {
@@ -388,7 +411,10 @@ open class SScriptRunner internal constructor(
                 if (playbackScheduler.isInitialized()) playbackScheduler.value.cancelPending()
                 state.running = false
                 state.paused = false
-                if (unloadTarget != null) passive = false
+                if (unloadTarget != null) {
+                    passive = false
+                    runtimeModeGeneration++
+                }
                 state.bSakuraId = "-1"
                 state.bKeroId = "-1"
                 val frame = takePresentationFrame(state)
@@ -623,7 +649,11 @@ open class SScriptRunner internal constructor(
             state.charIndex += passiveCommand.second
             synchronized(this) {
                 if (playback === state && state.running) {
-                    passive = passiveCommand.first == "enter"
+                    val updatedPassive = passiveCommand.first == "enter"
+                    if (passive != updatedPassive) {
+                        passive = updatedPassive
+                        runtimeModeGeneration++
+                    }
                 }
             }
             return false
@@ -639,7 +669,9 @@ open class SScriptRunner internal constructor(
 
     /** Consumes exactly one bracket command; a later input command must remain for the next step. */
     private fun consumeOpenInputCommand(remaining: String): OpenInputCommand? {
-        if (!remaining.startsWith("[open,inputbox,")) return null
+        val prefix = listOf("[open,inputbox,", "[open,passwordinput,")
+            .firstOrNull(remaining::startsWith)
+            ?: return null
         var quote: Char? = null
         var escaped = false
         var depth = 0
@@ -661,7 +693,7 @@ open class SScriptRunner internal constructor(
             }
         }
         if (end < 0) return null
-        val payload = remaining.substring("[open,inputbox,".length, end)
+        val payload = remaining.substring(prefix.length, end)
         quote = null
         escaped = false
         var separator = payload.length
@@ -869,12 +901,24 @@ open class SScriptRunner internal constructor(
     private fun doPerMinuteEvent(hr: Long) { dispatchTimerEvent("OnMinuteChange", hr) }
     private fun dispatchTimerEvent(event: String, uptimeHours: Long) {
         withCurrentGhost { target ->
-            val canTalk = runtimeModeSnapshot().canTalk
-            val method = if (canTalk) ShioriMethod.GET else ShioriMethod.NOTIFY
-            val response = target.requestRaw(method, event, listOf(uptimeHours.toString(), "0", "0", if (canTalk) "1" else "0"))
-            if (canTalk && runtimeModeSnapshot().canTalk && isPinnedDialogueGhost(target)) {
-                parseShioriResponseAndInsert(response)
+            val (wasIdle, capturedGeneration) = synchronized(this) {
+                runtimeModeSnapshot().canTalk to runtimeModeGeneration
             }
+            val method = if (wasIdle) ShioriMethod.GET else ShioriMethod.NOTIFY
+            val response = target.requestRaw(method, event, listOf(uptimeHours.toString(), "0", "0", if (wasIdle) "1" else "0"))
+            if (!wasIdle) return@withCurrentGhost
+            val value = response.takeIf { it.getStatusCode() == 200 }?.getKey("Value") ?: return@withCurrentGhost
+            playbackHooks.beforeTimerResponseAdmission()
+            val shouldRun = synchronized(this) {
+                if (!timerResponseIsEligible(target, capturedGeneration)) {
+                    false
+                } else {
+                    msgQueue.add(value)
+                    runtimeModeGeneration++
+                    !playback.running
+                }
+            }
+            if (shouldRun) run()
         }
     }
     private fun perClockEvent() {
@@ -959,8 +1003,18 @@ open class SScriptRunner internal constructor(
                 onStopped,
                 onFailure,
                 onActiveSessionInvalidated = ::invalidateForSessionUnload,
+                onActiveSessionReloaded = ::notifyGhostUpdateSurfaceRebind,
                 action = action,
             )
+        }
+    }
+
+    private fun notifyGhostUpdateSurfaceRebind(ghost: Ghost, reloaded: Boolean) {
+        val observer = synchronized(this) { ghostUpdateSurfaceRebindObserver } ?: return
+        try {
+            observer(ghost, reloaded)
+        } catch (error: RuntimeException) {
+            LegacyPlatform.debug(TAG, "ghost update surface rebind observer failed: ${error.message}")
         }
     }
 
@@ -1119,6 +1173,7 @@ open class SScriptRunner internal constructor(
     private fun takePendingInput(generation: Long): PendingInputState? = synchronized(this) {
         val pending = dialogueState.pendingInput ?: return@synchronized null
         if (pending.generation != generation) return@synchronized null
+        runtimeModeGeneration++
         retiredInputGenerations += generation
         dialogueState = dialogueState.copy(revision = dialogueState.revision + 1, pendingInput = null)
         pending
@@ -1126,6 +1181,7 @@ open class SScriptRunner internal constructor(
 
     private fun takePendingChoice(action: DialogueAction): Boolean = synchronized(this) {
         if (dialogueState.pendingChoices.none { it === action }) return@synchronized false
+        runtimeModeGeneration++
         retiredDialogueChoices.addAll(dialogueState.pendingChoices)
         pendingChoiceGeneration = null
         dialogueState = dialogueState.copy(
@@ -1168,6 +1224,12 @@ open class SScriptRunner internal constructor(
 
     private fun isPinnedDialogueGhost(target: Ghost): Boolean =
         synchronized(this) { g === target } && sessionCoordinator.withGhostGate(target) { it }
+
+    /** Called with the runner lock held; withCurrentGhost keeps the target session live. */
+    private fun timerResponseIsEligible(target: Ghost, capturedGeneration: Long): Boolean =
+        runtimeModeSnapshot().canTalk &&
+            runtimeModeGeneration == capturedGeneration &&
+            g === target
 
     private fun enqueueLocalDialogueScript(claim: () -> Boolean, script: String) {
         var shouldRun = false
@@ -1286,6 +1348,16 @@ open class SScriptRunner internal constructor(
         val published = synchronized(this) {
             if (playback !== state || dialogueState.talkId != authored.talkId) return
             val pendingChoices = revealedPendingChoices.filterNot(retiredDialogueChoices::contains)
+            val pendingInput = authored.pendingInputs.firstOrNull { pending ->
+                pending.generation !in retiredInputGenerations &&
+                    reachedInputs.any { it === pending.spec }
+            } ?: authored.carriedInput?.takeIf { it.generation !in retiredInputGenerations }
+            if (
+                pendingChoices != dialogueState.pendingChoices ||
+                pendingInput != dialogueState.pendingInput
+            ) {
+                runtimeModeGeneration++
+            }
             pendingChoiceGeneration = pendingChoices
                 .takeIf { it.isNotEmpty() && dialogueState.pendingChoices.isEmpty() }
                 ?.let { ++nextChoiceGeneration } ?: pendingChoiceGeneration
@@ -1293,10 +1365,7 @@ open class SScriptRunner internal constructor(
                 revision = dialogueState.revision + 1,
                 contents = contents,
                 pendingChoices = pendingChoices,
-                pendingInput = authored.pendingInputs.firstOrNull { pending ->
-                    pending.generation !in retiredInputGenerations &&
-                        reachedInputs.any { it === pending.spec }
-                } ?: authored.carriedInput?.takeIf { it.generation !in retiredInputGenerations },
+                pendingInput = pendingInput,
             )
             dialogueState
         }
@@ -1383,6 +1452,7 @@ open class SScriptRunner internal constructor(
     }
 
     private fun clearDialogueStateLocked(completeLifecycle: Boolean = false): DialogueClearResult {
+        runtimeModeGeneration++
         if (playbackScheduler.isInitialized()) playbackScheduler.value.cancelPending()
         playback = PlaybackState()
         dialogueDialogOwner = UUID.randomUUID().toString()

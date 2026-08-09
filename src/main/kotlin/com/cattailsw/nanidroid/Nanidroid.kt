@@ -45,8 +45,10 @@ import com.cattailsw.nanidroid.compose.debug.SurfacePointerDebugEvent
 import com.cattailsw.nanidroid.compose.debug.collisionOverlaySpeaker
 import com.cattailsw.nanidroid.compose.debug.dismissDebugSurface
 import com.cattailsw.nanidroid.compose.debug.debugSelection
-import com.cattailsw.nanidroid.compose.debug.resolveDebugPresentation
 import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
+import com.cattailsw.nanidroid.compose.debug.recordSampleFeedback
+import com.cattailsw.nanidroid.compose.debug.resolveDebugPresentation
+import com.cattailsw.nanidroid.compose.debug.showDebugSurface
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
@@ -67,7 +69,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.GhostActionGuard
 import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
-import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
@@ -131,7 +133,7 @@ internal fun restoredTransientUiSnapshot(
             selectedSpeaker = SurfaceSpeaker.entries.firstOrNull { it.name == debugSpeakerName }
                 ?: SurfaceSpeaker.SAKURA,
             showCollisionOverlay = collisionOverlayVisible,
-            sampleQueued = false,
+            sampleFeedbackToken = 0L,
         )
     } else {
         DebugPanelState()
@@ -147,7 +149,7 @@ internal fun transientUiSnapshotToSave(
 ): TransientUiSnapshot? = pending ?: if (initialized) {
     TransientUiSnapshot(
         toolbarVisible = toolbarVisible,
-        debugPanelState = debugPanelState.copy(sampleQueued = false),
+        debugPanelState = debugPanelState.copy(sampleFeedbackToken = 0L),
     )
 } else {
     null
@@ -177,6 +179,54 @@ private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
 private const val TRANSIENT_DEBUG_VISIBLE = "transient_debug_visible"
 private const val TRANSIENT_DEBUG_SPEAKER = "transient_debug_speaker"
 private const val TRANSIENT_COLLISION_OVERLAY = "transient_collision_overlay"
+private const val TEXT_DOCUMENT_RESTORE_KIND = "text_document_restore_kind"
+private const val TEXT_DOCUMENT_RESTORE_TITLE = "text_document_restore_title"
+private const val TEXT_DOCUMENT_RESTORE_TEXT = "text_document_restore_text"
+private const val TEXT_DOCUMENT_RESTORE_SOURCE_ID = "text_document_restore_source_id"
+
+internal enum class TextDocumentRestoreKind {
+    ABOUT,
+    INSTALLED_GHOST_README,
+    CURRENT_GHOST_README,
+}
+
+internal data class TextDocumentRestoreSnapshot(
+    val kind: TextDocumentRestoreKind,
+    val title: String,
+    val text: String,
+    val sourceId: String?,
+)
+
+internal fun NanidroidSimpleDialog.TextDocument.toTextDocumentRestoreSnapshot() =
+    TextDocumentRestoreSnapshot(
+        kind = when {
+            onSwitch != null -> TextDocumentRestoreKind.INSTALLED_GHOST_README
+            sourceId != null -> TextDocumentRestoreKind.CURRENT_GHOST_README
+            else -> TextDocumentRestoreKind.ABOUT
+        },
+        title = title,
+        text = text,
+        sourceId = sourceId,
+    )
+
+internal fun Bundle.writeTextDocumentRestoreSnapshot(snapshot: TextDocumentRestoreSnapshot) {
+    putString(TEXT_DOCUMENT_RESTORE_KIND, snapshot.kind.name)
+    putString(TEXT_DOCUMENT_RESTORE_TITLE, snapshot.title)
+    putString(TEXT_DOCUMENT_RESTORE_TEXT, snapshot.text)
+    putString(TEXT_DOCUMENT_RESTORE_SOURCE_ID, snapshot.sourceId)
+}
+
+internal fun Bundle.readTextDocumentRestoreSnapshot(): TextDocumentRestoreSnapshot? {
+    val kind = getString(TEXT_DOCUMENT_RESTORE_KIND)
+        ?.let { value -> TextDocumentRestoreKind.entries.firstOrNull { it.name == value } }
+        ?: return null
+    return TextDocumentRestoreSnapshot(
+        kind = kind,
+        title = getString(TEXT_DOCUMENT_RESTORE_TITLE).orEmpty(),
+        text = getString(TEXT_DOCUMENT_RESTORE_TEXT).orEmpty(),
+        sourceId = getString(TEXT_DOCUMENT_RESTORE_SOURCE_ID),
+    )
+}
 
 /**
  * The production activity. Compose owns both chrome and ghost presentation;
@@ -267,7 +317,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             pendingUri = savedInstanceState?.getString(NAR_PENDING_INTENT_URI),
             pendingFlags = savedInstanceState?.getInt(NAR_PENDING_INTENT_FLAGS, 0) ?: 0,
         )
-        handleIncomingIntent(intent)
+        resolveRunnerBeforeColdArchiveIngress(
+            resolveRunner = { SScriptRunner.getInstance(this) },
+            bindRunner = { runner = it },
+            handleArchiveIngress = { handleIncomingIntent(intent) },
+        )
         val dbgBuild = isDbgBuild()
         initGA()
         setupViews(dbgBuild)
@@ -282,7 +336,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
         checkIsRestore(savedInstanceState)
         pendingRestoredTransientUi = savedInstanceState?.readTransientUiSnapshot(dbgBuild)
-        runner = SScriptRunner.getInstance(this)
         restoreSimpleDialog(savedInstanceState)
         initOnSeparateThread()
     }
@@ -359,6 +412,13 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
         runner!!.setPresentationRenderer(composeStage.renderer)
         runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
+        runner!!.setGhostUpdateSurfaceRebindObserver { updatedGhost, reloaded ->
+            runOnUiThread {
+                if (currentGhost === updatedGhost) {
+                    composeStage.setSurfaceManager(updatedGhost.mgr.takeIf { reloaded }, updatedGhost.getGhostId())
+                }
+            }
+        }
         // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
         val attached = runner!!.attachReservedGhost(reservation)
@@ -417,10 +477,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     archiveDownloads = downloads,
                     showDebugControls = dbgBuild,
                     onDebug = {
-                        debugPanelState = debugPanelState.copy(
-                            visible = true,
-                            sampleQueued = false,
-                        )
+                        debugPanelState = debugPanelState.showDebugSurface()
                     },
                     simpleDialog = simpleDialog,
                     onDismissSimpleDialog = { simpleDialog = null },
@@ -457,7 +514,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                                     debugPanelState = debugPanelState.copy(showCollisionOverlay = it)
                                 },
                                 onNarTest = {
-                                    debugPanelState = debugPanelState.copy(sampleQueued = true)
+                                    debugPanelState = debugPanelState.recordSampleFeedback()
                                     narTest()
                                 },
                                 onDismiss = {
@@ -500,11 +557,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             source = source.shioriReference,
         )
     private fun showProgress() {
-        debugPanelState = debugPanelState.copy(
-            visible = false,
-            showCollisionOverlay = false,
-            sampleQueued = false,
-        )
+        debugPanelState = debugPanelState.dismissDebugSurface().copy(showCollisionOverlay = false)
         loading = true
     }
     private fun hideProgress() {
@@ -707,7 +760,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }.execute()
     }
     private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
-        if (!allows(GuardedAction.IMPORT_INSTALL)) return
+        if (!allowsArchiveIngress(runner?.runtimeModeSnapshot())) return
         val resolvedMimeType = incoming?.type ?: runCatching {
             incoming?.data?.let(contentResolver::getType)
         }.getOrNull()
@@ -927,13 +980,13 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     } catch (_: Exception) { false }
     private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
         GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
-    private fun createUserInputDialog(id: String, generation: Long?, value: String = ""): NanidroidSimpleDialog.UserInput =
-        dialogueDialogBinding.userInput(id, generation, value, ::updateUserInputValue)
+    private fun createUserInputDialog(pending: PendingInputState, value: String = ""): NanidroidSimpleDialog.UserInput =
+        dialogueDialogBinding.userInput(pending, value, ::updateUserInputValue)
     private fun restoreUserInputDialog(
         id: String,
         restoration: DialogueDialogRestoration?,
         value: String,
-    ): NanidroidSimpleDialog.UserInput =
+    ): NanidroidSimpleDialog.UserInput? =
         dialogueDialogBinding.restoreUserInput(id, restoration, value, ::updateUserInputValue)
     private fun updateUserInputValue(value: String) {
         val dialog = simpleDialog as? NanidroidSimpleDialog.UserInput ?: return
@@ -942,11 +995,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun openDialogueInput(input: DialogueSegment.InputBox) {
         val pending = runner?.dialogueStateSnapshot()?.pendingInput ?: return
         if (pending.spec !== input.spec) return
-        val id = when (val dispatch = pending.spec.dispatch) {
-            is InputDispatch.Normal -> dispatch.id
-            is InputDispatch.DirectEvent -> dispatch.eventId
-        }
-        simpleDialog = createUserInputDialog(id, pending.generation)
+        simpleDialog = createUserInputDialog(pending)
     }
     private fun openDialogueExternalUrl(value: String) {
         val uri = try {
@@ -1036,9 +1085,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             }
             is NanidroidSimpleDialog.ArchiveQueue -> Unit
             is NanidroidSimpleDialog.TextDocument -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, if (dialog.onSwitch == null) DIALOG_ABOUT else DIALOG_README)
-                outState.putString(SIMPLE_DIALOG_VALUE, dialog.text)
-                outState.putString(SIMPLE_DIALOG_ID, dialog.sourceId)
+                val snapshot = dialog.toTextDocumentRestoreSnapshot()
+                outState.putString(
+                    SIMPLE_DIALOG_TYPE,
+                    when (snapshot.kind) {
+                        TextDocumentRestoreKind.ABOUT -> DIALOG_ABOUT
+                        TextDocumentRestoreKind.INSTALLED_GHOST_README -> DIALOG_README
+                        TextDocumentRestoreKind.CURRENT_GHOST_README -> DIALOG_CURRENT_GHOST_README
+                    },
+                )
+                outState.writeTextDocumentRestoreSnapshot(snapshot)
             }
             is NanidroidSimpleDialog.SwitchConfirmation -> {
                 outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_NO_README)
@@ -1091,9 +1147,29 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             DIALOG_GHOST_LIST -> createGhostListDialog(state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(), state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty())
             DIALOG_ABOUT -> createAboutDialog()
             DIALOG_README -> {
-                val ghostId = state.getString(SIMPLE_DIALOG_ID).orEmpty()
-                NanidroidSimpleDialog.TextDocument(getString(R.string.new_ghost_installed_title), state.getString(SIMPLE_DIALOG_VALUE).orEmpty(), ::openDocumentLink, ghostId, { switchGhost(ghostId) })
+                val snapshot = state.readTextDocumentRestoreSnapshot()
+                val ghostId = snapshot?.sourceId ?: state.getString(SIMPLE_DIALOG_ID).orEmpty()
+                NanidroidSimpleDialog.TextDocument(
+                    snapshot?.title ?: getString(R.string.new_ghost_installed_title),
+                    snapshot?.text ?: state.getString(SIMPLE_DIALOG_VALUE).orEmpty(),
+                    ::openDocumentLink,
+                    ghostId,
+                    { switchGhost(ghostId) },
+                )
             }
+            DIALOG_CURRENT_GHOST_README -> state.readTextDocumentRestoreSnapshot()
+                ?.takeIf {
+                    it.kind == TextDocumentRestoreKind.CURRENT_GHOST_README &&
+                        !it.sourceId.isNullOrBlank()
+                }
+                ?.let { snapshot ->
+                    NanidroidSimpleDialog.TextDocument(
+                        snapshot.title,
+                        snapshot.text,
+                        ::openDocumentLink,
+                        snapshot.sourceId,
+                    )
+                }
             DIALOG_NO_README -> createNoReadmeDialog(state.getString(SIMPLE_DIALOG_ID).orEmpty(), state.getString(SIMPLE_DIALOG_VALUE).orEmpty())
             else -> null
         }
@@ -1124,5 +1200,5 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         // racing it or consuming a pending choice on host recreation.
     }
 
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_NO_README = "no_readme" }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"; private const val DIALOG_NO_README = "no_readme" }
 }

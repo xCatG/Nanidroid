@@ -326,7 +326,11 @@ class NarDownloadRepository internal constructor(
             val binding = ExternalJobBinding.WorkManager(workManagerId)
             val result = stage(
                 item,
-                { isStopped() || cancellationRequested(handle) },
+                {
+                    isStopped() ||
+                        cancellationRequested(handle) ||
+                        (liveGrant && !isLiveCopyAttemptActive(handle))
+                },
                 { phase, completed -> supervisor.reportProgress(handle, binding, phase, completed) },
             )
             val current = store.get(itemId)
@@ -520,6 +524,7 @@ class NarDownloadRepository internal constructor(
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
         store.delete(itemId)
+        liveCopyAttempts -= item.handle()
         releasePersistedGrantIfUnused(item)
         publish()
         return true
@@ -1221,6 +1226,10 @@ class NarDownloadRepository internal constructor(
     private fun publish() {
         observedDownloads.value = store.getAll()
     }
+
+    @Synchronized
+    private fun isLiveCopyAttemptActive(handle: OperationHandle): Boolean =
+        handle in liveCopyAttempts
 
     private fun cancellationRequested(handle: OperationHandle): Boolean =
         supervisor.snapshot().any {

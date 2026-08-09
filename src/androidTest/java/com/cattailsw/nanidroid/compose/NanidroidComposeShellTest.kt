@@ -41,6 +41,7 @@ import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadSource
+import com.cattailsw.nanidroid.install.NarDownloadState
 import com.cattailsw.nanidroid.durable.AttemptId
 import com.cattailsw.nanidroid.durable.CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
 import com.cattailsw.nanidroid.durable.DurableAttentionAction
@@ -791,6 +792,67 @@ class NanidroidComposeShellTest {
         composeRule.runOnIdle { assertEquals("readme", selected) }
         openOverflowMenu()
         composeRule.onNodeWithText("2 downloads").assertIsDisplayed()
+    }
+
+    @Test
+    fun shell_overflow_exposes_archive_queue_status_before_the_menu_opens() {
+        val downloads = mutableStateOf(emptyList<NarDownload>())
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "Loading ghost",
+                toolbarVisible = true,
+                onListGhost = {},
+                onUpdate = {},
+                onPreferences = {},
+                onHelp = {},
+                archiveDownloads = downloads.value,
+                simpleDialog = null,
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        fun assertOverflowDescription(expected: String) {
+            composeRule.onNodeWithTag("appbar-overflow").assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, listOf(expected)),
+            )
+        }
+
+        assertOverflowDescription("More, no archive downloads")
+        assertNoNodeWithTag("archive-queue-status", useUnmergedTree = true)
+
+        downloads.value = listOf(
+            NarDownload(
+                "active",
+                NarDownloadSource.Remote("https://example.test/active.nar"),
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertOverflowDescription("More, 1 download active")
+        composeRule.onNodeWithTag("archive-queue-status", useUnmergedTree = true).assertIsDisplayed()
+
+        downloads.value = listOf(
+            NarDownload(
+                "complete",
+                NarDownloadSource.Remote("https://example.test/complete.nar"),
+                state = NarDownloadState.Complete,
+            ),
+        )
+        assertOverflowDescription("More, 1 download complete")
+        composeRule.onNodeWithTag("archive-queue-status", useUnmergedTree = true).assertIsDisplayed()
+
+        downloads.value = listOf(
+            NarDownload(
+                "attention",
+                NarDownloadSource.Remote("https://example.test/attention.nar"),
+                state = NarDownloadState.NeedsAttention(
+                    NarDownloadState.Failure("network failed"),
+                ),
+            ),
+        )
+        assertOverflowDescription("More, 1 download needs attention")
+        composeRule.onNodeWithTag("archive-queue-status", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test

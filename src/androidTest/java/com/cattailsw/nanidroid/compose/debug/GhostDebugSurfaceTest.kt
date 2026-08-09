@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasNoClickAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -184,6 +186,43 @@ class GhostDebugSurfaceTest {
     }
 
     @Test
+    fun compact_scrollable_debug_surface_renews_sample_feedback_for_each_press() {
+        val state = mutableStateOf(DebugPanelState(visible = true))
+        var samplesRun = 0
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = state.value,
+                selection = null,
+                lastInput = null,
+                logs = emptyList(),
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {
+                    samplesRun++
+                    state.value = state.value.recordSampleFeedback()
+                },
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_NAR_TEST_TAG).performScrollTo().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, samplesRun)
+            assertEquals(1L, state.value.sampleFeedbackToken)
+        }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SAMPLE_FEEDBACK_TAG).assertIsDisplayed()
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_NAR_TEST_TAG).performClick()
+        composeRule.runOnIdle {
+            assertEquals(2, samplesRun)
+            assertEquals(2L, state.value.sampleFeedbackToken)
+        }
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SAMPLE_FEEDBACK_TAG).assertIsDisplayed()
+    }
+
+    @Test
     fun debug_surface_shows_resolved_candidate_and_rejected_dispatch_outcome() {
         val selection = SurfaceDebugSelection(
             speaker = SurfaceSpeaker.SAKURA,
@@ -221,6 +260,7 @@ class GhostDebugSurfaceTest {
         )
         val logs = listOf(
             Entry(
+                id = 0L,
                 event = "OnTest",
                 request = "Reference0:payload",
                 responseStatus = 200,
@@ -255,6 +295,50 @@ class GhostDebugSurfaceTest {
         composeRule.onNodeWithText("123 / bubble").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("OnMouseClick").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Rejected").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun debug_surface_keeps_the_same_expanded_log_entry_after_bounded_eviction() {
+        val log = BoundedShioriLog(maxEvents = 3)
+        val firstRequest = "first".repeat(600)
+        val expandedRequest = "expanded-original".repeat(300)
+        val thirdRequest = "third".repeat(600)
+        log.append("First", firstRequest, 200, "OK", "OK")
+        log.append("Second", expandedRequest, 200, "OK", "OK")
+        log.append("Third", thirdRequest, 200, "OK", "OK")
+        val entries = mutableStateOf(log.snapshot())
+
+        composeRule.setContent {
+            GhostDebugSurface(
+                presentation = DebugPresentation.FULL_STAGE_MODAL,
+                state = DebugPanelState(visible = true),
+                selection = null,
+                lastInput = null,
+                logs = entries.value,
+                onSelectSpeaker = {},
+                onCollisionOverlayChange = {},
+                onNarTest = {},
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_TAG).performScrollTo()
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_LIST_TAG).performScrollToIndex(1)
+        composeRule.onNodeWithTag("ghost-debug-surface-shiori-log-1-toggle")
+            .performScrollTo()
+            .performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("ghost-debug-surface-shiori-log-1-toggle")
+            .assertTextEquals("Collapse payload")
+
+        composeRule.runOnIdle {
+            log.append("Fourth", "fourth".repeat(600), 200, "OK", "OK")
+            entries.value = log.snapshot()
+        }
+
+        composeRule.onNodeWithTag(GHOST_DEBUG_SURFACE_SHIORI_LOG_LIST_TAG).performScrollToIndex(0)
+        composeRule.onNodeWithTag("ghost-debug-surface-shiori-log-1-toggle")
+            .assertTextEquals("Collapse payload")
     }
 
     @Test

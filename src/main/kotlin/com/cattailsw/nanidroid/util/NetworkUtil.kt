@@ -9,6 +9,8 @@ import java.net.URL
 import java.util.zip.GZIPInputStream
 import javax.net.ssl.HttpsURLConnection
 
+class HttpStatusException(val statusCode: Int) : IOException("HTTPS request failed: $statusCode")
+
 /** HTTPS-only network boundary for archive and update downloads. */
 object NetworkUtil {
     private const val TIMEOUT_MILLIS = 20_000
@@ -34,7 +36,7 @@ object NetworkUtil {
         val responseCode = connection.responseCode
         if (responseCode !in 200..299) {
             connection.disconnect()
-            throw IOException("HTTPS request failed: $responseCode")
+            throw HttpStatusException(responseCode)
         }
         return responseStream(connection)
     }

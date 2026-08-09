@@ -20,6 +20,7 @@ import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.DescReader
+import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.ShioriFactory
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.SurfaceReader
@@ -60,17 +61,20 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.Rule
 import org.junit.runner.RunWith
 import java.io.BufferedInputStream
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.StringReader
 import java.io.IOException
+import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -92,19 +96,36 @@ class NarCorpusRuntimeTest {
     private val probeContent = NarCorpusProbeContent()
 
     @Test
-    fun snakeBootLifecycleDoesNotFallbackWhenOnFirstBootReturnsContent() {
-        val requests = mutableListOf<String>()
+    fun boundedReadKeepsOnlyTheLimitAndOverflowSentinel() {
+        val bytes = ByteArray(10) { it.toByte() }
 
-        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
-            requests += eventId
+        assertEquals(
+            bytes.copyOf(5).toList(),
+            readBoundedBytes(ByteArrayInputStream(bytes), maxBytes = 4).toList(),
+        )
+    }
+
+    @Test
+    fun snakeBootLifecycleDoesNotFallbackWhenOnFirstBootReturnsContent() {
+        val requests = mutableListOf<Pair<String, List<String>>>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            requests += eventId to references
             JSONObject()
                 .put("eventId", eventId)
                 .put("status", 200)
                 .put("outcome", "success")
+                .put("value", "playable")
+                .put("choiceIds", JSONArray().put("faq"))
         }
 
         assertEquals(
-            listOf("OnFirstBoot", "OnChoiceSelect", "OnChoiceSelect"),
+            listOf(
+                "OnFirstBoot" to listOf("0"),
+                "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
+                "OnNameTeach" to listOf("Nanidroid", ""),
+                "OnChoiceSelectEx" to listOf("faq", "faq"),
+            ),
             requests,
         )
     }
@@ -122,6 +143,263 @@ class NarCorpusRuntimeTest {
         }
 
         assertEquals(listOf("OnFirstBoot", "OnBoot"), requests)
+    }
+
+    @Test
+    fun snakeBootLifecycleStopsBeforeFirstChoiceWhenBootResponseIsUnplayable() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 201)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("hasExactValue", true)
+        }
+
+        assertEquals(listOf("OnFirstBoot"), requests)
+    }
+
+    @Test
+    fun snakeBootLifecycleStopsBeforeFirstChoiceWhenBootOnlyHasLowercaseValueHeader() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("hasExactValue", false)
+        }
+
+        assertEquals(listOf("OnFirstBoot"), requests)
+    }
+
+    @Test
+    fun exactProbeValueUsesTheProductionValueHeaderWhenCaseVariantsCoexist() {
+        val response = ShioriResponse(
+            java.io.BufferedReader(
+                StringReader(
+                    "SHIORI/3.0 200 OK\r\n" +
+                        "Value: \\q[Exact choice,id=exact]\r\n" +
+                        "value: \\q[Lowercase choice,id=lowercase]\r\n" +
+                        "\r\n",
+                ),
+            ),
+        )
+
+        assertEquals("\\q[Exact choice,id=exact]", exactProbeValue(response))
+    }
+
+    @Test
+    fun snakeBootLifecycleDoesNotProbeFaqWhenInputDoesNotExposeFaqChoice() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("choiceIds", JSONArray())
+        }
+
+        assertEquals(listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach"), requests)
+    }
+
+    @Test
+    fun parsedChoiceIdsExcludeChoicesClearedFromVisibleDialogue() {
+        val evidence = parseShioriSegments("\\q[faq,faq]\\cAfter clear", mutableListOf())
+
+        assertEquals(0, evidence.getJSONArray("choiceIds").length())
+    }
+
+    @Test
+    fun parsedChoiceIdsPreserveChoicesAcrossSpeakerChanges() {
+        val evidence = parseShioriSegments("\\h\\q[faq,faq]\\uReply\\hAgain", mutableListOf())
+
+        assertEquals("faq", evidence.getJSONArray("choiceIds").getString(0))
+    }
+
+    @Test
+    fun parsedPassiveTransitionsSurviveDialogueClears() {
+        val evidence = parseShioriSegments("\\![enter,passivemode]\\cAfter clear", mutableListOf())
+
+        assertTrue(evidence.getJSONArray("passiveTransitions").getBoolean(0))
+    }
+
+    @Test
+    fun snakeBootLifecycleRetainsFailedPrimaryAndFallbackChoiceEvidence() {
+        val requests = mutableListOf<Pair<String, List<String>>>()
+
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            requests += eventId to references
+            val primaryIsUnplayable = eventId == "OnChoiceSelectEx" && references[1] == "choicefirsthehim"
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", if (primaryIsUnplayable) 204 else 200)
+                .put("outcome", "success")
+                .put("value", if (primaryIsUnplayable) "" else "playable")
+                .put("choiceIds", JSONArray().put("faq"))
+        }
+
+        assertEquals(
+            listOf(
+                "OnFirstBoot" to listOf("0"),
+                "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
+                "OnChoiceSelect" to listOf("choicefirsthehim"),
+                "OnNameTeach" to listOf("Nanidroid", ""),
+                "OnChoiceSelectEx" to listOf("faq", "faq"),
+            ),
+            requests,
+        )
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnChoiceSelect", "OnNameTeach", "OnChoiceSelectEx"),
+            (0 until sequence.length()).map { sequence.getJSONObject(it).getString("eventId") },
+        )
+        assertEquals(204, sequence.getJSONObject(1).getInt("status"))
+        assertEquals("", sequence.getJSONObject(1).getString("value"))
+        assertEquals(
+            listOf("he/him", "choicefirsthehim"),
+            sequence.getJSONObject(1).getJSONArray("references").let { references ->
+                (0 until references.length()).map(references::getString)
+            },
+        )
+        assertEquals(200, sequence.getJSONObject(2).getInt("status"))
+        assertEquals("playable", sequence.getJSONObject(2).getString("value"))
+        assertEquals(
+            listOf("choicefirsthehim"),
+            sequence.getJSONObject(2).getJSONArray("references").let { references ->
+                (0 until references.length()).map(references::getString)
+            },
+        )
+    }
+
+    @Test
+    fun snakeAggregateOutcomeTreatsAPlayableFallbackAsTheChoiceResult() {
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            val failedPrimary = eventId == "OnChoiceSelectEx" && references[1] == "choicefirsthehim"
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", if (failedPrimary) 500 else 200)
+                .put("outcome", if (failedPrimary) "error-status" else "success")
+                .put("value", "playable")
+                .put("hasExactValue", true)
+                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+        }
+
+        assertEquals("success", snakeOverallOutcome(sequence))
+    }
+
+    @Test
+    fun snakeBootLifecycleFallsBackWhenPrimaryOnlyHasLowercaseValueHeader() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put(
+                    "hasExactValue",
+                    eventId != "OnChoiceSelectEx",
+                )
+                .put("choiceIds", JSONArray())
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnChoiceSelect", "OnNameTeach"),
+            requests,
+        )
+    }
+
+    @Test
+    fun snakeBootLifecycleStopsBeforeInputWhenFallbackChoiceIsUnplayable() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            val primary = eventId == "OnChoiceSelectEx"
+            requests += eventId
+            val fallback = eventId == "OnChoiceSelect"
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", if (primary || fallback) 204 else 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("hasExactValue", fallback)
+                .put("choiceIds", JSONArray())
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnChoiceSelect"),
+            requests,
+        )
+    }
+
+    @Test
+    fun snakeBootLifecycleStopsBeforeFaqWhenInputOnlyHasLowercaseValueHeader() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put(
+                    "hasExactValue",
+                    eventId != SNAKE_NAME_TEACH_ID,
+                )
+                .put(
+                    "choiceIds",
+                    JSONArray().put(SNAKE_FAQ_ID),
+                )
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach"),
+            requests,
+        )
+    }
+
+    @Test
+    fun snakeBootLifecycleRetainsAnUnplayableTerminalFaqResponse() {
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+            val isTerminalFaqChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
+                references.last() == SNAKE_FAQ_ID
+            val status = when {
+                eventId == "OnChoiceSelectEx" && isTerminalFaqChoice -> 204
+                isTerminalFaqChoice -> 201
+                else -> 200
+            }
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", status)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnNameTeach", "OnChoiceSelectEx", "OnChoiceSelect"),
+            (0 until sequence.length()).map { sequence.getJSONObject(it).getString("eventId") },
+        )
+        assertEquals(204, sequence.getJSONObject(3).getInt("status"))
+        assertEquals(201, sequence.getJSONObject(4).getInt("status"))
+    }
+
+    @Test
+    fun structuredChoiceEvidenceUsesTheAuthoredChoiceIdentifier() {
+        assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelectEx", listOf("he/him", "choicefirsthehim")))
+        assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelect", listOf("choicefirsthehim")))
     }
 
     @Test
@@ -460,6 +738,7 @@ class NarCorpusRuntimeTest {
                     try {
                         shioriGhost = loadShiori(
                             installed.installedPath,
+                            installed.targetId ?: "corpus-${expectedSha256.take(16)}",
                             loadGhostDesc(installed.installedPath),
                             context,
                         )
@@ -547,12 +826,14 @@ class NarCorpusRuntimeTest {
 
     private class TestShioriGhost(
         private val path: String,
+        private val ghostIdentity: String,
         masterDesc: Map<String, String>,
         context: Context?,
     ) {
         private val shiori: Shiori = ShioriFactory.getInstance().getShiori(path, masterDesc, context)
 
         fun getShioriModuleName(): String? = shiori.getModuleName()
+        fun getGhostIdentity(): String = ghostIdentity
         fun isShioriNotSupported(): Boolean = shiori is NotSupportedShiori
 
         fun requestRaw(
@@ -750,9 +1031,10 @@ class NarCorpusRuntimeTest {
 
     private fun loadShiori(
         installedPath: String,
+        ghostIdentity: String,
         ghostDesc: Map<String, String>,
         context: Context?,
-    ): TestShioriGhost = TestShioriGhost("$installedPath/ghost/master/", ghostDesc, context)
+    ): TestShioriGhost = TestShioriGhost("$installedPath/ghost/master/", ghostIdentity, ghostDesc, context)
 
     private fun setCheckpoint(result: JSONObject, phase: String) {
         result.put("checkpointPhase", phase)
@@ -782,26 +1064,12 @@ class NarCorpusRuntimeTest {
             )
         }
 
-        var overallOutcome = "success"
-        for (index in 0 until sequence.length()) {
-            val step = sequence.getJSONObject(index)
-            val stepOutcome = step.optString("outcome")
-            if (stepOutcome != "success") {
-                overallOutcome = stepOutcome
-                break
-            }
-        }
+        val failureIndex = firstSnakeFailureIndex(sequence)
+        val overallOutcome = failureIndex?.let { sequence.getJSONObject(it).optString("outcome") } ?: "success"
 
         val firstStep = sequence.getJSONObject(0)
         var firstFailure: Any = JSONObject.NULL
-        for (index in 0 until sequence.length()) {
-            val step = sequence.getJSONObject(index)
-            val stepOutcome = step.optString("outcome")
-            if (stepOutcome != "success") {
-                firstFailure = step.opt("failure") ?: JSONObject.NULL
-                break
-            }
-        }
+        failureIndex?.let { firstFailure = sequence.getJSONObject(it).opt("failure") ?: JSONObject.NULL }
 
         return JSONObject()
             .put("outcome", overallOutcome)
@@ -839,6 +1107,31 @@ class NarCorpusRuntimeTest {
             )
             .put("failure", firstFailure)
             .put("sequence", sequence)
+            .put(
+                "postInteractionEvidence",
+                JSONArray().apply {
+                    for (index in 0 until sequence.length()) {
+                        val entries = sequence.getJSONObject(index).optJSONArray("postInteractionEvidence")
+                        if (entries != null) for (entryIndex in 0 until entries.length()) put(entries.get(entryIndex))
+                    }
+                },
+            )
+    }
+
+    private fun snakeOverallOutcome(sequence: JSONArray): String =
+        firstSnakeFailureIndex(sequence)?.let { sequence.getJSONObject(it).optString("outcome") } ?: "success"
+
+    private fun firstSnakeFailureIndex(sequence: JSONArray): Int? =
+        (0 until sequence.length()).firstOrNull { index ->
+            sequence.getJSONObject(index).optString("outcome") != "success" &&
+                !isRecoveredSnakeChoicePrimary(sequence, index)
+        }
+
+    private fun isRecoveredSnakeChoicePrimary(sequence: JSONArray, index: Int): Boolean {
+        val primary = sequence.getJSONObject(index)
+        if (primary.optString("eventId") != "OnChoiceSelectEx" || index + 1 >= sequence.length()) return false
+        val fallback = sequence.getJSONObject(index + 1)
+        return fallback.optString("eventId") == "OnChoiceSelect" && isSnakePlayableResponse(fallback)
     }
 
     private fun snakeBootLifecycleSequence(
@@ -853,14 +1146,33 @@ class NarCorpusRuntimeTest {
             sequence.put(probe("OnBoot", listOf(shellName)))
             return sequence
         }
-        if (onFirstBoot.optString("outcome") != "success") {
+
+        if (onFirstBoot.optString("outcome") != "success" || !isSnakePlayableResponse(onFirstBoot)) {
             return sequence
         }
 
-        val firstChoice = probe("OnChoiceSelect", listOf(SNAKE_CHOICE_FIRST_HE_HIM_ID))
-        sequence.put(firstChoice)
-        if (firstChoice.optString("outcome") == "success") {
-            sequence.put(probe("OnChoiceSelect", listOf(SNAKE_FAQ_ID)))
+        fun probeChoice(label: String, id: String): JSONObject? {
+            val primary = probe("OnChoiceSelectEx", listOf(label, id))
+            sequence.put(primary)
+            return if (isSnakePlayableResponse(primary)) {
+                primary
+            } else {
+                probe("OnChoiceSelect", listOf(id)).also(sequence::put).takeIf(::isSnakePlayableResponse)
+            }
+        }
+
+        val firstChoice = probeChoice(SNAKE_CHOICE_FIRST_HE_HIM_LABEL, SNAKE_CHOICE_FIRST_HE_HIM_ID)
+        if (firstChoice != null) {
+            val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE, ""))
+            sequence.put(input)
+            val inputChoiceIds = input.optJSONArray("choiceIds")
+            val inputExposesFaq = inputChoiceIds?.let { choiceIds ->
+                (0 until choiceIds.length()).any { choiceIds.optString(it) == SNAKE_FAQ_ID }
+            } == true
+            val inputHasExactValue = input.optBoolean("hasExactValue", input.optString("value").isNotEmpty())
+            if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesFaq) {
+                probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
+            }
         }
         return sequence
     }
@@ -892,7 +1204,7 @@ class NarCorpusRuntimeTest {
             .put("failure", JSONObject.NULL)
         return try {
             val response = shiori.requestRaw(method, eventId, references)
-            val value = response.getKeyIgnoreCase("Value").orEmpty()
+            val value = exactProbeValue(response)
             val segments = SakuraScriptTokenizer.tokenize(value, diagnostics::add)
                 .flatMap(DialogueContent::segments)
             val passiveTransitions = JSONArray()
@@ -940,6 +1252,8 @@ class NarCorpusRuntimeTest {
         }
     }
 
+    private fun exactProbeValue(response: ShioriResponse): String = response.getKey("Value").orEmpty()
+
     private fun probeShioriEvent(
         shiori: TestShioriGhost,
         method: ShioriMethod,
@@ -949,11 +1263,16 @@ class NarCorpusRuntimeTest {
         return try {
             val diagnostics = mutableListOf<String>()
             val response = shiori.requestRaw(method, eventId, references)
-            val value = response.getKeyIgnoreCase("Value").orEmpty()
+            val value = exactProbeValue(response)
+            val hasExactValue = !response.getKey("Value").isNullOrEmpty()
             val segmentEvidence = parseShioriSegments(value, diagnostics)
 
             val probe = JSONObject()
                 .put("module", shiori.getShioriModuleName() ?: JSONObject.NULL)
+                .put(
+                    "postInteractionEvidence",
+                    structuredPostInteractionEvidence(shiori, method, eventId, references),
+                )
                 .put("method", method.name)
                 .put("eventId", eventId)
                 .put(
@@ -964,6 +1283,7 @@ class NarCorpusRuntimeTest {
                 )
                 .put("status", response.getStatusCode())
                 .put("value", value.take(MAX_SHIORI_RESPONSE_VALUE_CHARS))
+                .put("hasExactValue", hasExactValue)
                 .put("valueTruncated", value.length > MAX_SHIORI_RESPONSE_VALUE_CHARS)
                 .put("observedAnchorId", segmentEvidence.opt("observedAnchorId") ?: JSONObject.NULL)
                 .put("observedInputId", segmentEvidence.opt("observedInputId") ?: JSONObject.NULL)
@@ -993,6 +1313,7 @@ class NarCorpusRuntimeTest {
             probe
         } catch (error: LinkageError) {
             JSONObject()
+                .put("postInteractionEvidence", structuredPostInteractionEvidence(shiori, method, eventId, references))
                 .put("method", method.name)
                 .put("eventId", eventId)
                 .put(
@@ -1015,6 +1336,7 @@ class NarCorpusRuntimeTest {
                 .put("outcome", "native-linkage-error")
         } catch (error: Exception) {
             JSONObject()
+                .put("postInteractionEvidence", structuredPostInteractionEvidence(shiori, method, eventId, references))
                 .put("method", method.name)
                 .put("eventId", eventId)
                 .put(
@@ -1038,6 +1360,47 @@ class NarCorpusRuntimeTest {
         }
     }
 
+    private fun isSnakePlayableResponse(probe: JSONObject): Boolean {
+        val hasExactValue = probe.optBoolean("hasExactValue", probe.optString("value").isNotEmpty())
+        return probe.optInt("status", -1) == 200 && hasExactValue
+    }
+
+    private fun structuredPostInteractionEvidence(
+        shiori: TestShioriGhost,
+        method: ShioriMethod,
+        eventId: String,
+        references: List<String>,
+    ): JSONArray {
+        if (eventId !in setOf("OnChoiceSelect", "OnChoiceSelectEx", SNAKE_NAME_TEACH_ID)) return JSONArray()
+        return JSONArray().put(
+            JSONObject()
+                .put("ghostIdentity", shiori.getGhostIdentity())
+                .put("method", method.name)
+                .put("eventId", eventId)
+                .put("scope", "dialogue")
+                .put("coordinates", JSONObject.NULL)
+                .put(
+                    "identifier",
+                    postInteractionIdentifier(eventId, references) ?: JSONObject.NULL,
+                )
+                .put("button", JSONObject.NULL)
+                .put("source", if (eventId == SNAKE_NAME_TEACH_ID) "input" else "choice")
+                .put(
+                    "references",
+                    JSONArray().apply {
+                        for (index in 0..6) put(references.getOrNull(index) ?: JSONObject.NULL)
+                    },
+                ),
+        )
+    }
+
+    private fun postInteractionIdentifier(eventId: String, references: List<String>): String? =
+        when (eventId) {
+            SNAKE_NAME_TEACH_ID -> eventId
+            "OnChoiceSelectEx" -> references.getOrNull(1)
+            else -> references.firstOrNull()
+        }
+
     private fun parseShioriSegments(
         value: String,
         diagnostics: MutableList<String>,
@@ -1049,8 +1412,28 @@ class NarCorpusRuntimeTest {
         var observedAnchorId: String? = null
         var observedInputId: String? = null
 
-        SakuraScriptTokenizer.tokenize(value, diagnostics::add)
-            .flatMap(DialogueContent::segments)
+        val dialogue = SakuraScriptTokenizer.tokenize(value, diagnostics::add)
+        dialogue.asSequence()
+            .flatMap { it.segments.asSequence() }
+            .filterIsInstance<DialogueSegment.PassiveMode>()
+            .forEach { passiveTransitions.put(it.entering) }
+        val visibleSegments = GhostSpeaker.entries.flatMap { speaker ->
+            dialogue
+                .asSequence()
+                .filter { it.speaker == speaker }
+                .flatMap { it.segments.asSequence() }
+                .fold(mutableListOf<DialogueSegment>()) { visible, segment ->
+                    if (segment is DialogueSegment.Clear) {
+                        visible.clear()
+                    } else if (segment is DialogueSegment.SpeakerChangeClear) {
+                        visible.removeAll { it !is DialogueSegment.Choice && it !is DialogueSegment.InputBox }
+                    } else {
+                        visible += segment
+                    }
+                    visible
+                }
+        }
+        visibleSegments
             .forEach { segment ->
                 when (segment) {
                     is DialogueSegment.Choice -> {
@@ -1110,7 +1493,6 @@ class NarCorpusRuntimeTest {
                             )
                         inputSpecs.put(inputSpec)
                     }
-                    is DialogueSegment.PassiveMode -> passiveTransitions.put(segment.entering)
                     else -> {}
                 }
             }
@@ -1273,7 +1655,9 @@ class NarCorpusRuntimeTest {
         require(descriptor.size in 0..MAX_DESCRIPTOR_BYTES.toLong()) {
             "install.txt exceeds the bounded descriptor limit: ${descriptor.size}"
         }
-        val bytes = zip.getInputStream(descriptor).use { it.readNBytes(MAX_DESCRIPTOR_BYTES + 1) }
+        val bytes = zip.getInputStream(descriptor).use {
+            readBoundedBytes(it, maxBytes = MAX_DESCRIPTOR_BYTES)
+        }
         require(bytes.size <= MAX_DESCRIPTOR_BYTES) { "install.txt exceeds the bounded descriptor limit" }
         val text = bytes.toString(StandardCharsets.ISO_8859_1)
         TYPE_LINE.find(text)?.groupValues?.get(1)?.trim()?.lowercase(Locale.ROOT)
@@ -1487,9 +1871,9 @@ class NarCorpusRuntimeTest {
         if (maxBytes <= 0) return SourceReadResult(ByteArray(0), truncated = false, failed = false)
         return try {
             Files.newInputStream(path).use { input ->
-                val readBytes = input.readNBytes(maxBytes + 1)
+                val readBytes = readBoundedBytes(input, maxBytes)
                 SourceReadResult(
-                    bytes = readBytes.take(minOf(maxBytes, readBytes.size)).toByteArray(),
+                    bytes = readBytes.copyOf(minOf(maxBytes, readBytes.size)),
                     truncated = readBytes.size > maxBytes,
                     failed = false,
                 )
@@ -2017,7 +2401,11 @@ class NarCorpusRuntimeTest {
         const val MAX_PROVENANCE_SOURCE_CHARS = 256
         const val SNAKE_AND_OTACON_LABEL = "Snake and Otacon V1.3.2"
         const val SNAKE_CHOICE_FIRST_HE_HIM_ID = "choicefirsthehim"
+        const val SNAKE_CHOICE_FIRST_HE_HIM_LABEL = "he/him"
         const val SNAKE_FAQ_ID = "faq"
+        const val SNAKE_FAQ_LABEL = "faq"
+        const val SNAKE_NAME_TEACH_ID = "OnNameTeach"
+        const val SNAKE_NAME_TEACH_VALUE = "Nanidroid"
         val SURFACE_SOURCE_FILE = Regex("(?i)^surfaces[^/\\\\]*\\.txt$")
         val PRODUCTION_SURFACE_READER_SURFACE_IDS = listOf(0, 8, 9, 19, 40)
         val DIC_FILE = Regex("(?i)^.+\\.dic$")
@@ -2025,4 +2413,15 @@ class NarCorpusRuntimeTest {
         val TYPE_LINE = Regex("(?im)^\\s*type\\s*,\\s*([^\\r\\n]+)")
         const val LOG_TAG = "NarCorpusProbe"
     }
+}
+
+private fun readBoundedBytes(input: InputStream, maxBytes: Int): ByteArray {
+    val buffer = ByteArray(maxBytes + 1)
+    var size = 0
+    while (size < buffer.size) {
+        val read = input.read(buffer, size, buffer.size - size)
+        if (read <= 0) break
+        size += read
+    }
+    return buffer.copyOf(size)
 }
