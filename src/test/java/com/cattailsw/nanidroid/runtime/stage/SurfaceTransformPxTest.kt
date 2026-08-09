@@ -179,6 +179,30 @@ class SurfaceTransformPxTest {
     }
 
     @Test
+    fun `collapsed elongated surface is not repaired into a distorted transform at supported densities`() {
+        listOf(
+            1f to StageDpRect(0.dp, 0.dp, 180.dp, 0.18.dp),
+            2f to StageDpRect(0.dp, 0.dp, 90.dp, 0.09.dp),
+        ).forEach { (density, surface) ->
+            val measured = StageLayoutPx.from(
+                layout(
+                    content = StageDpRect(0.dp, 0.dp, 360.dp, 720.dp),
+                    keroSurface = surface,
+                ).copy(
+                    keroLane = StageDpRect(0.dp, 0.dp, 180.dp, 720.dp),
+                    keroSurfaceRegion = StageDpRect(0.dp, 0.dp, 180.dp, 720.dp),
+                ),
+                density = density,
+            )
+
+            assertNull(
+                "density=$density",
+                measured.transformFor(SurfaceScope.KERO, IntSize(1_000, 1)),
+            )
+        }
+    }
+
+    @Test
     fun `resize and rotation create fresh transforms without mutating prior input geometry`() {
         val first = StageLayoutPx.from(
             layout(keroSurface = StageDpRect(0.dp, 100.dp, 100.dp, 300.dp)),
