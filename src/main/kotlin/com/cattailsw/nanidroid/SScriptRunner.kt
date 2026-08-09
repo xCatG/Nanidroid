@@ -120,6 +120,9 @@ open class SScriptRunner internal constructor(
                     onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
                     onFailure = onFailure,
                     onActiveSessionInvalidated = { runner?.invalidateForSessionUnload(it) },
+                    onActiveSessionReloaded = { ghost, reloaded ->
+                        runner?.notifyGhostUpdateSurfaceRebind(ghost, reloaded)
+                    },
                     action = action,
                 )
             }
@@ -154,6 +157,7 @@ open class SScriptRunner internal constructor(
     }
 
     private var presentationRenderer: GhostPresentationRenderer? = null
+    private var ghostUpdateSurfaceRebindObserver: ((Ghost, Boolean) -> Unit)? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
     private var g: Ghost? = null
     private val mCtx = ctx?.applicationContext
@@ -194,6 +198,9 @@ open class SScriptRunner internal constructor(
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) = synchronized(this) {
         presentationRenderer = renderer
         if (renderer != null) currentPresentationFrame?.let(renderer::render)
+    }
+    internal fun setGhostUpdateSurfaceRebindObserver(observer: ((Ghost, Boolean) -> Unit)?) = synchronized(this) {
+        ghostUpdateSurfaceRebindObserver = observer
     }
     fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean =
         dispatchSurfaceInteractionWithDiagnostics(effect).accepted
@@ -993,8 +1000,18 @@ open class SScriptRunner internal constructor(
                 onStopped,
                 onFailure,
                 onActiveSessionInvalidated = ::invalidateForSessionUnload,
+                onActiveSessionReloaded = ::notifyGhostUpdateSurfaceRebind,
                 action = action,
             )
+        }
+    }
+
+    private fun notifyGhostUpdateSurfaceRebind(ghost: Ghost, reloaded: Boolean) {
+        val observer = synchronized(this) { ghostUpdateSurfaceRebindObserver } ?: return
+        try {
+            observer(ghost, reloaded)
+        } catch (error: RuntimeException) {
+            LegacyPlatform.debug(TAG, "ghost update surface rebind observer failed: ${error.message}")
         }
     }
 
