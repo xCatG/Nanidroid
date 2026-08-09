@@ -36,7 +36,10 @@ param(
     $DryRun,
 
     [switch]
-    $HostOnlyPreflightTimeoutTest
+    $HostOnlyPreflightTimeoutTest,
+
+    [switch]
+    $HostOnlyOwnedProcessTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -615,7 +618,7 @@ function Truncate-Text([string]$Text, [int]$MaxChars = 4000) {
     return $trimmed.Substring(0, $MaxChars) + "... (truncated $($trimmed.Length - $MaxChars) chars)"
 }
 
-if (-not $DryRun -and [string]::IsNullOrWhiteSpace($DeviceSerial)) {
+if (-not $DryRun -and -not $HostOnlyOwnedProcessTest -and [string]::IsNullOrWhiteSpace($DeviceSerial)) {
     ThrowIf 'DeviceSerial is required unless -DryRun is set.'
 }
 
@@ -775,6 +778,7 @@ namespace Nanidroid.CorpusAudit {
     public sealed class OwnedJobProcess {
         public int ProcessId;
         public IntPtr ProcessHandle;
+        public IntPtr ThreadHandle;
         public IntPtr JobHandle;
     }
 
@@ -860,13 +864,14 @@ namespace Nanidroid.CorpusAudit {
                 if (!CreateProcess(filePath, mutableCommandLine, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NO_WINDOW, IntPtr.Zero, workingDirectory, ref startupInfo, out processInformation)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 if (!AssignProcessToJobObject(job, processInformation.hProcess)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 assignedToJob = true;
-                if (ResumeThread(processInformation.hThread) == 0xFFFFFFFF) throw new Win32Exception(Marshal.GetLastWin32Error());
                 OwnedJobProcess result = new OwnedJobProcess {
                     ProcessId = processInformation.dwProcessId,
                     ProcessHandle = processInformation.hProcess,
+                    ThreadHandle = processInformation.hThread,
                     JobHandle = job
                 };
                 processInformation.hProcess = IntPtr.Zero;
+                processInformation.hThread = IntPtr.Zero;
                 job = IntPtr.Zero;
                 return result;
             }
@@ -887,6 +892,9 @@ namespace Nanidroid.CorpusAudit {
         }
 
         public static bool Terminate(IntPtr job) { return job != IntPtr.Zero && TerminateJobObject(job, 1); }
+        public static void Resume(OwnedJobProcess process) {
+            if (process == null || process.ThreadHandle == IntPtr.Zero || ResumeThread(process.ThreadHandle) == 0xFFFFFFFF) throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
         public static int ExitCode(OwnedJobProcess process) {
             uint exitCode;
             if (process == null || process.ProcessHandle == IntPtr.Zero || !GetExitCodeProcess(process.ProcessHandle, out exitCode)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -894,6 +902,7 @@ namespace Nanidroid.CorpusAudit {
         }
         public static void Close(OwnedJobProcess process) {
             if (process == null) return;
+            if (process.ThreadHandle != IntPtr.Zero) CloseHandle(process.ThreadHandle);
             if (process.ProcessHandle != IntPtr.Zero) CloseHandle(process.ProcessHandle);
             if (process.JobHandle != IntPtr.Zero) CloseHandle(process.JobHandle);
         }
@@ -927,8 +936,10 @@ function Start-OwnedJobProcess {
             }
             throw [InvalidOperationException]::new('Test process-object acquisition failure.')
         }
+        $process = [Diagnostics.Process]::GetProcessById($nativeProcess.ProcessId)
+        [Nanidroid.CorpusAudit.OwnedJobLauncher]::Resume($nativeProcess)
         return [pscustomobject]@{
-            process = [Diagnostics.Process]::GetProcessById($nativeProcess.ProcessId)
+            process = $process
             nativeProcess = $nativeProcess
             jobHandle = $nativeProcess.JobHandle
             stdoutPath = $stdoutPath
@@ -2241,6 +2252,20 @@ function Run-TestArchive {
     $archiveResult | Add-Member -NotePropertyName postCleanupOutputSnapshot -NotePropertyValue $postOutputSnapshot
     $archiveResult | Add-Member -NotePropertyName postCleanupTmpSnapshot -NotePropertyValue $postTmpSnapshot
     return $archiveResult
+}
+
+if ($HostOnlyOwnedProcessTest) {
+    $hostPwsh = Join-Path $PSHOME 'pwsh.exe'
+    $immediate = Invoke-ArgumentListProcess -FilePath $hostPwsh -Arguments @(
+        '-NoProfile',
+        '-Command',
+        'Write-Output immediate-exit; exit 7'
+    ) -TimeoutSeconds 10
+    if ($immediate.exitCode -ne 7 -or $immediate.output -ne 'immediate-exit' -or -not [string]::IsNullOrEmpty($immediate.error)) {
+        ThrowIf 'Host-only owned-process probe lost an immediate command result.'
+    }
+    Write-Host 'Host-only owned-process immediate-exit probe passed.'
+    exit 0
 }
 
 $runStart = Get-Date
