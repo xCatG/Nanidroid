@@ -50,6 +50,7 @@ import com.cattailsw.nanidroid.durable.OperationId
 import com.cattailsw.nanidroid.durable.OperationKind
 import com.cattailsw.nanidroid.durable.OperationProgress
 import com.cattailsw.nanidroid.durable.OperationStatus
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 
 
 class NanidroidComposeShellTest {
@@ -1030,6 +1031,28 @@ class NanidroidComposeShellTest {
         assertEquals(0, fixture.cancelled)
         assertEquals(listOf("name:Cat"), fixture.submitted)
         assertFalse(fixture.open.value)
+    }
+
+    @Test
+    fun user_input_applies_the_typed_ssp_character_limit_before_submission() {
+        val value = mutableStateOf("")
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                dialog = NanidroidSimpleDialog.UserInput(
+                    id = "limited",
+                    value = value.value,
+                    onValueChanged = { value.value = it },
+                    onSubmit = { _, _ -> },
+                    onCancel = {},
+                    presentation = InputPresentation.Password,
+                    maximumLength = 3,
+                ),
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("script-user-input").performTextReplacement("Cats")
+        composeRule.runOnIdle { assertEquals("Cat", value.value) }
     }
 
     @Test

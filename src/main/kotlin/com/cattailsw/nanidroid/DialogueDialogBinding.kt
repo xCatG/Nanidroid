@@ -3,6 +3,8 @@ package com.cattailsw.nanidroid
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
+import com.cattailsw.nanidroid.runtime.dialogue.InputBoxSpec
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 
 internal data class DialogueDialogRestoration(
     val owner: String,
@@ -37,6 +39,7 @@ internal class DialogueDialogBinding(
             runner.takeIf { boundGeneration != null },
             boundGeneration,
             boundGeneration?.let { DialogueDialogRestoration(requireNotNull(snapshot).owner, it) },
+            snapshot?.dialogue?.pendingInput?.spec?.takeIf { boundGeneration != null },
         )
     }
 
@@ -58,6 +61,7 @@ internal class DialogueDialogBinding(
             runner.takeIf { generation != null },
             generation,
             restoration.takeIf { generation != null },
+            snapshot?.dialogue?.pendingInput?.spec?.takeIf { generation != null },
         )
     }
 
@@ -115,6 +119,7 @@ internal class DialogueDialogBinding(
         runner: SScriptRunner?,
         generation: Long?,
         restoration: DialogueDialogRestoration?,
+        spec: InputBoxSpec?,
     ): NanidroidSimpleDialog.UserInput = NanidroidSimpleDialog.UserInput(
         id,
         value,
@@ -130,6 +135,8 @@ internal class DialogueDialogBinding(
             }
         },
         restoration = restoration,
+        presentation = spec?.presentation ?: InputPresentation.Text,
+        maximumLength = spec?.maximumLength,
     )
 
     private fun choiceDialog(

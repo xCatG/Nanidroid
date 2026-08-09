@@ -397,9 +397,11 @@ object SakuraScriptTokenizer {
             emit(DialogueSegment.PassiveMode(args[0] == "enter"))
             return
         }
-        if (args.size >= 3 && args[0] == "open" && args[1] == "inputbox") {
-            emit(DialogueSegment.InputBox(inputBox(args.drop(2))))
-            return
+        if (args.firstOrNull() == "open" && args.size >= 3) {
+            inputPresentation(args[1])?.let { presentation ->
+                emit(DialogueSegment.InputBox(inputBox(args.drop(2), presentation)))
+                return
+            }
         }
         if (args.firstOrNull() in setOf("enter", "leave")) {
             diagnostic("malformed-passive")
@@ -408,7 +410,14 @@ object SakuraScriptTokenizer {
         }
     }
 
-    private fun inputBox(args: List<String>): InputBoxSpec {
+    /** Normalizes only SSP's documented input-box command forms. */
+    private fun inputPresentation(command: String?): InputPresentation? = when (command) {
+        "inputbox" -> InputPresentation.Text
+        "passwordinput" -> InputPresentation.Password
+        else -> null
+    }
+
+    private fun inputBox(args: List<String>, presentation: InputPresentation): InputBoxSpec {
         val id = args.firstOrNull().orEmpty()
         var cursor = 1
         var timeout: Long? = null
@@ -427,7 +436,10 @@ object SakuraScriptTokenizer {
             cursor++
         }
         var supplement = ""
-        val options = linkedSetOf<InputBehavior>()
+        var keepOpen = false
+        var keepText = false
+        var balloonId: String? = null
+        var maximumLength: Int? = null
         val references = mutableListOf<String>()
         val unknown = mutableListOf<String>()
         args.drop(cursor).forEach { value ->
@@ -439,17 +451,40 @@ object SakuraScriptTokenizer {
                 value.startsWith("--supplement=") -> supplement = value.removePrefix("--supplement=")
                 value.startsWith("--reference=") -> references += value.removePrefix("--reference=")
                 value.startsWith("--option=") -> when (val option = value.removePrefix("--option=")) {
-                    "password" -> options += InputBehavior.PASSWORD
-                    "multiline" -> options += InputBehavior.MULTILINE
-                    "noempty" -> options += InputBehavior.NO_EMPTY
-                    "nocancel" -> options += InputBehavior.NO_CANCEL
+                    "noclose" -> keepOpen = true
+                    "noclear" -> keepText = true
                     else -> unknown += option
                 }
+                value.startsWith("--balloon=") -> value.removePrefix("--balloon=")
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { balloonId = it }
+                    ?: unknown.add(value)
+                value.startsWith("--limit=") -> value.removePrefix("--limit=").toIntOrNull()
+                    ?.takeIf { it >= 0 }
+                    ?.let { maximumLength = it }
+                    ?: unknown.add(value)
                 else -> unknown += value
             }
         }
         val dispatch = if (id.startsWith("On")) InputDispatch.DirectEvent(id) else InputDispatch.Normal(id)
-        return InputBoxSpec(dispatch, timeout, initial, options, supplement, references, unknown)
+        val persistence = when {
+            keepOpen && keepText -> InputPersistence.KEEP_OPEN_AND_TEXT
+            keepOpen -> InputPersistence.KEEP_OPEN
+            keepText -> InputPersistence.CLOSE_AND_KEEP_TEXT
+            else -> InputPersistence.CLOSE_AND_CLEAR
+        }
+        return InputBoxSpec(
+            dispatch = dispatch,
+            timeoutMillis = timeout,
+            initialText = initial,
+            presentation = presentation,
+            persistence = persistence,
+            balloonId = balloonId,
+            maximumLength = maximumLength,
+            supplement = supplement,
+            extraReferences = references,
+            unknownOptions = unknown,
+        )
     }
 
     private fun consumeDirectDigit(script: String, start: Int): Int =

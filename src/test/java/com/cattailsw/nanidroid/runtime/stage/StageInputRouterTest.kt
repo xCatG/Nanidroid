@@ -42,7 +42,14 @@ class StageInputRouterTest {
         val anchor = BubbleInteractionTarget.Anchor(anchorAction)
         val url = BubbleInteractionTarget.ExternalUrl("https://example.test/")
         val input = BubbleInteractionTarget.Input(
-            DialogueSegment.InputBox(InputBoxSpec(InputDispatch.Normal("name"), null, "", emptySet(), "", emptyList(), emptyList())),
+            DialogueSegment.InputBox(InputBoxSpec(
+                dispatch = InputDispatch.Normal("name"),
+                timeoutMillis = null,
+                initialText = "",
+                supplement = "",
+                extraReferences = emptyList(),
+                unknownOptions = emptyList(),
+            )),
         )
         val scroll = BubbleInteractionTarget.Scroll(SurfaceSpeaker.KERO)
         val frame = BubbleInteractionTarget.Frame(SurfaceSpeaker.SAKURA)

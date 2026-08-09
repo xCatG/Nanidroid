@@ -1003,7 +1003,6 @@ class GhostBubbleInteractionTest {
         dispatch = InputDispatch.Normal(id),
         timeoutMillis = null,
         initialText = "",
-        behaviorOptions = emptySet(),
         supplement = "",
         extraReferences = emptyList(),
         unknownOptions = emptyList(),

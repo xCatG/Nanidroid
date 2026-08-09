@@ -116,15 +116,11 @@ class SakuraScriptTokenizerTest {
                                 dispatch = InputDispatch.Normal("answer-id"),
                                 timeoutMillis = 9_000L,
                                 initialText = "hello, world",
-                                behaviorOptions = setOf(
-                                    InputBehavior.PASSWORD,
-                                    InputBehavior.MULTILINE,
-                                    InputBehavior.NO_EMPTY,
-                                    InputBehavior.NO_CANCEL,
-                                ),
+                                presentation = InputPresentation.Text,
+                                persistence = InputPersistence.CLOSE_AND_CLEAR,
                                 supplement = "",
                                 extraReferences = listOf("a,b", "", "tail"),
-                                unknownOptions = listOf("future", "--flag=value"),
+                                unknownOptions = listOf("password", "multiline", "noempty", "nocancel", "future", "--flag=value"),
                             ),
                         ),
                         DialogueSegment.InputBox(
@@ -132,7 +128,6 @@ class SakuraScriptTokenizerTest {
                                 dispatch = InputDispatch.DirectEvent("OnReply"),
                                 timeoutMillis = null,
                                 initialText = "",
-                                behaviorOptions = emptySet(),
                                 supplement = "named supplement",
                                 extraReferences = emptyList(),
                                 unknownOptions = emptyList(),
@@ -164,7 +159,6 @@ class SakuraScriptTokenizerTest {
                                 dispatch = InputDispatch.Normal("answer-id"),
                                 timeoutMillis = null,
                                 initialText = "prefilled",
-                                behaviorOptions = emptySet(),
                                 supplement = "",
                                 extraReferences = emptyList(),
                                 unknownOptions = emptyList(),
@@ -175,6 +169,40 @@ class SakuraScriptTokenizerTest {
             ),
             tokenize("\\![open,inputbox,answer-id,prefilled]\\e"),
         )
+    }
+
+    @Test
+    fun documentedInputPresentationOptionsAreTypedAndLegacyAliasesAreNormalized() {
+        val contents = tokenize(
+            "\\![open,passwordinput,secret,--text=shh,--option=noclose,--option=noclear," +
+                "--balloon=credential,--limit=48,--reference=origin]" +
+                "\\![open,inputbox,note,--option=noclose,--option=noclear]\\e",
+        )
+
+        val password = (contents.single().segments[0] as DialogueSegment.InputBox).spec
+        assertEquals(InputPresentation.Password, password.presentation)
+        assertEquals(InputPersistence.KEEP_OPEN_AND_TEXT, password.persistence)
+        assertEquals("credential", password.balloonId)
+        assertEquals(48, password.maximumLength)
+        assertEquals(listOf("origin"), password.extraReferences)
+
+        val text = (contents.single().segments[1] as DialogueSegment.InputBox).spec
+        assertEquals(InputPresentation.Text, text.presentation)
+        assertEquals(InputPersistence.KEEP_OPEN_AND_TEXT, text.persistence)
+    }
+
+    @Test
+    fun malformedPresentationOptionsRemainUnknownAndCannotChangeTypedPresentation() {
+        val spec = (tokenize(
+            "\\![open,inputbox,name,--option=password,--option=noclose,--limit=-1," +
+                "--balloon=,--option=noclosee]\\e",
+        ).single().segments.single() as DialogueSegment.InputBox).spec
+
+        assertEquals(InputPresentation.Text, spec.presentation)
+        assertEquals(InputPersistence.KEEP_OPEN, spec.persistence)
+        assertEquals(null, spec.maximumLength)
+        assertEquals(null, spec.balloonId)
+        assertEquals(listOf("password", "--limit=-1", "--balloon=", "noclosee"), spec.unknownOptions)
     }
 
     @Test
@@ -443,14 +471,14 @@ class SakuraScriptTokenizerTest {
                     listOf(
                         DialogueSegment.InputBox(
                             InputBoxSpec(
-                                InputDispatch.Normal("first"), null, "prefilled", emptySet(), "",
-                                emptyList(), emptyList(),
+                                InputDispatch.Normal("first"), null, "prefilled", supplement = "",
+                                extraReferences = emptyList(), unknownOptions = emptyList(),
                             ),
                         ),
                         DialogueSegment.InputBox(
                             InputBoxSpec(
-                                InputDispatch.Normal("second"), 7L, "", emptySet(), "",
-                                emptyList(), listOf("--timeout=abc"),
+                                InputDispatch.Normal("second"), 7L, "", supplement = "",
+                                extraReferences = emptyList(), unknownOptions = listOf("--timeout=abc"),
                             ),
                         ),
                     ),

@@ -1102,12 +1102,11 @@ class NarCorpusRuntimeTest {
                                 },
                             )
                             .put("timeout", segment.spec.timeoutMillis ?: JSONObject.NULL)
-                            .put(
-                                "options",
-                                JSONArray().apply {
-                                    segment.spec.behaviorOptions.forEach { option -> put(option.name) }
-                                },
-                            )
+                            .put("presentation", segment.spec.presentation::class.simpleName)
+                            .put("persistence", segment.spec.persistence.name)
+                            .put("balloonId", segment.spec.balloonId ?: JSONObject.NULL)
+                            .put("maximumLength", segment.spec.maximumLength ?: JSONObject.NULL)
+                            .put("unknownOptions", JSONArray(segment.spec.unknownOptions))
                         inputSpecs.put(inputSpec)
                     }
                     is DialogueSegment.PassiveMode -> passiveTransitions.put(segment.entering)

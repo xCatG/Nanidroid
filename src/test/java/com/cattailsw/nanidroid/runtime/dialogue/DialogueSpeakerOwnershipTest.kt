@@ -16,7 +16,6 @@ class DialogueSpeakerOwnershipTest {
             dispatch = InputDispatch.Normal("name"),
             timeoutMillis = null,
             initialText = "",
-            behaviorOptions = emptySet(),
             supplement = "",
             extraReferences = listOf("", "tail"),
             unknownOptions = emptyList(),

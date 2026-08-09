@@ -37,15 +37,39 @@ sealed interface InputDispatch {
     data class DirectEvent(val eventId: String) : InputDispatch
 }
 
-enum class InputBehavior { PASSWORD, MULTILINE, NO_EMPTY, NO_CANCEL }
+/** The documented SSP input control, never an arbitrary Compose configuration. */
+sealed interface InputPresentation {
+    data object Text : InputPresentation
+    data object Password : InputPresentation
+}
+
+/**
+ * SSP's post-submit visibility and text-retention options.
+ *
+ * Nanidroid retains this compatibility data, but its one-shot, generation-owned Android prompt
+ * always dismisses after submit; emulating repeated desktop submissions would require a separate
+ * lifecycle-safe capability rather than leaving a stale prompt bound to a consumed generation.
+ */
+enum class InputPersistence {
+    CLOSE_AND_CLEAR,
+    CLOSE_AND_KEEP_TEXT,
+    KEEP_OPEN,
+    KEEP_OPEN_AND_TEXT,
+}
 
 data class InputBoxSpec(
     val dispatch: InputDispatch,
     val timeoutMillis: Long?,
     val initialText: String,
-    val behaviorOptions: Set<InputBehavior>,
+    val presentation: InputPresentation = InputPresentation.Text,
+    val persistence: InputPersistence = InputPersistence.CLOSE_AND_CLEAR,
+    /** A ghost-selected SSP balloon ID; retained as typed data because Android has no balloon skin mapping. */
+    val balloonId: String? = null,
+    /** A non-negative SSP character limit, when authored. */
+    val maximumLength: Int? = null,
     val supplement: String,
     val extraReferences: List<String>,
+    /** Unsupported or malformed options in source order. They are retained but never interpreted by Compose. */
     val unknownOptions: List<String>,
 )
 

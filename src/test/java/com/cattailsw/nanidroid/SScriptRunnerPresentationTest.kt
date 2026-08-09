@@ -8,6 +8,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert
@@ -435,6 +436,7 @@ class SScriptRunnerPresentationTest {
         fixture.runner.addMsgToQueue(arrayOf("\\hinterruption\\e"))
         fixture.runner.run()
         Assert.assertEquals(pending, fixture.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertSame(pending.spec, fixture.runner.dialogueStateSnapshot().pendingInput?.spec)
         Assert.assertSame(
             pending,
             DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
@@ -444,11 +446,25 @@ class SScriptRunnerPresentationTest {
         fixture.runner.addMsgToQueue(arrayOf("\\q[Choice,choice-id]\\e"))
         fixture.runner.run()
         Assert.assertEquals(pending, fixture.runner.dialogueStateSnapshot().pendingInput)
+        Assert.assertSame(pending.spec, fixture.runner.dialogueStateSnapshot().pendingInput?.spec)
         Assert.assertSame(
             pending,
             DialogueSpeakerOwnership.from(fixture.runner.dialogueStateSnapshot())
                 .pendingInput(GhostSpeaker.SAKURA),
         )
+    }
+
+    @Test
+    fun dialogBindingCarriesTheExactTypedInputPresentationForTheCurrentGeneration() {
+        val fixture = fixture(responses = emptyList())
+        fixture.runner.addMsgToQueue(arrayOf("\\![open,passwordinput,secret,--limit=3]\\e"))
+        fixture.runner.run()
+        val pending = requireNotNull(fixture.runner.dialogueStateSnapshot().pendingInput)
+
+        val dialog = DialogueDialogBinding { fixture.runner }.userInput("secret", pending.generation)
+
+        Assert.assertEquals(InputPresentation.Password, dialog.presentation)
+        Assert.assertEquals(3, dialog.maximumLength)
     }
 
     @Test

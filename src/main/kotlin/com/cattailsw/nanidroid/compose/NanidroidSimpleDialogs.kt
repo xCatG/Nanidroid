@@ -42,6 +42,8 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -50,6 +52,7 @@ import com.cattailsw.nanidroid.DialogueDialogRestoration
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadState
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 
 /** Compose-owned activity dialogs. State values are kept in the Activity bundle. */
 internal sealed interface NanidroidSimpleDialog {
@@ -65,6 +68,8 @@ internal sealed interface NanidroidSimpleDialog {
         val onValueChanged: (String) -> Unit,
         val onSubmit: (String, String) -> Unit,
         val onCancel: () -> Unit,
+        val presentation: InputPresentation = InputPresentation.Text,
+        val maximumLength: Int? = null,
         val restoration: DialogueDialogRestoration? = null,
     ) : NanidroidSimpleDialog
     data class UserChoice(
@@ -129,6 +134,10 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
     fun submit() { onDismiss(); dialog.onSubmit(dialog.id, dialog.value) }
     val title = stringResource(R.string.user_input_dlg_title)
     val focusRequester = remember { FocusRequester() }
+    val isPassword = dialog.presentation is InputPresentation.Password
+    val onValueChange: (String) -> Unit = { value ->
+        dialog.onValueChanged(dialog.maximumLength?.let(value::take) ?: value)
+    }
 
     LaunchedEffect(dialog.id, dialog.restoration) {
         focusRequester.requestFocus()
@@ -188,14 +197,19 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                             Spacer(Modifier.size(16.dp))
                             OutlinedTextField(
                                 value = dialog.value,
-                                onValueChange = dialog.onValueChanged,
+                                onValueChange = onValueChange,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .focusRequester(focusRequester)
                                     .testTag("script-user-input"),
                                 label = { Text(title) },
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text,
+                                    imeAction = ImeAction.Done,
+                                ),
                                 keyboardActions = KeyboardActions(onDone = { submit() }),
+                                singleLine = isPassword,
+                                visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
                             )
                         }
                         Row(
