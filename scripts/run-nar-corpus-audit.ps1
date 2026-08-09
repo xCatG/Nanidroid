@@ -815,7 +815,7 @@ function Invoke-ArgumentListProcess {
                 if ((Get-Date) -ge $readyDeadline) {
                     $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
                     $ownedDescendants = @()
-                    try { $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id) } catch { }
+                    try { $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks) } catch { }
                     $detail = if (Test-Path -LiteralPath $taskKillPath -PathType Leaf) {
                         Stop-OwnedProcessTreeSnapshot -TaskKillPath $taskKillPath -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks -Descendants $ownedDescendants
                     } else {
@@ -827,7 +827,7 @@ function Invoke-ArgumentListProcess {
                 if ($process.HasExited) {
                     $taskKillPath = Join-Path $env:SystemRoot 'System32\\taskkill.exe'
                     $ownedDescendants = @()
-                    try { $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id) } catch { }
+                    try { $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks) } catch { }
                     $detail = if (Test-Path -LiteralPath $taskKillPath -PathType Leaf) {
                         Stop-OwnedProcessTreeSnapshot -TaskKillPath $taskKillPath -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks -Descendants $ownedDescendants
                     } else {
@@ -854,7 +854,7 @@ function Invoke-ArgumentListProcess {
                 else {
                     $ownedDescendants = @()
                     try {
-                        $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id)
+                        $ownedDescendants = @(Get-OwnedDescendantProcessIdentities -RootProcessId $process.Id -RootStartTimeUtcTicks $processStartTimeUtcTicks)
                     }
                     catch {
                         $terminationDetail = "could not snapshot owned descendants: $($_.Exception.Message)"
@@ -915,34 +915,66 @@ function Invoke-ArgumentListProcess {
     }
 }
 
+function Test-ChildProcessCreationAfterParentStart {
+    param(
+        [long]$ChildCreationUtcTicks,
+        [long]$ParentStartUtcTicks
+    )
+
+    return $ChildCreationUtcTicks -ge $ParentStartUtcTicks
+}
+
 function Get-OwnedDescendantProcessIdentities {
-    param([int]$RootProcessId)
+    param(
+        [int]$RootProcessId,
+        [long]$RootStartTimeUtcTicks
+    )
 
     $processes = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)
-    $ownedIds = [Collections.Generic.HashSet[int]]::new()
-    [void]$ownedIds.Add($RootProcessId)
+    $ownedProcessStartTimes = [Collections.Generic.Dictionary[int, long]]::new()
+    $ownedProcessStartTimes.Add($RootProcessId, $RootStartTimeUtcTicks)
     $descendants = [Collections.Generic.List[object]]::new()
     do {
         $found = $false
         foreach ($processInfo in $processes) {
             $processId = [int]$processInfo.ProcessId
-            if ($ownedIds.Contains([int]$processInfo.ParentProcessId) -and $ownedIds.Add($processId)) {
-                $candidate = $null
-                try {
-                    $candidate = [Diagnostics.Process]::GetProcessById($processId)
-                    if (-not $candidate.HasExited) {
-                        $descendants.Add([pscustomobject]@{
-                            processId = $processId
-                            startTimeUtcTicks = $candidate.StartTime.ToUniversalTime().Ticks
-                        })
-                    }
+            $parentProcessId = [int]$processInfo.ParentProcessId
+            if (-not $ownedProcessStartTimes.ContainsKey($parentProcessId) -or $ownedProcessStartTimes.ContainsKey($processId)) {
+                continue
+            }
+
+            $expectedParentStartTimeUtcTicks = $ownedProcessStartTimes[$parentProcessId]
+            $parent = $null
+            $candidate = $null
+            try {
+                $parent = [Diagnostics.Process]::GetProcessById($parentProcessId)
+                if ($parent.HasExited -or $parent.StartTime.ToUniversalTime().Ticks -ne $expectedParentStartTimeUtcTicks) {
+                    continue
                 }
-                catch [System.ArgumentException] {
+
+                $childCreationTimeUtcTicks = ([datetime]$processInfo.CreationDate).ToUniversalTime().Ticks
+                if (-not (Test-ChildProcessCreationAfterParentStart -ChildCreationUtcTicks $childCreationTimeUtcTicks -ParentStartUtcTicks $expectedParentStartTimeUtcTicks)) {
+                    continue
                 }
-                finally {
-                    if ($null -ne $candidate) { $candidate.Dispose() }
+
+                $candidate = [Diagnostics.Process]::GetProcessById($processId)
+                if ($candidate.HasExited) {
+                    continue
                 }
+
+                $candidateStartTimeUtcTicks = $candidate.StartTime.ToUniversalTime().Ticks
+                $ownedProcessStartTimes.Add($processId, $candidateStartTimeUtcTicks)
+                $descendants.Add([pscustomobject]@{
+                    processId = $processId
+                    startTimeUtcTicks = $candidateStartTimeUtcTicks
+                })
                 $found = $true
+            }
+            catch [System.ArgumentException] {
+            }
+            finally {
+                if ($null -ne $candidate) { $candidate.Dispose() }
+                if ($null -ne $parent) { $parent.Dispose() }
             }
         }
     } while ($found)
@@ -2081,6 +2113,15 @@ if ($DryRun) {
         }
     }
     Write-Host 'Dry-run ro.debuggable 0/1 gate probe passed.'
+
+    $parentStartTicks = [DateTime]::UtcNow.Ticks
+    if (Test-ChildProcessCreationAfterParentStart -ChildCreationUtcTicks ($parentStartTicks - 1) -ParentStartUtcTicks $parentStartTicks) {
+        ThrowIf 'Dry-run owned-process probe accepted a child created before its verified parent identity.'
+    }
+    if (-not (Test-ChildProcessCreationAfterParentStart -ChildCreationUtcTicks $parentStartTicks -ParentStartUtcTicks $parentStartTicks)) {
+        ThrowIf 'Dry-run owned-process probe rejected a child created with its verified parent identity.'
+    }
+    Write-Host 'Dry-run owned-process identity probe passed.'
     $devicePathProbeCases = @(
         @{ context = 'run-as'; expectedArguments = @('shell', 'run-as', $targetPackage, 'ls', '-d', '/data/local/tmp/run-owned') },
         @{ context = 'output'; expectedArguments = @('shell', 'ls', '-d', '/data/local/tmp/run-owned') }
