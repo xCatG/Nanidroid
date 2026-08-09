@@ -2727,6 +2727,64 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operation.status)
     }
 
+    @Test fun appliedRemoteBindingWriteFailureKeepsTheExactDownloadBinding() {
+        val exactOperationStore = ApplyThenFailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactProgress = FakeRemoteProgressObserver(downloads, exactSupervisor)
+        val exactRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = exactProgress,
+            nextId = { "remote-applied-binding" },
+        )
+        downloads.nextDownloadId = 98L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(NarDownloadState.Downloading, item.state)
+        assertEquals(98L, item.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(98L),
+            exactOperationStore.read().single().externalJob,
+        )
+        assertEquals(listOf(item.handle() to 98L), exactProgress.started)
+        assertTrue(downloads.removedIds.isEmpty())
+    }
+
+    @Test fun unappliedRemoteQueueWriteFailureLeavesTheItemActionable() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-queue-write-failure")
+        downloads.nextDownloadId = 97L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertNull(item.downloadManagerId)
+        assertEquals(listOf(97L), downloads.removedIds)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
     @Test fun remoteBindingCleanupTerminalizationFailureRemainsRecoverableOnReconciliation() {
         val exactOperationStore = FailRemoteBindingStore(
             FailNextTerminalWriteStore(
@@ -3361,6 +3419,28 @@ class NarDownloadRepositoryTest {
                 throw IllegalStateException("durable binding write failed")
             }
             return delegate.compareAndSet(expected, updated)
+        }
+    }
+
+    private class ApplyThenFailRemoteBindingStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var bindingFailurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            val applied = delegate.compareAndSet(expected, updated)
+            if (bindingFailurePending && expected.externalJob == null && updated.externalJob != null) {
+                bindingFailurePending = false
+                throw IllegalStateException("durable binding write applied then failed")
+            }
+            return applied
         }
     }
 
