@@ -424,9 +424,7 @@ class GhostUpdateWorker(
             val attempt = AttemptId((previous?.attemptId?.value ?: 0L) + 1L)
             val handle = OperationHandle(operationId, attempt)
             val request = request(
-                durableWorkManagerId(handle, OperationKind.GHOST_UPDATE),
-                operationId,
-                attempt,
+                handle,
                 ghostId,
                 canonicalRoot,
                 baseUri,
@@ -999,6 +997,20 @@ class GhostUpdateWorker(
                     .build(),
             )
             .build()
+
+        internal fun request(
+            handle: OperationHandle,
+            ghostId: String,
+            ghostRoot: File,
+            baseUri: Uri,
+        ) = request(
+            durableWorkManagerId(handle, OperationKind.GHOST_UPDATE),
+            handle.operationId,
+            handle.attemptId,
+            ghostId,
+            ghostRoot,
+            baseUri,
+        )
 
         private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
 

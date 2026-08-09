@@ -1,9 +1,11 @@
 package com.cattailsw.nanidroid.durable
 
 import android.content.Context
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.Configuration
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -24,7 +26,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class GhostUpdateRecoveryTest {
     @Test
-    fun recoveryWorkerRecreatesRepositoryAndRollsForwardPostBackupProcessDeath() {
+    fun recoveryWorkerQueriesExactDurableWorkIdentityBeforeRollingBackPreparedUpdate() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("durable_operations_v1", Context.MODE_PRIVATE)
             .edit().clear().commit()
@@ -34,35 +36,50 @@ class GhostUpdateRecoveryTest {
                 .setExecutor(SynchronousExecutor())
                 .build(),
         )
+        val fixture = fixture("worker-${UUID.randomUUID()}")
+        fixture.live("old")
+        fixture.candidate("new")
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val expectedWorkId = durableWorkManagerId(handle, OperationKind.GHOST_UPDATE)
         val workManager = WorkManager.getInstance(context)
-        val failedWork = OneTimeWorkRequestBuilder<FailedGhostUpdateWork>().build()
-        workManager.enqueue(failedWork).result.get(5, TimeUnit.SECONDS)
+        val updateWork = GhostUpdateWorker.request(
+            handle,
+            ghostId = "ghost-id",
+            ghostRoot = fixture.live,
+            baseUri = Uri.parse("https://example.invalid/updates"),
+        )
+        assertEquals(expectedWorkId, updateWork.id)
+        val failedWork = OneTimeWorkRequestBuilder<FailedGhostUpdateWork>()
+            .setId(updateWork.id)
+            .build()
+        workManager.enqueueUniqueWork(
+            GhostUpdateWorker.workName(fixture.live),
+            ExistingWorkPolicy.KEEP,
+            failedWork,
+        ).result.get(5, TimeUnit.SECONDS)
         assertEquals(
             WorkInfo.State.FAILED,
             workManager.getWorkInfoById(failedWork.id).get(5, TimeUnit.SECONDS)!!.state,
         )
 
-        val fixture = fixture("worker-${UUID.randomUUID()}")
-        fixture.backup("old")
-        fixture.candidate("new")
-        val attempt = AttemptId(1)
-        val binding = ExternalJobBinding.WorkManager(failedWork.id.toString())
-        fixture.journal(CommitPhase.PREPARED, attemptId = attempt, workManagerUuid = binding.uuid)
+        val binding = ExternalJobBinding.WorkManager(updateWork.id.toString())
+        fixture.journal(CommitPhase.PREPARED, attemptId = handle.attemptId, workManagerUuid = binding.uuid)
         val store = SharedPreferencesDurableOperationStore(context)
         val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
-        val handle = OperationHandle(fixture.operationId, attempt)
         assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Committing update", 0, binding))
-        assertFalse(fixture.live.exists())
+        assertEquals(binding, store.read().single().externalJob)
+        assertEquals("old", fixture.value())
 
+        // The recovery worker owns fresh store, supervisor, and repository instances.
         GhostUpdateWorker.enqueueRecovery(context, fixture.parent, fixture.live)
 
         val recoveryInfo = workManager.getWorkInfosForUniqueWork(
             GhostUpdateWorker.recoveryWorkName(fixture.parent, fixture.live),
         ).get(5, TimeUnit.SECONDS).single()
         assertEquals(WorkInfo.State.SUCCEEDED, recoveryInfo.state)
-        assertEquals("new", fixture.value())
+        assertEquals("old", fixture.value())
         assertFalse(fixture.transaction.exists())
-        assertEquals(OperationStatus.COMPLETED, SharedPreferencesDurableOperationStore(context).read().single().status)
+        assertEquals(OperationStatus.FAILED, SharedPreferencesDurableOperationStore(context).read().single().status)
     }
 
     @Test
