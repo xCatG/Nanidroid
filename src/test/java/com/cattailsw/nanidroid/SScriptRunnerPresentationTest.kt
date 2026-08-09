@@ -815,6 +815,24 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun legacyChoiceCallbackIncludesChoicesAfterUnderscoreCommandPayload() {
+        val fixture = fixture(responses = emptyList())
+        var callbackChoices: Pair<List<String>, List<String>>? = null
+        fixture.runner.setUICallback(object : SScriptRunner.UICallback {
+            override fun showUserInputBox(id: String) = Unit
+
+            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
+                callbackChoices = textlabel.toList() to ids.toList()
+            }
+        })
+
+        fixture.runner.addMsgToQueue(arrayOf("\\q[A,a]\\_l[half,\\p2]\\q[B,b]\\e"))
+        fixture.runner.run()
+
+        Assert.assertEquals(listOf("A", "B") to listOf("a", "b"), callbackChoices)
+    }
+
+    @Test
     fun directScopeCommandsSwitchSpeakersLikeLegacyAliases() {
         val fixture = fixture(responses = emptyList())
 
