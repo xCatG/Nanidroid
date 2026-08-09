@@ -154,6 +154,39 @@ class NarDownloadRepositoryTest {
         assertTrue(result.download.handle() != item.handle())
     }
 
+    @Test fun retryDefersLegacyInstallRecoveryProbesUntilAfterTheUiCallReturns() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        val item = deferredRepository.enqueueLocal("file:///owned/retry.nar")
+        dispatcher.runAll()
+        store.update(item.id) { current ->
+            current.copy(state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("retry")))
+        }
+        work.legacyProbeCalls = 0
+
+        val retried = deferredRepository.retry(item.id)!!
+
+        assertEquals(NarDownloadState.Queued, retried.state)
+        assertEquals(0, work.legacyProbeCalls)
+        assertEquals(1, dispatcher.pendingCount)
+
+        dispatcher.runAll()
+
+        assertTrue(work.legacyProbeCalls > 0)
+    }
+
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
         downloads.nextDownloadId = 31L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -2753,6 +2786,20 @@ class NarDownloadRepositoryTest {
         }
     }
 
+    private class QueuedInstallSchedulingDispatcher : NarInstallSchedulingDispatcher {
+        private val tasks = ArrayDeque<() -> Unit>()
+
+        val pendingCount: Int get() = tasks.size
+
+        override fun execute(action: () -> Unit) {
+            tasks += action
+        }
+
+        fun runAll() {
+            while (tasks.isNotEmpty()) tasks.removeFirst()()
+        }
+    }
+
     private class FakeWorkScheduler : NarInstallWorkScheduler {
         val activeInstallWorkByItemId = mutableMapOf<String, String>()
         val activeInstallWorkIsLegacyByItemId = mutableMapOf<String, Boolean>()
@@ -2773,6 +2820,7 @@ class NarDownloadRepositoryTest {
         var findActiveLegacyInstallWorkFailure: Exception? = null
         var cancelStaleDeterministicInstallWorkFailure: Exception? = null
         var cancelStaleDeterministicInstallWorkCompletes = true
+        var legacyProbeCalls = 0
         var installRecovery = NarInstallWorkRecovery.ACTIVE
         var installQueryStarted: CountDownLatch? = null
         var allowInstallQuery: CountDownLatch? = null
@@ -2832,6 +2880,7 @@ class NarDownloadRepositoryTest {
         }
 
         override fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? {
+            legacyProbeCalls += 1
             findActiveLegacyInstallWorkFailure?.let { throw it }
             return activeInstallWorkByItemId[itemId]
                 ?.takeIf { activeInstallWorkIsLegacyByItemId[itemId] != false }

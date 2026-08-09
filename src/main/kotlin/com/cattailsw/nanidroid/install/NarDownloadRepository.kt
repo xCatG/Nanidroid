@@ -26,6 +26,25 @@ import java.io.IOException
 import java.net.URI
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.Executors
+
+internal fun interface NarInstallSchedulingDispatcher {
+    fun execute(action: () -> Unit)
+
+    companion object {
+        val Direct = NarInstallSchedulingDispatcher { action -> action() }
+    }
+}
+
+private class BackgroundNarInstallSchedulingDispatcher : NarInstallSchedulingDispatcher {
+    private val executor = Executors.newSingleThreadExecutor { action ->
+        Thread(action, "nar-install-scheduling")
+    }
+
+    override fun execute(action: () -> Unit) {
+        executor.execute(action)
+    }
+}
 
 internal data class NarRemoteEnqueue(
     val downloadManagerId: Long,
@@ -160,6 +179,7 @@ class NarDownloadRepository internal constructor(
     ),
     private val stopReconciliation: NarStopReconciliationScheduler =
         NarStopReconciliationScheduler.None,
+    private val installScheduling: NarInstallSchedulingDispatcher = NarInstallSchedulingDispatcher.Direct,
     private val nextId: () -> String,
 ) {
     private val observedDownloads = MutableStateFlow(store.getAll())
@@ -993,6 +1013,11 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun scheduleInstall(itemId: String) {
+        installScheduling.execute { scheduleInstallNow(itemId) }
+    }
+
+    @Synchronized
+    private fun scheduleInstallNow(itemId: String) {
         val item = store.get(itemId) ?: return
         val handle = item.handle()
         if (cancellationRequested(handle)) {
@@ -1495,6 +1520,7 @@ class NarDownloadRepository internal constructor(
                 installProgress = ThrottledNarInstallProgressReporter(supervisor, clock),
                 remoteProgress = DownloadManagerProgressObserver(downloadGateway, supervisor),
                 stopReconciliation = BackgroundStopReconciliationScheduler(),
+                installScheduling = BackgroundNarInstallSchedulingDispatcher(),
                 nextId = { UUID.randomUUID().toString() },
             )
         }
