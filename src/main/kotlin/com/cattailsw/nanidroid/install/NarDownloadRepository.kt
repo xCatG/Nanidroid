@@ -1301,7 +1301,7 @@ class NarDownloadRepository internal constructor(
             other.id != excludedItemId && other.state != NarDownloadState.Complete && (
                 other.retainedUri == location ||
                     ((other.source as? NarDownloadSource.Local)?.uri == location &&
-                        other.retainedUri == location)
+                        (other.retainedUri == null || other.retainedUri == location))
                 )
         }
 

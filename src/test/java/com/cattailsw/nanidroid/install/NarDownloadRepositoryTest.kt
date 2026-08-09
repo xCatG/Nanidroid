@@ -685,6 +685,21 @@ class NarDownloadRepositoryTest {
         assertEquals(listOf(source), ownedData.releasedUris)
     }
 
+    @Test fun stagingKeepsGrantWhileSourceOnlySiblingStillNeedsIt() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        repository.enqueueLocal(source)
+
+        repository.stageLocal(
+            copying.id,
+            copying.attemptId,
+            copying.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(ownedData.releasedUris.isEmpty())
+    }
+
     @Test fun recreatedStageWorkerCommitsHandoffWhenCopySupervisorAlreadyCompleted() {
         val item = repository.enqueueLocalCopy("content://provider/archive.nar")
         assertTrue(
