@@ -131,10 +131,10 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleFallsBackToLegacyChoiceOnlyAfterUnplayablePrimary() {
+    fun snakeBootLifecycleRetainsFailedPrimaryAndFallbackChoiceEvidence() {
         val requests = mutableListOf<Pair<String, List<String>>>()
 
-        snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
             requests += eventId to references
             val primaryIsUnplayable = eventId == "OnChoiceSelectEx" && references[1] == "choicefirsthehim"
             JSONObject()
@@ -153,6 +153,26 @@ class NarCorpusRuntimeTest {
                 "OnChoiceSelectEx" to listOf("faq", "faq"),
             ),
             requests,
+        )
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnChoiceSelect", "OnNameTeach", "OnChoiceSelectEx"),
+            (0 until sequence.length()).map { sequence.getJSONObject(it).getString("eventId") },
+        )
+        assertEquals(204, sequence.getJSONObject(1).getInt("status"))
+        assertEquals("", sequence.getJSONObject(1).getString("value"))
+        assertEquals(
+            listOf("he/him", "choicefirsthehim"),
+            sequence.getJSONObject(1).getJSONArray("references").let { references ->
+                (0 until references.length()).map(references::getString)
+            },
+        )
+        assertEquals(200, sequence.getJSONObject(2).getInt("status"))
+        assertEquals("playable", sequence.getJSONObject(2).getString("value"))
+        assertEquals(
+            listOf("choicefirsthehim"),
+            sequence.getJSONObject(2).getJSONArray("references").let { references ->
+                (0 until references.length()).map(references::getString)
+            },
         )
     }
 
@@ -904,20 +924,20 @@ class NarCorpusRuntimeTest {
 
         fun probeChoice(label: String, id: String): JSONObject {
             val primary = probe("OnChoiceSelectEx", listOf(label, id))
+            sequence.put(primary)
             return if (primary.optInt("status", -1) == 200 && primary.optString("value").isNotEmpty()) {
                 primary
             } else {
-                probe("OnChoiceSelect", listOf(id))
+                probe("OnChoiceSelect", listOf(id)).also(sequence::put)
             }
         }
 
         val firstChoice = probeChoice(SNAKE_CHOICE_FIRST_HE_HIM_LABEL, SNAKE_CHOICE_FIRST_HE_HIM_ID)
-        sequence.put(firstChoice)
         if (firstChoice.optString("outcome") == "success") {
             val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE, ""))
             sequence.put(input)
             if (input.optString("outcome") == "success") {
-                sequence.put(probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID))
+                probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
             }
         }
         return sequence
