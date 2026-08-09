@@ -434,41 +434,7 @@ class GhostUpdateRepositoryTest {
     fun `startup recovery sweeps owned staging left before journal creation begins`() {
         val fixture = fixture("pre-journal-staging-recovery")
         fixture.writeLive("ghost/master.txt", "old")
-        val staging = File(
-            fixture.parent,
-            ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
-        )
-        val journalIo = object : GhostUpdateJournalIo {
-            override fun write(file: File, journal: GhostUpdateJournal) {
-                if (file.parentFile?.canonicalFile == staging.canonicalFile) {
-                    throw IOException("process died before the first staging journal write")
-                }
-                GhostUpdateJournalStore.write(file, journal)
-            }
-
-            override fun read(file: File) = GhostUpdateJournalStore.read(file)
-        }
-        val fileOperations = object : GhostUpdateFileOperations {
-            override fun deleteTree(root: File): Boolean {
-                if (root.canonicalFile == staging.canonicalFile) throw SimulatedProcessDeath()
-                return root.deleteRecursively()
-            }
-        }
-
-        try {
-            fixture.repository(journalIo = journalIo, fileOperations = fileOperations).run(fixture.request()) { false }
-            throw AssertionError("simulated process death was not reached")
-        } catch (_: SimulatedProcessDeath) {
-            // The owner dies after creating its reserved staging root but before a journal exists.
-        }
-
-        assertTrue(staging.exists())
-        assertEquals(RecoveryResult.NoJournal, GhostUpdateRepository.recoverAllBeforeGhostLoad(fixture.parent))
-
-        assertFalse(staging.exists())
-        assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
-        assertFalse(fixture.transactionRoot().exists())
-        assertTrue(fixture.parent.listFiles().orEmpty().none { it.name.startsWith(".nanidroid-update-owner-") })
+        assertPreJournalStagingRecovery(fixture)
     }
 
     @Test
@@ -637,6 +603,10 @@ class GhostUpdateRepositoryTest {
     fun `startup recovery reclaims pre-journal staging for a prefix-named ghost`() {
         val fixture = fixture("prefix-owner-pre-journal", ".nanidroid-staging-live-ghost")
         fixture.writeLive("ghost/master.txt", "old")
+        assertPreJournalStagingRecovery(fixture)
+    }
+
+    private fun assertPreJournalStagingRecovery(fixture: Fixture) {
         val staging = File(
             fixture.parent,
             ".nanidroid-staging-${fixture.transactionRoot().name.removePrefix(".nanidroid-update-")}",
@@ -670,6 +640,7 @@ class GhostUpdateRepositoryTest {
 
         assertFalse(staging.exists())
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
+        assertFalse(fixture.transactionRoot().exists())
         assertTrue(fixture.parent.listFiles().orEmpty().none { it.name.startsWith(".nanidroid-update-owner-") })
     }
 
