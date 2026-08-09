@@ -808,10 +808,10 @@ class NarDownloadRepository internal constructor(
     fun install(itemId: String, workManagerId: String, isStopped: () -> Boolean): Boolean {
         val item = store.get(itemId) ?: return true
         // Legacy requests carry no attempt ID. They must retry until reconciliation
-        // durably associates their WorkManager ID, rather than succeeding while the
-        // record is still unbound.
+        // durably associates their own WorkManager ID, rather than succeeding while
+        // the record is unbound or still points at a replaced v2 request.
         if (
-            item.workManagerId == null &&
+            item.workManagerId != workManagerId &&
                 (item.state == NarDownloadState.Queued || item.state == NarDownloadState.Installing)
         ) {
             return false

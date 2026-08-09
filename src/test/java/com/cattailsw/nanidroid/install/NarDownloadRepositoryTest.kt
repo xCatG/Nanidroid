@@ -1278,6 +1278,40 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun legacyWorkerRetriesUntilMigrationBindingIsReboundToItsOwnId() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-worker-mismatched-migration-binding",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val migratedWorkManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        store.update(item.id) { it.copy(workManagerId = migratedWorkManagerId) }
+        assertTrue(supervisor.start(item.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(
+            supervisor.bindExternalJob(
+                item.handle(),
+                ExternalJobBinding.WorkManager(migratedWorkManagerId),
+            ),
+        )
+        val legacyWorkManagerId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        assertEquals(
+            ListenableWorker.Result.retry(),
+            InstallNarWorker.execute(repository, item.id, legacyWorkManagerId) { false },
+        )
+
+        repository.reconcile()
+
+        assertEquals(
+            ListenableWorker.Result.success(),
+            InstallNarWorker.execute(repository, item.id, legacyWorkManagerId) { false },
+        )
+    }
+
     @Test fun legacyBindingPersistenceFailureTerminalizesBoundAttempt() {
         val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 2))
         val exactOperationStore = SharedPreferencesDurableOperationStore(
