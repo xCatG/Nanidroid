@@ -533,33 +533,48 @@ function Write-PreflightTimeoutSummary {
         [string]$ManifestEntryName,
         [string]$ManifestSha,
         [datetime]$RunStart,
-        [string]$TimeoutEvidence
+        [string]$TimeoutEvidence,
+        [string]$PreflightPhase
     )
 
     $sentinels = New-SentinelAccumulator
     New-Item -ItemType Directory -Force -Path $SummaryRoot | Out-Null
     Add-SentinelCheck -Accumulator $sentinels -Name 'no-abort' -Passed $false -Expected 'false/false' -Observed 'true/false' -Detail 'ADB timed out during preflight.'
-    Add-SentinelCheck -Accumulator $sentinels -Name 'cleanup-verified' -Passed $false -Expected 'verified' -Observed 'not-verified-device-timeout' -Detail 'No further ADB commands are safe after a transport timeout.'
+    Add-SentinelCheck -Accumulator $sentinels -Name 'cleanup-verified' -Passed $false -Expected 'verified' -Observed 'unverified' -Detail 'No further ADB commands are safe after a transport timeout.'
     $summary = [pscustomobject]@{
         runId = $RunId
-        status = 'partial'
+        status = 'failed'
+        phase = 'preflight'
+        preflightStage = $PreflightPhase
         runStart = $RunStart.ToString('o')
+        startedAt = $RunStart.ToUniversalTime().ToString('o')
+        finishedAt = (Get-Date).ToUniversalTime().ToString('o')
         manifest = @{ name = $ManifestEntryName; sha256 = $ManifestSha }
         results = @()
-        failures = @()
+        failures = @([pscustomobject]@{
+            phase = 'preflight'
+            code = 'adb-timeout'
+            message = $TimeoutEvidence
+        })
         abortedDueToTimeout = $true
         abortedEntryLabel = $null
-        cleanupVerification = 'not-verified-device-timeout'
+        cleanupVerification = 'unverified'
         adbTransportTimeoutEvidence = $TimeoutEvidence
+        adbTransportTimeout = [pscustomobject]@{
+            timedOut = $true
+            evidence = $TimeoutEvidence
+        }
         sentinels = $sentinels
     }
     $summary | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $SummaryRoot 'summary.json') -Encoding UTF8
     @"
-# NAR corpus audit summary (partial)
+# NAR corpus audit summary
 
+- Status: failed during preflight
+- Preflight stage: $PreflightPhase
 - Manifest: $ManifestEntryName ($ManifestSha)
 - Aborted due to timeout: True
-- Cleanup verification: not-verified-device-timeout
+- Cleanup verification: unverified
 - ADB transport timeout: $TimeoutEvidence
 "@ | Set-Content -Path (Join-Path $SummaryRoot 'summary.md') -Encoding UTF8
     return $summary
@@ -567,9 +582,19 @@ function Write-PreflightTimeoutSummary {
 
 if ($HostOnlyPreflightTimeoutTest) {
     $testRoot = Join-Path $hostRunTmpRoot 'preflight-timeout-summary'
-    $testSummary = Write-PreflightTimeoutSummary -SummaryRoot $testRoot -RunId 'host-only-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'host-only-sha' -RunStart (Get-Date) -TimeoutEvidence 'host-only simulated transport deadline'
+    $testSummary = Write-PreflightTimeoutSummary -SummaryRoot $testRoot -RunId 'host-only-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'host-only-sha' -RunStart (Get-Date) -TimeoutEvidence 'host-only simulated transport deadline' -PreflightPhase 'device-gate'
     $testJson = Get-Content -LiteralPath (Join-Path $testRoot 'summary.json') -Raw | ConvertFrom-Json
-    if ($testSummary.cleanupVerification -ne 'not-verified-device-timeout' -or -not $testSummary.abortedDueToTimeout -or $testJson.status -ne 'partial' -or -not (Test-Path -LiteralPath (Join-Path $testRoot 'summary.md'))) {
+    $testMarkdown = Get-Content -LiteralPath (Join-Path $testRoot 'summary.md') -Raw
+    if (
+        $testSummary.cleanupVerification -ne 'unverified' -or
+        -not $testSummary.abortedDueToTimeout -or
+        $testJson.status -ne 'failed' -or
+        $testJson.phase -ne 'preflight' -or
+        $testJson.preflightStage -ne 'device-gate' -or
+        $testJson.failures.Count -ne 1 -or
+        $testJson.failures[0].code -ne 'adb-timeout' -or
+        $testMarkdown -notmatch [regex]::Escape('Cleanup verification: unverified')
+    ) {
         ThrowIf 'Host-only preflight-timeout regression failed.'
     }
     Write-Host 'Host-only preflight-timeout regression passed.'
@@ -2403,13 +2428,18 @@ foreach ($arg in $ProbeArgs) {
     Write-Host 'Dry-run crash allowlist and transport cutoff probes passed.'
 
     $preflightTimeoutSummaryRoot = Join-Path $hostRunTmpRoot 'preflight-timeout-summary'
-    $preflightTimeoutSummary = Write-PreflightTimeoutSummary -SummaryRoot $preflightTimeoutSummaryRoot -RunId 'dry-run-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'dry-run-sha' -RunStart (Get-Date) -TimeoutEvidence 'dry-run simulated transport deadline'
+    $preflightTimeoutSummary = Write-PreflightTimeoutSummary -SummaryRoot $preflightTimeoutSummaryRoot -RunId 'dry-run-timeout' -ManifestEntryName 'manifest.json' -ManifestSha 'dry-run-sha' -RunStart (Get-Date) -TimeoutEvidence 'dry-run simulated transport deadline' -PreflightPhase 'device-gate'
     $preflightTimeoutJson = Get-Content -LiteralPath (Join-Path $preflightTimeoutSummaryRoot 'summary.json') -Raw | ConvertFrom-Json
-    if ($preflightTimeoutSummary.cleanupVerification -ne 'not-verified-device-timeout' -or
+    if ($preflightTimeoutSummary.cleanupVerification -ne 'unverified' -or
         -not $preflightTimeoutSummary.abortedDueToTimeout -or
-        $preflightTimeoutJson.cleanupVerification -ne 'not-verified-device-timeout' -or
+        $preflightTimeoutJson.status -ne 'failed' -or
+        $preflightTimeoutJson.phase -ne 'preflight' -or
+        $preflightTimeoutJson.preflightStage -ne 'device-gate' -or
+        $preflightTimeoutJson.failures.Count -ne 1 -or
+        $preflightTimeoutJson.failures[0].code -ne 'adb-timeout' -or
+        $preflightTimeoutJson.cleanupVerification -ne 'unverified' -or
         -not (Test-Path -LiteralPath (Join-Path $preflightTimeoutSummaryRoot 'summary.md'))) {
-        ThrowIf 'Dry-run preflight-timeout probe did not write a fail-closed partial summary.'
+        ThrowIf 'Dry-run preflight-timeout probe did not write the failed, cleanup-unverified preflight summary.'
     }
     Write-Host 'Dry-run preflight-timeout summary probe passed.'
 
@@ -2474,8 +2504,10 @@ $unexpectedAbort = $false
 $unexpectedAbortMetadata = $null
 $abortedEntryLabel = $null
 $cleanupVerification = 'verified'
+$preflightPhase = 'device-gate'
 try {
     Check-DeviceGate
+    $preflightPhase = 'preexisting-state'
     Validate-NoPreexistingDeviceState
     $apkInfo = Build-Apks
 
@@ -2483,26 +2515,35 @@ try {
     Verify-DebugSignature -ApkPath $apkInfo.DebugApkPath -Label 'debug' -ApkSignerPath $apksigner | Out-Null
     Verify-DebugSignature -ApkPath $apkInfo.TestApkPath -Label 'androidTest' -ApkSignerPath $apksigner | Out-Null
 
+    $preflightPhase = 'install-debug'
     Write-Host "Installing $(Split-Path -Leaf $apkInfo.DebugApkPath)"
     Invoke-Adb -Arguments @('install', '-r', '-d', '-g', $apkInfo.DebugApkPath) -TimeoutSeconds 600 | Out-Null
     $installed = $true
+    $preflightPhase = 'install-test'
     Write-Host "Installing $(Split-Path -Leaf $apkInfo.TestApkPath)"
     Invoke-Adb -Arguments @('install', '-r', '-d', '-g', $apkInfo.TestApkPath) -TimeoutSeconds 600 | Out-Null
+    $preflightPhase = 'run-as'
     Verify-RunAs
+    $preflightPhase = 'private-data-root'
     $privateDataRoot = (Invoke-Adb -Arguments @('shell', 'run-as', $targetPackage, 'pwd') -TimeoutSeconds 20).Trim()
     if ($privateDataRoot -notmatch "^/data/(user/0|data)/$([regex]::Escape($targetPackage))$") {
         ThrowIf "Unexpected run-as private root '$privateDataRoot'."
     }
 
+    $preflightPhase = 'device-metadata'
     $deviceFingerprint = Get-AdbProperty 'ro.build.fingerprint'
     $deviceDensity = Get-DeviceDensity
     $deviceAbi = Get-AdbProperty 'ro.product.cpu.abi'
     $deviceApi = Get-AdbProperty 'ro.build.version.sdk'
 
+    $preflightPhase = 'device-storage'
     Check-DeviceStorage
 
+    $preflightPhase = 'network-state'
     $networkState = Snapshot-NetworkState
+    $preflightPhase = 'network-disable'
     Set-NetworkState -Disable $true
+    $preflightPhase = $null
 
     foreach ($entry in $manifest.entries) {
         $archive = $matchPlan.ArchiveByHash[$entry.sha256.ToLowerInvariant()]
@@ -3377,10 +3418,11 @@ $(
     }
 }
 catch {
-    if ($script:adbTransportTimedOut -and $results.Count -eq 0) {
+    if ($script:adbTransportTimedOut -and $null -ne $preflightPhase) {
         $abortedDueToTimeout = $true
-        $cleanupVerification = 'not-verified-device-timeout'
-        Write-PreflightTimeoutSummary -SummaryRoot $reportRoot -RunId $runId -ManifestEntryName $manifestEntryName -ManifestSha $manifestSha -RunStart $runStart -TimeoutEvidence $script:adbTransportTimeoutEvidence | Out-Null
+        $cleanupVerification = 'unverified'
+        Write-PreflightTimeoutSummary -SummaryRoot $reportRoot -RunId $runId -ManifestEntryName $manifestEntryName -ManifestSha $manifestSha -RunStart $runStart -TimeoutEvidence $script:adbTransportTimeoutEvidence -PreflightPhase $preflightPhase | Out-Null
+        Write-Host "Summary: $(Join-Path $reportRoot 'summary.json')"
     }
     throw
 }
