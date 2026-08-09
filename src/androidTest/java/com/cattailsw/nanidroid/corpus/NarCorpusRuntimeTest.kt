@@ -218,6 +218,30 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun snakeBootLifecycleFallsBackWhenPrimaryOnlyHasLowercaseValueHeader() {
+        val requests = mutableListOf<String>()
+
+        snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            requests += eventId
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put(
+                    "hasExactValue",
+                    eventId != "OnChoiceSelectEx",
+                )
+                .put("choiceIds", JSONArray())
+        }
+
+        assertEquals(
+            listOf("OnFirstBoot", "OnChoiceSelectEx", "OnChoiceSelect", "OnNameTeach"),
+            requests,
+        )
+    }
+
+    @Test
     fun structuredChoiceEvidenceUsesTheAuthoredChoiceIdentifier() {
         assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelectEx", listOf("he/him", "choicefirsthehim")))
         assertEquals("choicefirsthehim", postInteractionIdentifier("OnChoiceSelect", listOf("choicefirsthehim")))
@@ -972,7 +996,8 @@ class NarCorpusRuntimeTest {
         fun probeChoice(label: String, id: String): JSONObject {
             val primary = probe("OnChoiceSelectEx", listOf(label, id))
             sequence.put(primary)
-            return if (primary.optInt("status", -1) == 200 && primary.optString("value").isNotEmpty()) {
+            val hasExactValue = primary.optBoolean("hasExactValue", primary.optString("value").isNotEmpty())
+            return if (primary.optInt("status", -1) == 200 && hasExactValue) {
                 primary
             } else {
                 probe("OnChoiceSelect", listOf(id)).also(sequence::put)
@@ -1079,6 +1104,7 @@ class NarCorpusRuntimeTest {
             val diagnostics = mutableListOf<String>()
             val response = shiori.requestRaw(method, eventId, references)
             val value = response.getKeyIgnoreCase("Value").orEmpty()
+            val hasExactValue = !response.getKey("Value").isNullOrEmpty()
             val segmentEvidence = parseShioriSegments(value, diagnostics)
 
             val probe = JSONObject()
@@ -1097,6 +1123,7 @@ class NarCorpusRuntimeTest {
                 )
                 .put("status", response.getStatusCode())
                 .put("value", value.take(MAX_SHIORI_RESPONSE_VALUE_CHARS))
+                .put("hasExactValue", hasExactValue)
                 .put("valueTruncated", value.length > MAX_SHIORI_RESPONSE_VALUE_CHARS)
                 .put("observedAnchorId", segmentEvidence.opt("observedAnchorId") ?: JSONObject.NULL)
                 .put("observedInputId", segmentEvidence.opt("observedInputId") ?: JSONObject.NULL)
