@@ -1,9 +1,11 @@
 package com.cattailsw.nanidroid.durable
 
 import android.content.Context
+import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.Configuration
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -40,17 +42,27 @@ class GhostUpdateRecoveryTest {
         val handle = OperationHandle(fixture.operationId, AttemptId(1))
         val expectedWorkId = durableWorkManagerId(handle, OperationKind.GHOST_UPDATE)
         val workManager = WorkManager.getInstance(context)
+        val updateWork = GhostUpdateWorker.request(
+            handle,
+            ghostId = "ghost-id",
+            ghostRoot = fixture.live,
+            baseUri = Uri.parse("https://example.invalid/updates"),
+        )
+        assertEquals(expectedWorkId, updateWork.id)
         val failedWork = OneTimeWorkRequestBuilder<FailedGhostUpdateWork>()
-            .setId(expectedWorkId)
+            .setId(updateWork.id)
             .build()
-        workManager.enqueue(failedWork).result.get(5, TimeUnit.SECONDS)
-        assertEquals(expectedWorkId, failedWork.id)
+        workManager.enqueueUniqueWork(
+            GhostUpdateWorker.workName(fixture.live),
+            ExistingWorkPolicy.KEEP,
+            failedWork,
+        ).result.get(5, TimeUnit.SECONDS)
         assertEquals(
             WorkInfo.State.FAILED,
             workManager.getWorkInfoById(failedWork.id).get(5, TimeUnit.SECONDS)!!.state,
         )
 
-        val binding = ExternalJobBinding.WorkManager(failedWork.id.toString())
+        val binding = ExternalJobBinding.WorkManager(updateWork.id.toString())
         fixture.journal(CommitPhase.PREPARED, attemptId = handle.attemptId, workManagerUuid = binding.uuid)
         val store = SharedPreferencesDurableOperationStore(context)
         val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
