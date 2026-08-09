@@ -888,7 +888,7 @@ class GhostUpdateRepository internal constructor(
         val journalFile = File(transactionRoot, GhostUpdateJournalStore.FILE_NAME)
         if (!fileOperations.deleteTree(candidate)) return false
         if (!journalFile.delete() && journalFile.exists()) return false
-        if (transactionRoot.delete()) return true
+        if (!transactionRoot.exists() || transactionRoot.delete()) return true
         journalIo.write(journalFile, journal)
         return false
     }

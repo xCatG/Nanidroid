@@ -710,7 +710,10 @@ class GhostUpdateWorker(
                     durableStatus == OperationStatus.CANCEL_REQUESTED &&
                     workState == RecoveryWorkState.MISSING &&
                     phase == CommitPhase.PREPARED &&
-                    topology == GhostTreeTopology.LIVE_CANDIDATE
+                    topology in setOf(
+                        GhostTreeTopology.LIVE_CANDIDATE,
+                        GhostTreeTopology.LIVE_ONLY,
+                    )
                 ) {
                     RecoveryTransition.ROLL_BACK_CANCELLED
                 } else when (workState) {
