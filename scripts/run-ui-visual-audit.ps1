@@ -869,8 +869,14 @@ function Resolve-Git {
     return [string]$commands[0].Source
 }
 
+function ConvertTo-RepositoryRelativePath([string]$Path) {
+    $normalizedPath = $Path.Replace('\', '/')
+    if ($normalizedPath.StartsWith('./')) { $normalizedPath = $normalizedPath.Substring(2) }
+    return $normalizedPath.ToLowerInvariant()
+}
+
 function Test-UntrackedAndroidBuildInput([string]$Path) {
-    $normalizedPath = $Path.Replace('\', '/').TrimStart('./').ToLowerInvariant()
+    $normalizedPath = ConvertTo-RepositoryRelativePath $Path
     if ($normalizedPath -in @('build.gradle', 'build.gradle.kts', 'settings.gradle', 'settings.gradle.kts', 'gradle.properties', 'gradlew', 'gradlew.bat')) { return $true }
     return $normalizedPath -match '^(gradle|src|jni|libs)/'
 }
@@ -880,7 +886,7 @@ function ConvertFrom-GitPorcelainRecords([string]$Status) {
 }
 
 function Test-GeneratedIgnoredReportPath([string]$Path) {
-    $normalizedPath = $Path.Replace('\', '/').TrimStart('./').ToLowerInvariant()
+    $normalizedPath = ConvertTo-RepositoryRelativePath $Path
     return $normalizedPath -like 'build/reports/*'
 }
 
@@ -1239,6 +1245,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
     $failed = $false
     try { Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "!! src/main/assets/extra.nar`0") } catch { $failed = $true }
     if (-not $failed) { Fail 'Ignored Android asset build-input probe unexpectedly passed.' 'dry-run' }
+    Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "!! .gradle/configuration-cache/state.bin`0")
     Assert-UntrackedBuildInputs @()
     Assert-UntrackedBuildInputs (ConvertFrom-GitPorcelainRecords "!! build/reports/ui-audit/summary.json`0")
     if (Test-UntrackedAndroidBuildInput 'C:\corpora\external.nar') { Fail 'External corpus path was classified as an Android build input.' 'dry-run' }
