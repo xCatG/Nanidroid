@@ -215,6 +215,23 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `digest mismatch cleanup retains prepared journal when candidate deletion fails`() {
+        val fixture = fixture("digest-cleanup-journal")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifestWithDigest("ghost/master.txt", "00000000000000000000000000000000", bytes("bad"))
+        val fileOperations = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean =
+                root.canonicalFile != File(fixture.transactionRoot(), "candidate").canonicalFile && root.deleteRecursively()
+        }
+
+        assertTrue(fixture.repository(fileOperations = fileOperations).run(fixture.request()) { false } is GhostUpdateResult.Failed)
+        assertEquals(CommitPhase.PREPARED, GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        ).phase)
+        assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
+    }
+
+    @Test
     fun `process death during user cancellation cleanup preserves exact journal for recovery`() {
         val fixture = fixture("cancel-cleanup-ownership")
         fixture.writeLive("ghost/master.txt", "old")

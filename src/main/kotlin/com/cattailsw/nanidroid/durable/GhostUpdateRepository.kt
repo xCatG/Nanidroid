@@ -223,7 +223,7 @@ class GhostUpdateRepository internal constructor(
             val manifestSource = readManifest(request, stopReason)
             if (manifestSource == null) {
                 stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
-                return failedBeforeJournal(transactionRoot, "update manifest not found")
+                return failedBeforeJournal(transactionRoot, request, "update manifest not found")
             }
             stopBeforeJournal(transactionRoot, request, stopReason())?.let { return it }
             val manifest = parseManifest(manifestSource)
@@ -273,14 +273,14 @@ class GhostUpdateRepository internal constructor(
                 events.digestCompareBegin(entry.path, entry.digest, actual)
                 if (!actual.equals(entry.digest, ignoreCase = true)) {
                     events.digestCompareFailure(entry.path, entry.digest, actual)
-                    return failedBeforeJournal(transactionRoot, "digest mismatch: ${entry.path}", manifestFiles)
+                    return failedBeforeJournal(transactionRoot, request, "digest mismatch: ${entry.path}", manifestFiles)
                 }
                 events.digestCompareComplete(entry.path, entry.digest, actual)
             }
 
             val deletedCandidateEntries = applyCandidateDeletes(candidateRoot)
             if (changedManifest.isEmpty() && !deletedCandidateEntries.changed) {
-                if (!cleanNoChangeTransaction(transactionRoot, preparedJournal(transactionRoot, request))) {
+                if (!cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))) {
                     return failed("cannot clean no-change update transaction", emptyList())
                 }
                 events.noChanges()
@@ -416,7 +416,7 @@ class GhostUpdateRepository internal constructor(
                     is RecoveryResult.Failed -> return failed(recovered.diagnostic, manifestFiles)
                 }
             } else {
-                fileOperations.deleteTree(transactionRoot)
+                cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))
                 stopResult(stopReason())?.let { return it }
             }
             return failed(e.message ?: "ghost update failed", manifestFiles)
@@ -438,7 +438,7 @@ class GhostUpdateRepository internal constructor(
             if (reason == GhostUpdateStopReason.USER_CANCELLED) {
                 return cancelledBeforeJournal(transactionRoot, request)
             }
-            fileOperations.deleteTree(transactionRoot)
+            cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))
             return stopResult(reason)
                 ?: GhostUpdateResult.Failed(error.message ?: "ghost update failed")
         }
@@ -883,7 +883,7 @@ class GhostUpdateRepository internal constructor(
     )
 
     /** Keeps recovery evidence until the candidate and transaction root are both gone. */
-    private fun cleanNoChangeTransaction(transactionRoot: File, journal: GhostUpdateJournal): Boolean {
+    private fun cleanPreparedTransaction(transactionRoot: File, journal: GhostUpdateJournal): Boolean {
         val candidate = File(transactionRoot, CANDIDATE)
         val journalFile = File(transactionRoot, GhostUpdateJournalStore.FILE_NAME)
         if (!fileOperations.deleteTree(candidate)) return false
@@ -895,10 +895,11 @@ class GhostUpdateRepository internal constructor(
 
     private fun failedBeforeJournal(
         transactionRoot: File,
+        request: GhostUpdateRequest,
         reason: String,
         files: List<String> = emptyList(),
     ): GhostUpdateResult.Failed {
-        fileOperations.deleteTree(transactionRoot)
+        cleanPreparedTransaction(transactionRoot, preparedJournal(transactionRoot, request))
         return failed(reason, files)
     }
 
