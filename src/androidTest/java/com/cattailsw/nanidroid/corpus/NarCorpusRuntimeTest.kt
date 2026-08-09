@@ -472,6 +472,19 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun unexpectedShioriProbeExceptionIsRecordedAsFailedProbe() {
+        val result = baseResult("test", "/test.nar", "abc", 0)
+        result.put("passed", true)
+        result.put("classification", "partiallyCompatible")
+
+        recordProbeFailure(result, IllegalStateException("SHIORI request or tokenizer regression"))
+
+        assertFalse(result.getBoolean("passed"))
+        assertEquals("probe-failure", result.getString("classification"))
+        assertTrue(result.getString("error").contains("SHIORI request or tokenizer regression"))
+    }
+
+    @Test
     fun probesArchive() {
         phase("start")
         composeRule.setContent { probeContent.Content() }
@@ -735,50 +748,28 @@ class NarCorpusRuntimeTest {
                     setCheckpoint(result, "before-real-shiori")
                     writeArtifacts(context, safeLabel, result)
                     phase("before-real-shiori")
-                    try {
-                        shioriGhost = loadShiori(
-                            installed.installedPath,
-                            installed.targetId ?: "corpus-${expectedSha256.take(16)}",
-                            loadGhostDesc(installed.installedPath),
-                            context,
-                        )
-                        val finalDialogue = probeShioriOnBoot(shioriGhost, shellName, label)
-                        phase("shiori-probed")
-                        result.put("dialogueProbe", finalDialogue)
-                        val shioriOutcome = finalDialogue.optString("outcome", "probe-failure")
-                        result.put("shioriOutcome", shioriOutcome)
-                        result.put("ghostLoadOutcome", "loaded")
-                        result.put("renderOutcome", "production-stage-rendered")
-                        result.put("inputOutcome", inputOutcome)
-                        result.put("classification", if (shioriOutcome == "success") "compatible" else "partiallyCompatible")
-                        result.put("passed", true)
-                        setCheckpoint(result, "complete")
-                    } catch (error: LinkageError) {
-                        result.put("checkpointPhase", "kotlin-load-linkage-error")
-                        result.put("classification", "incompatible")
-                        result.put("passed", true)
-                        result.put("error", error.stackTraceToString())
-                        result.put("ghostLoadOutcome", "not-applicable:shiori-load-failure")
-                        result.put("renderOutcome", "production-stage-rendered")
-                        result.put("inputOutcome", inputOutcome)
-                        result.put("shioriOutcome", "shiori-load-failure")
-                    } catch (error: Exception) {
-                        result.put("checkpointPhase", "kotlin-load-exception")
-                        result.put("classification", "incompatible")
-                        result.put("passed", true)
-                        result.put("error", error.stackTraceToString())
-                        result.put("ghostLoadOutcome", "not-applicable:shiori-load-failure")
-                        result.put("renderOutcome", "production-stage-rendered")
-                        result.put("inputOutcome", inputOutcome)
-                        result.put("shioriOutcome", "shiori-load-failure")
-                    }
+                    shioriGhost = loadShiori(
+                        installed.installedPath,
+                        installed.targetId ?: "corpus-${expectedSha256.take(16)}",
+                        loadGhostDesc(installed.installedPath),
+                        context,
+                    )
+                    val finalDialogue = probeShioriOnBoot(shioriGhost, shellName, label)
+                    phase("shiori-probed")
+                    result.put("dialogueProbe", finalDialogue)
+                    val shioriOutcome = finalDialogue.optString("outcome", "probe-failure")
+                    result.put("shioriOutcome", shioriOutcome)
+                    result.put("ghostLoadOutcome", "loaded")
+                    result.put("renderOutcome", "production-stage-rendered")
+                    result.put("inputOutcome", inputOutcome)
+                    result.put("classification", if (shioriOutcome == "success") "compatible" else "partiallyCompatible")
+                    result.put("passed", true)
+                    setCheckpoint(result, "complete")
                 }
             }
         } catch (error: Throwable) {
             failure = error
-            result.put("passed", false)
-            result.put("classification", "probe-failure")
-            result.put("error", error.stackTraceToString())
+            recordProbeFailure(result, error)
         } finally {
             phase("cleanup-started")
             host?.let {
@@ -823,6 +814,12 @@ class NarCorpusRuntimeTest {
         .put("dialogueProbe", JSONObject())
         .put("checkpointPhase", "not-run")
         .put("evidence", JSONObject())
+
+    private fun recordProbeFailure(result: JSONObject, error: Throwable) {
+        result.put("passed", false)
+        result.put("classification", "probe-failure")
+        result.put("error", error.stackTraceToString())
+    }
 
     private class TestShioriGhost(
         private val path: String,
@@ -1246,9 +1243,6 @@ class NarCorpusRuntimeTest {
         } catch (error: LinkageError) {
             probe.put("outcome", "native-linkage-error")
                 .put("failure", error.stackTraceToString())
-        } catch (error: Exception) {
-            probe.put("outcome", "request-exception")
-                .put("failure", error.stackTraceToString())
         }
     }
 
@@ -1334,29 +1328,6 @@ class NarCorpusRuntimeTest {
                 .put("inputSpecs", JSONArray())
                 .put("failure", error.stackTraceToString())
                 .put("outcome", "native-linkage-error")
-        } catch (error: Exception) {
-            JSONObject()
-                .put("postInteractionEvidence", structuredPostInteractionEvidence(shiori, method, eventId, references))
-                .put("method", method.name)
-                .put("eventId", eventId)
-                .put(
-                    "references",
-                    JSONArray().apply {
-                        references.forEach(this::put)
-                    },
-                )
-                .put("status", JSONObject.NULL)
-                .put("value", JSONObject.NULL)
-                .put("valueTruncated", false)
-                .put("observedAnchorId", JSONObject.NULL)
-                .put("observedInputId", JSONObject.NULL)
-                .put("passiveTransitions", JSONArray())
-                .put("tokenizerDiagnostics", JSONArray())
-                .put("choiceIds", JSONArray())
-                .put("anchorIds", JSONArray())
-                .put("inputSpecs", JSONArray())
-                .put("failure", error.stackTraceToString())
-                .put("outcome", "request-exception")
         }
     }
 
