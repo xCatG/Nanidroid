@@ -470,6 +470,19 @@ class DurableOperationSupervisor(
         true
     }
 
+    /**
+     * Runs [block] while holding the operation transition lock as the outermost lock.
+     *
+     * Terminal delivery ([deliverTerminalEvent]) holds this operation lock across a dispatch
+     * callback that reaches into the ghost session's mutation monitors. A caller that separately
+     * enters those same mutation monitors and, from inside them, calls back into this supervisor
+     * (for example to classify and persist a recovery or commit outcome) must acquire this lock
+     * *before* entering the mutation monitors so both call paths agree on one lock order:
+     * operation lock first, mutation monitors second. Acquiring them in the opposite order from
+     * two threads is a lock-order inversion that can deadlock.
+     */
+    internal fun <T> withOperationLock(block: () -> T): T = synchronized(operationLock, block)
+
     fun snapshot(): List<DurableOperationRecord> = attentionSnapshot().records
 
     internal fun records(): List<DurableOperationRecord> = synchronized(operationLock) { store.read() }

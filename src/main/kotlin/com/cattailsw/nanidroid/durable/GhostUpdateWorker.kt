@@ -246,15 +246,25 @@ class GhostUpdateWorker(
                 onRollbackJournalClassified = { journal, status ->
                     persistRollbackTerminalEvent(supervisor, handle, binding, journal, status)
                 },
+                // Both guards below run their action inside the ghost session's root/global
+                // mutation monitors (SScriptRunner/GhostSessionCoordinator), and classification
+                // callbacks invoked from that action (onCommitClassified, onNoChangesClassified,
+                // onRollbackJournalClassified) call back into `supervisor`, which needs its own
+                // operation lock. Terminal delivery (see deliverTerminalEvent below) holds that
+                // same operation lock across a dispatch callback that reaches into the same
+                // mutation monitors. To avoid a lock-order inversion between those two paths,
+                // the operation lock must always be acquired before the mutation monitors here.
                 commitGuard = object : GhostUpdateCommitGuard {
                     override fun commit(
                         ghostId: String,
                         ghostRoot: File,
                         onFailure: (Throwable) -> GhostUpdateResult,
                         action: () -> GhostUpdateResult,
-                    ) = runner.withGhostUpdateCommitQuiesced(
-                        ghostId, ghostRoot, onFailure = onFailure, action = action,
-                    )
+                    ) = supervisor.withOperationLock {
+                        runner.withGhostUpdateCommitQuiesced(
+                            ghostId, ghostRoot, onFailure = onFailure, action = action,
+                        )
+                    }
 
                     override fun commit(
                         ghostId: String,
@@ -263,9 +273,11 @@ class GhostUpdateWorker(
                         shouldStop: () -> Boolean,
                         onStopped: () -> GhostUpdateResult,
                         action: () -> GhostUpdateResult,
-                    ) = runner.withGhostUpdateCommitQuiesced(
-                        ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
-                    )
+                    ) = supervisor.withOperationLock {
+                        runner.withGhostUpdateCommitQuiesced(
+                            ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
+                        )
+                    }
                 },
                 recoveryGuard = object : GhostUpdateRecoveryGuard {
                     override fun recover(
@@ -273,7 +285,9 @@ class GhostUpdateWorker(
                         ghostRoot: File,
                         onFailure: (Throwable) -> RecoveryResult,
                         action: () -> RecoveryResult,
-                    ) = SScriptRunner.withProductionGhostMutation(ghostId, ghostRoot, onFailure, action)
+                    ) = supervisor.withOperationLock {
+                        SScriptRunner.withProductionGhostMutation(ghostId, ghostRoot, onFailure, action)
+                    }
 
                     override fun recover(
                         ghostId: String,
@@ -282,9 +296,11 @@ class GhostUpdateWorker(
                         shouldStop: () -> Boolean,
                         onStopped: () -> RecoveryResult,
                         action: () -> RecoveryResult,
-                    ) = runner.withGhostUpdateCommitQuiesced(
-                        ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
-                    )
+                    ) = supervisor.withOperationLock {
+                        runner.withGhostUpdateCommitQuiesced(
+                            ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
+                        )
+                    }
                 },
             )
             repository.runInterruptible(

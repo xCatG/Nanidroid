@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.durable
 
+import com.cattailsw.nanidroid.GhostSessionCoordinator
 import com.cattailsw.nanidroid.di.MonotonicClock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -368,6 +369,75 @@ class DurableOperationSupervisorTest {
 
         assertEquals(listOf(retained), dispatched)
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    /**
+     * Recovery/commit classification runs inside the ghost session's root/global mutation
+     * monitors (see GhostSessionCoordinator.withMutation) and calls back into the supervisor,
+     * which needs the operation lock. Terminal delivery holds that same operation lock across a
+     * dispatch callback that reaches into the same mutation monitors. If either side acquires the
+     * two locks in the opposite order from the other, one thread can hold the mutation monitors
+     * while waiting on the operation lock at the same time the other holds the operation lock
+     * while waiting on the mutation monitors: a lock-order inversion that deadlocks both.
+     *
+     * `GhostUpdateWorker`'s commitGuard/recoveryGuard now acquire the operation lock (via
+     * `DurableOperationSupervisor.withOperationLock`) before entering the mutation monitors, which
+     * matches the order terminal delivery already uses. This test drives the two paths through a
+     * forced interleaving with latches (no sleep-based timing racing) and asserts both complete
+     * within a bounded time; a reintroduced ordering bug hangs both threads and fails the test
+     * instead of hanging the suite, since the probe threads are daemon threads with bounded waits.
+     */
+    @Test fun `recovery classification and terminal delivery cannot deadlock over crossed locks`() {
+        val root = File("build/lock-order-recovery-vs-delivery").canonicalFile
+        val ghostId = root.name
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("lock-order-worker")
+        val event = GhostUpdateTerminalEvent(ghostId, root.path, "OnUpdateFailure", listOf("ghost update failed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.FAILED, event))
+        val coordinator = GhostSessionCoordinator()
+        val dispatchEntered = CountDownLatch(1)
+        val releaseDispatch = CountDownLatch(1)
+        val recoveryEntered = CountDownLatch(1)
+
+        // Mimics GhostUpdateWorker's terminal delivery: holds the operation lock across dispatch,
+        // and dispatch (like doShioriEventForGhost) reaches into the session mutation monitors.
+        val delivery = Thread({
+            GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                dispatchEntered.countDown()
+                assertTrue(releaseDispatch.await(5, TimeUnit.SECONDS))
+                coordinator.withMutation(ghostId, root, onFailure = { false }, onStopped = { false }) { true }
+            }
+        }, "terminal-delivery-probe").apply { isDaemon = true }
+
+        // Mimics GhostUpdateWorker's commitGuard/recoveryGuard: enters the session mutation
+        // monitors and classifies from inside them, which calls back into the supervisor. The
+        // operation lock is acquired first (matching delivery's order) so this can never hold the
+        // mutation monitors while waiting on the operation lock.
+        val recovery = Thread({
+            assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+            recoveryEntered.countDown()
+            supervisor.withOperationLock {
+                coordinator.withMutation(ghostId, root, onFailure = { false }, onStopped = { false }) {
+                    supervisor.finish(handle, binding, OperationStatus.FAILED)
+                    true
+                }
+            }
+        }, "recovery-classify-probe").apply { isDaemon = true }
+
+        delivery.start()
+        assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+        recovery.start()
+        assertTrue(recoveryEntered.await(5, TimeUnit.SECONDS))
+        // Give the recovery probe a moment to actually attempt its lock acquisitions before
+        // dispatch resumes and reaches for the same mutation monitors.
+        Thread.sleep(200)
+        releaseDispatch.countDown()
+
+        delivery.join(5_000)
+        recovery.join(5_000)
+        assertFalse("terminal delivery deadlocked on crossed locks", delivery.isAlive)
+        assertFalse("recovery classification deadlocked on crossed locks", recovery.isAlive)
     }
 
     @Test fun promptsAt30000WithoutCancelling() {
