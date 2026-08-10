@@ -276,6 +276,41 @@ class DurableOperationSupervisorTest {
         assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun sameGenerationAttentionWriteDoesNotExtendKeepWaitingSuppressionDeadline() {
+        val handle = handle("preserve-suppression-deadline", 1)
+        val firstSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0))
+        clock.value = 30_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // A concurrent observer records Keep waiting, advancing the generation.
+        assertTrue(secondSupervisor.keepWaiting(handle))
+
+        // firstSupervisor's next poll is the first time it observes generation 1; this
+        // installs suppression with a deadline 30s out from now (60_005).
+        clock.value = 30_005
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // An in-flight cancellation (or any same-generation write) later restores
+        // showStallPrompt without advancing the keep-waiting generation.
+        val current = store.read().single {
+            it.id == handle.operationId && it.attemptId == handle.attemptId
+        }
+        assertTrue(store.compareAndSet(current, current.copy(showStallPrompt = true)))
+
+        // firstSupervisor observes that same-generation revision change well before the
+        // original 60_005 deadline. It must not push the suppression deadline out.
+        clock.value = 45_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // The original deadline (60_005) has now passed, so suppression must have expired
+        // even though a same-generation write was observed at 45_000.
+        clock.value = 60_005
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun requestStopRetriesAfterPlatformCancellationThrows() {
         val cancellation = ThrowingCancellation()
         val stopHandle = handle("update-1", 1)

@@ -16,7 +16,7 @@ class DurableOperationSupervisor(
     private val cancellationIssued = mutableSetOf<BoundCancellation>()
     private val revealedStoppingAttention = mutableSetOf<OperationHandle>()
     private val restartSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
-    private val keepWaitingSuppressedAttention = mutableMapOf<OperationHandle, Long>()
+    private val keepWaitingSuppressedAttention = mutableMapOf<OperationHandle, KeepWaitingSuppression>()
     @Volatile private var mutationListener: (() -> Unit)? = null
 
     init {
@@ -445,7 +445,14 @@ class DurableOperationSupervisor(
                     record.attentionKeepWaitingGeneration >
                         previousRevision.attentionKeepWaitingGeneration
                 ) {
-                    keepWaitingSuppressedAttention[handle] = record.attentionKeepWaitingGeneration
+                    // Only a genuine generation advance (re)installs suppression and its
+                    // deadline. A later same-generation write (for example an in-flight
+                    // cancellation restoring showStallPrompt) must not push this deadline
+                    // out, or the prompt stays hidden well past the original 30s window.
+                    keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
+                        generation = record.attentionKeepWaitingGeneration,
+                        expiresAt = now + STALL_MILLIS,
+                    )
                 }
             }
             val observedAt = lastProgressAt.getOrPut(handle) { now }
@@ -457,7 +464,7 @@ class DurableOperationSupervisor(
             }
             if (
                 record.isKeepWaitingSuppressed() &&
-                now - observedAt >= STALL_MILLIS
+                now >= keepWaitingSuppressedAttention.getValue(handle).expiresAt
             ) {
                 keepWaitingSuppressedAttention.remove(handle)
             }
@@ -564,7 +571,7 @@ class DurableOperationSupervisor(
         restartSuppressedAttention[handle()] == this
 
     private fun DurableOperationRecord.isKeepWaitingSuppressed(): Boolean =
-        keepWaitingSuppressedAttention[handle()] == attentionKeepWaitingGeneration
+        keepWaitingSuppressedAttention[handle()]?.generation == attentionKeepWaitingGeneration
 
     private fun DurableOperationRecord.attentionEscalationDue(
         elapsedMillis: Long,
@@ -712,6 +719,11 @@ class DurableOperationSupervisor(
     private data class BoundCancellation(
         val handle: OperationHandle,
         val binding: ExternalJobBinding,
+    )
+
+    private data class KeepWaitingSuppression(
+        val generation: Long,
+        val expiresAt: Long,
     )
 
     private data class ObservationRevision(
