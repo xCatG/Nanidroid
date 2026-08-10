@@ -54,14 +54,14 @@ class NanidroidLifecycleInstrumentationTest {
     fun recreatedActivityWithNullRunnerRejectsArchiveIntentWhenRetainedRunnerIsPassive() {
         val retainedRunner = SScriptRunner.getInstance(null).also { runner ->
             runner.setNoWaitMode(true)
-            // The process-global runner may still be mid-playback from a preceding
-            // instrumentation test in this same app process. run() silently no-ops
-            // while state.running is already true (SScriptRunner.run()), so the
-            // passive-mode command below would never execute and this test would
-            // become order-dependent. Force the runner idle first, then wait for
-            // the passive-mode command to actually take effect before proceeding.
-            runner.stop()
-            awaitRunnerState(runner) { !it.playingTalk }
+            // The process-global runner may still be mid-playback -- or have messages
+            // still queued -- from a preceding instrumentation test in this same app
+            // process. run() silently no-ops while state.running is already true
+            // (SScriptRunner.run()), so the passive-mode command below would never
+            // execute and this test would become order-dependent. Force the runner
+            // fully idle first (stopping playback AND draining any queued messages),
+            // then wait for the passive-mode command to actually take effect.
+            forceRunnerIdle(runner)
             runner.addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
             runner.run()
             awaitRunnerState(runner) { it.passive }
@@ -105,8 +105,17 @@ class NanidroidLifecycleInstrumentationTest {
                 }
             }
         } finally {
+            // Activity initialization above may have left the retained runner running
+            // (or paused mid dialogue action) rather than sitting idle in passive mode:
+            // closing ActivityScenario stops the clock but does not stop playback, and
+            // run() silently no-ops while playback is already active. Force idle again
+            // before queuing the cleanup command so it is guaranteed to execute, then
+            // wait for passive mode to actually clear -- otherwise the singleton stays
+            // passive and contaminates later instrumentation tests in this process.
+            forceRunnerIdle(retainedRunner)
             retainedRunner.addMsgToQueue(arrayOf("\\![leave,passivemode]\\e"))
             retainedRunner.run()
+            awaitRunnerState(retainedRunner) { !it.passive }
             retainedRunner.setNoWaitMode(false)
         }
     }
@@ -171,6 +180,18 @@ class NanidroidLifecycleInstrumentationTest {
             application.unregisterActivityLifecycleCallbacks(lifecycleCallbacks)
             DurableNotificationPermissionAcceptance.resetForTesting()
         }
+    }
+
+    /**
+     * Forces the process-global runner into a fully idle state: stops any in-flight playback
+     * AND drains any messages left queued by a preceding instrumentation test. stop() alone
+     * leaves a non-empty msgQueue behind, which keeps runtimeModeSnapshot().playingTalk true
+     * and makes any subsequent wait for idle time out. clearMsgQueue() clears the queue and
+     * stops playback in one call, so it is used here instead of stop() alone.
+     */
+    private fun forceRunnerIdle(runner: SScriptRunner) {
+        runner.clearMsgQueue()
+        awaitRunnerState(runner) { !it.playingTalk }
     }
 
     /**
