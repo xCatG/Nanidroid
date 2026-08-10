@@ -98,10 +98,31 @@ class NarCorpusRuntimeTest {
     @Test
     fun boundedReadKeepsOnlyTheLimitAndOverflowSentinel() {
         val bytes = ByteArray(10) { it.toByte() }
-
         assertEquals(
             bytes.copyOf(5).toList(),
             readBoundedBytes(ByteArrayInputStream(bytes), maxBytes = 4).toList(),
+        )
+    }
+
+    @Test
+    fun boundedReadContinuesAfterZeroLengthBulkRead() {
+        val delegate = ByteArrayInputStream(byteArrayOf(1, 2, 3, 4))
+        var firstBulkRead = true
+        val input = object : InputStream() {
+            override fun read(): Int = delegate.read()
+
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int =
+                if (firstBulkRead) {
+                    firstBulkRead = false
+                    0
+                } else {
+                    delegate.read(bytes, offset, length)
+                }
+        }
+
+        assertEquals(
+            listOf<Byte>(1, 2, 3, 4),
+            readBoundedBytes(input, maxBytes = 3).toList(),
         )
     }
 
@@ -2387,12 +2408,19 @@ class NarCorpusRuntimeTest {
 }
 
 private fun readBoundedBytes(input: InputStream, maxBytes: Int): ByteArray {
+    require(maxBytes >= 0) { "maxBytes must not be negative" }
     val buffer = ByteArray(maxBytes + 1)
     var size = 0
     while (size < buffer.size) {
         val read = input.read(buffer, size, buffer.size - size)
-        if (read <= 0) break
-        size += read
+        if (read < 0) break
+        if (read == 0) {
+            val singleByte = input.read()
+            if (singleByte < 0) break
+            buffer[size++] = singleByte.toByte()
+        } else {
+            size += read
+        }
     }
     return buffer.copyOf(size)
 }
