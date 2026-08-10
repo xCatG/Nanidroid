@@ -862,6 +862,41 @@ class NarDownloadRepositoryTest {
         assertTrue(store.pendingPersistedGrantReleases().isEmpty())
     }
 
+    @Test fun deletingPendingCleanupOwnerPreservesItAsATombstoneWhileALiveGrantSiblingCopiesTheSameUri() {
+        val source = "content://provider/deferred-on-delete.nar"
+        val owner = store.create(
+            NarDownload(
+                id = "pending-cleanup-owner",
+                source = NarDownloadSource.Local("content://provider/unrelated.nar"),
+                retainedUri = "file:///owned/unrelated.nar",
+                pendingPersistedGrantReleaseUri = source,
+                state = NarDownloadState.Queued,
+            ),
+        )
+        // A live-grant copy of the same URI starts while the owner still carries the
+        // cleanup marker. It only holds a temporary permission, so it must not be mistaken
+        // for a record that will take over releasing the persisted grant.
+        val live = repository.enqueueLiveLocalCopy(source)
+
+        assertTrue(repository.delete(owner.id))
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+        assertTrue(ownedData.releasedUris.none { it == source })
+
+        // Once the live copy stages off the raw URI, nothing references it and the
+        // detached release can finally proceed.
+        repository.stageLiveLocal(
+            live.id,
+            live.attemptId,
+            live.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-live-copy.nar") }
+        repository.reconcile()
+
+        assertTrue(ownedData.releasedUris.any { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
     @Test fun persistedReplacementReservesGrantBeforeAcquiringIt() {
         val item = repository.enqueueLocal("content://provider/old.nar")
         val replacementSource = "content://provider/replacement.nar"

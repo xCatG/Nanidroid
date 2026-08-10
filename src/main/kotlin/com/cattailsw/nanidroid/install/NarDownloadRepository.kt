@@ -1386,9 +1386,16 @@ class NarDownloadRepository internal constructor(
         }
     }
 
+    /**
+     * Returns true only when there was nothing to release or the release actually
+     * succeeded. A reference-deferred release (another record, possibly a live-grant
+     * copy that will never take over the persisted permission, still points at this URI)
+     * returns false just like a failed release, so callers that are about to drop this
+     * record's own marker know they still must preserve it as a detached tombstone.
+     */
     private fun releasePendingPersistedGrantIfUnused(item: NarDownload): Boolean {
         val source = item.pendingPersistedGrantReleaseUri ?: return true
-        if (hasSourceReference(source, item.id)) return true
+        if (hasSourceReference(source, item.id)) return false
         if (runCatching { ownedData.releasePersistedGrant(item.copy(retainedUri = source)) }.getOrDefault(false)) {
             store.clearPendingPersistedGrantReleaseUri(item.id, source)
             return true
