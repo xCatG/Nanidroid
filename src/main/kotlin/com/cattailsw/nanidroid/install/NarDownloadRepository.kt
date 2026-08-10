@@ -1145,6 +1145,15 @@ class NarDownloadRepository internal constructor(
         item: NarDownload,
         handle: OperationHandle,
     ): LegacyInstallRebinding {
+        // Untagged, non-deterministic WorkManager jobs can only be genuine v1
+        // (pre-migration) install work for the migrated initial attempt. Once a
+        // record has advanced past that attempt (Retry/Select again bumped it),
+        // any such job WorkManager still reports as active is a leftover from the
+        // superseded attempt whose cancellation (already requested by retry()/
+        // replaceLocalSource() via work.cancel()) simply has not taken effect yet.
+        // Treat it as stale rather than rebinding the new attempt to work that is
+        // finishing someone else's install and will never call back for this one.
+        if (item.attemptId > MIGRATED_INITIAL_INSTALL_ATTEMPT) return LegacyInstallRebinding.NotFound
         val activeWorkManagerId = try {
             work.findActiveLegacyInstallWork(item.id, item.attemptId)
         } catch (_: Exception) {
@@ -1516,6 +1525,15 @@ class NarDownloadRepository internal constructor(
         private const val STOP_RECOVERY_FAILURE =
             "Nanidroid could not confirm that this archive operation stopped. Retry it."
         private const val STOP_RECONCILIATION_MILLIS = 500L
+
+        /**
+         * The attempt id every [NarDownload] starts at (see [NarDownload.attemptId]'s
+         * default), including a record migrated from a pre-attempt-tracking (v1)
+         * install. Untagged, non-deterministic WorkManager jobs can only be genuine
+         * legacy work at this attempt; once Retry/Select again advances a record
+         * past it, legacy-work classification no longer applies.
+         */
+        private const val MIGRATED_INITIAL_INSTALL_ATTEMPT = 1L
 
         @Volatile private var instance: NarDownloadRepository? = null
 
