@@ -57,6 +57,54 @@ class NarDownloadStoreTest {
         assertEquals(originalRetainedUri, stored.retainedUri)
     }
 
+    @Test fun clearingGrantMarkerOnAttentionRecordPreservesEveryOtherField() {
+        val source = "content://provider/attention.nar"
+        val original = NarDownload(
+            id = "a",
+            source = NarDownloadSource.Local(source),
+            attemptId = 3L,
+            retainedUri = "file:///owned/staged.nar",
+            pendingPersistedGrantReleaseUri = source,
+            downloadManagerId = 42L,
+            workManagerId = "install-nar-a-3",
+            state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("staging failed")),
+        )
+        store.create(original)
+
+        val updated = store.clearPendingPersistedGrantReleaseUri("a", source)
+
+        val expected = original.copy(
+            pendingPersistedGrantReleaseUri = null,
+            createdAtMillis = updated!!.createdAtMillis,
+        )
+        assertEquals(expected, updated)
+        assertEquals(expected, store.get("a"))
+    }
+
+    @Test fun clearingGrantMarkerIgnoresAStaleExpectedUri() {
+        val source = "content://provider/attention.nar"
+        store.create(
+            NarDownload(
+                id = "a",
+                source = NarDownloadSource.Local(source),
+                pendingPersistedGrantReleaseUri = source,
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("staging failed")),
+            ),
+        )
+
+        val result = store.clearPendingPersistedGrantReleaseUri("a", "content://provider/other.nar")
+
+        assertEquals(source, result!!.pendingPersistedGrantReleaseUri)
+        assertEquals(source, store.get("a")!!.pendingPersistedGrantReleaseUri)
+    }
+
+    @Test fun clearingGrantMarkerOnUnknownRecordReturnsNull() {
+        assertEquals(
+            null,
+            store.clearPendingPersistedGrantReleaseUri("missing", "content://provider/archive.nar"),
+        )
+    }
+
     @Test fun recordsSurviveRecreatingTheStore() {
         val storage = NarDownloadStore.MemoryStorage()
         NarDownloadStore(storage).create(remote(id = "a"))
