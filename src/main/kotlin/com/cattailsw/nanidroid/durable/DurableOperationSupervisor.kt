@@ -516,7 +516,15 @@ class DurableOperationSupervisor(
                     !record.showStallPrompt ||
                     record.awaitingStoppingEscalation(record.handle())
                 ) {
-                    (STALL_MILLIS - (now - observedAt).coerceAtLeast(0L)).coerceAtLeast(0L)
+                    var delay = (STALL_MILLIS - (now - observedAt).coerceAtLeast(0L)).coerceAtLeast(0L)
+                    if (record.isKeepWaitingSuppressed()) {
+                        // The suppression deadline is tracked independently of observedAt so
+                        // that a same-generation write cannot push it out; wake up no later
+                        // than that deadline even if observedAt was reset by such a write.
+                        val expiresAt = keepWaitingSuppressedAttention.getValue(record.handle()).expiresAt
+                        delay = minOf(delay, (expiresAt - now).coerceAtLeast(0L))
+                    }
+                    delay
                 } else {
                     // Another supervisor can clear an already published prompt without waking us.
                     STALL_MILLIS

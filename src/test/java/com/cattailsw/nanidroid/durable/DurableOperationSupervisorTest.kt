@@ -305,6 +305,10 @@ class DurableOperationSupervisorTest {
         clock.value = 45_000
         assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
 
+        // The scheduler must also be told to wake up no later than the original deadline,
+        // not a fresh 30s window measured from this same-generation observation.
+        assertEquals(15_005L, firstSupervisor.attentionSnapshot().nextCheckDelayMillis)
+
         // The original deadline (60_005) has now passed, so suppression must have expired
         // even though a same-generation write was observed at 45_000.
         clock.value = 60_005
