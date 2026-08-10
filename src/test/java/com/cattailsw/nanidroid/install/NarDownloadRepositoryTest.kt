@@ -2286,6 +2286,28 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun reconciliationClearsGrantMarkerOnAttentionRecordWithoutRedundantRetries() {
+        val source = "content://provider/attention-cleanup.nar"
+        val item = store.create(
+            NarDownload(
+                id = "attention-with-grant-marker",
+                source = NarDownloadSource.Local(source),
+                retainedUri = "file:///owned/staged-before-failure.nar",
+                pendingPersistedGrantReleaseUri = source,
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("staging failed")),
+            ),
+        )
+
+        repository.reconcile()
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+        assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+
+        repository.reconcile()
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
     @Test fun completedHistoryDoesNotRetainAReacquiredDocumentGrant() {
         val source = "content://provider/reacquired.nar"
         val completed = repository.enqueueLocal(source, source)

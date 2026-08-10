@@ -62,6 +62,23 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
         updated
     }
 
+    /**
+     * Clears a matching grant-cleanup marker without normalizing the rest of the record,
+     * so it stays cleared even when the record is [NarDownloadState.NeedsAttention]. Unlike
+     * [update], this never restores [NarDownload.pendingPersistedGrantReleaseUri] from the
+     * pre-transform value, and it leaves the retry source and every other field untouched.
+     */
+    fun clearPendingPersistedGrantReleaseUri(id: String, expectedUri: String): NarDownload? =
+        synchronized(operationLock) {
+            val records = readRecords()
+            val current = records[id] ?: return@synchronized null
+            if (current.pendingPersistedGrantReleaseUri != expectedUri) return@synchronized current
+            val updated = current.copy(pendingPersistedGrantReleaseUri = null)
+            records[id] = updated
+            writeRecords(records)
+            updated
+        }
+
     fun get(id: String): NarDownload? = synchronized(operationLock) { readRecords()[id] }
 
     fun getAll(): List<NarDownload> = synchronized(operationLock) {

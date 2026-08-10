@@ -1390,13 +1390,7 @@ class NarDownloadRepository internal constructor(
         val source = item.pendingPersistedGrantReleaseUri ?: return true
         if (hasSourceReference(source, item.id)) return true
         if (runCatching { ownedData.releasePersistedGrant(item.copy(retainedUri = source)) }.getOrDefault(false)) {
-            store.update(item.id) { current ->
-                if (current.pendingPersistedGrantReleaseUri == source) {
-                    current.copy(pendingPersistedGrantReleaseUri = null)
-                } else {
-                    current
-                }
-            }
+            store.clearPendingPersistedGrantReleaseUri(item.id, source)
             return true
         }
         return false
