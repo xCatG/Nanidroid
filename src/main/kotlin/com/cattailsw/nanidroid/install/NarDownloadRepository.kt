@@ -261,8 +261,11 @@ class NarDownloadRepository internal constructor(
         download = download,
         acceptedActive = accepted && when (download.state) {
             NarDownloadState.Downloading -> download.downloadManagerId != null
-            NarDownloadState.Copying,
-            NarDownloadState.Queued -> download.workManagerId != null
+            NarDownloadState.Copying -> download.workManagerId != null
+            // Install scheduling for a Queued record is deferred to a background
+            // dispatcher, so the WorkManager id may not be bound yet even though
+            // the durable Queued record itself already represents accepted work.
+            NarDownloadState.Queued -> true
             else -> false
         },
     )
@@ -1013,7 +1016,25 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun scheduleInstall(itemId: String) {
-        installScheduling.execute { scheduleInstallNow(itemId) }
+        installScheduling.execute { scheduleInstallNowAndPublish(itemId) }
+    }
+
+    /**
+     * Runs the deferred scheduling probe/enqueue and republishes afterward.
+     *
+     * [scheduleInstallNow] can mutate the record (for example to `NeedsAttention`)
+     * on a guarded WorkManager probe, cancellation, or enqueue failure. The caller
+     * that queued this background task already published once right after
+     * enqueueing, so without this the later mutation would never reach
+     * [observeDownloads] observers and the UI could remain stuck showing `Queued`.
+     */
+    @Synchronized
+    private fun scheduleInstallNowAndPublish(itemId: String) {
+        try {
+            scheduleInstallNow(itemId)
+        } finally {
+            publish()
+        }
     }
 
     @Synchronized
