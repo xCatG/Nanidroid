@@ -711,8 +711,12 @@ class NarDownloadRepository internal constructor(
                     it.state == NarDownloadState.Downloading
             }
             .forEach { item ->
+                val exactBinding = supervisor.bindingForExactAttempt(
+                    item.handle(),
+                    OperationKind.REMOTE_NAR,
+                ) as? ExternalJobBinding.DownloadManager
                 val recoveredDownloadId = if (item.downloadManagerId == null) {
-                    item.retainedUri?.let { retainedUri ->
+                    exactBinding?.id ?: item.retainedUri?.let { retainedUri ->
                         try {
                             downloads.findDownloadId(retainedUri)
                         } catch (_: Exception) {
@@ -724,10 +728,7 @@ class NarDownloadRepository internal constructor(
                 }
                 val recoveredHistoricalRow = recoveredDownloadId?.let { recoveredId ->
                     val binding = ExternalJobBinding.DownloadManager(recoveredId)
-                    supervisor.activeBindingForExactAttempt(
-                        item.handle(),
-                        OperationKind.REMOTE_NAR,
-                    ) != binding && supervisor.wasExternalJobUsedBefore(item.handle(), binding)
+                    exactBinding == null && supervisor.wasExternalJobUsedBefore(item.handle(), binding)
                 } == true
                 if (recoveredHistoricalRow) {
                     reconcileMissingRemoteRow(item)
@@ -744,7 +745,12 @@ class NarDownloadRepository internal constructor(
                     } catch (_: Exception) {
                         store.get(item.id)
                     }
-                    if (updated?.downloadManagerId != downloadManagerId) return@forEach
+                    if (updated?.downloadManagerId != downloadManagerId) {
+                        if (removeRemoteRow(downloadManagerId)) {
+                            reconcileMissingRemoteRow(item)
+                        }
+                        return@forEach
+                    }
                     updated
                 } else {
                     item
@@ -752,6 +758,15 @@ class NarDownloadRepository internal constructor(
                 val rebound = try {
                     restoreRemoteDownloadBinding(reboundItem, downloadManagerId)
                 } catch (_: Exception) {
+                    val binding = ExternalJobBinding.DownloadManager(downloadManagerId)
+                    if (
+                        supervisor.activeBindingForExactAttempt(
+                            reboundItem.handle(),
+                            OperationKind.REMOTE_NAR,
+                        ) != binding && removeRemoteRow(downloadManagerId)
+                    ) {
+                        reconcileMissingRemoteRow(reboundItem)
+                    }
                     return@forEach
                 }
                 var statusQueryFailed = false
@@ -1292,6 +1307,8 @@ class NarDownloadRepository internal constructor(
                 }.getOrDefault(false)
                 if (terminalized) {
                     markNeedsAttention(itemId, DOWNLOAD_START_FAILURE)
+                } else {
+                    reconcile()
                 }
                 return
             }
@@ -1350,10 +1367,10 @@ class NarDownloadRepository internal constructor(
                 OperationKind.REMOTE_NAR,
             )
         ) {
-            markCancelledIfCurrent(item)
+            runCatching { markCancelledIfCurrent(item) }
         } else if (cancellationRequested(item.handle())) {
             if (supervisor.reconcileUnboundCancellation(item.handle())) {
-                markCancelledIfCurrent(item)
+                runCatching { markCancelledIfCurrent(item) }
             }
         } else if (runCatching {
             supervisor.failOrConfirmMissingUnboundAttempt(
@@ -1362,7 +1379,7 @@ class NarDownloadRepository internal constructor(
                 DOWNLOAD_RECOVERY_FAILURE,
             )
         }.getOrDefault(false)) {
-            markNeedsAttentionIfCurrent(item, DOWNLOAD_RECOVERY_FAILURE)
+            runCatching { markNeedsAttentionIfCurrent(item, DOWNLOAD_RECOVERY_FAILURE) }
         }
     }
 
