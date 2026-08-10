@@ -223,6 +223,47 @@ class DurableOperationSupervisorTest {
         assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun successfulDuplicateStopRetryAdvancesAnObservableGenerationForOtherSupervisors() {
+        val handle = handle("nar-6", 1)
+        val binding = workManager("worker-duplicate-retry-generation")
+        val failingCancellation = RecordingCancellation(failing = true)
+        val retryCancellation = RecordingCancellation()
+        val coordinatorSupervisor = DurableOperationSupervisor(store, clock, failingCancellation)
+        val retrySupervisor = DurableOperationSupervisor(store, clock, retryCancellation)
+
+        assertTrue(coordinatorSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Downloading", 0, binding))
+        clock.value = 0
+        // The coordinator's own dispatch fails; the failure stays hidden (showStallPrompt still
+        // false) until the observation window elapses.
+        assertTrue(coordinatorSupervisor.requestStop(handle))
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+
+        // A different supervisor retries the still-CANCEL_REQUESTED operation through the
+        // duplicate branch of requestStop, and this dispatch succeeds -- well before the
+        // original 30s deadline elapses. This clears diagnostics only; showStallPrompt was
+        // already false, so the observation revision must advance some other way for the
+        // coordinator to ever notice this happened.
+        clock.value = 20_000
+        assertTrue(retrySupervisor.requestStop(handle))
+        assertEquals(1, retryCancellation.requestCount)
+
+        // The coordinator polls right after and must observe that the successful retry
+        // happened, starting a fresh 30s observation window from this point (20_001).
+        clock.value = 20_001
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+
+        // Less than 30s after the successful retry, the coordinator must not escalate, even
+        // though 30s have already passed since the *original* failure at t=0.
+        clock.value = 30_000
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+
+        // The coordinator's fresh window (from 20_001) governs escalation.
+        clock.value = 50_000
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 50_001
+        assertTrue(coordinatorSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun concurrentKeepWaitingIsObservedAfterAnInFlightCancellationRetryFails() {
         val handle = handle("concurrent-cancellation-observation", 1)
         val binding = workManager("concurrent-cancellation-observation-worker")

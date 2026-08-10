@@ -699,7 +699,16 @@ class DurableOperationSupervisor(
         // would absorb that concurrent change without ever surfacing it as one; leave it stale
         // so the next poll's diff still detects the concurrent mutation.
         val purelyLocalClear = lastObservedRevisions[handle] == current.observationRevision()
-        val updated = current.copy(showStallPrompt = preserveAttention, diagnostics = null)
+        // Advance an observable generation for every successful retry, not only the explicit
+        // RETRY_STOP action. A duplicate requestStop() retry that clears a dispatch failure
+        // otherwise leaves every revision field unchanged (diagnostics isn't part of the
+        // observation revision), so another supervisor polling the shared store would never
+        // notice the retry happened and would keep the original, now-stale deadline.
+        val updated = current.copy(
+            showStallPrompt = preserveAttention,
+            diagnostics = null,
+            attentionRetryGeneration = current.attentionRetryGeneration + 1L,
+        )
         // Record this locally produced clear immediately so a later, possibly delayed, poll
         // doesn't mistake it for a concurrent mutation and push lastProgressAt out to
         // reconciliation time instead of this write's own time.
