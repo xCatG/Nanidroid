@@ -358,7 +358,7 @@ open class SScriptRunner internal constructor(
     }
     private fun deliverPendingTerminalEvent(attachedGhost: Ghost) {
         mCtx?.let { context ->
-            GhostUpdateWorker.deliverPendingTerminalEvent(
+            GhostUpdateWorker.deliverPendingTerminalEventAsync(
                 SharedDurableOperationSupervisor.get(context),
                 attachedGhost.getGhostId(),
                 File(attachedGhost.getGhostPath()),

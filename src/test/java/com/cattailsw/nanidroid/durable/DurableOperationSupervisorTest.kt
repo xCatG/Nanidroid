@@ -380,9 +380,8 @@ class DurableOperationSupervisorTest {
      * while waiting on the operation lock at the same time the other holds the operation lock
      * while waiting on the mutation monitors: a lock-order inversion that deadlocks both.
      *
-     * `GhostUpdateWorker`'s commitGuard/recoveryGuard now acquire the operation lock (via
-     * `DurableOperationSupervisor.withOperationLock`) before entering the mutation monitors, which
-     * matches the order terminal delivery already uses. This test drives the two paths through a
+     * `GhostUpdateWorker`'s commitGuard/recoveryGuard acquire the terminal delivery gate before
+     * entering the mutation monitors. This test drives the two paths through a
      * forced interleaving with latches (no sleep-based timing racing) and asserts both complete
      * within a bounded time; a reintroduced ordering bug hangs both threads and fails the test
      * instead of hanging the suite, since the probe threads are daemon threads with bounded waits.
@@ -410,14 +409,12 @@ class DurableOperationSupervisorTest {
             }
         }, "terminal-delivery-probe").apply { isDaemon = true }
 
-        // Mimics GhostUpdateWorker's commitGuard/recoveryGuard: enters the session mutation
-        // monitors and classifies from inside them, which calls back into the supervisor. The
-        // operation lock is acquired first (matching delivery's order) so this can never hold the
-        // mutation monitors while waiting on the operation lock.
+        // Commit/recovery take the terminal delivery gate before session mutation, so this path
+        // cannot hold a session monitor while it waits for terminal delivery to release it.
         val recovery = Thread({
             assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
             recoveryEntered.countDown()
-            supervisor.withOperationLock {
+            GhostUpdateWorker.withTerminalEventDeliveryLock {
                 coordinator.withMutation(ghostId, root, onFailure = { false }, onStopped = { false }) {
                     supervisor.finish(handle, binding, OperationStatus.FAILED)
                     true

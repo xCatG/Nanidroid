@@ -1309,6 +1309,30 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `worker retries instead of terminalizing when terminal event persistence failed`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(OperationId("worker-terminal-persistence-retry"), AttemptId(1))
+        val binding = workManagerBinding("terminal-persistence-retry-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        val result = GhostUpdateWorker.execute(
+            supervisor,
+            handle,
+            binding,
+            { false },
+            terminalEventPersistenceFailed = { true },
+        ) {
+            GhostUpdateResult.Failed("terminal event could not be persisted")
+        }
+
+        assertEquals(ListenableWorker.Result.retry().toString(), result.toString())
+        assertEquals(OperationStatus.RUNNING, durableStore.read().single().status)
+    }
+
+    @Test
     fun `worker retries system interruption without terminalizing exact running attempt`() {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),

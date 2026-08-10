@@ -21,6 +21,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 fun interface GhostUpdateEventSink {
@@ -155,7 +156,14 @@ class GhostUpdateWorker(
         val binding = ExternalJobBinding.WorkManager(id.toString())
         val store = SharedPreferencesDurableOperationStore(applicationContext)
         val supervisor = supervisor(applicationContext)
-        return execute(supervisor, handle, binding, { isStopped }) {
+        val terminalEventPersistenceFailed = AtomicBoolean(false)
+        return execute(
+            supervisor,
+            handle,
+            binding,
+            { isStopped },
+            terminalEventPersistenceFailed = terminalEventPersistenceFailed::get,
+        ) {
             val runner = SScriptRunner.getInstance(applicationContext)
             val events = ShioriGhostUpdateEvents(
                 GhostBoundEventSink(
@@ -186,7 +194,7 @@ class GhostUpdateWorker(
                     },
                     onUndelivered = { event, references ->
                         if (event in TERMINAL_SHIORI_EVENTS) {
-                            deferTerminalEventAndRetryDelivery(
+                            if (!deferTerminalEventAndRetryDelivery(
                                 supervisor,
                                 handle,
                                 binding,
@@ -203,7 +211,7 @@ class GhostUpdateWorker(
                                     pending.name,
                                     pending.references.toTypedArray(),
                                 )
-                            }
+                            }) terminalEventPersistenceFailed.set(true)
                         }
                     },
                 ),
@@ -260,7 +268,7 @@ class GhostUpdateWorker(
                         ghostRoot: File,
                         onFailure: (Throwable) -> GhostUpdateResult,
                         action: () -> GhostUpdateResult,
-                    ) = supervisor.withOperationLock {
+                    ) = withTerminalEventDeliveryLock {
                         runner.withGhostUpdateCommitQuiesced(
                             ghostId, ghostRoot, onFailure = onFailure, action = action,
                         )
@@ -273,7 +281,7 @@ class GhostUpdateWorker(
                         shouldStop: () -> Boolean,
                         onStopped: () -> GhostUpdateResult,
                         action: () -> GhostUpdateResult,
-                    ) = supervisor.withOperationLock {
+                    ) = withTerminalEventDeliveryLock {
                         runner.withGhostUpdateCommitQuiesced(
                             ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
                         )
@@ -285,7 +293,7 @@ class GhostUpdateWorker(
                         ghostRoot: File,
                         onFailure: (Throwable) -> RecoveryResult,
                         action: () -> RecoveryResult,
-                    ) = supervisor.withOperationLock {
+                    ) = withTerminalEventDeliveryLock {
                         SScriptRunner.withProductionGhostMutation(ghostId, ghostRoot, onFailure, action)
                     }
 
@@ -296,16 +304,17 @@ class GhostUpdateWorker(
                         shouldStop: () -> Boolean,
                         onStopped: () -> RecoveryResult,
                         action: () -> RecoveryResult,
-                    ) = supervisor.withOperationLock {
+                    ) = withTerminalEventDeliveryLock {
                         runner.withGhostUpdateCommitQuiesced(
                             ghostId, ghostRoot, onFailure, shouldStop, onStopped, action,
                         )
                     }
                 },
             )
-            repository.runInterruptible(
+            val result = repository.runInterruptible(
                 GhostUpdateRequest(handle.operationId, ghostId, ghostRoot, baseUri, handle.attemptId, binding.uuid),
             ) { stopReason(supervisor, handle, binding) { isStopped } }
+            if (terminalEventPersistenceFailed.get()) GhostUpdateResult.Interrupted else result
         }
     }
 
@@ -332,6 +341,13 @@ class GhostUpdateWorker(
         private const val WORK_QUERY_TIMEOUT_MILLIS = 1_000L
         private val TERMINAL_SHIORI_EVENTS = setOf("OnUpdateComplete", "OnUpdateFailure")
         private val terminalEventDeliveryLock = Any()
+        private val terminalEventDeliveryExecutor = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "nanidroid-terminal-event-delivery").apply { isDaemon = true }
+        }
+
+        /** Serializes terminal delivery with session mutation without holding the operation lock. */
+        internal fun <T> withTerminalEventDeliveryLock(block: () -> T): T =
+            synchronized(terminalEventDeliveryLock, block)
 
         /** Persists the completion event before the repository can remove its transaction journal. */
         internal fun persistCompletedTerminalEvent(
@@ -449,6 +465,18 @@ class GhostUpdateWorker(
             }
         }
 
+        /** Attachment runs on the UI thread; durable payload I/O and clearing do not. */
+        internal fun deliverPendingTerminalEventAsync(
+            supervisor: DurableOperationSupervisor,
+            ghostId: String,
+            ghostRoot: File,
+            dispatch: (GhostUpdateTerminalEvent) -> Boolean,
+        ) {
+            terminalEventDeliveryExecutor.execute {
+                deliverPendingTerminalEvent(supervisor, ghostId, ghostRoot, dispatch)
+            }
+        }
+
         /**
          * Recovery can quiesce and reload an already active ghost without passing through the
          * normal attachment hook. Offer an exact-root terminal event after that reload instead.
@@ -558,6 +586,7 @@ class GhostUpdateWorker(
             binding: ExternalJobBinding.WorkManager,
             @Suppress("UNUSED_PARAMETER")
             isStopped: () -> Boolean,
+            terminalEventPersistenceFailed: () -> Boolean = { false },
             run: () -> GhostUpdateResult,
         ): ListenableWorker.Result {
             if (!supervisor.reportProgress(handle, binding, "Fetching update manifest", 0)) {
@@ -571,6 +600,7 @@ class GhostUpdateWorker(
                 }
             }
             val result = run()
+            if (terminalEventPersistenceFailed()) return ListenableWorker.Result.retry()
             if (result is GhostUpdateResult.Interrupted) {
                 if (supervisor.cancellationRequestedForExactAttempt(
                         handle,

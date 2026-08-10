@@ -121,6 +121,7 @@ class SScriptRunnerBootDispatchTest {
 
         runner.setGhost(RecordingGhost("recreated", "Recreated Ghost", 2, trace, root.path))
         runner.startClock()
+        awaitTrace(trace, 2)
 
         Assert.assertEquals(
             listOf(
@@ -165,6 +166,7 @@ class SScriptRunnerBootDispatchTest {
                 ),
             ),
         )
+        awaitTrace(trace, 3)
 
         Assert.assertEquals(
             listOf(
@@ -1065,6 +1067,14 @@ class SScriptRunnerBootDispatchTest {
             com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
         runners.add(runner)
         return runner
+    }
+
+    private fun awaitTrace(trace: List<String?>, expectedSize: Int) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (trace.size < expectedSize && System.nanoTime() < deadline) {
+            Thread.sleep(10)
+        }
+        Assert.assertEquals(expectedSize, trace.size)
     }
 
     private class FakeClock(var millis: Long) : MonotonicClock {
