@@ -185,8 +185,13 @@ class DurableOperationSupervisor(
         if (!store.compareAndSet(current, updated)) {
             return@mutate false
         }
-        lastProgressAt[handle] = clock.nowMillis()
+        val now = clock.nowMillis()
+        lastProgressAt[handle] = now
         lastObservedRevisions[handle] = updated.observationRevision()
+        keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
+            generation = updated.attentionKeepWaitingGeneration,
+            expiresAt = now + STALL_MILLIS,
+        )
         true
     }
 
@@ -226,8 +231,13 @@ class DurableOperationSupervisor(
                     return@mutate false
                 }
                 restartSuppressedAttention.remove(handle)
-                lastProgressAt[handle] = clock.nowMillis()
+                val now = clock.nowMillis()
+                lastProgressAt[handle] = now
                 lastObservedRevisions[handle] = updated.observationRevision()
+                keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
+                    generation = updated.attentionKeepWaitingGeneration,
+                    expiresAt = now + STALL_MILLIS,
+                )
             }
             DurableAttentionAction.STOP -> {
                 if (current.status != OperationStatus.RUNNING) return@mutate false
@@ -434,7 +444,11 @@ class DurableOperationSupervisor(
     internal fun attentionSnapshot(): DurableAttentionSnapshot = synchronized(operationLock) {
         val now = clock.nowMillis()
         var promptWriteFailed = false
-        store.read().filter { it.status.isActive() }.forEach { record ->
+        val storedRecords = store.read()
+            .filter { it.status.isActive() }
+            .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
+        val presentationRecords = storedRecords.map { record ->
+            var presentedRecord = record
             val handle = record.handle()
             val revision = record.observationRevision()
             val previousRevision = lastObservedRevisions.put(handle, revision)
@@ -486,6 +500,7 @@ class DurableOperationSupervisor(
                     }.getOrDefault(false)
                     if (updated) {
                         lastObservedRevisions[handle] = published.observationRevision()
+                        presentedRecord = published
                         if (record.status == OperationStatus.CANCEL_REQUESTED) {
                             revealedStoppingAttention += handle
                         }
@@ -493,21 +508,19 @@ class DurableOperationSupervisor(
                     promptWriteFailed = !updated || promptWriteFailed
                 }
             }
+            presentedRecord
         }
-        val storedRecords = store.read()
-            .filter { it.status.isActive() }
-            .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
-        revealedStoppingAttention.retainAll(storedRecords.mapTo(mutableSetOf()) { it.handle() })
+        revealedStoppingAttention.retainAll(presentationRecords.mapTo(mutableSetOf()) { it.handle() })
         restartSuppressedAttention.keys.retainAll(
-            storedRecords.mapTo(mutableSetOf()) { it.handle() },
+            presentationRecords.mapTo(mutableSetOf()) { it.handle() },
         )
         keepWaitingSuppressedAttention.keys.retainAll(
-            storedRecords.mapTo(mutableSetOf()) { it.handle() },
+            presentationRecords.mapTo(mutableSetOf()) { it.handle() },
         )
         lastObservedRevisions.keys.retainAll(
-            storedRecords.mapTo(mutableSetOf()) { it.handle() },
+            presentationRecords.mapTo(mutableSetOf()) { it.handle() },
         )
-        val nextDelay = storedRecords
+        val nextDelay = presentationRecords
             .minOfOrNull { record ->
                 val observedAt = lastProgressAt.getOrPut(record.handle()) { now }
                 if (
@@ -539,7 +552,7 @@ class DurableOperationSupervisor(
                     delay
                 }
             }
-        val presentedRecords = storedRecords.map { record ->
+        val presentedRecords = presentationRecords.map { record ->
             if (record.isRestartSuppressed() || record.isKeepWaitingSuppressed()) {
                 record.copy(showStallPrompt = false)
             } else if (
@@ -554,7 +567,7 @@ class DurableOperationSupervisor(
         }
         DurableAttentionSnapshot(
             records = presentedRecords,
-            notificationRecords = storedRecords
+            notificationRecords = presentationRecords
                 .filter { record ->
                     record.showStallPrompt && !record.isKeepWaitingSuppressed()
                 }

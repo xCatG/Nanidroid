@@ -118,6 +118,77 @@ class DurableOperationSupervisorTest {
         assertTrue(cancellation.requests.isEmpty())
     }
 
+    @Test fun keepWaitingLocallySuppressesSameGenerationAttentionWrites() {
+        val handle = handle("local-keep-waiting-suppression", 1)
+        supervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0)
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        assertTrue(supervisor.keepWaiting(handle))
+        val cleared = store.read().single()
+        assertTrue(store.compareAndSet(cleared, cleared.copy(showStallPrompt = true)))
+
+        clock.value = 30_001
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun attentionKeepWaitingLocallySuppressesSameGenerationAttentionWrites() {
+        val handle = handle("local-attention-keep-waiting-suppression", 1)
+        supervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0)
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.KEEP_WAITING))
+        val cleared = store.read().single()
+        assertTrue(store.compareAndSet(cleared, cleared.copy(showStallPrompt = true)))
+
+        clock.value = 30_001
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun attentionSnapshotUsesTheSameReadForRevisionProcessingAndPresentation() {
+        var mutateAfterRead = false
+        val readRaceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> {
+                val records = delegate.read()
+                if (mutateAfterRead) {
+                    mutateAfterRead = false
+                    val current = delegate.read().single()
+                    assertTrue(
+                        delegate.compareAndSet(
+                            current,
+                            current.copy(
+                                showStallPrompt = true,
+                                attentionKeepWaitingGeneration = current.attentionKeepWaitingGeneration + 1L,
+                            ),
+                        ),
+                    )
+                }
+                return records
+            }
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean = delegate.compareAndSet(expected, updated)
+        }
+        val readRaceSupervisor = DurableOperationSupervisor(readRaceStore, clock, RecordingCancellation())
+        val handle = handle("single-read-attention-snapshot", 1)
+        assertTrue(readRaceSupervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0))
+
+        mutateAfterRead = true
+
+        assertFalse(readRaceSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun stopIsIdempotentAndOperationSpecific() {
         val selected = handle("nar-1", 1)
         val other = handle("nar-2", 1)
