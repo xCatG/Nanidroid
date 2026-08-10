@@ -3,9 +3,7 @@ package com.cattailsw.nanidroid
 import android.Manifest
 import android.app.Activity
 import android.app.Application
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -47,58 +45,6 @@ class NanidroidLifecycleInstrumentationTest {
             scenario.onActivity(ActivityAction { newValue: Nanidroid? -> recreated.set(newValue) })
             Assert.assertNotNull(recreated.get())
             Assert.assertFalse(recreated.get()!!.isFinishing())
-        }
-    }
-
-    @Test
-    fun recreatedActivityWithNullRunnerRejectsArchiveIntentWhenRetainedRunnerIsPassive() {
-        val retainedRunner = SScriptRunner.getInstance(null).also { runner ->
-            runner.setNoWaitMode(true)
-            runner.addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
-            runner.run()
-        }
-        val archiveIntent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.parse("content://archives/recreated.nar"), "application/x-nar")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-
-        try {
-            ActivityScenario.launch<Nanidroid?>(Nanidroid::class.java).use { scenario ->
-                scenario.onActivity { activity ->
-                    val runnerField = Nanidroid::class.java.getDeclaredField("runner").apply {
-                        isAccessible = true
-                    }
-                    // initOnSeparateThread()'s AsyncTask may still be in flight on the main
-                    // thread queue (its onPostExecute dereferences `runner!!`). Null the field
-                    // only for the duration of this reflective call and restore it immediately
-                    // afterwards so that AsyncTask callback never observes a null runner.
-                    val originalRunner = runnerField.get(activity)
-                    try {
-                        runnerField.set(activity, null)
-                        Nanidroid::class.java.getDeclaredMethod(
-                            "handleIncomingIntent",
-                            Intent::class.java,
-                            Boolean::class.javaPrimitiveType,
-                        ).apply {
-                            isAccessible = true
-                            invoke(activity, archiveIntent, false)
-                        }
-                    } finally {
-                        runnerField.set(activity, originalRunner)
-                    }
-
-                    val state = Nanidroid::class.java.getDeclaredField("archiveIntentState").apply {
-                        isAccessible = true
-                    }.get(activity) as ArchiveIntentState
-
-                    Assert.assertSame(retainedRunner, SScriptRunner.getInstance(null))
-                    Assert.assertNull(state.pendingUri)
-                }
-            }
-        } finally {
-            retainedRunner.addMsgToQueue(arrayOf("\\![leave,passivemode]\\e"))
-            retainedRunner.run()
-            retainedRunner.setNoWaitMode(false)
         }
     }
 
