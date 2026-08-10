@@ -187,6 +187,87 @@ class NarDownloadRepositoryTest {
         assertTrue(work.legacyProbeCalls > 0)
     }
 
+    @Test fun deferredInstallSchedulingFailurePublishesNeedsAttentionToObservers() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        work.installEnqueueFailure = IllegalStateException("enqueue rejected")
+
+        val item = deferredRepository.enqueueLocal("file:///owned/publish.nar")
+
+        // The caller published immediately after merely queuing the background task.
+        assertEquals(
+            NarDownloadState.Queued,
+            deferredRepository.observeDownloads().value.single { it.id == item.id }.state,
+        )
+
+        dispatcher.runAll()
+
+        val stored = store.get(item.id)!!
+        assertTrue(stored.state is NarDownloadState.NeedsAttention)
+        val observed = deferredRepository.observeDownloads().value.single { it.id == item.id }
+        assertEquals(
+            "background NeedsAttention transition must be republished to observers",
+            stored.state,
+            observed.state,
+        )
+    }
+
+    @Test fun deferredReselectReportsDurableQueuedAcceptanceBeforeWorkBinds() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        val item = deferredRepository.enqueueLocal("file:///owned/first.nar")
+        dispatcher.runAll()
+        installer.failure = SecurityException("grant revoked")
+        InstallNarWorker.execute(
+            deferredRepository,
+            item.id,
+            item.attemptId,
+            store.get(item.id)!!.workManagerId!!,
+        ) { false }
+        installer.failure = null
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+
+        val result = deferredRepository.replaceLocalSourceForUser(
+            item.id,
+            "file:///owned/second.nar",
+        )!!
+
+        // The background dispatcher has not yet run, so the WorkManager id is not bound.
+        assertEquals(NarDownloadState.Queued, result.download.state)
+        assertNull(result.download.workManagerId)
+        assertTrue(
+            "a genuinely accepted reselect must report acceptedActive before binding completes",
+            result.acceptedActive,
+        )
+
+        dispatcher.runAll()
+        assertNotNull(store.get(item.id)!!.workManagerId)
+    }
+
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
         downloads.nextDownloadId = 31L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
