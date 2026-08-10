@@ -897,6 +897,25 @@ class NarDownloadRepositoryTest {
         assertTrue(store.pendingPersistedGrantReleases().isEmpty())
     }
 
+    @Test fun replacingDirectPersistedGrantRecordsCleanupBeforeReleasingIt() {
+        val source = "content://provider/direct-replacement.nar"
+        val replacement = "content://provider/direct-replacement-next.nar"
+        val item = repository.enqueueLocal(source, source)
+        val tombstoneWasPresentWhenReleaseStarted = AtomicBoolean(false)
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                tombstoneWasPresentWhenReleaseStarted.set(
+                    source in store.pendingPersistedGrantReleases(),
+                )
+            }
+        }
+
+        assertNotNull(repository.replaceLocalSource(item.id, replacement))
+
+        assertTrue(tombstoneWasPresentWhenReleaseStarted.get())
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
     @Test fun persistedReplacementReservesGrantBeforeAcquiringIt() {
         val item = repository.enqueueLocal("content://provider/old.nar")
         val replacementSource = "content://provider/replacement.nar"

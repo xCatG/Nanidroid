@@ -1361,10 +1361,11 @@ class NarDownloadRepository internal constructor(
     private fun releasePersistedGrantIfUnused(item: NarDownload) {
         val location = item.retainedUri ?: (item.source as? NarDownloadSource.Local)?.uri ?: return
         if (!hasSourceReference(location, item.id)) {
+            store.addPendingPersistedGrantRelease(location)
             val released = runCatching {
                 ownedData.releasePersistedGrant(item.copy(retainedUri = location))
             }.getOrDefault(false)
-            if (!released) store.addPendingPersistedGrantRelease(location)
+            if (released) store.removePendingPersistedGrantRelease(location)
         }
     }
 
