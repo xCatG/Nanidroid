@@ -105,6 +105,7 @@ class GhostBubbleScrollMemory private constructor(
     private var unboundMemory = BubbleScrollMemory()
 
     fun memoryFor(sessionKey: String, ghostKey: String): BubbleScrollMemory {
+        if (sessionKey.isEmpty()) return unboundMemory
         if (boundSessionKey != sessionKey) {
             boundSessionKey = sessionKey
             boundGhostKey = null
@@ -171,3 +172,7 @@ class GhostBubbleScrollMemory private constructor(
 object BubbleScrollProcessSession {
     val key: String = UUID.randomUUID().toString()
 }
+
+/** Survives host recreation but cannot cross a runner's dialogue-session reset. */
+fun bubbleScrollSessionIdentity(dialogueIncarnation: Long): String =
+    "${BubbleScrollProcessSession.key}:$dialogueIncarnation"

@@ -1,10 +1,38 @@
 package com.cattailsw.nanidroid.compose
 
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
+import com.cattailsw.nanidroid.runtime.stage.BubbleScrollProcessSession
+import com.cattailsw.nanidroid.runtime.stage.bubbleScrollSessionIdentity
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
 
 class ComposeGhostStageHostDialogueStateTest {
+    @Test
+    fun bubbleScrollSessionIdentityIncludesTheDialogueSessionIncarnation() {
+        assertEquals(
+            "${BubbleScrollProcessSession.key}:41",
+            bubbleScrollSessionIdentity(41L),
+        )
+    }
+
+    @Test
+    fun provisionalDialogueStateDoesNotBindTheRestoredBubbleScrollSession() {
+        val host = ComposeGhostStageHost(
+            SurfaceInteractionPort { },
+            SurfacePixelAssets { null },
+        )
+
+        assertEquals("", host.bubbleScrollSessionKey)
+
+        host.updateDialogueState(DialogueRuntimeState(revision = 1L, incarnation = 41L))
+
+        assertEquals(
+            bubbleScrollSessionIdentity(41L),
+            host.bubbleScrollSessionKey,
+        )
+    }
+
     @Test
     fun hostRejectsLateSnapshotsAcrossRevisionAndSessionIncarnationWhileAcceptingEqualValueReplacement() {
         val host = ComposeGhostStageHost(
