@@ -65,17 +65,26 @@ class NanidroidLifecycleInstrumentationTest {
         try {
             ActivityScenario.launch<Nanidroid?>(Nanidroid::class.java).use { scenario ->
                 scenario.onActivity { activity ->
-                    Nanidroid::class.java.getDeclaredField("runner").apply {
+                    val runnerField = Nanidroid::class.java.getDeclaredField("runner").apply {
                         isAccessible = true
-                        set(activity, null)
                     }
-                    Nanidroid::class.java.getDeclaredMethod(
-                        "handleIncomingIntent",
-                        Intent::class.java,
-                        Boolean::class.javaPrimitiveType,
-                    ).apply {
-                        isAccessible = true
-                        invoke(activity, archiveIntent, false)
+                    // initOnSeparateThread()'s AsyncTask may still be in flight on the main
+                    // thread queue (its onPostExecute dereferences `runner!!`). Null the field
+                    // only for the duration of this reflective call and restore it immediately
+                    // afterwards so that AsyncTask callback never observes a null runner.
+                    val originalRunner = runnerField.get(activity)
+                    try {
+                        runnerField.set(activity, null)
+                        Nanidroid::class.java.getDeclaredMethod(
+                            "handleIncomingIntent",
+                            Intent::class.java,
+                            Boolean::class.javaPrimitiveType,
+                        ).apply {
+                            isAccessible = true
+                            invoke(activity, archiveIntent, false)
+                        }
+                    } finally {
+                        runnerField.set(activity, originalRunner)
                     }
 
                     val state = Nanidroid::class.java.getDeclaredField("archiveIntentState").apply {
