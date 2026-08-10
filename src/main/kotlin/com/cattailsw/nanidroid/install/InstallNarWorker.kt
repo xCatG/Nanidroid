@@ -90,13 +90,16 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
     private val workManager by lazy { WorkManager.getInstance(applicationContext) }
 
     companion object {
+        private const val LEGACY_INSTALL_ATTEMPT_ID = 1L
+
         internal fun isLegacyInstallWork(
             itemId: String,
             workManagerId: UUID,
             tags: Set<String>,
             attemptId: Long,
         ): Boolean =
-            tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
+            attemptId <= LEGACY_INSTALL_ATTEMPT_ID &&
+                tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
                 !isDeterministicInstallWorkId(itemId, workManagerId, attemptId)
 
         internal fun isStaleAttemptTaggedInstallWork(

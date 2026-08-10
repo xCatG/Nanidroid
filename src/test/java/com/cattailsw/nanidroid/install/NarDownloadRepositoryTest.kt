@@ -28,6 +28,7 @@ import java.io.InputStream
 import java.lang.ref.WeakReference
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
@@ -1521,6 +1522,17 @@ class NarDownloadRepositoryTest {
                 ),
             )
         }
+    }
+
+    @Test fun untaggedV1InstallWorkFromAnAdvancedAttemptIsNotClassifiedAsLegacy() {
+        assertTrue(
+            !AndroidNarInstallWorkScheduler.isLegacyInstallWork(
+                itemId = "stale-v1-install-work",
+                workManagerId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                tags = emptySet(),
+                attemptId = 2L,
+            ),
+        )
     }
 
     @Test fun reconciliationMakesMigratedInstallActionableWhenPersistedWorkProbeThrows() {
