@@ -1027,8 +1027,18 @@ class NarDownloadRepository internal constructor(
      * that queued this background task already published once right after
      * enqueueing, so without this the later mutation would never reach
      * [observeDownloads] observers and the UI could remain stuck showing `Queued`.
+     *
+     * Deliberately NOT [Synchronized]: this method (and [scheduleInstallNow]) can
+     * block for a while on WorkManager probes (`getWorkInfosForUniqueWork(...).get()`)
+     * and stale-work cancellation. Holding the repository's monitor for that whole
+     * wait would stall every other `@Synchronized` repository method — including
+     * main-thread UI actions such as Retry/Delete — risking an ANR. [installScheduling]
+     * already runs these tasks one at a time on a dedicated background executor, so
+     * this method never races with itself; individual state reads/mutations below
+     * remain safe because [store] and the durable operation supervisor guard their
+     * own consistency and every mutation here is a compare-and-set against a
+     * captured snapshot.
      */
-    @Synchronized
     private fun scheduleInstallNowAndPublish(itemId: String) {
         try {
             scheduleInstallNow(itemId)
@@ -1037,7 +1047,6 @@ class NarDownloadRepository internal constructor(
         }
     }
 
-    @Synchronized
     private fun scheduleInstallNow(itemId: String) {
         val item = store.get(itemId) ?: return
         val handle = item.handle()

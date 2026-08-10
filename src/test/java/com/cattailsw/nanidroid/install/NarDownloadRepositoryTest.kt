@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -266,6 +267,84 @@ class NarDownloadRepositoryTest {
 
         dispatcher.runAll()
         assertNotNull(store.get(item.id)!!.workManagerId)
+    }
+
+    @Test fun uiThreadRepositoryCallsDoNotBlockOnDeferredInstallSchedulingProbe() {
+        val backgroundExecutor = Executors.newSingleThreadExecutor()
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action ->
+                    backgroundExecutor.execute(action)
+                },
+                nextId = { ids.removeFirst() },
+            )
+            val item = deferredRepository.enqueueLocal("file:///owned/stalled.nar")
+            // Flush the background executor so the initial scheduleInstall() run
+            // (which binds the WorkManager id) has completed before proceeding.
+            backgroundExecutor.submit {}.get(5, TimeUnit.SECONDS)
+            installer.failure = SecurityException("grant revoked")
+            InstallNarWorker.execute(
+                deferredRepository,
+                item.id,
+                item.attemptId,
+                store.get(item.id)!!.workManagerId!!,
+            ) { false }
+            installer.failure = null
+            assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+
+            val probeStarted = CountDownLatch(1)
+            val allowProbeToFinish = CountDownLatch(1)
+            work.legacyProbeStarted = probeStarted
+            work.allowLegacyProbe = allowProbeToFinish
+
+            // Retry dispatches a fresh scheduleInstallNow() run onto the background
+            // executor; it will call the (now blocked) legacy-install probe.
+            deferredRepository.retry(item.id)
+            assertTrue(
+                "background scheduling did not reach the WorkManager probe",
+                probeStarted.await(5, TimeUnit.SECONDS),
+            )
+
+            // While the background thread is parked inside the blocking WorkManager
+            // probe, a main-thread-style call into another @Synchronized repository
+            // method must still complete promptly instead of stalling on the same
+            // monitor (which would risk an ANR for Retry/Delete in the real UI).
+            val uiCallFinished = CountDownLatch(1)
+            val uiThreadFailure = AtomicReference<Throwable?>()
+            val uiThread = Thread {
+                try {
+                    deferredRepository.enqueueLocal("file:///owned/unrelated.nar")
+                } catch (error: Throwable) {
+                    uiThreadFailure.set(error)
+                } finally {
+                    uiCallFinished.countDown()
+                }
+            }
+            uiThread.start()
+            try {
+                assertTrue(
+                    "a UI-thread repository call was blocked by the deferred install " +
+                        "scheduling WorkManager probe",
+                    uiCallFinished.await(2, TimeUnit.SECONDS),
+                )
+                uiThreadFailure.get()?.let { throw AssertionError("UI-thread call failed", it) }
+            } finally {
+                allowProbeToFinish.countDown()
+                uiThread.join(5_000)
+            }
+        } finally {
+            backgroundExecutor.shutdown()
+            assertTrue(backgroundExecutor.awaitTermination(5, TimeUnit.SECONDS))
+        }
     }
 
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
@@ -2905,6 +2984,8 @@ class NarDownloadRepositoryTest {
         var installRecovery = NarInstallWorkRecovery.ACTIVE
         var installQueryStarted: CountDownLatch? = null
         var allowInstallQuery: CountDownLatch? = null
+        var legacyProbeStarted: CountDownLatch? = null
+        var allowLegacyProbe: CountDownLatch? = null
         var beforeNextInstallPrepared: ((itemId: String, attemptId: Long) -> Unit)? = null
         var beforeNextStagePrepared: ((itemId: String, attemptId: Long) -> Unit)? = null
 
@@ -2962,6 +3043,10 @@ class NarDownloadRepositoryTest {
 
         override fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? {
             legacyProbeCalls += 1
+            legacyProbeStarted?.countDown()
+            allowLegacyProbe?.let { latch ->
+                check(latch.await(5, TimeUnit.SECONDS)) { "legacy install probe was not released" }
+            }
             findActiveLegacyInstallWorkFailure?.let { throw it }
             return activeInstallWorkByItemId[itemId]
                 ?.takeIf { activeInstallWorkIsLegacyByItemId[itemId] != false }
