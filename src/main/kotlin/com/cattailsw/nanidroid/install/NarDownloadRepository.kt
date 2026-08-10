@@ -1397,10 +1397,11 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun releaseDetachedPersistedGrantIfUnused(source: String) {
-        if (hasSourceReference(source)) {
-            store.removePendingPersistedGrantRelease(source)
-            return
-        }
+        // A record can reference this URI without ever taking over release responsibility
+        // for it (for example, a live-grant copy holds only a temporary permission). Leave
+        // the tombstone in place and retry on a later reconciliation instead of dropping it,
+        // so the persisted grant is never silently orphaned.
+        if (hasSourceReference(source)) return
         val cleanup = NarDownload(
             id = "pending-grant-release",
             source = NarDownloadSource.Local(source),

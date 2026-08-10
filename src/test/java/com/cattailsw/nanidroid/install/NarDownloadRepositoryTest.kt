@@ -835,6 +835,33 @@ class NarDownloadRepositoryTest {
         assertEquals(setOf(source), store.pendingPersistedGrantReleases())
     }
 
+    @Test fun detachedGrantCleanupSurvivesAnUnrelatedLiveGrantCopyOfTheSameUri() {
+        val source = "content://provider/live-grant-collision.nar"
+        store.addPendingPersistedGrantRelease(source)
+
+        // A live-grant copy of the same URI starts while the detached release is pending.
+        // It only holds a temporary permission, so it must not be mistaken for a record
+        // that will take over releasing the persisted grant.
+        val live = repository.enqueueLiveLocalCopy(source)
+        repository.reconcile()
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+        assertTrue(ownedData.releasedUris.none { it == source })
+
+        // Once the live copy stages off the raw URI, nothing references it and the
+        // detached release can finally proceed.
+        repository.stageLiveLocal(
+            live.id,
+            live.attemptId,
+            live.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-live-copy.nar") }
+        repository.reconcile()
+
+        assertTrue(ownedData.releasedUris.any { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
     @Test fun persistedReplacementReservesGrantBeforeAcquiringIt() {
         val item = repository.enqueueLocal("content://provider/old.nar")
         val replacementSource = "content://provider/replacement.nar"
