@@ -693,11 +693,19 @@ class DurableOperationSupervisor(
             current.diagnostics == null ||
             !current.isCancellationDispatchFailure()
         ) return
+        // Only treat this clear as purely local (safe to record immediately) when the state we
+        // read matches what we last observed. If it doesn't, a concurrent write already moved
+        // the record past our last observation, and stamping our own revision over it here
+        // would absorb that concurrent change without ever surfacing it as one; leave it stale
+        // so the next poll's diff still detects the concurrent mutation.
+        val purelyLocalClear = lastObservedRevisions[handle] == current.observationRevision()
         val updated = current.copy(showStallPrompt = preserveAttention, diagnostics = null)
-        store.compareAndSet(
-            current,
-            updated,
-        )
+        // Record this locally produced clear immediately so a later, possibly delayed, poll
+        // doesn't mistake it for a concurrent mutation and push lastProgressAt out to
+        // reconciliation time instead of this write's own time.
+        if (store.compareAndSet(current, updated) && purelyLocalClear) {
+            recordObservationRevision(handle, updated)
+        }
     }
 
     private fun OperationStatus.isActive() =

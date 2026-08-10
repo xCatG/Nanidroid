@@ -192,6 +192,37 @@ class DurableOperationSupervisorTest {
         assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun successfulDuplicateStopClearRecordsItsOwnRevisionSoReconciliationDoesNotDelayEscalation() {
+        val stopHandle = handle("nar-5", 1)
+        val stopBinding = workManager("worker-successful-retry-window")
+        val cancellation = FailingThenSucceedingCancellation()
+        val stopSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+
+        assertTrue(stopSupervisor.start(stopHandle, OperationKind.GHOST_UPDATE, "Downloading", 0, stopBinding))
+        clock.value = 0
+        // First dispatch fails; the failure becomes visible once the observation window elapses.
+        assertTrue(stopSupervisor.requestStop(stopHandle))
+        clock.value = 30_000
+        assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
+
+        // A duplicate stop() call retries the dispatch, which now succeeds and locally clears
+        // showStallPrompt at this exact time (30_000).
+        assertTrue(stopSupervisor.requestStop(stopHandle))
+        assertEquals(2, cancellation.requestCount)
+
+        // Coordinator/reconciliation execution is delayed: the next poll doesn't happen until
+        // well after the successful clear, but before the clear's own 30s window should elapse.
+        clock.value = 50_000
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
+
+        // The next stall prompt must be governed by the successful clear's own time (30_000),
+        // not by when the delayed poll happened to observe it (50_000).
+        clock.value = 59_999
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun concurrentKeepWaitingIsObservedAfterAnInFlightCancellationRetryFails() {
         val handle = handle("concurrent-cancellation-observation", 1)
         val binding = workManager("concurrent-cancellation-observation-worker")
