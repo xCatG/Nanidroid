@@ -54,8 +54,17 @@ class NanidroidLifecycleInstrumentationTest {
     fun recreatedActivityWithNullRunnerRejectsArchiveIntentWhenRetainedRunnerIsPassive() {
         val retainedRunner = SScriptRunner.getInstance(null).also { runner ->
             runner.setNoWaitMode(true)
+            // The process-global runner may still be mid-playback from a preceding
+            // instrumentation test in this same app process. run() silently no-ops
+            // while state.running is already true (SScriptRunner.run()), so the
+            // passive-mode command below would never execute and this test would
+            // become order-dependent. Force the runner idle first, then wait for
+            // the passive-mode command to actually take effect before proceeding.
+            runner.stop()
+            awaitRunnerState(runner) { !it.playingTalk }
             runner.addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
             runner.run()
+            awaitRunnerState(runner) { it.passive }
         }
         val archiveIntent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(Uri.parse("content://archives/recreated.nar"), "application/x-nar")
@@ -164,9 +173,32 @@ class NanidroidLifecycleInstrumentationTest {
         }
     }
 
+    /**
+     * Polls the process-global runner's mode snapshot until [predicate] holds, or fails the
+     * test if it never converges. Mirrors the deadline/poll idiom already used above for the
+     * notification-permission dialog dismissal wait.
+     */
+    private fun awaitRunnerState(
+        runner: SScriptRunner,
+        predicate: (com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode) -> Boolean,
+    ) {
+        val deadline = SystemClock.uptimeMillis() + RUNNER_STATE_TIMEOUT_MILLIS
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (predicate(runner.runtimeModeSnapshot())) return
+            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
+        }
+        Assert.assertTrue(
+            "Retained runner did not converge to the expected state within " +
+                "${RUNNER_STATE_TIMEOUT_MILLIS}ms",
+            predicate(runner.runtimeModeSnapshot()),
+        )
+    }
+
     private companion object {
         const val PERMISSION_DIALOG_TIMEOUT_MILLIS = 15_000L
         const val PERMISSION_DIALOG_POLL_MILLIS = 50L
+        const val RUNNER_STATE_TIMEOUT_MILLIS = 5_000L
+        const val RUNNER_STATE_POLL_MILLIS = 20L
         val PERMISSION_CONTROLLER_PACKAGES = listOf(
             "com.android.permissioncontroller",
             "com.google.android.permissioncontroller",
