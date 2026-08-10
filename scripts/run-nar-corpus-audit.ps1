@@ -1301,6 +1301,14 @@ function Ensure-ExecutableExists([string]$Path, [string]$Purpose) {
     }
 }
 
+function Get-CurrentPowerShellExecutable {
+    $currentExecutablePath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    if ([string]::IsNullOrWhiteSpace($currentExecutablePath) -or -not (Test-Path -LiteralPath $currentExecutablePath -PathType Leaf)) {
+        ThrowIf 'Unable to resolve the currently running PowerShell executable.'
+    }
+    return $currentExecutablePath
+}
+
 function Compute-ArchiveSha([string]$ArchivePath) {
     return (Get-FileHash -Algorithm SHA256 -Path $ArchivePath).Hash.ToLowerInvariant()
 }
@@ -2306,7 +2314,7 @@ Validate-ManifestEntries -ManifestEntries $manifest.entries
 $manifestSha = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $repoRoot $ManifestPath)).Hash.ToLowerInvariant()
 
 $resolvedCorpusRoots = Resolve-CorpusRoots -Roots $CorpusRoots
-$archives = Collect-Archives -Roots $resolvedCorpusRoots
+$archives = @(Collect-Archives -Roots $resolvedCorpusRoots)
 if (-not $archives -or $archives.Count -eq 0) {
     ThrowIf 'No .nar archives found in CorpusRoots.'
 }
@@ -2421,10 +2429,7 @@ if ($DryRun) {
         ThrowIf 'Dry-run missing log marker probe attributed prior-attempt diagnostics to the current attempt.'
     }
     Write-Host 'Dry-run non-destructive log marker probe passed.'
-    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
-    if (-not $pwshPath) {
-        ThrowIf 'Dry-run argument probe requires pwsh in PATH.'
-    }
+    $currentPowerShellPath = Get-CurrentPowerShellExecutable
     $cmdPath = [Environment]::GetEnvironmentVariable('ComSpec')
     if ([string]::IsNullOrWhiteSpace($cmdPath)) {
         ThrowIf 'Dry-run timeout-tree probe cannot resolve cmd.exe.'
@@ -2437,7 +2442,7 @@ if ($DryRun) {
     $jobEarlyExitEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($jobEarlyExitCommand))
     $jobEarlyExitProcess = $null
     try {
-        $jobEarlyExitProcess = Start-OwnedJobProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $jobEarlyExitEncoded)
+        $jobEarlyExitProcess = Start-OwnedJobProcess -FilePath $currentPowerShellPath -Arguments @('-NoProfile', '-EncodedCommand', $jobEarlyExitEncoded)
         $jobEarlyExitProcess.process.WaitForExit(10000) | Out-Null
         if (-not (Test-Path -LiteralPath $jobEarlyExitChildPath -PathType Leaf)) {
             ThrowIf 'Dry-run job-owned timeout-tree probe did not report its child identity.'
@@ -2481,7 +2486,7 @@ if ($DryRun) {
     $jobLookupFailureEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($jobLookupFailureCommand))
     $jobLookupFailureCaught = $false
     try {
-        Start-OwnedJobProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $jobLookupFailureEncoded) -TestProcessObjectAcquisitionFailureReadyPath $jobLookupFailureChildPath | Out-Null
+        Start-OwnedJobProcess -FilePath $currentPowerShellPath -Arguments @('-NoProfile', '-EncodedCommand', $jobLookupFailureEncoded) -TestProcessObjectAcquisitionFailureReadyPath $jobLookupFailureChildPath | Out-Null
     }
     catch {
         $jobLookupFailureCaught = $_.Exception.Message -eq 'Test process-object acquisition failure.'
@@ -2517,7 +2522,7 @@ Start-Sleep -Seconds 2
     $timeoutProbeFailed = $false
     $timeoutProbeTimedOut = $false
     try {
-        Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $timeoutProbeEncoded) -TimeoutSeconds 1 -DrainTimeoutSeconds 10 -TimeoutStartReadyPath $timeoutProbeReadyPath -TimeoutCleanupProbeDelayMilliseconds 1500 -DisableAdbOnTimeout | Out-Null
+        Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments @('-NoProfile', '-EncodedCommand', $timeoutProbeEncoded) -TimeoutSeconds 1 -DrainTimeoutSeconds 10 -TimeoutStartReadyPath $timeoutProbeReadyPath -TimeoutCleanupProbeDelayMilliseconds 1500 -DisableAdbOnTimeout | Out-Null
     }
     catch {
         $timeoutProbeFailed = $_.Exception.Message -match 'adb-timeout: Timed out while executing:'
@@ -2566,7 +2571,7 @@ Start-Sleep -Seconds 1
     $earlyExitEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($earlyExitCommand))
     $earlyExitFailed = $false
     try {
-        Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @('-NoProfile', '-EncodedCommand', $earlyExitEncoded) -TimeoutSeconds 10 -DrainTimeoutSeconds 10 -TimeoutStartReadyPath $earlyExitMissingReadyPath -TimeoutStartReadySeconds 5 | Out-Null
+        Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments @('-NoProfile', '-EncodedCommand', $earlyExitEncoded) -TimeoutSeconds 10 -DrainTimeoutSeconds 10 -TimeoutStartReadyPath $earlyExitMissingReadyPath -TimeoutStartReadySeconds 5 | Out-Null
     }
     catch {
         $earlyExitFailed = $_.Exception.Message -match 'process-timeout: Process exited before readiness marker was created:'
@@ -2599,7 +2604,7 @@ Start-Sleep -Seconds 1
         ThrowIf 'Dry-run owned-process discovery probe rejected a candidate that matches its CIM creation time at microsecond precision.'
     }
     Write-Host 'Dry-run owned-process creation identity probe passed.'
-    $invalidPathProbeTimeout = Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments @(
+    $invalidPathProbeTimeout = Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments @(
         '-NoProfile',
         '-NoLogo',
         '-File',
@@ -2622,7 +2627,7 @@ foreach ($arg in $ProbeArgs) {
 '@ | Set-Content -Path $probeScript -Encoding UTF8
 
     $probeExpected = @('label with spaces', "token`twith`ttabs", 'plain-token')
-    $probeResult = Invoke-ArgumentListProcess -FilePath $pwshPath -Arguments (@(
+    $probeResult = Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments (@(
         '-NoProfile',
         '-NoLogo',
         '-File',
