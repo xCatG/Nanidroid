@@ -311,6 +311,7 @@ class GhostUpdateRepository internal constructor(
                     phase = CommitPhase.NO_CHANGES_PENDING,
                 )
                 journalIo.write(journalFile, journal)
+                journalPersisted = true
                 if (!onNoChangesClassified()) return GhostUpdateResult.NoChangesPending
                 if (!cleanPreparedTransaction(transactionRoot, journal)) {
                     return failed("cannot clean no-change update transaction", emptyList())
@@ -1515,15 +1516,9 @@ class GhostUpdateRepository internal constructor(
             }
             val transactionRoot = journalFile.parentFile?.canonicalFile
                 ?: return RecoveryResult.Failed("ghost update journal has no transaction parent")
-            val expectedTransaction = transactionRoot(ghostRoot, journal.operationId)
             val candidate = File(journal.candidateRoot).canonicalFile
             val backup = File(journal.backupRoot).canonicalFile
-            if (
-                transactionRoot != expectedTransaction ||
-                candidate != File(transactionRoot, CANDIDATE).canonicalFile ||
-                backup != File(transactionRoot, BACKUP).canonicalFile ||
-                !validPersistedPaths(journal.files)
-            ) {
+            if (!hasValidJournalPaths(ghostRoot, transactionRoot, journal)) {
                 return RecoveryResult.Failed("invalid ghost update journal paths")
             }
             return try {
@@ -1561,6 +1556,18 @@ class GhostUpdateRepository internal constructor(
             } catch (e: Exception) {
                 RecoveryResult.Failed(e.message ?: "ghost update recovery failed")
             }
+        }
+
+        private fun hasValidJournalPaths(
+            ghostRoot: File,
+            transactionRoot: File,
+            journal: GhostUpdateJournal,
+        ): Boolean {
+            val expectedTransaction = transactionRoot(ghostRoot, journal.operationId)
+            return transactionRoot == expectedTransaction &&
+                File(journal.candidateRoot).canonicalFile == File(transactionRoot, CANDIDATE).canonicalFile &&
+                File(journal.backupRoot).canonicalFile == File(transactionRoot, BACKUP).canonicalFile &&
+                validPersistedPaths(journal.files)
         }
 
         private fun recoverAuthorized(
@@ -1744,6 +1751,12 @@ class GhostUpdateRepository internal constructor(
             ) return RecoveryResult.Failed("stale ghost update journal blocks replay")
             val topology = topologyOf(ghostRoot, File(transaction, CANDIDATE), File(transaction, BACKUP))
             if (journal.phase == CommitPhase.NO_CHANGES_PENDING) {
+                if (!hasValidJournalPaths(ghostRoot, transaction, journal)) {
+                    return RecoveryResult.Failed("invalid ghost update journal paths")
+                }
+                if (topology !in setOf(GhostTreeTopology.LIVE_CANDIDATE, GhostTreeTopology.LIVE_ONLY)) {
+                    return RecoveryResult.Failed("ambiguous no-change ghost update state")
+                }
                 if (!classify(journal, OperationStatus.COMPLETED)) {
                     return RecoveryResult.CommitPending(journal.files)
                 }

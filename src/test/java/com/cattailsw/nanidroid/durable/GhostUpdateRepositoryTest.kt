@@ -1603,6 +1603,39 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `no-change cleanup failure never replaces its journal with prepared state`() {
+        val fixture = fixture("no-change-cleanup-journal-write-failure")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        var writes = 0
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                writes++
+                if (writes == 3) throw IOException("cannot rewrite no-change journal")
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File): GhostUpdateJournal = GhostUpdateJournalStore.read(file)
+        }
+        val repository = fixture.repository(
+            fileOperations = object : GhostUpdateFileOperations {
+                override fun deleteTree(root: File): Boolean {
+                    val deleted = root.deleteRecursively()
+                    if (root.canonicalFile == File(fixture.transactionRoot(), "candidate").canonicalFile) {
+                        fixture.writeTransaction("residual", "blocks transaction cleanup")
+                    }
+                    return deleted
+                }
+            },
+            journalIo = journalIo,
+        )
+
+        assertTrue(repository.run(fixture.request()) { false } is GhostUpdateResult.Failed)
+        val journalFile = File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME)
+        assertFalse(journalFile.isFile && GhostUpdateJournalStore.read(journalFile).phase == CommitPhase.PREPARED)
+    }
+
+    @Test
     fun `no-change completion payload survives process death before transaction cleanup`() {
         val fixture = fixture("no-change-terminal-before-cleanup")
         fixture.writeLive("ghost/master.txt", "same")
@@ -3033,6 +3066,32 @@ class GhostUpdateRepositoryTest {
         assertTrue(result is GhostUpdateResult.Failed)
         assertBytes("old", File(fixture.ghostRoot, "ghost/master.txt"))
         assertTrue(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `invalid no-change replay does not publish a completion event`() {
+        val fixture = fixture("invalid-no-change-replay")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.writeTransaction("candidate/ghost/master.txt", "same")
+        fixture.writeJournal(
+            CommitPhase.NO_CHANGES_PENDING,
+            listOf("../invalid"),
+            AttemptId(1),
+            "work-1",
+        )
+        var classifications = 0
+
+        val result = fixture.repository(
+            onNoChangesClassified = {
+                classifications++
+                true
+            },
+        ).run(
+            fixture.request().copy(attemptId = AttemptId(1), workManagerUuid = "work-1"),
+        ) { false }
+
+        assertTrue(result is GhostUpdateResult.Failed)
+        assertEquals(0, classifications)
     }
 
     @Test
