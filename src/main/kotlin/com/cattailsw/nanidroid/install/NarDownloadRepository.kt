@@ -1371,9 +1371,9 @@ class NarDownloadRepository internal constructor(
     /** Persists a direct grant's cleanup obligation before its durable owner can disappear. */
     private fun persistPersistedGrantReleaseIfUnused(item: NarDownload): String? {
         val location = item.retainedUri ?: (item.source as? NarDownloadSource.Local)?.uri ?: return null
-        if (hasSourceReference(location, item.id)) return null
+        if (hasPersistedSourceReference(location, item.id)) return null
         store.addPendingPersistedGrantRelease(location)
-        return location
+        return location.takeUnless { hasSourceReference(location, item.id) }
     }
 
     private fun releaseTransferredDocumentGrantIfUnused(item: NarDownload) {
@@ -1434,6 +1434,17 @@ class NarDownloadRepository internal constructor(
     private fun hasSourceReference(location: String, excludedItemId: String? = null) =
         store.getAll().any { other ->
             other.id != excludedItemId && other.state != NarDownloadState.Complete && (
+                other.retainedUri == location ||
+                    ((other.source as? NarDownloadSource.Local)?.uri == location &&
+                        (other.retainedUri == null || other.retainedUri == location))
+                )
+        }
+
+    private fun hasPersistedSourceReference(location: String, excludedItemId: String? = null) =
+        store.getAll().any { other ->
+            other.id != excludedItemId &&
+                !isLiveCopyAttemptActive(other.handle()) &&
+                other.state != NarDownloadState.Complete && (
                 other.retainedUri == location ||
                     ((other.source as? NarDownloadSource.Local)?.uri == location &&
                         (other.retainedUri == null || other.retainedUri == location))

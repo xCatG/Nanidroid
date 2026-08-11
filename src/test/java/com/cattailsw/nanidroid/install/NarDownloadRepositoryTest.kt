@@ -934,6 +934,17 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun deletingDirectPersistedGrantRetainsCleanupWithOnlyLiveGrantSibling() {
+        val source = "content://provider/direct-delete-live-sibling.nar"
+        val direct = repository.enqueueLocal(source, source)
+        repository.enqueueLiveLocalCopy(source)
+
+        assertTrue(repository.delete(direct.id))
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+        assertTrue(ownedData.releasedUris.none { it == source })
+    }
+
     @Test fun replacingDirectPersistedGrantRetainsCleanupInTheFirstOldOwnerlessWrite() {
         val source = "content://provider/direct-replace-crash-window.nar"
         val replacement = "content://provider/direct-replace-next.nar"
