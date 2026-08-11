@@ -171,6 +171,55 @@ class DurableOperationSupervisorTest {
         assertEquals(event, clearFailingSupervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun `successful terminal dispatch retains its payload when durable clear throws`() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("terminal-event-clear-exception-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        val delegate = MemoryDurableOperationStore()
+        val clearThrowingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (
+                    expected.pendingGhostUpdateEvent == event &&
+                    updated.pendingGhostUpdateEvent == null
+                ) throw IllegalStateException("durable clear failed")
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val clearThrowingSupervisor = DurableOperationSupervisor(clearThrowingStore, clock) { _, _, _ -> }
+        assertTrue(clearThrowingSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        assertTrue(
+            clearThrowingSupervisor.finishWithTerminalEvent(
+                handle,
+                binding,
+                OperationStatus.COMPLETED,
+                event,
+            ),
+        )
+        var dispatches = 0
+
+        assertTrue(
+            GhostUpdateWorker.deliverTerminalEvent(clearThrowingSupervisor, handle, binding, event) {
+                dispatches++
+                true
+            },
+        )
+
+        assertEquals(1, dispatches)
+        assertEquals(event, clearThrowingSupervisor.records().single().pendingGhostUpdateEvent)
+    }
+
     @Test fun `concurrent terminal event deliveries dispatch the exact payload once`() {
         val root = File("build/terminal-event-concurrent").canonicalFile
         val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))

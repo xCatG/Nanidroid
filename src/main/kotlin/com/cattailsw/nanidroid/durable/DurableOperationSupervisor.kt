@@ -466,7 +466,11 @@ class DurableOperationSupervisor(
         ) return@mutate false
         if (!dispatch(event)) return@mutate false
         // A failed durable clear is retried after process restart, but never re-dispatches here.
-        store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = null))
+        try {
+            store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = null))
+        } catch (_: Exception) {
+            // The terminal callback has already succeeded; preserve the retained payload for retry.
+        }
         true
     }
 

@@ -162,8 +162,8 @@ class GhostUpdateWorker(
             handle,
             binding,
             { isStopped },
-            resumeCompletedNoChangesCleanup = {
-                hasExactNoChangesCleanupPending(ghostRoot, handle, binding)
+            resumeCompletedCleanup = {
+                hasExactCompletedCleanupPending(ghostRoot, handle, binding)
             },
             terminalEventPersistenceFailed = terminalEventPersistenceFailed::get,
         ) {
@@ -594,14 +594,14 @@ class GhostUpdateWorker(
             binding: ExternalJobBinding.WorkManager,
             @Suppress("UNUSED_PARAMETER")
             isStopped: () -> Boolean,
-            resumeCompletedNoChangesCleanup: () -> Boolean = { false },
+            resumeCompletedCleanup: () -> Boolean = { false },
             terminalEventPersistenceFailed: () -> Boolean = { false },
             run: () -> GhostUpdateResult,
         ): ListenableWorker.Result {
             if (!supervisor.reportProgress(handle, binding, "Fetching update manifest", 0)) {
                 when (supervisor.exactStatusForAttempt(handle, OperationKind.GHOST_UPDATE, binding)) {
                     OperationStatus.RUNNING -> Unit
-                    OperationStatus.COMPLETED -> if (resumeCompletedNoChangesCleanup()) Unit
+                    OperationStatus.COMPLETED -> if (resumeCompletedCleanup()) Unit
                     else return ListenableWorker.Result.success()
                     OperationStatus.CANCEL_REQUESTED -> {
                         supervisor.finish(handle, binding, OperationStatus.CANCELLED)
@@ -862,8 +862,8 @@ class GhostUpdateWorker(
             ).isFile
         }
 
-        /** Allows a terminal worker retry only to finish its own retained no-change cleanup. */
-        internal fun hasExactNoChangesCleanupPending(
+        /** Allows a completed worker retry only to finish cleanup retained for its exact attempt. */
+        internal fun hasExactCompletedCleanupPending(
             ghostRoot: File,
             handle: OperationHandle,
             binding: ExternalJobBinding.WorkManager,
@@ -874,7 +874,11 @@ class GhostUpdateWorker(
             )
             if (!journalFile.isFile) return false
             val journal = GhostUpdateJournalStore.read(journalFile)
-            journal.phase == CommitPhase.NO_CHANGES_PENDING &&
+            journal.phase in setOf(
+                CommitPhase.NO_CHANGES_PENDING,
+                CommitPhase.PUBLISHED,
+                CommitPhase.CLEANED,
+            ) &&
                 journal.operationId == handle.operationId &&
                 journal.attemptId == handle.attemptId &&
                 journal.workManagerUuid == binding.uuid
