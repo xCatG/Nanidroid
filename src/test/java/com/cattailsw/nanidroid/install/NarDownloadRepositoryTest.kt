@@ -388,6 +388,36 @@ class NarDownloadRepositoryTest {
         assertEquals(workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL), retried.workManagerId)
     }
 
+    @Test fun retryTerminalizesActiveInstallBindingBeforeItsUuidIsPersisted() {
+        val item = store.create(
+            NarDownload(
+                id = "old-item",
+                source = NarDownloadSource.Local("file:///owned/bound-before-persist.nar"),
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val binding = ExternalJobBinding.WorkManager(
+            workId(item.id, item.attemptId, OperationKind.NAR_INSTALL),
+        )
+        assertTrue(
+            supervisor.start(
+                item.handle(),
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.bindExternalJob(item.handle(), binding))
+
+        val retried = repository.retry(item.id)!!
+
+        assertEquals(2L, retried.attemptId)
+        assertEquals(
+            workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL),
+            retried.workManagerId,
+        )
+    }
+
     @Test fun retryCanSupersedeQueuedInstallBeforeItsFirstBinding() {
         val executor = Executors.newSingleThreadExecutor()
         lateinit var itemId: String
@@ -476,7 +506,10 @@ class NarDownloadRepositoryTest {
 
         val replaced = store.get(itemId)!!
         assertEquals(2L, replaced.attemptId)
-        assertEquals("file:///owned/reselected-before-bind.nar", replaced.source.uri)
+        assertEquals(
+            "file:///owned/reselected-before-bind.nar",
+            (replaced.source as NarDownloadSource.Local).uri,
+        )
         assertEquals(
             workId(replaced.id, replaced.attemptId, OperationKind.NAR_INSTALL),
             replaced.workManagerId,
