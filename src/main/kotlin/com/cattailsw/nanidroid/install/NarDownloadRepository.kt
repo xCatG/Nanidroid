@@ -556,6 +556,7 @@ class NarDownloadRepository internal constructor(
         if (item.pendingPersistedGrantReleaseUri != reservedPersistedGrantUri) {
             releasePendingPersistedGrantIfUnused(item)
         }
+        if (item.retainedUri != uri) persistPersistedGrantReleaseIfUnused(item)
         store.update(itemId) {
             it.copy(
                 attemptId = it.attemptId + 1L,
@@ -651,6 +652,7 @@ class NarDownloadRepository internal constructor(
         if (!releasePendingPersistedGrantIfUnused(item)) {
             store.addPendingPersistedGrantRelease(item.pendingPersistedGrantReleaseUri!!)
         }
+        persistPersistedGrantReleaseIfUnused(item)
         store.delete(itemId)
         liveCopyAttempts -= item.handle()
         releasePersistedGrantIfUnused(item)
@@ -1359,14 +1361,19 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun releasePersistedGrantIfUnused(item: NarDownload) {
-        val location = item.retainedUri ?: (item.source as? NarDownloadSource.Local)?.uri ?: return
-        if (!hasSourceReference(location, item.id)) {
-            store.addPendingPersistedGrantRelease(location)
-            val released = runCatching {
-                ownedData.releasePersistedGrant(item.copy(retainedUri = location))
-            }.getOrDefault(false)
-            if (released) store.removePendingPersistedGrantRelease(location)
-        }
+        val location = persistPersistedGrantReleaseIfUnused(item) ?: return
+        val released = runCatching {
+            ownedData.releasePersistedGrant(item.copy(retainedUri = location))
+        }.getOrDefault(false)
+        if (released) store.removePendingPersistedGrantRelease(location)
+    }
+
+    /** Persists a direct grant's cleanup obligation before its durable owner can disappear. */
+    private fun persistPersistedGrantReleaseIfUnused(item: NarDownload): String? {
+        val location = item.retainedUri ?: (item.source as? NarDownloadSource.Local)?.uri ?: return null
+        if (hasSourceReference(location, item.id)) return null
+        store.addPendingPersistedGrantRelease(location)
+        return location
     }
 
     private fun releaseTransferredDocumentGrantIfUnused(item: NarDownload) {

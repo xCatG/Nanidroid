@@ -916,6 +916,44 @@ class NarDownloadRepositoryTest {
         assertTrue(store.pendingPersistedGrantReleases().isEmpty())
     }
 
+    @Test fun deletingDirectPersistedGrantRetainsCleanupInTheFirstOwnerlessWrite() {
+        val source = "content://provider/direct-delete-crash-window.nar"
+        val storage = RecordingStorage()
+        val queueStore = NarDownloadStore(storage)
+        val isolatedRepository = repositoryWith(queueStore, supervisor, "durable-delete-item")
+        val item = isolatedRepository.enqueueLocal(source, source)
+
+        assertTrue(isolatedRepository.delete(item.id))
+
+        val firstOwnerlessSnapshot = storage.writes.first { snapshot ->
+            NarDownloadStore(SnapshotStorage(snapshot)).get(item.id) == null
+        }
+        assertTrue(
+            source in NarDownloadStore(SnapshotStorage(firstOwnerlessSnapshot))
+                .pendingPersistedGrantReleases(),
+        )
+    }
+
+    @Test fun replacingDirectPersistedGrantRetainsCleanupInTheFirstOldOwnerlessWrite() {
+        val source = "content://provider/direct-replace-crash-window.nar"
+        val replacement = "content://provider/direct-replace-next.nar"
+        val storage = RecordingStorage()
+        val queueStore = NarDownloadStore(storage)
+        val isolatedRepository = repositoryWith(queueStore, supervisor, "durable-replace-item")
+        val item = isolatedRepository.enqueueLocal(source, source)
+
+        assertNotNull(isolatedRepository.replaceLocalSource(item.id, replacement))
+
+        val firstOldOwnerlessSnapshot = storage.writes.first { snapshot ->
+            val record = NarDownloadStore(SnapshotStorage(snapshot)).get(item.id)
+            record?.retainedUri == replacement
+        }
+        assertTrue(
+            source in NarDownloadStore(SnapshotStorage(firstOldOwnerlessSnapshot))
+                .pendingPersistedGrantReleases(),
+        )
+    }
+
     @Test fun persistedReplacementReservesGrantBeforeAcquiringIt() {
         val item = repository.enqueueLocal("content://provider/old.nar")
         val replacementSource = "content://provider/replacement.nar"
@@ -3118,6 +3156,24 @@ class NarDownloadRepositoryTest {
             if (writeCount == failOnWrite) throw IllegalStateException("queue write failed")
             this.value = value
         }
+    }
+
+    private class RecordingStorage : NarDownloadStore.Storage {
+        private var value: String? = null
+        val writes = mutableListOf<String>()
+
+        @Synchronized override fun read(): String? = value
+
+        @Synchronized override fun write(value: String) {
+            this.value = value
+            writes += value
+        }
+    }
+
+    private class SnapshotStorage(private val value: String) : NarDownloadStore.Storage {
+        override fun read(): String = value
+
+        override fun write(value: String) = throw UnsupportedOperationException("snapshot is read-only")
     }
 
     private fun startReconciliation(repository: NarDownloadRepository): BackgroundCall {
