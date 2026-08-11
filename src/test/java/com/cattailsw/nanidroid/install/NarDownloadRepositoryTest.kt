@@ -2385,6 +2385,56 @@ class NarDownloadRepositoryTest {
         assertNull(operation.externalJob)
     }
 
+    @Test fun recreationBindsReplacementRowAfterRemovingHistoricalDestinationRow() {
+        val accepted = store.create(
+            NarDownload(
+                id = "replacement-remote-with-surviving-row",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/replacement-remote-with-surviving-row.nar",
+                state = NarDownloadState.Downloading,
+                attemptId = 2L,
+            ),
+        )
+        val predecessor = accepted.handle().copy(attemptId = AttemptId(1L))
+        val historicalBinding = ExternalJobBinding.DownloadManager(110L)
+        assertTrue(
+            supervisor.start(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                historicalBinding,
+            ),
+        )
+        assertTrue(
+            supervisor.failOrConfirmExactAttempt(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                historicalBinding,
+                "previous attempt failed",
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.recoveredIdSequences[accepted.retainedUri!!] = ArrayDeque(listOf(110L, 111L))
+        downloads.statuses[111L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(listOf(110L), downloads.removedIds)
+        assertEquals(111L, store.get(accepted.id)!!.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(111L),
+            operationStore.read().single().externalJob,
+        )
+    }
+
     @Test fun recreationMakesReplacementAttemptActionableWhenOnlyPredecessorHistoryRemains() {
         val accepted = store.create(
             NarDownload(
@@ -3259,6 +3309,7 @@ class NarDownloadRepositoryTest {
         var removeFailureCount = 0
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
+        val recoveredIdSequences = mutableMapOf<String, ArrayDeque<Long>>()
         val removedIds = mutableListOf<Long>()
         val downloadedBytes = mutableMapOf<Long, Long>()
         var onDownloadedBytes: (() -> Unit)? = null
@@ -3276,7 +3327,7 @@ class NarDownloadRepositoryTest {
 
         override fun findDownloadId(retainedUri: String): Long? {
             findDownloadIdFailure?.let { throw it }
-            return recoveredIds[retainedUri]
+            return recoveredIdSequences[retainedUri]?.removeFirstOrNull() ?: recoveredIds[retainedUri]
         }
 
         override fun remove(downloadManagerId: Long) {
@@ -3285,6 +3336,7 @@ class NarDownloadRepositoryTest {
                 throw IllegalStateException("DownloadManager removal failed")
             }
             removedIds += downloadManagerId
+            recoveredIds.entries.removeAll { it.value == downloadManagerId }
         }
 
         override fun status(downloadManagerId: Long) = statuses[downloadManagerId]

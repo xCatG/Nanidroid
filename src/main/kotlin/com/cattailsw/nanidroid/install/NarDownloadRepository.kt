@@ -715,7 +715,7 @@ class NarDownloadRepository internal constructor(
                     item.handle(),
                     OperationKind.REMOTE_NAR,
                 ) as? ExternalJobBinding.DownloadManager
-                val recoveredDownloadId = if (item.downloadManagerId == null) {
+                var recoveredDownloadId = if (item.downloadManagerId == null) {
                     exactBinding?.id ?: item.retainedUri?.let { retainedUri ->
                         try {
                             downloads.findDownloadId(retainedUri)
@@ -726,15 +726,26 @@ class NarDownloadRepository internal constructor(
                 } else {
                     null
                 }
-                val recoveredHistoricalRow = recoveredDownloadId?.takeIf { recoveredId ->
+                val removedHistoricalIds = mutableSetOf<Long>()
+                while (true) {
+                    val recoveredId = recoveredDownloadId ?: break
                     val binding = ExternalJobBinding.DownloadManager(recoveredId)
-                    exactBinding == null && supervisor.wasExternalJobUsedBefore(item.handle(), binding)
-                }
-                if (recoveredHistoricalRow != null) {
-                    if (removeRemoteRow(recoveredHistoricalRow)) {
-                        reconcileMissingRemoteRow(item)
+                    if (
+                        exactBinding != null ||
+                        !supervisor.wasExternalJobUsedBefore(item.handle(), binding)
+                    ) {
+                        break
                     }
-                    return@forEach
+                    if (!removedHistoricalIds.add(recoveredId) || !removeRemoteRow(recoveredId)) {
+                        return@forEach
+                    }
+                    recoveredDownloadId = item.retainedUri?.let { retainedUri ->
+                        try {
+                            downloads.findDownloadId(retainedUri)
+                        } catch (_: Exception) {
+                            return@forEach
+                        }
+                    }
                 }
                 val downloadManagerId = item.downloadManagerId ?: recoveredDownloadId
                 if (downloadManagerId == null) {
