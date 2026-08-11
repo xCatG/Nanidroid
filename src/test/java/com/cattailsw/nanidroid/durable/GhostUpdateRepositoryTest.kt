@@ -1578,7 +1578,7 @@ class GhostUpdateRepositoryTest {
         }
         val repository = fixture.repository(fileOperations = fileOperations)
 
-        assertTrue(repository.run(request) { false } is GhostUpdateResult.Failed)
+        assertEquals(GhostUpdateResult.NoChangesPending, repository.run(request) { false })
         val journal = GhostUpdateJournalStore.read(
             File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
         )
@@ -1610,7 +1610,7 @@ class GhostUpdateRepositoryTest {
             },
         )
 
-        assertTrue(repository.run(request) { false } is GhostUpdateResult.Failed)
+        assertEquals(GhostUpdateResult.NoChangesPending, repository.run(request) { false })
         assertEquals(
             CommitPhase.NO_CHANGES_PENDING,
             GhostUpdateJournalStore.read(
@@ -1939,6 +1939,7 @@ class GhostUpdateRepositoryTest {
     fun `worker leaves classification pending result durable and requests correct follow-up`() {
         listOf(
             GhostUpdateResult.PublishPending(emptyList()) to ListenableWorker.Result.retry(),
+            GhostUpdateResult.NoChangesPending to ListenableWorker.Result.retry(),
             GhostUpdateResult.RollbackPending(OperationStatus.FAILED, emptyList()) to
                 ListenableWorker.Result.failure(),
         ).forEachIndexed { index, (pending, expected) ->

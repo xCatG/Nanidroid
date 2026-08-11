@@ -314,7 +314,7 @@ class GhostUpdateRepository internal constructor(
                 journalPersisted = true
                 if (!onNoChangesClassified()) return GhostUpdateResult.NoChangesPending
                 if (!cleanPreparedTransaction(transactionRoot, journal)) {
-                    return failed("cannot clean no-change update transaction", emptyList())
+                    return GhostUpdateResult.NoChangesPending
                 }
                 events.noChanges()
                 return GhostUpdateResult.NoChanges
