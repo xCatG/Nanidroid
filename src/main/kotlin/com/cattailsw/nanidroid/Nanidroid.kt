@@ -100,6 +100,15 @@ internal fun tryLaunchDialogueExternalUri(launch: () -> Unit): Boolean = try {
     false
 }
 
+internal fun allowsArchiveIntentIngress(
+    activityRunner: SScriptRunner?,
+    retainedRunner: () -> SScriptRunner,
+): Boolean {
+    val activeRunner = activityRunner ?: retainedRunner()
+    return GhostActionGuard(activeRunner.runtimeModeSnapshot())
+        .allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER)
+}
+
 internal fun <T : Any> routeGhostSwitchResult(
     result: T?,
     destroyed: Boolean,
@@ -764,7 +773,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }.execute()
     }
     private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
-        if (!allowsArchiveIngress(runner?.runtimeModeSnapshot())) return
+        if (!allowsArchiveIntentIngress(runner) { SScriptRunner.getInstance(this) }) return
         val resolvedMimeType = incoming?.type ?: runCatching {
             incoming?.data?.let(contentResolver::getType)
         }.getOrNull()
