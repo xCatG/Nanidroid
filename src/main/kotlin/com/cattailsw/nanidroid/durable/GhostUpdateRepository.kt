@@ -1748,7 +1748,8 @@ class GhostUpdateRepository internal constructor(
             if (
                 journal.operationId != request.operationId ||
                 journal.attemptId != request.attemptId ||
-                journal.workManagerUuid != request.workManagerUuid
+                journal.workManagerUuid != request.workManagerUuid ||
+                (journal.ghostId != null && journal.ghostId != request.ghostId)
             ) return RecoveryResult.Failed("stale ghost update journal blocks replay")
             val topology = topologyOf(ghostRoot, File(transaction, CANDIDATE), File(transaction, BACKUP))
             if (journal.phase == CommitPhase.NO_CHANGES_PENDING) {

@@ -3168,6 +3168,34 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `no-change replay with a mismatched ghost ID does not publish a completion event`() {
+        val fixture = fixture("invalid-no-change-replay-identity")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.writeTransaction("candidate/ghost/master.txt", "same")
+        fixture.writeJournal(
+            CommitPhase.NO_CHANGES_PENDING,
+            listOf("ghost/master.txt"),
+            AttemptId(1),
+            "work-1",
+            ghostId = "foreign-ghost-id",
+        )
+        var classifications = 0
+
+        val result = fixture.repository(
+            onNoChangesClassified = {
+                classifications++
+                true
+            },
+        ).run(
+            fixture.request().copy(attemptId = AttemptId(1), workManagerUuid = "work-1"),
+        ) { false }
+
+        assertTrue(result is GhostUpdateResult.Failed)
+        assertEquals(0, classifications)
+        assertTrue(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `no-change replay cleans up after its terminal payload was delivered`() {
         val fixture = fixture("no-change-replay-delivered")
         fixture.writeLive("ghost/master.txt", "same")
