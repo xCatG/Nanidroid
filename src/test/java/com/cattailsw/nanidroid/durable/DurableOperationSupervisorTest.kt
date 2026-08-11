@@ -348,7 +348,7 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
-    @Test fun `next update can replace a claimed terminal record while its event is being dispatched`() {
+    @Test fun `attempt rollover cannot discard a terminal event when claimed dispatch fails`() {
         val root = File("build/terminal-event-rollover-race").canonicalFile
         val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
         val binding = workManager("terminal-event-rollover-worker")
@@ -361,11 +361,11 @@ class DurableOperationSupervisorTest {
         var rolloverAccepted = false
 
         val delivery = Thread {
-            assertTrue(
+            assertFalse(
                 GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
                     dispatchEntered.countDown()
                     assertTrue(releaseDispatch.await(5, TimeUnit.SECONDS))
-                    true
+                    false
                 },
             )
         }
@@ -391,9 +391,19 @@ class DurableOperationSupervisorTest {
 
         assertFalse(delivery.isAlive)
         assertFalse(rollover.isAlive)
-        assertTrue(rolloverAccepted)
-        assertEquals(AttemptId(2), supervisor.records().single().attemptId)
-        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+        assertFalse(rolloverAccepted)
+        assertEquals(AttemptId(1), supervisor.records().single().attemptId)
+        assertEquals(event, supervisor.records().single().pendingGhostUpdateEvent)
+        assertTrue(GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) { true })
+        assertTrue(
+            supervisor.start(
+                handle.copy(attemptId = AttemptId(2)),
+                OperationKind.GHOST_UPDATE,
+                "Updating",
+                0,
+                workManager("terminal-event-rollover-next-worker"),
+            ),
+        )
     }
 
     @Test fun `attention action does not wait for a stalled terminal event dispatch`() {

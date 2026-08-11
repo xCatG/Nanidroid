@@ -113,6 +113,7 @@ class DurableOperationSupervisor(
                 ?: return@mutate false
             if (
                 !previous.status.isTerminal() ||
+                previous.pendingGhostUpdateEvent != null ||
                 !previous.kind.canRetryAs(kind) && !(
                     allowRemoteNarReacquisition &&
                         previous.kind == OperationKind.NAR_INSTALL &&
