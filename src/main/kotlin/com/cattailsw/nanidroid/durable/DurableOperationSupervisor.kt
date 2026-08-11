@@ -44,6 +44,9 @@ class DurableOperationSupervisor(
         listener?.let { runCatching(it) }
     }
 
+    internal fun addStoreChangeListener(listener: () -> Unit): () -> Unit =
+        store.addChangeListener(listener)
+
     fun start(
         handle: OperationHandle,
         kind: OperationKind,

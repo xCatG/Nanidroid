@@ -20,6 +20,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
     private var recoveryState = RecoveryState.HEALTHY
     private var recoveryMode = false
     private var recoveryRawPayload: String? = null
+    private val changeListenerKey = storage.changeListenerKey
 
     override fun read(): List<DurableOperationRecord> = synchronized(operationLock) {
         if (recoveryMode) return@synchronized emptyList()
@@ -33,30 +34,60 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         }
     }
 
-    override fun putIfAbsent(record: DurableOperationRecord): Boolean = synchronized(operationLock) {
-        if (!isWritable()) return@synchronized false
-        val records = readRecords()
-        if (record.id in records) return@synchronized false
-        records[record.id] = record
-        writeRecords(records)
-        true
+    override fun addChangeListener(listener: () -> Unit): () -> Unit = synchronized(operationLock) {
+        changeListenersByStorage.getOrPut(changeListenerKey) { mutableSetOf() } += listener
+        {
+            synchronized(operationLock) {
+                changeListenersByStorage[changeListenerKey]?.let { listeners ->
+                    listeners -= listener
+                    if (listeners.isEmpty()) changeListenersByStorage -= changeListenerKey
+                }
+            }
+        }
+    }
+
+    override fun putIfAbsent(record: DurableOperationRecord): Boolean {
+        val changed = synchronized(operationLock) {
+            if (!isWritable()) return@synchronized false
+            val records = readRecords()
+            if (record.id in records) return@synchronized false
+            records[record.id] = record
+            writeRecords(records)
+            true
+        }
+        if (changed) notifyChangeListeners()
+        return changed
     }
 
     override fun compareAndSet(
         expected: DurableOperationRecord,
         updated: DurableOperationRecord,
-    ): Boolean = synchronized(operationLock) {
-        if (!isWritable()) return@synchronized false
-        require(updated.id == expected.id) { "operation id cannot change" }
-        val records = readRecords()
-        val current = records[expected.id] ?: return@synchronized false
-        if (current != expected) return@synchronized false
-        records[expected.id] = updated
-        writeRecords(records)
-        true
+    ): Boolean {
+        val changed = synchronized(operationLock) {
+            if (!isWritable()) return@synchronized false
+            require(updated.id == expected.id) { "operation id cannot change" }
+            val records = readRecords()
+            val current = records[expected.id] ?: return@synchronized false
+            if (current != expected) return@synchronized false
+            records[expected.id] = updated
+            writeRecords(records)
+            true
+        }
+        if (changed) notifyChangeListeners()
+        return changed
+    }
+
+    private fun notifyChangeListeners() {
+        val listeners = synchronized(operationLock) {
+            changeListenersByStorage[changeListenerKey].orEmpty().toList()
+        }
+        listeners.forEach { listener -> runCatching(listener) }
     }
 
     internal interface Storage {
+        val changeListenerKey: Any
+            get() = this
+
         fun read(): String?
         fun write(value: String)
         fun readQuarantine(): String? = null
@@ -109,6 +140,9 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
     }
 
     private class SharedPreferencesStorage(private val preferences: SharedPreferences) : Storage {
+        override val changeListenerKey: Any
+            get() = preferences
+
         override fun read() = preferences.getString(RECORDS, null)
 
         override fun write(value: String) {
@@ -230,6 +264,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         const val PREVIOUS_PREVIOUS_PREVIOUS_VERSION = "v2"
         const val LEGACY_VERSION = "v1"
         val operationLock = Any()
+        val changeListenersByStorage = mutableMapOf<Any, MutableSet<() -> Unit>>()
         val encoder = Base64.getUrlEncoder().withoutPadding()
         val decoder = Base64.getUrlDecoder()
 
