@@ -162,6 +162,9 @@ class GhostUpdateWorker(
             handle,
             binding,
             { isStopped },
+            resumeCompletedNoChangesCleanup = {
+                hasExactNoChangesCleanupPending(ghostRoot, handle, binding)
+            },
             terminalEventPersistenceFailed = terminalEventPersistenceFailed::get,
         ) {
             val runner = SScriptRunner.getInstance(applicationContext)
@@ -591,12 +594,15 @@ class GhostUpdateWorker(
             binding: ExternalJobBinding.WorkManager,
             @Suppress("UNUSED_PARAMETER")
             isStopped: () -> Boolean,
+            resumeCompletedNoChangesCleanup: () -> Boolean = { false },
             terminalEventPersistenceFailed: () -> Boolean = { false },
             run: () -> GhostUpdateResult,
         ): ListenableWorker.Result {
             if (!supervisor.reportProgress(handle, binding, "Fetching update manifest", 0)) {
                 when (supervisor.exactStatusForAttempt(handle, OperationKind.GHOST_UPDATE, binding)) {
                     OperationStatus.RUNNING -> Unit
+                    OperationStatus.COMPLETED -> if (resumeCompletedNoChangesCleanup()) Unit
+                    else return ListenableWorker.Result.success()
                     OperationStatus.CANCEL_REQUESTED -> {
                         supervisor.finish(handle, binding, OperationStatus.CANCELLED)
                         return ListenableWorker.Result.success()
@@ -854,6 +860,26 @@ class GhostUpdateWorker(
                 GhostUpdateRepository.transactionRootFor(targetGhostRoot, operationId),
                 GhostUpdateJournalStore.FILE_NAME,
             ).isFile
+        }
+
+        /** Allows a terminal worker retry only to finish its own retained no-change cleanup. */
+        internal fun hasExactNoChangesCleanupPending(
+            ghostRoot: File,
+            handle: OperationHandle,
+            binding: ExternalJobBinding.WorkManager,
+        ): Boolean = try {
+            val journalFile = File(
+                GhostUpdateRepository.transactionRootFor(ghostRoot, handle.operationId),
+                GhostUpdateJournalStore.FILE_NAME,
+            )
+            if (!journalFile.isFile) return false
+            val journal = GhostUpdateJournalStore.read(journalFile)
+            journal.phase == CommitPhase.NO_CHANGES_PENDING &&
+                journal.operationId == handle.operationId &&
+                journal.attemptId == handle.attemptId &&
+                journal.workManagerUuid == binding.uuid
+        } catch (_: IOException) {
+            false
         }
 
         internal fun reconcileNoJournalAttempt(

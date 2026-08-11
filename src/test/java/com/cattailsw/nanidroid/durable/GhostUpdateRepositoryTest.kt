@@ -1959,6 +1959,54 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `completed no-change cleanup attempt re-enters repository recovery`() {
+        val fixture = fixture("completed-no-change-cleanup-retry")
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("completed-no-change-cleanup-retry")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+        fixture.writeJournal(CommitPhase.NO_CHANGES_PENDING, emptyList(), handle.attemptId, binding.uuid)
+        var runs = 0
+
+        val result = GhostUpdateWorker.execute(
+            supervisor,
+            handle,
+            binding,
+            { false },
+            resumeCompletedNoChangesCleanup = {
+                GhostUpdateWorker.hasExactNoChangesCleanupPending(fixture.ghostRoot, handle, binding)
+            },
+        ) {
+            runs += 1
+            GhostUpdateResult.NoChanges
+        }
+
+        assertEquals(ListenableWorker.Result.success().toString(), result.toString())
+        assertEquals(1, runs)
+    }
+
+    @Test
+    fun `no-change cleanup replay requires the exact terminal attempt`() {
+        val fixture = fixture("completed-no-change-cleanup-exact-attempt")
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("completed-no-change-cleanup-exact-attempt")
+        fixture.writeJournal(CommitPhase.NO_CHANGES_PENDING, emptyList(), handle.attemptId, binding.uuid)
+
+        assertTrue(GhostUpdateWorker.hasExactNoChangesCleanupPending(fixture.ghostRoot, handle, binding))
+        assertFalse(
+            GhostUpdateWorker.hasExactNoChangesCleanupPending(
+                fixture.ghostRoot,
+                handle.copy(attemptId = AttemptId(2)),
+                binding,
+            ),
+        )
+    }
+
+    @Test
     fun `terminal persistence before cleanup failure leaves retryable published evidence`() {
         val fixture = fixture("terminal-cleanup-crash")
         fixture.writeLive("ghost/master.txt", "old")
