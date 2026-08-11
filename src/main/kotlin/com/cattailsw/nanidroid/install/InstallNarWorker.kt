@@ -53,7 +53,8 @@ class InstallNarWorker(
     companion object {
         internal const val INPUT_ITEM_ID = "nar-download-item-id"
         internal const val INPUT_ATTEMPT_ID = "nar-download-attempt-id"
-        private const val NO_ATTEMPT = -1L
+        internal const val NO_ATTEMPT = -1L
+        internal const val ATTEMPT_TAG_PREFIX = "nar-install-attempt:"
 
         internal fun execute(
             repository: NarDownloadRepository,
@@ -88,6 +89,44 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
     private val applicationContext = context.applicationContext
     private val workManager by lazy { WorkManager.getInstance(applicationContext) }
 
+    companion object {
+        private const val LEGACY_INSTALL_ATTEMPT_ID = 1L
+
+        internal fun isLegacyInstallWork(
+            itemId: String,
+            workManagerId: UUID,
+            tags: Set<String>,
+            attemptId: Long,
+        ): Boolean =
+            attemptId <= LEGACY_INSTALL_ATTEMPT_ID &&
+                tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
+                !isDeterministicInstallWorkId(itemId, workManagerId, attemptId)
+
+        internal fun isStaleAttemptTaggedInstallWork(
+            tags: Set<String>,
+            currentAttemptId: Long,
+        ): Boolean = tags.any { tag ->
+            tag.removePrefix(InstallNarWorker.ATTEMPT_TAG_PREFIX)
+                .takeIf { tag.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) }
+                ?.toLongOrNull()
+                ?.let { it != currentAttemptId } == true
+        }
+
+        private fun isDeterministicInstallWorkId(
+            itemId: String,
+            workManagerId: UUID,
+            latestAttemptId: Long,
+        ): Boolean {
+            if (latestAttemptId == InstallNarWorker.NO_ATTEMPT) return false
+            return (0L..latestAttemptId).any { candidateAttemptId ->
+                workManagerId == durableWorkManagerId(
+                    OperationHandle(OperationId(itemId), AttemptId(candidateAttemptId)),
+                    OperationKind.NAR_INSTALL,
+                )
+            }
+        }
+    }
+
     override fun enqueue(itemId: String) {
         val request = OneTimeWorkRequestBuilder<InstallNarWorker>()
             .setInputData(
@@ -103,6 +142,54 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
         )
     }
 
+    override fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? =
+        workManager.getWorkInfosForUniqueWork(NarDownloadRepository.workName(itemId)).get()
+            .firstOrNull { workInfo ->
+                isLegacyInstallWork(
+                    itemId = itemId,
+                    workManagerId = workInfo.id,
+                    tags = workInfo.tags,
+                    attemptId = attemptId,
+                ) &&
+                    when (workInfo.state) {
+                        WorkInfo.State.ENQUEUED,
+                        WorkInfo.State.RUNNING,
+                        WorkInfo.State.BLOCKED,
+                        -> true
+                        WorkInfo.State.SUCCEEDED,
+                        WorkInfo.State.FAILED,
+                        WorkInfo.State.CANCELLED,
+                        -> false
+                    }
+            }
+            ?.id
+            ?.toString()
+
+    override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long): Boolean {
+        val currentId = durableWorkManagerId(
+            OperationHandle(OperationId(itemId), AttemptId(attemptId)),
+            OperationKind.NAR_INSTALL,
+        )
+        workManager.getWorkInfosForUniqueWork(NarDownloadRepository.workName(itemId)).get()
+            .filter { workInfo ->
+                workInfo.id != currentId &&
+                    (
+                        isStaleAttemptTaggedInstallWork(workInfo.tags, attemptId) ||
+                            (
+                                workInfo.tags.none { it.startsWith(InstallNarWorker.ATTEMPT_TAG_PREFIX) } &&
+                                    !isLegacyInstallWork(itemId, workInfo.id, workInfo.tags, attemptId)
+                            )
+                    ) &&
+                    workInfo.state in setOf(
+                        WorkInfo.State.ENQUEUED,
+                        WorkInfo.State.RUNNING,
+                        WorkInfo.State.BLOCKED,
+                    )
+            }
+            .forEach { workManager.cancelWorkById(it.id).result.get() }
+        return true
+    }
+
     override fun enqueue(
         itemId: String,
         attemptId: Long,
@@ -114,8 +201,12 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
             NarDownloadRepository.workName(itemId),
             ExistingWorkPolicy.KEEP,
             request,
-        )
+        ).result.get()
         return true
+    }
+
+    override fun cancelSubmittedInstallWork(workManagerId: String) {
+        workManager.cancelWorkById(UUID.fromString(workManagerId)).result.get()
     }
 
     override fun ensureInstallEnqueued(
@@ -160,6 +251,7 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
                 .putLong(InstallNarWorker.INPUT_ATTEMPT_ID, attemptId)
                 .build(),
         )
+        .addTag("${InstallNarWorker.ATTEMPT_TAG_PREFIX}$attemptId")
         .build()
 
     override fun enqueueStage(

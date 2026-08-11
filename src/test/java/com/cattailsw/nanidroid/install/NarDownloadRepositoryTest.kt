@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.install
 import androidx.work.ListenableWorker
 import com.cattailsw.nanidroid.di.MonotonicClock
 import com.cattailsw.nanidroid.durable.AttemptId
+import com.cattailsw.nanidroid.durable.CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
 import com.cattailsw.nanidroid.durable.DurableOperationRecord
 import com.cattailsw.nanidroid.durable.DurableOperationStore
 import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
@@ -26,8 +27,12 @@ import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.lang.ref.WeakReference
+import java.nio.charset.StandardCharsets
+import java.util.Base64
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -150,6 +155,576 @@ class NarDownloadRepositoryTest {
         assertTrue(result.acceptedActive)
         assertEquals(NarDownloadSource.Local("content://provider/reselected.nar"), result.download.source)
         assertTrue(result.download.handle() != item.handle())
+    }
+
+    @Test fun retryDefersInstallRecoverySchedulingUntilAfterTheUiCallReturns() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        val item = deferredRepository.enqueueLocal("file:///owned/retry.nar")
+        dispatcher.runAll()
+        store.update(item.id) { current ->
+            current.copy(state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("retry")))
+        }
+        work.staleCancelCalls = 0
+
+        val retried = deferredRepository.retry(item.id)!!
+
+        assertEquals(NarDownloadState.Queued, retried.state)
+        assertNull(retried.workManagerId)
+        assertEquals(0, work.staleCancelCalls)
+        assertEquals(1, dispatcher.pendingCount)
+
+        dispatcher.runAll()
+
+        assertTrue(work.staleCancelCalls > 0)
+    }
+
+    @Test fun deferredInstallSchedulingFailurePublishesNeedsAttentionToObservers() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        work.installEnqueueFailure = IllegalStateException("enqueue rejected")
+
+        val item = deferredRepository.enqueueLocal("file:///owned/publish.nar")
+
+        // The caller published immediately after merely queuing the background task.
+        assertEquals(
+            NarDownloadState.Queued,
+            deferredRepository.observeDownloads().value.single { it.id == item.id }.state,
+        )
+
+        dispatcher.runAll()
+
+        val stored = store.get(item.id)!!
+        assertTrue(stored.state is NarDownloadState.NeedsAttention)
+        val observed = deferredRepository.observeDownloads().value.single { it.id == item.id }
+        assertEquals(
+            "background NeedsAttention transition must be republished to observers",
+            stored.state,
+            observed.state,
+        )
+    }
+
+    @Test fun deferredReselectReportsDurableQueuedAcceptanceBeforeWorkBinds() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        val item = deferredRepository.enqueueLocal("file:///owned/first.nar")
+        dispatcher.runAll()
+        installer.failure = SecurityException("grant revoked")
+        InstallNarWorker.execute(
+            deferredRepository,
+            item.id,
+            item.attemptId,
+            store.get(item.id)!!.workManagerId!!,
+        ) { false }
+        installer.failure = null
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+
+        val result = deferredRepository.replaceLocalSourceForUser(
+            item.id,
+            "file:///owned/second.nar",
+        )!!
+
+        // The background dispatcher has not yet run, so the WorkManager id is not bound.
+        assertEquals(NarDownloadState.Queued, result.download.state)
+        assertNull(result.download.workManagerId)
+        assertTrue(
+            "a genuinely accepted reselect must report acceptedActive before binding completes",
+            result.acceptedActive,
+        )
+
+        dispatcher.runAll()
+        assertNotNull(store.get(item.id)!!.workManagerId)
+    }
+
+    @Test fun uiThreadRepositoryCallsDoNotBlockOnDeferredInstallSchedulingProbe() {
+        val backgroundExecutor = Executors.newSingleThreadExecutor()
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action ->
+                    backgroundExecutor.execute(action)
+                },
+                nextId = { ids.removeFirst() },
+            )
+            val probeStarted = CountDownLatch(1)
+            val allowProbeToFinish = CountDownLatch(1)
+            work.legacyProbeStarted = probeStarted
+            work.allowLegacyProbe = allowProbeToFinish
+
+            // enqueueLocal() dispatches the migrated-initial-attempt's
+            // scheduleInstallNow() run onto the background executor; since the
+            // WorkManager id is not yet bound, it will call the (now blocked)
+            // legacy-install probe.
+            deferredRepository.enqueueLocal("file:///owned/stalled.nar")
+            assertTrue(
+                "background scheduling did not reach the WorkManager probe",
+                probeStarted.await(5, TimeUnit.SECONDS),
+            )
+
+            // While the background thread is parked inside the blocking WorkManager
+            // probe, a main-thread-style call into another @Synchronized repository
+            // method must still complete promptly instead of stalling on the same
+            // monitor (which would risk an ANR for Retry/Delete in the real UI).
+            val uiCallFinished = CountDownLatch(1)
+            val uiThreadFailure = AtomicReference<Throwable?>()
+            val uiThread = Thread {
+                try {
+                    deferredRepository.enqueueLocal("file:///owned/unrelated.nar")
+                } catch (error: Throwable) {
+                    uiThreadFailure.set(error)
+                } finally {
+                    uiCallFinished.countDown()
+                }
+            }
+            uiThread.start()
+            try {
+                assertTrue(
+                    "a UI-thread repository call was blocked by the deferred install " +
+                        "scheduling WorkManager probe",
+                    uiCallFinished.await(2, TimeUnit.SECONDS),
+                )
+                uiThreadFailure.get()?.let { throw AssertionError("UI-thread call failed", it) }
+            } finally {
+                allowProbeToFinish.countDown()
+                uiThread.join(5_000)
+            }
+        } finally {
+            backgroundExecutor.shutdown()
+            assertTrue(backgroundExecutor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test fun retryAfterPreparedDeferredInstallCanScheduleItsSuccessor() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowFirstEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowFirstEnqueue
+
+            val first = deferredRepository.enqueueLocal("file:///owned/racy.nar")
+            itemId = first.id
+            assertTrue("first install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            val retryFinished = CountDownLatch(1)
+            val retryFailure = AtomicReference<Throwable?>()
+            Thread {
+                try {
+                    deferredRepository.retry(first.id)
+                } catch (error: Throwable) {
+                    retryFailure.set(error)
+                } finally {
+                    retryFinished.countDown()
+                }
+            }.start()
+            assertTrue("Retry did not return while the first enqueue was deferred", retryFinished.await(5, TimeUnit.SECONDS))
+            retryFailure.get()?.let { throw AssertionError("Retry failed", it) }
+
+            allowFirstEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        val retried = store.get(itemId)!!
+        assertEquals(2L, retried.attemptId)
+        assertEquals(workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL), retried.workManagerId)
+    }
+
+    @Test fun retryTerminalizesActiveInstallBindingBeforeItsUuidIsPersisted() {
+        val item = store.create(
+            NarDownload(
+                id = "old-item",
+                source = NarDownloadSource.Local("file:///owned/bound-before-persist.nar"),
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val binding = ExternalJobBinding.WorkManager(
+            workId(item.id, item.attemptId, OperationKind.NAR_INSTALL),
+        )
+        assertTrue(
+            supervisor.start(
+                item.handle(),
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.bindExternalJob(item.handle(), binding))
+
+        val retried = repository.retry(item.id)!!
+
+        assertEquals(2L, retried.attemptId)
+        assertEquals(
+            workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL),
+            retried.workManagerId,
+        )
+    }
+
+    @Test fun retryCanSupersedeQueuedInstallBeforeItsFirstBinding() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepareStarted = CountDownLatch(1)
+            val allowInstallPrepare = CountDownLatch(1)
+            work.beforeNextInstallPrepared = { _, _ ->
+                prepareStarted.countDown()
+                assertTrue(allowInstallPrepare.await(5, TimeUnit.SECONDS))
+            }
+
+            val first = deferredRepository.enqueueLocal("file:///owned/racy-before-bind.nar")
+            itemId = first.id
+            assertTrue("install was not prepared", prepareStarted.await(5, TimeUnit.SECONDS))
+
+            val retried = deferredRepository.retry(first.id)!!
+            assertEquals(2L, retried.attemptId)
+
+            allowInstallPrepare.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        val retriedStored = store.get(itemId)!!
+        assertEquals(2L, retriedStored.attemptId)
+        assertEquals(
+            workId(retriedStored.id, retriedStored.attemptId, OperationKind.NAR_INSTALL),
+            retriedStored.workManagerId,
+        )
+    }
+
+    @Test fun staleDeferredInstallDoesNotStartAfterRetrySupersedesItsCapturedRow() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        val first = deferredRepository.enqueueLocal("file:///owned/stale-start.nar")
+        val retried = deferredRepository.retry(first.id)!!
+        val installPrepared = CountDownLatch(1)
+        val releaseInstallPreparation = CountDownLatch(1)
+        work.beforeNextInstallPrepared = { _, _ ->
+            installPrepared.countDown()
+            assertTrue(releaseInstallPreparation.await(5, TimeUnit.SECONDS))
+        }
+
+        val staleTask = Thread { deferredRepository.scheduleInstallNow(first) }
+        staleTask.start()
+        try {
+            assertTrue(
+                "a superseded scheduler task must not start its old durable attempt",
+                !installPrepared.await(250, TimeUnit.MILLISECONDS),
+            )
+            assertNull(supervisor.exactStatusForAttempt(first.handle(), OperationKind.NAR_INSTALL))
+            assertEquals(retried.attemptId, store.get(first.id)!!.attemptId)
+        } finally {
+            releaseInstallPreparation.countDown()
+            staleTask.join(5_000)
+        }
+        assertTrue("stale scheduler task did not return", !staleTask.isAlive)
+    }
+
+    @Test fun replaceCanSupersedeQueuedInstallBeforeItsFirstBinding() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepareStarted = CountDownLatch(1)
+            val allowInstallPrepare = CountDownLatch(1)
+            work.beforeNextInstallPrepared = { _, _ ->
+                prepareStarted.countDown()
+                assertTrue(allowInstallPrepare.await(5, TimeUnit.SECONDS))
+            }
+
+            val first = deferredRepository.enqueueLocal("file:///owned/racy-before-bind-replace.nar")
+            itemId = first.id
+            assertTrue("install was not prepared", prepareStarted.await(5, TimeUnit.SECONDS))
+
+            val result = deferredRepository.replaceLocalSourceForUser(
+                first.id,
+                "file:///owned/reselected-before-bind.nar",
+            )!!
+            assertEquals(2L, result.download.attemptId)
+            assertTrue(result.acceptedActive)
+
+            allowInstallPrepare.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        val replaced = store.get(itemId)!!
+        assertEquals(2L, replaced.attemptId)
+        assertEquals(
+            "file:///owned/reselected-before-bind.nar",
+            (replaced.source as NarDownloadSource.Local).uri,
+        )
+        assertEquals(
+            workId(replaced.id, replaced.attemptId, OperationKind.NAR_INSTALL),
+            replaced.workManagerId,
+        )
+    }
+
+    @Test fun deleteTerminalizesPreparedDeferredInstallBeforeItEnqueues() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowEnqueue
+
+            val item = deferredRepository.enqueueLocal("file:///owned/delete-race.nar")
+            itemId = item.id
+            assertTrue("install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            assertTrue(deferredRepository.delete(item.id))
+            allowEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        assertNull(store.get(itemId))
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+    }
+
+    @Test fun stopAfterPreparedInstallRedispatchesCancellationAfterSubmission() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var item: NarDownload
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowEnqueue
+
+            item = deferredRepository.enqueueLocal("file:///owned/stop-after-prepare.nar")
+            assertTrue("install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            assertTrue(deferredRepository.stop(item.id))
+            allowEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        assertEquals(
+            listOf(workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)),
+            work.cancelledSubmittedInstallIds,
+        )
+    }
+
+    @Test fun submittedInstallCancellationFailurePreservesTheRequestedStop() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var item: NarDownload
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowEnqueue
+            work.cancelSubmittedInstallWorkFailure = IllegalStateException("submitted cancellation failed")
+
+            item = deferredRepository.enqueueLocal("file:///owned/stop-dispatch-failure.nar")
+            assertTrue("install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            assertTrue(deferredRepository.stop(item.id))
+            allowEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
+        val operation = operationStore.read().single()
+        assertEquals(OperationStatus.CANCEL_REQUESTED, operation.status)
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, operation.diagnostics)
+        assertTrue(stopReconciliation.hasPending(item.handle()))
+        assertTrue(supervisor.requestStop(item.handle()))
+        assertEquals(
+            List(2) { ExternalJobBinding.WorkManager(workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)) },
+            work.cancelledBindings.map(ExternalJobBinding::WorkManager),
+        )
+    }
+
+    @Test fun deferredSupervisorStartFailureMarksTheExactQueuedRowForAttention() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val failingOperationStore = ThrowingPutOperationStore()
+        val failingSupervisor = DurableOperationSupervisor(
+            failingOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = failingSupervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+
+        val item = deferredRepository.enqueueLocal("file:///owned/start-failure.nar")
+        dispatcher.runAll()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertTrue(failingOperationStore.read().isEmpty())
+    }
+
+    @Test fun retryTerminalizesUnboundPreparedInstallBeforeSchedulingItsSuccessor() {
+        val item = store.create(
+            NarDownload(
+                id = "unbound-superseded-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        assertTrue(supervisor.start(item.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+
+        val retried = repository.retry(item.id)!!
+
+        assertEquals(2L, retried.attemptId)
+        assertEquals(
+            workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL),
+            retried.workManagerId,
+        )
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
     }
 
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
@@ -1701,6 +2276,622 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationKind.NAR_INSTALL, operation.kind)
         assertEquals(OperationStatus.RUNNING, operation.status)
         assertEquals(binding, operation.externalJob)
+    }
+
+    @Test fun reconciliationExcludesLegacyWorkStillFinishingAnEarlierAttempt() {
+        // Simulates: a v1 legacy worker was bound to the migrated initial attempt
+        // (attemptId 1), that attempt's failure was published, and Retry/Select
+        // again advanced the record to attemptId 2 -- but the legacy WorkManager
+        // job is still physically RUNNING because its cancellation (requested by
+        // work.cancel(itemId) in retry()/replaceLocalSource()) has not yet taken
+        // effect. Reconciliation must not misclassify that still-finishing job as
+        // reusable legacy work for the new attempt.
+        val item = store.create(
+            NarDownload(
+                id = "advanced-attempt-legacy-race",
+                source = NarDownloadSource.Local("file:///owned/advanced.nar"),
+                retainedUri = "file:///owned/advanced.nar",
+                attemptId = 2L,
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val stillRunningLegacyWorkManagerId = "77777777-7777-7777-7777-777777777777"
+        work.activeInstallWorkByItemId[item.id] = stillRunningLegacyWorkManagerId
+
+        repository.reconcile()
+
+        val reconciled = store.get(item.id)!!
+        assertNotEquals(stillRunningLegacyWorkManagerId, reconciled.workManagerId)
+        assertEquals(
+            workId(item.id, item.attemptId, OperationKind.NAR_INSTALL),
+            reconciled.workManagerId,
+        )
+        assertTrue(stillRunningLegacyWorkManagerId !in work.installEnqueuedIds)
+    }
+
+    @Test fun reconciliationRebindsActiveLegacyInstallWorkBeforePersistingMigrationBinding() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-install-migration",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "33333333-3333-3333-3333-333333333333"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        repository.reconcile()
+        val rebound = store.get(item.id)!!
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        assertEquals(legacyWorkManagerId, rebound.workManagerId)
+        assertEquals(NarDownloadState.Queued, rebound.state)
+        assertEquals(rebound, store.get(item.id))
+        assertTrue(work.installEnqueuedIds.isEmpty())
+        assertTrue(work.cancelledBindings.isEmpty())
+        val operation = operationStore.read().single()
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
+    }
+
+    @Test fun reconciliationMakesLegacyInstallWorkActionableWhenItCompletesDuringRebinding() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-install-completes-during-rebinding",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "55555555-5555-5555-5555-555555555555"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+        work.installRecovery = NarInstallWorkRecovery.SUCCEEDED
+
+        repository.reconcile()
+
+        val recovered = store.get(item.id)!!
+        assertEquals(legacyWorkManagerId, recovered.workManagerId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun reconciliationRebindsActiveLegacyWorkForRecoveredUnboundInstallAttempt() {
+        val item = store.create(
+            NarDownload(
+                id = "recovered-unbound-legacy-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        assertTrue(supervisor.start(item.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        val legacyWorkManagerId = "66666666-6666-6666-6666-666666666666"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        recreatedRepository().reconcile()
+
+        val rebound = store.get(item.id)!!
+        assertEquals(legacyWorkManagerId, rebound.workManagerId)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+        assertEquals(
+            ExternalJobBinding.WorkManager(legacyWorkManagerId),
+            operationStore.read().single().externalJob,
+        )
+    }
+
+    @Test fun reconciliationRebindsRetainedLegacyWorkWhenV2BindingIsMissing() {
+        val item = store.create(
+            NarDownload(
+                id = "v2-migrated-legacy-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val v2WorkManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = v2WorkManagerId) }!!
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(
+            supervisor.bindExternalJob(
+                migrated.handle(),
+                ExternalJobBinding.WorkManager(v2WorkManagerId),
+            ),
+        )
+        val legacyWorkManagerId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        recreatedRepository().reconcile()
+
+        val rebound = store.get(item.id)!!
+        assertEquals(legacyWorkManagerId, rebound.workManagerId)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+        assertEquals(
+            ExternalJobBinding.WorkManager(legacyWorkManagerId),
+            operationStore.read().single().externalJob,
+        )
+    }
+
+    @Test fun reconciliationDoesNotRebindARunningV2WorkerFromThePreviousAttempt() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-v2-install-work",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val previousWorkManagerId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        work.activeInstallWorkByItemId[item.id] = previousWorkManagerId
+        work.activeInstallWorkIsLegacyByItemId[item.id] = false
+
+        repository.reconcile()
+
+        assertEquals(
+            workId(item.id, item.attemptId, OperationKind.NAR_INSTALL),
+            store.get(item.id)!!.workManagerId,
+        )
+        assertTrue(previousWorkManagerId !in work.installEnqueuedIds)
+    }
+
+    @Test fun untaggedDeterministicV2InstallWorkIsNotClassifiedAsLegacy() {
+        val itemId = "untagged-v2-install-work"
+        val attemptId = 4L
+
+        assertTrue(
+            !AndroidNarInstallWorkScheduler.isLegacyInstallWork(
+                itemId = itemId,
+                workManagerId = durableWorkManagerId(
+                    OperationHandle(OperationId(itemId), AttemptId(attemptId)),
+                    OperationKind.NAR_INSTALL,
+                ),
+                tags = emptySet(),
+                attemptId = attemptId,
+            ),
+        )
+    }
+
+    @Test fun untaggedDeterministicV2WorkFromAnEarlierAttemptIsNotClassifiedAsLegacy() {
+        val itemId = "untagged-prior-v2-install-work"
+
+        (0L until 4L).forEach { earlierAttemptId ->
+            assertTrue(
+                !AndroidNarInstallWorkScheduler.isLegacyInstallWork(
+                    itemId = itemId,
+                    workManagerId = durableWorkManagerId(
+                        OperationHandle(OperationId(itemId), AttemptId(earlierAttemptId)),
+                        OperationKind.NAR_INSTALL,
+                    ),
+                    tags = emptySet(),
+                    attemptId = 4L,
+                ),
+            )
+        }
+    }
+
+    @Test fun untaggedV1InstallWorkFromAnAdvancedAttemptIsNotClassifiedAsLegacy() {
+        assertTrue(
+            !AndroidNarInstallWorkScheduler.isLegacyInstallWork(
+                itemId = "stale-v1-install-work",
+                workManagerId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                tags = emptySet(),
+                attemptId = 2L,
+            ),
+        )
+    }
+
+    @Test fun reconciliationMakesMigratedInstallActionableWhenPersistedWorkProbeThrows() {
+        val item = store.create(
+            NarDownload(
+                id = "migration-probe-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val workManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = workManagerId) }!!
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(supervisor.bindExternalJob(migrated.handle(), ExternalJobBinding.WorkManager(workManagerId)))
+        work.installQueryFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun reconciliationMakesMigratedInstallActionableWhenLegacyLookupThrows() {
+        val item = store.create(
+            NarDownload(
+                id = "migration-legacy-lookup-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val workManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = workManagerId) }!!
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(supervisor.bindExternalJob(migrated.handle(), ExternalJobBinding.WorkManager(workManagerId)))
+        work.activeInstallWorkByItemId[item.id] = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        work.installRecovery = NarInstallWorkRecovery.MISSING
+        work.findActiveLegacyInstallWorkFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun reconciliationTerminalizesReboundSupervisorBindingWhenPersistedWorkProbeThrows() {
+        val item = store.create(
+            NarDownload(
+                id = "migration-probe-rebound-binding-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val obsoleteWorkManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        val migrated = store.update(item.id) { it.copy(workManagerId = obsoleteWorkManagerId) }!!
+        val legacyWorkManagerId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        assertTrue(supervisor.start(migrated.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(
+            supervisor.bindExternalJob(
+                migrated.handle(),
+                ExternalJobBinding.WorkManager(legacyWorkManagerId),
+            ),
+        )
+        work.installQueryFailure = IllegalStateException("WorkManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        val operation = operationStore.read().single()
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
+    }
+
+    @Test fun legacyWorkerRetriesUntilReconciliationPersistsItsBinding() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-worker-binding-handshake",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "77777777-7777-7777-7777-777777777777"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        assertEquals(
+            ListenableWorker.Result.retry(),
+            InstallNarWorker.execute(repository, item.id, legacyWorkManagerId) { false },
+        )
+
+        repository.reconcile()
+
+        assertEquals(
+            ListenableWorker.Result.success(),
+            InstallNarWorker.execute(repository, item.id, legacyWorkManagerId) { false },
+        )
+    }
+
+    @Test fun legacyWorkerRetriesUntilMigrationBindingIsReboundToItsOwnId() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-worker-mismatched-migration-binding",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val migratedWorkManagerId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        store.update(item.id) { it.copy(workManagerId = migratedWorkManagerId) }
+        assertTrue(supervisor.start(item.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(
+            supervisor.bindExternalJob(
+                item.handle(),
+                ExternalJobBinding.WorkManager(migratedWorkManagerId),
+            ),
+        )
+        val legacyWorkManagerId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+
+        assertEquals(
+            ListenableWorker.Result.retry(),
+            InstallNarWorker.execute(repository, item.id, legacyWorkManagerId) { false },
+        )
+
+        repository.reconcile()
+
+        assertEquals(
+            ListenableWorker.Result.success(),
+            InstallNarWorker.execute(repository, item.id, legacyWorkManagerId) { false },
+        )
+    }
+
+    @Test fun legacyBindingPersistenceFailureTerminalizesBoundAttempt() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val itemId = "legacy-binding-write-failure"
+        val item = queueStore.create(
+            NarDownload(
+                id = itemId,
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "88888888-8888-8888-8888-888888888888"
+        work.activeInstallWorkByItemId[itemId] = legacyWorkManagerId
+
+        repositoryWith(queueStore, exactSupervisor, itemId).reconcile()
+
+        val recovered = queueStore.get(itemId)!!
+        assertEquals(item.attemptId, recovered.attemptId)
+        assertNull(recovered.workManagerId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        val operation = exactOperationStore.read().single()
+        assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
+    }
+
+    @Test fun appliedLegacyBindingPersistenceFailureMakesTheBoundRowActionable() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val itemId = "applied-legacy-binding-write-failure"
+        val item = queueStore.create(
+            NarDownload(
+                id = itemId,
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "abababab-abab-abab-abab-abababababab"
+        work.activeInstallWorkByItemId[itemId] = legacyWorkManagerId
+        val deferredRepository = NarDownloadRepository(
+            store = queueStore,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = FakeRemoteProgressObserver(downloads, exactSupervisor),
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { itemId },
+        )
+
+        deferredRepository.reconcile()
+        dispatcher.runAll()
+
+        val recovered = queueStore.get(itemId)!!
+        assertEquals(item.attemptId, recovered.attemptId)
+        assertEquals(legacyWorkManagerId, recovered.workManagerId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        val operation = exactOperationStore.read().single()
+        assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
+    }
+
+    @Test fun deferredLegacyBindingPersistenceFailureTerminalizesStartedAttempt() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val exactOperationStore = FailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val itemId = "deferred-legacy-binding-write-failure"
+        val item = store.create(
+            NarDownload(
+                id = itemId,
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        work.activeInstallWorkByItemId[itemId] = "99999999-9999-9999-9999-999999999999"
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = FakeRemoteProgressObserver(downloads, exactSupervisor),
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { itemId },
+        )
+
+        deferredRepository.reconcile()
+        dispatcher.runAll()
+
+        assertTrue(store.get(itemId)!!.state is NarDownloadState.NeedsAttention)
+        val operation = exactOperationStore.read().single()
+        assertEquals(OperationId(itemId), operation.id)
+        assertEquals(AttemptId(item.attemptId), operation.attemptId)
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertNull(operation.externalJob)
+    }
+
+    @Test fun reconciliationMakesUnboundLegacyInstallActionableAfterItsBoundAttemptAlreadyFailed() {
+        val item = store.create(
+            NarDownload(
+                id = "legacy-binding-terminal-crash-window",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "99999999-9999-9999-9999-999999999999"
+        val binding = ExternalJobBinding.WorkManager(legacyWorkManagerId)
+        work.activeInstallWorkByItemId[item.id] = legacyWorkManagerId
+        assertTrue(supervisor.start(item.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+        assertTrue(supervisor.bindExternalJob(item.handle(), binding))
+        assertTrue(
+            supervisor.finish(
+                item.handle(),
+                binding,
+                OperationStatus.FAILED,
+                "Unable to schedule installation.",
+            ),
+        )
+
+        recreatedRepository().reconcile()
+
+        val recovered = store.get(item.id)!!
+        assertNull(recovered.workManagerId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun reconciliationCancelsExcludedEarlierDeterministicInstallBeforeKeepingCurrentAttempt() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-deterministic-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+                attemptId = 2L,
+            ),
+        )
+        val staleId = workId(item.id, 1L, OperationKind.NAR_INSTALL)
+        val currentId = workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)
+        work.activeInstallWorkByItemId[item.id] = staleId
+        work.activeInstallWorkIsLegacyByItemId[item.id] = false
+
+        repository.reconcile()
+
+        assertEquals(listOf(staleId), work.cancelledStaleInstallWork)
+        assertTrue(currentId in work.installEnqueuedIds)
+    }
+
+    @Test fun reconciliationMakesInstallActionableWhenStaleWorkCancellationFails() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-install-cancellation-failure",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        work.cancelStaleDeterministicInstallWorkFailure = IllegalStateException("query failed")
+
+        repository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun reconciliationDoesNotKeepCurrentInstallWhenStaleCancellationIsIncomplete() {
+        val item = store.create(
+            NarDownload(
+                id = "stale-install-cancellation-incomplete",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        work.activeInstallWorkByItemId[item.id] = workId(item.id, 1L, OperationKind.NAR_INSTALL)
+        work.activeInstallWorkIsLegacyByItemId[item.id] = false
+        work.cancelStaleDeterministicInstallWorkCompletes = false
+
+        repository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+    }
+
+    @Test fun taggedInstallWorkFromAnEarlierAttemptIsStale() {
+        assertTrue(
+            AndroidNarInstallWorkScheduler.isStaleAttemptTaggedInstallWork(
+                setOf("${InstallNarWorker.ATTEMPT_TAG_PREFIX}1"),
+                currentAttemptId = 2L,
+            ),
+        )
+        assertTrue(
+            !AndroidNarInstallWorkScheduler.isStaleAttemptTaggedInstallWork(
+                setOf("${InstallNarWorker.ATTEMPT_TAG_PREFIX}2"),
+                currentAttemptId = 2L,
+            ),
+        )
+    }
+
+    @Test fun v1QueuedInstallMigrationRebindsLegacyWorkAcrossRestart() {
+        assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("queued", NarDownloadState.Queued)
+    }
+
+    @Test fun v1InstallingMigrationRebindsLegacyWorkAcrossRestart() {
+        assertV1InstallMigrationRebindsLegacyWorkAcrossRestart("installing", NarDownloadState.Installing)
+    }
+
+    private fun assertV1InstallMigrationRebindsLegacyWorkAcrossRestart(
+        serializedState: String,
+        expectedState: NarDownloadState,
+    ) {
+        val itemId = "v1-$serializedState-install"
+        val source = "file:///owned/$serializedState.nar"
+        val legacyStorage = NarDownloadStore.MemoryStorage()
+        legacyStorage.write(
+            "v1\n${legacyEncoded(itemId)}\tlocal\t${legacyEncoded(source)}\t" +
+                "${legacyEncoded(source)}\t-\t$serializedState\t-\t0",
+        )
+        val migratedStore = NarDownloadStore(legacyStorage)
+        val migratedOperations = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val migratedSupervisor = DurableOperationSupervisor(
+            migratedOperations,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val legacyWorkManagerId = "44444444-4444-4444-4444-444444444444"
+        work.activeInstallWorkByItemId[itemId] = legacyWorkManagerId
+
+        repositoryWith(migratedStore, migratedSupervisor, itemId).reconcile()
+        val restartedSupervisor = DurableOperationSupervisor(
+            migratedOperations,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        repositoryWith(NarDownloadStore(legacyStorage), restartedSupervisor, itemId).reconcile()
+
+        val recovered = NarDownloadStore(legacyStorage).get(itemId)!!
+        assertEquals(1L, recovered.attemptId)
+        assertEquals(expectedState, recovered.state)
+        assertEquals(legacyWorkManagerId, recovered.workManagerId)
+        assertTrue(work.installEnqueuedIds.isEmpty())
+        assertTrue(work.cancelledBindings.isEmpty())
     }
 
     @Test fun stageBindingStoreWriteFailureTerminalizesExactBoundAttempt() {
@@ -3884,6 +5075,22 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
     }
 
+    @Test fun restartCancelsQueuedRowWhenSupersessionCrashAlreadyTerminalizedItsExactBoundAttempt() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+        assertTrue(
+            supervisor.terminalizeExactAttempt(
+                item.handle(),
+                OperationKind.NAR_INSTALL,
+                "install scheduling failed",
+            ),
+        )
+
+        recreatedRepository().reconcile()
+
+        assertEquals(NarDownloadState.Cancelled, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+    }
+
     @Test fun reconciliationPreservesTrackedLocalArchiveFilesDuringCleanup() {
         val item = store.create(
             NarDownload(
@@ -4007,10 +5214,43 @@ class NarDownloadRepositoryTest {
         }
     }
 
+    private class QueuedInstallSchedulingDispatcher : NarInstallSchedulingDispatcher {
+        private val tasks = ArrayDeque<() -> Unit>()
+
+        val pendingCount: Int get() = tasks.size
+
+        override fun execute(action: () -> Unit) {
+            tasks += action
+        }
+
+        fun runAll() {
+            while (tasks.isNotEmpty()) tasks.removeFirst()()
+        }
+    }
+
+    private class ThrowingPutOperationStore : DurableOperationStore {
+        private val records = mutableListOf<DurableOperationRecord>()
+
+        override fun read(): List<DurableOperationRecord> = records.toList()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean {
+            throw IllegalStateException("durable operation write failed")
+        }
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean = false
+    }
+
     private class FakeWorkScheduler : NarInstallWorkScheduler {
+        val activeInstallWorkByItemId = mutableMapOf<String, String>()
+        val activeInstallWorkIsLegacyByItemId = mutableMapOf<String, Boolean>()
         val enqueuedNames = mutableListOf<String>()
         val cancelledNames = mutableListOf<String>()
         val cancelledBindings = mutableListOf<String>()
+        val cancelledSubmittedInstallIds = mutableListOf<String>()
+        val cancelledStaleInstallWork = mutableListOf<String>()
         val stageEnqueuedIds = mutableSetOf<String>()
         val stageRecreatedIds = mutableListOf<String>()
         val stageWorkStates = mutableMapOf<String, FakeStageWorkState>()
@@ -4020,10 +5260,20 @@ class NarDownloadRepositoryTest {
         var stageQueryStarted: CountDownLatch? = null
         var allowStageQuery: CountDownLatch? = null
         var installEnqueueFailure: Exception? = null
+        var cancelSubmittedInstallWorkFailure: Exception? = null
         var installQueryFailure: Exception? = null
+        var findActiveLegacyInstallWorkFailure: Exception? = null
+        var cancelStaleDeterministicInstallWorkFailure: Exception? = null
+        var cancelStaleDeterministicInstallWorkCompletes = true
+        var installPrepared: CountDownLatch? = null
+        var allowInstallEnqueue: CountDownLatch? = null
+        var legacyProbeCalls = 0
+        var staleCancelCalls = 0
         var installRecovery = NarInstallWorkRecovery.ACTIVE
         var installQueryStarted: CountDownLatch? = null
         var allowInstallQuery: CountDownLatch? = null
+        var legacyProbeStarted: CountDownLatch? = null
+        var allowLegacyProbe: CountDownLatch? = null
         var beforeNextInstallPrepared: ((itemId: String, attemptId: Long) -> Unit)? = null
         var beforeNextStagePrepared: ((itemId: String, attemptId: Long) -> Unit)? = null
 
@@ -4033,6 +5283,11 @@ class NarDownloadRepositoryTest {
 
         override fun cancel(itemId: String) {
             cancelledNames += NarDownloadRepository.workName(itemId)
+        }
+
+        override fun cancelSubmittedInstallWork(workManagerId: String) {
+            cancelSubmittedInstallWorkFailure?.let { throw it }
+            cancelledSubmittedInstallIds += workManagerId
         }
 
         override fun enqueue(
@@ -4046,6 +5301,11 @@ class NarDownloadRepositoryTest {
             beforeNextInstallPrepared = null
             beforePrepared?.invoke(itemId, attemptId)
             if (!onPrepared(workManagerId)) return false
+            installPrepared?.countDown()
+            allowInstallEnqueue?.let { latch ->
+                allowInstallEnqueue = null
+                check(latch.await(5, TimeUnit.SECONDS)) { "install enqueue was not released" }
+            }
             installEnqueuedIds += workManagerId
             enqueue(itemId)
             return true
@@ -4062,12 +5322,39 @@ class NarDownloadRepositoryTest {
                 check(latch.await(5, TimeUnit.SECONDS)) { "install query was not released" }
             }
             installQueryFailure?.let { throw it }
-            if (workManagerId !in installEnqueuedIds && recreateIfMissing) {
+            if (
+                workManagerId !in installEnqueuedIds &&
+                    workManagerId !in activeInstallWorkByItemId.values &&
+                    recreateIfMissing
+            ) {
                 installEnqueuedIds += workManagerId
                 enqueue(itemId)
             }
-            if (workManagerId !in installEnqueuedIds) return NarInstallWorkRecovery.MISSING
+            if (
+                workManagerId !in installEnqueuedIds &&
+                    workManagerId !in activeInstallWorkByItemId.values
+            ) {
+                return NarInstallWorkRecovery.MISSING
+            }
             return installRecovery
+        }
+
+        override fun findActiveLegacyInstallWork(itemId: String, attemptId: Long): String? {
+            legacyProbeCalls += 1
+            legacyProbeStarted?.countDown()
+            allowLegacyProbe?.let { latch ->
+                check(latch.await(5, TimeUnit.SECONDS)) { "legacy install probe was not released" }
+            }
+            findActiveLegacyInstallWorkFailure?.let { throw it }
+            return activeInstallWorkByItemId[itemId]
+                ?.takeIf { activeInstallWorkIsLegacyByItemId[itemId] != false }
+        }
+
+        override fun cancelStaleDeterministicInstallWork(itemId: String, attemptId: Long): Boolean {
+            staleCancelCalls += 1
+            cancelStaleDeterministicInstallWorkFailure?.let { throw it }
+            activeInstallWorkByItemId[itemId]?.let(cancelledStaleInstallWork::add)
+            return cancelStaleDeterministicInstallWorkCompletes
         }
 
         override fun enqueueStage(
@@ -4461,6 +5748,9 @@ class NarDownloadRepositoryTest {
         assertTrue(!staleCallbackRan)
         assertEquals(reselected, store.get(item.id))
     }
+
+    private fun legacyEncoded(value: String): String = Base64.getUrlEncoder().withoutPadding()
+        .encodeToString(value.toByteArray(StandardCharsets.UTF_8))
 
     private class RecordingOperationCancellation(
         private val downloads: FakeDownloadGateway,
