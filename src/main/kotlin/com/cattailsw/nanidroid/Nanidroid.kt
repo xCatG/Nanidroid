@@ -855,20 +855,35 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
         val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
         if (canPersist) {
-            try {
-                contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-                val result = if (replacementId == null) {
-                    narDownloads.enqueueLocalCopyForUser(uri.toString())
-                } else {
-                    narDownloads.replaceLocalSourceForUser(replacementId, uri.toString())
+            val result = if (replacementId == null) {
+                narDownloads.enqueuePersistedLocalCopyForUser(uri.toString()) {
+                    try {
+                        contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                        true
+                    } catch (_: SecurityException) {
+                        false
+                    }
                 }
-                if (result?.acceptedActive == true) onUserDurableWorkAccepted()
+            } else narDownloads.replaceWithPersistedLocalSourceForUser(
+                replacementId,
+                uri.toString(),
+            ) {
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                    true
+                } catch (_: SecurityException) {
+                    false
+                }
+            }
+            if (result?.acceptedActive == true) onUserDurableWorkAccepted()
+            if (result != null) {
                 return
-            } catch (_: SecurityException) {
-                // Fall back to supervised staging while the temporary grant remains available.
             }
         }
 

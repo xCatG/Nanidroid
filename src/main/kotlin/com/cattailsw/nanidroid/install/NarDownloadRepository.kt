@@ -125,7 +125,7 @@ internal interface NarArchiveInstaller {
 internal interface NarOwnedDownloadData {
     fun delete(download: NarDownload)
     fun retainedArchiveAvailable(download: NarDownload): Boolean = false
-    fun releasePersistedGrant(download: NarDownload) = Unit
+    fun releasePersistedGrant(download: NarDownload): Boolean = true
     fun deleteAbandonedLocalArchives(retainedUris: Set<String>) = Unit
 }
 
@@ -210,6 +210,30 @@ class NarDownloadRepository internal constructor(
 
     @Synchronized
     fun enqueueLocalCopy(uri: String): NarDownload = enqueueLocalCopy(uri, liveGrant = false)
+
+    /**
+     * Durably reserves a persisted document grant before acquiring it, then records its owner.
+     * A staging callback cannot release the same grant between those steps, and recovery can
+     * release a grant left behind by process death before the copy record was committed.
+     */
+    @Synchronized
+    fun enqueuePersistedLocalCopy(uri: String, acquireGrant: () -> Boolean): NarDownload? {
+        val alreadyReserved = uri in store.pendingPersistedGrantReleases()
+        store.addPendingPersistedGrantRelease(uri)
+        if (!acquireGrant()) {
+            if (!alreadyReserved) store.removePendingPersistedGrantRelease(uri)
+            return null
+        }
+        return enqueueLocalCopy(uri, liveGrant = false).also {
+            store.removePendingPersistedGrantRelease(uri)
+        }
+    }
+
+    @Synchronized
+    internal fun enqueuePersistedLocalCopyForUser(
+        uri: String,
+        acquireGrant: () -> Boolean,
+    ): NarUserEnqueueResult? = enqueuePersistedLocalCopy(uri, acquireGrant)?.let(::userEnqueueResult)
 
     @Synchronized
     internal fun enqueueLocalCopyForUser(uri: String): NarUserEnqueueResult =
@@ -386,24 +410,28 @@ class NarDownloadRepository internal constructor(
             }
             when (result) {
                 is NarLocalArchiveStager.Result.Staged -> {
-                    val installAttempt = store.update(itemId) { latest ->
-                        if (
-                            latest.attemptId == attemptId &&
-                            latest.state == NarDownloadState.Copying
-                        ) {
-                            latest.copy(
-                                attemptId = latest.attemptId + 1L,
-                                retainedUri = result.location,
-                                workManagerId = null,
-                                state = NarDownloadState.Queued,
-                            )
-                        } else {
-                            latest
+                    val installAttempt = synchronized(this) {
+                        store.update(itemId) { latest ->
+                            if (
+                                latest.attemptId == attemptId &&
+                                latest.state == NarDownloadState.Copying
+                            ) {
+                                latest.copy(
+                                    attemptId = latest.attemptId + 1L,
+                                    retainedUri = result.location,
+                                    workManagerId = null,
+                                    state = NarDownloadState.Queued,
+                                )
+                            } else {
+                                latest
+                            }
+                        }?.takeIf {
+                            it.attemptId == attemptId + 1L &&
+                                it.state == NarDownloadState.Queued &&
+                                it.retainedUri == result.location
+                        }?.also { updated ->
+                            if (!liveGrant) releaseTransferredDocumentGrantIfUnused(updated)
                         }
-                    }?.takeIf {
-                        it.attemptId == attemptId + 1L &&
-                            it.state == NarDownloadState.Queued &&
-                            it.retainedUri == result.location
                     }
                     if (installAttempt == null) {
                         NarLocalArchiveStager.discard(result.location)
@@ -512,17 +540,32 @@ class NarDownloadRepository internal constructor(
     }
 
     @Synchronized
-    fun replaceLocalSource(itemId: String, uri: String): NarDownload? {
+    fun replaceLocalSource(itemId: String, uri: String): NarDownload? =
+        replaceLocalSource(itemId, uri, reservedPersistedGrantUri = null)
+
+    private fun replaceLocalSource(
+        itemId: String,
+        uri: String,
+        reservedPersistedGrantUri: String?,
+    ): NarDownload? {
         val item = store.get(itemId) ?: return null
         if (item.source !is NarDownloadSource.Local) return null
         if (isStopping(item)) return item
         runCatching { work.cancel(itemId) }
         runCatching { ownedData.delete(item) }
+        if (item.pendingPersistedGrantReleaseUri != reservedPersistedGrantUri) {
+            releasePendingPersistedGrantIfUnused(item)
+        }
+        if (item.retainedUri != uri) persistPersistedGrantReleaseIfUnused(item)
         store.update(itemId) {
             it.copy(
                 attemptId = it.attemptId + 1L,
                 source = NarDownloadSource.Local(uri),
                 retainedUri = uri,
+                pendingPersistedGrantReleaseUri =
+                    it.pendingPersistedGrantReleaseUri.takeUnless { pending ->
+                        pending == reservedPersistedGrantUri
+                    },
                 downloadManagerId = null,
                 workManagerId = null,
                 state = NarDownloadState.Queued,
@@ -532,6 +575,42 @@ class NarDownloadRepository internal constructor(
         scheduleInstall(itemId)
         publish()
         return store.get(itemId)
+    }
+
+    /** Reserves a persisted replacement grant before acquiring it, then records its new owner. */
+    @Synchronized
+    fun replaceWithPersistedLocalSource(
+        itemId: String,
+        uri: String,
+        acquireGrant: () -> Boolean,
+    ): NarDownload? {
+        val previous = store.get(itemId) ?: return null
+        if (previous.source !is NarDownloadSource.Local || isStopping(previous)) return null
+        val alreadyReserved = uri in store.pendingPersistedGrantReleases()
+        store.addPendingPersistedGrantRelease(uri)
+        if (!acquireGrant()) {
+            if (!alreadyReserved) store.removePendingPersistedGrantRelease(uri)
+            return null
+        }
+        return replaceLocalSource(
+            itemId,
+            uri,
+            reservedPersistedGrantUri = uri,
+        ).also { replacement ->
+            if (replacement != null) store.removePendingPersistedGrantRelease(uri)
+        }
+    }
+
+    @Synchronized
+    internal fun replaceWithPersistedLocalSourceForUser(
+        itemId: String,
+        uri: String,
+        acquireGrant: () -> Boolean,
+    ): NarUserEnqueueResult? {
+        val previous = store.get(itemId) ?: return null
+        return replaceWithPersistedLocalSource(itemId, uri, acquireGrant)?.let { replacement ->
+            userEnqueueResult(replacement, accepted = replacement.handle() != previous.handle())
+        }
     }
 
     @Synchronized
@@ -570,6 +649,10 @@ class NarDownloadRepository internal constructor(
         runCatching { work.cancel(itemId) }
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
+        if (!releasePendingPersistedGrantIfUnused(item)) {
+            store.addPendingPersistedGrantRelease(item.pendingPersistedGrantReleaseUri!!)
+        }
+        persistPersistedGrantReleaseIfUnused(item)
         store.delete(itemId)
         liveCopyAttempts -= item.handle()
         releasePersistedGrantIfUnused(item)
@@ -691,6 +774,9 @@ class NarDownloadRepository internal constructor(
                     )
                 }
             }
+        store.getAll().forEach(::releaseTransferredDocumentGrantIfUnused)
+        store.getAll().forEach(::releasePendingPersistedGrantIfUnused)
+        store.pendingPersistedGrantReleases().forEach(::releaseDetachedPersistedGrantIfUnused)
         store.getAll()
             .filter { it.state == NarDownloadState.Complete }
             .forEach { item ->
@@ -961,6 +1047,7 @@ class NarDownloadRepository internal constructor(
         return completed?.attemptId == attemptId && completed.state == NarDownloadState.Complete
     }
 
+    @Synchronized
     private fun cleanupCompletedInstall(item: NarDownload) {
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
@@ -1274,17 +1361,93 @@ class NarDownloadRepository internal constructor(
     }
 
     private fun releasePersistedGrantIfUnused(item: NarDownload) {
-        val location = item.retainedUri ?: return
-        if (!hasSourceReference(location, item.id)) {
-            runCatching { ownedData.releasePersistedGrant(item) }
+        val location = persistPersistedGrantReleaseIfUnused(item) ?: return
+        val released = runCatching {
+            ownedData.releasePersistedGrant(item.copy(retainedUri = location))
+        }.getOrDefault(false)
+        if (released) store.removePendingPersistedGrantRelease(location)
+    }
+
+    /** Persists a direct grant's cleanup obligation before its durable owner can disappear. */
+    private fun persistPersistedGrantReleaseIfUnused(item: NarDownload): String? {
+        val location = item.retainedUri ?: (item.source as? NarDownloadSource.Local)?.uri ?: return null
+        if (hasPersistedSourceReference(location, item.id)) return null
+        store.addPendingPersistedGrantRelease(location)
+        return location.takeUnless { hasSourceReference(location, item.id) }
+    }
+
+    private fun releaseTransferredDocumentGrantIfUnused(item: NarDownload) {
+        val source = (item.source as? NarDownloadSource.Local)?.uri ?: return
+        if (source == item.retainedUri || !isFileUri(item.retainedUri)) return
+        if (!hasPersistedSourceReference(source, item.id)) {
+            store.get(item.id)?.pendingPersistedGrantReleaseUri
+                ?.takeUnless { pending -> pending == source }
+                ?.let(store::addPendingPersistedGrantRelease)
+            val pending = store.update(item.id) { current ->
+                if (current.pendingPersistedGrantReleaseUri != source) {
+                    current.copy(pendingPersistedGrantReleaseUri = source)
+                } else {
+                    current
+                }
+            }
+            pending?.let(::releasePendingPersistedGrantIfUnused)
         }
     }
+
+    /**
+     * Returns true only when there was nothing to release or the release actually
+     * succeeded. A reference-deferred release (another record, possibly a live-grant
+     * copy that will never take over the persisted permission, still points at this URI)
+     * returns false just like a failed release, so callers that are about to drop this
+     * record's own marker know they still must preserve it as a detached tombstone.
+     */
+    private fun releasePendingPersistedGrantIfUnused(item: NarDownload): Boolean {
+        val source = item.pendingPersistedGrantReleaseUri ?: return true
+        if (hasSourceReference(source, item.id)) return false
+        if (runCatching { ownedData.releasePersistedGrant(item.copy(retainedUri = source)) }.getOrDefault(false)) {
+            store.clearPendingPersistedGrantReleaseUri(item.id, source)
+            return true
+        }
+        return false
+    }
+
+    private fun releaseDetachedPersistedGrantIfUnused(source: String) {
+        // A record can reference this URI without ever taking over release responsibility
+        // for it (for example, a live-grant copy holds only a temporary permission). Leave
+        // the tombstone in place and retry on a later reconciliation instead of dropping it,
+        // so the persisted grant is never silently orphaned.
+        if (hasSourceReference(source)) return
+        val cleanup = NarDownload(
+            id = "pending-grant-release",
+            source = NarDownloadSource.Local(source),
+            retainedUri = source,
+        )
+        if (runCatching { ownedData.releasePersistedGrant(cleanup) }.getOrDefault(false)) {
+            store.removePendingPersistedGrantRelease(source)
+        }
+    }
+
+    private fun isFileUri(location: String?) = runCatching {
+        URI(location).scheme.equals("file", ignoreCase = true)
+    }.getOrDefault(false)
 
     private fun hasSourceReference(location: String, excludedItemId: String? = null) =
         store.getAll().any { other ->
             other.id != excludedItemId && other.state != NarDownloadState.Complete && (
                 other.retainedUri == location ||
-                    (other.source as? NarDownloadSource.Local)?.uri == location
+                    ((other.source as? NarDownloadSource.Local)?.uri == location &&
+                        (other.retainedUri == null || other.retainedUri == location))
+                )
+        }
+
+    private fun hasPersistedSourceReference(location: String, excludedItemId: String? = null) =
+        store.getAll().any { other ->
+            other.id != excludedItemId &&
+                !isLiveCopyAttemptActive(other.handle()) &&
+                other.state != NarDownloadState.Complete && (
+                other.retainedUri == location ||
+                    ((other.source as? NarDownloadSource.Local)?.uri == location &&
+                        (other.retainedUri == null || other.retainedUri == location))
                 )
         }
 
@@ -1577,16 +1740,24 @@ private class AndroidNarManagedFiles(context: Context) :
     override fun retainedArchiveAvailable(download: NarDownload): Boolean =
         managedFile(download.retainedUri)?.isFile == true
 
-    override fun releasePersistedGrant(download: NarDownload) {
-        val location = download.retainedUri ?: return
-        val uri = runCatching { Uri.parse(location) }.getOrNull() ?: return
-        if (!uri.scheme.equals("content", ignoreCase = true)) return
-        runCatching {
+    override fun releasePersistedGrant(download: NarDownload): Boolean {
+        val location = download.retainedUri ?: return true
+        val uri = runCatching { Uri.parse(location) }.getOrNull() ?: return false
+        if (!uri.scheme.equals("content", ignoreCase = true)) return true
+        if (
+            appContext.contentResolver.persistedUriPermissions.none { permission ->
+                permission.uri == uri && permission.isReadPermission
+            }
+        ) {
+            return true
+        }
+        return runCatching {
             appContext.contentResolver.releasePersistableUriPermission(
                 uri,
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
-        }
+            true
+        }.getOrDefault(false)
     }
 
     override fun deleteAbandonedLocalArchives(retainedUris: Set<String>) {
