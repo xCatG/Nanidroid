@@ -2601,6 +2601,54 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.FAILED, operation.status)
     }
 
+    @Test fun deferredLegacyBindingPersistenceFailureTerminalizesStartedAttempt() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val exactOperationStore = FailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val itemId = "deferred-legacy-binding-write-failure"
+        val item = store.create(
+            NarDownload(
+                id = itemId,
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        work.activeInstallWorkByItemId[itemId] = "99999999-9999-9999-9999-999999999999"
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = FakeRemoteProgressObserver(downloads, exactSupervisor),
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { itemId },
+        )
+
+        deferredRepository.reconcile()
+        dispatcher.runAll()
+
+        assertTrue(store.get(itemId)!!.state is NarDownloadState.NeedsAttention)
+        val operation = exactOperationStore.read().single()
+        assertEquals(OperationId(itemId), operation.id)
+        assertEquals(AttemptId(item.attemptId), operation.attemptId)
+        assertEquals(OperationKind.NAR_INSTALL, operation.kind)
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertNull(operation.externalJob)
+    }
+
     @Test fun reconciliationMakesUnboundLegacyInstallActionableAfterItsBoundAttemptAlreadyFailed() {
         val item = store.create(
             NarDownload(

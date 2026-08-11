@@ -1209,7 +1209,14 @@ class NarDownloadRepository internal constructor(
         try {
             if (item != null) scheduleInstallNow(item)
         } catch (_: Exception) {
-            item?.let { markNeedsAttentionIfCurrent(it, INSTALL_SCHEDULE_FAILURE) }
+            item?.let {
+                supervisor.terminalizeExactAttempt(
+                    it.handle(),
+                    OperationKind.NAR_INSTALL,
+                    INSTALL_SCHEDULE_FAILURE,
+                )
+                markNeedsAttentionIfCurrent(it, INSTALL_SCHEDULE_FAILURE)
+            }
         } finally {
             publish()
         }
