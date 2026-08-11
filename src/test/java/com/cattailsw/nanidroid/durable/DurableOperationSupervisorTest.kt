@@ -122,6 +122,51 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
+    @Test fun terminalEventDeferralReportsFailureWhenDurableWriteThrows() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("terminal-event-deferral-exception-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateFailure",
+            references = listOf("ghost update failed", "ghost/master.txt"),
+        )
+        val delegate = MemoryDurableOperationStore()
+        val writeThrowingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (expected.pendingGhostUpdateEvent == null && updated.pendingGhostUpdateEvent == event) {
+                    throw IllegalStateException("durable terminal write failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val writeThrowingSupervisor = DurableOperationSupervisor(writeThrowingStore, clock) { _, _, _ -> }
+        assertTrue(writeThrowingSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        var dispatches = 0
+
+        assertFalse(
+            GhostUpdateWorker.deferTerminalEventAndRetryDelivery(
+                writeThrowingSupervisor,
+                handle,
+                binding,
+                event,
+            ) {
+                dispatches++
+                true
+            },
+        )
+
+        assertEquals(0, dispatches)
+        assertNull(writeThrowingSupervisor.records().single().pendingGhostUpdateEvent)
+    }
+
     @Test fun `successful terminal dispatch is not retried when its durable clear fails`() {
         val handle = handle("ghost-update", 1)
         val binding = workManager("terminal-event-clear-failure-worker")

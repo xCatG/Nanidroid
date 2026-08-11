@@ -367,7 +367,14 @@ class GhostUpdateWorker(
                 "OnUpdateComplete",
                 listOf("changed", completed.files.joinToString(",")),
             )
-            return supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event)
+            return supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event) ||
+                supervisor.records().any { record ->
+                    record.handle() == handle &&
+                        record.kind == OperationKind.GHOST_UPDATE &&
+                        record.externalJob == binding &&
+                        record.status == OperationStatus.COMPLETED &&
+                        record.pendingGhostUpdateEvent == null
+                }
         }
 
         /** Persists the no-change completion payload before removing the staging transaction. */
@@ -421,30 +428,34 @@ class GhostUpdateWorker(
             binding: ExternalJobBinding.WorkManager,
             event: GhostUpdateTerminalEvent,
             dispatch: (GhostUpdateTerminalEvent) -> Boolean,
-        ): Boolean = synchronized(terminalEventDeliveryLock) {
-            val record = supervisor.records().singleOrNull {
-                it.handle() == handle &&
-                    it.kind == OperationKind.GHOST_UPDATE &&
-                    it.externalJob == binding
-            } ?: return@synchronized false
-            val retained = when {
-                record.pendingGhostUpdateEvent == event -> event
-                record.pendingGhostUpdateEvent != null -> record.pendingGhostUpdateEvent
-                record.status == OperationStatus.RUNNING ||
-                    record.status == OperationStatus.CANCEL_REQUESTED -> {
-                    if (!supervisor.deferTerminalEvent(handle, binding, event)) return@synchronized false
-                    event
+        ): Boolean = try {
+            synchronized(terminalEventDeliveryLock) {
+                val record = supervisor.records().singleOrNull {
+                    it.handle() == handle &&
+                        it.kind == OperationKind.GHOST_UPDATE &&
+                        it.externalJob == binding
+                } ?: return@synchronized false
+                val retained = when {
+                    record.pendingGhostUpdateEvent == event -> event
+                    record.pendingGhostUpdateEvent != null -> record.pendingGhostUpdateEvent
+                    record.status == OperationStatus.RUNNING ||
+                        record.status == OperationStatus.CANCEL_REQUESTED -> {
+                        if (!supervisor.deferTerminalEvent(handle, binding, event)) return@synchronized false
+                        event
+                    }
+                    else -> return@synchronized false
                 }
-                else -> return@synchronized false
+                deliverTerminalEvent(
+                    supervisor,
+                    handle,
+                    binding,
+                    retained,
+                    dispatch,
+                )
+                true
             }
-            deliverTerminalEvent(
-                supervisor,
-                handle,
-                binding,
-                retained,
-                dispatch,
-            )
-            true
+        } catch (_: Exception) {
+            false
         }
 
         internal fun deliverPendingTerminalEvent(
