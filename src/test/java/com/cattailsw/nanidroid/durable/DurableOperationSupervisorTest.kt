@@ -8,6 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class DurableOperationSupervisorTest {
     private val clock = FakeMonotonicClock()
@@ -25,6 +27,35 @@ class DurableOperationSupervisorTest {
         assertTrue(supervisor.snapshot().single().showStallPrompt)
         assertEquals(OperationStatus.RUNNING, supervisor.snapshot().single().status)
         assertTrue(cancellation.requests.isEmpty())
+    }
+
+    @Test fun promptWriteFailureUsesPositiveRetryDelay() {
+        var rejectPromptWrite = false
+        val retryStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean =
+                if (rejectPromptWrite && !expected.showStallPrompt && updated.showStallPrompt) {
+                    false
+                } else {
+                    delegate.compareAndSet(expected, updated)
+                }
+        }
+        val retrySupervisor = DurableOperationSupervisor(retryStore, clock, RecordingCancellation())
+        retrySupervisor.start(handle("prompt-write-retry", 1), OperationKind.GHOST_UPDATE, "Queued", 0)
+
+        clock.value = 30_000
+        rejectPromptWrite = true
+
+        assertEquals(1_000L, retrySupervisor.attentionSnapshot().nextCheckDelayMillis)
     }
 
     @Test fun onlyRealProgressResetsTheObservationWindow() {
@@ -85,6 +116,100 @@ class DurableOperationSupervisorTest {
         clock.value = 60_000
         assertTrue(supervisor.snapshot().single().showStallPrompt)
         assertTrue(cancellation.requests.isEmpty())
+    }
+
+    @Test fun keepWaitingLocallySuppressesSameGenerationAttentionWrites() {
+        val handle = handle("local-keep-waiting-suppression", 1)
+        supervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0)
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        assertTrue(supervisor.keepWaiting(handle))
+        val cleared = store.read().single()
+        assertTrue(store.compareAndSet(cleared, cleared.copy(showStallPrompt = true)))
+
+        clock.value = 30_001
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun attentionKeepWaitingLocallySuppressesSameGenerationAttentionWrites() {
+        val handle = handle("local-attention-keep-waiting-suppression", 1)
+        supervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0)
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.KEEP_WAITING))
+        val cleared = store.read().single()
+        assertTrue(store.compareAndSet(cleared, cleared.copy(showStallPrompt = true)))
+
+        clock.value = 30_001
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun attentionSnapshotDoesNotPresentRecordsChangedOrFinishedAfterItsInitialRead() {
+        var mutateAfterRead = false
+        val changingHandle = handle("attention-snapshot-changed", 1)
+        val changingBinding = workManager("attention-snapshot-changed-worker")
+        val finishedHandle = handle("attention-snapshot-finished", 1)
+        val finishedBinding = workManager("attention-snapshot-finished-worker")
+        lateinit var changingSupervisor: DurableOperationSupervisor
+        val readRaceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> {
+                val records = delegate.read()
+                if (mutateAfterRead) {
+                    mutateAfterRead = false
+                    assertTrue(changingSupervisor.requestStop(changingHandle))
+                    assertTrue(
+                        changingSupervisor.finish(
+                            finishedHandle,
+                            finishedBinding,
+                            OperationStatus.COMPLETED,
+                        ),
+                    )
+                }
+                return records
+            }
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean = delegate.compareAndSet(expected, updated)
+        }
+        val readRaceSupervisor = DurableOperationSupervisor(readRaceStore, clock, RecordingCancellation())
+        changingSupervisor = DurableOperationSupervisor(readRaceStore, clock, RecordingCancellation())
+        assertTrue(
+            readRaceSupervisor.start(
+                changingHandle,
+                OperationKind.LOCAL_NAR,
+                "Copying",
+                0,
+                changingBinding,
+            ),
+        )
+        assertTrue(
+            readRaceSupervisor.start(
+                finishedHandle,
+                OperationKind.LOCAL_NAR,
+                "Copying",
+                0,
+                finishedBinding,
+            ),
+        )
+
+        mutateAfterRead = true
+
+        val snapshot = readRaceSupervisor.snapshot().associateBy { it.id }
+        assertEquals(OperationStatus.CANCEL_REQUESTED, snapshot.getValue(changingHandle.operationId).status)
+        assertEquals("Stopping...", snapshot.getValue(changingHandle.operationId).progress.phase)
+        assertFalse(snapshot.containsKey(finishedHandle.operationId))
     }
 
     @Test fun stopIsIdempotentAndOperationSpecific() {
@@ -161,6 +286,309 @@ class DurableOperationSupervisorTest {
         assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun successfulDuplicateStopClearRecordsItsOwnRevisionSoReconciliationDoesNotDelayEscalation() {
+        val stopHandle = handle("nar-5", 1)
+        val stopBinding = workManager("worker-successful-retry-window")
+        val cancellation = FailingThenSucceedingCancellation()
+        val stopSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+
+        assertTrue(stopSupervisor.start(stopHandle, OperationKind.GHOST_UPDATE, "Downloading", 0, stopBinding))
+        clock.value = 0
+        // First dispatch fails; the failure becomes visible once the observation window elapses.
+        assertTrue(stopSupervisor.requestStop(stopHandle))
+        clock.value = 30_000
+        assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
+
+        // A duplicate stop() call retries the dispatch, which now succeeds and locally clears
+        // showStallPrompt at this exact time (30_000).
+        assertTrue(stopSupervisor.requestStop(stopHandle))
+        assertEquals(2, cancellation.requestCount)
+
+        // Coordinator/reconciliation execution is delayed: the next poll doesn't happen until
+        // well after the successful clear, but before the clear's own 30s window should elapse.
+        clock.value = 50_000
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
+
+        // The next stall prompt must be governed by the successful clear's own time (30_000),
+        // not by when the delayed poll happened to observe it (50_000).
+        clock.value = 59_999
+        assertFalse(stopSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun successfulDuplicateStopRetryAdvancesAnObservableGenerationForOtherSupervisors() {
+        val handle = handle("nar-6", 1)
+        val binding = workManager("worker-duplicate-retry-generation")
+        val initialCancellation = RecordingCancellation()
+        val retryCancellation = RecordingCancellation()
+        val coordinatorSupervisor = DurableOperationSupervisor(store, clock, initialCancellation)
+        val retrySupervisor = DurableOperationSupervisor(store, clock, retryCancellation)
+
+        assertTrue(coordinatorSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Downloading", 0, binding))
+        clock.value = 0
+        // The first successful dispatch puts the operation into CANCEL_REQUESTED without a
+        // failure diagnostic. The coordinator has observed that state before the duplicate
+        // request below.
+        assertTrue(coordinatorSupervisor.requestStop(handle))
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+
+        // A different supervisor retries the still-CANCEL_REQUESTED operation through the
+        // duplicate branch of requestStop, and this dispatch succeeds -- well before the
+        // original 30s deadline elapses. No diagnostic needs clearing, so this successful
+        // dispatch itself must advance an observation field for the coordinator to notice it.
+        clock.value = 20_000
+        assertTrue(retrySupervisor.requestStop(handle))
+        assertEquals(1, retryCancellation.requestCount)
+
+        // The coordinator polls right after and must observe that the successful retry
+        // happened, starting a fresh 30s observation window from this point (20_001).
+        clock.value = 20_001
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+
+        // Less than 30s after the successful retry, the coordinator must not escalate, even
+        // though 30s have already passed since the *original* failure at t=0.
+        clock.value = 30_000
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+
+        // The coordinator's fresh window (from 20_001) governs escalation.
+        clock.value = 50_000
+        assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 50_001
+        assertTrue(coordinatorSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun successfulDuplicateStopClearsDelayedStoppingAttentionAfterConcurrentPromptWrite() {
+        val raceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+            var beforeSuccessfulRetryGenerationWrite: (() -> Unit)? = null
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (updated.attentionRetryGeneration > expected.attentionRetryGeneration) {
+                    beforeSuccessfulRetryGenerationWrite?.also {
+                        beforeSuccessfulRetryGenerationWrite = null
+                        it()
+                    }
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val handle = handle("retry-generation-prompt-race", 1)
+        val binding = workManager("retry-generation-prompt-race-worker")
+        val coordinator = DurableOperationSupervisor(raceStore, clock, RecordingCancellation())
+        val retrying = DurableOperationSupervisor(raceStore, clock, RecordingCancellation())
+
+        assertTrue(coordinator.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(coordinator.requestStop(handle))
+        clock.value = 30_000
+        raceStore.beforeSuccessfulRetryGenerationWrite = {
+            assertTrue(coordinator.snapshot().single().showStallPrompt)
+        }
+
+        assertTrue(retrying.requestStop(handle))
+
+        val persisted = raceStore.read().single()
+        assertEquals(2L, persisted.attentionRetryGeneration)
+        assertFalse(persisted.showStallPrompt)
+        assertNull(persisted.diagnostics)
+    }
+
+    @Test fun generationPersistenceFailureDoesNotRetryAcceptedCancellation() {
+        val generationFailingStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (updated.attentionRetryGeneration > expected.attentionRetryGeneration) {
+                    throw IllegalStateException("generation persistence failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val handle = handle("generation-persistence-failure", 1)
+        val binding = workManager("generation-persistence-failure-worker")
+        val acceptedCancellation = RecordingCancellation()
+        val failingSupervisor = DurableOperationSupervisor(
+            generationFailingStore,
+            clock,
+            acceptedCancellation,
+        )
+
+        assertTrue(failingSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(failingSupervisor.requestStop(handle))
+        assertNull(generationFailingStore.read().single().diagnostics)
+
+        assertTrue(failingSupervisor.requestStop(handle))
+        assertEquals(1, acceptedCancellation.requestCount)
+    }
+
+    @Test fun concurrentKeepWaitingIsObservedAfterAnInFlightCancellationRetryFails() {
+        val handle = handle("concurrent-cancellation-observation", 1)
+        val binding = workManager("concurrent-cancellation-observation-worker")
+        val cancellation = BlockingThrowingCancellation()
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(firstSupervisor.requestStop(handle))
+        clock.value = 30_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+
+        val retry = Thread { assertTrue(firstSupervisor.requestStop(handle)) }
+        retry.start()
+        assertTrue(cancellation.awaitRetryStarted())
+        clock.value = 30_001
+        assertTrue(secondSupervisor.keepWaiting(handle))
+        cancellation.finishRetry()
+        retry.join(5_000)
+        assertFalse(retry.isAlive)
+
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_001
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun concurrentKeepWaitingDuringBoundCancellationFailureStartsANewObservationWindow() {
+        val handle = handle("bound-cancellation-observation", 1)
+        val binding = workManager("bound-cancellation-observation-worker")
+        val cancellation = BlockingCancellationFailure()
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertTrue(firstSupervisor.requestStop(handle))
+        clock.value = 30_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+
+        val bind = Thread { assertTrue(firstSupervisor.bindExternalJob(handle, binding)) }
+        bind.start()
+        assertTrue(cancellation.awaitCancellationStarted())
+        clock.value = 30_001
+        assertTrue(secondSupervisor.keepWaiting(handle))
+        cancellation.failCancellation()
+        bind.join(5_000)
+        assertFalse(bind.isAlive)
+
+        clock.value = 60_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 90_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun concurrentKeepWaitingDuringSuccessfulCancellationRetryStartsANewObservationWindow() {
+        val handle = handle("successful-cancellation-observation", 1)
+        val binding = workManager("successful-cancellation-observation-worker")
+        val cancellation = FailingThenBlockingSuccessCancellation()
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(firstSupervisor.requestStop(handle))
+        clock.value = 30_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+
+        val retry = Thread {
+            assertTrue(firstSupervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        }
+        retry.start()
+        assertTrue(cancellation.awaitRetryStarted())
+        clock.value = 30_001
+        assertTrue(secondSupervisor.keepWaiting(handle))
+        cancellation.finishRetry()
+        retry.join(5_000)
+        assertFalse(retry.isAlive)
+
+        clock.value = 60_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 90_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun sameGenerationAttentionWriteDoesNotExtendKeepWaitingSuppressionDeadline() {
+        val handle = handle("preserve-suppression-deadline", 1)
+        val firstSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0))
+        clock.value = 30_000
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // A concurrent observer records Keep waiting, advancing the generation.
+        assertTrue(secondSupervisor.keepWaiting(handle))
+
+        // firstSupervisor's next poll is the first time it observes generation 1; this
+        // installs suppression with a deadline 30s out from now (60_005).
+        clock.value = 30_005
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // An in-flight cancellation (or any same-generation write) later restores
+        // showStallPrompt without advancing the keep-waiting generation.
+        val current = store.read().single {
+            it.id == handle.operationId && it.attemptId == handle.attemptId
+        }
+        assertTrue(store.compareAndSet(current, current.copy(showStallPrompt = true)))
+
+        // firstSupervisor observes that same-generation revision change well before the
+        // original 60_005 deadline. It must not push the suppression deadline out.
+        clock.value = 45_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // The scheduler must also be told to wake up no later than the original deadline,
+        // not a fresh 30s window measured from this same-generation observation.
+        assertEquals(15_005L, firstSupervisor.attentionSnapshot().nextCheckDelayMillis)
+
+        // The original deadline (60_005) has now passed, so suppression must have expired
+        // even though a same-generation write was observed at 45_000.
+        clock.value = 60_005
+        assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun keepWaitingExpiryRevealsRetryForSameGenerationCancellationFailure() {
+        val handle = handle("keep-waiting-retry-expiry", 1)
+        val binding = workManager("keep-waiting-retry-expiry-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, ThrowingCancellation())
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(firstSupervisor.requestStop(handle))
+        clock.value = 30_000
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, firstSupervisor.snapshot().single().diagnostics)
+
+        assertTrue(secondSupervisor.keepWaiting(handle))
+        clock.value = 30_005
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // A cancellation still in flight restores the visible failure without changing the
+        // Keep waiting generation. The resulting observation must not delay Retry stop past
+        // the original suppression deadline.
+        val current = store.read().single {
+            it.id == handle.operationId && it.attemptId == handle.attemptId
+        }
+        assertTrue(store.compareAndSet(current, current.copy(showStallPrompt = true)))
+        clock.value = 45_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 60_005
+        val attention = firstSupervisor.attentionSnapshot().records.single()
+        assertTrue(attention.showStallPrompt)
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, attention.diagnostics)
+    }
+
     @Test fun requestStopRetriesAfterPlatformCancellationThrows() {
         val cancellation = ThrowingCancellation()
         val stopHandle = handle("update-1", 1)
@@ -178,6 +606,52 @@ class DurableOperationSupervisorTest {
             ),
             cancellation.requests,
         )
+    }
+
+    @Test fun requestStopSuccessfulDispatchDoesNotConsumeConcurrentKeepWaitingCAS() {
+        val stopHandle = handle("cas-loss-keep-waiting-1", 1)
+        val stopBinding = workManager("cas-loss-keep-waiting-worker")
+        var injected = false
+        val raceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (
+                    !injected &&
+                    expected.status == OperationStatus.CANCEL_REQUESTED &&
+                    expected.diagnostics == null &&
+                    !expected.showStallPrompt
+                ) {
+                    val injectedKeepWaiting = expected.copy(
+                        attentionKeepWaitingGeneration = expected.attentionKeepWaitingGeneration + 1L,
+                        showStallPrompt = false,
+                    )
+                    if (!delegate.compareAndSet(expected, injectedKeepWaiting)) return false
+                    injected = true
+                    return false
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val stoppingSupervisor = DurableOperationSupervisor(
+            raceStore,
+            clock,
+            RecordingCancellation(),
+        )
+
+        assertTrue(stoppingSupervisor.start(stopHandle, OperationKind.GHOST_UPDATE, "Queued", 0, stopBinding))
+        clock.value = 30_000L
+        assertTrue(stoppingSupervisor.requestStop(stopHandle))
+
+        clock.value = 30_005L
+        assertFalse(stoppingSupervisor.snapshot().single().showStallPrompt)
     }
 
     @Test fun requestStopRecordsBoundedSanitizedCancellationFailureDiagnostic() {
@@ -201,6 +675,24 @@ class DurableOperationSupervisorTest {
 
         clock.value = 30_000
         assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun externalCancellationEscalationRemainsActionableToAnotherSupervisor() {
+        val handle = handle("external-cancellation-escalation", 1)
+        val binding = workManager("external-cancellation-escalation-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, ThrowingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(firstSupervisor.requestStop(handle))
+        val secondSupervisor = DurableOperationSupervisor(store, clock, ThrowingCancellation())
+
+        clock.value = 30_000
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, secondSupervisor.snapshot().single().diagnostics)
+
+        assertEquals(
+            CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
+            firstSupervisor.snapshot().single().diagnostics,
+        )
     }
 
     @Test fun requestStopClearsFailureDiagnosticAfterSuccessfulPlatformRetry() {
@@ -292,7 +784,7 @@ class DurableOperationSupervisorTest {
         assertEquals(OperationStatus.CANCEL_REQUESTED, throwingStore.read().single().status)
     }
 
-    @Test fun successfulCancellationRetryCanBeRetriedWhenDiagnosticClearFails() {
+    @Test fun successfulCancellationRetryIsNotRetriedWhenDiagnosticClearFails() {
         val clearingFailureStore = object : DurableOperationStore {
             private val delegate = MemoryDurableOperationStore()
 
@@ -347,7 +839,6 @@ class DurableOperationSupervisorTest {
         assertTrue(stopSupervisor.requestStop(staleStopHandle))
         assertEquals(
             listOf(
-                CancellationRequest(staleStopHandle, staleBinding),
                 CancellationRequest(staleStopHandle, staleBinding),
             ),
             cancellation.requests,
@@ -428,6 +919,124 @@ class DurableOperationSupervisorTest {
         assertFalse(restored.snapshot().single().showStallPrompt)
         clock.value = 59_000
         assertTrue(restored.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun progressFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-progress", 1)
+        val binding = workManager("shared-progress-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(
+            firstSupervisor.start(
+                handle,
+                OperationKind.GHOST_UPDATE,
+                "Downloading",
+                0,
+                binding,
+            ),
+        )
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.reportProgress(handle, binding, "Downloading", 1))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 58_999
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 59_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun phaseCyclingProgressFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-phase-cycle", 1)
+        val binding = workManager("shared-phase-cycle-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(
+            firstSupervisor.start(
+                handle,
+                OperationKind.GHOST_UPDATE,
+                "Downloading",
+                0,
+                binding,
+            ),
+        )
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.reportProgress(handle, binding, "Verifying", 0))
+        assertTrue(firstSupervisor.reportProgress(handle, binding, "Downloading", 0))
+
+        clock.value = 30_000
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun stopFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-stop", 1)
+        val binding = workManager("shared-stop-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Downloading", 0, binding))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.requestStop(handle))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 58_999
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 59_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
+        assertEquals(OperationStatus.CANCEL_REQUESTED, secondSupervisor.snapshot().single().status)
+    }
+
+    @Test fun bindingFromAnotherSupervisorStartsANewObservationWindow() {
+        val handle = handle("shared-binding", 1)
+        val binding = workManager("shared-binding-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertTrue(firstSupervisor.bindExternalJob(handle, binding))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 58_999
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 59_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun bindingAnUnboundStalledRunningAttemptHidesPromptAndStartsANewWindow() {
+        val handle = handle("stalled-unbound-binding", 1)
+        val binding = workManager("stalled-unbound-binding-worker")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        assertTrue(supervisor.bindExternalJob(handle, binding))
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(cancellation.requests.isEmpty())
+
+        clock.value = 59_999
+        assertFalse(supervisor.snapshot().single().showStallPrompt)
+        clock.value = 60_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+    }
+
+    @Test fun identicalSnapshotsFromAnotherSupervisorDoNotRestartObservationWindow() {
+        val handle = handle("shared-unchanged", 1)
+        val firstSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        val secondSupervisor = DurableOperationSupervisor(store, clock, cancellation)
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0))
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 29_000
+        assertFalse(secondSupervisor.snapshot().single().showStallPrompt)
+        clock.value = 30_000
+        assertTrue(secondSupervisor.snapshot().single().showStallPrompt)
     }
 
     @Test fun recreationSuppressesPersistedPromptWithoutRevokingNotificationAction() {
@@ -548,6 +1157,101 @@ class DurableOperationSupervisorTest {
 
         val second = DurableOperationSupervisor(store, clock, cancellation)
         assertNull(second.snapshot().single().diagnostics)
+    }
+
+    @Test fun retryStopBindingRepairDoesNotExtendTheActionObservationWindow() {
+        val handle = handle("retry-repair", 1)
+        val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
+        val repairedBinding = ExternalJobBinding.WorkManager(
+            durableWorkManagerId(handle, OperationKind.NAR_INSTALL).toString(),
+        )
+        assertTrue(
+            store.putIfAbsent(
+                DurableOperationRecord(
+                    id = handle.operationId,
+                    attemptId = handle.attemptId,
+                    kind = OperationKind.NAR_INSTALL,
+                    externalJob = malformedBinding,
+                    progress = OperationProgress("Stopping...", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = true,
+                    diagnostics = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
+                    externalJobHistory = setOf(malformedBinding),
+                ),
+            ),
+        )
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 30_000
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        assertEquals(repairedBinding, store.read().single().externalJob)
+
+        clock.value = 59_999
+        assertEquals(1L, supervisor.attentionSnapshot().nextCheckDelayMillis)
+    }
+
+    @Test fun bindingRepairDoesNotConsumeConcurrentKeepWaitingGeneration() {
+        val handle = handle("retry-repair-keep-waiting", 1)
+        val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
+        val raceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+            var afterRetryStarts: (() -> Unit)? = null
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                val changed = delegate.compareAndSet(expected, updated)
+                if (
+                    changed &&
+                    updated.attentionRetryGeneration > expected.attentionRetryGeneration
+                ) {
+                    afterRetryStarts?.also {
+                        afterRetryStarts = null
+                        it()
+                    }
+                }
+                return changed
+            }
+        }
+        val retrySupervisor = DurableOperationSupervisor(raceStore, clock, RecordingCancellation())
+        val keepWaitingSupervisor = DurableOperationSupervisor(
+            raceStore,
+            clock,
+            RecordingCancellation(),
+        )
+        assertTrue(
+            raceStore.putIfAbsent(
+                DurableOperationRecord(
+                    id = handle.operationId,
+                    attemptId = handle.attemptId,
+                    kind = OperationKind.NAR_INSTALL,
+                    externalJob = malformedBinding,
+                    progress = OperationProgress("Stopping...", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = true,
+                    diagnostics = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
+                    externalJobHistory = setOf(malformedBinding),
+                ),
+            ),
+        )
+
+        // Establish this supervisor's initial observation before the visible retry window.
+        assertTrue(retrySupervisor.snapshot().single().showStallPrompt)
+        clock.value = 30_000
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, retrySupervisor.snapshot().single().diagnostics)
+        raceStore.afterRetryStarts = {
+            assertTrue(keepWaitingSupervisor.keepWaiting(handle))
+        }
+
+        assertTrue(retrySupervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        clock.value = 30_001
+        assertFalse(retrySupervisor.snapshot().single().showStallPrompt)
     }
 
     @Test fun malformedBindingRepairCasLossDoesNotCancelReplacementAttempt() {
@@ -1561,6 +2265,63 @@ class DurableOperationSupervisorTest {
         override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
             requests.add(CancellationRequest(handle, binding))
             throw IllegalStateException(message)
+        }
+    }
+
+    private class BlockingThrowingCancellation : OperationCancellation {
+        private val retryStarted = CountDownLatch(1)
+        private val finishRetry = CountDownLatch(1)
+        private var calls = 0
+
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
+            calls++
+            if (calls == 2) {
+                retryStarted.countDown()
+                check(finishRetry.await(5, TimeUnit.SECONDS))
+            }
+            throw IllegalStateException("platform cancellation failed")
+        }
+
+        fun awaitRetryStarted(): Boolean = retryStarted.await(5, TimeUnit.SECONDS)
+
+        fun finishRetry() {
+            finishRetry.countDown()
+        }
+    }
+
+    private class BlockingCancellationFailure : OperationCancellation {
+        private val cancellationStarted = CountDownLatch(1)
+        private val finishCancellation = CountDownLatch(1)
+
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
+            cancellationStarted.countDown()
+            check(finishCancellation.await(5, TimeUnit.SECONDS))
+            throw IllegalStateException("platform cancellation failed")
+        }
+
+        fun awaitCancellationStarted(): Boolean = cancellationStarted.await(5, TimeUnit.SECONDS)
+
+        fun failCancellation() {
+            finishCancellation.countDown()
+        }
+    }
+
+    private class FailingThenBlockingSuccessCancellation : OperationCancellation {
+        private val retryStarted = CountDownLatch(1)
+        private val finishRetry = CountDownLatch(1)
+        private var calls = 0
+
+        override fun cancel(handle: OperationHandle, kind: OperationKind, binding: ExternalJobBinding) {
+            calls++
+            if (calls == 1) throw IllegalStateException("platform cancellation failed")
+            retryStarted.countDown()
+            check(finishRetry.await(5, TimeUnit.SECONDS))
+        }
+
+        fun awaitRetryStarted(): Boolean = retryStarted.await(5, TimeUnit.SECONDS)
+
+        fun finishRetry() {
+            finishRetry.countDown()
         }
     }
 

@@ -24,19 +24,24 @@ internal class DurableOperationAttentionCoordinator(
     private val stalledOperations = MutableStateFlow<List<DurableOperationRecord>>(emptyList())
     private val reconcileTask = Runnable(::reconcile)
     private val coordinationLock = Any()
+    private val reconciliationThread = ThreadLocal<Boolean>()
     private var revision = 0L
     private var started = false
+    private var removeStoreChangeListener: (() -> Unit)? = null
 
     fun observeStalledOperations(): StateFlow<List<DurableOperationRecord>> =
         stalledOperations.asStateFlow()
 
     fun start() {
         synchronized(coordinationLock) { started = true }
+        removeStoreChangeListener = supervisor.addStoreChangeListener(::wake)
         supervisor.setMutationListener(::wake)
     }
 
     fun stop() {
         supervisor.setMutationListener(null)
+        removeStoreChangeListener?.invoke()
+        removeStoreChangeListener = null
         synchronized(coordinationLock) {
             started = false
             revision += 1L
@@ -51,6 +56,11 @@ internal class DurableOperationAttentionCoordinator(
     }
 
     private fun wake() {
+        // attentionSnapshot can persist an overdue prompt. That write is already incorporated
+        // into the snapshot being reconciled, so do not replace its scheduled deadline with a
+        // redundant immediate pass. A write from another supervisor after reconciliation returns
+        // is not on this thread and still wakes the coordinator.
+        if (reconciliationThread.get() == true) return
         synchronized(coordinationLock) {
             if (!started) return
             revision += 1L
@@ -63,7 +73,12 @@ internal class DurableOperationAttentionCoordinator(
             if (!started) return
             revision
         }
-        val snapshot = supervisor.attentionSnapshot()
+        val snapshot = try {
+            reconciliationThread.set(true)
+            supervisor.attentionSnapshot()
+        } finally {
+            reconciliationThread.remove()
+        }
         val stalled = snapshot.records.filter(DurableOperationRecord::showStallPrompt)
         stalledOperations.value = stalled
         notifier.reconcile(snapshot.notificationRecords)
