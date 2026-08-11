@@ -6,6 +6,7 @@ data class NarDownload(
     val source: NarDownloadSource,
     val attemptId: Long = 1L,
     val retainedUri: String? = null,
+    val pendingPersistedGrantReleaseUri: String? = null,
     val downloadManagerId: Long? = null,
     val workManagerId: String? = null,
     val createdAtMillis: Long = 0,

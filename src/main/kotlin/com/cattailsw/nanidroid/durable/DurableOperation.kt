@@ -30,6 +30,9 @@ data class DurableOperationRecord(
     val showStallPrompt: Boolean,
     val diagnostics: String? = null,
     val externalJobHistory: Set<ExternalJobBinding> = emptySet(),
+    val attentionRetryGeneration: Long = 0L,
+    val attentionKeepWaitingGeneration: Long = 0L,
+    val progressGeneration: Long = 0L,
 )
 
 internal data class DurableAttentionSnapshot(

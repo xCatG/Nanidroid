@@ -1132,6 +1132,563 @@ class NarDownloadRepositoryTest {
         privateImports.delete()
     }
 
+    @Test fun stagingPersistedDocumentReleasesItsGrantAfterPrivateOwnershipTransfers() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertEquals(
+            listOf(source),
+            ownedData.releasedUris,
+        )
+    }
+
+    @Test fun completedStagedDocumentDoesNotReleaseItsOriginalGrantAgain() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+        val staged = store.get(item.id)!!
+
+        repository.install(staged.id, staged.attemptId, staged.workManagerId!!) { false }
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
+    @Test fun deletingStagedDocumentDoesNotReleaseItsOriginalGrantAgain() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(repository.delete(item.id))
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
+    @Test fun deletingStagedDocumentRetriesItsFailedOriginalGrantCleanup() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseAttempts = 0
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseAttempts++ == 0) {
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(repository.delete(item.id))
+
+        assertEquals(2, releaseAttempts)
+        assertEquals(listOf(source), ownedData.releasedUris.filter { it == source })
+    }
+
+    @Test fun deletingStagedDocumentRetainsFailedGrantCleanupForReconciliation() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseSucceeds = false
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && !releaseSucceeds) {
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(repository.delete(item.id))
+        assertNull(store.get(item.id))
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+
+        releaseSucceeds = true
+        repository.reconcile()
+
+        assertEquals(listOf(source), ownedData.releasedUris.filter { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun replacingStagedDocumentRetriesItsFailedOriginalGrantCleanup() {
+        val source = "content://provider/archive.nar"
+        val replacement = "file:///owned/reselected.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseAttempts = 0
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseAttempts++ == 0) {
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        repository.replaceLocalSource(item.id, replacement)
+
+        assertEquals(2, releaseAttempts)
+        assertEquals(listOf(source), ownedData.releasedUris.filter { it == source })
+    }
+
+    @Test fun reconciliationReleasesGrantAfterRecoveredStagingHandoff() {
+        val source = "content://provider/archive.nar"
+        val item = repository.enqueueLocalCopy(source)
+        store.update(item.id) {
+            it.copy(
+                attemptId = item.attemptId + 1L,
+                retainedUri = "file:///owned/staged-copy.nar",
+                workManagerId = null,
+                state = NarDownloadState.Queued,
+            )
+        }
+
+        repository.reconcile()
+
+        assertEquals(listOf(source), ownedData.releasedUris)
+    }
+
+    @Test fun stagedCopyNoLongerKeepsSharedDocumentGrantAfterOtherOwnerDeletes() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        val direct = repository.enqueueLocal(source, source)
+        repository.stageLocal(
+            copying.id,
+            copying.attemptId,
+            copying.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(ownedData.releasedUris.isEmpty())
+        assertTrue(repository.delete(direct.id))
+
+        assertEquals(listOf(source), ownedData.releasedUris)
+    }
+
+    @Test fun stagingKeepsGrantWhileSourceOnlySiblingStillNeedsIt() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        repository.enqueueLocal(source)
+
+        repository.stageLocal(
+            copying.id,
+            copying.attemptId,
+            copying.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(ownedData.releasedUris.isEmpty())
+    }
+
+    @Test fun removingLastSourceOnlySiblingReleasesItsDocumentGrant() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        val sourceOnly = repository.enqueueLocal(source)
+        repository.stageLocal(
+            copying.id,
+            copying.attemptId,
+            copying.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(repository.delete(copying.id))
+        assertTrue(ownedData.releasedUris.none { it == source })
+        assertTrue(repository.delete(sourceOnly.id))
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
+    @Test fun stagingKeepsGrantWhilePersistedSourceAcquisitionRegistersItsCopy() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        val acquired = AtomicBoolean(false)
+        val reservation = repository.enqueuePersistedLocalCopy(source) {
+            acquired.set(true)
+            true
+        }!!
+
+        repository.stageLocal(
+            copying.id,
+            copying.attemptId,
+            copying.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertTrue(ownedData.releasedUris.isEmpty())
+        assertTrue(acquired.get())
+        assertEquals(NarDownloadState.Copying, store.get(reservation.id)!!.state)
+    }
+
+    @Test fun persistedSourceAcquisitionDurablyReservesItsGrantBeforeAcquiringIt() {
+        val source = "content://provider/reserved.nar"
+
+        val copied = repository.enqueuePersistedLocalCopy(source) {
+            assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+            true
+        }
+
+        assertNotNull(copied)
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun failedPersistedAcquisitionPreservesAnOlderDetachedGrantCleanup() {
+        val source = "content://provider/older-detached-cleanup.nar"
+        store.addPendingPersistedGrantRelease(source)
+
+        assertNull(repository.enqueuePersistedLocalCopy(source) { false })
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+    }
+
+    @Test fun detachedGrantCleanupSurvivesAnUnrelatedLiveGrantCopyOfTheSameUri() {
+        val source = "content://provider/live-grant-collision.nar"
+        store.addPendingPersistedGrantRelease(source)
+
+        // A live-grant copy of the same URI starts while the detached release is pending.
+        // It only holds a temporary permission, so it must not be mistaken for a record
+        // that will take over releasing the persisted grant.
+        val live = repository.enqueueLiveLocalCopy(source)
+        repository.reconcile()
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+        assertTrue(ownedData.releasedUris.none { it == source })
+
+        // Once the live copy stages off the raw URI, nothing references it and the
+        // detached release can finally proceed.
+        repository.stageLiveLocal(
+            live.id,
+            live.attemptId,
+            live.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-live-copy.nar") }
+        repository.reconcile()
+
+        assertTrue(ownedData.releasedUris.any { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun deletingPendingCleanupOwnerPreservesItAsATombstoneWhileALiveGrantSiblingCopiesTheSameUri() {
+        val source = "content://provider/deferred-on-delete.nar"
+        val owner = store.create(
+            NarDownload(
+                id = "pending-cleanup-owner",
+                source = NarDownloadSource.Local("content://provider/unrelated.nar"),
+                retainedUri = "file:///owned/unrelated.nar",
+                pendingPersistedGrantReleaseUri = source,
+                state = NarDownloadState.Queued,
+            ),
+        )
+        // A live-grant copy of the same URI starts while the owner still carries the
+        // cleanup marker. It only holds a temporary permission, so it must not be mistaken
+        // for a record that will take over releasing the persisted grant.
+        val live = repository.enqueueLiveLocalCopy(source)
+
+        assertTrue(repository.delete(owner.id))
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+        assertTrue(ownedData.releasedUris.none { it == source })
+
+        // Once the live copy stages off the raw URI, nothing references it and the
+        // detached release can finally proceed.
+        repository.stageLiveLocal(
+            live.id,
+            live.attemptId,
+            live.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-live-copy.nar") }
+        repository.reconcile()
+
+        assertTrue(ownedData.releasedUris.any { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun replacingDirectPersistedGrantRecordsCleanupBeforeReleasingIt() {
+        val source = "content://provider/direct-replacement.nar"
+        val replacement = "content://provider/direct-replacement-next.nar"
+        val item = repository.enqueueLocal(source, source)
+        val tombstoneWasPresentWhenReleaseStarted = AtomicBoolean(false)
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                tombstoneWasPresentWhenReleaseStarted.set(
+                    source in store.pendingPersistedGrantReleases(),
+                )
+            }
+        }
+
+        assertNotNull(repository.replaceLocalSource(item.id, replacement))
+
+        assertTrue(tombstoneWasPresentWhenReleaseStarted.get())
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun deletingDirectPersistedGrantRetainsCleanupInTheFirstOwnerlessWrite() {
+        val source = "content://provider/direct-delete-crash-window.nar"
+        val storage = RecordingStorage()
+        val queueStore = NarDownloadStore(storage)
+        val isolatedRepository = repositoryWith(queueStore, supervisor, "durable-delete-item")
+        val item = isolatedRepository.enqueueLocal(source, source)
+
+        assertTrue(isolatedRepository.delete(item.id))
+
+        val firstOwnerlessSnapshot = storage.writes.first { snapshot ->
+            NarDownloadStore(SnapshotStorage(snapshot)).get(item.id) == null
+        }
+        assertTrue(
+            source in NarDownloadStore(SnapshotStorage(firstOwnerlessSnapshot))
+                .pendingPersistedGrantReleases(),
+        )
+    }
+
+    @Test fun deletingDirectPersistedGrantRetainsCleanupWithOnlyLiveGrantSibling() {
+        val source = "content://provider/direct-delete-live-sibling.nar"
+        val direct = repository.enqueueLocal(source, source)
+        repository.enqueueLiveLocalCopy(source)
+
+        assertTrue(repository.delete(direct.id))
+
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+        assertTrue(ownedData.releasedUris.none { it == source })
+    }
+
+    @Test fun stagingPersistedCopyRetainsCleanupWithOnlyLiveGrantSibling() {
+        val source = "content://provider/staged-persisted-live-sibling.nar"
+        val persisted = repository.enqueueLocalCopy(source)
+        val live = repository.enqueueLiveLocalCopy(source)
+
+        repository.stageLocal(
+            persisted.id,
+            persisted.attemptId,
+            persisted.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-persisted-copy.nar") }
+
+        assertEquals(source, store.get(persisted.id)!!.pendingPersistedGrantReleaseUri)
+
+        repository.stageLiveLocal(
+            live.id,
+            live.attemptId,
+            live.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-live-copy.nar") }
+
+        assertTrue(repository.delete(persisted.id))
+        assertTrue(repository.delete(live.id))
+
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
+    @Test fun replacingDirectPersistedGrantRetainsCleanupInTheFirstOldOwnerlessWrite() {
+        val source = "content://provider/direct-replace-crash-window.nar"
+        val replacement = "content://provider/direct-replace-next.nar"
+        val storage = RecordingStorage()
+        val queueStore = NarDownloadStore(storage)
+        val isolatedRepository = repositoryWith(queueStore, supervisor, "durable-replace-item")
+        val item = isolatedRepository.enqueueLocal(source, source)
+
+        assertNotNull(isolatedRepository.replaceLocalSource(item.id, replacement))
+
+        val firstOldOwnerlessSnapshot = storage.writes.first { snapshot ->
+            val record = NarDownloadStore(SnapshotStorage(snapshot)).get(item.id)
+            record?.retainedUri == replacement
+        }
+        assertTrue(
+            source in NarDownloadStore(SnapshotStorage(firstOldOwnerlessSnapshot))
+                .pendingPersistedGrantReleases(),
+        )
+    }
+
+    @Test fun persistedReplacementReservesGrantBeforeAcquiringIt() {
+        val item = repository.enqueueLocal("content://provider/old.nar")
+        val replacementSource = "content://provider/replacement.nar"
+
+        val replacement = repository.replaceWithPersistedLocalSource(item.id, replacementSource) {
+            assertEquals(setOf(replacementSource), store.pendingPersistedGrantReleases())
+            true
+        }
+
+        assertNotNull(replacement)
+        assertEquals(replacementSource, replacement!!.retainedUri)
+        assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+    }
+
+    @Test fun persistedReplacementFromAttentionReservesBeforeAcquiringItsGrant() {
+        val item = store.create(
+            NarDownload(
+                id = "attention-persisted-replacement",
+                source = NarDownloadSource.Local("content://provider/old.nar"),
+                retainedUri = "content://provider/old.nar",
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("retry required")),
+            ),
+        )
+        val replacementSource = "content://provider/reselected.nar"
+
+        val replacement = repository.replaceWithPersistedLocalSource(item.id, replacementSource) {
+            val reserved = store.get(item.id)!!
+            assertTrue(reserved.state is NarDownloadState.NeedsAttention)
+            assertEquals(setOf(replacementSource), store.pendingPersistedGrantReleases())
+            true
+        }
+
+        assertNotNull(replacement)
+        assertEquals(replacementSource, replacement!!.retainedUri)
+    }
+
+    @Test fun failedPersistedReplacementPreservesAnOlderRecordGrantCleanup() {
+        val source = "content://provider/older-record-cleanup.nar"
+        val item = repository.enqueueLocal(source, source)
+        store.update(item.id) { current -> current.copy(pendingPersistedGrantReleaseUri = source) }
+
+        assertNull(repository.replaceWithPersistedLocalSource(item.id, source) { false })
+
+        assertEquals(source, store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+    }
+
+    @Test fun failedDirectGrantReleaseAfterDeletionIsRetainedForReconciliation() {
+        val source = "content://provider/direct-delete.nar"
+        val item = repository.enqueueLocal(source, source)
+        var releaseFails = true
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseFails) {
+                ownedData.releasePersistedGrantResult = false
+            }
+        }
+
+        assertTrue(repository.delete(item.id))
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+
+        releaseFails = false
+        ownedData.releasePersistedGrantResult = true
+        repository.reconcile()
+
+        assertEquals(listOf(source, source), ownedData.releasedUris.filter { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun failedDirectGrantReleaseAfterReplacementIsRetainedForReconciliation() {
+        val source = "content://provider/direct-replace.nar"
+        val item = repository.enqueueLocal(source, source)
+        var releaseFails = true
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source && releaseFails) {
+                ownedData.releasePersistedGrantResult = false
+            }
+        }
+
+        repository.replaceLocalSource(item.id, "file:///owned/replacement.nar")
+        assertEquals(setOf(source), store.pendingPersistedGrantReleases())
+
+        releaseFails = false
+        ownedData.releasePersistedGrantResult = true
+        repository.reconcile()
+
+        assertEquals(listOf(source, source), ownedData.releasedUris.filter { it == source })
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+    }
+
+    @Test fun persistedSourceAcquisitionWaitsForStagingGrantReleaseDecision() {
+        val source = "content://provider/shared.nar"
+        val copying = repository.enqueueLocalCopy(source)
+        val releaseEntered = CountDownLatch(1)
+        val allowRelease = CountDownLatch(1)
+        val acquisitionAttempted = CountDownLatch(1)
+        val acquisitionStarted = CountDownLatch(1)
+        val acquisitionFinished = CountDownLatch(1)
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                releaseEntered.countDown()
+                assertTrue(allowRelease.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val staging = Thread {
+            repository.stageLocal(
+                copying.id,
+                copying.attemptId,
+                copying.workManagerId!!,
+                { false },
+            ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+        }.apply(Thread::start)
+        assertTrue(releaseEntered.await(5, TimeUnit.SECONDS))
+        val acquisition = Thread {
+            acquisitionAttempted.countDown()
+            repository.enqueuePersistedLocalCopy(source) {
+                acquisitionStarted.countDown()
+                true
+            }
+            acquisitionFinished.countDown()
+        }.apply(Thread::start)
+
+        assertTrue(acquisitionAttempted.await(5, TimeUnit.SECONDS))
+        assertTrue(!acquisitionStarted.await(100, TimeUnit.MILLISECONDS))
+        allowRelease.countDown()
+        staging.join(5_000)
+        acquisition.join(5_000)
+
+        assertTrue(acquisitionStarted.await(0, TimeUnit.MILLISECONDS))
+        assertTrue(acquisitionFinished.await(0, TimeUnit.MILLISECONDS))
+    }
+
+    @Test fun persistedSourceAcquisitionWaitsForCompletedSourceOnlyGrantReleaseDecision() {
+        val source = "content://provider/shared.nar"
+        val sourceOnly = repository.enqueueLocal(source)
+        val releaseEntered = CountDownLatch(1)
+        val allowRelease = CountDownLatch(1)
+        val acquisitionAttempted = CountDownLatch(1)
+        val acquisitionStarted = CountDownLatch(1)
+        val acquisitionFinished = CountDownLatch(1)
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                releaseEntered.countDown()
+                assertTrue(allowRelease.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val completion = Thread {
+            repository.install(sourceOnly.id, sourceOnly.attemptId, sourceOnly.workManagerId!!) { false }
+        }.apply(Thread::start)
+        assertTrue(releaseEntered.await(5, TimeUnit.SECONDS))
+        val acquisition = Thread {
+            acquisitionAttempted.countDown()
+            repository.enqueuePersistedLocalCopy(source) {
+                acquisitionStarted.countDown()
+                true
+            }
+            acquisitionFinished.countDown()
+        }.apply(Thread::start)
+
+        assertTrue(acquisitionAttempted.await(5, TimeUnit.SECONDS))
+        assertTrue(!acquisitionStarted.await(100, TimeUnit.MILLISECONDS))
+        allowRelease.countDown()
+        completion.join(5_000)
+        acquisition.join(5_000)
+
+        assertTrue(acquisitionStarted.await(0, TimeUnit.MILLISECONDS))
+        assertTrue(acquisitionFinished.await(0, TimeUnit.MILLISECONDS))
+    }
+
     @Test fun recreatedStageWorkerCommitsHandoffWhenCopySupervisorAlreadyCompleted() {
         val item = repository.enqueueLocalCopy("content://provider/archive.nar")
         assertTrue(
@@ -2855,6 +3412,109 @@ class NarDownloadRepositoryTest {
         assertTrue(ownedData.releasedItemIds.isEmpty())
     }
 
+    @Test fun reselectingStagedDocumentWithTheSameUriSupersedesFailedGrantCleanup() {
+        val source = "content://provider/reselected.nar"
+        val item = repository.enqueueLocalCopy(source)
+        var releaseAttempts = 0
+        ownedData.onRelease = { released ->
+            if (released.retainedUri == source) {
+                releaseAttempts++
+                throw SecurityException("release interrupted")
+            }
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-copy.nar") }
+
+        assertNotNull(
+            repository.replaceWithPersistedLocalSource(item.id, source) { true },
+        )
+
+        assertEquals(1, releaseAttempts)
+        assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+    }
+
+    @Test fun stagingPersistedReplacementRetainsBothFailedGrantCleanups() {
+        val original = "content://provider/original.nar"
+        val replacement = "content://provider/replacement.nar"
+        val item = repository.enqueueLocalCopy(original)
+        ownedData.onRelease = { released ->
+            ownedData.releasePersistedGrantResult =
+                released.retainedUri != original && released.retainedUri != replacement
+        }
+
+        repository.stageLocal(
+            item.id,
+            item.attemptId,
+            item.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/original-copy.nar") }
+        assertEquals(original, store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+
+        assertNotNull(repository.replaceWithPersistedLocalSource(item.id, replacement) { true })
+        val replacementCopy = store.update(item.id) { current ->
+            current.copy(
+                attemptId = current.attemptId + 1L,
+                workManagerId = "replacement-stage",
+                state = NarDownloadState.Copying,
+            )
+        }!!
+
+        repository.stageLocal(
+            replacementCopy.id,
+            replacementCopy.attemptId,
+            replacementCopy.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/replacement-copy.nar") }
+
+        assertEquals(replacement, store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+        assertEquals(setOf(original), store.pendingPersistedGrantReleases())
+
+        assertTrue(repository.delete(item.id))
+        assertEquals(setOf(original, replacement), store.pendingPersistedGrantReleases())
+
+        ownedData.releasedUris.clear()
+        ownedData.onRelease = null
+        ownedData.releasePersistedGrantResult = true
+        repository.reconcile()
+
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+        assertEquals(
+            1,
+            ownedData.releasedUris.count { it == original },
+        )
+        assertEquals(
+            1,
+            ownedData.releasedUris.count { it == replacement },
+        )
+    }
+
+    @Test fun reconciliationClearsGrantMarkerOnAttentionRecordWithoutRedundantRetries() {
+        val source = "content://provider/attention-cleanup.nar"
+        val item = store.create(
+            NarDownload(
+                id = "attention-with-grant-marker",
+                source = NarDownloadSource.Local(source),
+                retainedUri = "file:///owned/staged-before-failure.nar",
+                pendingPersistedGrantReleaseUri = source,
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("staging failed")),
+            ),
+        )
+
+        repository.reconcile()
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+        assertNull(store.get(item.id)!!.pendingPersistedGrantReleaseUri)
+
+        repository.reconcile()
+
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
     @Test fun completedHistoryDoesNotRetainAReacquiredDocumentGrant() {
         val source = "content://provider/reacquired.nar"
         val completed = repository.enqueueLocal(source, source)
@@ -3068,6 +3728,1067 @@ class NarDownloadRepositoryTest {
         assertEquals(retry.attemptId, retryOperation.attemptId.value)
         assertEquals(OperationKind.REMOTE_NAR, retryOperation.kind)
         assertEquals(OperationStatus.RUNNING, retryOperation.status)
+    }
+
+    @Test fun remoteEnqueueFailureBeforeRowBindingPersistsFailedAttempt() {
+        downloads.enqueueFailure = IllegalStateException("DownloadManager unavailable")
+
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertNull(item.downloadManagerId)
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        val failed = operationStore.read().single()
+        assertEquals(item.id, failed.id.value)
+        assertEquals(item.attemptId, failed.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, failed.kind)
+        assertEquals(OperationStatus.FAILED, failed.status)
+        assertNull(failed.externalJob)
+
+        downloads.enqueueFailure = null
+        downloads.nextDownloadId = 91L
+        val retry = recreatedRepository().retry(item.id)!!
+
+        assertEquals(item.attemptId + 1L, retry.attemptId)
+        assertEquals(91L, retry.downloadManagerId)
+        val retriedOperation = operationStore.read().single()
+        assertEquals(retry.attemptId, retriedOperation.attemptId.value)
+        assertEquals(OperationStatus.RUNNING, retriedOperation.status)
+        assertEquals(ExternalJobBinding.DownloadManager(91L), retriedOperation.externalJob)
+    }
+
+    @Test fun remoteEnqueueFailureKeepsAttemptRecoverableWhenFailurePersistenceThrows() {
+        val exactOperationStore = FailNextTerminalWriteStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(store, exactSupervisor, "remote-enqueue-terminal-write-failure")
+        downloads.enqueueFailure = IllegalStateException("DownloadManager unavailable")
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
+    @Test fun failedReacquisitionStartPersistsTerminalRemoteAttemptForTheNextRetry() {
+        val exactOperationStore = FailFirstRemoteReacquisitionStartStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val failedInstall = store.create(
+            NarDownload(
+                id = "reacquisition-start-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/reacquisition-start-failure.nar",
+                state = NarDownloadState.NeedsAttention(NarDownloadState.Failure("install failed")),
+            ),
+        )
+        assertTrue(
+            exactSupervisor.start(
+                failedInstall.handle(),
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        assertTrue(exactSupervisor.failUnboundAttempt(failedInstall.handle(), "install failed"))
+        val exactRepository = repositoryWith(store, exactSupervisor, failedInstall.id)
+
+        val failedReacquisition = exactRepository.retry(failedInstall.id)!!
+
+        assertTrue(failedReacquisition.state is NarDownloadState.NeedsAttention)
+        val terminalRemoteAttempt = exactOperationStore.read().single()
+        assertEquals(failedReacquisition.attemptId, terminalRemoteAttempt.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, terminalRemoteAttempt.kind)
+        assertEquals(OperationStatus.FAILED, terminalRemoteAttempt.status)
+
+        downloads.nextDownloadId = 96L
+        val retry = exactRepository.retry(failedInstall.id)!!
+
+        assertEquals(failedReacquisition.attemptId + 1L, retry.attemptId)
+        assertEquals(96L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, exactOperationStore.read().single().status)
+    }
+
+    @Test fun stopDuringRemoteEnqueueCannotRebindCancelledAttempt() {
+        downloads.nextDownloadId = 92L
+        downloads.onEnqueue = { itemId -> assertTrue(repository.stop(itemId)) }
+
+        val item = repository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.Cancelled)
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+        assertEquals(listOf(92L), downloads.removedIds)
+    }
+
+    @Test fun recreationBindsRecoveredRemoteRowAfterEnqueueBeforeBinding() {
+        val accepted = store.create(
+            NarDownload(
+                id = "unbound-remote",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/unbound-remote.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 93L
+        downloads.statuses[93L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(93L, store.get(accepted.id)!!.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(93L),
+            operationStore.read().single().externalJob,
+        )
+    }
+
+    @Test fun recreationBindsRecoveredRemoteRowWhenItsPersistedIdWriteAppliedThenFailed() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(exactOperationStore, MonotonicClock { 0L }, cancellations)
+        val accepted = queueStore.create(
+            NarDownload(
+                id = "recovered-id-applied-write",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovered-id-applied-write.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(exactSupervisor.start(accepted.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        downloads.recoveredIds[accepted.retainedUri!!] = 94L
+        downloads.statuses[94L] = NarRemoteDownloadStatus.InProgress
+
+        repositoryWith(queueStore, exactSupervisor, "unused").reconcile()
+
+        assertEquals(94L, queueStore.get(accepted.id)!!.downloadManagerId)
+        assertEquals(ExternalJobBinding.DownloadManager(94L), exactOperationStore.read().single().externalJob)
+    }
+
+    @Test fun recreationRestoresARecoveredIdAlreadyBoundToTheCurrentAttempt() {
+        val accepted = store.create(
+            NarDownload(
+                id = "recovered-current-binding",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovered-current-binding.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val binding = ExternalJobBinding.DownloadManager(95L)
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                binding,
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 95L
+        downloads.statuses[95L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(95L, store.get(accepted.id)!!.downloadManagerId)
+        assertEquals(binding, operationStore.read().single().externalJob)
+        assertEquals(NarDownloadState.Downloading, store.get(accepted.id)!!.state)
+    }
+
+    @Test fun recreationUsesTerminalCurrentBindingBeforeDestinationHistory() {
+        val accepted = store.create(
+            NarDownload(
+                id = "recovered-terminal-current-binding",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovered-terminal-current-binding.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val binding = ExternalJobBinding.DownloadManager(106L)
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                binding,
+            ),
+        )
+        assertTrue(
+            supervisor.finish(
+                accepted.handle(),
+                binding,
+                OperationStatus.FAILED,
+                "Download failed",
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 106L
+        downloads.statuses[106L] = NarRemoteDownloadStatus.Failed
+
+        recreatedRepository().reconcile()
+
+        assertEquals(106L, store.get(accepted.id)!!.downloadManagerId)
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+    }
+
+    @Test fun recreationUsesExactCurrentBindingBeforeHistoricalDestinationRow() {
+        val accepted = store.create(
+            NarDownload(
+                id = "recovered-exact-current-binding",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovered-exact-current-binding.nar",
+                state = NarDownloadState.Downloading,
+                attemptId = 2L,
+            ),
+        )
+        val predecessor = accepted.handle().copy(attemptId = AttemptId(1L))
+        val historicalBinding = ExternalJobBinding.DownloadManager(107L)
+        val currentBinding = ExternalJobBinding.DownloadManager(108L)
+        assertTrue(supervisor.start(predecessor, OperationKind.REMOTE_NAR, "Downloading archive", 0L, historicalBinding))
+        assertTrue(supervisor.finish(predecessor, historicalBinding, OperationStatus.FAILED, "Download failed"))
+        assertTrue(supervisor.start(accepted.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L, currentBinding))
+        downloads.recoveredIds[accepted.retainedUri!!] = 107L
+        downloads.statuses[108L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(108L, store.get(accepted.id)!!.downloadManagerId)
+        assertEquals(currentBinding, operationStore.read().single().externalJob)
+    }
+
+    @Test fun recoveryCleansUpRowWhenRecoveredIdPersistenceDoesNotApply() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(exactOperationStore, MonotonicClock { 0L }, cancellations)
+        val accepted = queueStore.create(
+            NarDownload(
+                id = "recovered-id-write-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovered-id-write-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(exactSupervisor.start(accepted.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        downloads.recoveredIds[accepted.retainedUri!!] = 109L
+        downloads.statuses[109L] = NarRemoteDownloadStatus.InProgress
+
+        repositoryWith(queueStore, exactSupervisor, "unused").reconcile()
+
+        assertEquals(listOf(109L), downloads.removedIds)
+        assertTrue(queueStore.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
+    @Test fun recreationDoesNotPersistHistoricalRemoteRowWhenRecoveringReplacementAttempt() {
+        val accepted = store.create(
+            NarDownload(
+                id = "replacement-remote",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/replacement-remote.nar",
+                state = NarDownloadState.Downloading,
+                attemptId = 2L,
+            ),
+        )
+        val predecessor = accepted.handle().copy(attemptId = AttemptId(1L))
+        val historicalBinding = ExternalJobBinding.DownloadManager(93L)
+        assertTrue(
+            supervisor.start(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                historicalBinding,
+            ),
+        )
+        assertTrue(supervisor.failOrConfirmExactAttempt(
+            predecessor,
+            OperationKind.REMOTE_NAR,
+            historicalBinding,
+            "previous attempt failed",
+        ))
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 93L
+        downloads.removeFailureCount = 1
+
+        recreatedRepository().reconcile()
+
+        assertNull(store.get(accepted.id)!!.downloadManagerId)
+        assertNull(operationStore.read().single().externalJob)
+        assertEquals(listOf(93L), downloads.removedIds)
+    }
+
+    @Test fun recreationMakesReplacementAttemptActionableWhenOnlyHistoricalRemoteRowRemains() {
+        val accepted = store.create(
+            NarDownload(
+                id = "replacement-remote-without-current-row",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/replacement-remote-without-current-row.nar",
+                state = NarDownloadState.Downloading,
+                attemptId = 2L,
+            ),
+        )
+        val predecessor = accepted.handle().copy(attemptId = AttemptId(1L))
+        val historicalBinding = ExternalJobBinding.DownloadManager(94L)
+        assertTrue(
+            supervisor.start(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                historicalBinding,
+            ),
+        )
+        assertTrue(
+            supervisor.failOrConfirmExactAttempt(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                historicalBinding,
+                "previous attempt failed",
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 94L
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        val operation = operationStore.read().single()
+        assertEquals(accepted.attemptId, operation.attemptId.value)
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertNull(operation.externalJob)
+    }
+
+    @Test fun recreationBindsReplacementRowAfterRemovingHistoricalDestinationRow() {
+        val accepted = store.create(
+            NarDownload(
+                id = "replacement-remote-with-surviving-row",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/replacement-remote-with-surviving-row.nar",
+                state = NarDownloadState.Downloading,
+                attemptId = 2L,
+            ),
+        )
+        val predecessor = accepted.handle().copy(attemptId = AttemptId(1L))
+        val historicalBinding = ExternalJobBinding.DownloadManager(110L)
+        assertTrue(
+            supervisor.start(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                historicalBinding,
+            ),
+        )
+        assertTrue(
+            supervisor.failOrConfirmExactAttempt(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                historicalBinding,
+                "previous attempt failed",
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.recoveredIdSequences[accepted.retainedUri!!] = ArrayDeque(listOf(110L, 111L))
+        downloads.statuses[111L] = NarRemoteDownloadStatus.InProgress
+
+        recreatedRepository().reconcile()
+
+        assertEquals(listOf(110L), downloads.removedIds)
+        assertEquals(111L, store.get(accepted.id)!!.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(111L),
+            operationStore.read().single().externalJob,
+        )
+    }
+
+    @Test fun recreationMakesReplacementAttemptActionableWhenOnlyPredecessorHistoryRemains() {
+        val accepted = store.create(
+            NarDownload(
+                id = "replacement-remote-predecessor-only",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/replacement-remote-predecessor-only.nar",
+                state = NarDownloadState.Downloading,
+                attemptId = 2L,
+            ),
+        )
+        val predecessor = accepted.handle().copy(attemptId = AttemptId(1L))
+        val historicalBinding = ExternalJobBinding.DownloadManager(95L)
+        assertTrue(
+            supervisor.start(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+                historicalBinding,
+            ),
+        )
+        assertTrue(
+            supervisor.failOrConfirmExactAttempt(
+                predecessor,
+                OperationKind.REMOTE_NAR,
+                historicalBinding,
+                "previous attempt failed",
+            ),
+        )
+        downloads.recoveredIds[accepted.retainedUri!!] = 95L
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        val operation = operationStore.read().single { it.attemptId == accepted.handle().attemptId }
+        assertEquals(OperationStatus.FAILED, operation.status)
+        assertNull(operation.externalJob)
+    }
+
+    @Test fun recreationContinuesAfterRecoveredRemoteIdPersistenceFails() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val first = queueStore.create(
+            NarDownload(
+                id = "recovery-id-write-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovery-id-write-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val second = queueStore.create(
+            NarDownload(
+                id = "recovery-id-write-after-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovery-id-write-after-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(exactSupervisor.start(first.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        assertTrue(exactSupervisor.start(second.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        downloads.recoveredIds[first.retainedUri!!] = 95L
+        downloads.recoveredIds[second.retainedUri!!] = 96L
+        downloads.statuses[95L] = NarRemoteDownloadStatus.InProgress
+        downloads.statuses[96L] = NarRemoteDownloadStatus.InProgress
+
+        repositoryWith(queueStore, exactSupervisor, "unused").reconcile()
+
+        assertNull(queueStore.get(first.id)!!.downloadManagerId)
+        assertEquals(96L, queueStore.get(second.id)!!.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(96L),
+            exactOperationStore.read().single { it.id.value == second.id }.externalJob,
+        )
+    }
+
+    @Test fun recreationKeepsUnboundRemoteAttemptRunningWhenRowRecoveryQueryFails() {
+        val accepted = store.create(
+            NarDownload(
+                id = "unbound-remote-query-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/unbound-remote-query-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        downloads.findDownloadIdFailure = IllegalStateException("DownloadManager unavailable")
+
+        recreatedRepository().reconcile()
+
+        assertEquals(NarDownloadState.Downloading, store.get(accepted.id)!!.state)
+        val operation = operationStore.read().single()
+        assertEquals(OperationStatus.RUNNING, operation.status)
+        assertNull(operation.externalJob)
+    }
+
+    @Test fun recreationWithoutRemoteRowTerminalizesUnboundAttemptBeforeRetry() {
+        val accepted = store.create(
+            NarDownload(
+                id = "unbound-remote-without-row",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/unbound-remote-without-row.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+
+        downloads.nextDownloadId = 94L
+        val retry = recreated.retry(accepted.id)!!
+
+        assertEquals(accepted.attemptId + 1L, retry.attemptId)
+        assertEquals(94L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
+    @Test fun missingRowPersistenceFailureDoesNotAbortRemainingRemoteReconciliation() {
+        val exactOperationStore = FailNextTerminalWriteStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val first = store.create(
+            NarDownload(
+                id = "missing-row-persistence-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/first.nar"),
+                retainedUri = "file:///owned/missing-row-persistence-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val second = store.create(
+            NarDownload(
+                id = "missing-row-after-persistence-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/second.nar"),
+                retainedUri = "file:///owned/missing-row-after-persistence-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(exactSupervisor.start(first.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        assertTrue(exactSupervisor.start(second.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        val exactRepository = repositoryWith(store, exactSupervisor, "unused")
+
+        exactRepository.reconcile()
+
+        assertEquals(NarDownloadState.Downloading, store.get(first.id)!!.state)
+        assertEquals(OperationStatus.RUNNING, exactOperationStore.read().single { it.id.value == first.id }.status)
+        assertTrue(store.get(second.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single { it.id.value == second.id }.status)
+
+        exactRepository.reconcile()
+
+        assertTrue(store.get(first.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single { it.id.value == first.id }.status)
+    }
+
+    @Test fun recreationWithoutRemoteRowMakesAttemptActionableWhenSupervisorStartWasNotPersisted() {
+        val accepted = store.create(
+            NarDownload(
+                id = "remote-without-supervisor",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/remote-without-supervisor.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        assertTrue(operationStore.read().isEmpty())
+
+        downloads.nextDownloadId = 95L
+        val retry = recreated.retry(accepted.id)!!
+
+        assertEquals(accepted.attemptId + 1L, retry.attemptId)
+        assertEquals(95L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
+    @Test fun recreationWithoutRemoteRowMakesAlreadyFailedAttemptActionable() {
+        val accepted = store.create(
+            NarDownload(
+                id = "remote-failed-before-attention",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/remote-failed-before-attention.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.failUnboundAttempt(accepted.handle(), "prior failure"))
+
+        recreatedRepository().reconcile()
+
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, operationStore.read().single().status)
+    }
+
+    @Test fun recreationPersistsMissingRemoteReacquisitionBeforeRetryingFailedInstall() {
+        val accepted = store.create(
+            NarDownload(
+                id = "remote-reacquisition-without-supervisor",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                attemptId = 2L,
+                retainedUri = "file:///owned/remote-reacquisition-without-supervisor.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val previousHandle = OperationHandle(OperationId(accepted.id), AttemptId(1L))
+        assertTrue(
+            supervisor.start(
+                previousHandle,
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.failUnboundAttempt(previousHandle, "install failed"))
+
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        val recoveredAttempt = operationStore.read().single()
+        assertEquals(OperationKind.REMOTE_NAR, recoveredAttempt.kind)
+        assertEquals(accepted.attemptId, recoveredAttempt.attemptId.value)
+        assertEquals(OperationStatus.FAILED, recoveredAttempt.status)
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+
+        downloads.nextDownloadId = 96L
+        val retry = recreated.retry(accepted.id)!!
+
+        assertEquals(accepted.attemptId + 1L, retry.attemptId)
+        assertEquals(96L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
+    @Test fun recreationMakesRetryActionableWhenPreviousRemoteAttemptWasTerminal() {
+        val accepted = store.create(
+            NarDownload(
+                id = "remote-retry-without-supervisor",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                attemptId = 2L,
+                retainedUri = "file:///owned/remote-retry-without-supervisor.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val previousHandle = OperationHandle(OperationId(accepted.id), AttemptId(1L))
+        assertTrue(
+            supervisor.start(
+                previousHandle,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.failUnboundAttempt(previousHandle, "prior remote failure"))
+
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        val recoveredAttempt = operationStore.read().single()
+        assertEquals(OperationKind.REMOTE_NAR, recoveredAttempt.kind)
+        assertEquals(accepted.attemptId, recoveredAttempt.attemptId.value)
+        assertEquals(OperationStatus.FAILED, recoveredAttempt.status)
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+
+        downloads.nextDownloadId = 97L
+        val retry = recreated.retry(accepted.id)!!
+
+        assertEquals(accepted.attemptId + 1L, retry.attemptId)
+        assertEquals(97L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
+    @Test fun recreationMakesRetryActionableWhenPreviousRemoteAttemptWasCancelled() {
+        val accepted = store.create(
+            NarDownload(
+                id = "remote-retry-after-cancellation",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                attemptId = 2L,
+                retainedUri = "file:///owned/remote-retry-after-cancellation.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val previousHandle = OperationHandle(OperationId(accepted.id), AttemptId(1L))
+        assertTrue(
+            supervisor.start(
+                previousHandle,
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.requestStop(previousHandle))
+        assertTrue(supervisor.reconcileUnboundCancellation(previousHandle))
+
+        val recreated = recreatedRepository()
+        recreated.reconcile()
+
+        val recoveredAttempt = operationStore.read().single()
+        assertEquals(accepted.attemptId, recoveredAttempt.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, recoveredAttempt.kind)
+        assertEquals(OperationStatus.FAILED, recoveredAttempt.status)
+        assertTrue(store.get(accepted.id)!!.state is NarDownloadState.NeedsAttention)
+
+        downloads.nextDownloadId = 101L
+        val retry = recreated.retry(accepted.id)!!
+
+        assertEquals(accepted.attemptId + 1L, retry.attemptId)
+        assertEquals(101L, retry.downloadManagerId)
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
+    @Test fun recoveryBindingFailureDoesNotAbortRemainingRemoteReconciliation() {
+        val exactOperationStore = FailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val first = store.create(
+            NarDownload(
+                id = "recovery-binding-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovery-binding-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val second = store.create(
+            NarDownload(
+                id = "recovery-binding-after-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/recovery-binding-after-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(exactSupervisor.start(first.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        assertTrue(exactSupervisor.start(second.handle(), OperationKind.REMOTE_NAR, "Downloading archive", 0L))
+        downloads.recoveredIds[first.retainedUri!!] = 102L
+        downloads.recoveredIds[second.retainedUri!!] = 103L
+        downloads.statuses[102L] = NarRemoteDownloadStatus.InProgress
+        downloads.statuses[103L] = NarRemoteDownloadStatus.InProgress
+        val exactRepository = repositoryWith(store, exactSupervisor, "unused")
+
+        exactRepository.reconcile()
+
+        assertEquals(102L, store.get(first.id)!!.downloadManagerId)
+        assertEquals(listOf(102L), downloads.removedIds)
+        assertTrue(store.get(first.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single { it.id.value == first.id }.status)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(103L),
+            exactOperationStore.read().single { it.id.value == second.id }.externalJob,
+        )
+    }
+
+    @Test fun recoveryStateRepairFailureDoesNotAbortRemainingRemoteReconciliation() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(exactOperationStore, MonotonicClock { 0L }, cancellations)
+        val first = queueStore.create(
+            NarDownload(
+                id = "recovery-state-repair-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/first.nar"),
+                retainedUri = "file:///owned/recovery-state-repair-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        val second = queueStore.create(
+            NarDownload(
+                id = "recovery-state-repair-after-failure",
+                source = NarDownloadSource.Remote("https://example.invalid/second.nar"),
+                retainedUri = "file:///owned/recovery-state-repair-after-failure.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+
+        repositoryWith(queueStore, exactSupervisor, "unused").reconcile()
+
+        assertEquals(NarDownloadState.Downloading, queueStore.get(first.id)!!.state)
+        assertTrue(queueStore.get(second.id)!!.state is NarDownloadState.NeedsAttention)
+    }
+
+    @Test fun remoteQueueWriteFailureAfterEnqueueBindsTheAppliedExactRow() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-write-failure")
+        downloads.nextDownloadId = 98L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(NarDownloadState.Downloading, item.state)
+        assertEquals(98L, item.downloadManagerId)
+        assertTrue(downloads.removedIds.isEmpty())
+        val operation = exactOperationStore.read().single()
+        assertEquals(item.attemptId, operation.attemptId.value)
+        assertEquals(OperationKind.REMOTE_NAR, operation.kind)
+        assertEquals(ExternalJobBinding.DownloadManager(98L), operation.externalJob)
+        assertEquals(OperationStatus.RUNNING, operation.status)
+    }
+
+    @Test fun appliedRemoteQueueWriteFailureStillBindsAndObservesTheExactRow() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactProgress = FakeRemoteProgressObserver(downloads, exactSupervisor)
+        val exactRepository = NarDownloadRepository(
+            store = queueStore,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = exactProgress,
+            nextId = { "remote-applied-write" },
+        )
+        downloads.nextDownloadId = 109L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(109L, item.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(109L),
+            exactOperationStore.read().single().externalJob,
+        )
+        assertEquals(listOf(item.handle() to 109L), exactProgress.started)
+        assertTrue(downloads.removedIds.isEmpty())
+    }
+
+    @Test fun thrownRemoteBindingFailureRemovesRowAndTerminalizesExactAttempt() {
+        val exactOperationStore = FailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(store, exactSupervisor, "remote-binding-failure")
+        downloads.nextDownloadId = 99L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertEquals(99L, item.downloadManagerId)
+        assertEquals(listOf(99L), downloads.removedIds)
+        val operation = exactOperationStore.read().single()
+        assertNull(operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
+    }
+
+    @Test fun appliedRemoteBindingWriteFailureKeepsTheExactDownloadBinding() {
+        val exactOperationStore = ApplyThenFailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactProgress = FakeRemoteProgressObserver(downloads, exactSupervisor)
+        val exactRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = exactProgress,
+            nextId = { "remote-applied-binding" },
+        )
+        downloads.nextDownloadId = 98L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(NarDownloadState.Downloading, item.state)
+        assertEquals(98L, item.downloadManagerId)
+        assertEquals(
+            ExternalJobBinding.DownloadManager(98L),
+            exactOperationStore.read().single().externalJob,
+        )
+        assertEquals(listOf(item.handle() to 98L), exactProgress.started)
+        assertTrue(downloads.removedIds.isEmpty())
+    }
+
+    @Test fun unappliedRemoteQueueWriteFailureLeavesTheItemActionable() {
+        val queueStore = NarDownloadStore(FailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-queue-write-failure")
+        downloads.nextDownloadId = 97L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertNull(item.downloadManagerId)
+        assertEquals(listOf(97L), downloads.removedIds)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
+    @Test fun remoteBindingCleanupTerminalizationFailureRemainsRecoverableOnReconciliation() {
+        val exactOperationStore = FailRemoteBindingStore(
+            FailNextTerminalWriteStore(
+                SharedPreferencesDurableOperationStore(
+                    SharedPreferencesDurableOperationStore.MemoryStorage(),
+                ),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(store, exactSupervisor, "remote-binding-terminal-write-failure")
+        downloads.nextDownloadId = 101L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertEquals(NarDownloadState.Downloading, item.state)
+        assertNull(item.downloadManagerId)
+        assertEquals(listOf(101L), downloads.removedIds)
+        assertEquals(OperationStatus.RUNNING, exactOperationStore.read().single().status)
+
+        exactRepository.reconcile()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertEquals(OperationStatus.FAILED, exactOperationStore.read().single().status)
+    }
+
+    @Test fun appliedQueueWriteFailureStillCleansUpWhenBindingThenFails() {
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 3))
+        val exactOperationStore = FailRemoteBindingStore(
+            SharedPreferencesDurableOperationStore(
+                SharedPreferencesDurableOperationStore.MemoryStorage(),
+            ),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val exactRepository = repositoryWith(queueStore, exactSupervisor, "remote-applied-write-binding-failure")
+        downloads.nextDownloadId = 100L
+
+        val item = exactRepository.enqueueRemote("https://example.invalid/archive.nar")
+
+        assertTrue(item.state is NarDownloadState.NeedsAttention)
+        assertEquals(100L, item.downloadManagerId)
+        assertEquals(listOf(100L), downloads.removedIds)
+        val operation = exactOperationStore.read().single()
+        assertNull(operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
+    }
+
+    @Test fun recreationRepairsItemAfterUnboundCancellationWasAlreadyPersisted() {
+        val accepted = store.create(
+            NarDownload(
+                id = "remote-cancelled-before-item-update",
+                source = NarDownloadSource.Remote("https://example.invalid/archive.nar"),
+                retainedUri = "file:///owned/remote-cancelled-before-item-update.nar",
+                state = NarDownloadState.Downloading,
+            ),
+        )
+        assertTrue(
+            supervisor.start(
+                accepted.handle(),
+                OperationKind.REMOTE_NAR,
+                "Downloading archive",
+                0L,
+            ),
+        )
+        assertTrue(supervisor.requestStop(accepted.handle()))
+        assertTrue(supervisor.reconcileUnboundCancellation(accepted.handle()))
+
+        recreatedRepository().reconcile()
+
+        assertEquals(NarDownloadState.Cancelled, store.get(accepted.id)!!.state)
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
     }
 
     @Test fun missingRemoteRowIsTerminalizedBeforeRetryStartsNewDownloadAttempt() {
@@ -3307,9 +5028,13 @@ class NarDownloadRepositoryTest {
     private class FakeDownloadGateway : NarDownloadGateway {
         var nextDownloadId = 1L
         var onEnqueue: ((String) -> Unit)? = null
+        var enqueueFailure: Exception? = null
         var intendedDestinationFailure: Exception? = null
+        var findDownloadIdFailure: Exception? = null
+        var removeFailureCount = 0
         val statuses = mutableMapOf<Long, NarRemoteDownloadStatus?>()
         val recoveredIds = mutableMapOf<String, Long>()
+        val recoveredIdSequences = mutableMapOf<String, ArrayDeque<Long>>()
         val removedIds = mutableListOf<Long>()
         val downloadedBytes = mutableMapOf<Long, Long>()
         var onDownloadedBytes: (() -> Unit)? = null
@@ -3321,13 +5046,22 @@ class NarDownloadRepositoryTest {
 
         override fun enqueue(itemId: String, normalizedHttpsUrl: String): NarRemoteEnqueue {
             onEnqueue?.invoke(itemId)
+            enqueueFailure?.let { throw it }
             return NarRemoteEnqueue(nextDownloadId, "file:///owned/$itemId.nar")
         }
 
-        override fun findDownloadId(retainedUri: String) = recoveredIds[retainedUri]
+        override fun findDownloadId(retainedUri: String): Long? {
+            findDownloadIdFailure?.let { throw it }
+            return recoveredIdSequences[retainedUri]?.removeFirstOrNull() ?: recoveredIds[retainedUri]
+        }
 
         override fun remove(downloadManagerId: Long) {
+            if (removeFailureCount > 0) {
+                removeFailureCount -= 1
+                throw IllegalStateException("DownloadManager removal failed")
+            }
             removedIds += downloadManagerId
+            recoveredIds.entries.removeAll { it.value == downloadManagerId }
         }
 
         override fun status(downloadManagerId: Long) = statuses[downloadManagerId]
@@ -3566,8 +5300,11 @@ class NarDownloadRepositoryTest {
     private class FakeOwnedData : NarOwnedDownloadData {
         val deletedItemIds = mutableListOf<String>()
         val releasedItemIds = mutableListOf<String>()
+        val releasedUris = mutableListOf<String?>()
         var retainedLocalArchiveUris = emptySet<String?>()
         var isRetainedArchiveAvailable = false
+        var onRelease: ((NarDownload) -> Unit)? = null
+        var releasePersistedGrantResult = true
 
         override fun delete(download: NarDownload) {
             deletedItemIds += download.id
@@ -3575,8 +5312,11 @@ class NarDownloadRepositoryTest {
 
         override fun retainedArchiveAvailable(download: NarDownload) = isRetainedArchiveAvailable
 
-        override fun releasePersistedGrant(download: NarDownload) {
+        override fun releasePersistedGrant(download: NarDownload): Boolean {
+            onRelease?.invoke(download)
             releasedItemIds += download.id
+            releasedUris += download.retainedUri
+            return releasePersistedGrantResult
         }
 
         override fun deleteAbandonedLocalArchives(retainedUris: Set<String>) {
@@ -3671,6 +5411,133 @@ class NarDownloadRepositoryTest {
             writeCount += 1
             if (writeCount == failOnWrite) throw IllegalStateException("queue write failed")
             this.value = value
+        }
+    }
+
+    private class ApplyThenFailSelectedWriteStorage(
+        private val failOnWrite: Int,
+    ) : NarDownloadStore.Storage {
+        private var value: String? = null
+        private var writeCount = 0
+
+        @Synchronized override fun read(): String? = value
+
+        @Synchronized override fun write(value: String) {
+            writeCount += 1
+            this.value = value
+            if (writeCount == failOnWrite) throw IllegalStateException("queue write applied then failed")
+        }
+    }
+
+    private class RecordingStorage : NarDownloadStore.Storage {
+        private var value: String? = null
+        val writes = mutableListOf<String>()
+
+        @Synchronized override fun read(): String? = value
+
+        @Synchronized override fun write(value: String) {
+            this.value = value
+            writes += value
+        }
+    }
+
+    private class SnapshotStorage(private val value: String) : NarDownloadStore.Storage {
+        override fun read(): String = value
+
+        override fun write(value: String) = throw UnsupportedOperationException("snapshot is read-only")
+    }
+
+    private class FailRemoteBindingStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var bindingFailurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            if (bindingFailurePending && expected.externalJob == null && updated.externalJob != null) {
+                bindingFailurePending = false
+                throw IllegalStateException("durable binding write failed")
+            }
+            return delegate.compareAndSet(expected, updated)
+        }
+    }
+
+    private class ApplyThenFailRemoteBindingStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var bindingFailurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            val applied = delegate.compareAndSet(expected, updated)
+            if (bindingFailurePending && expected.externalJob == null && updated.externalJob != null) {
+                bindingFailurePending = false
+                throw IllegalStateException("durable binding write applied then failed")
+            }
+            return applied
+        }
+    }
+
+    private class FailNextTerminalWriteStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var terminalWriteFailurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            if (
+                terminalWriteFailurePending &&
+                expected.status == OperationStatus.RUNNING &&
+                updated.status == OperationStatus.FAILED
+            ) {
+                terminalWriteFailurePending = false
+                throw IllegalStateException("durable terminal write failed")
+            }
+            return delegate.compareAndSet(expected, updated)
+        }
+    }
+
+    private class FailFirstRemoteReacquisitionStartStore(
+        private val delegate: DurableOperationStore,
+    ) : DurableOperationStore {
+        private var failurePending = true
+
+        override fun read(): List<DurableOperationRecord> = delegate.read()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean {
+            if (
+                failurePending &&
+                expected.kind == OperationKind.NAR_INSTALL &&
+                updated.kind == OperationKind.REMOTE_NAR &&
+                updated.status == OperationStatus.RUNNING
+            ) {
+                failurePending = false
+                throw IllegalStateException("durable reacquisition start write failed")
+            }
+            return delegate.compareAndSet(expected, updated)
         }
     }
 
