@@ -486,6 +486,7 @@ class NarDownloadRepository internal constructor(
         if (isStopping(item)) return item
         if (item.state == NarDownloadState.Copying) return item
         runCatching { work.cancel(itemId) }
+        cancelSupersededQueuedInstallAttempt(item)
         when (val source = item.source) {
             is NarDownloadSource.Remote -> {
                 val failedInstallAttempt = supervisor.isFailedAttempt(
@@ -546,6 +547,7 @@ class NarDownloadRepository internal constructor(
         if (item.source !is NarDownloadSource.Local) return null
         if (isStopping(item)) return item
         runCatching { work.cancel(itemId) }
+        cancelSupersededQueuedInstallAttempt(item)
         runCatching { ownedData.delete(item) }
         store.update(itemId) {
             it.copy(
@@ -1229,6 +1231,25 @@ class NarDownloadRepository internal constructor(
                 markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
             }
         }
+    }
+
+    /**
+     * Retry and Select again replace this queued install with a newer attempt. A
+     * deferred scheduler may already have persisted the old attempt's deterministic
+     * binding but not yet submitted its request to WorkManager. Once cancellation
+     * has been requested, terminalize that exact superseded operation so the queued
+     * successor can start even if the old request reaches WorkManager afterward.
+     * The old worker observes the attempt mismatch and the successor's stale-work
+     * sweep removes its request before the replacement is enqueued.
+     */
+    private fun cancelSupersededQueuedInstallAttempt(item: NarDownload) {
+        if (item.state !is NarDownloadState.Queued) return
+        val workManagerId = item.workManagerId ?: return
+        supervisor.finish(
+            item.handle(),
+            ExternalJobBinding.WorkManager(workManagerId),
+            OperationStatus.CANCELLED,
+        )
     }
 
     private fun persistExactActiveWorkManagerBinding(

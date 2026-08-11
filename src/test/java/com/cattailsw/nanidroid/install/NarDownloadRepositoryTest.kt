@@ -337,6 +337,57 @@ class NarDownloadRepositoryTest {
         }
     }
 
+    @Test fun retryAfterPreparedDeferredInstallCanScheduleItsSuccessor() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowFirstEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowFirstEnqueue
+
+            val first = deferredRepository.enqueueLocal("file:///owned/racy.nar")
+            itemId = first.id
+            assertTrue("first install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            val retryFinished = CountDownLatch(1)
+            val retryFailure = AtomicReference<Throwable?>()
+            Thread {
+                try {
+                    deferredRepository.retry(first.id)
+                } catch (error: Throwable) {
+                    retryFailure.set(error)
+                } finally {
+                    retryFinished.countDown()
+                }
+            }.start()
+            assertTrue("Retry did not return while the first enqueue was deferred", retryFinished.await(5, TimeUnit.SECONDS))
+            retryFailure.get()?.let { throw AssertionError("Retry failed", it) }
+
+            allowFirstEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        val retried = store.get(itemId)!!
+        assertEquals(2L, retried.attemptId)
+        assertEquals(workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL), retried.workManagerId)
+    }
+
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
         downloads.nextDownloadId = 31L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
@@ -3012,6 +3063,8 @@ class NarDownloadRepositoryTest {
         var findActiveLegacyInstallWorkFailure: Exception? = null
         var cancelStaleDeterministicInstallWorkFailure: Exception? = null
         var cancelStaleDeterministicInstallWorkCompletes = true
+        var installPrepared: CountDownLatch? = null
+        var allowInstallEnqueue: CountDownLatch? = null
         var legacyProbeCalls = 0
         var staleCancelCalls = 0
         var installRecovery = NarInstallWorkRecovery.ACTIVE
@@ -3041,6 +3094,11 @@ class NarDownloadRepositoryTest {
             beforeNextInstallPrepared = null
             beforePrepared?.invoke(itemId, attemptId)
             if (!onPrepared(workManagerId)) return false
+            installPrepared?.countDown()
+            allowInstallEnqueue?.let { latch ->
+                allowInstallEnqueue = null
+                check(latch.await(5, TimeUnit.SECONDS)) { "install enqueue was not released" }
+            }
             installEnqueuedIds += workManagerId
             enqueue(itemId)
             return true
