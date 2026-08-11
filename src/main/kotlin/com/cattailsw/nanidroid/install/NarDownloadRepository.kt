@@ -1068,7 +1068,7 @@ class NarDownloadRepository internal constructor(
         }
     }
 
-    private fun scheduleInstallNow(item: NarDownload) {
+    internal fun scheduleInstallNow(item: NarDownload) {
         val handle = item.handle()
         if (cancellationRequested(handle)) {
             val workManagerId = item.workManagerId ?: return
@@ -1083,12 +1083,21 @@ class NarDownloadRepository internal constructor(
             reconcileStoppingWork(item, OperationKind.NAR_INSTALL, recovery)
             return
         }
-        val started = supervisor.start(
-            handle,
-            OperationKind.NAR_INSTALL,
-            "Installing archive",
-            0L,
-        )
+        // Retry, Delete, and Select again hold this repository monitor while
+        // replacing/removing a queued row. Rechecking the captured row while
+        // taking the same monitor makes supersession and starting the durable
+        // operation one decision: either the newer action wins and this stale
+        // task returns, or this task starts first and the newer action
+        // terminalizes that active exact attempt.
+        val started = synchronized(this) {
+            if (store.get(item.id) != item) return
+            supervisor.start(
+                handle,
+                OperationKind.NAR_INSTALL,
+                "Installing archive",
+                0L,
+            )
+        }
         if (!started && supervisor.isFailedAttempt(handle, OperationKind.NAR_INSTALL)) {
             markNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
             return

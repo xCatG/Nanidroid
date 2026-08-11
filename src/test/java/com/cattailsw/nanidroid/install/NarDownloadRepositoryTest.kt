@@ -463,6 +463,46 @@ class NarDownloadRepositoryTest {
         )
     }
 
+    @Test fun staleDeferredInstallDoesNotStartAfterRetrySupersedesItsCapturedRow() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = supervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+        val first = deferredRepository.enqueueLocal("file:///owned/stale-start.nar")
+        val retried = deferredRepository.retry(first.id)!!
+        val installPrepared = CountDownLatch(1)
+        val releaseInstallPreparation = CountDownLatch(1)
+        work.beforeNextInstallPrepared = { _, _ ->
+            installPrepared.countDown()
+            assertTrue(releaseInstallPreparation.await(5, TimeUnit.SECONDS))
+        }
+
+        val staleTask = Thread { deferredRepository.scheduleInstallNow(first) }
+        staleTask.start()
+        try {
+            assertTrue(
+                "a superseded scheduler task must not start its old durable attempt",
+                !installPrepared.await(250, TimeUnit.MILLISECONDS),
+            )
+            assertNull(supervisor.exactStatusForAttempt(first.handle(), OperationKind.NAR_INSTALL))
+            assertEquals(retried.attemptId, store.get(first.id)!!.attemptId)
+        } finally {
+            releaseInstallPreparation.countDown()
+            staleTask.join(5_000)
+        }
+        assertTrue("stale scheduler task did not return", !staleTask.isAlive)
+    }
+
     @Test fun replaceCanSupersedeQueuedInstallBeforeItsFirstBinding() {
         val executor = Executors.newSingleThreadExecutor()
         lateinit var itemId: String
