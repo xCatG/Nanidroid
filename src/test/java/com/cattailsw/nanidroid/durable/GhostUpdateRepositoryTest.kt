@@ -2045,6 +2045,48 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `retry after commit-failure recovery read uses journal rollback classification`() {
+        val fixture = fixture("commit-failure-recovery-read")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        var failRecoveryRead = true
+        var journalClassifications = 0
+        var legacyClassifications = 0
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) =
+                GhostUpdateJournalStore.write(file, journal)
+
+            override fun read(file: File): GhostUpdateJournal {
+                if (failRecoveryRead) {
+                    failRecoveryRead = false
+                    throw IOException("transient journal read failure")
+                }
+                return GhostUpdateJournalStore.read(file)
+            }
+        }
+        val failBeforeBackup = object : GhostUpdateFileOperations {
+            override fun rename(source: File, destination: File): Boolean = false
+        }
+
+        val result = fixture.repository(
+            fileOperations = failBeforeBackup,
+            journalIo = journalIo,
+            onRollbackClassified = {
+                legacyClassifications += 1
+                true
+            },
+            onRollbackJournalClassified = { _, _ ->
+                journalClassifications += 1
+                true
+            },
+        ).run(fixture.request()) { false }
+
+        assertTrue(result is GhostUpdateResult.Failed)
+        assertEquals(1, journalClassifications)
+        assertEquals(0, legacyClassifications)
+    }
+
+    @Test
     fun `completion payload survives process death before transaction cleanup and clears after delivery`() {
         val fixture = fixture("terminal-event-before-cleanup")
         fixture.writeLive("ghost/master.txt", "old")

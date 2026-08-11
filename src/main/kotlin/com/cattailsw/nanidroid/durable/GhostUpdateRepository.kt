@@ -432,7 +432,7 @@ class GhostUpdateRepository internal constructor(
                             OperationStatus.COMPLETED -> onCommitClassified(GhostUpdateResult.Completed(pending.files))
                             OperationStatus.FAILED,
                             OperationStatus.CANCELLED,
-                            -> onRollbackClassified(status)
+                            -> onRollbackJournalClassified(pending, status)
                             else -> false
                         }
                     },
