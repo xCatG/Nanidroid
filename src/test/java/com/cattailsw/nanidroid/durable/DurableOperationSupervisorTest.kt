@@ -358,7 +358,7 @@ class DurableOperationSupervisorTest {
         assertTrue(coordinatorSupervisor.snapshot().single().showStallPrompt)
     }
 
-    @Test fun successfulDuplicateStopPersistsGenerationAfterConcurrentPromptWrite() {
+    @Test fun successfulDuplicateStopClearsDelayedStoppingAttentionAfterConcurrentPromptWrite() {
         val raceStore = object : DurableOperationStore {
             private val delegate = MemoryDurableOperationStore()
             var beforeSuccessfulRetryGenerationWrite: (() -> Unit)? = null
@@ -396,8 +396,8 @@ class DurableOperationSupervisorTest {
 
         val persisted = raceStore.read().single()
         assertEquals(2L, persisted.attentionRetryGeneration)
-        assertTrue(persisted.showStallPrompt)
-        assertEquals(STOPPING_DELAY_DIAGNOSTIC, persisted.diagnostics)
+        assertFalse(persisted.showStallPrompt)
+        assertNull(persisted.diagnostics)
     }
 
     @Test fun generationPersistenceFailureDoesNotRetryAcceptedCancellation() {

@@ -757,9 +757,19 @@ class DurableOperationSupervisor(
             // On a CAS loss, rebuild from the concurrent winner so its prompt or Keep waiting
             // state survives while this successful dispatch is still observable.
             val clearsDispatchFailure = current.isCancellationDispatchFailure()
+            val clearsDelayedStoppingAttention =
+                !preserveAttention && current.diagnostics == STOPPING_DELAY_DIAGNOSTIC
             val updated = current.copy(
-                showStallPrompt = if (clearsDispatchFailure) preserveAttention else current.showStallPrompt,
-                diagnostics = if (clearsDispatchFailure) null else current.diagnostics,
+                showStallPrompt = when {
+                    clearsDispatchFailure -> preserveAttention
+                    clearsDelayedStoppingAttention -> false
+                    else -> current.showStallPrompt
+                },
+                diagnostics = if (clearsDispatchFailure || clearsDelayedStoppingAttention) {
+                    null
+                } else {
+                    current.diagnostics
+                },
                 attentionRetryGeneration = current.attentionRetryGeneration + 1L,
             )
             if (store.compareAndSet(current, updated)) {
