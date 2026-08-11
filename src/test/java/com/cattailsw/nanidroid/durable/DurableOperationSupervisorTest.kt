@@ -1989,6 +1989,26 @@ class DurableOperationSupervisorTest {
         assertNull(terminal.externalJob)
     }
 
+    @Test fun rebindRefusesARecordHoldingAPendingTerminalEvent() {
+        val handle = handle("ghost-update-rebind", 1)
+        val binding = workManager("ghost-update-worker")
+        val replacement = workManager("ghost-update-worker-recovered")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+
+        assertFalse(supervisor.rebindExternalJob(handle, binding, replacement))
+
+        val record = supervisor.records().single()
+        assertEquals(binding, record.externalJob)
+        assertEquals(event, record.pendingGhostUpdateEvent)
+    }
+
     @Test fun failedAttemptLookupRequiresExactFailedHandleAndKind() {
         val failed = handle("failed-install", 2)
         assertTrue(supervisor.start(failed, OperationKind.NAR_INSTALL, "Queued", 0))

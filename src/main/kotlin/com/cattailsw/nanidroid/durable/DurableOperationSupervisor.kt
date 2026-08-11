@@ -200,6 +200,7 @@ class DurableOperationSupervisor(
         replacementBinding: ExternalJobBinding,
     ): Boolean = mutate {
         val current = activeRecord(handle) ?: return@mutate false
+        if (current.pendingGhostUpdateEvent != null) return@mutate false
         if (current.externalJob != expectedBinding) return@mutate false
         if (expectedBinding == replacementBinding) return@mutate true
         if (replacementBinding in current.externalJobHistory) return@mutate false
