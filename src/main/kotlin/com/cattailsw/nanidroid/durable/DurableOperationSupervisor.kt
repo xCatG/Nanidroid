@@ -454,7 +454,18 @@ class DurableOperationSupervisor(
             val previousRevision = lastObservedRevisions.put(handle, revision)
             if (previousRevision != null && previousRevision != revision) {
                 lastProgressAt[handle] = now
-                revealedStoppingAttention.remove(handle)
+                if (
+                    !previousRevision.showStallPrompt &&
+                    record.showStallPrompt &&
+                    record.isCancellationDispatchFailure()
+                ) {
+                    // A different supervisor can publish the already-due cancellation failure.
+                    // Its visible durable prompt proves Retry stop is actionable, rather than
+                    // representing fresh work that should sanitize the diagnostic again.
+                    revealedStoppingAttention += handle
+                } else {
+                    revealedStoppingAttention.remove(handle)
+                }
                 if (
                     record.attentionKeepWaitingGeneration >
                         previousRevision.attentionKeepWaitingGeneration

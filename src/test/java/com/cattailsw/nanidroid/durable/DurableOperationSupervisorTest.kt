@@ -531,6 +531,24 @@ class DurableOperationSupervisorTest {
         assertTrue(stopSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun externalCancellationEscalationRemainsActionableToAnotherSupervisor() {
+        val handle = handle("external-cancellation-escalation", 1)
+        val binding = workManager("external-cancellation-escalation-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, ThrowingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(firstSupervisor.requestStop(handle))
+        val secondSupervisor = DurableOperationSupervisor(store, clock, ThrowingCancellation())
+
+        clock.value = 30_000
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, secondSupervisor.snapshot().single().diagnostics)
+
+        assertEquals(
+            CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
+            firstSupervisor.snapshot().single().diagnostics,
+        )
+    }
+
     @Test fun requestStopClearsFailureDiagnosticAfterSuccessfulPlatformRetry() {
         val failing = FailingThenSucceedingCancellation()
         val stopHandle = handle("update-2", 1)
