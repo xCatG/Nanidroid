@@ -726,12 +726,14 @@ class NarDownloadRepository internal constructor(
                 } else {
                     null
                 }
-                val recoveredHistoricalRow = recoveredDownloadId?.let { recoveredId ->
+                val recoveredHistoricalRow = recoveredDownloadId?.takeIf { recoveredId ->
                     val binding = ExternalJobBinding.DownloadManager(recoveredId)
                     exactBinding == null && supervisor.wasExternalJobUsedBefore(item.handle(), binding)
-                } == true
-                if (recoveredHistoricalRow) {
-                    reconcileMissingRemoteRow(item)
+                }
+                if (recoveredHistoricalRow != null) {
+                    if (removeRemoteRow(recoveredHistoricalRow)) {
+                        reconcileMissingRemoteRow(item)
+                    }
                     return@forEach
                 }
                 val downloadManagerId = item.downloadManagerId ?: recoveredDownloadId

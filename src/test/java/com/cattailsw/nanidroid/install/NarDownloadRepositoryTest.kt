@@ -2328,11 +2328,13 @@ class NarDownloadRepositoryTest {
             ),
         )
         downloads.recoveredIds[accepted.retainedUri!!] = 93L
+        downloads.removeFailureCount = 1
 
         recreatedRepository().reconcile()
 
         assertNull(store.get(accepted.id)!!.downloadManagerId)
         assertNull(operationStore.read().single().externalJob)
+        assertEquals(listOf(93L), downloads.removedIds)
     }
 
     @Test fun recreationMakesReplacementAttemptActionableWhenOnlyHistoricalRemoteRowRemains() {
