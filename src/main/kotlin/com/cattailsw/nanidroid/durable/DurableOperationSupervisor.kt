@@ -447,39 +447,12 @@ class DurableOperationSupervisor(
         val storedRecords = store.read()
             .filter { it.status.isActive() }
             .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
-        val presentationRecords = storedRecords.map { record ->
+        storedRecords.forEach { record ->
+            reconcileAttentionObservation(record, now)
+        }
+        storedRecords.forEach { record ->
             var presentedRecord = record
             val handle = record.handle()
-            val revision = record.observationRevision()
-            val previousRevision = lastObservedRevisions.put(handle, revision)
-            if (previousRevision != null && previousRevision != revision) {
-                lastProgressAt[handle] = now
-                if (
-                    !previousRevision.showStallPrompt &&
-                    record.showStallPrompt &&
-                    record.isCancellationDispatchFailure()
-                ) {
-                    // A different supervisor can publish the already-due cancellation failure.
-                    // Its visible durable prompt proves Retry stop is actionable, rather than
-                    // representing fresh work that should sanitize the diagnostic again.
-                    revealedStoppingAttention += handle
-                } else {
-                    revealedStoppingAttention.remove(handle)
-                }
-                if (
-                    record.attentionKeepWaitingGeneration >
-                        previousRevision.attentionKeepWaitingGeneration
-                ) {
-                    // Only a genuine generation advance (re)installs suppression and its
-                    // deadline. A later same-generation write (for example an in-flight
-                    // cancellation restoring showStallPrompt) must not push this deadline
-                    // out, or the prompt stays hidden well past the original 30s window.
-                    keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
-                        generation = record.attentionKeepWaitingGeneration,
-                        expiresAt = now + STALL_MILLIS,
-                    )
-                }
-            }
             val observedAt = lastProgressAt.getOrPut(handle) { now }
             if (
                 record.isRestartSuppressed() &&
@@ -527,6 +500,16 @@ class DurableOperationSupervisor(
                 }
             }
             presentedRecord
+        }
+        // Processing can write prompts, and another supervisor can independently advance or
+        // finish an operation after the initial read. Present a fresh, linearizable view rather
+        // than retaining an active or prompt record that was already superseded while this
+        // snapshot was being prepared.
+        val presentationRecords = store.read()
+            .filter { it.status.isActive() }
+            .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
+        presentationRecords.forEach { record ->
+            reconcileAttentionObservation(record, now)
         }
         revealedStoppingAttention.retainAll(presentationRecords.mapTo(mutableSetOf()) { it.handle() })
         restartSuppressedAttention.keys.retainAll(
@@ -608,6 +591,38 @@ class DurableOperationSupervisor(
 
     private fun DurableOperationRecord.isRestartSuppressed(): Boolean =
         restartSuppressedAttention[handle()] == this
+
+    private fun reconcileAttentionObservation(record: DurableOperationRecord, now: Long) {
+        val handle = record.handle()
+        val revision = record.observationRevision()
+        val previousRevision = lastObservedRevisions.put(handle, revision)
+        if (previousRevision == null || previousRevision == revision) return
+
+        lastProgressAt[handle] = now
+        if (
+            !previousRevision.showStallPrompt &&
+            record.showStallPrompt &&
+            record.isCancellationDispatchFailure()
+        ) {
+            // A different supervisor can publish the already-due cancellation failure. Its
+            // visible durable prompt proves Retry stop is actionable, rather than representing
+            // fresh work that should sanitize the diagnostic again.
+            revealedStoppingAttention += handle
+        } else {
+            revealedStoppingAttention.remove(handle)
+        }
+        if (
+            record.attentionKeepWaitingGeneration > previousRevision.attentionKeepWaitingGeneration
+        ) {
+            // Only a genuine generation advance (re)installs suppression and its deadline. A
+            // later same-generation write (for example an in-flight cancellation restoring the
+            // prompt) must not push the deadline out past the original 30 second window.
+            keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
+                generation = record.attentionKeepWaitingGeneration,
+                expiresAt = now + STALL_MILLIS,
+            )
+        }
+    }
 
     private fun DurableOperationRecord.isKeepWaitingSuppressed(): Boolean =
         keepWaitingSuppressedAttention[handle()]?.generation == attentionKeepWaitingGeneration

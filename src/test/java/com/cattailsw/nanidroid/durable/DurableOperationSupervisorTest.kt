@@ -150,8 +150,13 @@ class DurableOperationSupervisorTest {
         assertTrue(supervisor.snapshot().single().showStallPrompt)
     }
 
-    @Test fun attentionSnapshotUsesTheSameReadForRevisionProcessingAndPresentation() {
+    @Test fun attentionSnapshotDoesNotPresentRecordsChangedOrFinishedAfterItsInitialRead() {
         var mutateAfterRead = false
+        val changingHandle = handle("attention-snapshot-changed", 1)
+        val changingBinding = workManager("attention-snapshot-changed-worker")
+        val finishedHandle = handle("attention-snapshot-finished", 1)
+        val finishedBinding = workManager("attention-snapshot-finished-worker")
+        lateinit var changingSupervisor: DurableOperationSupervisor
         val readRaceStore = object : DurableOperationStore {
             private val delegate = MemoryDurableOperationStore()
 
@@ -159,14 +164,12 @@ class DurableOperationSupervisorTest {
                 val records = delegate.read()
                 if (mutateAfterRead) {
                     mutateAfterRead = false
-                    val current = delegate.read().single()
+                    assertTrue(changingSupervisor.requestStop(changingHandle))
                     assertTrue(
-                        delegate.compareAndSet(
-                            current,
-                            current.copy(
-                                showStallPrompt = true,
-                                attentionKeepWaitingGeneration = current.attentionKeepWaitingGeneration + 1L,
-                            ),
+                        changingSupervisor.finish(
+                            finishedHandle,
+                            finishedBinding,
+                            OperationStatus.COMPLETED,
                         ),
                     )
                 }
@@ -181,12 +184,32 @@ class DurableOperationSupervisorTest {
             ): Boolean = delegate.compareAndSet(expected, updated)
         }
         val readRaceSupervisor = DurableOperationSupervisor(readRaceStore, clock, RecordingCancellation())
-        val handle = handle("single-read-attention-snapshot", 1)
-        assertTrue(readRaceSupervisor.start(handle, OperationKind.LOCAL_NAR, "Copying", 0))
+        changingSupervisor = DurableOperationSupervisor(readRaceStore, clock, RecordingCancellation())
+        assertTrue(
+            readRaceSupervisor.start(
+                changingHandle,
+                OperationKind.LOCAL_NAR,
+                "Copying",
+                0,
+                changingBinding,
+            ),
+        )
+        assertTrue(
+            readRaceSupervisor.start(
+                finishedHandle,
+                OperationKind.LOCAL_NAR,
+                "Copying",
+                0,
+                finishedBinding,
+            ),
+        )
 
         mutateAfterRead = true
 
-        assertFalse(readRaceSupervisor.snapshot().single().showStallPrompt)
+        val snapshot = readRaceSupervisor.snapshot().associateBy { it.id }
+        assertEquals(OperationStatus.CANCEL_REQUESTED, snapshot.getValue(changingHandle.operationId).status)
+        assertEquals("Stopping...", snapshot.getValue(changingHandle.operationId).progress.phase)
+        assertFalse(snapshot.containsKey(finishedHandle.operationId))
     }
 
     @Test fun stopIsIdempotentAndOperationSpecific() {
