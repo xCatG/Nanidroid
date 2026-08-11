@@ -388,6 +388,27 @@ class NarDownloadRepositoryTest {
         assertEquals(workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL), retried.workManagerId)
     }
 
+    @Test fun retryTerminalizesUnboundPreparedInstallBeforeSchedulingItsSuccessor() {
+        val item = store.create(
+            NarDownload(
+                id = "unbound-superseded-install",
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        assertTrue(supervisor.start(item.handle(), OperationKind.NAR_INSTALL, "Installing archive", 0L))
+
+        val retried = repository.retry(item.id)!!
+
+        assertEquals(2L, retried.attemptId)
+        assertEquals(
+            workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL),
+            retried.workManagerId,
+        )
+        assertEquals(OperationStatus.RUNNING, operationStore.read().single().status)
+    }
+
     @Test fun remoteDownloadHeartbeatsOnlyWhenBoundRowBytesIncrease() {
         downloads.nextDownloadId = 31L
         val item = repository.enqueueRemote("https://example.invalid/archive.nar")
