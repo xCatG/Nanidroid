@@ -36,6 +36,33 @@ private fun workManagerBinding(label: String) = ExternalJobBinding.WorkManager(
 
 class GhostUpdateRepositoryTest {
     @Test
+    fun `scheduler submission redispatches a stop requested before the work exists`() {
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val cancellations = mutableListOf<Pair<OperationHandle, ExternalJobBinding>>()
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { cancelled, _, binding ->
+            cancellations += cancelled to binding
+        }
+        val handle = OperationHandle(OperationId("enqueue-stop-race"), AttemptId(1))
+        val binding = workManagerBinding("enqueue-stop-race")
+        var submissions = 0
+
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        GhostUpdateWorker.submitStartedWork(supervisor, handle, binding) {
+            assertTrue(supervisor.requestStop(handle))
+            submissions += 1
+        }
+
+        assertEquals(1, submissions)
+        assertEquals(
+            listOf(handle to binding, handle to binding),
+            cancellations,
+        )
+    }
+
+    @Test
     fun `retryable manifest transport failure preserves the update attempt`() {
         val fixture = fixture("retryable-manifest")
         fixture.network.retryablePaths += "updates2.dau"
