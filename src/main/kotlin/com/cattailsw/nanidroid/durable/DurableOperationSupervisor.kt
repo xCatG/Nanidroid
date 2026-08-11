@@ -658,7 +658,7 @@ class DurableOperationSupervisor(
             if (!cancellationIssued.add(request)) return
             try {
                 cancellation.cancel(handle, kind, exactBinding)
-                clearCancellationFailureDiagnostic(handle, exactBinding, preserveAttention)
+                recordSuccessfulCancellationDispatch(handle, exactBinding, preserveAttention)
                 lastProgressAt[handle] = clock.nowMillis()
             } catch (_: Exception) {
                 storeCancellationFailure(handle, exactBinding, preserveAttention)
@@ -719,7 +719,7 @@ class DurableOperationSupervisor(
         }
     }
 
-    private fun clearCancellationFailureDiagnostic(
+    private fun recordSuccessfulCancellationDispatch(
         handle: OperationHandle,
         binding: ExternalJobBinding,
         preserveAttention: Boolean = false,
@@ -727,30 +727,28 @@ class DurableOperationSupervisor(
         val current = activeRecord(handle) ?: return
         if (
             current.status != OperationStatus.CANCEL_REQUESTED ||
-            current.externalJob != binding ||
-            current.diagnostics == null ||
-            !current.isCancellationDispatchFailure()
+            current.externalJob != binding
         ) return
-        // Only treat this clear as purely local (safe to record immediately) when the state we
+        // Only treat this successful dispatch as purely local (safe to record immediately)
+        // when the state we
         // read matches what we last observed. If it doesn't, a concurrent write already moved
         // the record past our last observation, and stamping our own revision over it here
         // would absorb that concurrent change without ever surfacing it as one; leave it stale
         // so the next poll's diff still detects the concurrent mutation.
-        val purelyLocalClear = lastObservedRevisions[handle] == current.observationRevision()
-        // Advance an observable generation for every successful retry, not only the explicit
-        // RETRY_STOP action. A duplicate requestStop() retry that clears a dispatch failure
-        // otherwise leaves every revision field unchanged (diagnostics isn't part of the
-        // observation revision), so another supervisor polling the shared store would never
-        // notice the retry happened and would keep the original, now-stale deadline.
+        val purelyLocalDispatch = lastObservedRevisions[handle] == current.observationRevision()
+        // Advance an observable generation for every successful dispatch, including a
+        // duplicate requestStop() when there is no prior failure diagnostic to clear. Another
+        // supervisor must be able to notice that retry and restart its stopping window.
+        val clearsDispatchFailure = current.isCancellationDispatchFailure()
         val updated = current.copy(
-            showStallPrompt = preserveAttention,
-            diagnostics = null,
+            showStallPrompt = if (clearsDispatchFailure) preserveAttention else current.showStallPrompt,
+            diagnostics = if (clearsDispatchFailure) null else current.diagnostics,
             attentionRetryGeneration = current.attentionRetryGeneration + 1L,
         )
-        // Record this locally produced clear immediately so a later, possibly delayed, poll
+        // Record this locally produced mutation immediately so a later, possibly delayed, poll
         // doesn't mistake it for a concurrent mutation and push lastProgressAt out to
         // reconciliation time instead of this write's own time.
-        if (store.compareAndSet(current, updated) && purelyLocalClear) {
+        if (store.compareAndSet(current, updated) && purelyLocalDispatch) {
             recordObservationRevision(handle, updated)
         }
     }

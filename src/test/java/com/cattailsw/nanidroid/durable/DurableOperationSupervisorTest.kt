@@ -297,23 +297,23 @@ class DurableOperationSupervisorTest {
     @Test fun successfulDuplicateStopRetryAdvancesAnObservableGenerationForOtherSupervisors() {
         val handle = handle("nar-6", 1)
         val binding = workManager("worker-duplicate-retry-generation")
-        val failingCancellation = RecordingCancellation(failing = true)
+        val initialCancellation = RecordingCancellation()
         val retryCancellation = RecordingCancellation()
-        val coordinatorSupervisor = DurableOperationSupervisor(store, clock, failingCancellation)
+        val coordinatorSupervisor = DurableOperationSupervisor(store, clock, initialCancellation)
         val retrySupervisor = DurableOperationSupervisor(store, clock, retryCancellation)
 
         assertTrue(coordinatorSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Downloading", 0, binding))
         clock.value = 0
-        // The coordinator's own dispatch fails; the failure stays hidden (showStallPrompt still
-        // false) until the observation window elapses.
+        // The first successful dispatch puts the operation into CANCEL_REQUESTED without a
+        // failure diagnostic. The coordinator has observed that state before the duplicate
+        // request below.
         assertTrue(coordinatorSupervisor.requestStop(handle))
         assertFalse(coordinatorSupervisor.snapshot().single().showStallPrompt)
 
         // A different supervisor retries the still-CANCEL_REQUESTED operation through the
         // duplicate branch of requestStop, and this dispatch succeeds -- well before the
-        // original 30s deadline elapses. This clears diagnostics only; showStallPrompt was
-        // already false, so the observation revision must advance some other way for the
-        // coordinator to ever notice this happened.
+        // original 30s deadline elapses. No diagnostic needs clearing, so this successful
+        // dispatch itself must advance an observation field for the coordinator to notice it.
         clock.value = 20_000
         assertTrue(retrySupervisor.requestStop(handle))
         assertEquals(1, retryCancellation.requestCount)
