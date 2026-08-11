@@ -12,6 +12,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 class DurableOperationSupervisorTest {
@@ -347,7 +348,7 @@ class DurableOperationSupervisorTest {
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
-    @Test fun `next update cannot replace a terminal record while its event is being dispatched`() {
+    @Test fun `next update can replace a claimed terminal record while its event is being dispatched`() {
         val root = File("build/terminal-event-rollover-race").canonicalFile
         val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
         val binding = workManager("terminal-event-rollover-worker")
@@ -383,7 +384,7 @@ class DurableOperationSupervisorTest {
         delivery.start()
         rollover.start()
         assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
-        assertFalse(rolloverFinished.await(100, TimeUnit.MILLISECONDS))
+        assertTrue(rolloverFinished.await(5, TimeUnit.SECONDS))
         releaseDispatch.countDown()
         delivery.join(5_000)
         rollover.join(5_000)
@@ -392,6 +393,50 @@ class DurableOperationSupervisorTest {
         assertFalse(rollover.isAlive)
         assertTrue(rolloverAccepted)
         assertEquals(AttemptId(2), supervisor.records().single().attemptId)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `attention action does not wait for a stalled terminal event dispatch`() {
+        val root = File("build/terminal-event-attention-action").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-attention-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        val dispatchEntered = CountDownLatch(1)
+        val releaseDispatch = CountDownLatch(1)
+        val attentionFinished = CountDownLatch(1)
+        val attentionAccepted = AtomicBoolean(false)
+
+        val delivery = Thread {
+            assertTrue(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                    dispatchEntered.countDown()
+                    assertTrue(releaseDispatch.await(5, TimeUnit.SECONDS))
+                    true
+                },
+            )
+        }
+        val attention = Thread {
+            attentionAccepted.set(
+                supervisor.performAttentionAction(handle, DurableAttentionAction.KEEP_WAITING),
+            )
+            attentionFinished.countDown()
+        }
+
+        delivery.start()
+        assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+        attention.start()
+        assertTrue("attention action waited for terminal dispatch", attentionFinished.await(1, TimeUnit.SECONDS))
+        releaseDispatch.countDown()
+        delivery.join(5_000)
+        attention.join(5_000)
+
+        assertFalse(delivery.isAlive)
+        assertFalse(attention.isAlive)
+        assertTrue(attentionAccepted.get())
         assertNull(supervisor.records().single().pendingGhostUpdateEvent)
     }
 
@@ -468,11 +513,10 @@ class DurableOperationSupervisorTest {
     /**
      * Recovery/commit classification runs inside the ghost session's root/global mutation
      * monitors (see GhostSessionCoordinator.withMutation) and calls back into the supervisor,
-     * which needs the operation lock. Terminal delivery holds that same operation lock across a
-     * dispatch callback that reaches into the same mutation monitors. If either side acquires the
-     * two locks in the opposite order from the other, one thread can hold the mutation monitors
-     * while waiting on the operation lock at the same time the other holds the operation lock
-     * while waiting on the mutation monitors: a lock-order inversion that deadlocks both.
+     * which needs the operation lock. Terminal delivery serializes its callback with the same
+     * terminal-delivery gate used by recovery/commit classification, then invokes the callback
+     * without the operation lock. This prevents recovery from entering a session mutation while
+     * it is concurrently dispatching a terminal callback for that session.
      *
      * `GhostUpdateWorker`'s commitGuard/recoveryGuard acquire the terminal delivery gate before
      * entering the mutation monitors. This test drives the two paths through a
@@ -493,8 +537,8 @@ class DurableOperationSupervisorTest {
         val releaseDispatch = CountDownLatch(1)
         val recoveryEntered = CountDownLatch(1)
 
-        // Mimics GhostUpdateWorker's terminal delivery: holds the operation lock across dispatch,
-        // and dispatch (like doShioriEventForGhost) reaches into the session mutation monitors.
+        // Mimics GhostUpdateWorker's terminal delivery: dispatch reaches into the session
+        // mutation monitors while holding the terminal-delivery gate, not the operation lock.
         val delivery = Thread({
             GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
                 dispatchEntered.countDown()
@@ -503,8 +547,8 @@ class DurableOperationSupervisorTest {
             }
         }, "terminal-delivery-probe").apply { isDaemon = true }
 
-        // Commit/recovery take the terminal delivery gate before session mutation, so this path
-        // cannot hold a session monitor while it waits for terminal delivery to release it.
+        // Commit/recovery take the terminal-delivery gate before session mutation, so this path
+        // cannot overlap a terminal callback's session mutation.
         val recovery = Thread({
             assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
             recoveryEntered.countDown()

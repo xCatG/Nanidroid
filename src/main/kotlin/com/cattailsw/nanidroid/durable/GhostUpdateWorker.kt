@@ -261,10 +261,9 @@ class GhostUpdateWorker(
                 // mutation monitors (SScriptRunner/GhostSessionCoordinator), and classification
                 // callbacks invoked from that action (onCommitClassified, onNoChangesClassified,
                 // onRollbackJournalClassified) call back into `supervisor`, which needs its own
-                // operation lock. Terminal delivery (see deliverTerminalEvent below) holds that
-                // same operation lock across a dispatch callback that reaches into the same
-                // mutation monitors. To avoid a lock-order inversion between those two paths,
-                // the operation lock must always be acquired before the mutation monitors here.
+                // operation lock. Terminal delivery (see deliverTerminalEvent below) serializes
+                // its callback with this gate but releases the operation lock before invoking
+                // ghost code, so attention actions do not wait for a stalled handler.
                 commitGuard = object : GhostUpdateCommitGuard {
                     override fun commit(
                         ghostId: String,

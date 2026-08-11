@@ -448,42 +448,39 @@ class DurableOperationSupervisor(
     }
 
     /**
-     * Holds the operation transition lock across an exact terminal-event delivery. This prevents
-     * a newer attempt from replacing the terminal record between claiming its payload and
-     * reconciling that exact payload after a successful callback.
+     * Claims an exact terminal-event payload before dispatching it without the operation lock.
+     * A later reconciliation clears only the same exact attempt and payload, so an intervening
+     * retry remains intact.
      */
     internal fun deliverTerminalEvent(
         handle: OperationHandle,
         binding: ExternalJobBinding.WorkManager,
         event: GhostUpdateTerminalEvent,
         dispatch: (GhostUpdateTerminalEvent) -> Boolean,
-    ): Boolean = mutate {
-        val current = exactRecord(handle) ?: return@mutate false
-        if (
-            current.kind != OperationKind.GHOST_UPDATE ||
-            current.externalJob != binding ||
-            current.pendingGhostUpdateEvent != event
-        ) return@mutate false
-        if (!dispatch(event)) return@mutate false
+    ): Boolean {
+        val claimed = synchronized(operationLock) {
+            val current = exactRecord(handle)
+            current != null &&
+                current.kind == OperationKind.GHOST_UPDATE &&
+                current.externalJob == binding &&
+                current.pendingGhostUpdateEvent == event
+        }
+        if (!claimed || !dispatch(event)) return false
         // A failed durable clear is retried after process restart, but never re-dispatches here.
         try {
-            store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = null))
+            clearTerminalEvent(handle, binding, event)
         } catch (_: Exception) {
             // The terminal callback has already succeeded; preserve the retained payload for retry.
         }
-        true
+        return true
     }
 
     /**
      * Runs [block] while holding the operation transition lock as the outermost lock.
      *
-     * Terminal delivery ([deliverTerminalEvent]) holds this operation lock across a dispatch
-     * callback that reaches into the ghost session's mutation monitors. A caller that separately
-     * enters those same mutation monitors and, from inside them, calls back into this supervisor
-     * (for example to classify and persist a recovery or commit outcome) must acquire this lock
-     * *before* entering the mutation monitors so both call paths agree on one lock order:
-     * operation lock first, mutation monitors second. Acquiring them in the opposite order from
-     * two threads is a lock-order inversion that can deadlock.
+     * Terminal delivery ([deliverTerminalEvent]) only holds this lock while claiming or
+     * reconciling its payload; the synchronous SHIORI callback runs after it is released. This
+     * keeps attention actions responsive when ghost code stalls.
      */
     internal fun <T> withOperationLock(block: () -> T): T = synchronized(operationLock, block)
 
