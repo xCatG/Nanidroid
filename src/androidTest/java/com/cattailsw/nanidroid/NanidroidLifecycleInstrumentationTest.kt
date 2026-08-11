@@ -52,26 +52,29 @@ class NanidroidLifecycleInstrumentationTest {
 
     @Test
     fun recreatedActivityWithNullRunnerRejectsArchiveIntentWhenRetainedRunnerIsPassive() {
-        val retainedRunner = SScriptRunner.getInstance(null).also { runner ->
-            runner.setNoWaitMode(true)
-            // The process-global runner may still be mid-playback -- or have messages
-            // still queued -- from a preceding instrumentation test in this same app
-            // process. run() silently no-ops while state.running is already true
-            // (SScriptRunner.run()), so the passive-mode command below would never
-            // execute and this test would become order-dependent. Force the runner
-            // fully idle first (stopping playback AND draining any queued messages),
-            // then wait for the passive-mode command to actually take effect.
-            forceRunnerIdle(runner)
-            runner.addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
-            runner.run()
-            awaitRunnerState(runner) { it.passive }
-        }
+        val retainedRunner = SScriptRunner.getInstance(null)
         val archiveIntent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(Uri.parse("content://archives/recreated.nar"), "application/x-nar")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
         try {
+            // Keep cleanup active while preparing the process-global runner: either
+            // wait below can time out after no-wait or passive mode has changed.
+            retainedRunner.run {
+                setNoWaitMode(true)
+                // The process-global runner may still be mid-playback -- or have messages
+                // still queued -- from a preceding instrumentation test in this same app
+                // process. run() silently no-ops while state.running is already true
+                // (SScriptRunner.run()), so the passive-mode command below would never
+                // execute and this test would become order-dependent. Force the runner
+                // fully idle first (stopping playback AND draining any queued messages),
+                // then wait for the passive-mode command to actually take effect.
+                forceRunnerIdle(this)
+                addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
+                run()
+                awaitRunnerState(this) { it.passive }
+            }
             ActivityScenario.launch<Nanidroid?>(Nanidroid::class.java).use { scenario ->
                 scenario.onActivity { activity ->
                     val runnerField = Nanidroid::class.java.getDeclaredField("runner").apply {
