@@ -388,6 +388,101 @@ class NarDownloadRepositoryTest {
         assertEquals(workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL), retried.workManagerId)
     }
 
+    @Test fun retryCanSupersedeQueuedInstallBeforeItsFirstBinding() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepareStarted = CountDownLatch(1)
+            val allowInstallPrepare = CountDownLatch(1)
+            work.beforeNextInstallPrepared = { _, _ ->
+                prepareStarted.countDown()
+                assertTrue(allowInstallPrepare.await(5, TimeUnit.SECONDS))
+            }
+
+            val first = deferredRepository.enqueueLocal("file:///owned/racy-before-bind.nar")
+            itemId = first.id
+            assertTrue("install was not prepared", prepareStarted.await(5, TimeUnit.SECONDS))
+
+            val retried = deferredRepository.retry(first.id)!!
+            assertEquals(2L, retried.attemptId)
+
+            allowInstallPrepare.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        val retriedStored = store.get(itemId)!!
+        assertEquals(2L, retriedStored.attemptId)
+        assertEquals(
+            workId(retriedStored.id, retriedStored.attemptId, OperationKind.NAR_INSTALL),
+            retriedStored.workManagerId,
+        )
+    }
+
+    @Test fun replaceCanSupersedeQueuedInstallBeforeItsFirstBinding() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepareStarted = CountDownLatch(1)
+            val allowInstallPrepare = CountDownLatch(1)
+            work.beforeNextInstallPrepared = { _, _ ->
+                prepareStarted.countDown()
+                assertTrue(allowInstallPrepare.await(5, TimeUnit.SECONDS))
+            }
+
+            val first = deferredRepository.enqueueLocal("file:///owned/racy-before-bind-replace.nar")
+            itemId = first.id
+            assertTrue("install was not prepared", prepareStarted.await(5, TimeUnit.SECONDS))
+
+            val result = deferredRepository.replaceLocalSourceForUser(
+                first.id,
+                "file:///owned/reselected-before-bind.nar",
+            )!!
+            assertEquals(2L, result.download.attemptId)
+            assertTrue(result.acceptedActive)
+
+            allowInstallPrepare.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        val replaced = store.get(itemId)!!
+        assertEquals(2L, replaced.attemptId)
+        assertEquals("file:///owned/reselected-before-bind.nar", replaced.source.uri)
+        assertEquals(
+            workId(replaced.id, replaced.attemptId, OperationKind.NAR_INSTALL),
+            replaced.workManagerId,
+        )
+    }
+
     @Test fun deleteTerminalizesPreparedDeferredInstallBeforeItEnqueues() {
         val executor = Executors.newSingleThreadExecutor()
         lateinit var itemId: String
