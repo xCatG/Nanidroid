@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.install
 import androidx.work.ListenableWorker
 import com.cattailsw.nanidroid.di.MonotonicClock
 import com.cattailsw.nanidroid.durable.AttemptId
+import com.cattailsw.nanidroid.durable.CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
 import com.cattailsw.nanidroid.durable.DurableOperationRecord
 import com.cattailsw.nanidroid.durable.DurableOperationStore
 import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
@@ -628,6 +629,51 @@ class NarDownloadRepositoryTest {
         assertEquals(
             listOf(workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)),
             work.cancelledSubmittedInstallIds,
+        )
+    }
+
+    @Test fun submittedInstallCancellationFailurePreservesTheRequestedStop() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var item: NarDownload
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowEnqueue
+            work.cancelSubmittedInstallWorkFailure = IllegalStateException("submitted cancellation failed")
+
+            item = deferredRepository.enqueueLocal("file:///owned/stop-dispatch-failure.nar")
+            assertTrue("install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            assertTrue(deferredRepository.stop(item.id))
+            allowEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
+        val operation = operationStore.read().single()
+        assertEquals(OperationStatus.CANCEL_REQUESTED, operation.status)
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, operation.diagnostics)
+        assertTrue(stopReconciliation.hasPending(item.handle()))
+        assertTrue(supervisor.requestStop(item.handle()))
+        assertEquals(
+            List(2) { ExternalJobBinding.WorkManager(workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)) },
+            work.cancelledBindings.map(ExternalJobBinding::WorkManager),
         )
     }
 
@@ -2595,6 +2641,54 @@ class NarDownloadRepositoryTest {
         val recovered = queueStore.get(itemId)!!
         assertEquals(item.attemptId, recovered.attemptId)
         assertNull(recovered.workManagerId)
+        assertTrue(recovered.state is NarDownloadState.NeedsAttention)
+        val operation = exactOperationStore.read().single()
+        assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
+        assertEquals(OperationStatus.FAILED, operation.status)
+    }
+
+    @Test fun appliedLegacyBindingPersistenceFailureMakesTheBoundRowActionable() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val queueStore = NarDownloadStore(ApplyThenFailSelectedWriteStorage(failOnWrite = 2))
+        val exactOperationStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val exactSupervisor = DurableOperationSupervisor(
+            exactOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val itemId = "applied-legacy-binding-write-failure"
+        val item = queueStore.create(
+            NarDownload(
+                id = itemId,
+                source = NarDownloadSource.Local("file:///owned/archive.nar"),
+                retainedUri = "file:///owned/archive.nar",
+                state = NarDownloadState.Queued,
+            ),
+        )
+        val legacyWorkManagerId = "abababab-abab-abab-abab-abababababab"
+        work.activeInstallWorkByItemId[itemId] = legacyWorkManagerId
+        val deferredRepository = NarDownloadRepository(
+            store = queueStore,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = exactSupervisor,
+            remoteProgress = FakeRemoteProgressObserver(downloads, exactSupervisor),
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { itemId },
+        )
+
+        deferredRepository.reconcile()
+        dispatcher.runAll()
+
+        val recovered = queueStore.get(itemId)!!
+        assertEquals(item.attemptId, recovered.attemptId)
+        assertEquals(legacyWorkManagerId, recovered.workManagerId)
         assertTrue(recovered.state is NarDownloadState.NeedsAttention)
         val operation = exactOperationStore.read().single()
         assertEquals(ExternalJobBinding.WorkManager(legacyWorkManagerId), operation.externalJob)
@@ -5166,6 +5260,7 @@ class NarDownloadRepositoryTest {
         var stageQueryStarted: CountDownLatch? = null
         var allowStageQuery: CountDownLatch? = null
         var installEnqueueFailure: Exception? = null
+        var cancelSubmittedInstallWorkFailure: Exception? = null
         var installQueryFailure: Exception? = null
         var findActiveLegacyInstallWorkFailure: Exception? = null
         var cancelStaleDeterministicInstallWorkFailure: Exception? = null
@@ -5191,6 +5286,7 @@ class NarDownloadRepositoryTest {
         }
 
         override fun cancelSubmittedInstallWork(workManagerId: String) {
+            cancelSubmittedInstallWorkFailure?.let { throw it }
             cancelledSubmittedInstallIds += workManagerId
         }
 

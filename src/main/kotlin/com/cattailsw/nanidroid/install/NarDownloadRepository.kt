@@ -1380,7 +1380,9 @@ class NarDownloadRepository internal constructor(
             OperationKind.NAR_INSTALL,
         ) as? ExternalJobBinding.WorkManager
         if (failSchedulingAttempt(handle, exactBinding, INSTALL_SCHEDULE_FAILURE)) {
-            markNeedsAttentionIfCurrent(item, INSTALL_SCHEDULE_FAILURE)
+            store.get(item.id)
+                ?.takeIf { it.attemptId == item.attemptId }
+                ?.let { markNeedsAttentionIfCurrent(it, INSTALL_SCHEDULE_FAILURE) }
         }
     }
 
@@ -1414,6 +1416,14 @@ class NarDownloadRepository internal constructor(
                 acceptedBinding?.let { work.cancelSubmittedInstallWork(it.uuid) }
             }
         } catch (_: Exception) {
+            if (cancellationRequested(handle)) {
+                val exactBinding = acceptedBinding ?: supervisor.activeBindingForExactAttempt(
+                    handle,
+                    OperationKind.NAR_INSTALL,
+                ) as? ExternalJobBinding.WorkManager
+                exactBinding?.let { supervisor.recordCancellationDispatchFailure(handle, it) }
+                return
+            }
             if (failSchedulingAttempt(handle, acceptedBinding, INSTALL_SCHEDULE_FAILURE)) {
                 markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)
             }

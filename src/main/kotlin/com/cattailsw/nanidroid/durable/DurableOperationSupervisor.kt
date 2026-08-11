@@ -915,6 +915,15 @@ class DurableOperationSupervisor(
         }
     }
 
+    /** Records a cancellation failure outside [OperationCancellation] so a later retry reissues it. */
+    internal fun recordCancellationDispatchFailure(
+        handle: OperationHandle,
+        binding: ExternalJobBinding,
+    ) = synchronized(operationLock) {
+        storeCancellationFailure(handle, binding)
+        cancellationIssued.remove(BoundCancellation(handle, binding))
+    }
+
     private fun recordSuccessfulCancellationDispatch(
         handle: OperationHandle,
         binding: ExternalJobBinding,
