@@ -12,9 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class DurableOperationAttentionCoordinatorTest {
     private val clock = MutableClock()
-    private val store = SharedPreferencesDurableOperationStore(
-        SharedPreferencesDurableOperationStore.MemoryStorage(),
-    )
+    private val storage = SharedPreferencesDurableOperationStore.MemoryStorage()
+    private val store = SharedPreferencesDurableOperationStore(storage)
     private val supervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
     private val scheduler = FakeAttentionScheduler()
     private val notifier = RecordingAttentionNotifier()
@@ -46,7 +45,7 @@ class DurableOperationAttentionCoordinatorTest {
 
         clock.value = 30_000L
         scheduler.runPending()
-        assertNull(scheduler.delayMillis)
+        assertEquals(30_000L, scheduler.delayMillis)
         assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
         assertTrue(coordinator.observeStalledOperations().value.single().showStallPrompt)
     }
@@ -65,6 +64,186 @@ class DurableOperationAttentionCoordinatorTest {
         scheduler.runPending()
 
         assertTrue(notifier.last.isEmpty())
+        assertEquals(30_000L, scheduler.delayMillis)
+    }
+
+    @Test fun progressFromAnotherSupervisorImmediatelyReconcilesVisibleAttention() {
+        val otherSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+
+        assertTrue(otherSupervisor.reportProgress(handle, binding, "Downloading archive", 1L))
+
+        assertEquals(0L, scheduler.delayMillis)
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(30_000L, scheduler.delayMillis)
+    }
+
+    @Test fun completionFromAnotherSupervisorImmediatelyReconcilesAttentionPublishedByAReturnedSnapshot() {
+        val otherSupervisor = DurableOperationSupervisor(
+            SharedPreferencesDurableOperationStore(storage),
+            clock,
+        ) { _, _, _ -> }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+        assertEquals(30_000L, scheduler.delayMillis)
+
+        assertTrue(otherSupervisor.finish(handle, binding, OperationStatus.COMPLETED))
+
+        assertEquals(0L, scheduler.delayMillis)
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertTrue(coordinator.observeStalledOperations().value.isEmpty())
+    }
+
+    @Test fun externallyClearedPromptStartsANewObservationWindow() {
+        val otherSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+
+        assertTrue(otherSupervisor.keepWaiting(handle))
+        clock.value = 60_000L
+        scheduler.runPending()
+
+        assertTrue(notifier.last.isEmpty())
+        assertTrue(coordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(30_000L, scheduler.delayMillis)
+
+        clock.value = 89_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1L, scheduler.delayMillis)
+
+        clock.value = 90_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
+    @Test fun externallyClearedAndRepublishedPromptStartsANewObservationWindow() {
+        val otherSupervisor = DurableOperationSupervisor(store, clock) { _, _, _ -> }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+        otherSupervisor.attentionSnapshot()
+
+        clock.value = 31_000L
+        assertTrue(otherSupervisor.keepWaiting(handle))
+        clock.value = 61_000L
+        assertTrue(otherSupervisor.attentionSnapshot().records.single().showStallPrompt)
+
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertTrue(coordinator.observeStalledOperations().value.isEmpty())
+        assertEquals(30_000L, scheduler.delayMillis)
+
+        clock.value = 91_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
+    @Test fun localKeepWaitingDoesNotExtendTheWindowWhenReconciliationIsDelayed() {
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+
+        clock.value = 31_000L
+        assertTrue(supervisor.keepWaiting(handle))
+
+        clock.value = 59_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1_001L, scheduler.delayMillis)
+
+        clock.value = 60_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1L, scheduler.delayMillis)
+
+        clock.value = 61_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
+    @Test fun attentionKeepWaitingDoesNotExtendTheWindowWhenReconciliationIsDelayed() {
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+
+        clock.value = 31_000L
+        assertTrue(supervisor.performAttentionAction(handle, DurableAttentionAction.KEEP_WAITING))
+
+        clock.value = 59_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1_001L, scheduler.delayMillis)
+
+        clock.value = 60_999L
+        scheduler.runPending()
+        assertTrue(notifier.last.isEmpty())
+        assertEquals(1L, scheduler.delayMillis)
+
+        clock.value = 61_000L
+        scheduler.runPending()
+        assertEquals(listOf(handle), notifier.last.map { OperationHandle(it.id, it.attemptId) })
+    }
+
+    @Test fun crossSupervisorRetryStopStartsANewStoppingObservationWindow() {
+        val retrySupervisor = DurableOperationSupervisor(store, clock) { _, _, _ ->
+            error("cancellation dispatch failed")
+        }
+        coordinator.start()
+        scheduler.runPending()
+        assertTrue(supervisor.start(handle, OperationKind.REMOTE_NAR, "Downloading archive", 0L, binding))
+        scheduler.runPending()
+        clock.value = 30_000L
+        scheduler.runPending()
+
+        assertTrue(retrySupervisor.performAttentionAction(handle, DurableAttentionAction.STOP))
+        clock.value = 60_000L
+        scheduler.runPending()
+        clock.value = 90_000L
+        scheduler.runPending()
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING, DurableAttentionAction.RETRY_STOP),
+            DurableAttentionNotificationPolicy.actions(coordinator.observeStalledOperations().value.single()),
+        )
+
+        assertTrue(retrySupervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        clock.value = 120_000L
+        scheduler.runPending()
+
+        assertEquals(
+            listOf(DurableAttentionAction.KEEP_WAITING),
+            DurableAttentionNotificationPolicy.actions(coordinator.observeStalledOperations().value.single()),
+        )
         assertEquals(30_000L, scheduler.delayMillis)
     }
 
@@ -369,7 +548,7 @@ class DurableOperationAttentionCoordinatorTest {
 
         clock.value = 60_000L
         scheduler.runPending()
-        assertNull(scheduler.delayMillis)
+        assertEquals(30_000L, scheduler.delayMillis)
         assertEquals(
             STOPPING_DELAY_DIAGNOSTIC,
             coordinator.observeStalledOperations().value.single().diagnostics,

@@ -20,6 +20,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
     private var recoveryState = RecoveryState.HEALTHY
     private var recoveryMode = false
     private var recoveryRawPayload: String? = null
+    private val changeListenerKey = storage.changeListenerKey
 
     override fun read(): List<DurableOperationRecord> = synchronized(operationLock) {
         if (recoveryMode) return@synchronized emptyList()
@@ -33,30 +34,60 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         }
     }
 
-    override fun putIfAbsent(record: DurableOperationRecord): Boolean = synchronized(operationLock) {
-        if (!isWritable()) return@synchronized false
-        val records = readRecords()
-        if (record.id in records) return@synchronized false
-        records[record.id] = record
-        writeRecords(records)
-        true
+    override fun addChangeListener(listener: () -> Unit): () -> Unit = synchronized(operationLock) {
+        changeListenersByStorage.getOrPut(changeListenerKey) { mutableSetOf() } += listener
+        {
+            synchronized(operationLock) {
+                changeListenersByStorage[changeListenerKey]?.let { listeners ->
+                    listeners -= listener
+                    if (listeners.isEmpty()) changeListenersByStorage -= changeListenerKey
+                }
+            }
+        }
+    }
+
+    override fun putIfAbsent(record: DurableOperationRecord): Boolean {
+        val changed = synchronized(operationLock) {
+            if (!isWritable()) return@synchronized false
+            val records = readRecords()
+            if (record.id in records) return@synchronized false
+            records[record.id] = record
+            writeRecords(records)
+            true
+        }
+        if (changed) notifyChangeListeners()
+        return changed
     }
 
     override fun compareAndSet(
         expected: DurableOperationRecord,
         updated: DurableOperationRecord,
-    ): Boolean = synchronized(operationLock) {
-        if (!isWritable()) return@synchronized false
-        require(updated.id == expected.id) { "operation id cannot change" }
-        val records = readRecords()
-        val current = records[expected.id] ?: return@synchronized false
-        if (current != expected) return@synchronized false
-        records[expected.id] = updated
-        writeRecords(records)
-        true
+    ): Boolean {
+        val changed = synchronized(operationLock) {
+            if (!isWritable()) return@synchronized false
+            require(updated.id == expected.id) { "operation id cannot change" }
+            val records = readRecords()
+            val current = records[expected.id] ?: return@synchronized false
+            if (current != expected) return@synchronized false
+            records[expected.id] = updated
+            writeRecords(records)
+            true
+        }
+        if (changed) notifyChangeListeners()
+        return changed
+    }
+
+    private fun notifyChangeListeners() {
+        val listeners = synchronized(operationLock) {
+            changeListenersByStorage[changeListenerKey].orEmpty().toList()
+        }
+        listeners.forEach { listener -> runCatching(listener) }
     }
 
     internal interface Storage {
+        val changeListenerKey: Any
+            get() = this
+
         fun read(): String?
         fun write(value: String)
         fun readQuarantine(): String? = null
@@ -88,7 +119,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         @Synchronized override fun writeQuarantineAndReset(value: String) {
             quarantinedValue = value.take(MAX_QUARANTINE_CHARS)
             recoveryMarker = true
-            write("v2")
+            write("v3")
         }
 
         @Synchronized override fun clearQuarantine() {
@@ -109,6 +140,9 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
     }
 
     private class SharedPreferencesStorage(private val preferences: SharedPreferences) : Storage {
+        override val changeListenerKey: Any
+            get() = preferences
+
         override fun read() = preferences.getString(RECORDS, null)
 
         override fun write(value: String) {
@@ -224,10 +258,14 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
         const val QUARANTINE = "records_corruption_quarantine"
         const val RECOVERY_MARKER = "records_corruption_recovery_required"
         const val MAX_QUARANTINE_CHARS = 16_384
-        const val VERSION = "v3"
-        const val PREVIOUS_VERSION = "v2"
+        const val VERSION = "v6"
+        const val PREVIOUS_VERSION = "v5"
+        const val PREVIOUS_PREVIOUS_VERSION = "v4"
+        const val PREVIOUS_PREVIOUS_PREVIOUS_VERSION = "v3"
+        const val PREVIOUS_PREVIOUS_PREVIOUS_PREVIOUS_VERSION = "v2"
         const val LEGACY_VERSION = "v1"
         val operationLock = Any()
+        val changeListenersByStorage = mutableMapOf<Any, MutableSet<() -> Unit>>()
         val encoder = Base64.getUrlEncoder().withoutPadding()
         val decoder = Base64.getUrlDecoder()
 
@@ -250,6 +288,9 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 append('\t').append(if (record.showStallPrompt) "1" else "0")
                 append('\t').append(encoded(record.diagnostics))
                 append('\t').append(encodedTerminalEvent(record.pendingGhostUpdateEvent))
+                append('\t').append(record.attentionRetryGeneration)
+                append('\t').append(record.progressGeneration)
+                append('\t').append(record.attentionKeepWaitingGeneration)
             }
         }
 
@@ -260,7 +301,14 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
             val lines = value.lineSequence().toList()
             val version = lines.firstOrNull()
-            if (version !in setOf(VERSION, PREVIOUS_VERSION, LEGACY_VERSION)) {
+            if (
+                version != VERSION &&
+                version != PREVIOUS_VERSION &&
+                version != PREVIOUS_PREVIOUS_VERSION &&
+                version != PREVIOUS_PREVIOUS_PREVIOUS_VERSION &&
+                version != PREVIOUS_PREVIOUS_PREVIOUS_PREVIOUS_VERSION &&
+                version != LEGACY_VERSION
+            ) {
                 throw DurableOperationStoreCorruptionException(
                     "unsupported durable operation version: ${version ?: "missing"}",
                 )
@@ -268,8 +316,11 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             return linkedMapOf<OperationId, DurableOperationRecord>().apply {
                 lines.drop(1).forEach { line ->
                     val record = when (version) {
-                        VERSION -> decodeRecord(line)
-                        PREVIOUS_VERSION -> decodePreviousRecord(line)
+                        VERSION -> decodeRecord(line, hasTerminalEvent = true, hasRetryGeneration = true, hasProgressGeneration = true, hasKeepWaitingGeneration = true)
+                        PREVIOUS_VERSION -> decodeRecord(line, hasTerminalEvent = false, hasRetryGeneration = true, hasProgressGeneration = true, hasKeepWaitingGeneration = true)
+                        PREVIOUS_PREVIOUS_VERSION -> decodeRecord(line, hasTerminalEvent = false, hasRetryGeneration = true, hasProgressGeneration = true, hasKeepWaitingGeneration = false)
+                        PREVIOUS_PREVIOUS_PREVIOUS_VERSION -> decodeV3Record(line)
+                        PREVIOUS_PREVIOUS_PREVIOUS_PREVIOUS_VERSION -> decodeRecord(line, hasTerminalEvent = false, hasRetryGeneration = false, hasProgressGeneration = false, hasKeepWaitingGeneration = false)
                         LEGACY_VERSION -> decodeLegacyRecord(line)
                         else -> throw DurableOperationStoreCorruptionException(
                             "unsupported durable operation version: $version",
@@ -285,9 +336,22 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             }
         }
 
-        fun decodeRecord(line: String): DurableOperationRecord = try {
+        fun decodeRecord(
+            line: String,
+            hasTerminalEvent: Boolean,
+            hasRetryGeneration: Boolean,
+            hasProgressGeneration: Boolean,
+            hasKeepWaitingGeneration: Boolean,
+        ): DurableOperationRecord = try {
             val fields = line.split('\t')
-            if (fields.size != 12) throw IllegalArgumentException()
+            val fieldCount = when {
+                hasKeepWaitingGeneration -> 11 + if (hasTerminalEvent) 4 else 3
+                hasProgressGeneration -> 11 + if (hasTerminalEvent) 3 else 2
+                hasRetryGeneration -> 11 + if (hasTerminalEvent) 2 else 1
+                hasTerminalEvent -> 12
+                else -> 11
+            }
+            if (fields.size != fieldCount) throw IllegalArgumentException()
             val id = decoded(fields[0]) ?: throw IllegalArgumentException()
             val binding = when (fields[3]) {
                 "-" -> if (fields[4] == "-") null else throw IllegalArgumentException()
@@ -314,18 +378,27 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 },
                 diagnostics = decodedDiagnostics(fields[10]),
                 externalJobHistory = history,
-                pendingGhostUpdateEvent = decodedTerminalEvent(fields[11]),
+                pendingGhostUpdateEvent = if (hasTerminalEvent) decodedTerminalEvent(fields[11]) else null,
+                attentionRetryGeneration = if (hasRetryGeneration) fields[11 + if (hasTerminalEvent) 1 else 0].toLong() else 0L,
+                progressGeneration = if (hasProgressGeneration) fields[12 + if (hasTerminalEvent) 1 else 0].toLong() else 0L,
+                attentionKeepWaitingGeneration = if (hasKeepWaitingGeneration) fields[13 + if (hasTerminalEvent) 1 else 0].toLong() else 0L,
             )
         } catch (_: IllegalArgumentException) {
             throw DurableOperationStoreCorruptionException("malformed durable operation row")
         }
 
-        fun decodePreviousRecord(line: String): DurableOperationRecord = try {
+        fun decodeV3Record(line: String): DurableOperationRecord {
             val fields = line.split('\t')
-            if (fields.size != 11) throw IllegalArgumentException()
-            decodeRecord("${line}\t-")
-        } catch (_: IllegalArgumentException) {
-            throw DurableOperationStoreCorruptionException("malformed durable operation row")
+            if (fields.size != 12) {
+                throw DurableOperationStoreCorruptionException("malformed durable operation row")
+            }
+            // Version v3 existed on both branches with different final fields. A numeric field
+            // is master's retry generation; any other valid payload is this branch's terminal event.
+            return if (fields[11].toLongOrNull() != null) {
+                decodeRecord(line, hasTerminalEvent = false, hasRetryGeneration = true, hasProgressGeneration = false, hasKeepWaitingGeneration = false)
+            } else {
+                decodeRecord(line, hasTerminalEvent = true, hasRetryGeneration = false, hasProgressGeneration = false, hasKeepWaitingGeneration = false)
+            }
         }
 
         fun decodeLegacyRecord(line: String): DurableOperationRecord = try {

@@ -12,9 +12,11 @@ class DurableOperationSupervisor(
 ) {
     private val operationLock = Any()
     private val lastProgressAt = mutableMapOf<OperationHandle, Long>()
+    private val lastObservedRevisions = mutableMapOf<OperationHandle, ObservationRevision>()
     private val cancellationIssued = mutableSetOf<BoundCancellation>()
     private val revealedStoppingAttention = mutableSetOf<OperationHandle>()
     private val restartSuppressedAttention = mutableMapOf<OperationHandle, DurableOperationRecord>()
+    private val keepWaitingSuppressedAttention = mutableMapOf<OperationHandle, KeepWaitingSuppression>()
     @Volatile private var mutationListener: (() -> Unit)? = null
 
     init {
@@ -22,6 +24,7 @@ class DurableOperationSupervisor(
         store.read().filter { it.status.isActive() }.forEach { restored ->
             val handle = restored.handle()
             lastProgressAt[handle] = now
+            lastObservedRevisions[handle] = restored.observationRevision()
             if (restored.status == OperationStatus.CANCEL_REQUESTED && restored.externalJob != null) {
                 issueCancellation(
                     handle,
@@ -40,6 +43,9 @@ class DurableOperationSupervisor(
         mutationListener = listener
         listener?.let { runCatching(it) }
     }
+
+    internal fun addStoreChangeListener(listener: () -> Unit): () -> Unit =
+        store.addChangeListener(listener)
 
     fun start(
         handle: OperationHandle,
@@ -67,6 +73,19 @@ class DurableOperationSupervisor(
         phase = phase,
         completed = completed,
         externalJob = externalJob,
+        allowRemoteNarReacquisition = true,
+    )
+
+    fun startRemoteNarReacquisition(
+        handle: OperationHandle,
+        phase: String,
+        completed: Long,
+    ): Boolean = start(
+        handle = handle,
+        kind = OperationKind.REMOTE_NAR,
+        phase = phase,
+        completed = completed,
+        externalJob = null,
         allowRemoteNarReacquisition = true,
     )
 
@@ -110,9 +129,11 @@ class DurableOperationSupervisor(
                 return@mutate false
             }
             lastProgressAt.remove(previous.handle())
+            lastObservedRevisions.remove(previous.handle())
             cancellationIssued.removeAll { it.handle == previous.handle() }
         }
         lastProgressAt[handle] = clock.nowMillis()
+        lastObservedRevisions[handle] = accepted.observationRevision()
         true
     }
 
@@ -132,11 +153,13 @@ class DurableOperationSupervisor(
             val updated = current.copy(
                 progress = OperationProgress(phase, completed),
                 showStallPrompt = false,
+                progressGeneration = current.progressGeneration + 1L,
             )
             if (!store.compareAndSet(current, updated)) {
                 return@mutate false
             }
             lastProgressAt[handle] = clock.nowMillis()
+            lastObservedRevisions[handle] = updated.observationRevision()
             true
         }
 
@@ -145,29 +168,46 @@ class DurableOperationSupervisor(
             val current = activeRecord(handle) ?: return@mutate false
             if (current.externalJob != null) return@mutate current.externalJob == binding
             if (binding in current.externalJobHistory) return@mutate false
-            if (
-                !store.compareAndSet(
-                    current,
-                    current.copy(
-                        externalJob = binding,
-                        externalJobHistory = current.externalJobHistory + binding,
-                    ),
-                )
-            ) {
+            val updated = current.copy(
+                externalJob = binding,
+                externalJobHistory = current.externalJobHistory + binding,
+                showStallPrompt = current.status != OperationStatus.RUNNING && current.showStallPrompt,
+            )
+            if (!store.compareAndSet(current, updated)) {
                 return@mutate false
             }
+            if (current.status == OperationStatus.RUNNING) {
+                restartSuppressedAttention.remove(handle)
+            }
+            lastProgressAt[handle] = clock.nowMillis()
+            lastObservedRevisions[handle] = updated.observationRevision()
             if (current.status == OperationStatus.CANCEL_REQUESTED) {
-                issueCancellation(handle, current.kind, binding)
+                issueCancellation(
+                    handle,
+                    current.kind,
+                    binding,
+                    preserveAttention = current.showStallPrompt,
+                )
             }
             true
         }
 
     fun keepWaiting(handle: OperationHandle): Boolean = mutate {
         val current = activeRecord(handle) ?: return@mutate false
-        if (!store.compareAndSet(current, current.copy(showStallPrompt = false))) {
+        val updated = current.copy(
+            showStallPrompt = false,
+            attentionKeepWaitingGeneration = current.attentionKeepWaitingGeneration + 1L,
+        )
+        if (!store.compareAndSet(current, updated)) {
             return@mutate false
         }
-        lastProgressAt[handle] = clock.nowMillis()
+        val now = clock.nowMillis()
+        lastProgressAt[handle] = now
+        lastObservedRevisions[handle] = updated.observationRevision()
+        keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
+            generation = updated.attentionKeepWaitingGeneration,
+            expiresAt = now + STALL_MILLIS,
+        )
         true
     }
 
@@ -186,6 +226,7 @@ class DurableOperationSupervisor(
             return@mutate false
         }
         lastProgressAt[handle] = clock.nowMillis()
+        lastObservedRevisions[handle] = updated.observationRevision()
         current.externalJob?.let { issueCancellation(handle, current.kind, it) }
         true
     }
@@ -198,11 +239,21 @@ class DurableOperationSupervisor(
         if (!current.showStallPrompt) return@mutate false
         when (action) {
             DurableAttentionAction.KEEP_WAITING -> {
-                if (!store.compareAndSet(current, current.copy(showStallPrompt = false))) {
+                val updated = current.copy(
+                    showStallPrompt = false,
+                    attentionKeepWaitingGeneration = current.attentionKeepWaitingGeneration + 1L,
+                )
+                if (!store.compareAndSet(current, updated)) {
                     return@mutate false
                 }
                 restartSuppressedAttention.remove(handle)
-                lastProgressAt[handle] = clock.nowMillis()
+                val now = clock.nowMillis()
+                lastProgressAt[handle] = now
+                lastObservedRevisions[handle] = updated.observationRevision()
+                keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
+                    generation = updated.attentionKeepWaitingGeneration,
+                    expiresAt = now + STALL_MILLIS,
+                )
             }
             DurableAttentionAction.STOP -> {
                 if (current.status != OperationStatus.RUNNING) return@mutate false
@@ -215,6 +266,7 @@ class DurableOperationSupervisor(
                 restartSuppressedAttention.remove(handle)
                 revealedStoppingAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
+                lastObservedRevisions[handle] = updated.observationRevision()
                 current.externalJob?.let {
                     issueCancellation(handle, current.kind, it, preserveAttention = true)
                 }
@@ -226,11 +278,16 @@ class DurableOperationSupervisor(
                 ) {
                     return@mutate false
                 }
+                val updated = current.copy(
+                    attentionRetryGeneration = current.attentionRetryGeneration + 1L,
+                )
+                if (!store.compareAndSet(current, updated)) return@mutate false
                 restartSuppressedAttention.remove(handle)
                 revealedStoppingAttention.remove(handle)
                 lastProgressAt[handle] = clock.nowMillis()
-                current.externalJob?.let {
-                    issueCancellation(handle, current.kind, it, preserveAttention = true)
+                lastObservedRevisions[handle] = updated.observationRevision()
+                updated.externalJob?.let {
+                    issueCancellation(handle, updated.kind, it, preserveAttention = true)
                 }
             }
         }
@@ -251,6 +308,7 @@ class DurableOperationSupervisor(
             return@mutate false
         }
         lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
     }
@@ -264,6 +322,17 @@ class DurableOperationSupervisor(
                 it.attemptId == handle.attemptId &&
                 it.kind == kind &&
                 it.status.isActive()
+        }?.externalJob
+    }
+
+    internal fun bindingForExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): ExternalJobBinding? = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
         }?.externalJob
     }
 
@@ -289,6 +358,19 @@ class DurableOperationSupervisor(
                 it.attemptId == handle.attemptId &&
                 it.kind == kind
         }?.status
+    }
+
+    internal fun wasExternalJobUsedBefore(
+        handle: OperationHandle,
+        binding: ExternalJobBinding,
+    ): Boolean = synchronized(operationLock) {
+        val records = store.read().filter { it.id == handle.operationId }
+        val currentOrPredecessor = records.singleOrNull {
+            it.id == handle.operationId && it.attemptId == handle.attemptId
+        } ?: records
+            .filter { it.attemptId.value < handle.attemptId.value }
+            .maxByOrNull { it.attemptId.value }
+        currentOrPredecessor?.externalJobHistory?.contains(binding) == true
     }
 
     internal fun cancellationRequestedForExactAttempt(
@@ -334,9 +416,81 @@ class DurableOperationSupervisor(
                 return@mutate false
             }
             lastProgressAt.remove(handle)
+            lastObservedRevisions.remove(handle)
             cancellationIssued.removeAll { it.handle == handle }
             true
         }
+
+    internal fun failOrConfirmMissingUnboundAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        diagnostics: String,
+    ): Boolean = mutate {
+        val current = store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
+        }
+        if (current == null) {
+            val previous = store.read().singleOrNull { it.id == handle.operationId }
+                ?: return@mutate true
+            if (
+                kind != OperationKind.REMOTE_NAR ||
+                (previous.kind != OperationKind.NAR_INSTALL &&
+                    previous.kind != OperationKind.REMOTE_NAR) ||
+                previous.status !in setOf(OperationStatus.FAILED, OperationStatus.CANCELLED) ||
+                handle.attemptId.value <= previous.attemptId.value
+            ) {
+                return@mutate false
+            }
+            val history = previous.externalJobHistory + listOfNotNull(previous.externalJob)
+            val failedReacquisition = DurableOperationRecord(
+                id = handle.operationId,
+                attemptId = handle.attemptId,
+                kind = OperationKind.REMOTE_NAR,
+                externalJob = null,
+                progress = OperationProgress("Downloading archive", 0L),
+                status = OperationStatus.FAILED,
+                showStallPrompt = false,
+                diagnostics = diagnostics,
+                externalJobHistory = history,
+            )
+            if (!store.compareAndSet(previous, failedReacquisition)) return@mutate false
+            lastProgressAt.remove(previous.handle())
+            cancellationIssued.removeAll { it.handle == previous.handle() }
+            return@mutate true
+        }
+        if (current.externalJob != null) return@mutate false
+        if (current.status == OperationStatus.FAILED) return@mutate true
+        if (current.status != OperationStatus.RUNNING) return@mutate false
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    status = OperationStatus.FAILED,
+                    showStallPrompt = false,
+                    diagnostics = diagnostics,
+                ),
+            )
+        ) {
+            return@mutate false
+        }
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
+    internal fun isUnboundCancellationConfirmed(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): Boolean = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind &&
+                it.externalJob == null
+        }?.status == OperationStatus.CANCELLED
+    }
 
     fun failOrConfirmExactAttempt(
         handle: OperationHandle,
@@ -370,6 +524,7 @@ class DurableOperationSupervisor(
             return@mutate false
         }
         lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
     }
@@ -390,6 +545,7 @@ class DurableOperationSupervisor(
         )
         if (!store.compareAndSet(current, updated)) return@mutate false
         lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
     }
@@ -491,7 +647,14 @@ class DurableOperationSupervisor(
     internal fun attentionSnapshot(): DurableAttentionSnapshot = synchronized(operationLock) {
         val now = clock.nowMillis()
         var promptWriteFailed = false
-        store.read().filter { it.status.isActive() }.forEach { record ->
+        val storedRecords = store.read()
+            .filter { it.status.isActive() }
+            .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
+        storedRecords.forEach { record ->
+            reconcileAttentionObservation(record, now)
+        }
+        storedRecords.forEach { record ->
+            var presentedRecord = record
             val handle = record.handle()
             val observedAt = lastProgressAt.getOrPut(handle) { now }
             if (
@@ -499,6 +662,19 @@ class DurableOperationSupervisor(
                 now - observedAt >= STALL_MILLIS
             ) {
                 restartSuppressedAttention.remove(handle)
+            }
+            val keepWaitingSuppressionExpired =
+                record.isKeepWaitingSuppressed() &&
+                    now >= keepWaitingSuppressedAttention.getValue(handle).expiresAt
+            if (keepWaitingSuppressionExpired) {
+                keepWaitingSuppressedAttention.remove(handle)
+                // A same-generation cancellation failure can restore the prompt while Keep
+                // waiting remains active. Its observation timestamp is intentionally reset,
+                // but the user chose a fixed suppression deadline; once that deadline expires,
+                // expose Retry stop immediately instead of sanitizing it for another window.
+                if (record.showStallPrompt && record.isCancellationDispatchFailure()) {
+                    revealedStoppingAttention += handle
+                }
             }
             if (record.attentionEscalationDue(now - observedAt, handle)) {
                 if (record.showStallPrompt && record.isCancellationDispatchFailure()) {
@@ -512,41 +688,76 @@ class DurableOperationSupervisor(
                     } else {
                         record.diagnostics
                     }
+                    val published = record.copy(showStallPrompt = true, diagnostics = diagnostics)
                     val updated = runCatching {
-                        store.compareAndSet(
-                            record,
-                            record.copy(showStallPrompt = true, diagnostics = diagnostics),
-                        )
+                        store.compareAndSet(record, published)
                     }.getOrDefault(false)
-                    if (updated && record.status == OperationStatus.CANCEL_REQUESTED) {
-                        revealedStoppingAttention += handle
+                    if (updated) {
+                        lastObservedRevisions[handle] = published.observationRevision()
+                        presentedRecord = published
+                        if (record.status == OperationStatus.CANCEL_REQUESTED) {
+                            revealedStoppingAttention += handle
+                        }
                     }
                     promptWriteFailed = !updated || promptWriteFailed
                 }
             }
+            presentedRecord
         }
-        val storedRecords = store.read()
+        // Processing can write prompts, and another supervisor can independently advance or
+        // finish an operation after the initial read. Present a fresh, linearizable view rather
+        // than retaining an active or prompt record that was already superseded while this
+        // snapshot was being prepared.
+        val presentationRecords = store.read()
             .filter { it.status.isActive() }
             .sortedWith(compareBy({ it.id.value }, { it.attemptId.value }))
-        revealedStoppingAttention.retainAll(storedRecords.mapTo(mutableSetOf()) { it.handle() })
+        presentationRecords.forEach { record ->
+            reconcileAttentionObservation(record, now)
+        }
+        revealedStoppingAttention.retainAll(presentationRecords.mapTo(mutableSetOf()) { it.handle() })
         restartSuppressedAttention.keys.retainAll(
-            storedRecords.mapTo(mutableSetOf()) { it.handle() },
+            presentationRecords.mapTo(mutableSetOf()) { it.handle() },
         )
-        val nextDelay = storedRecords
-            .filter {
-                it.isRestartSuppressed() ||
-                    !it.showStallPrompt ||
-                    it.awaitingStoppingEscalation(it.handle())
-            }
+        keepWaitingSuppressedAttention.keys.retainAll(
+            presentationRecords.mapTo(mutableSetOf()) { it.handle() },
+        )
+        lastObservedRevisions.keys.retainAll(
+            presentationRecords.mapTo(mutableSetOf()) { it.handle() },
+        )
+        val nextDelay = presentationRecords
             .minOfOrNull { record ->
                 val observedAt = lastProgressAt.getOrPut(record.handle()) { now }
-                (STALL_MILLIS - (now - observedAt).coerceAtLeast(0L)).coerceAtLeast(0L)
+                if (
+                    record.isRestartSuppressed() ||
+                    record.isKeepWaitingSuppressed() ||
+                    !record.showStallPrompt ||
+                    record.awaitingStoppingEscalation(record.handle())
+                ) {
+                    var delay = (STALL_MILLIS - (now - observedAt).coerceAtLeast(0L)).coerceAtLeast(0L)
+                    if (record.isKeepWaitingSuppressed()) {
+                        // The suppression deadline is tracked independently of observedAt so
+                        // that a same-generation write cannot push it out; wake up no later
+                        // than that deadline even if observedAt was reset by such a write.
+                        val expiresAt = keepWaitingSuppressedAttention.getValue(record.handle()).expiresAt
+                        delay = minOf(delay, (expiresAt - now).coerceAtLeast(0L))
+                    }
+                    delay
+                } else {
+                    // Another supervisor can clear an already published prompt without waking us.
+                    STALL_MILLIS
+                }
             }
             ?.let { delay ->
-                if (promptWriteFailed && delay == 0L) PROMPT_WRITE_RETRY_MILLIS else delay
+                if (promptWriteFailed && delay == 0L) {
+                    PROMPT_WRITE_RETRY_MILLIS
+                } else if (promptWriteFailed) {
+                    minOf(delay, PROMPT_WRITE_RETRY_MILLIS)
+                } else {
+                    delay
+                }
             }
-        val presentedRecords = storedRecords.map { record ->
-            if (record.isRestartSuppressed()) {
+        val presentedRecords = presentationRecords.map { record ->
+            if (record.isRestartSuppressed() || record.isKeepWaitingSuppressed()) {
                 record.copy(showStallPrompt = false)
             } else if (
                 record.showStallPrompt &&
@@ -560,8 +771,10 @@ class DurableOperationSupervisor(
         }
         DurableAttentionSnapshot(
             records = presentedRecords,
-            notificationRecords = storedRecords
-                .filter(DurableOperationRecord::showStallPrompt)
+            notificationRecords = presentationRecords
+                .filter { record ->
+                    record.showStallPrompt && !record.isKeepWaitingSuppressed()
+                }
                 .map { record ->
                     if (
                         record.isRestartSuppressed() ||
@@ -581,6 +794,41 @@ class DurableOperationSupervisor(
 
     private fun DurableOperationRecord.isRestartSuppressed(): Boolean =
         restartSuppressedAttention[handle()] == this
+
+    private fun reconcileAttentionObservation(record: DurableOperationRecord, now: Long) {
+        val handle = record.handle()
+        val revision = record.observationRevision()
+        val previousRevision = lastObservedRevisions.put(handle, revision)
+        if (previousRevision == null || previousRevision == revision) return
+
+        lastProgressAt[handle] = now
+        if (
+            !previousRevision.showStallPrompt &&
+            record.showStallPrompt &&
+            record.isCancellationDispatchFailure()
+        ) {
+            // A different supervisor can publish the already-due cancellation failure. Its
+            // visible durable prompt proves Retry stop is actionable, rather than representing
+            // fresh work that should sanitize the diagnostic again.
+            revealedStoppingAttention += handle
+        } else {
+            revealedStoppingAttention.remove(handle)
+        }
+        if (
+            record.attentionKeepWaitingGeneration > previousRevision.attentionKeepWaitingGeneration
+        ) {
+            // Only a genuine generation advance (re)installs suppression and its deadline. A
+            // later same-generation write (for example an in-flight cancellation restoring the
+            // prompt) must not push the deadline out past the original 30 second window.
+            keepWaitingSuppressedAttention[handle] = KeepWaitingSuppression(
+                generation = record.attentionKeepWaitingGeneration,
+                expiresAt = now + STALL_MILLIS,
+            )
+        }
+    }
+
+    private fun DurableOperationRecord.isKeepWaitingSuppressed(): Boolean =
+        keepWaitingSuppressedAttention[handle()]?.generation == attentionKeepWaitingGeneration
 
     private fun DurableOperationRecord.attentionEscalationDue(
         elapsedMillis: Long,
@@ -604,6 +852,16 @@ class DurableOperationSupervisor(
 
     private fun DurableOperationRecord.handle() = OperationHandle(id, attemptId)
 
+    private fun DurableOperationRecord.observationRevision() = ObservationRevision(
+        progress = progress,
+        status = status,
+        externalJob = externalJob,
+        showStallPrompt = showStallPrompt,
+        attentionRetryGeneration = attentionRetryGeneration,
+        attentionKeepWaitingGeneration = attentionKeepWaitingGeneration,
+        progressGeneration = progressGeneration,
+    )
+
     private inline fun mutate(block: () -> Boolean): Boolean {
         val changed = synchronized(operationLock, block)
         if (changed) mutationListener?.let { runCatching(it) }
@@ -617,21 +875,27 @@ class DurableOperationSupervisor(
         preserveAttention: Boolean = false,
     ) {
         val exactBinding = try {
-            repairMalformedWorkManagerBinding(handle, kind, binding)
+            repairMalformedWorkManagerBinding(handle, kind, binding) ?: return
         } catch (_: Exception) {
             storeCancellationFailure(handle, binding, preserveAttention)
             return
-        } ?: return
+        }
         val request = BoundCancellation(handle, exactBinding)
         if (!cancellationIssued.add(request)) return
         try {
             cancellation.cancel(handle, kind, exactBinding)
-            clearCancellationFailureDiagnostic(handle, exactBinding, preserveAttention)
-            lastProgressAt[handle] = clock.nowMillis()
-        } catch (error: Exception) {
+        } catch (_: Exception) {
             storeCancellationFailure(handle, exactBinding, preserveAttention)
             cancellationIssued.remove(request)
+            return
         }
+        // The external cancellation has been accepted at this point. A best-effort failure to
+        // persist its observation generation must not relabel it as a dispatch failure or make
+        // a later duplicate action issue the external cancellation again.
+        runCatching {
+            recordSuccessfulCancellationDispatch(handle, exactBinding, preserveAttention)
+        }
+        lastProgressAt[handle] = clock.nowMillis()
     }
 
     private fun repairMalformedWorkManagerBinding(
@@ -645,12 +909,24 @@ class DurableOperationSupervisor(
         if (kind !in WORK_MANAGER_KINDS) return binding
         val current = activeRecord(handle) ?: return null
         if (current.kind != kind || current.externalJob != binding) return null
+        // Another supervisor can advance an attention generation between our retry action and
+        // this legacy-binding repair. Only record the repaired revision when this input is one
+        // we already observed; otherwise the next reconciliation must see the concurrent
+        // change and install its suppression window rather than absorbing it here.
+        val purelyLocalRepair = lastObservedRevisions[handle] == current.observationRevision()
         val repaired = ExternalJobBinding.WorkManager(durableWorkManagerId(handle, kind).toString())
         val updated = current.copy(
             externalJob = repaired,
             externalJobHistory = current.externalJobHistory + binding + repaired,
         )
-        return if (store.compareAndSet(current, updated)) repaired else null
+        return if (store.compareAndSet(current, updated)) {
+            if (purelyLocalRepair) {
+                recordObservationRevision(handle, updated)
+            }
+            repaired
+        } else {
+            null
+        }
     }
 
     private fun storeCancellationFailure(
@@ -663,30 +939,57 @@ class DurableOperationSupervisor(
             if (current.status != OperationStatus.CANCEL_REQUESTED || current.externalJob != binding) return
             val failure = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX
             if (current.diagnostics == failure) return
+            val updated = current.copy(showStallPrompt = preserveAttention, diagnostics = failure)
             store.compareAndSet(
                 current,
-                current.copy(showStallPrompt = preserveAttention, diagnostics = failure),
+                updated,
             )
         } catch (_: Exception) {
         }
     }
 
-    private fun clearCancellationFailureDiagnostic(
+    private fun recordSuccessfulCancellationDispatch(
         handle: OperationHandle,
         binding: ExternalJobBinding,
         preserveAttention: Boolean = false,
     ) {
-        val current = activeRecord(handle) ?: return
-        if (
-            current.status != OperationStatus.CANCEL_REQUESTED ||
-            current.externalJob != binding ||
-            current.diagnostics == null ||
-            !current.isCancellationDispatchFailure()
-        ) return
-        store.compareAndSet(
-            current,
-            current.copy(showStallPrompt = preserveAttention, diagnostics = null),
-        )
+        var current = activeRecord(handle) ?: return
+        while (
+            current.status == OperationStatus.CANCEL_REQUESTED &&
+                current.externalJob == binding
+        ) {
+            val purelyLocalDispatch = lastObservedRevisions[handle] == current.observationRevision()
+            // Advance an observable generation for every successful dispatch, including a
+            // duplicate requestStop() when there is no prior failure diagnostic to clear.
+            // On a CAS loss, rebuild from the concurrent winner so its prompt or Keep waiting
+            // state survives while this successful dispatch is still observable.
+            val clearsDispatchFailure = current.isCancellationDispatchFailure()
+            val clearsDelayedStoppingAttention =
+                !preserveAttention && current.diagnostics == STOPPING_DELAY_DIAGNOSTIC
+            val updated = current.copy(
+                showStallPrompt = when {
+                    clearsDispatchFailure -> preserveAttention
+                    clearsDelayedStoppingAttention -> false
+                    else -> current.showStallPrompt
+                },
+                diagnostics = if (clearsDispatchFailure || clearsDelayedStoppingAttention) {
+                    null
+                } else {
+                    current.diagnostics
+                },
+                attentionRetryGeneration = current.attentionRetryGeneration + 1L,
+            )
+            if (store.compareAndSet(current, updated)) {
+                // Record this locally produced mutation immediately so a later, possibly delayed,
+                // poll doesn't mistake it for a concurrent mutation and push lastProgressAt out
+                // to reconciliation time instead of this write's own time.
+                if (purelyLocalDispatch) {
+                    recordObservationRevision(handle, updated)
+                }
+                return
+            }
+            current = activeRecord(handle) ?: return
+        }
     }
 
     private fun OperationStatus.isActive() =
@@ -717,6 +1020,33 @@ class DurableOperationSupervisor(
         val handle: OperationHandle,
         val binding: ExternalJobBinding,
     )
+
+    private data class KeepWaitingSuppression(
+        val generation: Long,
+        val expiresAt: Long,
+    )
+
+    private data class ObservationRevision(
+        val progress: OperationProgress,
+        val status: OperationStatus,
+        val externalJob: ExternalJobBinding?,
+        val showStallPrompt: Boolean,
+        val attentionRetryGeneration: Long,
+        val attentionKeepWaitingGeneration: Long,
+        val progressGeneration: Long,
+    )
+
+    private fun recordObservationRevision(handle: OperationHandle) {
+        val current = activeRecord(handle) ?: return
+        lastObservedRevisions[handle] = current.observationRevision()
+    }
+
+    private fun recordObservationRevision(
+        handle: OperationHandle,
+        record: DurableOperationRecord,
+    ) {
+        lastObservedRevisions[handle] = record.observationRevision()
+    }
 }
 
 internal fun DurableOperationRecord.isCancellationDispatchFailure(): Boolean =

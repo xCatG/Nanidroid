@@ -25,6 +25,21 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
         records.getValue(download.id)
     }
 
+    /** Retains a grant cleanup that outlives the user-visible download record. */
+    fun addPendingPersistedGrantRelease(uri: String) = synchronized(operationLock) {
+        val pending = readPendingPersistedGrantReleases()
+        if (pending.add(uri)) writeRecords(readRecords(), pending)
+    }
+
+    fun pendingPersistedGrantReleases(): Set<String> = synchronized(operationLock) {
+        readPendingPersistedGrantReleases()
+    }
+
+    fun removePendingPersistedGrantRelease(uri: String) = synchronized(operationLock) {
+        val pending = readPendingPersistedGrantReleases()
+        if (pending.remove(uri)) writeRecords(readRecords(), pending)
+    }
+
     fun update(id: String, transform: (NarDownload) -> NarDownload): NarDownload? = synchronized(operationLock) {
         val records = readRecords()
         val current = records[id] ?: return@synchronized null
@@ -33,6 +48,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 candidate.copy(
                     source = current.source,
                     retainedUri = current.retainedUri,
+                    pendingPersistedGrantReleaseUri = current.pendingPersistedGrantReleaseUri,
                     downloadManagerId = current.downloadManagerId,
                     workManagerId = current.workManagerId,
                 )
@@ -45,6 +61,23 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
         writeRecords(records)
         updated
     }
+
+    /**
+     * Clears a matching grant-cleanup marker without normalizing the rest of the record,
+     * so it stays cleared even when the record is [NarDownloadState.NeedsAttention]. Unlike
+     * [update], this never restores [NarDownload.pendingPersistedGrantReleaseUri] from the
+     * pre-transform value, and it leaves the retry source and every other field untouched.
+     */
+    fun clearPendingPersistedGrantReleaseUri(id: String, expectedUri: String): NarDownload? =
+        synchronized(operationLock) {
+            val records = readRecords()
+            val current = records[id] ?: return@synchronized null
+            if (current.pendingPersistedGrantReleaseUri != expectedUri) return@synchronized current
+            val updated = current.copy(pendingPersistedGrantReleaseUri = null)
+            records[id] = updated
+            writeRecords(records)
+            updated
+        }
 
     fun get(id: String): NarDownload? = synchronized(operationLock) { readRecords()[id] }
 
@@ -75,8 +108,14 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
 
     private fun readRecords(): MutableMap<String, NarDownload> = decode(storage.read())
 
-    private fun writeRecords(records: Map<String, NarDownload>) {
-        storage.write(encode(records.values))
+    private fun readPendingPersistedGrantReleases(): MutableSet<String> =
+        decodePendingPersistedGrantReleases(storage.read())
+
+    private fun writeRecords(
+        records: Map<String, NarDownload>,
+        pendingPersistedGrantReleases: Set<String> = readPendingPersistedGrantReleases(),
+    ) {
+        storage.write(encode(records.values, pendingPersistedGrantReleases))
     }
 
     private class SharedPreferencesStorage(private val preferences: SharedPreferences) : Storage {
@@ -92,13 +131,19 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
     private companion object {
         const val PREFERENCES = "nar-download-queue"
         const val RECORDS = "records-v1"
-        const val VERSION = "v2"
+        const val VERSION = "v4"
+        const val PREVIOUS_VERSION = "v3"
+        const val OLDER_VERSION = "v2"
         const val LEGACY_VERSION = "v1"
+        const val PENDING_GRANT_RELEASE = "pending-grant-release"
         val operationLock = Any()
         val encoder = Base64.getUrlEncoder().withoutPadding()
         val decoder = Base64.getUrlDecoder()
 
-        fun encode(records: Collection<NarDownload>): String = buildString {
+        fun encode(
+            records: Collection<NarDownload>,
+            pendingPersistedGrantReleases: Set<String>,
+        ): String = buildString {
             append(VERSION)
             records.sortedBy { it.id }.forEach { download ->
                 append('\n')
@@ -123,23 +168,40 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 append('\t').append(download.createdAtMillis)
                 append('\t').append(download.attemptId)
                 append('\t').append(encoded(download.workManagerId))
+                append('\t').append(encoded(download.pendingPersistedGrantReleaseUri))
+            }
+            pendingPersistedGrantReleases.sorted().forEach { uri ->
+                append('\n').append(PENDING_GRANT_RELEASE).append('\t').append(encoded(uri))
             }
         }
 
         fun decode(value: String?): MutableMap<String, NarDownload> {
             if (value.isNullOrEmpty()) return linkedMapOf()
-            val version = value.lineSequence().firstOrNull()
-            if (version != VERSION && version != LEGACY_VERSION) return linkedMapOf()
+            val version = value.lineSequence().firstOrNull() ?: return linkedMapOf()
+            if (version !in setOf(VERSION, PREVIOUS_VERSION, OLDER_VERSION, LEGACY_VERSION)) return linkedMapOf()
             return linkedMapOf<String, NarDownload>().apply {
                 value.lineSequence().drop(1).forEach { line ->
-                    decodeRecord(line, version == VERSION)?.let { put(it.id, it) }
+                    decodeRecord(line, version)?.let { put(it.id, it) }
                 }
             }
         }
 
-        fun decodeRecord(line: String, currentVersion: Boolean = true): NarDownload? = try {
+        fun decodePendingPersistedGrantReleases(value: String?): MutableSet<String> {
+            if (value.isNullOrEmpty() || value.lineSequence().firstOrNull() != VERSION) {
+                return linkedSetOf()
+            }
+            return value.lineSequence().drop(1).mapNotNull { line ->
+                line.split('\t').takeIf { it.size == 2 && it[0] == PENDING_GRANT_RELEASE }
+                    ?.get(1)?.let(::decoded)
+            }.toCollection(linkedSetOf())
+        }
+
+        fun decodeRecord(line: String, version: String): NarDownload? = try {
             val fields = line.split('\t')
-            if (currentVersion && fields.size != 10) return null
+            val currentVersion = version != LEGACY_VERSION
+            val hasPendingGrantCleanup = version == VERSION || version == PREVIOUS_VERSION
+            if (hasPendingGrantCleanup && fields.size != 11) return null
+            if (!hasPendingGrantCleanup && currentVersion && fields.size != 10) return null
             if (!currentVersion && fields.size !in 6..8) return null
             val hasDownloadManagerId = fields.size >= 7
             val stateIndex = if (hasDownloadManagerId) 5 else 4
@@ -170,6 +232,7 @@ class NarDownloadStore internal constructor(private val storage: Storage) {
                 id = decoded(fields[0]) ?: return null,
                 source = source,
                 retainedUri = decoded(fields[3]),
+                pendingPersistedGrantReleaseUri = if (hasPendingGrantCleanup) decoded(fields[10]) else null,
                 downloadManagerId = downloadManagerId,
                 workManagerId = if (currentVersion) decoded(fields[9]) else null,
                 createdAtMillis = fields.getOrNull(7)?.toLongOrNull() ?: 0,
