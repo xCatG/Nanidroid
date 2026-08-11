@@ -70,6 +70,19 @@ class DurableOperationSupervisor(
         allowRemoteNarReacquisition = true,
     )
 
+    fun startRemoteNarReacquisition(
+        handle: OperationHandle,
+        phase: String,
+        completed: Long,
+    ): Boolean = start(
+        handle = handle,
+        kind = OperationKind.REMOTE_NAR,
+        phase = phase,
+        completed = completed,
+        externalJob = null,
+        allowRemoteNarReacquisition = true,
+    )
+
     private fun start(
         handle: OperationHandle,
         kind: OperationKind,
@@ -267,6 +280,17 @@ class DurableOperationSupervisor(
         }?.externalJob
     }
 
+    internal fun bindingForExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): ExternalJobBinding? = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
+        }?.externalJob
+    }
+
     internal fun exactStatusForAttempt(
         handle: OperationHandle,
         kind: OperationKind,
@@ -289,6 +313,19 @@ class DurableOperationSupervisor(
                 it.attemptId == handle.attemptId &&
                 it.kind == kind
         }?.status
+    }
+
+    internal fun wasExternalJobUsedBefore(
+        handle: OperationHandle,
+        binding: ExternalJobBinding,
+    ): Boolean = synchronized(operationLock) {
+        val records = store.read().filter { it.id == handle.operationId }
+        val currentOrPredecessor = records.singleOrNull {
+            it.id == handle.operationId && it.attemptId == handle.attemptId
+        } ?: records
+            .filter { it.attemptId.value < handle.attemptId.value }
+            .maxByOrNull { it.attemptId.value }
+        currentOrPredecessor?.externalJobHistory?.contains(binding) == true
     }
 
     internal fun cancellationRequestedForExactAttempt(
@@ -337,6 +374,77 @@ class DurableOperationSupervisor(
             cancellationIssued.removeAll { it.handle == handle }
             true
         }
+
+    internal fun failOrConfirmMissingUnboundAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        diagnostics: String,
+    ): Boolean = mutate {
+        val current = store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind
+        }
+        if (current == null) {
+            val previous = store.read().singleOrNull { it.id == handle.operationId }
+                ?: return@mutate true
+            if (
+                kind != OperationKind.REMOTE_NAR ||
+                (previous.kind != OperationKind.NAR_INSTALL &&
+                    previous.kind != OperationKind.REMOTE_NAR) ||
+                previous.status !in setOf(OperationStatus.FAILED, OperationStatus.CANCELLED) ||
+                handle.attemptId.value <= previous.attemptId.value
+            ) {
+                return@mutate false
+            }
+            val history = previous.externalJobHistory + listOfNotNull(previous.externalJob)
+            val failedReacquisition = DurableOperationRecord(
+                id = handle.operationId,
+                attemptId = handle.attemptId,
+                kind = OperationKind.REMOTE_NAR,
+                externalJob = null,
+                progress = OperationProgress("Downloading archive", 0L),
+                status = OperationStatus.FAILED,
+                showStallPrompt = false,
+                diagnostics = diagnostics,
+                externalJobHistory = history,
+            )
+            if (!store.compareAndSet(previous, failedReacquisition)) return@mutate false
+            lastProgressAt.remove(previous.handle())
+            cancellationIssued.removeAll { it.handle == previous.handle() }
+            return@mutate true
+        }
+        if (current.externalJob != null) return@mutate false
+        if (current.status == OperationStatus.FAILED) return@mutate true
+        if (current.status != OperationStatus.RUNNING) return@mutate false
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    status = OperationStatus.FAILED,
+                    showStallPrompt = false,
+                    diagnostics = diagnostics,
+                ),
+            )
+        ) {
+            return@mutate false
+        }
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
+    internal fun isUnboundCancellationConfirmed(
+        handle: OperationHandle,
+        kind: OperationKind,
+    ): Boolean = synchronized(operationLock) {
+        store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind &&
+                it.externalJob == null
+        }?.status == OperationStatus.CANCELLED
+    }
 
     fun failOrConfirmExactAttempt(
         handle: OperationHandle,
