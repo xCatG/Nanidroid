@@ -458,6 +458,37 @@ class DurableOperationSupervisorTest {
         assertTrue(firstSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun keepWaitingExpiryRevealsRetryForSameGenerationCancellationFailure() {
+        val handle = handle("keep-waiting-retry-expiry", 1)
+        val binding = workManager("keep-waiting-retry-expiry-worker")
+        val firstSupervisor = DurableOperationSupervisor(store, clock, ThrowingCancellation())
+        val secondSupervisor = DurableOperationSupervisor(store, clock, RecordingCancellation())
+
+        assertTrue(firstSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(firstSupervisor.requestStop(handle))
+        clock.value = 30_000
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, firstSupervisor.snapshot().single().diagnostics)
+
+        assertTrue(secondSupervisor.keepWaiting(handle))
+        clock.value = 30_005
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        // A cancellation still in flight restores the visible failure without changing the
+        // Keep waiting generation. The resulting observation must not delay Retry stop past
+        // the original suppression deadline.
+        val current = store.read().single {
+            it.id == handle.operationId && it.attemptId == handle.attemptId
+        }
+        assertTrue(store.compareAndSet(current, current.copy(showStallPrompt = true)))
+        clock.value = 45_000
+        assertFalse(firstSupervisor.snapshot().single().showStallPrompt)
+
+        clock.value = 60_005
+        val attention = firstSupervisor.attentionSnapshot().records.single()
+        assertTrue(attention.showStallPrompt)
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, attention.diagnostics)
+    }
+
     @Test fun requestStopRetriesAfterPlatformCancellationThrows() {
         val cancellation = ThrowingCancellation()
         val stopHandle = handle("update-1", 1)

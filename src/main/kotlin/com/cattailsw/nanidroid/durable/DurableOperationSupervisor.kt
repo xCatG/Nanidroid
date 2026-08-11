@@ -476,11 +476,18 @@ class DurableOperationSupervisor(
             ) {
                 restartSuppressedAttention.remove(handle)
             }
-            if (
+            val keepWaitingSuppressionExpired =
                 record.isKeepWaitingSuppressed() &&
-                now >= keepWaitingSuppressedAttention.getValue(handle).expiresAt
-            ) {
+                    now >= keepWaitingSuppressedAttention.getValue(handle).expiresAt
+            if (keepWaitingSuppressionExpired) {
                 keepWaitingSuppressedAttention.remove(handle)
+                // A same-generation cancellation failure can restore the prompt while Keep
+                // waiting remains active. Its observation timestamp is intentionally reset,
+                // but the user chose a fixed suppression deadline; once that deadline expires,
+                // expose Retry stop immediately instead of sanitizing it for another window.
+                if (record.showStallPrompt && record.isCancellationDispatchFailure()) {
+                    revealedStoppingAttention += handle
+                }
             }
             if (record.attentionEscalationDue(now - observedAt, handle)) {
                 if (record.showStallPrompt && record.isCancellationDispatchFailure()) {
