@@ -331,25 +331,6 @@ class DurableOperationSupervisor(
         }?.status == OperationStatus.CANCEL_REQUESTED
     }
 
-    /**
-     * Reissues cancellation after an external scheduler accepts work whose durable binding existed first.
-     * A prior cancellation may have reached the scheduler before it knew about this exact work ID.
-     */
-    internal fun redispatchCancellationIfRequested(
-        handle: OperationHandle,
-        kind: OperationKind,
-        binding: ExternalJobBinding,
-    ): Boolean = synchronized(operationLock) {
-        val cancellationRequested = store.read().singleOrNull {
-            it.id == handle.operationId &&
-                it.attemptId == handle.attemptId &&
-                it.kind == kind &&
-                it.externalJob == binding
-        }?.status == OperationStatus.CANCEL_REQUESTED
-        if (cancellationRequested) issueCancellation(handle, kind, binding, force = true)
-        cancellationRequested
-    }
-
     internal fun isFailedAttempt(
         handle: OperationHandle,
         kind: OperationKind,
@@ -598,7 +579,6 @@ class DurableOperationSupervisor(
         kind: OperationKind,
         binding: ExternalJobBinding,
         preserveAttention: Boolean = false,
-        force: Boolean = false,
     ) {
         val exactBinding = try {
             repairMalformedWorkManagerBinding(handle, kind, binding)
@@ -607,8 +587,7 @@ class DurableOperationSupervisor(
             return
         } ?: return
         val request = BoundCancellation(handle, exactBinding)
-        if (!force && !cancellationIssued.add(request)) return
-        if (force) cancellationIssued += request
+        if (!cancellationIssued.add(request)) return
         try {
             cancellation.cancel(handle, kind, exactBinding)
             clearCancellationFailureDiagnostic(handle, exactBinding, preserveAttention)

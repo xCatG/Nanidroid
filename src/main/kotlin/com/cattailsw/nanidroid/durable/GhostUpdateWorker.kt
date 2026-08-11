@@ -435,31 +435,16 @@ class GhostUpdateWorker(
                 return@synchronized false
             }
             return@synchronized try {
-                submitStartedWork(supervisor, handle, binding) {
-                    WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-                        workName(canonicalRoot),
-                        ExistingWorkPolicy.KEEP,
-                        request,
-                    )
-                }
+                WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                    workName(canonicalRoot),
+                    ExistingWorkPolicy.KEEP,
+                    request,
+                )
                 true
             } catch (e: RuntimeException) {
                 supervisor.finish(handle, binding, OperationStatus.FAILED, e.message)
                 false
             }
-        }
-
-        /**
-         * Closes the cancellation-before-submission gap for durably preallocated work IDs.
-         */
-        internal fun submitStartedWork(
-            supervisor: DurableOperationSupervisor,
-            handle: OperationHandle,
-            binding: ExternalJobBinding.WorkManager,
-            submit: () -> Unit,
-        ) {
-            submit()
-            supervisor.redispatchCancellationIfRequested(handle, OperationKind.GHOST_UPDATE, binding)
         }
 
         internal fun workName(ghostRoot: File): String =
