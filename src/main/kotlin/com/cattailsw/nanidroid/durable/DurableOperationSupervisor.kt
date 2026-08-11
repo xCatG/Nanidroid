@@ -669,13 +669,20 @@ class DurableOperationSupervisor(
         if (kind !in WORK_MANAGER_KINDS) return binding
         val current = activeRecord(handle) ?: return null
         if (current.kind != kind || current.externalJob != binding) return null
+        // Another supervisor can advance an attention generation between our retry action and
+        // this legacy-binding repair. Only record the repaired revision when this input is one
+        // we already observed; otherwise the next reconciliation must see the concurrent
+        // change and install its suppression window rather than absorbing it here.
+        val purelyLocalRepair = lastObservedRevisions[handle] == current.observationRevision()
         val repaired = ExternalJobBinding.WorkManager(durableWorkManagerId(handle, kind).toString())
         val updated = current.copy(
             externalJob = repaired,
             externalJobHistory = current.externalJobHistory + binding + repaired,
         )
         return if (store.compareAndSet(current, updated)) {
-            recordObservationRevision(handle, updated)
+            if (purelyLocalRepair) {
+                recordObservationRevision(handle, updated)
+            }
             repaired
         } else {
             null

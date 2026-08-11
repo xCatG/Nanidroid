@@ -1027,6 +1027,70 @@ class DurableOperationSupervisorTest {
         assertEquals(1L, supervisor.attentionSnapshot().nextCheckDelayMillis)
     }
 
+    @Test fun bindingRepairDoesNotConsumeConcurrentKeepWaitingGeneration() {
+        val handle = handle("retry-repair-keep-waiting", 1)
+        val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
+        val raceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+            var afterRetryStarts: (() -> Unit)? = null
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                val changed = delegate.compareAndSet(expected, updated)
+                if (
+                    changed &&
+                    updated.attentionRetryGeneration > expected.attentionRetryGeneration
+                ) {
+                    afterRetryStarts?.also {
+                        afterRetryStarts = null
+                        it()
+                    }
+                }
+                return changed
+            }
+        }
+        val retrySupervisor = DurableOperationSupervisor(raceStore, clock, RecordingCancellation())
+        val keepWaitingSupervisor = DurableOperationSupervisor(
+            raceStore,
+            clock,
+            RecordingCancellation(),
+        )
+        assertTrue(
+            raceStore.putIfAbsent(
+                DurableOperationRecord(
+                    id = handle.operationId,
+                    attemptId = handle.attemptId,
+                    kind = OperationKind.NAR_INSTALL,
+                    externalJob = malformedBinding,
+                    progress = OperationProgress("Stopping...", 0),
+                    status = OperationStatus.CANCEL_REQUESTED,
+                    showStallPrompt = true,
+                    diagnostics = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
+                    externalJobHistory = setOf(malformedBinding),
+                ),
+            ),
+        )
+
+        // Establish this supervisor's initial observation before the visible retry window.
+        assertTrue(retrySupervisor.snapshot().single().showStallPrompt)
+        clock.value = 30_000
+        assertEquals(CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX, retrySupervisor.snapshot().single().diagnostics)
+        raceStore.afterRetryStarts = {
+            assertTrue(keepWaitingSupervisor.keepWaiting(handle))
+        }
+
+        assertTrue(retrySupervisor.performAttentionAction(handle, DurableAttentionAction.RETRY_STOP))
+        clock.value = 30_001
+        assertFalse(retrySupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun malformedBindingRepairCasLossDoesNotCancelReplacementAttempt() {
         val oldHandle = handle("install-race", 1)
         val malformedBinding = ExternalJobBinding.WorkManager("not-a-valid-uuid")
