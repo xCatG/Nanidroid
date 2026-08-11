@@ -335,6 +335,83 @@ class DurableOperationSupervisorTest {
         assertTrue(coordinatorSupervisor.snapshot().single().showStallPrompt)
     }
 
+    @Test fun successfulDuplicateStopPersistsGenerationAfterConcurrentPromptWrite() {
+        val raceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+            var beforeSuccessfulRetryGenerationWrite: (() -> Unit)? = null
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (updated.attentionRetryGeneration > expected.attentionRetryGeneration) {
+                    beforeSuccessfulRetryGenerationWrite?.also {
+                        beforeSuccessfulRetryGenerationWrite = null
+                        it()
+                    }
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val handle = handle("retry-generation-prompt-race", 1)
+        val binding = workManager("retry-generation-prompt-race-worker")
+        val coordinator = DurableOperationSupervisor(raceStore, clock, RecordingCancellation())
+        val retrying = DurableOperationSupervisor(raceStore, clock, RecordingCancellation())
+
+        assertTrue(coordinator.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(coordinator.requestStop(handle))
+        clock.value = 30_000
+        raceStore.beforeSuccessfulRetryGenerationWrite = {
+            assertTrue(coordinator.snapshot().single().showStallPrompt)
+        }
+
+        assertTrue(retrying.requestStop(handle))
+
+        val persisted = raceStore.read().single()
+        assertEquals(2L, persisted.attentionRetryGeneration)
+        assertTrue(persisted.showStallPrompt)
+        assertEquals(STOPPING_DELAY_DIAGNOSTIC, persisted.diagnostics)
+    }
+
+    @Test fun generationPersistenceFailureDoesNotRetryAcceptedCancellation() {
+        val generationFailingStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (updated.attentionRetryGeneration > expected.attentionRetryGeneration) {
+                    throw IllegalStateException("generation persistence failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val handle = handle("generation-persistence-failure", 1)
+        val binding = workManager("generation-persistence-failure-worker")
+        val acceptedCancellation = RecordingCancellation()
+        val failingSupervisor = DurableOperationSupervisor(
+            generationFailingStore,
+            clock,
+            acceptedCancellation,
+        )
+
+        assertTrue(failingSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(failingSupervisor.requestStop(handle))
+        assertNull(generationFailingStore.read().single().diagnostics)
+
+        assertTrue(failingSupervisor.requestStop(handle))
+        assertEquals(1, acceptedCancellation.requestCount)
+    }
+
     @Test fun concurrentKeepWaitingIsObservedAfterAnInFlightCancellationRetryFails() {
         val handle = handle("concurrent-cancellation-observation", 1)
         val binding = workManager("concurrent-cancellation-observation-worker")
@@ -638,7 +715,7 @@ class DurableOperationSupervisorTest {
         assertEquals(OperationStatus.CANCEL_REQUESTED, throwingStore.read().single().status)
     }
 
-    @Test fun successfulCancellationRetryCanBeRetriedWhenDiagnosticClearFails() {
+    @Test fun successfulCancellationRetryIsNotRetriedWhenDiagnosticClearFails() {
         val clearingFailureStore = object : DurableOperationStore {
             private val delegate = MemoryDurableOperationStore()
 
@@ -693,7 +770,6 @@ class DurableOperationSupervisorTest {
         assertTrue(stopSupervisor.requestStop(staleStopHandle))
         assertEquals(
             listOf(
-                CancellationRequest(staleStopHandle, staleBinding),
                 CancellationRequest(staleStopHandle, staleBinding),
             ),
             cancellation.requests,

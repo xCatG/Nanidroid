@@ -652,21 +652,28 @@ class DurableOperationSupervisor(
         binding: ExternalJobBinding,
         preserveAttention: Boolean = false,
     ) {
-        try {
-            val exactBinding = repairMalformedWorkManagerBinding(handle, kind, binding) ?: return
-            val request = BoundCancellation(handle, exactBinding)
-            if (!cancellationIssued.add(request)) return
-            try {
-                cancellation.cancel(handle, kind, exactBinding)
-                recordSuccessfulCancellationDispatch(handle, exactBinding, preserveAttention)
-                lastProgressAt[handle] = clock.nowMillis()
-            } catch (_: Exception) {
-                storeCancellationFailure(handle, exactBinding, preserveAttention)
-                cancellationIssued.remove(request)
-            }
+        val exactBinding = try {
+            repairMalformedWorkManagerBinding(handle, kind, binding) ?: return
         } catch (_: Exception) {
             storeCancellationFailure(handle, binding, preserveAttention)
+            return
         }
+        val request = BoundCancellation(handle, exactBinding)
+        if (!cancellationIssued.add(request)) return
+        try {
+            cancellation.cancel(handle, kind, exactBinding)
+        } catch (_: Exception) {
+            storeCancellationFailure(handle, exactBinding, preserveAttention)
+            cancellationIssued.remove(request)
+            return
+        }
+        // The external cancellation has been accepted at this point. A best-effort failure to
+        // persist its observation generation must not relabel it as a dispatch failure or make
+        // a later duplicate action issue the external cancellation again.
+        runCatching {
+            recordSuccessfulCancellationDispatch(handle, exactBinding, preserveAttention)
+        }
+        lastProgressAt[handle] = clock.nowMillis()
     }
 
     private fun repairMalformedWorkManagerBinding(
@@ -724,11 +731,7 @@ class DurableOperationSupervisor(
         binding: ExternalJobBinding,
         preserveAttention: Boolean = false,
     ) {
-        val current = activeRecord(handle) ?: return
-        if (
-            current.status != OperationStatus.CANCEL_REQUESTED ||
-            current.externalJob != binding
-        ) return
+        var current = activeRecord(handle) ?: return
         // Only treat this successful dispatch as purely local (safe to record immediately)
         // when the state we
         // read matches what we last observed. If it doesn't, a concurrent write already moved
@@ -736,20 +739,30 @@ class DurableOperationSupervisor(
         // would absorb that concurrent change without ever surfacing it as one; leave it stale
         // so the next poll's diff still detects the concurrent mutation.
         val purelyLocalDispatch = lastObservedRevisions[handle] == current.observationRevision()
-        // Advance an observable generation for every successful dispatch, including a
-        // duplicate requestStop() when there is no prior failure diagnostic to clear. Another
-        // supervisor must be able to notice that retry and restart its stopping window.
-        val clearsDispatchFailure = current.isCancellationDispatchFailure()
-        val updated = current.copy(
-            showStallPrompt = if (clearsDispatchFailure) preserveAttention else current.showStallPrompt,
-            diagnostics = if (clearsDispatchFailure) null else current.diagnostics,
-            attentionRetryGeneration = current.attentionRetryGeneration + 1L,
-        )
-        // Record this locally produced mutation immediately so a later, possibly delayed, poll
-        // doesn't mistake it for a concurrent mutation and push lastProgressAt out to
-        // reconciliation time instead of this write's own time.
-        if (store.compareAndSet(current, updated) && purelyLocalDispatch) {
-            recordObservationRevision(handle, updated)
+        while (
+            current.status == OperationStatus.CANCEL_REQUESTED &&
+                current.externalJob == binding
+        ) {
+            // Advance an observable generation for every successful dispatch, including a
+            // duplicate requestStop() when there is no prior failure diagnostic to clear.
+            // On a CAS loss, rebuild from the concurrent winner so its prompt or Keep waiting
+            // state survives while this successful dispatch is still observable.
+            val clearsDispatchFailure = current.isCancellationDispatchFailure()
+            val updated = current.copy(
+                showStallPrompt = if (clearsDispatchFailure) preserveAttention else current.showStallPrompt,
+                diagnostics = if (clearsDispatchFailure) null else current.diagnostics,
+                attentionRetryGeneration = current.attentionRetryGeneration + 1L,
+            )
+            if (store.compareAndSet(current, updated)) {
+                // Record this locally produced mutation immediately so a later, possibly delayed,
+                // poll doesn't mistake it for a concurrent mutation and push lastProgressAt out
+                // to reconciliation time instead of this write's own time.
+                if (purelyLocalDispatch) {
+                    recordObservationRevision(handle, updated)
+                }
+                return
+            }
+            current = activeRecord(handle) ?: return
         }
     }
 
