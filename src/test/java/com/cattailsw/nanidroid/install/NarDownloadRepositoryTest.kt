@@ -593,6 +593,44 @@ class NarDownloadRepositoryTest {
         assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
     }
 
+    @Test fun stopAfterPreparedInstallRedispatchesCancellationAfterSubmission() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var item: NarDownload
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowEnqueue
+
+            item = deferredRepository.enqueueLocal("file:///owned/stop-after-prepare.nar")
+            assertTrue("install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            assertTrue(deferredRepository.stop(item.id))
+            allowEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        assertEquals(
+            listOf(workId(item.id, item.attemptId, OperationKind.NAR_INSTALL)),
+            work.cancelledSubmittedInstallIds,
+        )
+    }
+
     @Test fun deferredSupervisorStartFailureMarksTheExactQueuedRowForAttention() {
         val dispatcher = QueuedInstallSchedulingDispatcher()
         val failingOperationStore = ThrowingPutOperationStore()
@@ -3335,6 +3373,7 @@ class NarDownloadRepositoryTest {
         val enqueuedNames = mutableListOf<String>()
         val cancelledNames = mutableListOf<String>()
         val cancelledBindings = mutableListOf<String>()
+        val cancelledSubmittedInstallIds = mutableListOf<String>()
         val cancelledStaleInstallWork = mutableListOf<String>()
         val stageEnqueuedIds = mutableSetOf<String>()
         val stageRecreatedIds = mutableListOf<String>()
@@ -3367,6 +3406,10 @@ class NarDownloadRepositoryTest {
 
         override fun cancel(itemId: String) {
             cancelledNames += NarDownloadRepository.workName(itemId)
+        }
+
+        override fun cancelSubmittedInstallWork(workManagerId: String) {
+            cancelledSubmittedInstallIds += workManagerId
         }
 
         override fun enqueue(

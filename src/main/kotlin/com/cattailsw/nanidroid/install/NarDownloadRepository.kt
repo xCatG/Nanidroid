@@ -92,6 +92,9 @@ internal interface NarInstallWorkScheduler {
         return true
     }
 
+    /** Replays cancellation after a prepared request has reached WorkManager. */
+    fun cancelSubmittedInstallWork(workManagerId: String) = Unit
+
     fun enqueueStage(
         itemId: String,
         attemptId: Long,
@@ -1253,6 +1256,12 @@ class NarDownloadRepository internal constructor(
                 updated?.attemptId == item.attemptId
             }
             if (!enqueued) throw IllegalStateException("install work was not accepted")
+            // Binding the deterministic UUID can immediately dispatch a stop
+            // request, before WorkManager has accepted this request. Revalidate
+            // after submission so that cancellation reaches the now-live work.
+            if (cancellationRequested(handle)) {
+                acceptedBinding?.let { work.cancelSubmittedInstallWork(it.uuid) }
+            }
         } catch (_: Exception) {
             if (failSchedulingAttempt(handle, acceptedBinding, INSTALL_SCHEDULE_FAILURE)) {
                 markNeedsAttention(item.id, INSTALL_SCHEDULE_FAILURE)

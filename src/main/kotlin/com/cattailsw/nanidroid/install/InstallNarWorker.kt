@@ -201,8 +201,12 @@ internal class AndroidNarInstallWorkScheduler(context: Context) : NarInstallWork
             NarDownloadRepository.workName(itemId),
             ExistingWorkPolicy.KEEP,
             request,
-        )
+        ).result.get()
         return true
+    }
+
+    override fun cancelSubmittedInstallWork(workManagerId: String) {
+        workManager.cancelWorkById(UUID.fromString(workManagerId)).result.get()
     }
 
     override fun ensureInstallEnqueued(
