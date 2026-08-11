@@ -585,6 +585,52 @@ class DurableOperationSupervisorTest {
         )
     }
 
+    @Test fun requestStopSuccessfulDispatchDoesNotConsumeConcurrentKeepWaitingCAS() {
+        val stopHandle = handle("cas-loss-keep-waiting-1", 1)
+        val stopBinding = workManager("cas-loss-keep-waiting-worker")
+        var injected = false
+        val raceStore = object : DurableOperationStore {
+            private val delegate = MemoryDurableOperationStore()
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean =
+                delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (
+                    !injected &&
+                    expected.status == OperationStatus.CANCEL_REQUESTED &&
+                    expected.diagnostics == null &&
+                    !expected.showStallPrompt
+                ) {
+                    val injectedKeepWaiting = expected.copy(
+                        attentionKeepWaitingGeneration = expected.attentionKeepWaitingGeneration + 1L,
+                        showStallPrompt = false,
+                    )
+                    if (!delegate.compareAndSet(expected, injectedKeepWaiting)) return false
+                    injected = true
+                    return false
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val stoppingSupervisor = DurableOperationSupervisor(
+            raceStore,
+            clock,
+            RecordingCancellation(),
+        )
+
+        assertTrue(stoppingSupervisor.start(stopHandle, OperationKind.GHOST_UPDATE, "Queued", 0, stopBinding))
+        clock.value = 30_000L
+        assertTrue(stoppingSupervisor.requestStop(stopHandle))
+
+        clock.value = 30_005L
+        assertFalse(stoppingSupervisor.snapshot().single().showStallPrompt)
+    }
+
     @Test fun requestStopRecordsBoundedSanitizedCancellationFailureDiagnostic() {
         val cancellation = ThrowingCancellation(
             "cancellation failed at ${"x".repeat(9_000)}\nwith newline",

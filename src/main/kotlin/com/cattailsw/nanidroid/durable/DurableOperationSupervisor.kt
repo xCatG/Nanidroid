@@ -732,17 +732,11 @@ class DurableOperationSupervisor(
         preserveAttention: Boolean = false,
     ) {
         var current = activeRecord(handle) ?: return
-        // Only treat this successful dispatch as purely local (safe to record immediately)
-        // when the state we
-        // read matches what we last observed. If it doesn't, a concurrent write already moved
-        // the record past our last observation, and stamping our own revision over it here
-        // would absorb that concurrent change without ever surfacing it as one; leave it stale
-        // so the next poll's diff still detects the concurrent mutation.
-        val purelyLocalDispatch = lastObservedRevisions[handle] == current.observationRevision()
         while (
             current.status == OperationStatus.CANCEL_REQUESTED &&
                 current.externalJob == binding
         ) {
+            val purelyLocalDispatch = lastObservedRevisions[handle] == current.observationRevision()
             // Advance an observable generation for every successful dispatch, including a
             // duplicate requestStop() when there is no prior failure diagnostic to clear.
             // On a CAS loss, rebuild from the concurrent winner so its prompt or Keep waiting
