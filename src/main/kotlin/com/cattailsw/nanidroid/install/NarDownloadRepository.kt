@@ -1247,18 +1247,11 @@ class NarDownloadRepository internal constructor(
      */
     private fun cancelSupersededQueuedInstallAttempt(item: NarDownload) {
         if (item.state !is NarDownloadState.Queued) return
-        val binding = item.workManagerId?.let(ExternalJobBinding::WorkManager) ?: (
-            supervisor.activeBindingForExactAttempt(item.handle(), OperationKind.NAR_INSTALL)
-                as? ExternalJobBinding.WorkManager
-            )
-        if (binding == null) {
-            // The deferred scheduler has not reached onPrepared() yet. It has no
-            // external job to cancel, but must still become terminal before a
-            // replacement attempt can bind.
-            supervisor.failUnboundAttempt(item.handle(), INSTALL_SCHEDULE_FAILURE)
-        } else {
-            supervisor.finish(item.handle(), binding, OperationStatus.CANCELLED)
-        }
+        supervisor.terminalizeExactAttempt(
+            item.handle(),
+            OperationKind.NAR_INSTALL,
+            INSTALL_SCHEDULE_FAILURE,
+        )
     }
 
     private fun persistExactActiveWorkManagerBinding(

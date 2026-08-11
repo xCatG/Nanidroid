@@ -678,6 +678,45 @@ class DurableOperationSupervisorTest {
         assertEquals(null, supervisor.activeBindingForExactAttempt(handle, OperationKind.LOCAL_NAR))
     }
 
+    @Test fun terminalizeExactAttemptCancelsABindingThatArrivesAfterAStaleProbe() {
+        val handle = handle("superseded-install", 1)
+        val binding = workManager("prepared-worker")
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0))
+
+        // A deferred scheduler can bind after the caller's previous probe returned null.
+        assertNull(supervisor.activeBindingForExactAttempt(handle, OperationKind.NAR_INSTALL))
+        assertTrue(supervisor.bindExternalJob(handle, binding))
+
+        assertTrue(
+            supervisor.terminalizeExactAttempt(
+                handle,
+                OperationKind.NAR_INSTALL,
+                "Unable to schedule installation.",
+            ),
+        )
+
+        val terminal = store.read().single()
+        assertEquals(OperationStatus.CANCELLED, terminal.status)
+        assertEquals(binding, terminal.externalJob)
+    }
+
+    @Test fun terminalizeExactAttemptFailsAnExactUnboundAttempt() {
+        val handle = handle("superseded-unbound-install", 1)
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0))
+
+        assertTrue(
+            supervisor.terminalizeExactAttempt(
+                handle,
+                OperationKind.NAR_INSTALL,
+                "Unable to schedule installation.",
+            ),
+        )
+
+        val terminal = store.read().single()
+        assertEquals(OperationStatus.FAILED, terminal.status)
+        assertNull(terminal.externalJob)
+    }
+
     @Test fun failedAttemptLookupRequiresExactFailedHandleAndKind() {
         val failed = handle("failed-install", 2)
         assertTrue(supervisor.start(failed, OperationKind.NAR_INSTALL, "Queued", 0))

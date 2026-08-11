@@ -365,6 +365,39 @@ class DurableOperationSupervisor(
             true
         }
 
+    /**
+     * Atomically terminalizes an active exact attempt, preserving a binding that
+     * may have arrived while its caller was deciding whether one existed.
+     */
+    fun terminalizeExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        diagnostics: String,
+    ): Boolean = mutate {
+        val current = store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind &&
+                it.status.isActive()
+        } ?: return@mutate false
+        val status = if (current.externalJob == null) OperationStatus.FAILED else OperationStatus.CANCELLED
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    status = status,
+                    showStallPrompt = false,
+                    diagnostics = if (status == OperationStatus.FAILED) diagnostics else null,
+                ),
+            )
+        ) {
+            return@mutate false
+        }
+        lastProgressAt.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
     fun failOrConfirmExactAttempt(
         handle: OperationHandle,
         kind: OperationKind,
