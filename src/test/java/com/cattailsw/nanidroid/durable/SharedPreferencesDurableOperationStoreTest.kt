@@ -21,7 +21,7 @@ class SharedPreferencesDurableOperationStoreTest {
 
         assertTrue(store.putIfAbsent(record))
         assertEquals(record, SharedPreferencesDurableOperationStore(storage).read().single())
-        assertTrue(storage.value!!.startsWith("v5\n"))
+        assertTrue(storage.value!!.startsWith("v6\n"))
     }
 
     @Test fun emptyPresentValueCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
