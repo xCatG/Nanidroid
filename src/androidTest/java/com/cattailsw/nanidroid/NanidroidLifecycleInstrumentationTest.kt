@@ -3,7 +3,9 @@ package com.cattailsw.nanidroid
 import android.Manifest
 import android.app.Activity
 import android.app.Application
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -45,6 +47,79 @@ class NanidroidLifecycleInstrumentationTest {
             scenario.onActivity(ActivityAction { newValue: Nanidroid? -> recreated.set(newValue) })
             Assert.assertNotNull(recreated.get())
             Assert.assertFalse(recreated.get()!!.isFinishing())
+        }
+    }
+
+    @Test
+    fun recreatedActivityWithNullRunnerRejectsArchiveIntentWhenRetainedRunnerIsPassive() {
+        val retainedRunner = SScriptRunner.getInstance(null)
+        val archiveIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse("content://archives/recreated.nar"), "application/x-nar")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        try {
+            // Keep cleanup active while preparing the process-global runner: either
+            // wait below can time out after no-wait or passive mode has changed.
+            retainedRunner.run {
+                setNoWaitMode(true)
+                // The process-global runner may still be mid-playback -- or have messages
+                // still queued -- from a preceding instrumentation test in this same app
+                // process. run() silently no-ops while state.running is already true
+                // (SScriptRunner.run()), so the passive-mode command below would never
+                // execute and this test would become order-dependent. Force the runner
+                // fully idle first (stopping playback AND draining any queued messages),
+                // then wait for the passive-mode command to actually take effect.
+                forceRunnerIdle(this)
+                addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
+                run()
+                awaitRunnerState(this) { it.passive }
+            }
+            ActivityScenario.launch<Nanidroid?>(Nanidroid::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val runnerField = Nanidroid::class.java.getDeclaredField("runner").apply {
+                        isAccessible = true
+                    }
+                    // initOnSeparateThread()'s AsyncTask may still be in flight on the main
+                    // thread queue (its onPostExecute dereferences `runner!!`). Null the field
+                    // only for the duration of this reflective call and restore it immediately
+                    // afterwards so that AsyncTask callback never observes a null runner.
+                    val originalRunner = runnerField.get(activity)
+                    try {
+                        runnerField.set(activity, null)
+                        Nanidroid::class.java.getDeclaredMethod(
+                            "handleIncomingIntent",
+                            Intent::class.java,
+                            Boolean::class.javaPrimitiveType,
+                        ).apply {
+                            isAccessible = true
+                            invoke(activity, archiveIntent, false)
+                        }
+                    } finally {
+                        runnerField.set(activity, originalRunner)
+                    }
+
+                    val state = Nanidroid::class.java.getDeclaredField("archiveIntentState").apply {
+                        isAccessible = true
+                    }.get(activity) as ArchiveIntentState
+
+                    Assert.assertSame(retainedRunner, SScriptRunner.getInstance(null))
+                    Assert.assertNull(state.pendingUri)
+                }
+            }
+        } finally {
+            // Activity initialization above may have left the retained runner running
+            // (or paused mid dialogue action) rather than sitting idle in passive mode:
+            // closing ActivityScenario stops the clock but does not stop playback, and
+            // run() silently no-ops while playback is already active. Force idle again
+            // before queuing the cleanup command so it is guaranteed to execute, then
+            // wait for passive mode to actually clear -- otherwise the singleton stays
+            // passive and contaminates later instrumentation tests in this process.
+            forceRunnerIdle(retainedRunner)
+            retainedRunner.addMsgToQueue(arrayOf("\\![leave,passivemode]\\e"))
+            retainedRunner.run()
+            awaitRunnerState(retainedRunner) { !it.passive }
+            retainedRunner.setNoWaitMode(false)
         }
     }
 
@@ -110,9 +185,44 @@ class NanidroidLifecycleInstrumentationTest {
         }
     }
 
+    /**
+     * Forces the process-global runner into a fully idle state: stops any in-flight playback
+     * AND drains any messages left queued by a preceding instrumentation test. stop() alone
+     * leaves a non-empty msgQueue behind, which keeps runtimeModeSnapshot().playingTalk true
+     * and makes any subsequent wait for idle time out. clearMsgQueue() clears the queue and
+     * stops playback in one call, so it is used here instead of stop() alone.
+     */
+    private fun forceRunnerIdle(runner: SScriptRunner) {
+        runner.clearMsgQueue()
+        awaitRunnerState(runner) { !it.playingTalk }
+    }
+
+    /**
+     * Polls the process-global runner's mode snapshot until [predicate] holds, or fails the
+     * test if it never converges. Mirrors the deadline/poll idiom already used above for the
+     * notification-permission dialog dismissal wait.
+     */
+    private fun awaitRunnerState(
+        runner: SScriptRunner,
+        predicate: (com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode) -> Boolean,
+    ) {
+        val deadline = SystemClock.uptimeMillis() + RUNNER_STATE_TIMEOUT_MILLIS
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (predicate(runner.runtimeModeSnapshot())) return
+            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
+        }
+        Assert.assertTrue(
+            "Retained runner did not converge to the expected state within " +
+                "${RUNNER_STATE_TIMEOUT_MILLIS}ms",
+            predicate(runner.runtimeModeSnapshot()),
+        )
+    }
+
     private companion object {
         const val PERMISSION_DIALOG_TIMEOUT_MILLIS = 15_000L
         const val PERMISSION_DIALOG_POLL_MILLIS = 50L
+        const val RUNNER_STATE_TIMEOUT_MILLIS = 5_000L
+        const val RUNNER_STATE_POLL_MILLIS = 20L
         val PERMISSION_CONTROLLER_PACKAGES = listOf(
             "com.android.permissioncontroller",
             "com.google.android.permissioncontroller",
