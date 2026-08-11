@@ -1564,7 +1564,8 @@ class GhostUpdateRepository internal constructor(
             journal: GhostUpdateJournal,
         ): Boolean {
             val expectedTransaction = transactionRoot(ghostRoot, journal.operationId)
-            return transactionRoot == expectedTransaction &&
+            return File(journal.ghostRoot).canonicalFile == ghostRoot &&
+                transactionRoot == expectedTransaction &&
                 File(journal.candidateRoot).canonicalFile == File(transactionRoot, CANDIDATE).canonicalFile &&
                 File(journal.backupRoot).canonicalFile == File(transactionRoot, BACKUP).canonicalFile &&
                 validPersistedPaths(journal.files)

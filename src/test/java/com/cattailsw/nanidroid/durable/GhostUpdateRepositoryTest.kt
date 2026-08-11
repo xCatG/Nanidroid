@@ -3093,15 +3093,21 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `invalid no-change replay does not publish a completion event`() {
+    fun `no-change replay with a mismatched ghost root does not publish a completion event`() {
         val fixture = fixture("invalid-no-change-replay")
+        val foreignRoot = File(fixture.parent, "foreign-ghost").apply { check(mkdir()) }
         fixture.writeLive("ghost/master.txt", "same")
         fixture.writeTransaction("candidate/ghost/master.txt", "same")
         fixture.writeJournal(
             CommitPhase.NO_CHANGES_PENDING,
-            listOf("../invalid"),
+            listOf("ghost/master.txt"),
             AttemptId(1),
             "work-1",
+        )
+        val journalFile = File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME)
+        GhostUpdateJournalStore.write(
+            journalFile,
+            GhostUpdateJournalStore.read(journalFile).copy(ghostRoot = foreignRoot.canonicalPath),
         )
         var classifications = 0
 
