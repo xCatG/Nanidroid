@@ -599,6 +599,7 @@ class NarDownloadRepository internal constructor(
         val item = store.get(itemId) ?: return false
         if (isStopping(item)) return false
         runCatching { work.cancel(itemId) }
+        cancelSupersededQueuedInstallAttempt(item)
         item.downloadManagerId?.let { runCatching { downloads.remove(it) } }
         runCatching { ownedData.delete(item) }
         store.delete(itemId)
@@ -1042,15 +1043,17 @@ class NarDownloadRepository internal constructor(
      * captured snapshot.
      */
     private fun scheduleInstallNowAndPublish(itemId: String) {
+        val item = store.get(itemId)
         try {
-            scheduleInstallNow(itemId)
+            if (item != null) scheduleInstallNow(item)
+        } catch (_: Exception) {
+            item?.let { markNeedsAttentionIfCurrent(it, INSTALL_SCHEDULE_FAILURE) }
         } finally {
             publish()
         }
     }
 
-    private fun scheduleInstallNow(itemId: String) {
-        val item = store.get(itemId) ?: return
+    private fun scheduleInstallNow(item: NarDownload) {
         val handle = item.handle()
         if (cancellationRequested(handle)) {
             val workManagerId = item.workManagerId ?: return

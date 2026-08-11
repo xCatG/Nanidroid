@@ -388,6 +388,72 @@ class NarDownloadRepositoryTest {
         assertEquals(workId(retried.id, retried.attemptId, OperationKind.NAR_INSTALL), retried.workManagerId)
     }
 
+    @Test fun deleteTerminalizesPreparedDeferredInstallBeforeItEnqueues() {
+        val executor = Executors.newSingleThreadExecutor()
+        lateinit var itemId: String
+        try {
+            val deferredRepository = NarDownloadRepository(
+                store = store,
+                downloads = downloads,
+                work = work,
+                installer = installer,
+                ownedData = ownedData,
+                attemptPaths = attempts,
+                supervisor = supervisor,
+                remoteProgress = remoteProgress,
+                stopReconciliation = stopReconciliation,
+                installScheduling = NarInstallSchedulingDispatcher { action -> executor.execute(action) },
+                nextId = { ids.removeFirst() },
+            )
+            val prepared = CountDownLatch(1)
+            val allowEnqueue = CountDownLatch(1)
+            work.installPrepared = prepared
+            work.allowInstallEnqueue = allowEnqueue
+
+            val item = deferredRepository.enqueueLocal("file:///owned/delete-race.nar")
+            itemId = item.id
+            assertTrue("install was not prepared", prepared.await(5, TimeUnit.SECONDS))
+
+            assertTrue(deferredRepository.delete(item.id))
+            allowEnqueue.countDown()
+        } finally {
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS))
+        }
+
+        assertNull(store.get(itemId))
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+    }
+
+    @Test fun deferredSupervisorStartFailureMarksTheExactQueuedRowForAttention() {
+        val dispatcher = QueuedInstallSchedulingDispatcher()
+        val failingOperationStore = ThrowingPutOperationStore()
+        val failingSupervisor = DurableOperationSupervisor(
+            failingOperationStore,
+            MonotonicClock { 0L },
+            cancellations,
+        )
+        val deferredRepository = NarDownloadRepository(
+            store = store,
+            downloads = downloads,
+            work = work,
+            installer = installer,
+            ownedData = ownedData,
+            attemptPaths = attempts,
+            supervisor = failingSupervisor,
+            remoteProgress = remoteProgress,
+            stopReconciliation = stopReconciliation,
+            installScheduling = dispatcher,
+            nextId = { ids.removeFirst() },
+        )
+
+        val item = deferredRepository.enqueueLocal("file:///owned/start-failure.nar")
+        dispatcher.runAll()
+
+        assertTrue(store.get(item.id)!!.state is NarDownloadState.NeedsAttention)
+        assertTrue(failingOperationStore.read().isEmpty())
+    }
+
     @Test fun retryTerminalizesUnboundPreparedInstallBeforeSchedulingItsSuccessor() {
         val item = store.create(
             NarDownload(
@@ -3062,6 +3128,21 @@ class NarDownloadRepositoryTest {
         fun runAll() {
             while (tasks.isNotEmpty()) tasks.removeFirst()()
         }
+    }
+
+    private class ThrowingPutOperationStore : DurableOperationStore {
+        private val records = mutableListOf<DurableOperationRecord>()
+
+        override fun read(): List<DurableOperationRecord> = records.toList()
+
+        override fun putIfAbsent(record: DurableOperationRecord): Boolean {
+            throw IllegalStateException("durable operation write failed")
+        }
+
+        override fun compareAndSet(
+            expected: DurableOperationRecord,
+            updated: DurableOperationRecord,
+        ): Boolean = false
     }
 
     private class FakeWorkScheduler : NarInstallWorkScheduler {
