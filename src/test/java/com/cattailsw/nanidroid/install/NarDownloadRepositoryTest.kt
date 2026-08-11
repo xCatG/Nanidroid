@@ -3134,6 +3134,22 @@ class NarDownloadRepositoryTest {
         assertEquals(NarDownloadState.Queued, store.get(item.id)!!.state)
     }
 
+    @Test fun restartCancelsQueuedRowWhenSupersessionCrashAlreadyTerminalizedItsExactBoundAttempt() {
+        val item = repository.enqueueLocal("file:///owned/archive.nar")
+        assertTrue(
+            supervisor.terminalizeExactAttempt(
+                item.handle(),
+                OperationKind.NAR_INSTALL,
+                "install scheduling failed",
+            ),
+        )
+
+        recreatedRepository().reconcile()
+
+        assertEquals(NarDownloadState.Cancelled, store.get(item.id)!!.state)
+        assertEquals(OperationStatus.CANCELLED, operationStore.read().single().status)
+    }
+
     @Test fun reconciliationPreservesTrackedLocalArchiveFilesDuringCleanup() {
         val item = store.create(
             NarDownload(

@@ -814,6 +814,21 @@ class NarDownloadRepository internal constructor(
                     it.state == NarDownloadState.Installing
             }
             .forEach { item ->
+                // Retry, Delete, and Select again terminalize a bound queued
+                // predecessor before replacing or removing its queue row. A crash
+                // between those two stores leaves this exact queued attempt behind
+                // with a terminal supervisor record. Do not try to start that
+                // terminal attempt again; replay its queue-side cancellation.
+                if (
+                    item.state == NarDownloadState.Queued &&
+                        supervisor.exactStatusForAttempt(
+                            item.handle(),
+                            OperationKind.NAR_INSTALL,
+                        ) == OperationStatus.CANCELLED
+                ) {
+                    markCancelledIfCurrent(item)
+                    return@forEach
+                }
                 if (item.state == NarDownloadState.Queued && item.attemptId > 1L) {
                     val predecessor = OperationHandle(
                         OperationId(item.id),
