@@ -11,6 +11,7 @@ import io.mockk.verify
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -1308,6 +1309,30 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `worker retries instead of terminalizing when terminal event persistence failed`() {
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(OperationId("worker-terminal-persistence-retry"), AttemptId(1))
+        val binding = workManagerBinding("terminal-persistence-retry-work")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+
+        val result = GhostUpdateWorker.execute(
+            supervisor,
+            handle,
+            binding,
+            { false },
+            terminalEventPersistenceFailed = { true },
+        ) {
+            GhostUpdateResult.Failed("terminal event could not be persisted")
+        }
+
+        assertEquals(ListenableWorker.Result.retry().toString(), result.toString())
+        assertEquals(OperationStatus.RUNNING, durableStore.read().single().status)
+    }
+
+    @Test
     fun `worker retries system interruption without terminalizing exact running attempt`() {
         val durableStore = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
@@ -1537,7 +1562,7 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
-    fun `failed no-change cleanup retains a prepared journal that an exact retry clears`() {
+    fun `failed no-change cleanup retains its journal phase that an exact retry clears`() {
         val fixture = fixture("no-change-cleanup-failure")
         fixture.writeLive("ghost/master.txt", "same")
         fixture.network.manifest("ghost/master.txt" to bytes("same"))
@@ -1553,11 +1578,11 @@ class GhostUpdateRepositoryTest {
         }
         val repository = fixture.repository(fileOperations = fileOperations)
 
-        assertTrue(repository.run(request) { false } is GhostUpdateResult.Failed)
+        assertEquals(GhostUpdateResult.NoChangesPending, repository.run(request) { false })
         val journal = GhostUpdateJournalStore.read(
             File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
         )
-        assertEquals(CommitPhase.PREPARED, journal.phase)
+        assertEquals(CommitPhase.NO_CHANGES_PENDING, journal.phase)
         assertTrue(File(fixture.transactionRoot(), "candidate").isDirectory)
 
         failCleanup = false
@@ -1565,6 +1590,150 @@ class GhostUpdateRepositoryTest {
         assertEquals(GhostUpdateResult.NoChanges, repository.run(request) { false })
         assertFalse(fixture.transactionRoot().exists())
         assertBytes("same", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `no-change cleanup recovers after candidate deletion but transaction deletion fails`() {
+        val fixture = fixture("no-change-transaction-cleanup-failure")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        val request = fixture.request().copy(attemptId = AttemptId(9), workManagerUuid = "work-9")
+        val repository = fixture.repository(
+            fileOperations = object : GhostUpdateFileOperations {
+                override fun deleteTree(root: File): Boolean {
+                    val deleted = root.deleteRecursively()
+                    if (root.canonicalFile == File(fixture.transactionRoot(), "candidate").canonicalFile) {
+                        fixture.writeTransaction("interrupted-cleanup", "keep transaction root nonempty")
+                    }
+                    return deleted
+                }
+            },
+        )
+
+        assertEquals(GhostUpdateResult.NoChangesPending, repository.run(request) { false })
+        assertEquals(
+            CommitPhase.NO_CHANGES_PENDING,
+            GhostUpdateJournalStore.read(
+                File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+            ).phase,
+        )
+        assertFalse(File(fixture.transactionRoot(), "candidate").exists())
+
+        assertTrue(File(fixture.transactionRoot(), "interrupted-cleanup").delete())
+
+        assertEquals(GhostUpdateResult.NoChanges, repository.run(request) { false })
+        assertFalse(fixture.transactionRoot().exists())
+        assertBytes("same", File(fixture.ghostRoot, "ghost/master.txt"))
+    }
+
+    @Test
+    fun `no-change cleanup failure never replaces its journal with prepared state`() {
+        val fixture = fixture("no-change-cleanup-journal-write-failure")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        var writes = 0
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                writes++
+                if (writes == 3) throw IOException("cannot rewrite no-change journal")
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File): GhostUpdateJournal = GhostUpdateJournalStore.read(file)
+        }
+        val repository = fixture.repository(
+            fileOperations = object : GhostUpdateFileOperations {
+                override fun deleteTree(root: File): Boolean {
+                    val deleted = root.deleteRecursively()
+                    if (root.canonicalFile == File(fixture.transactionRoot(), "candidate").canonicalFile) {
+                        fixture.writeTransaction("residual", "blocks transaction cleanup")
+                    }
+                    return deleted
+                }
+            },
+            journalIo = journalIo,
+        )
+
+        assertTrue(repository.run(fixture.request()) { false } is GhostUpdateResult.Failed)
+        val journalFile = File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME)
+        assertFalse(journalFile.isFile && GhostUpdateJournalStore.read(journalFile).phase == CommitPhase.PREPARED)
+    }
+
+    @Test
+    fun `no-change completion payload survives process death before transaction cleanup`() {
+        val fixture = fixture("no-change-terminal-before-cleanup")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.network.manifest("ghost/master.txt" to bytes("same"))
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("no-change-terminal-before-cleanup")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+
+        try {
+            fixture.repository(
+                onNoChangesClassified = {
+                    assertTrue(
+                        GhostUpdateWorker.persistNoChangesTerminalEvent(
+                            supervisor,
+                            handle,
+                            binding,
+                            "configured-ghost-id",
+                            fixture.ghostRoot,
+                        ),
+                    )
+                    throw SimulatedProcessDeath()
+                },
+            ).run(
+                fixture.request().copy(
+                    attemptId = handle.attemptId,
+                    workManagerUuid = binding.uuid,
+                ),
+            ) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The durable completion record and payload must precede staging cleanup.
+        }
+
+        assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                "configured-ghost-id",
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateComplete",
+                listOf("none", ""),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
+        assertTrue(fixture.transactionRoot().exists())
+        val retainedJournal = GhostUpdateJournalStore.read(
+            File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
+        )
+        assertEquals(CommitPhase.NO_CHANGES_PENDING, retainedJournal.phase)
+        assertEquals("ghost-id", retainedJournal.ghostId)
+
+        assertEquals(
+            RecoveryResult.NoChangesCommit,
+            GhostUpdateWorker.recoverBeforeGhostLoad(
+                fixture.parent,
+                fixture.ghostRoot,
+                store,
+                queryWork = { throw AssertionError("completed no-change recovery must not query WorkManager") },
+                finish = { _, _ -> throw AssertionError("completed no-change recovery must not reclassify") },
+            ),
+        )
+        assertFalse(fixture.transactionRoot().exists())
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                "configured-ghost-id",
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateComplete",
+                listOf("none", ""),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
     }
 
     @Test
@@ -1654,7 +1823,9 @@ class GhostUpdateRepositoryTest {
             fixture.ghostRoot,
             store,
             queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED },
-            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            finish = { journal, status ->
+                GhostUpdateWorker.finishRecoveredTerminalEvent(supervisor, journal, status)
+            },
         )
 
         assertEquals(RecoveryResult.CompletedCommit, recovered)
@@ -1768,6 +1939,7 @@ class GhostUpdateRepositoryTest {
     fun `worker leaves classification pending result durable and requests correct follow-up`() {
         listOf(
             GhostUpdateResult.PublishPending(emptyList()) to ListenableWorker.Result.retry(),
+            GhostUpdateResult.NoChangesPending to ListenableWorker.Result.retry(),
             GhostUpdateResult.RollbackPending(OperationStatus.FAILED, emptyList()) to
                 ListenableWorker.Result.failure(),
         ).forEachIndexed { index, (pending, expected) ->
@@ -1784,6 +1956,85 @@ class GhostUpdateRepositoryTest {
             assertEquals(expected.toString(), result.toString())
             assertEquals(OperationStatus.RUNNING, durableStore.read().single().status)
         }
+    }
+
+    @Test
+    fun `completed no-change cleanup attempt re-enters repository recovery`() {
+        val fixture = fixture("completed-no-change-cleanup-retry")
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("completed-no-change-cleanup-retry")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+        fixture.writeJournal(CommitPhase.NO_CHANGES_PENDING, emptyList(), handle.attemptId, binding.uuid)
+        var runs = 0
+
+        val result = GhostUpdateWorker.execute(
+            supervisor,
+            handle,
+            binding,
+            { false },
+            resumeCompletedCleanup = {
+                GhostUpdateWorker.hasExactCompletedCleanupPending(fixture.ghostRoot, handle, binding)
+            },
+        ) {
+            runs += 1
+            GhostUpdateResult.NoChanges
+        }
+
+        assertEquals(ListenableWorker.Result.success().toString(), result.toString())
+        assertEquals(1, runs)
+    }
+
+    @Test
+    fun `completed published cleanup attempt re-enters repository recovery`() {
+        val fixture = fixture("completed-published-cleanup-retry")
+        val durableStore = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(durableStore, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("completed-published-cleanup-retry")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Queued", 0, binding))
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+        fixture.writeJournal(CommitPhase.PUBLISHED, emptyList(), handle.attemptId, binding.uuid)
+        var runs = 0
+
+        val result = GhostUpdateWorker.execute(
+            supervisor,
+            handle,
+            binding,
+            { false },
+            resumeCompletedCleanup = {
+                GhostUpdateWorker.hasExactCompletedCleanupPending(fixture.ghostRoot, handle, binding)
+            },
+        ) {
+            runs += 1
+            GhostUpdateResult.Completed(emptyList())
+        }
+
+        assertEquals(ListenableWorker.Result.success().toString(), result.toString())
+        assertEquals(1, runs)
+    }
+
+    @Test
+    fun `completed cleanup replay requires the exact terminal attempt`() {
+        val fixture = fixture("completed-no-change-cleanup-exact-attempt")
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("completed-no-change-cleanup-exact-attempt")
+        fixture.writeJournal(CommitPhase.NO_CHANGES_PENDING, emptyList(), handle.attemptId, binding.uuid)
+
+        assertTrue(GhostUpdateWorker.hasExactCompletedCleanupPending(fixture.ghostRoot, handle, binding))
+        assertFalse(
+            GhostUpdateWorker.hasExactCompletedCleanupPending(
+                fixture.ghostRoot,
+                handle.copy(attemptId = AttemptId(2)),
+                binding,
+            ),
+        )
     }
 
     @Test
@@ -1816,6 +2067,158 @@ class GhostUpdateRepositoryTest {
 
         assertTrue(resumed is GhostUpdateResult.Completed)
         assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `failure terminal payload is persisted before rollback cleanup`() {
+        val fixture = fixture("failure-terminal-before-cleanup")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("failure-terminal-before-cleanup")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        val failBeforeBackup = object : GhostUpdateFileOperations {
+            override fun rename(source: File, destination: File): Boolean = false
+        }
+        val crashAfterClassification = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) {
+                if (journal.phase == CommitPhase.ROLLBACK_CLASSIFIED) throw SimulatedProcessDeath()
+                GhostUpdateJournalStore.write(file, journal)
+            }
+
+            override fun read(file: File): GhostUpdateJournal = GhostUpdateJournalStore.read(file)
+        }
+
+        try {
+            fixture.repository(
+                fileOperations = failBeforeBackup,
+                journalIo = crashAfterClassification,
+                onRollbackJournalClassified = { journal, status ->
+                    GhostUpdateWorker.persistRollbackTerminalEvent(
+                        supervisor,
+                        handle,
+                        binding,
+                        journal,
+                        status,
+                    )
+                },
+            ).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The terminal failure record and payload must precede rollback cleanup.
+        }
+
+        assertEquals(OperationStatus.FAILED, store.read().single().status)
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                "ghost-id",
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateFailure",
+                listOf("ghost update failed", "ghost/master.txt"),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
+    }
+
+    @Test
+    fun `retry after commit-failure recovery read uses journal rollback classification`() {
+        val fixture = fixture("commit-failure-recovery-read")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        var failRecoveryRead = true
+        var journalClassifications = 0
+        var legacyClassifications = 0
+        val journalIo = object : GhostUpdateJournalIo {
+            override fun write(file: File, journal: GhostUpdateJournal) =
+                GhostUpdateJournalStore.write(file, journal)
+
+            override fun read(file: File): GhostUpdateJournal {
+                if (failRecoveryRead) {
+                    failRecoveryRead = false
+                    throw IOException("transient journal read failure")
+                }
+                return GhostUpdateJournalStore.read(file)
+            }
+        }
+        val failBeforeBackup = object : GhostUpdateFileOperations {
+            override fun rename(source: File, destination: File): Boolean = false
+        }
+
+        val result = fixture.repository(
+            fileOperations = failBeforeBackup,
+            journalIo = journalIo,
+            onRollbackClassified = {
+                legacyClassifications += 1
+                true
+            },
+            onRollbackJournalClassified = { _, _ ->
+                journalClassifications += 1
+                true
+            },
+        ).run(fixture.request()) { false }
+
+        assertTrue(result is GhostUpdateResult.Failed)
+        assertEquals(1, journalClassifications)
+        assertEquals(0, legacyClassifications)
+    }
+
+    @Test
+    fun `completion payload survives process death before transaction cleanup and clears after delivery`() {
+        val fixture = fixture("terminal-event-before-cleanup")
+        fixture.writeLive("ghost/master.txt", "old")
+        fixture.network.manifest("ghost/master.txt" to bytes("new"))
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("terminal-event-before-cleanup")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        val failingDelete = object : GhostUpdateFileOperations {
+            override fun deleteTree(root: File): Boolean {
+                if (root.name == "backup") throw SimulatedProcessDeath()
+                return root.deleteRecursively()
+            }
+        }
+
+        try {
+            fixture.repository(
+                fileOperations = failingDelete,
+                onCommitClassified = { completed ->
+                    GhostUpdateWorker.persistCompletedTerminalEvent(
+                        supervisor,
+                        handle,
+                        binding,
+                        "configured-ghost-id",
+                        fixture.ghostRoot,
+                        completed,
+                    )
+                },
+            ).run(fixture.request()) { false }
+            throw AssertionError("simulated process death was not reached")
+        } catch (_: SimulatedProcessDeath) {
+            // The terminal record and payload must precede the cleanup side effect.
+        }
+
+        val event = GhostUpdateTerminalEvent(
+            "configured-ghost-id",
+            fixture.ghostRoot.canonicalPath,
+            "OnUpdateComplete",
+            listOf("changed", "ghost/master.txt"),
+        )
+        assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+        assertEquals(event, store.read().single().pendingGhostUpdateEvent)
+        assertTrue(
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "configured-ghost-id", fixture.ghostRoot) {
+                assertEquals(event, it)
+                true
+            },
+        )
+        assertNull(store.read().single().pendingGhostUpdateEvent)
     }
 
     @Test
@@ -2164,9 +2567,12 @@ class GhostUpdateRepositoryTest {
     fun `update events never cross a mid-update ghost switch`() {
         var currentGhost: String? = "ghost-a"
         val delivered = mutableListOf<String>()
-        val sink = GhostBoundEventSink("ghost-a") { expected, name, _ ->
-            if (currentGhost == expected) delivered += name
-        }
+        val sink = GhostBoundEventSink("ghost-a", { expected, name, _ ->
+            if (currentGhost != expected) false else {
+                delivered += name
+                true
+            }
+        })
 
         sink.send("OnUpdateReady", emptyList())
         currentGhost = "ghost-b"
@@ -2809,6 +3215,157 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `no-change replay with a mismatched ghost root does not publish a completion event`() {
+        val fixture = fixture("invalid-no-change-replay")
+        val foreignRoot = File(fixture.parent, "foreign-ghost").apply { check(mkdir()) }
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.writeTransaction("candidate/ghost/master.txt", "same")
+        fixture.writeJournal(
+            CommitPhase.NO_CHANGES_PENDING,
+            listOf("ghost/master.txt"),
+            AttemptId(1),
+            "work-1",
+        )
+        val journalFile = File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME)
+        GhostUpdateJournalStore.write(
+            journalFile,
+            GhostUpdateJournalStore.read(journalFile).copy(ghostRoot = foreignRoot.canonicalPath),
+        )
+        var classifications = 0
+
+        val result = fixture.repository(
+            onNoChangesClassified = {
+                classifications++
+                true
+            },
+        ).run(
+            fixture.request().copy(attemptId = AttemptId(1), workManagerUuid = "work-1"),
+        ) { false }
+
+        assertTrue(result is GhostUpdateResult.Failed)
+        assertEquals(0, classifications)
+    }
+
+    @Test
+    fun `no-change replay with a mismatched ghost ID does not publish a completion event`() {
+        val fixture = fixture("invalid-no-change-replay-identity")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.writeTransaction("candidate/ghost/master.txt", "same")
+        fixture.writeJournal(
+            CommitPhase.NO_CHANGES_PENDING,
+            listOf("ghost/master.txt"),
+            AttemptId(1),
+            "work-1",
+            ghostId = "foreign-ghost-id",
+        )
+        var classifications = 0
+
+        val result = fixture.repository(
+            onNoChangesClassified = {
+                classifications++
+                true
+            },
+        ).run(
+            fixture.request().copy(attemptId = AttemptId(1), workManagerUuid = "work-1"),
+        ) { false }
+
+        assertTrue(result is GhostUpdateResult.Failed)
+        assertEquals(0, classifications)
+        assertTrue(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `no-change replay cleans up after its terminal payload was delivered`() {
+        val fixture = fixture("no-change-replay-delivered")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.writeTransaction("candidate/ghost/master.txt", "same")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("no-change-replay-delivered")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        fixture.writeJournal(
+            CommitPhase.NO_CHANGES_PENDING,
+            listOf("ghost/master.txt"),
+            handle.attemptId,
+            binding.uuid,
+        )
+        val event = GhostUpdateTerminalEvent(
+            "configured-ghost-id",
+            fixture.ghostRoot.canonicalPath,
+            "OnUpdateComplete",
+            listOf("none", ""),
+        )
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        assertTrue(supervisor.clearTerminalEvent(handle, binding, event))
+
+        val result = fixture.repository(
+            onNoChangesClassified = {
+                GhostUpdateWorker.persistNoChangesTerminalEvent(
+                    supervisor,
+                    handle,
+                    binding,
+                    "configured-ghost-id",
+                    fixture.ghostRoot,
+                )
+            },
+        ).run(
+            fixture.request().copy(attemptId = handle.attemptId, workManagerUuid = binding.uuid),
+        ) { false }
+
+        assertEquals(GhostUpdateResult.NoChanges, result)
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
+    fun `published replay cleans up after its terminal payload was delivered`() {
+        val fixture = fixture("published-replay-delivered")
+        fixture.writeLive("ghost/master.txt", "new")
+        fixture.writeTransaction("backup/ghost/master.txt", "old")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("published-replay-delivered")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        fixture.writeJournal(
+            CommitPhase.PUBLISHED,
+            listOf("ghost/master.txt"),
+            handle.attemptId,
+            binding.uuid,
+        )
+        val event = GhostUpdateTerminalEvent(
+            "configured-ghost-id",
+            fixture.ghostRoot.canonicalPath,
+            "OnUpdateComplete",
+            listOf("changed", "ghost/master.txt"),
+        )
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        assertTrue(supervisor.clearTerminalEvent(handle, binding, event))
+
+        val result = fixture.repository(
+            onCommitClassified = { completed ->
+                GhostUpdateWorker.persistCompletedTerminalEvent(
+                    supervisor,
+                    handle,
+                    binding,
+                    "configured-ghost-id",
+                    fixture.ghostRoot,
+                    completed,
+                )
+            },
+        ).run(
+            fixture.request().copy(attemptId = handle.attemptId, workManagerUuid = binding.uuid),
+        ) { false }
+
+        assertEquals(GhostUpdateResult.Completed(listOf("ghost/master.txt")), result)
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `terminal attempt journal blocks rollover until exact recovery completes`() {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),
@@ -2832,6 +3389,195 @@ class GhostUpdateRepositoryTest {
         assertEquals(1, recoveries)
         assertEquals(AttemptId(4), store.read().single().attemptId)
         assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+    }
+
+    @Test
+    fun `completed no-change recovery permits attempt rollover`() {
+        assertTrue(
+            GhostUpdateWorker.reconcileBeforeAttemptRollover(
+                OperationStatus.COMPLETED,
+                journalExists = true,
+            ) { RecoveryResult.NoChangesCommit },
+        )
+    }
+
+    @Test
+    fun `published recovery defers completion event for its exact terminal attempt`() {
+        val fixture = fixture("recovery-terminal-event")
+        fixture.writeLive("ghost/master.txt", "new")
+        fixture.writeTransaction("backup/ghost/master.txt", "old")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(5))
+        val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
+        fixture.writeJournal(
+            CommitPhase.PUBLISHED,
+            listOf("ghost/master.txt"),
+            handle.attemptId,
+            binding.uuid,
+            ghostId = "configured-ghost-id",
+        )
+
+        val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            store,
+            queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.FAILED },
+            finish = { journal, status ->
+                GhostUpdateWorker.finishRecoveredTerminalEvent(supervisor, journal, status)
+            },
+            onClassified = { journal, status ->
+                GhostUpdateWorker.deferRecoveredTerminalEvent(supervisor, journal, status)
+            },
+        )
+
+        assertEquals(RecoveryResult.CompletedCommit, recovery)
+        assertEquals(OperationStatus.COMPLETED, store.read().single().status)
+        assertEquals(
+            GhostUpdateTerminalEvent(
+                "configured-ghost-id",
+                fixture.ghostRoot.canonicalPath,
+                "OnUpdateComplete",
+                listOf("changed", "ghost/master.txt"),
+            ),
+            store.read().single().pendingGhostUpdateEvent,
+        )
+    }
+
+    @Test
+    fun `all-roots recovery retries every pending terminal event root`() {
+        val fixture = fixture("all-roots-terminal-delivery")
+        val otherRoot = File(fixture.parent, "other-ghost").apply { check(mkdir()) }
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val firstHandle = OperationHandle(fixture.operationId, AttemptId(1))
+        val firstBinding = workManagerBinding("first-work")
+        assertTrue(supervisor.start(firstHandle, OperationKind.GHOST_UPDATE, "update", 0, firstBinding))
+        assertTrue(
+            supervisor.finishWithTerminalEvent(
+                firstHandle,
+                firstBinding,
+                OperationStatus.COMPLETED,
+                GhostUpdateTerminalEvent(
+                    "ghost-id",
+                    fixture.ghostRoot.canonicalPath,
+                    "OnUpdateComplete",
+                    emptyList(),
+                ),
+            ),
+        )
+        val secondHandle = OperationHandle(
+            GhostUpdateRepository.canonicalOperationIdFor(otherRoot),
+            AttemptId(1),
+        )
+        val secondBinding = workManagerBinding("second-work")
+        assertTrue(supervisor.start(secondHandle, OperationKind.GHOST_UPDATE, "update", 0, secondBinding))
+        assertTrue(
+            supervisor.finishWithTerminalEvent(
+                secondHandle,
+                secondBinding,
+                OperationStatus.FAILED,
+                GhostUpdateTerminalEvent(
+                    "other-ghost",
+                    otherRoot.canonicalPath,
+                    "OnUpdateFailure",
+                    emptyList(),
+                ),
+            ),
+        )
+
+        assertEquals(
+            setOf(fixture.ghostRoot.canonicalFile, otherRoot.canonicalFile),
+            GhostUpdateWorker.recoveryDeliveryRoots(supervisor, null).toSet(),
+        )
+    }
+
+    @Test
+    fun `no-change recovery cleanup removes authenticated residual files`() {
+        val fixture = fixture("no-change-recovery-partial-cleanup")
+        fixture.writeTransaction("candidate/ghost/tmp.txt", "stale")
+        fixture.writeTransaction("residual", "blocks root delete")
+        fixture.writeJournal(CommitPhase.NO_CHANGES_PENDING, emptyList())
+        val transaction = fixture.transactionRoot()
+        val journalFile = File(transaction, GhostUpdateJournalStore.FILE_NAME)
+        val journal = GhostUpdateJournalStore.read(journalFile)
+
+        assertTrue(
+            GhostUpdateRepository.cleanNoChangesRecoveryTransaction(
+                transaction,
+                journalFile,
+                journal,
+                File(transaction, "candidate"),
+            ),
+        )
+        assertFalse(transaction.exists())
+    }
+
+    @Test
+    fun `legacy journal without ghost identity does not defer a terminal event`() {
+        val fixture = fixture("recovery-terminal-event-legacy")
+        fixture.writeLive("ghost/master.txt", "new")
+        fixture.writeTransaction("backup/ghost/master.txt", "old")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(5))
+        val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
+        fixture.writeJournal(CommitPhase.PUBLISHED, listOf("ghost/master.txt"), handle.attemptId, binding.uuid)
+
+        val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            store,
+            queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.FAILED },
+            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            onClassified = { journal, status ->
+                GhostUpdateWorker.deferRecoveredTerminalEvent(supervisor, journal, status)
+            },
+        )
+
+        assertEquals(RecoveryResult.CompletedCommit, recovery)
+        assertNull(store.read().single().pendingGhostUpdateEvent)
+    }
+
+    @Test
+    fun `recovery retains published journal when terminal event persistence fails`() {
+        val fixture = fixture("recovery-terminal-event-persistence-failure")
+        fixture.writeLive("ghost/master.txt", "new")
+        fixture.writeTransaction("backup/ghost/master.txt", "old")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(5))
+        val binding = ExternalJobBinding.WorkManager(UUID.randomUUID().toString())
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Published", 0, binding))
+        fixture.writeJournal(
+            CommitPhase.PUBLISHED,
+            listOf("ghost/master.txt"),
+            handle.attemptId,
+            binding.uuid,
+            ghostId = "configured-ghost-id",
+        )
+
+        val recovery = GhostUpdateWorker.recoverBeforeGhostLoad(
+            fixture.parent,
+            fixture.ghostRoot,
+            store,
+            queryWork = { GhostUpdateWorker.Companion.RecoveryWorkState.FAILED },
+            finish = { _, status -> supervisor.finish(handle, binding, status) },
+            onClassified = { _, _ -> false },
+        )
+
+        assertEquals(RecoveryResult.PublishPending(listOf("ghost/master.txt")), recovery)
+        assertTrue(File(fixture.transactionRoot(), GhostUpdateJournalStore.FILE_NAME).isFile)
     }
 
     @Test
@@ -2912,8 +3658,12 @@ class GhostUpdateRepositoryTest {
             journalIo: GhostUpdateJournalIo = GhostUpdateJournalIo.DEFAULT,
             onProgress: (String, Long) -> Unit = { _, _ -> },
             onCommitClassified: (GhostUpdateResult.Completed) -> Boolean = { true },
+            onNoChangesClassified: () -> Boolean = { true },
             onRollbackClassified: (OperationStatus) -> Boolean = { true },
             commitGuard: GhostUpdateCommitGuard = GhostUpdateCommitGuard.NONE,
+            onRollbackJournalClassified: (GhostUpdateJournal, OperationStatus) -> Boolean = { _, status ->
+                onRollbackClassified(status)
+            },
         ) = GhostUpdateRepository(
             network,
             events,
@@ -2921,8 +3671,10 @@ class GhostUpdateRepositoryTest {
             journalIo,
             onProgress,
             onCommitClassified,
+            onNoChangesClassified,
             onRollbackClassified,
             commitGuard,
+            onRollbackJournalClassified = onRollbackJournalClassified,
         )
 
         fun transactionRoot() = GhostUpdateRepository.transactionRootFor(ghostRoot, operationId)
@@ -2939,6 +3691,7 @@ class GhostUpdateRepositoryTest {
             files: List<String>,
             attemptId: AttemptId? = null,
             workManagerUuid: String? = null,
+            ghostId: String? = null,
         ) {
             GhostUpdateJournalStore.write(
                 File(transactionRoot(), GhostUpdateJournalStore.FILE_NAME),
@@ -2951,6 +3704,7 @@ class GhostUpdateRepositoryTest {
                     files = files,
                     attemptId = attemptId,
                     workManagerUuid = workManagerUuid,
+                    ghostId = ghostId,
                 ),
             )
         }
@@ -3159,6 +3913,8 @@ internal class GhostUpdateTransitionTableTest(
             row("cleaned exact completion removes evidence", CommitPhase.CLEANED, GhostTreeTopology.LIVE_ONLY, OperationStatus.COMPLETED, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_FORWARD_COMPLETED),
             row("cleaned active never manufactures completion", CommitPhase.CLEANED, GhostTreeTopology.LIVE_ONLY, OperationStatus.RUNNING, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
             row("cleaned missing cancellation fails closed", CommitPhase.CLEANED, GhostTreeTopology.LIVE_ONLY, OperationStatus.CANCEL_REQUESTED, true, GhostUpdateWorker.Companion.RecoveryWorkState.MISSING, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),
+            row("completed no-change staging is cleaned", CommitPhase.NO_CHANGES_PENDING, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.COMPLETED, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.CLEAN_NO_CHANGES),
+            row("completed no-change cleanup-only state is cleaned", CommitPhase.NO_CHANGES_PENDING, GhostTreeTopology.LIVE_ONLY, OperationStatus.COMPLETED, true, GhostUpdateWorker.Companion.RecoveryWorkState.SUCCEEDED, GhostUpdateWorker.Companion.RecoveryTransition.CLEAN_NO_CHANGES),
             row("terminal prepared failure authorizes rollback", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.FAILED, true, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_FAILED),
             row("terminal backed cancellation authorizes rollback", CommitPhase.BACKED_UP, GhostTreeTopology.CANDIDATE_BACKUP, OperationStatus.CANCELLED, true, GhostUpdateWorker.Companion.RecoveryWorkState.CANCELLED, GhostUpdateWorker.Companion.RecoveryTransition.ROLL_BACK_CANCELLED),
             row("stale attempt blocks prepared cleanup", CommitPhase.PREPARED, GhostTreeTopology.LIVE_CANDIDATE, OperationStatus.FAILED, false, GhostUpdateWorker.Companion.RecoveryWorkState.FAILED, GhostUpdateWorker.Companion.RecoveryTransition.FAIL_CLOSED),

@@ -23,14 +23,23 @@ data class GhostUpdateJournal(
     val files: List<String>,
     val attemptId: AttemptId? = null,
     val workManagerUuid: String? = null,
+    val ghostId: String? = null,
 )
 
-enum class CommitPhase { PREPARED, BACKED_UP, PUBLISHED, CLEANED, ROLLBACK_CLASSIFIED }
+enum class CommitPhase {
+    PREPARED,
+    BACKED_UP,
+    PUBLISHED,
+    CLEANED,
+    ROLLBACK_CLASSIFIED,
+    NO_CHANGES_PENDING,
+}
 
 sealed interface RecoveryResult {
     data object NoJournal : RecoveryResult
     data object RolledBack : RecoveryResult
     data object CompletedCommit : RecoveryResult
+    data object NoChangesCommit : RecoveryResult
     data class CommitPending(val files: List<String>) : RecoveryResult
     data class PublishPending(val files: List<String>) : RecoveryResult
     data class RollbackPending(val status: OperationStatus, val files: List<String>) : RecoveryResult
@@ -41,6 +50,7 @@ internal enum class RecoveryAuthorization {
     WAIT,
     ADOPT_PREPARED,
     ROLL_FORWARD,
+    CLEAN_NO_CHANGES,
     ROLL_BACK_FAILED,
     ROLL_BACK_CANCELLED,
     FAIL_CLOSED,
@@ -175,6 +185,7 @@ internal object GhostUpdateJournalStore {
                 journal.files.forEach { output.writeBounded(it) }
                 output.writeLong(journal.attemptId?.value ?: -1L)
                 output.writeBounded(journal.workManagerUuid.orEmpty())
+                output.writeBounded(journal.ghostId.orEmpty())
                 output.flush()
                 raw.fd.sync()
             }
@@ -196,6 +207,7 @@ internal object GhostUpdateJournalStore {
             val files = List(count) { input.readBounded() }
             val attemptValue = input.readLong()
             val workManagerUuid = input.readBounded().ifEmpty { null }
+            val ghostId = if (input.available() == 0) null else input.readBounded().ifEmpty { null }
             if (input.read() != -1) throw IOException("trailing update journal data")
             return GhostUpdateJournal(
                 operationId,
@@ -206,6 +218,7 @@ internal object GhostUpdateJournalStore {
                 files,
                 attemptValue.takeIf { it >= 0 }?.let(::AttemptId),
                 workManagerUuid,
+                ghostId,
             )
         }
     }

@@ -7,6 +7,8 @@ import android.os.Message
 import android.os.SystemClock
 import android.util.Log
 import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.durable.GhostUpdateWorker
+import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
@@ -264,7 +266,10 @@ open class SScriptRunner internal constructor(
         } else sessionCoordinator.attach(reservation, outgoing, assign)
         if (!assigned) return false
         clearedDialogueState?.let(::publishDialogueState)
-        if (reservation?.reusedActive == true) return true
+        if (reservation?.reusedActive == true) {
+            newGhost?.let(::deliverPendingTerminalEvent)
+            return true
+        }
         try {
             newGhost?.recordActivation()
         } catch (error: RuntimeException) {
@@ -279,6 +284,7 @@ open class SScriptRunner internal constructor(
                 )
             }
             bootDispatchState.markBootDispatched()
+            deliverPendingTerminalEvent(newGhost)
         }
         return true
     }
@@ -350,7 +356,39 @@ open class SScriptRunner internal constructor(
             schedulePlayback(RUN, state.waitTime, state)
         }
     }
-    fun startClock() { LegacyPlatform.debug(TAG,"startClock called"); val start = bootDispatchState.startClock(); if (!start.started) return;LegacyPlatform.scheduleDelayed(CLOCK_STEP) { clockHandler.sendEmptyMessageDelayed(INC_CLOCK,CLOCK_STEP) };if(restore)doShioriEvent("OnWindowStateRestore",null)else if(start.dispatchBoot){doBoot();bootDispatchState.markBootDispatched()};restore=false }
+    private fun deliverPendingTerminalEvent(attachedGhost: Ghost) {
+        mCtx?.let { context ->
+            GhostUpdateWorker.deliverPendingTerminalEventAsync(
+                SharedDurableOperationSupervisor.get(context),
+                attachedGhost.getGhostId(),
+                File(attachedGhost.getGhostPath()),
+            ) { event ->
+                doShioriEventForGhost(
+                    event.ghostId,
+                    File(event.canonicalRoot),
+                    event.name,
+                    event.references.toTypedArray(),
+                )
+            }
+        }
+    }
+
+    fun startClock() {
+        LegacyPlatform.debug(TAG, "startClock called")
+        val start = bootDispatchState.startClock()
+        if (!start.started) return
+        LegacyPlatform.scheduleDelayed(CLOCK_STEP) {
+            clockHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP)
+        }
+        if (restore) {
+            doShioriEvent("OnWindowStateRestore", null)
+        } else if (start.dispatchBoot) {
+            doBoot()
+            bootDispatchState.markBootDispatched()
+            synchronized(this) { g }?.let(::deliverPendingTerminalEvent)
+        }
+        restore = false
+    }
     fun stopClock() { LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }; bootDispatchState.stopClock() }
     override fun run() {
         val prepared = synchronized(this) {

@@ -20,6 +20,13 @@ enum class OperationStatus { RUNNING, CANCEL_REQUESTED, COMPLETED, FAILED, CANCE
 
 data class OperationProgress(val phase: String, val completed: Long)
 
+data class GhostUpdateTerminalEvent(
+    val ghostId: String,
+    val canonicalRoot: String,
+    val name: String,
+    val references: List<String>,
+)
+
 data class DurableOperationRecord(
     val id: OperationId,
     val attemptId: AttemptId,
@@ -30,6 +37,7 @@ data class DurableOperationRecord(
     val showStallPrompt: Boolean,
     val diagnostics: String? = null,
     val externalJobHistory: Set<ExternalJobBinding> = emptySet(),
+    val pendingGhostUpdateEvent: GhostUpdateTerminalEvent? = null,
     val attentionRetryGeneration: Long = 0L,
     val attentionKeepWaitingGeneration: Long = 0L,
     val progressGeneration: Long = 0L,

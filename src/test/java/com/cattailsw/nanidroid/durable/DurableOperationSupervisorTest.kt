@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.durable
 
+import com.cattailsw.nanidroid.GhostSessionCoordinator
 import com.cattailsw.nanidroid.di.MonotonicClock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -7,15 +8,582 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class DurableOperationSupervisorTest {
     private val clock = FakeMonotonicClock()
     private val store = MemoryDurableOperationStore()
     private val cancellation = RecordingCancellation()
     private val supervisor = DurableOperationSupervisor(store, clock, cancellation)
+
+    @Test fun terminalGhostUpdateEventRemainsBoundToItsExactAttemptUntilDelivered() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("ghost-update-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertEquals(event, supervisor.snapshot().single().pendingGhostUpdateEvent)
+        assertFalse(supervisor.clearTerminalEvent(handle("ghost-update", 2), binding, event))
+        assertTrue(supervisor.clearTerminalEvent(handle, binding, event))
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun terminalGhostUpdateEventCanBeDeferredAfterExactCompletion() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("ghost-update-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertEquals(event, supervisor.records().single().pendingGhostUpdateEvent)
+        assertFalse(supervisor.deferTerminalEvent(handle("ghost-update", 2), binding, event))
+    }
+
+    @Test fun pendingTerminalEventDispatchesOnlyAfterItsExactGhostIsAttached() {
+        val root = File("build/terminal-event-ghost").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertFalse(
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "other", root) {
+                dispatched += it
+                true
+            },
+        )
+        assertTrue(
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(event), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun recoveredTerminalEventDispatchesForItsExactRootAfterReload() {
+        val root = File("build/terminal-event-recovered-reload").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-recovered-reload-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateFailure", listOf("recovered", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.FAILED, event))
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertTrue(
+            GhostUpdateWorker.deliverPendingTerminalEventForRoot(supervisor, root) {
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(event), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun terminalEventDeferralRetriesTheExactGhostAfterItIsPersisted() {
+        val root = File("build/terminal-event-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-race-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertTrue(
+            GhostUpdateWorker.deferTerminalEventAndRetryDelivery(supervisor, handle, binding, event) {
+                assertEquals(event, supervisor.records().single().pendingGhostUpdateEvent)
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(event), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun terminalEventDeferralReportsFailureWhenDurableWriteThrows() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("terminal-event-deferral-exception-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateFailure",
+            references = listOf("ghost update failed", "ghost/master.txt"),
+        )
+        val delegate = MemoryDurableOperationStore()
+        val writeThrowingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (expected.pendingGhostUpdateEvent == null && updated.pendingGhostUpdateEvent == event) {
+                    throw IllegalStateException("durable terminal write failed")
+                }
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val writeThrowingSupervisor = DurableOperationSupervisor(writeThrowingStore, clock) { _, _, _ -> }
+        assertTrue(writeThrowingSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        var dispatches = 0
+
+        assertFalse(
+            GhostUpdateWorker.deferTerminalEventAndRetryDelivery(
+                writeThrowingSupervisor,
+                handle,
+                binding,
+                event,
+            ) {
+                dispatches++
+                true
+            },
+        )
+
+        assertEquals(0, dispatches)
+        assertNull(writeThrowingSupervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `successful terminal dispatch is not retried when its durable clear fails`() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("terminal-event-clear-failure-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        val delegate = MemoryDurableOperationStore()
+        val clearFailingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (
+                    expected.pendingGhostUpdateEvent == event &&
+                    updated.pendingGhostUpdateEvent == null
+                ) return false
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val clearFailingSupervisor = DurableOperationSupervisor(clearFailingStore, clock) { _, _, _ -> }
+        assertTrue(clearFailingSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        assertTrue(
+            clearFailingSupervisor.finishWithTerminalEvent(
+                handle,
+                binding,
+                OperationStatus.COMPLETED,
+                event,
+            ),
+        )
+        var dispatches = 0
+
+        assertTrue(
+            GhostUpdateWorker.deliverTerminalEvent(clearFailingSupervisor, handle, binding, event) {
+                dispatches++
+                true
+            },
+        )
+
+        assertEquals(1, dispatches)
+        assertEquals(event, clearFailingSupervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `successful terminal dispatch retains its payload when durable clear throws`() {
+        val handle = handle("ghost-update", 1)
+        val binding = workManager("terminal-event-clear-exception-worker")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        val delegate = MemoryDurableOperationStore()
+        val clearThrowingStore = object : DurableOperationStore {
+            override fun read(): List<DurableOperationRecord> = delegate.read()
+
+            override fun putIfAbsent(record: DurableOperationRecord): Boolean = delegate.putIfAbsent(record)
+
+            override fun compareAndSet(
+                expected: DurableOperationRecord,
+                updated: DurableOperationRecord,
+            ): Boolean {
+                if (
+                    expected.pendingGhostUpdateEvent == event &&
+                    updated.pendingGhostUpdateEvent == null
+                ) throw IllegalStateException("durable clear failed")
+                return delegate.compareAndSet(expected, updated)
+            }
+        }
+        val clearThrowingSupervisor = DurableOperationSupervisor(clearThrowingStore, clock) { _, _, _ -> }
+        assertTrue(clearThrowingSupervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        assertTrue(
+            clearThrowingSupervisor.finishWithTerminalEvent(
+                handle,
+                binding,
+                OperationStatus.COMPLETED,
+                event,
+            ),
+        )
+        var dispatches = 0
+
+        assertTrue(
+            GhostUpdateWorker.deliverTerminalEvent(clearThrowingSupervisor, handle, binding, event) {
+                dispatches++
+                true
+            },
+        )
+
+        assertEquals(1, dispatches)
+        assertEquals(event, clearThrowingSupervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `concurrent terminal event deliveries dispatch the exact payload once`() {
+        val root = File("build/terminal-event-concurrent").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-concurrent-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        assertTrue(supervisor.finish(handle, binding, OperationStatus.COMPLETED))
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val dispatched = AtomicInteger()
+
+        val first = Thread {
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                entered.countDown()
+                assertTrue(release.await(5, TimeUnit.SECONDS))
+                dispatched.incrementAndGet()
+                true
+            }
+        }
+        val second = Thread {
+            GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                dispatched.incrementAndGet()
+                true
+            }
+        }
+        first.start()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        second.start()
+        release.countDown()
+        first.join(5_000)
+        second.join(5_000)
+
+        assertFalse(first.isAlive)
+        assertFalse(second.isAlive)
+        assertEquals(1, dispatched.get())
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `attachment cannot duplicate a terminal callback already awaiting delivery`() {
+        val root = File("build/terminal-event-direct-attachment-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-direct-attachment-race-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        val directEntered = CountDownLatch(1)
+        val releaseDirect = CountDownLatch(1)
+        val dispatched = AtomicInteger()
+
+        val direct = Thread {
+            assertTrue(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                    directEntered.countDown()
+                    assertTrue(releaseDirect.await(5, TimeUnit.SECONDS))
+                    dispatched.incrementAndGet()
+                    true
+                },
+            )
+        }
+        val attachment = Thread {
+            assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+            assertFalse(
+                GhostUpdateWorker.deliverPendingTerminalEvent(supervisor, "ghost", root) {
+                    dispatched.incrementAndGet()
+                    true
+                },
+            )
+        }
+        direct.start()
+        attachment.start()
+        assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+        releaseDirect.countDown()
+        direct.join(5_000)
+        attachment.join(5_000)
+
+        assertFalse(direct.isAlive)
+        assertFalse(attachment.isAlive)
+        assertEquals(1, dispatched.get())
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `attempt rollover cannot discard a terminal event when claimed dispatch fails`() {
+        val root = File("build/terminal-event-rollover-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-rollover-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        val dispatchEntered = CountDownLatch(1)
+        val releaseDispatch = CountDownLatch(1)
+        val rolloverFinished = CountDownLatch(1)
+        var rolloverAccepted = false
+
+        val delivery = Thread {
+            assertFalse(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                    dispatchEntered.countDown()
+                    assertTrue(releaseDispatch.await(5, TimeUnit.SECONDS))
+                    false
+                },
+            )
+        }
+        val rollover = Thread {
+            assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+            rolloverAccepted = supervisor.start(
+                handle.copy(attemptId = AttemptId(2)),
+                OperationKind.GHOST_UPDATE,
+                "Updating",
+                0,
+                workManager("terminal-event-rollover-next-worker"),
+            )
+            rolloverFinished.countDown()
+        }
+
+        delivery.start()
+        rollover.start()
+        assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+        assertTrue(rolloverFinished.await(5, TimeUnit.SECONDS))
+        releaseDispatch.countDown()
+        delivery.join(5_000)
+        rollover.join(5_000)
+
+        assertFalse(delivery.isAlive)
+        assertFalse(rollover.isAlive)
+        assertFalse(rolloverAccepted)
+        assertEquals(AttemptId(1), supervisor.records().single().attemptId)
+        assertEquals(event, supervisor.records().single().pendingGhostUpdateEvent)
+        assertTrue(GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) { true })
+        assertTrue(
+            supervisor.start(
+                handle.copy(attemptId = AttemptId(2)),
+                OperationKind.GHOST_UPDATE,
+                "Updating",
+                0,
+                workManager("terminal-event-rollover-next-worker"),
+            ),
+        )
+    }
+
+    @Test fun `attention action does not wait for a stalled terminal event dispatch`() {
+        val root = File("build/terminal-event-attention-action").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-attention-worker")
+        val event = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        clock.value = 30_000
+        assertTrue(supervisor.snapshot().single().showStallPrompt)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+        val dispatchEntered = CountDownLatch(1)
+        val releaseDispatch = CountDownLatch(1)
+        val attentionFinished = CountDownLatch(1)
+        val attentionAccepted = AtomicBoolean(false)
+
+        val delivery = Thread {
+            assertTrue(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                    dispatchEntered.countDown()
+                    assertTrue(releaseDispatch.await(5, TimeUnit.SECONDS))
+                    true
+                },
+            )
+        }
+        val attention = Thread {
+            attentionAccepted.set(
+                supervisor.performAttentionAction(handle, DurableAttentionAction.KEEP_WAITING),
+            )
+            attentionFinished.countDown()
+        }
+
+        delivery.start()
+        assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+        attention.start()
+        assertTrue("attention action waited for terminal dispatch", attentionFinished.await(1, TimeUnit.SECONDS))
+        releaseDispatch.countDown()
+        delivery.join(5_000)
+        attention.join(5_000)
+
+        assertFalse(delivery.isAlive)
+        assertFalse(attention.isAlive)
+        assertTrue(attentionAccepted.get())
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `terminal deferral cannot overwrite a payload claimed by attachment delivery`() {
+        val root = File("build/terminal-event-deferral-claim-race").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-deferral-claim-race-worker")
+        val claimed = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateComplete", listOf("changed", ""))
+        val replacement = GhostUpdateTerminalEvent("ghost", root.path, "OnUpdateFailure", listOf("failed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, claimed))
+        val directEntered = CountDownLatch(1)
+        val releaseDirect = CountDownLatch(1)
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        val direct = Thread {
+            assertTrue(
+                GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, claimed) {
+                    directEntered.countDown()
+                    assertTrue(releaseDirect.await(5, TimeUnit.SECONDS))
+                    dispatched += it
+                    true
+                },
+            )
+        }
+        val deferral = Thread {
+            assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+            assertFalse(
+                GhostUpdateWorker.deferTerminalEventAndRetryDelivery(supervisor, handle, binding, replacement) {
+                    dispatched += it
+                    true
+                },
+            )
+        }
+        direct.start()
+        assertTrue(directEntered.await(5, TimeUnit.SECONDS))
+        deferral.start()
+        releaseDirect.countDown()
+        direct.join(5_000)
+        deferral.join(5_000)
+
+        assertFalse(direct.isAlive)
+        assertFalse(deferral.isAlive)
+        assertEquals(listOf(claimed), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    @Test fun `terminal callback delivers an already retained rollback payload`() {
+        val root = File("build/terminal-event-retained-rollback").canonicalFile
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("terminal-event-retained-rollback-worker")
+        val retained = GhostUpdateTerminalEvent(
+            "ghost",
+            root.path,
+            "OnUpdateFailure",
+            listOf("ghost update failed", "ghost/master.txt"),
+        )
+        val concreteCallback = retained.copy(references = listOf("network response was invalid", "ghost/master.txt"))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.FAILED, retained))
+        val dispatched = mutableListOf<GhostUpdateTerminalEvent>()
+
+        assertTrue(
+            GhostUpdateWorker.deferTerminalEventAndRetryDelivery(supervisor, handle, binding, concreteCallback) {
+                dispatched += it
+                true
+            },
+        )
+
+        assertEquals(listOf(retained), dispatched)
+        assertNull(supervisor.records().single().pendingGhostUpdateEvent)
+    }
+
+    /**
+     * Recovery/commit classification runs inside the ghost session's root/global mutation
+     * monitors (see GhostSessionCoordinator.withMutation) and calls back into the supervisor,
+     * which needs the operation lock. Terminal delivery serializes its callback with the same
+     * terminal-delivery gate used by recovery/commit classification, then invokes the callback
+     * without the operation lock. This prevents recovery from entering a session mutation while
+     * it is concurrently dispatching a terminal callback for that session.
+     *
+     * `GhostUpdateWorker`'s commitGuard/recoveryGuard acquire the terminal delivery gate before
+     * entering the mutation monitors. This test drives the two paths through a
+     * forced interleaving with latches (no sleep-based timing racing) and asserts both complete
+     * within a bounded time; a reintroduced ordering bug hangs both threads and fails the test
+     * instead of hanging the suite, since the probe threads are daemon threads with bounded waits.
+     */
+    @Test fun `recovery classification and terminal delivery cannot deadlock over crossed locks`() {
+        val root = File("build/lock-order-recovery-vs-delivery").canonicalFile
+        val ghostId = root.name
+        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1))
+        val binding = workManager("lock-order-worker")
+        val event = GhostUpdateTerminalEvent(ghostId, root.path, "OnUpdateFailure", listOf("ghost update failed", ""))
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.FAILED, event))
+        val coordinator = GhostSessionCoordinator()
+        val dispatchEntered = CountDownLatch(1)
+        val releaseDispatch = CountDownLatch(1)
+        val recoveryEntered = CountDownLatch(1)
+
+        // Mimics GhostUpdateWorker's terminal delivery: dispatch reaches into the session
+        // mutation monitors while holding the terminal-delivery gate, not the operation lock.
+        val delivery = Thread({
+            GhostUpdateWorker.deliverTerminalEvent(supervisor, handle, binding, event) {
+                dispatchEntered.countDown()
+                assertTrue(releaseDispatch.await(5, TimeUnit.SECONDS))
+                coordinator.withMutation(ghostId, root, onFailure = { false }, onStopped = { false }) { true }
+            }
+        }, "terminal-delivery-probe").apply { isDaemon = true }
+
+        // Commit/recovery take the terminal-delivery gate before session mutation, so this path
+        // cannot overlap a terminal callback's session mutation.
+        val recovery = Thread({
+            assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+            recoveryEntered.countDown()
+            GhostUpdateWorker.withTerminalEventDeliveryLock {
+                coordinator.withMutation(ghostId, root, onFailure = { false }, onStopped = { false }) {
+                    supervisor.finish(handle, binding, OperationStatus.FAILED)
+                    true
+                }
+            }
+        }, "recovery-classify-probe").apply { isDaemon = true }
+
+        delivery.start()
+        assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS))
+        recovery.start()
+        assertTrue(recoveryEntered.await(5, TimeUnit.SECONDS))
+        // Give the recovery probe a moment to actually attempt its lock acquisitions before
+        // dispatch resumes and reaches for the same mutation monitors.
+        Thread.sleep(200)
+        releaseDispatch.countDown()
+
+        delivery.join(5_000)
+        recovery.join(5_000)
+        assertFalse("terminal delivery deadlocked on crossed locks", delivery.isAlive)
+        assertFalse("recovery classification deadlocked on crossed locks", recovery.isAlive)
+    }
 
     @Test fun promptsAt30000WithoutCancelling() {
         supervisor.start(handle("nar-1", 1), OperationKind.NAR_INSTALL, "Extracting", 8)
