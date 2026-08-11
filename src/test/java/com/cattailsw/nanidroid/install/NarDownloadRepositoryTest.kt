@@ -945,6 +945,34 @@ class NarDownloadRepositoryTest {
         assertTrue(ownedData.releasedUris.none { it == source })
     }
 
+    @Test fun stagingPersistedCopyRetainsCleanupWithOnlyLiveGrantSibling() {
+        val source = "content://provider/staged-persisted-live-sibling.nar"
+        val persisted = repository.enqueueLocalCopy(source)
+        val live = repository.enqueueLiveLocalCopy(source)
+
+        repository.stageLocal(
+            persisted.id,
+            persisted.attemptId,
+            persisted.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-persisted-copy.nar") }
+
+        assertEquals(source, store.get(persisted.id)!!.pendingPersistedGrantReleaseUri)
+
+        repository.stageLiveLocal(
+            live.id,
+            live.attemptId,
+            live.workManagerId!!,
+            { false },
+        ) { _, _, _ -> NarLocalArchiveStager.Result.Staged("file:///owned/staged-live-copy.nar") }
+
+        assertTrue(repository.delete(persisted.id))
+        assertTrue(repository.delete(live.id))
+
+        assertTrue(store.pendingPersistedGrantReleases().isEmpty())
+        assertEquals(1, ownedData.releasedUris.count { it == source })
+    }
+
     @Test fun replacingDirectPersistedGrantRetainsCleanupInTheFirstOldOwnerlessWrite() {
         val source = "content://provider/direct-replace-crash-window.nar"
         val replacement = "content://provider/direct-replace-next.nar"

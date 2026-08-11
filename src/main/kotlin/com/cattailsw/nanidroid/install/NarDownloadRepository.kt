@@ -1379,7 +1379,7 @@ class NarDownloadRepository internal constructor(
     private fun releaseTransferredDocumentGrantIfUnused(item: NarDownload) {
         val source = (item.source as? NarDownloadSource.Local)?.uri ?: return
         if (source == item.retainedUri || !isFileUri(item.retainedUri)) return
-        if (!hasSourceReference(source, item.id)) {
+        if (!hasPersistedSourceReference(source, item.id)) {
             store.get(item.id)?.pendingPersistedGrantReleaseUri
                 ?.takeUnless { pending -> pending == source }
                 ?.let(store::addPendingPersistedGrantRelease)
