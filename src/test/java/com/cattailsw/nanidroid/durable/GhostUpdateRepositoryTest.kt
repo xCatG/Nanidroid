@@ -3168,6 +3168,51 @@ class GhostUpdateRepositoryTest {
     }
 
     @Test
+    fun `no-change replay cleans up after its terminal payload was delivered`() {
+        val fixture = fixture("no-change-replay-delivered")
+        fixture.writeLive("ghost/master.txt", "same")
+        fixture.writeTransaction("candidate/ghost/master.txt", "same")
+        val store = SharedPreferencesDurableOperationStore(
+            SharedPreferencesDurableOperationStore.MemoryStorage(),
+        )
+        val supervisor = DurableOperationSupervisor(store, MonotonicClock { 0L }) { _, _, _ -> }
+        val handle = OperationHandle(fixture.operationId, AttemptId(1))
+        val binding = workManagerBinding("no-change-replay-delivered")
+        assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
+        fixture.writeJournal(
+            CommitPhase.NO_CHANGES_PENDING,
+            listOf("ghost/master.txt"),
+            handle.attemptId,
+            binding.uuid,
+        )
+        val event = GhostUpdateTerminalEvent(
+            "configured-ghost-id",
+            fixture.ghostRoot.canonicalPath,
+            "OnUpdateComplete",
+            listOf("none", ""),
+        )
+        assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
+        assertTrue(supervisor.clearTerminalEvent(handle, binding, event))
+
+        val result = fixture.repository(
+            onNoChangesClassified = {
+                GhostUpdateWorker.persistNoChangesTerminalEvent(
+                    supervisor,
+                    handle,
+                    binding,
+                    "configured-ghost-id",
+                    fixture.ghostRoot,
+                )
+            },
+        ).run(
+            fixture.request().copy(attemptId = handle.attemptId, workManagerUuid = binding.uuid),
+        ) { false }
+
+        assertEquals(GhostUpdateResult.NoChanges, result)
+        assertFalse(fixture.transactionRoot().exists())
+    }
+
+    @Test
     fun `terminal attempt journal blocks rollover until exact recovery completes`() {
         val store = SharedPreferencesDurableOperationStore(
             SharedPreferencesDurableOperationStore.MemoryStorage(),

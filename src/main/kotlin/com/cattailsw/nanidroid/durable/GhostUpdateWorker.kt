@@ -374,17 +374,22 @@ class GhostUpdateWorker(
             binding: ExternalJobBinding.WorkManager,
             ghostId: String,
             ghostRoot: File,
-        ): Boolean = supervisor.finishWithTerminalEvent(
-            handle,
-            binding,
-            OperationStatus.COMPLETED,
-            GhostUpdateTerminalEvent(
+        ): Boolean {
+            val event = GhostUpdateTerminalEvent(
                 ghostId,
                 ghostRoot.canonicalFile.path,
                 "OnUpdateComplete",
                 listOf("none", ""),
-            ),
-        )
+            )
+            return supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event) ||
+                supervisor.records().any { record ->
+                    record.handle() == handle &&
+                        record.kind == OperationKind.GHOST_UPDATE &&
+                        record.externalJob == binding &&
+                        record.status == OperationStatus.COMPLETED &&
+                        record.pendingGhostUpdateEvent == null
+                }
+        }
 
         internal fun persistRollbackTerminalEvent(
             supervisor: DurableOperationSupervisor,
