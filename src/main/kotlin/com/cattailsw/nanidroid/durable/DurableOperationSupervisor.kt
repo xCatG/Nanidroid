@@ -193,6 +193,34 @@ class DurableOperationSupervisor(
             true
         }
 
+    /** Replaces an obsolete durable binding after recovery identifies the retained external job. */
+    fun rebindExternalJob(
+        handle: OperationHandle,
+        expectedBinding: ExternalJobBinding,
+        replacementBinding: ExternalJobBinding,
+    ): Boolean = mutate {
+        val current = activeRecord(handle) ?: return@mutate false
+        if (current.pendingGhostUpdateEvent != null) return@mutate false
+        if (current.externalJob != expectedBinding) return@mutate false
+        if (expectedBinding == replacementBinding) return@mutate true
+        if (replacementBinding in current.externalJobHistory) return@mutate false
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    externalJob = replacementBinding,
+                    externalJobHistory = current.externalJobHistory + replacementBinding,
+                ),
+            )
+        ) {
+            return@mutate false
+        }
+        if (current.status == OperationStatus.CANCEL_REQUESTED) {
+            issueCancellation(handle, current.kind, replacementBinding)
+        }
+        true
+    }
+
     fun keepWaiting(handle: OperationHandle): Boolean = mutate {
         val current = activeRecord(handle) ?: return@mutate false
         val updated = current.copy(
@@ -422,6 +450,40 @@ class DurableOperationSupervisor(
             true
         }
 
+    /**
+     * Atomically terminalizes an active exact attempt, preserving a binding that
+     * may have arrived while its caller was deciding whether one existed.
+     */
+    fun terminalizeExactAttempt(
+        handle: OperationHandle,
+        kind: OperationKind,
+        diagnostics: String,
+    ): Boolean = mutate {
+        val current = store.read().singleOrNull {
+            it.id == handle.operationId &&
+                it.attemptId == handle.attemptId &&
+                it.kind == kind &&
+                it.status.isActive()
+        } ?: return@mutate false
+        val status = if (current.externalJob == null) OperationStatus.FAILED else OperationStatus.CANCELLED
+        if (
+            !store.compareAndSet(
+                current,
+                current.copy(
+                    status = status,
+                    showStallPrompt = false,
+                    diagnostics = if (status == OperationStatus.FAILED) diagnostics else null,
+                ),
+            )
+        ) {
+            return@mutate false
+        }
+        lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
+        cancellationIssued.removeAll { it.handle == handle }
+        true
+    }
+
     internal fun failOrConfirmMissingUnboundAttempt(
         handle: OperationHandle,
         kind: OperationKind,
@@ -458,6 +520,7 @@ class DurableOperationSupervisor(
             )
             if (!store.compareAndSet(previous, failedReacquisition)) return@mutate false
             lastProgressAt.remove(previous.handle())
+            lastObservedRevisions.remove(previous.handle())
             cancellationIssued.removeAll { it.handle == previous.handle() }
             return@mutate true
         }
@@ -477,6 +540,7 @@ class DurableOperationSupervisor(
             return@mutate false
         }
         lastProgressAt.remove(handle)
+        lastObservedRevisions.remove(handle)
         cancellationIssued.removeAll { it.handle == handle }
         true
     }
@@ -947,6 +1011,15 @@ class DurableOperationSupervisor(
             )
         } catch (_: Exception) {
         }
+    }
+
+    /** Records a cancellation failure outside [OperationCancellation] so a later retry reissues it. */
+    internal fun recordCancellationDispatchFailure(
+        handle: OperationHandle,
+        binding: ExternalJobBinding,
+    ) = synchronized(operationLock) {
+        storeCancellationFailure(handle, binding)
+        cancellationIssued.remove(BoundCancellation(handle, binding))
     }
 
     private fun recordSuccessfulCancellationDispatch(

@@ -1950,6 +1950,65 @@ class DurableOperationSupervisorTest {
         assertEquals(null, supervisor.activeBindingForExactAttempt(handle, OperationKind.LOCAL_NAR))
     }
 
+    @Test fun terminalizeExactAttemptCancelsABindingThatArrivesAfterAStaleProbe() {
+        val handle = handle("superseded-install", 1)
+        val binding = workManager("prepared-worker")
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0))
+
+        // A deferred scheduler can bind after the caller's previous probe returned null.
+        assertNull(supervisor.activeBindingForExactAttempt(handle, OperationKind.NAR_INSTALL))
+        assertTrue(supervisor.bindExternalJob(handle, binding))
+
+        assertTrue(
+            supervisor.terminalizeExactAttempt(
+                handle,
+                OperationKind.NAR_INSTALL,
+                "Unable to schedule installation.",
+            ),
+        )
+
+        val terminal = store.read().single()
+        assertEquals(OperationStatus.CANCELLED, terminal.status)
+        assertEquals(binding, terminal.externalJob)
+    }
+
+    @Test fun terminalizeExactAttemptFailsAnExactUnboundAttempt() {
+        val handle = handle("superseded-unbound-install", 1)
+        assertTrue(supervisor.start(handle, OperationKind.NAR_INSTALL, "Queued", 0))
+
+        assertTrue(
+            supervisor.terminalizeExactAttempt(
+                handle,
+                OperationKind.NAR_INSTALL,
+                "Unable to schedule installation.",
+            ),
+        )
+
+        val terminal = store.read().single()
+        assertEquals(OperationStatus.FAILED, terminal.status)
+        assertNull(terminal.externalJob)
+    }
+
+    @Test fun rebindRefusesARecordHoldingAPendingTerminalEvent() {
+        val handle = handle("ghost-update-rebind", 1)
+        val binding = workManager("ghost-update-worker")
+        val replacement = workManager("ghost-update-worker-recovered")
+        val event = GhostUpdateTerminalEvent(
+            ghostId = "ghost",
+            canonicalRoot = "/storage/ghost/ghost",
+            name = "OnUpdateComplete",
+            references = listOf("changed", "ghost/master.txt"),
+        )
+        supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding)
+        assertTrue(supervisor.deferTerminalEvent(handle, binding, event))
+
+        assertFalse(supervisor.rebindExternalJob(handle, binding, replacement))
+
+        val record = supervisor.records().single()
+        assertEquals(binding, record.externalJob)
+        assertEquals(event, record.pendingGhostUpdateEvent)
+    }
+
     @Test fun failedAttemptLookupRequiresExactFailedHandleAndKind() {
         val failed = handle("failed-install", 2)
         assertTrue(supervisor.start(failed, OperationKind.NAR_INSTALL, "Queued", 0))
