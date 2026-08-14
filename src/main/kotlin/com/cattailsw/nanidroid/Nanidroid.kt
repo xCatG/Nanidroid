@@ -6,7 +6,6 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.AnimationDrawable
 import android.net.Uri
-import android.os.AsyncTask
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -79,8 +78,11 @@ import java.io.InputStreamReader
 import java.util.Arrays
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal fun launchCandidateIds(preferred: String, available: List<String>): List<String> =
     listOf(preferred) + available.filterNot { it.equals(preferred, ignoreCase = true) }
@@ -123,6 +125,16 @@ internal fun <T : Any> routeGhostSwitchResult(
         return
     }
     apply(result)
+}
+
+internal fun <T : Any> abandonUnclaimedReservation(
+    reservation: T?,
+    claimed: Boolean,
+    abandon: (T) -> Unit,
+) {
+    if (!claimed) {
+        reservation?.let(abandon)
+    }
 }
 
 internal data class TransientUiSnapshot(
@@ -288,7 +300,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     )
     private var gm: GhostMgr? = null
     private var currentGhost: Ghost? = null
-    private var pendingGhost: ReservedGhost? = null
     private var restoreFromMinimize = false
     private var currentRunCount = -1L
     private var initComplete = false
@@ -350,26 +361,23 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         initOnSeparateThread()
     }
 
-    @Suppress("DEPRECATION")
     private fun initOnSeparateThread() {
-        object : AsyncTask<Void, Void, Void>() {
-            override fun doInBackground(vararg params: Void?): Void? {
-                createSvcs2ndThread()
-                if (gm!!.shouldInstallFirstGhost()) installFirstGhost()
-                createGhost()
-                currentRunCount = getStartCount()
-                if (currentRunCount == 0L) loadFirstRunScript()
-                setStartCount(++currentRunCount)
-                NarUtil.createNarDirOnSDCard()
-                return null
-            }
-            override fun onPostExecute(result: Void?) {
-                if (isDestroyed || isFinishing) {
-                    pendingGhost?.let { runner?.abandonReservedGhost(it) }
-                    pendingGhost = null
-                    return
+        lifecycleScope.launch {
+            var reservation: ReservedGhost? = null
+            var reservationClaimed = false
+            try {
+                withContext(Dispatchers.IO) {
+                    createSvcs2ndThread()
+                    if (gm!!.shouldInstallFirstGhost()) installFirstGhost()
+                    reservation = createGhost()
+                    currentRunCount = getStartCount()
+                    if (currentRunCount == 0L) loadFirstRunScript()
+                    setStartCount(++currentRunCount)
+                    NarUtil.createNarDirOnSDCard()
                 }
-                val reservation = pendingGhost
+                if (isDestroyed || isFinishing) {
+                    return@launch
+                }
                 val ghost = reservation?.ghost
                 if (reservation == null || ghost == null) {
                     hideProgress()
@@ -378,43 +386,45 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                         R.string.err_no_ghost_available,
                         onConfirm = { finish() },
                     )
-                    return
+                    return@launch
                 }
-                // Compose state and its caches are main-thread owned.  The
-                // ghost files were prepared above; bind them to the stage only
-                // after AsyncTask returns to the UI thread.
+                // Compose state and its caches are main-thread owned. The
+                // ghost files were prepared above; bind them only on the UI thread.
                 if (!setGhostToRunner(reservation)) {
-                    pendingGhost = null
                     hideProgress()
                     simpleDialog = NanidroidSimpleDialog.Notice(
                         R.string.err_title,
                         R.string.err_no_ghost_available,
                         onConfirm = { finish() },
                     )
-                    return
+                    return@launch
                 }
-                pendingGhost = null
+                reservationClaimed = true
                 enqueuePendingArchiveIntent()
                 dbgRelatedSetup(ghost)
                 hideProgress()
                 initComplete = true
                 runner!!.startClock()
                 runner!!.run()
+            } finally {
+                abandonUnclaimedReservation(reservation, reservationClaimed) {
+                    runner?.abandonReservedGhost(it)
+                }
             }
-        }.execute()
+        }
     }
 
     private fun createSvcs2ndThread() { gm = GhostMgr(this) }
-    private fun createGhost() {
+    private fun createGhost(): ReservedGhost? {
         val lastId = gm!!.getLastRunGhostId() ?: "nanidroid"
         mGH.sendEmptyMessage(MSG_LOAD_F)
         val ghost = launchCandidateIds(lastId, gm!!.getGnames().orEmpty().toList())
             .firstNotNullOfOrNull(gm!!::createGhost)
-            ?: return
+            ?: return null
         CrashReporting.setCustomKey("current_ghost", ghost.ghost.getGhostId())
         gm!!.setLastRunGhost(ghost.ghost)
-        pendingGhost = ghost
         currentGhost = ghost.ghost
+        return ghost
     }
 
     private fun setGhostToRunner(reservation: ReservedGhost): Boolean {
@@ -619,8 +629,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         super.onSaveInstanceState(outState)
     }
     override fun onDestroy() {
-        pendingGhost?.let { runner?.abandonReservedGhost(it) }
-        pendingGhost = null
         narLiveGrantExecutor.shutdown()
         super.onDestroy()
         sendStopIntent()
@@ -685,10 +693,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
-    private fun extractNar(targetPath: String) = extractNar(targetPath, false)
-    private fun extractNar(targetPath: String, force: Boolean) { if (!allows(GuardedAction.IMPORT_INSTALL)) return; val ghostId = NarUtil.readNarGhostId(targetPath); if (ghostId == null) { runner?.doShioriEvent("OnInstallFailure", null); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_install", "cannot read $targetPath", -1); return }; if (!gm!!.hasSameGhostId(ghostId) || force) { runner?.doInstallBegin(ghostId); InstallTask(targetPath, ghostId).execute(targetPath) } else { runner?.doShioriEvent("OnInstallRefuse", null); AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -2) } }
-    private fun onSuccessGhostInstall(ghostId: String, path: String) { runner?.doInstallComplete(ghostId); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_install", ghostId, 1); val readme = File(path, "readme.txt"); if (readme.exists()) showReadme(readme, ghostId) else showGhostInstalledDlg(ghostId) }
-    @Suppress("DEPRECATION") private inner class InstallTask(private val targetPath: String, private val ghostId: String) : AsyncTask<String, Int, String>() { override fun doInBackground(vararg params: String): String? = gm!!.installGhost(ghostId, targetPath); override fun onPostExecute(path: String?) { if (path != null) onSuccessGhostInstall(ghostId, path) else { runner?.doShioriEvent("OnInstallFailure", null); gm!!.getLastInstallError()?.takeIf { it.isNotEmpty() }?.let { Toast.makeText(this@Nanidroid, it, Toast.LENGTH_LONG).show() }; AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_install", ghostId, -1) } } }
     private fun installFirstGhost() { try { assets.open("nanidroid.zip").use { input -> val target = File(externalCacheDir, "nanidroid.nar"); NarUtil.copyFile(input, FileOutputStream(target)); gm!!.installFirstGhost("nanidroid", target.path) } } catch (e: IOException) { e.printStackTrace() } }
     private fun showReadme(readme: File, ghostId: String) {
         AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_README}:$ghostId")
@@ -721,56 +725,66 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
     }
     fun switchGhost(nextId: String) { if (!allows(GuardedAction.SWITCH_GHOST)) return; val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
-    @Suppress("DEPRECATION") fun ghostSwitchStep2() {
+    fun ghostSwitchStep2() {
         val targetGhostId = nextGhostId ?: run {
             Log.w(TAG, "ghost switch completed without a target ghost")
             hideProgress()
             return
         }
-        object : AsyncTask<Void, Void, ReservedGhost?>() {
-        override fun onPreExecute() { mGH.obtainMessage(MSG_LOAD_N, targetGhostId).sendToTarget(); showProgress() }
-        override fun doInBackground(vararg params: Void?): ReservedGhost? = try {
-            gm!!.createGhost(targetGhostId)
-        } catch (e: Exception) {
-            AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", targetGhostId, -1)
-            Log.d(TAG, "failed to switch to ghost:$targetGhostId")
-            e.printStackTrace()
-            null
-        }
-        override fun onPostExecute(reservation: ReservedGhost?) {
-            routeGhostSwitchResult(
-                reservation,
-                isDestroyed,
-                isFinishing,
-                targetGhostId,
-                nextGhostId,
-                abandon = { runner!!.abandonReservedGhost(it) },
-            ) { ownedReservation ->
-                nextGhostId = null
-                hideProgress()
-                val exactReservation = ownedReservation ?: return@routeGhostSwitchResult
-                val ghost = exactReservation.ghost
-                CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
-                // Keep the Compose stage and runner on the UI thread; its frame
-                // cache and scheduler state are intentionally not synchronized.
-                composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
-                updateSurfaceKeys(ghost)
-                keyindex = 0
-                currentSurfaceKey = surfaceKeys!![keyindex]
-                gm!!.setLastRunGhost(ghost)
-                if (!runner!!.attachReservedGhost(exactReservation)) {
-                    runner!!.abandonReservedGhost(exactReservation)
-                    return@routeGhostSwitchResult
+        mGH.obtainMessage(MSG_LOAD_N, targetGhostId).sendToTarget()
+        showProgress()
+        lifecycleScope.launch {
+            var reservation: ReservedGhost? = null
+            var reservationClaimed = false
+            try {
+                withContext(Dispatchers.IO) {
+                    try {
+                        reservation = gm?.createGhost(targetGhostId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", targetGhostId, -1)
+                        Log.d(TAG, "failed to switch to ghost:$targetGhostId", e)
+                    }
                 }
-                currentGhost = ghost
-                bindDebugGhost(ghost)
-                runner!!.startClock()
+                routeGhostSwitchResult(
+                    reservation,
+                    isDestroyed,
+                    isFinishing,
+                    targetGhostId,
+                    nextGhostId,
+                    abandon = {
+                        reservationClaimed = true
+                        runner?.abandonReservedGhost(it)
+                    },
+                ) { ownedReservation ->
+                    reservationClaimed = true
+                    nextGhostId = null
+                    hideProgress()
+                    val exactReservation = ownedReservation ?: return@routeGhostSwitchResult
+                    val ghost = exactReservation.ghost
+                    CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
+                    // Keep the Compose stage and runner on the UI thread; its frame
+                    // cache and scheduler state are intentionally not synchronized.
+                    composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
+                    updateSurfaceKeys(ghost)
+                    keyindex = 0
+                    currentSurfaceKey = surfaceKeys!![keyindex]
+                    gm!!.setLastRunGhost(ghost)
+                    if (runner?.attachReservedGhost(exactReservation) != true) {
+                        runner?.abandonReservedGhost(exactReservation)
+                        return@routeGhostSwitchResult
+                    }
+                    currentGhost = ghost
+                    bindDebugGhost(ghost)
+                    runner!!.startClock()
+                }
+            } finally {
+                abandonUnclaimedReservation(reservation, reservationClaimed) {
+                    runner?.abandonReservedGhost(it)
+                }
             }
         }
-        override fun onCancelled(reservation: ReservedGhost?) {
-            reservation?.let { runner!!.abandonReservedGhost(it) }
-        }
-    }.execute()
     }
     private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
         if (!allowsArchiveIntentIngress(runner) { SScriptRunner.getInstance(this) }) return

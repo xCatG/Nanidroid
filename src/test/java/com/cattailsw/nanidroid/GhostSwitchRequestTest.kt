@@ -63,6 +63,24 @@ class GhostSwitchRequestTest {
         }
     }
 
+    @Test
+    fun startupCancellationAbandonsItsPreparedReservation() {
+        var abandons = 0
+
+        abandonUnclaimedReservation(Any(), claimed = false) { abandons++ }
+
+        assertTrue(abandons == 1)
+    }
+
+    @Test
+    fun claimedReservationIsNotAbandonedByItsCompletionFinallyBlock() {
+        var abandons = 0
+
+        abandonUnclaimedReservation(Any(), claimed = true) { abandons++ }
+
+        assertTrue(abandons == 0)
+    }
+
     private class CountingGhost : Ghost("counting-ghost") {
         override fun loadGhostInfo() = Unit
 

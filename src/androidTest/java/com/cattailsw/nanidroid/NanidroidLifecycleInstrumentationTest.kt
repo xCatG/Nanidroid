@@ -80,10 +80,9 @@ class NanidroidLifecycleInstrumentationTest {
                     val runnerField = Nanidroid::class.java.getDeclaredField("runner").apply {
                         isAccessible = true
                     }
-                    // initOnSeparateThread()'s AsyncTask may still be in flight on the main
-                    // thread queue (its onPostExecute dereferences `runner!!`). Null the field
-                    // only for the duration of this reflective call and restore it immediately
-                    // afterwards so that AsyncTask callback never observes a null runner.
+                    // initOnSeparateThread()'s lifecycle coroutine may still be preparing a
+                    // ghost. Null the field only for this reflective call and restore it
+                    // immediately, so the initialization completion never observes null.
                     val originalRunner = runnerField.get(activity)
                     try {
                         runnerField.set(activity, null)
