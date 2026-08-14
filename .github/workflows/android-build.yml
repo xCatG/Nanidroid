@@ -1,0 +1,51 @@
+name: Android build
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: Install Android build dependencies
+        run: >-
+          sdkmanager
+          "platforms;android-37"
+          "build-tools;36.0.0"
+          "cmake;3.22.1"
+          "ndk;28.0.13004108"
+
+      - name: Run unit tests and build debug APK
+        run: ./gradlew testDebugUnitTest assembleDebug --no-daemon --stacktrace
+
+      - name: Upload Gradle reports
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gradle-reports-${{ github.sha }}
+          path: build/reports/
+          if-no-files-found: ignore
+          retention-days: 7
