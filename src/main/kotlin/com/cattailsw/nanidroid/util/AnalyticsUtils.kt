@@ -7,11 +7,11 @@
 package com.cattailsw.nanidroid.util
 
 import android.content.Context
-import android.os.AsyncTask
 import android.os.Build
 import android.preference.PreferenceManager
 import android.util.Log
 import com.google.android.apps.analytics.GoogleAnalyticsTracker
+import java.util.concurrent.Executors
 
 /** Helper singleton class for the frozen Google Analytics tracking library. */
 open class AnalyticsUtils private constructor(context: Context?) {
@@ -52,16 +52,13 @@ open class AnalyticsUtils private constructor(context: Context?) {
     }
 
     private fun runAsync(action: () -> Unit) {
-        object : AsyncTask<Void?, Void?, Void?>() {
-            override fun doInBackground(vararg params: Void?): Void? {
-                try {
-                    action()
-                } catch (_: Exception) {
-                    // Analytics failures must not crash the host app.
-                }
-                return null
+        analyticsExecutor.execute {
+            try {
+                action()
+            } catch (_: Exception) {
+                // Analytics failures must not crash the host app.
             }
-        }.execute()
+        }
     }
 
     companion object {
@@ -74,6 +71,10 @@ open class AnalyticsUtils private constructor(context: Context?) {
         private var analyticsEnabled = true
         private var deviceValidationNoTelemetry = false
         private var instance: AnalyticsUtils? = null
+        /** Application-process lifetime executor; analytics must not retain an Activity. */
+        private val analyticsExecutor = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "analytics-dispatch").apply { isDaemon = true }
+        }
         private val emptyAnalyticsUtils: AnalyticsUtils = object : AnalyticsUtils(null) {
             override fun trackEvent(category: String?, action: String?, label: String?, value: Int) = Unit
 
