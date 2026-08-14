@@ -6,13 +6,13 @@
 
 **Architecture:** A single GitHub Actions workflow owns hosted validation. Configuration-file validation consists of the real Gradle commands locally and the hosted workflow run after the branch is pushed; a source-text test would not establish CI behavior.
 
-**Tech Stack:** GitHub Actions YAML, Android SDK API 37, Android NDK, CMake 3.22.1, Java 17, Gradle 9.5, Python `unittest`.
+**Tech Stack:** GitHub Actions YAML, Android SDK API 37.0, Android NDK, CMake 3.22.1, Java 17, Gradle 9.5, Python `unittest`.
 
 ## Global Constraints
 
 - Trigger on every `pull_request` and support manual `workflow_dispatch` runs.
 - Build and test the current Gradle project only; do not recreate the removed legacy Docker lane.
-- Install API 37, Build Tools 36.0.0, an Android NDK, and CMake 3.22.1.
+- Install API 37.0, Build Tools 36.0.0, an Android NDK, and CMake 3.22.1.
 - Run exactly the project-supported verification tasks: `testDebugUnitTest` and `assembleDebug`.
 - Use read-only repository permissions, cancellation-safe PR/ref concurrency, and pinned third-party Actions.
 - Upload Gradle diagnostics only when a job fails and report files exist.
@@ -60,7 +60,7 @@ jobs:
           java-version: "17"
           cache: gradle
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
-      - run: sdkmanager "platforms;android-37" "build-tools;36.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+      - run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
       - run: ./gradlew testDebugUnitTest assembleDebug --no-daemon --stacktrace
 ```
 

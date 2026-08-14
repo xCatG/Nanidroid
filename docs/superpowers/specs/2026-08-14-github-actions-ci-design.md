@@ -15,7 +15,7 @@ from the default branch in commit `72ff30ed`.
 
 Add one workflow under `.github/workflows/`. It runs for every pull request and
 can also be started manually. It uses a Linux runner, a pinned Java 17 setup,
-and Android SDK components compatible with the project: API 37, Build Tools
+and Android SDK components compatible with the project: API 37.0, Build Tools
 36.0.0, CMake 3.22.1, and an Android NDK. The Gradle wrapper then runs
 `testDebugUnitTest` and `assembleDebug`.
 
