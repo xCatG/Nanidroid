@@ -7,46 +7,74 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.AsyncTask
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Message
 import android.util.Log
-import android.util.Pair
 import com.cattailsw.nanidroid.durable.DurableNotificationPermissionAcceptance
 import com.cattailsw.nanidroid.durable.GhostUpdateWorker
-import com.cattailsw.nanidroid.util.AnalyticsUtils
-import com.cattailsw.nanidroid.util.NarUtil
-import com.cattailsw.nanidroid.util.NetworkUtil
-import java.io.BufferedReader
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileNotFoundException
-import java.io.FileOutputStream
-import java.io.FileReader
-import java.io.IOException
-import java.io.InputStream
-import java.net.SocketTimeoutException
-import java.util.LinkedList
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal fun dispatchGhostUpdateEnqueue(executor: Executor, task: () -> Unit) {
     executor.execute(task)
+}
+
+/** Fetches the legacy sensor sources in their established order and isolates source failures. */
+internal fun fetchAndQueueSensorMessages(
+    fetchSstp: () -> Collection<String>,
+    fetchBottleLog: () -> Collection<String>,
+    enqueue: (Collection<String>) -> Unit,
+): Boolean = try {
+    enqueue(fetchSstp())
+    enqueue(fetchBottleLog())
+    true
+} catch (_: Exception) {
+    false
 }
 
 /** Kotlin owner of foreground downloads, polling, and ghost updates. */
 class NanidroidService : Service() {
     private var runner: SScriptRunner? = null
     private val activeForegroundStartIds = HashSet<Int>()
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
+    private var sensingJob: Job? = null
     private val ghostUpdateEnqueueExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "ghost-update-enqueue")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun startHttpTask(time: Long) = handler.sendEmptyMessageDelayed(HTTP_TASK_START, time)
+    private fun startHttpTask(initialDelayMillis: Long) {
+        if (sensingJob?.isActive == true) return
+        runner = SScriptRunner.getInstance(this)
+        sensingJob = serviceScope.launch {
+            delay(initialDelayMillis)
+            while (isActive) {
+                val start = System.currentTimeMillis()
+                fetchAndQueueSensorMessages(
+                    fetchSstp = { SSTPBottleSensor.getPageContent(this@NanidroidService) },
+                    fetchBottleLog = { BottleLogSensor.getPageContent(this@NanidroidService) },
+                    enqueue = { pageContent -> runner?.addMsgToQueue(pageContent) },
+                )
+                Log.d(TAG, "time = ${System.currentTimeMillis() - start} [ms]")
+                withContext(Dispatchers.Main.immediate) {
+                    runner?.run()
+                }
+                delay(DEF_TIME)
+            }
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureForeground()
@@ -158,246 +186,19 @@ class NanidroidService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        sensingJob?.cancel()
+        serviceJob.cancel()
         ghostUpdateEnqueueExecutor.shutdown()
         runner?.stop()
         Log.d(TAG, "onDestory: called")
-        handler.removeMessages(HTTP_TASK_START)
-    }
-
-    private val handler: Handler = object : Handler() {
-        override fun handleMessage(msg: Message) {
-            if (msg.what == HTTP_TASK_START) {
-                SensingTask().execute(this@NanidroidService)
-                startHttpTask(DEF_TIME)
-            }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private inner class SensingTask : AsyncTask<Context, String, String>() {
-        override fun onPreExecute() { runner = SScriptRunner.getInstance(this@NanidroidService) }
-
-        override fun doInBackground(vararg args: Context): String {
-            val start = System.currentTimeMillis()
-            try {
-                var pageContent: LinkedList<String> = SSTPBottleSensor.getPageContent(args[0])
-                Log.d(TAG, "bottle.length() = ${pageContent.size}")
-                runner?.addMsgToQueue(pageContent)
-                pageContent = BottleLogSensor.getPageContent(args[0])
-                runner?.addMsgToQueue(pageContent)
-            } catch (_: Exception) {
-                // Legacy sensor failure isolation.
-            }
-            Log.d(TAG, "time = ${System.currentTimeMillis() - start} [ms]")
-            return "End of conversions"
-        }
-
-        override fun onPostExecute(result: String) { runner?.run() }
-    }
-
-    @Suppress("DEPRECATION")
-    private inner class NarDownloadTask(private val targeturi: Uri, private val svcid: Int) : AsyncTask<Context, String, String?>() {
-        private val targetUrl = Uri.decode(targeturi.toString())
-
-        override fun doInBackground(vararg args: Context): String? = try {
-            val context = args[0]
-            val targetPath = File(context.externalCacheDir, targeturi.lastPathSegment)
-            Log.d(TAG, "downloading:$targetUrl to ${targeturi.lastPathSegment}")
-            if (!NetworkUtil.exists(context, targetUrl)) {
-                Log.d(TAG, "file doesn't exist")
-                null
-            } else {
-                val input: InputStream = NetworkUtil.getURLStream(context, targetUrl)
-                NarUtil.copyFile(input, FileOutputStream(targetPath))
-                targetPath.toString()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-
-        override fun onPostExecute(result: String?) {
-            if (result == null) {
-                Log.d(TAG, "download failed.")
-                finishForegroundWork(svcid)
-                return
-            }
-            Log.d(TAG, "download complete?")
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val launch = Intent(this@NanidroidService, Nanidroid::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            val content = PendingIntent.getActivity(
-                this@NanidroidService,
-                0,
-                launch,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val noteText = String.format(getString(R.string.dl_note), targeturi.lastPathSegment)
-            val notification = Notification.Builder(applicationContext)
-                .setSmallIcon(R.drawable.notification)
-                .setTicker(getString(R.string.dl_complete))
-                .setWhen(System.currentTimeMillis())
-                .setContentTitle(getString(R.string.dl_complete))
-                .setContentText(noteText)
-                .setContentIntent(content)
-                .build()
-            notification.flags = Notification.FLAG_AUTO_CANCEL
-            // The service-owned notification flow is evaluated in issue #161.
-            @Suppress("NotificationPermission")
-            manager.notify(42, notification)
-            finishForegroundWork(svcid)
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private inner class GhostUpdateTask(
-        private val base: Uri,
-        private val ghostId: String,
-        private val ghostRoot: String?,
-        private val sid: Int,
-    ) : AsyncTask<Context, String, String?>() {
-        private var failedReason: String? = null
-        private var startTime = 0L
-        private var filesToUpdate: List<Pair<String, String>>? = null
-        private var csvFilelist: String? = null
-
-        override fun onPreExecute() {
-            startTime = System.currentTimeMillis()
-            if (runner == null) runner = SScriptRunner.getInstance(this@NanidroidService)
-        }
-
-        override fun doInBackground(vararg args: Context): String? {
-            try {
-                val context = args[0]
-                var updateFile = Uri.withAppendedPath(base, UPDATE_FILE).toString()
-                if (!NetworkUtil.exists(context, updateFile)) {
-                    updateFile = Uri.withAppendedPath(base, UPDATE_FILE_FALLBACK).toString()
-                    if (!NetworkUtil.exists(context, updateFile)) {
-                        failedReason = "404"
-                        return null
-                    }
-                }
-                val targetPath = "$ghostRoot/$UPDATE_FILE"
-                val md5 = NarUtil.copyFile(NetworkUtil.getURLStream(context, updateFile), FileOutputStream(targetPath))
-                Log.d(TAG, "downloaded $targetPath w md5:${NarUtil.md5ToString(md5)}")
-                if (doFileComp(targetPath) == 0) {
-                    failedReason = "none"
-                    return null
-                }
-                runner?.doShioriEvent("OnUpdateReady", arrayOf("changed", csvFilelist))
-                doDownloadCompare(context)
-            } catch (_: SocketTimeoutException) {
-                failedReason = "timeout"
-            } catch (_: Exception) {
-                failedReason = "exception during update"
-            }
-            return null
-        }
-
-        private fun doFileComp(updateFile: String): Int {
-            filesToUpdate = getUpdateMd5z(updateFile)
-            Log.d(TAG, "got ${filesToUpdate!!.size} files to update")
-            return filesToUpdate!!.size
-        }
-
-        @Throws(IOException::class, FileNotFoundException::class)
-        private fun getUpdateMd5z(updateFile: String): List<Pair<String, String>> {
-            val result = ArrayList<Pair<String, String>>()
-            BufferedReader(FileReader(File(updateFile))).use { reader ->
-                var line = reader.readLine()
-                while (line != null) {
-                    var pair = line.split("\u0001".toRegex()).toTypedArray()
-                    if (pair.size < 2) {
-                        pair = line.split(",".toRegex()).toTypedArray()
-                        if (pair.size < 2) {
-                            AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR, "update_error", ghostId, -99)
-                            throw IOException()
-                        }
-                    }
-                    Log.d(TAG, "pair=${pair[0]},${pair[1]}")
-                    val localFile = File(ghostRoot, pair[0])
-                    Log.d(TAG, "file is=${localFile.absolutePath}")
-                    if (!localFile.exists()) {
-                        Log.d(TAG, "local file not exist")
-                        addToUpdateList(result, pair[0], pair[1])
-                    } else {
-                        val md5 = NarUtil.createMD5(FileInputStream(localFile))
-                        if (pair[1] != NarUtil.md5ToString(md5)) {
-                            Log.d(TAG, "MD5 checksum mismatch:${pair[1]}")
-                            addToUpdateList(result, pair[0], pair[1])
-                        }
-                    }
-                    line = reader.readLine()
-                }
-            }
-            return result
-        }
-
-        private fun addToUpdateList(destination: MutableList<Pair<String, String>>, file: String, md5: String) {
-            destination.add(Pair(file, md5))
-            csvFilelist = if (csvFilelist == null) file else "$csvFilelist,$file"
-        }
-
-        @Throws(IOException::class, FileNotFoundException::class)
-        private fun doDownloadCompare(context: Context) {
-            val updates = filesToUpdate ?: return
-            val total = updates.size
-            updates.forEachIndexed { index, pair ->
-                runner?.doShioriEvent("OnUpdate.OnDownloadBegin", arrayOf(pair.first, "${index + 1}", "$total"))
-                val fileUri = Uri.withAppendedPath(base, pair.first)
-                val temp = File("$ghostRoot/${pair.first}.tmp")
-                temp.parentFile?.let { if (!it.exists()) it.mkdirs() }
-                Log.d(TAG, "dl:${pair.first} to $temp")
-                Log.d(TAG, "from $fileUri")
-                val md5 = NarUtil.copyFile(NetworkUtil.getURLStream(context, fileUri.toString()), FileOutputStream(temp))
-                val md5String = NarUtil.md5ToString(md5)
-                runner?.doShioriEvent("OnUpdate.OnMD5CompareBegin", arrayOf(pair.first, pair.second, md5String))
-                if (pair.second != md5String) {
-                    failedReason = "md5 miss"
-                    Log.d(TAG, "md5 error on ${pair.first}")
-                    runner?.doShioriEvent("OnUpdate.OnMD5CompareFailure", arrayOf(pair.first, pair.second, md5String))
-                    return
-                }
-                runner?.doShioriEvent("OnUpdate.OnMD5CompareComplete", arrayOf(pair.first, pair.second, md5String))
-                val finalFile = File("$ghostRoot/${pair.first}")
-                if (finalFile.exists() && !finalFile.delete()) {
-                    Log.d(TAG, "cannot create file${finalFile.absolutePath}")
-                    failedReason = "fileio"
-                    return
-                }
-                if (!temp.renameTo(finalFile)) {
-                    Log.d(TAG, "cannot rename file")
-                    failedReason = "fileio"
-                    return
-                }
-            }
-        }
-
-        override fun onPostExecute(result: String?) {
-            if (failedReason == null) {
-                runner?.doShioriEvent("OnUpdateComplete", arrayOf("changed", csvFilelist))
-            } else {
-                Log.d(TAG, "do OnUpdateFilure because $failedReason")
-                runner?.doShioriEvent("OnUpdateFilure", arrayOf(failedReason, csvFilelist))
-            }
-            finishForegroundWork(sid)
-            AnalyticsUtils.getInstance(null).trackEvent(
-                Setup.ANA_PERF, "update_time", "", (System.currentTimeMillis() - startTime).toInt()
-            )
-        }
-
+        super.onDestroy()
     }
 
     companion object {
         private const val TAG = "HeadLineSensorService"
         private const val DEF_TIME = 600_000L
-        private const val HTTP_TASK_START = 1
         private const val CHANNEL_ID = "nanidroid_downloads"
         private const val FOREGROUND_NOTIFICATION_ID = 41
-        private const val UPDATE_FILE = "updates2.dau"
-        private const val UPDATE_FILE_FALLBACK = "updates.txt"
 
         private fun isHttpsUri(uri: Uri?): Boolean =
             uri != null && "https".equals(uri.scheme, ignoreCase = true) && !uri.host.isNullOrEmpty()
