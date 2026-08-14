@@ -6,7 +6,7 @@
 #endif
 #include "SakuraDLLHost.h"
 #include <iostream>
-#include "../_/sender.h"
+#include "../_/Sender.h"
 
 #ifdef POSIX
 extern "C" int load(char* i_data, long i_data_len) {
