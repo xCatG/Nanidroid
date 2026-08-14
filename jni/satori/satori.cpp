@@ -1,4 +1,4 @@
-#include "Satori.h"
+#include "satori.h"
 
 const char* gSatoriName = "Satori";
 const char* gSatoriNameW = "ó¢ÅX";
