@@ -162,7 +162,7 @@ int	replace(string& str, const string& before, const string& after) {
 
 	// 過去の領域を解放、バッファの実体を内容とする。
 	str = buf;
-	delete buf;
+	delete[]buf;
 	return	count;
 }
 
@@ -207,7 +207,7 @@ int	erase(string& str, const string& before) {
 
 	// 過去の領域を解放、バッファの実体を内容とする。
 	str = buf;
-	delete buf;
+	delete[]buf;
 	return	count;
 }
 
