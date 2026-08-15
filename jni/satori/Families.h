@@ -1,12 +1,12 @@
 #include "Family.h"
 
 
-// —v‘f‚Í’PŒê‚Ü‚½‚Íƒg[ƒNB
+// è¦ç´ ã¯å˜èªã¾ãŸã¯ãƒˆãƒ¼ã‚¯ã€‚
 
-// “¯‚¶–¼‘O‚ğ‚Â—v‘f‚ÌW‡‚ªFamilyB
+// åŒã˜åå‰ã‚’æŒã¤è¦ç´ ã®é›†åˆãŒFamilyã€‚
 
-// Families‚Í–¼‘O‚É‚æ‚è“Á’è‚³‚ê‚éFamily‚ÌW‡B
-// ‚Ù‚Ú map< string, Family<T> > ‚¾‚ªpublicŒp³‚Í‚¹‚¸AƒCƒ“ƒ^ƒtƒF[ƒX‚ğŒÀ’è‚·‚é
+// Familiesã¯åå‰ã«ã‚ˆã‚Šç‰¹å®šã•ã‚Œã‚‹Familyã®é›†åˆã€‚
+// ã»ã¼ map< string, Family<T> > ã ãŒpublicç¶™æ‰¿ã¯ã›ãšã€ã‚¤ãƒ³ã‚¿ãƒ•ã‚§ãƒ¼ã‚¹ã‚’é™å®šã™ã‚‹
 
 template<typename T>
 class Families : private map< string, Family<T> >
@@ -19,33 +19,33 @@ public:
 	//Families() { cout << "Families()" << endl; }
 	//~Families() { cout << "~Families()" << endl; }
 
-	// —v‘f‚Ì“o˜^
+	// è¦ç´ ã®ç™»éŒ²
 	const T* add_element(const string& i_name, const T& i_t, const Condition& i_condition=Condition())
 	{
 		Family<T>& f = (*this)[i_name];
 		return f.add_element(i_t, i_condition);
 	}
 
-	// ‰ß‹ŒİŠ·‚Ì’ñ‹Ÿ
+	// éå»äº’æ›ã®æä¾›
 	const map< string, Family<T> >& compatible() const
 	{
 		return *this;
 	}
 
-	// –¼‘O‚©‚çFamily‚ğæ“¾
+	// åå‰ã‹ã‚‰Familyã‚’å–å¾—
 	Family<T>* get_family(string i_name)
 	{
 	        iterator i = this->find(i_name);
 		return ( i == this->end() ) ? NULL : &(i->second);
 	}
 
-	// –¼‘O‚Ì‘¶İ‚ğŠm”F
+	// åå‰ã®å­˜åœ¨ã‚’ç¢ºèª
 	bool is_exist(const string& i_name) const
 	{
 		return this->find(i_name) != this->end();
 	}
 
-	// T‚ğ‚P‚Â‘I‘ğ‚µA‚»‚Ìƒ|ƒCƒ“ƒ^‚ğ•Ô‚·
+	// Tã‚’ï¼‘ã¤é¸æŠã—ã€ãã®ãƒã‚¤ãƒ³ã‚¿ã‚’è¿”ã™
 	const T* select(const string& i_name, Evalcator& i_evalcator)
 	{
 		iterator it = this->find(i_name);
@@ -56,7 +56,7 @@ public:
 		return it->second.select(i_evalcator);
 	}
 	
-	// ƒg[ƒN‚ÌI—¹‚ğ’Ê’mBd•¡§ŒäŠúŠÔ‚ªuƒg[ƒN’†v‚Å‚ ‚éFamily‚Ìd•¡‰ñ”ğ§Œä‚ğƒNƒŠƒA‚·‚é
+	// ãƒˆãƒ¼ã‚¯ã®çµ‚äº†ã‚’é€šçŸ¥ã€‚é‡è¤‡åˆ¶å¾¡æœŸé–“ãŒã€Œãƒˆãƒ¼ã‚¯ä¸­ã€ã§ã‚ã‚‹Familyã®é‡è¤‡å›é¿åˆ¶å¾¡ã‚’ã‚¯ãƒªã‚¢ã™ã‚‹
 	void handle_talk_end()
 	{
 		for ( set<string>::iterator it = m_clearOC_at_talk_end.begin() ; it != m_clearOC_at_talk_end.end() ; ++it )
@@ -65,13 +65,13 @@ public:
 		}
 	}
 
-	// family”
+	// familyæ•°
 	int size_of_family() const
 	{
 		return this->size();
 	}
 
-	// ‘SFamily‚Ì‘S—v‘f”‚ğŒvZ
+	// å…¨Familyã®å…¨è¦ç´ æ•°ã‚’è¨ˆç®—
 	int size_of_element() const
 	{
 		int r = 0;
@@ -82,18 +82,18 @@ public:
 		return r;
 	}
 
-	// ‘SƒNƒŠƒA
+	// å…¨ã‚¯ãƒªã‚¢
 	void clear()
 	{
 		map< string, Family<T> >::clear();
 		m_clearOC_at_talk_end.clear();
 	}
 
-	// d•¡‰ñ”ğ§Œä‚ğ‘I‘ğ‚·‚éBˆø”‚Íƒ^ƒCƒvAŠúŠÔ
+	// é‡è¤‡å›é¿åˆ¶å¾¡ã‚’é¸æŠã™ã‚‹ã€‚å¼•æ•°ã¯ã‚¿ã‚¤ãƒ—ã€æœŸé–“
 	void setOC(string i_name, string i_value)
 	{
 		iterator st, ed;
-		if ( i_name == "–" )
+		if ( i_name == "\x81\x96" )
 		{
 			st = this->begin();
 			ed = this->end();
@@ -103,16 +103,16 @@ public:
 			st = this->find(i_name);
 			if ( st == this->end() )
 			{
-				sender << "'" << i_name << "' ‚Í‘¶İ‚µ‚Ü‚¹‚ñB" << endl;
+				sender << "'" << i_name << "' \x82\xCD\x91\xB6\x8D\xDD\x82\xB5\x82\xDC\x82\xB9\x82\xF1\x81\x42" << endl;
 				return;
 			}
 			++(ed = st);
 		}
 		
 		strvec argv;
-		const int n = split(i_value, "A,", argv);
-		const string method = (n>=1) ? argv[0] : "–³Œø";
-		const string span = (n>=2) ? argv[1] : "‹N“®’†";
+		const int n = split(i_value, "\x81\x41,", argv);
+		const string method = (n>=1) ? argv[0] : "\x96\xB3\x8C\xF8";
+		const string span = (n>=2) ? argv[1] : "\x8B\x4E\x93\xAE\x92\x86";
 		
 		for ( iterator it = st; it != ed ; ++it )
 		{
@@ -124,78 +124,78 @@ public:
 
 			if (0)
 				NULL;
-			else if ( method=="’¼‘O" )
+			else if ( method=="\x92\xBC\x91\x4F" )
 				family.set_OC(new OC_NonDual<const T*>);
-			else if ( method=="~‡" || method=="³‡" )
+			else if ( method=="\x8D\x7E\x8F\x87" || method=="\x90\xB3\x8F\x87" )
 				family.set_OC(new OC_Sequential<const T*>);
-			else if ( method=="¸‡" || method=="‹t‡" )
+			else if ( method=="\x8F\xB8\x8F\x87" || method=="\x8B\x74\x8F\x87" )
 				family.set_OC(new OC_SequentialDesc<const T*>);
-			else if ( method=="—LŒø" || method=="Š®‘S" )
+			else if ( method=="\x97\x4C\x8C\xF8" || method=="\x8A\xAE\x91\x53" )
 				family.set_OC(new OC_NonOverlap<const T*>);
-			else if ( method=="–³Œø" )
+			else if ( method=="\x96\xB3\x8C\xF8" )
 				family.set_OC(new OC_Random<const T*>);
 			else
-				sender << "d•¡‰ñ”ğ§Œä‚Ì•û–@'" << method << "' ‚Í’è‹`‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB" << endl;
+				sender << "\x8F\x64\x95\xA1\x89\xF1\x94\xF0\x90\xA7\x8C\xE4\x82\xCC\x95\xFB\x96\x40'" << method << "' \x82\xCD\x92\xE8\x8B\x60\x82\xB3\x82\xEA\x82\xC4\x82\xA2\x82\xDC\x82\xB9\x82\xF1\x81\x42" << endl;
 			
-			if ( span == "ƒg[ƒN’†" )
+			if ( span == "\x83\x67\x81\x5B\x83\x4E\x92\x86" )
 				m_clearOC_at_talk_end.insert(it->first);
-			else if ( span == "‹N“®’†")
+			else if ( span == "\x8B\x4E\x93\xAE\x92\x86")
 				NULL;
 			else
-				sender << "d•¡‰ñ”ğ‚ÌŠúŠÔ'" << method << "' ‚Í’è‹`‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB" << endl;
+				sender << "\x8F\x64\x95\xA1\x89\xF1\x94\xF0\x82\xCC\x8A\xFA\x8A\xD4'" << method << "' \x82\xCD\x92\xE8\x8B\x60\x82\xB3\x82\xEA\x82\xC4\x82\xA2\x82\xDC\x82\xB9\x82\xF1\x81\x42" << endl;
 		
 		}
 	}
 
 	const Talk* communicate_search(const string& iSentence, bool iAndMode)
 	{
-		sender << "•¶–¼‚ÌŒŸõ‚ğŠJn" << endl;
-		sender << "@‘ÎÛ•¶š—ñ: " << iSentence << endl;
-		sender << "@‘S’PŒêˆê’vƒ‚[ƒh: " << (iAndMode?"true":"false") << endl;
+		sender << "\x95\xB6\x96\xBC\x82\xCC\x8C\x9F\x8D\xF5\x82\xF0\x8A\x4A\x8E\x6E" << endl;
+		sender << "\x81\x40\x91\xCE\x8F\xDB\x95\xB6\x8E\x9A\x97\xF1: " << iSentence << endl;
+		sender << "\x81\x40\x91\x53\x92\x50\x8C\xEA\x88\xEA\x92\x76\x83\x82\x81\x5B\x83\x68: " << (iAndMode?"true":"false") << endl;
 
 		vector<const Talk*>	result;
 		int	max_hit_point=0;
 		for ( iterator it = this->begin() ; it != this->end() ; ++it )
 		{
-			// ŒêŒQ‚ğ‘SŠpƒXƒy[ƒX‚Å‹æØ‚é
+			// èªç¾¤ã‚’å…¨è§’ã‚¹ãƒšãƒ¼ã‚¹ã§åŒºåˆ‡ã‚‹
 			strvec	words;
-			if ( split(it->first, "@", words)<2 )
+			if ( split(it->first, "\x81\x40", words)<2 )
 			{
-				continue; // ‘SŠpƒXƒy[ƒX‚ª–³‚¢BŠY“–ŠOB
+				continue; // å…¨è§’ã‚¹ãƒšãƒ¼ã‚¹ãŒç„¡ã„ã€‚è©²å½“å¤–ã€‚
 			}
 
-			// ‚¢‚­‚Â‚Ì’PŒê‚ªƒqƒbƒg‚µ‚½‚©B’PŒê‚P‚Â‚Å10‚Ä‚ñA’·‚³‚P‚à‚¶‚Å1‚Ä‚ñ
+			// ã„ãã¤ã®å˜èªãŒãƒ’ãƒƒãƒˆã—ãŸã‹ã€‚å˜èªï¼‘ã¤ã§10ã¦ã‚“ã€é•·ã•ï¼‘ã‚‚ã˜ã§1ã¦ã‚“
 			int	hit_point=0;
 			strvec::iterator wds_it=words.begin();
 			for ( ; wds_it!=words.end() ; ++wds_it )
 			{
 				if ( iSentence.find(*wds_it) != string::npos )
 				{
-					if ( compare_tail(*wds_it, "u") )	// ––”ö‚ª u ‚Å‚ ‚é‚à‚Ì‚¾‚¯‚Ìê‡‚Íƒqƒbƒg‚ÆŒ©‚È‚³‚È‚¢‚æ‚¤‚ÉB
+					if ( compare_tail(*wds_it, "\x81\x75") )	// æœ«å°¾ãŒ ã€Œ ã§ã‚ã‚‹ã‚‚ã®ã ã‘ã®å ´åˆã¯ãƒ’ãƒƒãƒˆã¨è¦‹ãªã•ãªã„ã‚ˆã†ã«ã€‚
 						hit_point += 4;
 					else
-						hit_point += 10+(wds_it->size()/4);	// ˆê’v‚µ‚½’PŒêB
+						hit_point += 10+(wds_it->size()/4);	// ä¸€è‡´ã—ãŸå˜èªã€‚
 				}
 				else
 				{
-					hit_point -= (iAndMode ? 999 : 1);	// ˆê’v‚µ‚È‚©‚Á‚½AŒ©‚Â‚©‚ç‚È‚©‚Á‚½’PŒê
+					hit_point -= (iAndMode ? 999 : 1);	// ä¸€è‡´ã—ãªã‹ã£ãŸã€è¦‹ã¤ã‹ã‚‰ãªã‹ã£ãŸå˜èª
 				}
 			}
 			if ( hit_point<=4 )
 			{
-				continue;	// ‚¢‚Á‚±‚àˆê’v‚µ‚È‚¢ê‡
+				continue;	// ã„ã£ã“ã‚‚ä¸€è‡´ã—ãªã„å ´åˆ
 			}
 
 			sender << "'" << it->first << "' : " << hit_point << "pt ,";
 
 			if ( hit_point<max_hit_point) {
-				sender << "‹p‰º" << endl;
+				sender << "\x8B\x70\x89\xBA" << endl;
 				continue;
 			} else if ( hit_point == max_hit_point ) {
-				sender << "Œó•â‚Æ‚µ‚Ä’Ç‰Á" << endl;
+				sender << "\x8C\xF3\x95\xE2\x82\xC6\x82\xB5\x82\xC4\x92\xC7\x89\xC1" << endl;
 			} else {
 				max_hit_point = hit_point;
-				sender << "’P“Æ‚ÅÌ—p" << endl;
+				sender << "\x92\x50\x93\xC6\x82\xC5\x8D\xCC\x97\x70" << endl;
 				result.clear();
 			}
 
@@ -203,9 +203,9 @@ public:
 			it->second.get_elements_pointers(result);
 		}
 
-		sender << "Œ‹‰Ê: ";
+		sender << "\x8C\x8B\x89\xCA: ";
 		if ( result.size() <= 0 ) {
-			sender << "ŠY“–‚È‚µ" << endl;
+			sender << "\x8A\x59\x93\x96\x82\xC8\x82\xB5" << endl;
 			return	NULL;
 		}
 

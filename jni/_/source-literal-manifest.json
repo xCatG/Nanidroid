@@ -1,0 +1,85 @@
+{
+  "files": {
+    "Dialog.cpp": {
+      "literal_count": 2,
+      "sha256": "c5da2d2d2619cdca178aa04a525ea56d805eb6dc8776b607c53572e62e349c20"
+    },
+    "Dialog.h": {
+      "literal_count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "FMO.h": {
+      "literal_count": 3,
+      "sha256": "341ad4462baa70660eaa0c2a29ce24dca60c29f1c8fc87188313312ae25ecddb"
+    },
+    "Font.cpp": {
+      "literal_count": 2,
+      "sha256": "05854dd1b7932dc154f0b0d426b06efc42c2c8522c9860faf4b3928ead7d2b0e"
+    },
+    "Font.h": {
+      "literal_count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "Sender.cpp": {
+      "literal_count": 18,
+      "sha256": "f429acedbc30aebd58a34cab75d2f730862b36f438660b94eecec089c36f9136"
+    },
+    "Sender.h": {
+      "literal_count": 1,
+      "sha256": "e64cf59bfbcf3c5743ccd9eda3a811a7966689717a8499e5b1ef0cb1f33bf4b6"
+    },
+    "Thread.cpp": {
+      "literal_count": 1,
+      "sha256": "9f69173429eb181af04fc2a914da0b6066f3f6079e828a25c8aac0f687eddc61"
+    },
+    "Thread.h": {
+      "literal_count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "Utilities.cpp": {
+      "literal_count": 6,
+      "sha256": "2c8a6188a4af72f01dcb5107a30464241eff548a87b2037fcb650a46e62ccda2"
+    },
+    "Utilities.h": {
+      "literal_count": 13,
+      "sha256": "0ecde1fa1ae6d175850345f69dcf88f5f3cb53beb3bf52055b1bb28b3918b57c"
+    },
+    "Win32.cpp": {
+      "literal_count": 348,
+      "sha256": "b4ecc8b73c06d016191b2af3f97353cc962b99741f72120f09d29e1b66a6585e"
+    },
+    "Win32.h": {
+      "literal_count": 1,
+      "sha256": "8c2ac3fe2af2d4456b3e8ec74d668605c1b7d69ffdfd569536288cdcf37af335"
+    },
+    "Window.cpp": {
+      "literal_count": 4,
+      "sha256": "ccaeed105f60855bc32682dedcff5e6e81f1ab575b66e46ee61b7891c2e291d8"
+    },
+    "Window.h": {
+      "literal_count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "calc.cpp": {
+      "literal_count": 124,
+      "sha256": "784e5e0303627de73ce4299823d3184e4db499c987e96be0a676a7c45604e972"
+    },
+    "calc_float.cpp": {
+      "literal_count": 106,
+      "sha256": "eb0f740379299ab3e90429ac9f0f4cb612a674fb45e854ffc5395f8bf7d5bb23"
+    },
+    "simple_stack.h": {
+      "literal_count": 1,
+      "sha256": "13bc8f0c26f6692f631d9a99ef4190d5bac14bff099bb9e9c3204143c47432a5"
+    },
+    "stltool.cpp": {
+      "literal_count": 64,
+      "sha256": "493fd8684090f5fb75c88e5e706d6cbb5c7ad432b97dd6bbd506dadbfa44bf8f"
+    },
+    "stltool.h": {
+      "literal_count": 21,
+      "sha256": "6c20f5f66ffc3089cbbf1b35bbf844b01bae38d5962ca465b85128c96c72932a"
+    }
+  },
+  "version": 1
+}

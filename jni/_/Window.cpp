@@ -1,7 +1,7 @@
 #include	"Window.h"
 #include	"Win32.h"
 
-// ‚­‚é‚­‚é‘Î‰
+// ãã‚‹ãã‚‹å¯¾å¿œ
 #include	<zmouse.h>
 extern const UINT msgMOUSEWHEEL;	// require ../_/Win32.cpp
 
@@ -36,7 +36,7 @@ LRESULT	Window::WindowProcedure(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 		return	b ? 0 : -1;
 	}
 
-	// ƒ}ƒEƒXƒzƒC[ƒ‹‘Î‰
+	// ãƒã‚¦ã‚¹ãƒ›ã‚¤ãƒ¼ãƒ«å¯¾å¿œ
 	if ( message == msgMOUSEWHEEL ) {
 		message = WM_MOUSEWHEEL;
 		DbgStr("MouseWheel fwKeys:%04x, zDelta:%d, xPos:%d, yPos:%d",
@@ -157,7 +157,7 @@ LRESULT	Window::OnTaskbarRestart() { return 0; }
 bool Window::OnDrawClipboard() { return false; }
 bool Window::OnChangeCBChain(HWND hWndRemove, HWND hWndNext) { return false; } 
 
-// zDelta‚ª-1ˆÈ‰º‚È‚çè‘OA1ˆÈã‚È‚ç‰œ‚É‰ñ“]B
+// zDeltaãŒ-1ä»¥ä¸‹ãªã‚‰æ‰‹å‰ã€1ä»¥ä¸Šãªã‚‰å¥¥ã«å›è»¢ã€‚
 bool	Window::OnMouseWheel(WORD fwKeys, short zDelta, short xPos, short yPos) {
 	return	false;
 }

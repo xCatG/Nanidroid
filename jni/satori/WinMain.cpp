@@ -10,7 +10,7 @@
 
 string	SATORITE_WINDOW_CAPTION()
 {
-	return	string() + "‚³‚Æ‚è‚Ä phase 9 / " + gSatoriName + " " + gSatoriVersion;
+	return	string() + "\x82\xB3\x82\xC6\x82\xE8\x82\xC4 phase 9 / " + gSatoriName + " " + gSatoriVersion;
 }
 
 
@@ -100,10 +100,10 @@ struct	SHARED_DATA {
 
 
 Satori*	pSatori=NULL;
-char	base_folder[MAX_PATH];	// ì‹ÆƒtƒHƒ‹ƒ_ƒpƒX
+char	base_folder[MAX_PATH];	// ä½œæ¥­ãƒ•ã‚©ãƒ«ãƒ€ãƒ‘ã‚¹
 HINSTANCE	gInstance;
 static const int BUFFER_SIZE = 1024*1024-1; // 1MB
-TCHAR	gBuffer[BUFFER_SIZE+1];	// “ü—Í‚³‚ê‚½ƒxƒ^ƒeƒLƒXƒg
+TCHAR	gBuffer[BUFFER_SIZE+1];	// å…¥åŠ›ã•ã‚ŒãŸãƒ™ã‚¿ãƒ†ã‚­ã‚¹ãƒˆ
 char* CONFIG_FILENAME = "satorite.dat";
 strmap gConf;
 
@@ -112,17 +112,17 @@ string SATORITE_TALK_NAME = "OnPlaySatoriteScript";
 
 string	Do(const string& str, bool like_dict, bool satori, HWND hwnd)
 {
-	strvec	vec;	// ó‚¯“n‚µvector
+	strvec	vec;	// å—ã‘æ¸¡ã—vector
 
 	if ( like_dict )
 	{
-		vec.push_back(string()+"–"+SATORITE_TALK_NAME);
+		vec.push_back(string()+"\x81\x96"+SATORITE_TALK_NAME);
 	}
 
-	// “ü—Í‚ğvector‰»
+	// å…¥åŠ›ã‚’vectoråŒ–
 	istrstream	in(gBuffer);
 	while ( in.peek() != EOF ) {
-		// ‚Ps“Ç‚İ‚İ
+		// ï¼‘è¡Œèª­ã¿è¾¼ã¿
 		strstream	line;
 		int	c;
 		while ( (c=in.get()) != '\n' && c!=EOF)
@@ -130,10 +130,10 @@ string	Do(const string& str, bool like_dict, bool satori, HWND hwnd)
 				line.put(c);
 		line.put('\0');
 
-		// sƒXƒgƒŠ[ƒ€‚ğŒÅ’èAŠes‚É‘Î‚µˆ—
+		// è¡Œã‚¹ãƒˆãƒªãƒ¼ãƒ ã‚’å›ºå®šã€å„è¡Œã«å¯¾ã—å‡¦ç†
 		char* p=line.str();
 		vec.push_back(p);
-		// sƒXƒgƒŠ[ƒ€‚ÌŒÅ’è‚ğ‰ğœ
+		// è¡Œã‚¹ãƒˆãƒªãƒ¼ãƒ ã®å›ºå®šã‚’è§£é™¤
 		line.rdbuf()->freeze(0);
 	}
 	in.clear();
@@ -149,15 +149,15 @@ string	Do(const string& str, bool like_dict, bool satori, HWND hwnd)
 	}
 	else if ( like_dict ) 
 	{
-		// «‘‚Æ‚µ‚Ä•Û‘¶
+		// è¾æ›¸ã¨ã—ã¦ä¿å­˜
 		string	fname = string(base_folder)+"dic_maked_by_satorite.txt";
 		strvec_to_file(vec, fname);
-		// ƒŠƒ[ƒh
+		// ãƒªãƒ­ãƒ¼ãƒ‰
 		pSatori->unload();
 		pSatori->load(base_folder);
-		// «‘íœ
+		// è¾æ›¸å‰Šé™¤
 		::DeleteFile(fname.c_str());
-		// •¶‚ğæ“¾
+		// æ–‡ã‚’å–å¾—
 #if 0
 		script = pSatori->GetSentence(SATORITE_TALK_NAME);
 #endif
@@ -181,7 +181,7 @@ string	Do(const string& str, bool like_dict, bool satori, HWND hwnd)
 			}
 		}
 	} else {
-		// ‚³‚­‚çƒXƒNƒŠƒvƒg•ÏŠ·
+		// ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆå¤‰æ›
 		script = pSatori->SentenceToSakuraScript_with_PreProcess(vec) + "\\e";
 	}
 	if ( !pSatori->Translate(script) )
@@ -199,7 +199,7 @@ class UserDialog : public Dialog {
 	UserThread	ut;
 	Font m_font;
 public:
-	// ƒCƒxƒ“ƒgƒnƒ“ƒhƒ‰
+	// ã‚¤ãƒ™ãƒ³ãƒˆãƒãƒ³ãƒ‰ãƒ©
 	virtual	BOOL	OnInitDialog( HWND hwndFocus, LONG lInitParam ) {
 		::SetWindowText(m_hDlg, SATORITE_WINDOW_CAPTION().c_str());
 		/*fmo.Create(PAGE_READWRITE, sizeof(SHARED_DATA), "Satorite");
@@ -227,7 +227,7 @@ public:
 			Check(IDC_SATORI);
 		}
 		
-		// ƒtƒHƒ“ƒg‚ğŒÅ’è’·‚Ì‚à‚Ì‚É‚·‚é
+		// ãƒ•ã‚©ãƒ³ãƒˆã‚’å›ºå®šé•·ã®ã‚‚ã®ã«ã™ã‚‹
 		m_font.Size(12);
 		m_font.update();
 		::SendMessage(toHWND(IDC_EDIT1), WM_SETFONT, (WPARAM)(m_font.getFont()), 1);
@@ -360,10 +360,10 @@ WinMain(
 
 	Sender::validate();
 
-	// ì‹ÆƒtƒHƒ‹ƒ_–¼‚ğì¬
+	// ä½œæ¥­ãƒ•ã‚©ãƒ«ãƒ€åã‚’ä½œæˆ
 	::GetModuleFileName( NULL, base_folder, MAX_PATH );
 	char*	p = FindFinalChar(base_folder, DIR_CHAR);
-	*(++p)='\0';	// ƒtƒ@ƒCƒ‹–¼‚ğíœ
+	*(++p)='\0';	// ãƒ•ã‚¡ã‚¤ãƒ«åã‚’å‰Šé™¤
 
 	pSatori = new Satori;
 	pSatori->load(base_folder);

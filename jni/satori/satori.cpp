@@ -1,9 +1,9 @@
 #include "satori.h"
 
 const char* gSatoriName = "Satori";
-const char* gSatoriNameW = "—¢X";
+const char* gSatoriNameW = "\x97\xA2\x81\x58";
 const char* gSatoriCraftman = "Yagi Kushigahama";
-const char* gSatoriCraftmanW = "‹ùƒ–•l‚â‚¬";
+const char* gSatoriCraftmanW = "\x8B\xF9\x83\x96\x95\x6C\x82\xE2\x82\xAC";
 const char* gSatoriVersion = "phase 123";
 const char* gShioriVersion = "3.0";
 const char* gSaoriVersion = "1.0";
@@ -11,7 +11,7 @@ const char* gSaoriVersion = "1.0";
 
 
 #ifdef SATORI_DLL
-	// Satori‚Ì—Bˆê‚ÌÀ‘Ì
+	// Satoriã®å”¯ä¸€ã®å®Ÿä½“
 	Satori gSatori;
 	SakuraDLLHost* SakuraDLLHost::m_dll = &gSatori;
 #else
@@ -19,10 +19,10 @@ const char* gSaoriVersion = "1.0";
 #endif // SATORI_DLL
 
 
-// ƒGƒXƒP[ƒv•¶š—ñ
+// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—æ–‡å­—åˆ—
 const char escaper::sm_escape_sjis_code[3]={(char)0x9e,(char)0xff,0x00};
 
-// ˆø”•¶š—ñ‚ğó‚¯æ‚èAƒƒ“ƒo‚ÉŠi”[‚µAuƒGƒXƒP[ƒv‚³‚ê‚½•¶š—ñv‚ğ•Ô‚·B
+// å¼•æ•°æ–‡å­—åˆ—ã‚’å—ã‘å–ã‚Šã€ãƒ¡ãƒ³ãƒã«æ ¼ç´ã—ã€ã€Œã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸæ–‡å­—åˆ—ã€ã‚’è¿”ã™ã€‚
 string escaper::insert(const string& i_str)
 {
 	m_id2str.push_back(i_str);
@@ -30,7 +30,7 @@ string escaper::insert(const string& i_str)
 	return string() + sm_escape_sjis_code + itos(m_id2str.size()-1) + " ";
 }
 
-// ‘ÎÛ•¶š—ñ’†‚ÉŠÜ‚Ü‚ê‚éuƒGƒXƒP[ƒv‚³‚ê‚½•¶š—ñv‚ğŒ³‚É–ß‚·B
+// å¯¾è±¡æ–‡å­—åˆ—ä¸­ã«å«ã¾ã‚Œã‚‹ã€Œã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸæ–‡å­—åˆ—ã€ã‚’å…ƒã«æˆ»ã™ã€‚
 void escaper::unescape(string& io_str)
 {
 	const int	max = m_id2str.size();
@@ -38,7 +38,7 @@ void escaper::unescape(string& io_str)
 		replace(io_str, string(sm_escape_sjis_code)+itos(i)+" ", m_id2str[i]);
 }
 
-// ƒƒ“ƒo‚ğƒNƒŠƒA
+// ãƒ¡ãƒ³ãƒã‚’ã‚¯ãƒªã‚¢
 void escaper::clear()
 {
 	//m_str2id.clear();
@@ -46,14 +46,14 @@ void escaper::clear()
 }
 
 
-// ®‚ğ•]‰¿‚µAŒ‹‰Ê‚ğ^‹U’l‚Æ‚µ‚Ä‰ğß‚·‚é
+// å¼ã‚’è©•ä¾¡ã—ã€çµæœã‚’çœŸå½å€¤ã¨ã—ã¦è§£é‡ˆã™ã‚‹
 bool Satori::evalcate_to_bool(const Condition& i_cond)
 {
 	string r;
 	if ( !calculate(i_cond.c_str(), r) )
 	{
-		// ŒvZ¸”s
+		// è¨ˆç®—å¤±æ•—
 		return false;
 	}
-	return  ( r!="0" && r!="‚O" );
+	return  ( r!="0" && r!="\x82\x4F" );
 }

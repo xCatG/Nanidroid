@@ -3,17 +3,17 @@
 
 #include "../_/stltool.h"
 
-// ‹¤’Ê‚ÌŠî’êƒNƒ‰ƒX
+// å…±é€šã®åŸºåº•ã‚¯ãƒ©ã‚¹
 class SakuraCS
 {
 };
 
 
 
-// io_target‚©‚çi_delimiter‚Ì’¼‘O‚Ü‚Å‚ğØ‚èo‚·B
-// i_delimiter‚ªŒ©‚Â‚©‚ç‚È‚¯‚ê‚ÎAc‚è‘S‚Ä‚ğØ‚èo‚·B
+// io_targetã‹ã‚‰i_delimiterã®ç›´å‰ã¾ã§ã‚’åˆ‡ã‚Šå‡ºã™ã€‚
+// i_delimiterãŒè¦‹ã¤ã‹ã‚‰ãªã‘ã‚Œã°ã€æ®‹ã‚Šå…¨ã¦ã‚’åˆ‡ã‚Šå‡ºã™ã€‚
 string cut_token(string& io_target, const string& i_delimiter);
-// “¯ãB‚½‚¾‚µŒ©‚Â‚©‚ç‚È‚©‚Á‚½ê‡‚Ífalse‚ğ•Ô‚·B
+// åŒä¸Šã€‚ãŸã ã—è¦‹ã¤ã‹ã‚‰ãªã‹ã£ãŸå ´åˆã¯falseã‚’è¿”ã™ã€‚
 bool cut_token(string& io_target, const string& i_delimiter, string& o_token);
 
 

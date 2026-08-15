@@ -1,0 +1,177 @@
+{
+  "files": {
+    "Families.h": {
+      "literal_count": 36,
+      "sha256": "cd06333ef0a286cfe9af58238a0326d957421566288d54fa6705b247d6e147fd"
+    },
+    "Family.h": {
+      "literal_count": 4,
+      "sha256": "8e01c8434260e80221bd0b9262e508079226ae9bb7e7ec312395a3486af0b682"
+    },
+    "OverlapController.h": {
+      "literal_count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "SSTPClient.cpp": {
+      "literal_count": 8,
+      "sha256": "3dfaf57f179718ee11079e9c9872a2ef6375c232aa7a828e5c4c33fcb4f7dd64"
+    },
+    "SSTPClient.h": {
+      "literal_count": 3,
+      "sha256": "b6dda2aa08389b0b75e663d6b29ad1a7953798acaf976c92716b1bed81ff5cfe"
+    },
+    "SakuraCS.cpp": {
+      "literal_count": 2,
+      "sha256": "6d1afd54d7111f969c8536360978db6c6fd731e49ac97cb8c9fab52af8bdaa47"
+    },
+    "SakuraCS.h": {
+      "literal_count": 1,
+      "sha256": "c9eae882579ef090604029dd7580f6bba6c29b8640c7d00c71250ba1c4b703a0"
+    },
+    "SakuraClient.cpp": {
+      "literal_count": 8,
+      "sha256": "f7e4becdb00d770b78a3d65816c68437a607c6b978ac2819acfebc1b2ddf1a0a"
+    },
+    "SakuraClient.h": {
+      "literal_count": 1,
+      "sha256": "fb320929e8eaf53c34f2f01a8c8cfb3dcd4ecc92f42bad583bcbe1b83aa4fc10"
+    },
+    "SakuraDLLClient.cpp": {
+      "literal_count": 25,
+      "sha256": "d09f4b699cb55e6ab3783708821116d4eb2d950fffc5fd7adc79b0ad34e70756"
+    },
+    "SakuraDLLClient.h": {
+      "literal_count": 1,
+      "sha256": "ab934194ea4131ef581ebcd15418b59a14c85687ad1035a2a86f42f9e15e1724"
+    },
+    "SakuraDLLHost.cpp": {
+      "literal_count": 21,
+      "sha256": "70365413cd0cd6c5c05b9603e17ed2ea8cd49eddcbbfc8a7cfcda47cd84d0924"
+    },
+    "SakuraDLLHost.h": {
+      "literal_count": 1,
+      "sha256": "fb320929e8eaf53c34f2f01a8c8cfb3dcd4ecc92f42bad583bcbe1b83aa4fc10"
+    },
+    "SaoriClient.cpp": {
+      "literal_count": 13,
+      "sha256": "21b8193d91e017819f7e2c984cbdd18af0c30bedcd3e6084073c061e86b11122"
+    },
+    "SaoriClient.h": {
+      "literal_count": 1,
+      "sha256": "14efe581bf3275badae3859d279fbb8c045228e6a4e4a1f24f38264ad8a2506f"
+    },
+    "SaoriHost.cpp": {
+      "literal_count": 11,
+      "sha256": "833dfb3456444be88e8cb65c757499cee6ca711cc294888b4c4aa58edf78d6cf"
+    },
+    "SaoriHost.h": {
+      "literal_count": 2,
+      "sha256": "a73d0d3e74cc296705677b37170128d92ad053e89258225bddc7935e9aa53b97"
+    },
+    "Selector.h": {
+      "literal_count": 2,
+      "sha256": "30a2b56e3de0c3472022d2d787aa74458e8169e6b5fa135622e9113e0eae60a4"
+    },
+    "ShioriClient.cpp": {
+      "literal_count": 14,
+      "sha256": "3792dfc33fd2478f2a2dc65e2166d55dfd9ea03f13c3c0d0d790bbf53d36c7fa"
+    },
+    "ShioriClient.h": {
+      "literal_count": 1,
+      "sha256": "14efe581bf3275badae3859d279fbb8c045228e6a4e4a1f24f38264ad8a2506f"
+    },
+    "TimeCommands.cpp": {
+      "literal_count": 7,
+      "sha256": "efd1284329cfff2067a8b7015006e8b4ff5d3b6474636716291a2d03a174cfe6"
+    },
+    "WinMain.cpp": {
+      "literal_count": 78,
+      "sha256": "c083b1f3b72ed94e2d31403527acb13d2bfaf7ced3b27be6fee86b6bfa849f88"
+    },
+    "console_application.h": {
+      "literal_count": 7,
+      "sha256": "0186b90d162cbd3a1366bce344062d19ca8d382afe0d3671ed593a98bb1e9f62"
+    },
+    "main.cpp": {
+      "literal_count": 6,
+      "sha256": "3e67197c82b8cdc3dc54194878eef32f5d0149a82ffc8a743d0ebb603c10a413"
+    },
+    "posix_utils.h": {
+      "literal_count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "satori.cpp": {
+      "literal_count": 12,
+      "sha256": "fec87b82ad9348c82aa434bc8df668baa6db4e9e2f52387f4b3b4038f71c1317"
+    },
+    "satori.h": {
+      "literal_count": 6,
+      "sha256": "4226bb614d7a1cefb8281aab8eec0024597737d89111b2dd042f1213335450ca"
+    },
+    "satoriFMO.cpp": {
+      "literal_count": 14,
+      "sha256": "c4d23ca4a59307b567d77cf5334d885e7e474dc4742f0b7362a80540e75bd131"
+    },
+    "satoriTranslate.cpp": {
+      "literal_count": 58,
+      "sha256": "cf9854dcb3161cb4c2390198c0d520f6ebeaf013ad9ab1c7fe3aa9317669ddf5"
+    },
+    "satori_AnalyzeRequest.cpp": {
+      "literal_count": 69,
+      "sha256": "81d2eac8d7891a18001aa9954b55fae22df9f9fb3f058564c1fa114c09e46e39"
+    },
+    "satori_CreateResponce.cpp": {
+      "literal_count": 20,
+      "sha256": "e8eb501d1f62976ce83a2e845d194ff48dc8913c203453055e16d73638a3c816"
+    },
+    "satori_EventOperation.cpp": {
+      "literal_count": 82,
+      "sha256": "62dfc7e44046b135aad1cf23c28e9ecba36fd5bd761445c5fae8f2a6c6877eee"
+    },
+    "satori_Kakko.cpp": {
+      "literal_count": 216,
+      "sha256": "fd4352956fbe352253e2c154d340479fb8164a43d60a9b1418258aa5b6a7b4a6"
+    },
+    "satori_jni.cpp": {
+      "literal_count": 20,
+      "sha256": "71e1e88d9035c7a939f70975e230ab285a72bf45f3d04fd65b474166e7dcf5d1"
+    },
+    "satori_load_dict.cpp": {
+      "literal_count": 49,
+      "sha256": "f8fbbdb54a3e7e1002001170e45719f97ff6923c5ad2ba0a71b8aa9bda5e0f2b"
+    },
+    "satori_load_dict.h": {
+      "literal_count": 20,
+      "sha256": "769fb77302c87a1250cfee63c105d0ddd4a8289c93a93cfef18cc7d056b33cbc"
+    },
+    "satori_load_unload.cpp": {
+      "literal_count": 94,
+      "sha256": "39ab9c9e051cf166b2c0b676727928686498d145edd029a168e7706fcf891f0b"
+    },
+    "satori_sentence.cpp": {
+      "literal_count": 156,
+      "sha256": "afc996be4de727832816407028396206f5f437e32cdb9a596e609fef0cb19d9e"
+    },
+    "satori_tool.cpp": {
+      "literal_count": 129,
+      "sha256": "8b4a364a55e19d475abaae064c79544dcffa020957fe956c491ce5b181a21b74"
+    },
+    "shiori_plugin.cpp": {
+      "literal_count": 58,
+      "sha256": "1d9329ebd062d87255953ca50125c5cbabf8166515c4ce60f10b3b0306f4a9b7"
+    },
+    "shiori_plugin.h": {
+      "literal_count": 1,
+      "sha256": "d3d4b28f14bd83ee5a3be734c506fe37fea7f1dba13854106a1622975df7045a"
+    },
+    "ssu.cpp": {
+      "literal_count": 124,
+      "sha256": "8557177ce537e4eb97d6b5a4c8abb8362f9e46ebd24c5ed202542633911273cf"
+    },
+    "ssu_anchor.cpp": {
+      "literal_count": 1,
+      "sha256": "30b82855b9682211fa6e3f344c35baabf131a7a8530d515c9d92b8102b1af73e"
+    }
+  },
+  "version": 1
+}

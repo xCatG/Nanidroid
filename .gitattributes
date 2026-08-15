@@ -16,6 +16,15 @@ gradlew text eol=lf
 gradlew.bat text eol=crlf
 gradle/wrapper/gradle-wrapper.properties text eol=lf
 
+# Legacy Satori sources are UTF-8. Non-ASCII narrow-literal bytes are spelled
+# with ASCII escapes and verified by the adjacent source-literal manifests.
+jni/_/*.c text working-tree-encoding=UTF-8
+jni/_/*.cpp text working-tree-encoding=UTF-8
+jni/_/*.h text working-tree-encoding=UTF-8
+jni/satori/*.c text working-tree-encoding=UTF-8
+jni/satori/*.cpp text working-tree-encoding=UTF-8
+jni/satori/*.h text working-tree-encoding=UTF-8
+
 *.jar binary
 *.zip binary
 *.png binary

@@ -17,7 +17,7 @@ int SaoriClient::request(
 	vector<string>& o_value)
 {
 	//---------------------
-	// ƒŠƒNƒGƒXƒgì¬
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆä½œæˆ
 
 	strpairvec data;
 
@@ -29,13 +29,13 @@ int SaoriClient::request(
 	data.push_back( strpair("SecurityLevel", (i_is_secure ? "Local" : "External") ) );
 
 	//---------------------
-	// ƒŠƒNƒGƒXƒgÀs
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆå®Ÿè¡Œ
 
 	strpairvec r_data;
 	int return_code = this->SakuraDLLClient::request("EXECUTE", data, r_data);
 
 	//---------------------
-	// •Ô“š‚ğ‰ğÍ
+	// è¿”ç­”ã‚’è§£æ
 
 	string result;
 

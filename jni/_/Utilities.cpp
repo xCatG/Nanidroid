@@ -6,7 +6,7 @@
 	return	const_cast<char*>(FindFinalChar(start,c));
 }*/
 
-// •¶š—ñ’†‚©‚çw’è‚Ì1byte•¶š‚ªÅŒã‚ÉoŒ»‚·‚éˆÊ’u‚ğ•Ô‚·B
+// æ–‡å­—åˆ—ä¸­ã‹ã‚‰æŒ‡å®šã®1byteæ–‡å­—ãŒæœ€å¾Œã«å‡ºç¾ã™ã‚‹ä½ç½®ã‚’è¿”ã™ã€‚
 const char*	FindFinalChar( const char* start, char c ) {
 	const char*	last = NULL, *ptr = start;
 	while ( *ptr != '\0' ) {
@@ -38,7 +38,7 @@ void	SetExtention(char* iFileName, const char* iNewExtention) {
 */
 
 
-// iString‚ÌˆÊ’u‚©‚ç”¼ŠpƒXƒy[ƒX‹y‚Ñ”¼Špƒ^ƒu‚ğ”ò‚Î‚µ‚½ˆÊ’u‚ğ•Ô‚·
+// iStringã®ä½ç½®ã‹ã‚‰åŠè§’ã‚¹ãƒšãƒ¼ã‚¹åŠã³åŠè§’ã‚¿ãƒ–ã‚’é£›ã°ã—ãŸä½ç½®ã‚’è¿”ã™
 const char*	SkipDelimiter(const char* p) {
 	assert(p!=NULL);
 	while ( *p==' ' || *p=='\t' )

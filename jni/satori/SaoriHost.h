@@ -4,7 +4,7 @@
 #include	<deque>
 using namespace std;
 
-// SAORI�߂�l
+// SAORI戻り値
 struct SRV {
 	int	mReturnCode;
 	string	mResultString;
@@ -14,7 +14,7 @@ struct SRV {
 };
 
 
-// SAORI�x�[�X�N���X
+// SAORIベースクラス
 class SaoriHost : public SakuraDLLHost
 {
 	virtual int	request(
@@ -31,5 +31,5 @@ public:
 	virtual ~SaoriHost() {}
 
 	virtual SRV	request(deque<string>& iArguments, deque<string>& oValues)=0;
-		// iArguments�͂������܂��B
+		// iArgumentsはいじられます。
 };

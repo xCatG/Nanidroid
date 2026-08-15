@@ -8,10 +8,10 @@
 //#  include	<mbctype.h>		// for _ismbblead()
 #endif
 
-// ƒOƒ[ƒoƒ‹ƒIƒuƒWƒFƒNƒg
+// ã‚°ãƒ­ãƒ¼ãƒãƒ«ã‚ªãƒ–ã‚¸ã‚§ã‚¯ãƒˆ
 Sender::sender_stream	sender;
 
-// staticƒƒ“ƒo
+// staticãƒ¡ãƒ³ãƒ
 bool Sender::sm_sender_flag = true;
 int Sender::nest_object::sm_nest = 0;
 #ifndef POSIX
@@ -24,12 +24,12 @@ bool	Sender::initialize()
 #ifdef POSIX
 	return true;
 #else
-	return (sm_receiver_window = ::FindWindow("‚ê‚µ‚Î", "‚ê‚µ‚Î")) != NULL;
+	return (sm_receiver_window = ::FindWindow("\x82\xEA\x82\xB5\x82\xCE", "\x82\xEA\x82\xB5\x82\xCE")) != NULL;
 #endif
 }
 
 
-// ƒŒƒV[ƒoƒEƒBƒ“ƒhƒE‚ÉƒƒbƒZ[ƒW‚ğ‘—M
+// ãƒ¬ã‚·ãƒ¼ãƒã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ã«ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã‚’é€ä¿¡
 bool	Sender::send(const char* iFormat, ...)
 {
 	if ( !sm_sender_flag )
@@ -38,7 +38,7 @@ bool	Sender::send(const char* iFormat, ...)
 	}
 
 #ifdef POSIX
-	// ‚Æ‚è‚ ‚¦‚¸•W€ƒGƒ‰[‚É‚Å‚àB
+	// ã¨ã‚Šã‚ãˆãšæ¨™æº–ã‚¨ãƒ©ãƒ¼ã«ã§ã‚‚ã€‚
 	va_list theArgPtr;
 	va_start(theArgPtr, iFormat);
 	vfprintf(stderr, iFormat, theArgPtr);
@@ -54,7 +54,7 @@ bool	Sender::send(const char* iFormat, ...)
 
 	if ( sm_receiver_window==NULL )
 	{
-		// ‰‰ñ‚Ì‚İ©“®ŒŸõB–ˆ‰ñFindWindow‚Í–³‘Ê‚·‚¬‚é
+		// åˆå›ã®ã¿è‡ªå‹•æ¤œç´¢ã€‚æ¯å›FindWindowã¯ç„¡é§„ã™ãã‚‹
 		static bool is_do_auto_initialize = false;
 		if ( !is_do_auto_initialize )
 		{
@@ -83,7 +83,7 @@ bool	Sender::send(const char* iFormat, ...)
 		delete [] buf;
 	}
 
-	// \\n‚ğ\r\n‚É’u‚«Š·‚¦‚é
+	// \\nã‚’\r\nã«ç½®ãæ›ãˆã‚‹
 	/*char* p = theBuf;
 	while ( (p=strstr(p, "\\n"))!=NULL )
 	{
@@ -106,14 +106,14 @@ int Sender::sender_buf::overflow(int c)
 {
 	if ( c=='\n' || c=='\0' || c==EOF )
 	{
-		// o—Í‚ğs‚¤
+		// å‡ºåŠ›ã‚’è¡Œã†
 		send("%s", line);
 		line[0]='\0';
 		pos = 0;
 	} 
 	else
 	{
-		// ƒoƒbƒtƒ@‚É‚½‚ß‚é
+		// ãƒãƒƒãƒ•ã‚¡ã«ãŸã‚ã‚‹
 		line[pos++] = c;
 		line[pos] = '\0';
 

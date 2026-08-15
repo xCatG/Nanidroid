@@ -1,6 +1,6 @@
 #ifdef _MSC_VER 
 
-	// ƒ}ƒ‹ƒ`ƒ‚ƒjƒ^ŠÖ˜A
+	// ãƒãƒ«ãƒãƒ¢ãƒ‹ã‚¿é–¢é€£
 	//#define WINVER 0x0500
 	#include	<windows.h>
 	#include	<multimon.h>
@@ -40,7 +40,7 @@ BOOL CALLBACK MonitorEnumFunc(HMONITOR hMonitor,HDC hdc,LPRECT rect,LPARAM lPara
         return FALSE;
     }
 
-	sender << "ƒ‚ƒjƒ^: " << MonitorInfoEx.szDevice << " / (" << 
+	sender << "\x83\x82\x83\x6A\x83\x5E: " << MonitorInfoEx.szDevice << " / (" << 
 		rect->left << "," << rect->top << "," << rect->right << "," << rect->bottom << ") / " <<
 		((MonitorInfoEx.dwFlags==MONITORINFOF_PRIMARY) ? "primary" : "extra") << endl;
 
@@ -61,7 +61,7 @@ BOOL CALLBACK MonitorEnumFunc(HMONITOR hMonitor,HDC hdc,LPRECT rect,LPARAM lPara
 //---------------------------------------------------------------------------
 
 #ifdef	_DEBUG
-	//memory leak‚ÌŒŸo(‰º‚Ì3s‚ğ‚±‚Ì‡”Ô‚Å‹Lq‚µ‚Ä‚­‚¾‚³‚¢B)
+	//memory leakã®æ¤œå‡º(ä¸‹ã®3è¡Œã‚’ã“ã®é †ç•ªã§è¨˜è¿°ã—ã¦ãã ã•ã„ã€‚)
 	#define _CRTDBG_MAP_ALLOC
 	#include <stdlib.h>
 	#include <crtdbg.h>
@@ -81,10 +81,10 @@ bool	Satori::load(const string& iBaseFolder)
 
 
 	mBaseFolder = iBaseFolder;
-	sender << "¡SATORI::Load on " << mBaseFolder << "" << endl;
+	sender << "\x81\xA1SATORI::Load on " << mBaseFolder << "" << endl;
 
 #if POSIX
-	// u/v‚ÅI‚í‚Á‚Ä‚¢‚È‚¯‚ê‚Î•t‚¯‚éB
+	// ã€Œ/ã€ã§çµ‚ã‚ã£ã¦ã„ãªã‘ã‚Œã°ä»˜ã‘ã‚‹ã€‚
 	if (mBaseFolder[mBaseFolder.size() - 1] != '/') {
 	    mBaseFolder += '/';
 	}
@@ -92,7 +92,7 @@ bool	Satori::load(const string& iBaseFolder)
 
 
 #ifdef	_MSC_VER
-	// –{‘Ì‚Ì‚ ‚éƒtƒHƒ‹ƒ_‚ğƒT[ƒ`
+	// æœ¬ä½“ã®ã‚ã‚‹ãƒ•ã‚©ãƒ«ãƒ€ã‚’ã‚µãƒ¼ãƒ
 	{
 		TCHAR	buf[MAX_PATH+1];
 		::GetModuleFileName(NULL, buf, MAX_PATH);
@@ -104,14 +104,14 @@ bool	Satori::load(const string& iBaseFolder)
 			mExeFolder = buf;
 		}
 	}
-	sender << "–{‘Ì‚ÌŠİ: " << mExeFolder << "" << endl;
+	sender << "\x96\x7B\x91\xCC\x82\xCC\x8F\x8A\x8D\xDD: " << mExeFolder << "" << endl;
 #endif // _MSC_VER
 
-	// ƒƒ“ƒo‰Šú‰»
+	// ãƒ¡ãƒ³ãƒåˆæœŸåŒ–
 	InitMembers();
 
 #ifdef	_MSC_VER
-	// ƒVƒXƒeƒ€‚Ìİ’è‚ğ“Ç‚ñ‚Å‚¨‚­
+	// ã‚·ã‚¹ãƒ†ãƒ ã®è¨­å®šã‚’èª­ã‚“ã§ãŠã
     OSVERSIONINFO	ovi;
     ovi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
 	::GetVersionEx(&ovi);
@@ -128,7 +128,7 @@ bool	Satori::load(const string& iBaseFolder)
 		}
 		else { mOSType = WINXP; os="Windows XP or later"; }
 	}
-	sender << "‚n‚rí•Ê: " << os << endl;
+	sender << "\x82\x6E\x82\x72\x8E\xED\x95\xCA: " << os << endl;
 	if ( mOSType==WIN95 ) {
 		is_single_monitor = true;
 	} else {
@@ -142,41 +142,41 @@ bool	Satori::load(const string& iBaseFolder)
 			::GetWindowRect(::GetDesktopWindow(), &desktop_rect);
 			RECT*	rect;
 			rect = &desktop_rect;
-			sender << "ƒvƒ‰ƒCƒ}ƒŠƒfƒXƒNƒgƒbƒv: (" << 
+			sender << "\x83\x76\x83\x89\x83\x43\x83\x7D\x83\x8A\x83\x66\x83\x58\x83\x4E\x83\x67\x83\x62\x83\x76: (" << 
 				rect->left << "," << rect->top << "," << rect->right << "," << rect->bottom << ")" << endl;
 			rect = &max_screen_rect;
-			sender << "‰¼‘zƒfƒXƒNƒgƒbƒv: (" << 
+			sender << "\x89\xBC\x91\x7A\x83\x66\x83\x58\x83\x4E\x83\x67\x83\x62\x83\x76: (" << 
 				rect->left << "," << rect->top << "," << rect->right << "," << rect->bottom << ")" << endl;
 			is_single_monitor = ( ::EqualRect(&max_screen_rect, &desktop_rect)!=FALSE );
 			sender << (is_single_monitor ? 
-				"ƒ‚ƒjƒ^‚Íˆê‚Â‚¾‚¯‚Æ”»’fAŒ©Ø‚ê”»’è‚ğŒÄ‚Ño‚µŒ³‚É”C‚¹‚Ü‚·B" : 
-				"•¡”‚Ìƒ‚ƒjƒ^‚ªÚ‘±‚³‚ê‚Ä‚¢‚é‚Æ”»’fAŒ©Ø‚ê”»’è‚Í—¢X‚ªs‚¢‚Ü‚·B") << endl;
+				"\x83\x82\x83\x6A\x83\x5E\x82\xCD\x88\xEA\x82\xC2\x82\xBE\x82\xAF\x82\xC6\x94\xBB\x92\x66\x81\x41\x8C\xA9\x90\xD8\x82\xEA\x94\xBB\x92\xE8\x82\xF0\x8C\xC4\x82\xD1\x8F\x6F\x82\xB5\x8C\xB3\x82\xC9\x94\x43\x82\xB9\x82\xDC\x82\xB7\x81\x42" : 
+				"\x95\xA1\x90\x94\x82\xCC\x83\x82\x83\x6A\x83\x5E\x82\xAA\x90\xDA\x91\xB1\x82\xB3\x82\xEA\x82\xC4\x82\xA2\x82\xE9\x82\xC6\x94\xBB\x92\x66\x81\x41\x8C\xA9\x90\xD8\x82\xEA\x94\xBB\x92\xE8\x82\xCD\x97\xA2\x81\x58\x82\xAA\x8D\x73\x82\xA2\x82\xDC\x82\xB7\x81\x42") << endl;
 		}
 	}
 #endif // _MSC_VER
 
-	// ’uŠ·«‘“Ç‚İæ‚è
+	// ç½®æ›è¾æ›¸èª­ã¿å–ã‚Š
 	strmap_from_file(replace_before_dic, mBaseFolder+"replace.txt", "\t");
 	strmap_from_file(replace_after_dic, mBaseFolder+"replace_after.txt", "\t");
 
-	// ƒLƒƒƒ‰ƒf[ƒ^“Ç‚İ‚İ
+	// ã‚­ãƒ£ãƒ©ãƒ‡ãƒ¼ã‚¿èª­ã¿è¾¼ã¿
 	try {
 	mCharacters.load(mBaseFolder + "characters.ini");
 	for ( inimap::const_iterator i=mCharacters.begin() ; i!=mCharacters.end() ; ++i ) {
 		const strmap& m = i->second;
 		strmap::const_iterator j;
 
-		// ’uŠ·«‘‚É’Ç‰Á
+		// ç½®æ›è¾æ›¸ã«è¿½åŠ 
 		j = m.find("popular-name");
 		if ( j != m.end() && j->second.size()>0 ) 
-			replace_before_dic[j->second + "F"] = string() + "\\p[" + i->first + "]";
+			replace_before_dic[j->second + "\x81\x46"] = string() + "\\p[" + i->first + "]";
 		j = m.find("initial-letter");
 		if ( j != m.end() && j->second.size()>0 ) 
-			replace_before_dic[j->second + "F"] = string() + "\\p[" + i->first + "]";
+			replace_before_dic[j->second + "\x81\x46"] = string() + "\\p[" + i->first + "]";
 
 		j = m.find("base-surface");
 		if ( j != m.end() && j->second.size()>0 )
-			system_variable_operation( string("ƒT[ƒtƒFƒX‰ÁZ’l") + i->first, j->second);
+			system_variable_operation( string("\x83\x54\x81\x5B\x83\x74\x83\x46\x83\x58\x89\xC1\x8E\x5A\x92\x6C") + i->first, j->second);
 	}
 	}
 	catch(...){
@@ -185,19 +185,19 @@ bool	Satori::load(const string& iBaseFolder)
 	//for ( strmap::const_iterator j=replace_before_dic.begin() ; j!=replace_before_dic.end() ; ++j )
 	//	cout << j->first << ": " << j->second << endl;
 
-	// ƒ‰ƒ“ƒ_ƒ}ƒCƒY
+	// ãƒ©ãƒ³ãƒ€ãƒã‚¤ã‚º
 	randomize(time(NULL));
 
 
 	//------------------------------------------
 
-	// ƒRƒ“ƒtƒBƒO“Ç‚İ‚İ
+	// ã‚³ãƒ³ãƒ•ã‚£ã‚°èª­ã¿è¾¼ã¿
 	LoadDictionary(mBaseFolder + "satori_conf.txt");
 
-	// •Ï”‰Šú‰»Às
-	GetSentence("‰Šú‰»");	
+	// å¤‰æ•°åˆæœŸåŒ–å®Ÿè¡Œ
+	GetSentence("\x8F\x89\x8A\xFA\x89\xBB");	
 
-	// SAORI“Ç‚İ‚İ
+	// SAORIèª­ã¿è¾¼ã¿
 	Family<Word>* f = words.get_family("SAORI");
 	if ( f != NULL )
 	{
@@ -209,7 +209,7 @@ bool	Satori::load(const string& iBaseFolder)
 		{
 			if ( (*i)->size()>0 && !mShioriPlugins.load_a_plugin(**i) )
 			{
-				sender << "SAORI“Ç‚İ‚İ’†‚ÉƒGƒ‰[‚ª”­¶: " << **i << endl;
+				sender << "SAORI\x93\xC7\x82\xDD\x8D\x9E\x82\xDD\x92\x86\x82\xC9\x83\x47\x83\x89\x81\x5B\x82\xAA\x94\xAD\x90\xB6: " << **i << endl;
 			}
 		}
 	}
@@ -218,18 +218,18 @@ bool	Satori::load(const string& iBaseFolder)
 
 	//------------------------------------------
 
-	// ƒZ[ƒuƒf[ƒ^“Ç‚İ‚İ
+	// ã‚»ãƒ¼ãƒ–ãƒ‡ãƒ¼ã‚¿èª­ã¿è¾¼ã¿
 	LoadDictionary(mBaseFolder + "satori_savedata.txt");
 
-	GetSentence("ƒZ[ƒuƒf[ƒ^");
+	GetSentence("\x83\x5A\x81\x5B\x83\x75\x83\x66\x81\x5B\x83\x5E");
 	talks.clear();
 	
 	reload_flag = false;
 
-	tick_count_total = stoi(variables["ƒS[ƒXƒg‹N“®ŠÔ—İŒv(ms)"]);
-	variables["‹N“®‰ñ”"] = itos( stoi(variables["‹N“®‰ñ”"])+1 );
+	tick_count_total = stoi(variables["\x83\x53\x81\x5B\x83\x58\x83\x67\x8B\x4E\x93\xAE\x8E\x9E\x8A\xD4\x97\xDD\x8C\x76(ms)"]);
+	variables["\x8B\x4E\x93\xAE\x89\xF1\x90\x94"] = itos( stoi(variables["\x8B\x4E\x93\xAE\x89\xF1\x90\x94"])+1 );
 
-	// u’PŒê‚Ì’Ç‰Áv‚Å“o˜^‚³‚ê‚½’PŒê‚ğŠo‚¦‚Ä‚¨‚­
+	// ã€Œå˜èªã®è¿½åŠ ã€ã§ç™»éŒ²ã•ã‚ŒãŸå˜èªã‚’è¦šãˆã¦ãŠã
 	const map< string, Family<Word> >& m = words.compatible();
 	for ( map< string, Family<Word> >::const_iterator it = m.begin() ; it != m.end() ; ++it )
 	{
@@ -240,22 +240,22 @@ bool	Satori::load(const string& iBaseFolder)
 
 	//------------------------------------------
 
-	// w’èƒtƒHƒ‹ƒ_‚Ì«‘‚ğ“Ç‚İ‚İ
+	// æŒ‡å®šãƒ•ã‚©ãƒ«ãƒ€ã®è¾æ›¸ã‚’èª­ã¿è¾¼ã¿
 	strvec::iterator i = dic_folder.begin();
 	if ( i==dic_folder.end() ) {
-		LoadDicFolder(mBaseFolder);	// ƒ‹[ƒgƒtƒHƒ‹ƒ_‚Ì«‘
+		LoadDicFolder(mBaseFolder);	// ãƒ«ãƒ¼ãƒˆãƒ•ã‚©ãƒ«ãƒ€ã®è¾æ›¸
 	} else {
 		for ( ; i!=dic_folder.end() ; ++i )
-			LoadDicFolder(mBaseFolder + *i + DIR_CHAR);	// ƒTƒuƒtƒHƒ‹ƒ_‚Ì«‘
+			LoadDicFolder(mBaseFolder + *i + DIR_CHAR);	// ã‚µãƒ–ãƒ•ã‚©ãƒ«ãƒ€ã®è¾æ›¸
 	}
 
 	//------------------------------------------
 
 	secure_flag = true;
 
-	system_variable_operation("’PŒêŒQu–v‚Ìd•¡‰ñ”ğ", "—LŒøAƒg[ƒN’†");
-	system_variable_operation("ƒg[ƒNu–v‚Ìd•¡‰ñ”ğ", "—LŒø");
-	//system_variable_operation("’PŒêŒQu‹Gß‚ÌH‚×•¨v‚Ìd•¡‰ñ”ğ", "—LŒøAƒg[ƒN’†");
+	system_variable_operation("\x92\x50\x8C\xEA\x8C\x51\x81\x75\x81\x96\x81\x76\x82\xCC\x8F\x64\x95\xA1\x89\xF1\x94\xF0", "\x97\x4C\x8C\xF8\x81\x41\x83\x67\x81\x5B\x83\x4E\x92\x86");
+	system_variable_operation("\x83\x67\x81\x5B\x83\x4E\x81\x75\x81\x96\x81\x76\x82\xCC\x8F\x64\x95\xA1\x89\xF1\x94\xF0", "\x97\x4C\x8C\xF8");
+	//system_variable_operation("å˜èªç¾¤ã€Œå­£ç¯€ã®é£Ÿã¹ç‰©ã€ã®é‡è¤‡å›é¿", "æœ‰åŠ¹ã€ãƒˆãƒ¼ã‚¯ä¸­");
 
 	GetSentence("OnSatoriLoad");
 	on_loaded_script = GetSentence("OnSatoriBoot");
@@ -274,15 +274,15 @@ bool	Satori::load(const string& iBaseFolder)
 #endif
 bool	Satori::Save(bool isOnUnload) {
 
-	// ƒƒ“ƒo•Ï”‚ğ—¢X•Ï”‰»
+	// ãƒ¡ãƒ³ãƒå¤‰æ•°ã‚’é‡Œã€…å¤‰æ•°åŒ–
 	for (map<int, string>::iterator it=reserved_talk.begin(); it!=reserved_talk.end() ; ++it)
-		variables[string("Ÿ‚©‚ç")+itos(it->first)+"‰ñ–Ú‚Ìƒg[ƒN"] = it->second;
-	// ‹N“®ŠÔ—İŒv‚ğİ’è
+		variables[string("\x8E\x9F\x82\xA9\x82\xE7")+itos(it->first)+"\x89\xF1\x96\xDA\x82\xCC\x83\x67\x81\x5B\x83\x4E"] = it->second;
+	// èµ·å‹•æ™‚é–“ç´¯è¨ˆã‚’è¨­å®š
 #ifdef POSIX
-	variables["ƒS[ƒXƒg‹N“®ŠÔ—İŒv(ms)"] =
+	variables["\x83\x53\x81\x5B\x83\x58\x83\x67\x8B\x4E\x93\xAE\x8E\x9E\x8A\xD4\x97\xDD\x8C\x76(ms)"] =
 	    itos(posix_get_current_millis() - tick_count_at_load + tick_count_total);
 #else
-	variables["ƒS[ƒXƒg‹N“®ŠÔ—İŒv(ms)"] = itos( ::GetTickCount() - tick_count_at_load + tick_count_total );
+	variables["\x83\x53\x81\x5B\x83\x58\x83\x67\x8B\x4E\x93\xAE\x8E\x9E\x8A\xD4\x97\xDD\x8C\x76(ms)"] = itos( ::GetTickCount() - tick_count_at_load + tick_count_total );
 #endif
 
 	if ( isOnUnload ) {
@@ -301,20 +301,20 @@ bool	Satori::Save(bool isOnUnload) {
 		sender << "failed." << endl;
 		return	false;
 	}
-	string	line = "–ƒZ[ƒuƒf[ƒ^";
+	string	line = "\x81\x96\x83\x5A\x81\x5B\x83\x75\x83\x66\x81\x5B\x83\x5E";
 	out << ENCODE(line) << endl;
 	for (strmap::const_iterator it=variables.begin() ; it!=variables.end() ; ++it) {
 		string	zen2han(string str);
 		string	str = zen2han(it->first);
 		if ( str[0]=='S' && aredigits(str.c_str()+1) )
 			continue;
-		string	line = string("")+it->first+"\t"+it->second; // •Ï”‚ğ•Û‘¶
+		string	line = string("\x81\x90")+it->first+"\t"+it->second; // å¤‰æ•°ã‚’ä¿å­˜
 		out << ENCODE(line) << endl;
 	}
 
 	for ( map<string, vector<const Word*> >::const_iterator i=mAppendedWords.begin() ; i!=mAppendedWords.end() ; ++i )
 	{
-		out << endl << ENCODE( string("—") + i->first ) << endl;
+		out << endl << ENCODE( string("\x81\x97") + i->first ) << endl;
 		for ( vector<const Word*>::const_iterator j=i->second.begin() ; j!=i->second.end() ; ++j )
 		{
 			out << ENCODE(**j) << endl;
@@ -328,13 +328,13 @@ bool	Satori::Save(bool isOnUnload) {
 //---------------------------------------------------------------------------
 bool	Satori::unload() {
 
-	// ƒtƒ@ƒCƒ‹‚É•Û‘¶
+	// ãƒ•ã‚¡ã‚¤ãƒ«ã«ä¿å­˜
 	this->Save(true);
 
-	// ƒvƒ‰ƒOƒCƒ“‰ğ•ú
+	// ãƒ—ãƒ©ã‚°ã‚¤ãƒ³è§£æ”¾
 	mShioriPlugins.unload();
 
-	sender << "¡SATORI::Unload ---------------------" << endl;
+	sender << "\x81\xA1SATORI::Unload ---------------------" << endl;
 	return	true;
 }
 

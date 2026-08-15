@@ -2,18 +2,18 @@
 #include <list>
 #include <set>
 
-// Šeƒƒ\ƒbƒh‚É‚æ‚éAuŒó•â‚©‚ç‚Ì‘I‘ğvƒNƒ‰ƒXŒQ
-// Œó•âT‚ÍID‚âƒ|ƒCƒ“ƒ^“™Aƒ†ƒj[ƒN‚©‚Â‘ã“ü‰Â”\‚Å‚È‚¯‚ê‚Î‚È‚ç‚È‚¢B
+// å„ãƒ¡ã‚½ãƒƒãƒ‰ã«ã‚ˆã‚‹ã€ã€Œå€™è£œã‹ã‚‰ã®é¸æŠã€ã‚¯ãƒ©ã‚¹ç¾¤
+// å€™è£œTã¯IDã‚„ãƒã‚¤ãƒ³ã‚¿ç­‰ã€ãƒ¦ãƒ‹ãƒ¼ã‚¯ã‹ã¤ä»£å…¥å¯èƒ½ã§ãªã‘ã‚Œã°ãªã‚‰ãªã„ã€‚
 
 
-// –³Œø’l
+// ç„¡åŠ¹å€¤
 #define INVALID_VALUE NULL
 //#define INVALID_VALUE -1
 
 
 
 // ----------------------------------------------------------------------
-// Šeƒƒ\ƒbƒh‚Ì’ŠÛŠî’êƒNƒ‰ƒX
+// å„ãƒ¡ã‚½ãƒƒãƒ‰ã®æŠ½è±¡åŸºåº•ã‚¯ãƒ©ã‚¹
 template<typename T>
 class OverlapController
 {
@@ -21,28 +21,28 @@ public:
 	OverlapController() {}
 	virtual ~OverlapController() {}
 
-	// Œó•â‚©‚çˆê‚Â‚ğ‘I‘ğ
-	// Œó•â‚Íˆê‚ÂˆÈã‚ ‚é‚±‚Æ‚ª•ÛØ‚³‚ê‚Ä‚¢‚éB
+	// å€™è£œã‹ã‚‰ä¸€ã¤ã‚’é¸æŠ
+	// å€™è£œã¯ä¸€ã¤ä»¥ä¸Šã‚ã‚‹ã“ã¨ãŒä¿è¨¼ã•ã‚Œã¦ã„ã‚‹ã€‚
 	virtual T select(const list<T>&) =0;
 
 
-	// ƒCƒxƒ“ƒg’Ê’mƒnƒ“ƒhƒ‰
+	// ã‚¤ãƒ™ãƒ³ãƒˆé€šçŸ¥ãƒãƒ³ãƒ‰ãƒ©
 
-	// Œó•â‚ª’Ç‰Á‚³‚ê‚½
+	// å€™è£œãŒè¿½åŠ ã•ã‚ŒãŸ
 	virtual void on_add(const list<T>& i_candidates, typename list<T>::const_iterator i_it) {}
-	// Œó•â‚ªÁ‹‚³‚ê‚æ‚¤‚Æ‚µ‚Ä‚¢‚é
+	// å€™è£œãŒæ¶ˆå»ã•ã‚Œã‚ˆã†ã¨ã—ã¦ã„ã‚‹
 	virtual void on_erase(const list<T>& i_candidates, typename list<T>::const_iterator i_it) {}
-	// d•¡‰ñ”ğó‹µ‚ğ‰Šú‰»
+	// é‡è¤‡å›é¿çŠ¶æ³ã‚’åˆæœŸåŒ–
 	virtual void on_clear() {}
 };
 
 // ----------------------------------------------------------------------
-// Š®‘Sƒ‰ƒ“ƒ_ƒ€
+// å®Œå…¨ãƒ©ãƒ³ãƒ€ãƒ 
 template<typename T>
 class OC_Random : public OverlapController<T>
 {
 public:
-	// Œó•â‚©‚çˆê‚Â‚ğ‘I‘ğ
+	// å€™è£œã‹ã‚‰ä¸€ã¤ã‚’é¸æŠ
 	virtual T select(const list<T>& i_candidates)
 	{
 		typename list<T>::const_iterator it = i_candidates.begin();
@@ -52,27 +52,27 @@ public:
 };
 
 // ----------------------------------------------------------------------
-// ‘S‚Äg‚¢Ø‚é‚Ü‚Åd•¡‰ñ”ğ
+// å…¨ã¦ä½¿ã„åˆ‡ã‚‹ã¾ã§é‡è¤‡å›é¿
 template<typename T>
 class OC_NonOverlap : public OverlapController<T>
 {
 	set<T> m_used;
 	set<T> m_unused;
 public:
-	// Œó•â‚©‚çˆê‚Â‚ğ‘I‘ğ
+	// å€™è£œã‹ã‚‰ä¸€ã¤ã‚’é¸æŠ
 	virtual T select(const list<T>&)
 	{
-		// u–¢g—pv‚ª‹ó‚Á‚Û‚È‚çug—pÏ‚İv‚ğ‘S‚Äu–¢g—pv‚É‚·‚éB
+		// ã€Œæœªä½¿ç”¨ã€ãŒç©ºã£ã½ãªã‚‰ã€Œä½¿ç”¨æ¸ˆã¿ã€ã‚’å…¨ã¦ã€Œæœªä½¿ç”¨ã€ã«ã™ã‚‹ã€‚
 		if ( m_unused.empty() )
 		{
 			m_used.swap( m_unused );
 		}
 
-		// u–¢g—pv‚©‚çƒ‰ƒ“ƒ_ƒ€‚Éˆê‚Â‚ğ‘I‚Ño‚·
+		// ã€Œæœªä½¿ç”¨ã€ã‹ã‚‰ãƒ©ãƒ³ãƒ€ãƒ ã«ä¸€ã¤ã‚’é¸ã³å‡ºã™
 		typename set<T>::iterator it = m_unused.begin();
 		advance( it, random() % m_unused.size() );
 
-		// ‘I‚ñ‚¾ˆê‚Â‚ğu–¢g—pv‚©‚çug—pÏ‚İv‚ÉˆÚ‚·
+		// é¸ã‚“ã ä¸€ã¤ã‚’ã€Œæœªä½¿ç”¨ã€ã‹ã‚‰ã€Œä½¿ç”¨æ¸ˆã¿ã€ã«ç§»ã™
 		T t = *it;
 		m_unused.erase(it);
 		m_used.insert(t);
@@ -80,21 +80,21 @@ public:
 		return t;
 	}
 
-	// Œó•â‚ª’Ç‰Á‚³‚ê‚½
+	// å€™è£œãŒè¿½åŠ ã•ã‚ŒãŸ
 	virtual void on_add(const list<T>&, typename list<T>::const_iterator i_it)
 	{
 		m_unused.insert(*i_it);
 	}
 
-	// Œó•â‚ªÁ‹‚³‚ê‚æ‚¤‚Æ‚µ‚Ä‚¢‚é
+	// å€™è£œãŒæ¶ˆå»ã•ã‚Œã‚ˆã†ã¨ã—ã¦ã„ã‚‹
 	virtual void on_erase(const list<T>&, typename list<T>::const_iterator i_it)
 	{
-		// Œ»İ‚Ç‚Á‚¿‚É‚ ‚é‚©‚í‚©‚ç‚È‚¢‚Ì‚ÅA—¼•û‚Éw¦‚ğo‚·
+		// ç¾åœ¨ã©ã£ã¡ã«ã‚ã‚‹ã‹ã‚ã‹ã‚‰ãªã„ã®ã§ã€ä¸¡æ–¹ã«æŒ‡ç¤ºã‚’å‡ºã™
 		m_unused.erase(*i_it);
 		m_used.erase(*i_it);
 	}
 	
-	// d•¡‰ñ”ğó‹µ‚ğ‰Šú‰»
+	// é‡è¤‡å›é¿çŠ¶æ³ã‚’åˆæœŸåŒ–
 	virtual void on_clear() 
 	{
 		for ( typename set<T>::const_iterator it = m_used.begin() ; it != m_used.end() ; ++it )
@@ -106,7 +106,7 @@ public:
 };
 
 // ----------------------------------------------------------------------
-// ’¼‘O‚Æ‚Ìd•¡‚¾‚¯‚Í‰ñ”ğ
+// ç›´å‰ã¨ã®é‡è¤‡ã ã‘ã¯å›é¿
 template<typename T>
 class OC_NonDual : public OverlapController<T>
 {
@@ -114,22 +114,22 @@ class OC_NonDual : public OverlapController<T>
 public:
 	OC_NonDual() : m_last(INVALID_VALUE) {}
 
-	// Œó•â‚©‚çˆê‚Â‚ğ‘I‘ğ
+	// å€™è£œã‹ã‚‰ä¸€ã¤ã‚’é¸æŠ
 	virtual T select(const list<T>& i_candidates)
 	{
-		// ˆêŒÂ‚µ‚©–³‚¢‚È‚ç‰ñ”ğ‚Ì‚µ‚æ‚¤‚ª‚È‚¢
+		// ä¸€å€‹ã—ã‹ç„¡ã„ãªã‚‰å›é¿ã®ã—ã‚ˆã†ãŒãªã„
 		if ( i_candidates.size() == 1 )
 		{
 			return *(i_candidates.begin());
 		}
 		
-		// ƒ‰ƒ“ƒ_ƒ€‚Éˆê‚Â‘I‚Ô
+		// ãƒ©ãƒ³ãƒ€ãƒ ã«ä¸€ã¤é¸ã¶
 		typename list<T>::const_iterator it = i_candidates.begin();
 		advance( it, random() % i_candidates.size() );
 		
 		if ( m_last != INVALID_VALUE )
 		{
-			// ’¼‘O‚ª‚ ‚ê‚ÎA’¼‘O‚¾‚¯‚Í”ğ‚¯‚éB
+			// ç›´å‰ãŒã‚ã‚Œã°ã€ç›´å‰ã ã‘ã¯é¿ã‘ã‚‹ã€‚
 			if ( m_last == *it )
 			{
 				++it;
@@ -143,14 +143,14 @@ public:
 		return (m_last = *it);
 	}
 
-	// Œó•â‚ªÁ‹‚³‚ê‚æ‚¤‚Æ‚µ‚Ä‚¢‚é
+	// å€™è£œãŒæ¶ˆå»ã•ã‚Œã‚ˆã†ã¨ã—ã¦ã„ã‚‹
 	virtual void on_erase(const list<T>& i_candidates, typename list<T>::const_iterator i_it)
 	{
 		if ( m_last == *i_it ) 
 			m_last = INVALID_VALUE;
 	}
 	
-	// d•¡‰ñ”ğó‹µ‚ğ‰Šú‰»
+	// é‡è¤‡å›é¿çŠ¶æ³ã‚’åˆæœŸåŒ–
 	virtual void on_clear() 
 	{
 		m_last = INVALID_VALUE;
@@ -159,7 +159,7 @@ public:
 
 
 // ----------------------------------------------------------------------
-// ~‡
+// é™é †
 template<typename T>
 class OC_Sequential : public OverlapController<T>
 {
@@ -167,7 +167,7 @@ class OC_Sequential : public OverlapController<T>
 public:
 	OC_Sequential() : m_last(INVALID_VALUE) {}
 
-	// Œó•â‚©‚çˆê‚Â‚ğ‘I‘ğ
+	// å€™è£œã‹ã‚‰ä¸€ã¤ã‚’é¸æŠ
 	virtual T select(const list<T>& i_candidates)
 	{
 		typename list<T>::const_iterator it = i_candidates.begin();
@@ -179,7 +179,7 @@ public:
 			}
 			assert( m_last == *it );
 
-			// ’¼‘O‚Ì‚à‚Ì‚æ‚è‚P‚Â‚¾‚¯i‚ß‚é
+			// ç›´å‰ã®ã‚‚ã®ã‚ˆã‚Šï¼‘ã¤ã ã‘é€²ã‚ã‚‹
 			if ( ++it == i_candidates.end() )
 			{
 				it = i_candidates.begin();
@@ -188,7 +188,7 @@ public:
 		return (m_last = *it);
 	}
 
-	// Œó•â‚ªÁ‹‚³‚ê‚æ‚¤‚Æ‚µ‚Ä‚¢‚é
+	// å€™è£œãŒæ¶ˆå»ã•ã‚Œã‚ˆã†ã¨ã—ã¦ã„ã‚‹
 	virtual void on_erase(const list<T>& i_candidates, typename list<T>::const_iterator& i_it)
 	{
 		if ( m_last == *i_it ) 
@@ -201,7 +201,7 @@ public:
 		}
 	}
 	
-	// d•¡‰ñ”ğó‹µ‚ğ‰Šú‰»
+	// é‡è¤‡å›é¿çŠ¶æ³ã‚’åˆæœŸåŒ–
 	virtual void on_clear() 
 	{
 		m_last = INVALID_VALUE;
@@ -209,7 +209,7 @@ public:
 };
 
 // ----------------------------------------------------------------------
-// ¸‡
+// æ˜‡é †
 template<typename T>
 class OC_SequentialDesc : public OverlapController<T>
 {
@@ -217,7 +217,7 @@ class OC_SequentialDesc : public OverlapController<T>
 public:
 	OC_SequentialDesc() : m_last(INVALID_VALUE) {}
 
-	// Œó•â‚©‚çˆê‚Â‚ğ‘I‘ğ
+	// å€™è£œã‹ã‚‰ä¸€ã¤ã‚’é¸æŠ
 	virtual T select(const list<T>& i_candidates)
 	{
 		typename list<T>::const_reverse_iterator it = i_candidates.rbegin();
@@ -229,7 +229,7 @@ public:
 			}
 			assert( m_last == *it );
 
-			// ’¼‘O‚Ì‚à‚Ì‚æ‚è‚P‚Â‚¾‚¯i‚ß‚é
+			// ç›´å‰ã®ã‚‚ã®ã‚ˆã‚Šï¼‘ã¤ã ã‘é€²ã‚ã‚‹
 			if ( ++it == i_candidates.rend() )
 			{
 				it = i_candidates.rbegin();
@@ -238,7 +238,7 @@ public:
 		return (m_last = *it);
 	}
 
-	// Œó•â‚ªÁ‹‚³‚ê‚æ‚¤‚Æ‚µ‚Ä‚¢‚é
+	// å€™è£œãŒæ¶ˆå»ã•ã‚Œã‚ˆã†ã¨ã—ã¦ã„ã‚‹
 	virtual void on_erase(const list<T>& i_candidates, typename list<T>::const_iterator& i_it)
 	{
 		if ( m_last == *i_it ) 
@@ -252,7 +252,7 @@ public:
 		}
 	}
 	
-	// d•¡‰ñ”ğó‹µ‚ğ‰Šú‰»
+	// é‡è¤‡å›é¿çŠ¶æ³ã‚’åˆæœŸåŒ–
 	virtual void on_clear() 
 	{
 		m_last = INVALID_VALUE;

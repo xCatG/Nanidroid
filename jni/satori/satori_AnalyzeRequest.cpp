@@ -1,7 +1,7 @@
 #include	"satori.h"
 
 #ifdef POSIX
-/* POSIX‚Å‚Ístricmp‚Í’è‹`‚³‚ê‚Ä‚¢‚È‚¢B‘ã‚í‚è‚Éstrcasecmp‚ªg‚¦‚éB */
+/* POSIXã§ã¯stricmpã¯å®šç¾©ã•ã‚Œã¦ã„ãªã„ã€‚ä»£ã‚ã‚Šã«strcasecmpãŒä½¿ãˆã‚‹ã€‚ */
 #  define stricmp strcasecmp
 #  include <string.h>
 #endif
@@ -17,24 +17,24 @@ int	Satori::request(
 	strpairvec& o_data)
 {
 	//-------------------------------------------------
-	// ƒŠƒNƒGƒXƒg’PˆÊ‚ÌƒNƒ‰ƒXƒƒ“ƒo‚ğ‰Šú‰»
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆå˜ä½ã®ã‚¯ãƒ©ã‚¹ãƒ¡ãƒ³ãƒã‚’åˆæœŸåŒ–
 
 	mRequestMap.clear();
 	mRequestID = "";
 	mReferences.clear();
-	mReferences.resize(8); // Å¬’l
+	mReferences.resize(8); // æœ€å°å€¤
 
-	// ˆø”‚ğƒNƒ‰ƒXƒƒ“ƒo‚Éİ’è
+	// å¼•æ•°ã‚’ã‚¯ãƒ©ã‚¹ãƒ¡ãƒ³ãƒã«è¨­å®š
 	mRequestCommand = i_command;
 	mRequestType = i_protocol;
 	mRequestVersion = i_protocol_version;
 	mStatusLine = i_command + " " + i_protocol + "/" + i_protocol_version;
 
-	// •Ô‚·ƒvƒƒgƒRƒ‹‚ÌƒfƒtƒHƒ‹ƒg’l
+	// è¿”ã™ãƒ—ãƒ­ãƒˆã‚³ãƒ«ã®ãƒ‡ãƒ•ã‚©ãƒ«ãƒˆå€¤
 	o_protocol = "SHIORI";
 	o_protocol_version = "3.0";
 
-	// ƒvƒƒgƒRƒ‹‚ğ”»•Ê
+	// ãƒ—ãƒ­ãƒˆã‚³ãƒ«ã‚’åˆ¤åˆ¥
 	if ( i_protocol=="SAORI" && i_protocol_version[0]>='1' )
 	{
 		o_protocol = i_protocol;
@@ -48,7 +48,7 @@ int	Satori::request(
 	else if ( i_protocol=="SHIORI" && i_protocol_version[0]=='2' )
 	{
 		mRequestMode = SHIORI2;
-			// 2.x‚É‚àƒo[ƒWƒ‡ƒ“‚Æ‚µ‚Ä‚Í3.0‚ğ•Ô‚·
+			// 2.xã«ã‚‚ãƒãƒ¼ã‚¸ãƒ§ãƒ³ã¨ã—ã¦ã¯3.0ã‚’è¿”ã™
 	}
 	else if ( i_protocol=="MAKOTO" && i_protocol_version[0]>='2' )
 	{
@@ -62,12 +62,12 @@ int	Satori::request(
 	}
 	else
 	{
-		// –¢‘Î‰‚ÌƒvƒƒgƒRƒ‹‚¾‚Á‚½B
+		// æœªå¯¾å¿œã®ãƒ—ãƒ­ãƒˆã‚³ãƒ«ã ã£ãŸã€‚
 		return	400;
 	}
 
-	// ƒf[ƒ^•”‚ğmRequestMap‚ÉŠi”[B
-	// SHOIRI/3.0ˆÈŠO‚ÌƒvƒƒgƒRƒ‹‚Ìê‡ASHOIRI/3.0‚É•ÏŠ·‚ğs‚¤B
+	// ãƒ‡ãƒ¼ã‚¿éƒ¨ã‚’mRequestMapã«æ ¼ç´ã€‚
+	// SHOIRI/3.0ä»¥å¤–ã®ãƒ—ãƒ­ãƒˆã‚³ãƒ«ã®å ´åˆã€SHOIRI/3.0ã«å¤‰æ›ã‚’è¡Œã†ã€‚
 	for ( strpairvec::const_iterator it = i_data.begin() ; it != i_data.end() ; ++it )
 	{
 		string key = it->first;
@@ -83,7 +83,7 @@ int	Satori::request(
 					key = "Reference" + itos(n-1);
 			}
 			break;
-		case SHIORI2:	// ‚±‚Á‚¿‚Í‚Ä‚«‚Æ[
+		case SHIORI2:	// ã“ã£ã¡ã¯ã¦ãã¨ãƒ¼
 			if ( key=="Event" )
 				key="ID";
 			break;
@@ -116,7 +116,7 @@ int	Satori::request(
 
 
 	//-------------------------------------------------
-	// ƒŠƒNƒGƒXƒg‚ğ‰ğß
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆã‚’è§£é‡ˆ
 
 	if ( mRequestCommand=="GET Version" )
 	{
@@ -130,21 +130,21 @@ int	Satori::request(
 	}
 
 
-	// ‘I‘ğ•ªŠò‹L˜^‚ğ•Ï”‚É‘ã“üBref0‚ğŒ³‚É–ß‚·B
-	if ( compare_head(mRequestID, "OnChoice") ) // OnChoiceSelect/OnChoiceEnter‚Ì—¼•û
+	// é¸æŠåˆ†å²è¨˜éŒ²ã‚’å¤‰æ•°ã«ä»£å…¥ã€‚ref0ã‚’å…ƒã«æˆ»ã™ã€‚
+	if ( compare_head(mRequestID, "OnChoice") ) // OnChoiceSelect/OnChoiceEnterã®ä¸¡æ–¹
 	{
 		strvec	vec;
 		int	ref_no = ( mRequestID=="OnChoiceEnter" )?1:0;
 		string&	info = mRequestMap[string("Reference")+itos(ref_no)];
-		if ( split(info, byte1_dlmt, vec)==3 ) // \1‹æØ‚è‚Ì‚R•¶š—ñ‚Å‚ ‚é‚È‚ç‚Î
+		if ( split(info, byte1_dlmt, vec)==3 ) // \1åŒºåˆ‡ã‚Šã®ï¼“æ–‡å­—åˆ—ã§ã‚ã‚‹ãªã‚‰ã°
 		{
-			info=mReferences[ref_no]=variables["‘I‘ğ‚h‚c"]=vec[0];
-			variables["‘I‘ğƒ‰ƒxƒ‹"]=vec[1];
-			variables["‘I‘ğ”Ô†"]=vec[2];
+			info=mReferences[ref_no]=variables["\x91\x49\x91\xF0\x82\x68\x82\x63"]=vec[0];
+			variables["\x91\x49\x91\xF0\x83\x89\x83\x78\x83\x8B"]=vec[1];
+			variables["\x91\x49\x91\xF0\x94\xD4\x8D\x86"]=vec[2];
 		}
 	}
 
-	// ƒƒO‚É‚Â‚¢‚ÄFX
+	// ãƒ­ã‚°ã«ã¤ã„ã¦è‰²ã€…
 	bool	logmode = !( mRequestID=="OnSurfaceChange" || mRequestID=="OnSecondChange"
 		|| mRequestID=="OnMouseMove" || mRequestID=="OnTranslate" 
 		/*|| compare_tail(mRequestID, "caption")*/ || compare_tail(mRequestID, "visible")
@@ -161,21 +161,21 @@ int	Satori::request(
 				sender << i->first << ": " << i->second << endl;
 	}
 
-	// ‚¹‚«‚ã‚ H
+	// ã›ãã‚…ã‚ï¼Ÿ
 	strmap::const_iterator it = mRequestMap.find("SecurityLevel");
 	secure_flag = ( it!=mRequestMap.end() && stricmp(it->second.c_str(), "local")==0 );
 
-	// ƒƒCƒ“ˆ—
+	// ãƒ¡ã‚¤ãƒ³å‡¦ç†
 	Sender::validate( fOperationLog && logmode );
 	sender << "--- Operation ---" << endl;
 	int	status_code = CreateResponse(mResponseMap);
 
-	// Œãˆ—‚P
+	// å¾Œå‡¦ç†ï¼‘
 	default_surface = next_default_surface;
 
 	//--------------------------------------------------------------------
 
-	// Value‚É‘Î‚·‚éÅIˆ—
+	// Valueã«å¯¾ã™ã‚‹æœ€çµ‚å‡¦ç†
 	if ( status_code==200 ) {	// && compare_head(mRequestID, "On")
 		strmap::iterator i = mResponseMap.find("Value");
 		if ( i!=mResponseMap.end() ) {
@@ -232,15 +232,15 @@ int	Satori::request(
 
 	//--------------------------------------------------------------------
 
-	// ƒŠƒ[ƒhˆ—
+	// ãƒªãƒ­ãƒ¼ãƒ‰å‡¦ç†
 	if ( reload_flag )
 	{
 		reload_flag = false;
 		string	tmp = mBaseFolder;
-		sender << "¡¡reloading." << endl;
+		sender << "\x81\xA1\x81\xA1reloading." << endl;
 		unload();
 		load(tmp);
-		sender << "¡¡reloaded." << endl;
+		sender << "\x81\xA1\x81\xA1reloaded." << endl;
 	}
 
 	return	status_code;

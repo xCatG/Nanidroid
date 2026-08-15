@@ -8,7 +8,7 @@
 
 #ifdef POSIX
 inline bool _ismbblead(char c) {
-    // ‘½•ªAShift_JISŒÅ’è‚Å—Ç‚¢‚Ì‚¾‚ë‚¤B
+    // å¤šåˆ†ã€Shift_JISå›ºå®šã§è‰¯ã„ã®ã ã‚ã†ã€‚
     unsigned char _c = c;
     return (_c >= 0x81 && _c <= 0x9f) || (_c >= 0xe0 && _c <= 0xfc);
 }
@@ -20,7 +20,7 @@ inline bool _ismbbtrail(char c) {
 #  include	<mbctype.h>	// for _ismbblead,_ismbbtrail
 #endif
 
-// ƒ|ƒCƒ“ƒ^‚Ìw‚·ˆÊ’u‚ğ‚P•¶šƒCƒ“ƒNƒŠƒƒ“ƒgB‘SŠpE”¼Šp—¼‘Î‰
+// ãƒã‚¤ãƒ³ã‚¿ã®æŒ‡ã™ä½ç½®ã‚’ï¼‘æ–‡å­—ã‚¤ãƒ³ã‚¯ãƒªãƒ¡ãƒ³ãƒˆã€‚å…¨è§’ãƒ»åŠè§’ä¸¡å¯¾å¿œ
 inline void	mbinc(const char*& p) {
 	//p += _ismbblead(*p) ? 2 : 1; 
 	if ( _ismbblead(p[0]) ) { 
@@ -31,32 +31,32 @@ inline void	mbinc(const char*& p) {
 		p++;
 }
 
-// •¶š—ñ’†‚©‚çw’è‚Ì1byte•¶š‚ªÅŒã‚ÉoŒ»‚·‚éˆÊ’u‚ğ•Ô‚·B
-// Œ©‚Â‚©‚ç‚È‚©‚Á‚½ê‡‚Í NULL ‚ğ•Ô‚·
+// æ–‡å­—åˆ—ä¸­ã‹ã‚‰æŒ‡å®šã®1byteæ–‡å­—ãŒæœ€å¾Œã«å‡ºç¾ã™ã‚‹ä½ç½®ã‚’è¿”ã™ã€‚
+// è¦‹ã¤ã‹ã‚‰ãªã‹ã£ãŸå ´åˆã¯ NULL ã‚’è¿”ã™
 const char*	FindFinalChar(const char* iString, char iC);
 inline char*	FindFinalChar(char* iString, char iC) {
 	return	const_cast<char*>(FindFinalChar( static_cast<const char*>(iString), iC ));
 }
 
-// ƒtƒ@ƒCƒ‹–¼‚©‚çŠg’£q‚ğíœ‚·‚é
+// ãƒ•ã‚¡ã‚¤ãƒ«åã‹ã‚‰æ‹¡å¼µå­ã‚’å‰Šé™¤ã™ã‚‹
 bool	CutExtention(char* iFileName);
-// Šg’£q‚ğ•ÏX‚Ü‚½‚Í’Ç‰Á‚·‚é
+// æ‹¡å¼µå­ã‚’å¤‰æ›´ã¾ãŸã¯è¿½åŠ ã™ã‚‹
 void	SetExtention(char* iFileName, const char* iNewExtention);
-// ƒtƒ@ƒCƒ‹–¼‚ÌŠg’£q•”•ª‚ğæ“¾‚·‚é
+// ãƒ•ã‚¡ã‚¤ãƒ«åã®æ‹¡å¼µå­éƒ¨åˆ†ã‚’å–å¾—ã™ã‚‹
 char*	GetExtention(char* iFileName);
 
-// iString‚ÌˆÊ’u‚©‚ç”¼ŠpƒXƒy[ƒX‹y‚Ñ”¼Špƒ^ƒu‚ğ”ò‚Î‚µ‚½ˆÊ’u‚ğ•Ô‚·
+// iStringã®ä½ç½®ã‹ã‚‰åŠè§’ã‚¹ãƒšãƒ¼ã‚¹åŠã³åŠè§’ã‚¿ãƒ–ã‚’é£›ã°ã—ãŸä½ç½®ã‚’è¿”ã™
 const char*	SkipDelimiter(const char* iString);
 inline char*	SkipDelimiter(char* iString) {
 	return	const_cast<char*>(SkipDelimiter( static_cast<const char*>(iString)));
 }
 
 
-// str1‚Æstr2‚Í“™‚µ‚¢‚©H
+// str1ã¨str2ã¯ç­‰ã—ã„ã‹ï¼Ÿ
 inline bool CompareStr( const char* str1, const char* str2 ) {
 	return	(::strcmp( str1, str2 ) == 0 );
 }
-// str“à‚Épart‚ª‘¶İ‚·‚é‚©H
+// strå†…ã«partãŒå­˜åœ¨ã™ã‚‹ã‹ï¼Ÿ
 inline bool FindStr( const char* str, const char* part ) {
 	return	(::strstr( str, part ) != NULL );
 }
@@ -73,8 +73,8 @@ inline bool FindStr( const char* str, const char* part ) {
 #define	get_bit( t, bit )	( (t) & (1<<(bit)) )
 */
 
-// t ‚ğ a ˆÈã b ˆÈ‰º‚Éû‚ß‚éB
-// t = max( a, min( b, t ) ) ‚Æ“™‰¿B
+// t ã‚’ a ä»¥ä¸Š b ä»¥ä¸‹ã«åã‚ã‚‹ã€‚
+// t = max( a, min( b, t ) ) ã¨ç­‰ä¾¡ã€‚
 #ifndef	area
 #define	area( t, a, b )	if (t<(a)) t=(a); else if (t>(b)) t=(b); else
 #endif
@@ -99,11 +99,11 @@ inline bool Compare( const char* a, const char *b ) {
 	return	( strcmp( a, b ) == 0 );
 }
 
-// •„†‚ğ”½“]
+// ç¬¦å·ã‚’åè»¢
 template<class T>
 void	ReverseSign( T& ioT ) { ioT = -ioT; }
 
-// iBase‚ğŒ´“_‚Æ‚µ‚½â‘Î’l‚ğ”½“]‚µ‚½‚à‚Ì‚ğ•Ô‚·
+// iBaseã‚’åŸç‚¹ã¨ã—ãŸçµ¶å¯¾å€¤ã‚’åè»¢ã—ãŸã‚‚ã®ã‚’è¿”ã™
 template<class T>
 T	Reverse(T iBase, T iPos) { return (-(iPos-iBase)) + iBase; }
 
@@ -130,44 +130,44 @@ typedef	uchar	byte;
 typedef	ushort	word;
 typedef	ulong	dword;
 
-// ‘æ‚Pˆø”‚Ìw’èbit‚ğon/off‚µAQÆ‚ğ•Ô‚·B‰‰Zq“I‚É—p‚¢‚éB
+// ç¬¬ï¼‘å¼•æ•°ã®æŒ‡å®šbitã‚’on/offã—ã€å‚ç…§ã‚’è¿”ã™ã€‚æ¼”ç®—å­çš„ã«ç”¨ã„ã‚‹ã€‚
 template<class T>
 T& BitOn( T& t, int bit ) { assert( bit>=0 && bit<sizeof(T)*8 ); return t |= (1<<bit); }
 template<class T>
 T& BitOff( T& t, int bit ) { assert( bit>=0 && bit<sizeof(T)*8 ); return t &= ~(1<<(bit)); }
 template<class T>
 T& SetBit( T& t, int bit, int value ) { assert( bit>=0 && bit<sizeof(T)*8 ); return value ? BitOn(t,bit) : BitOff(t,bit); }
-// ‘æ‚Pˆø”‚Ìw’èbit‚ğ•Ô‚·B’l‚Í•ÏX‚µ‚È‚¢B
+// ç¬¬ï¼‘å¼•æ•°ã®æŒ‡å®šbitã‚’è¿”ã™ã€‚å€¤ã¯å¤‰æ›´ã—ãªã„ã€‚
 template<class T>
 int GetBit( T t, int bit ) { assert( bit>=0 && bit<sizeof(T)*8 ); return ( t & (1<<(bit)) ) != 0 ; }
 
-// ˆø”‚ğ‚ƒoƒCƒg‚ÉƒAƒ‰ƒCƒ“‚·‚éÛ‚Ì‘«‚è‚È‚¢ƒoƒCƒg”‚ğ•Ô‚·B
+// å¼•æ•°ã‚’ï½ãƒã‚¤ãƒˆã«ã‚¢ãƒ©ã‚¤ãƒ³ã™ã‚‹éš›ã®è¶³ã‚Šãªã„ãƒã‚¤ãƒˆæ•°ã‚’è¿”ã™ã€‚
 inline int AlignPad( int i, int n ) { assert(n!=0); return ( i%n == 0 ) ? 0 : (n-i%n); }
-// ˆø”‚ğ‚ƒoƒCƒg‚ÉƒAƒ‰ƒCƒ“‚µ‚½’l‚ğ•Ô‚·
+// å¼•æ•°ã‚’ï½ãƒã‚¤ãƒˆã«ã‚¢ãƒ©ã‚¤ãƒ³ã—ãŸå€¤ã‚’è¿”ã™
 inline int Align4( int i ) { return (i+3)&0xfffffffc; }
 inline int Align( int i, int n ) { assert(n!=0); return ( i%n == 0 ) ? i : i+(n-i%n); }
 
-// \‘¢‘Ì‚ğ0‚Å–„‚ß‚éB
+// æ§‹é€ ä½“ã‚’0ã§åŸ‹ã‚ã‚‹ã€‚
 template<class T>
 inline	void	ClearStruct( T* pt ) { assert(pt!=NULL); memset( pt, 0, sizeof(pt) ); }
-// ˆø”‚ğ0‚Å–„‚ß‚éB•sŠ®‘S‚Å‚È‚­éŒ¾‚³‚ê‚½”z—ñ‚ª‘ÎÛB
+// å¼•æ•°ã‚’0ã§åŸ‹ã‚ã‚‹ã€‚ä¸å®Œå…¨ã§ãªãå®£è¨€ã•ã‚ŒãŸé…åˆ—ãŒå¯¾è±¡ã€‚
 #define	ClearMemory(pt)	memset( pt, 0, sizeof(pt) )
 
-// ƒAƒ‹ƒtƒ@ƒuƒŒƒ“ƒh“I‚ÈŒvZ
+// ã‚¢ãƒ«ãƒ•ã‚¡ãƒ–ãƒ¬ãƒ³ãƒ‰çš„ãªè¨ˆç®—
 template<class T, class U>
 T	RateProcess( T a, T b, U b_rate, U max ) {
 	assert( max != 0 );
 	return	( a*(max-b_rate) + b*b_rate )/max;
 }
 
-// •ª•ê‚ğ•ÏX‚·‚é
+// åˆ†æ¯ã‚’å¤‰æ›´ã™ã‚‹
 template<class T>
 T	ChangeBase( T value, T old_base, T new_base ) {
 	assert( old_base != 0 );
 	return	(value*new_base/old_base);
 }
 
-// À”‚©‚ç®”•”^¬”•”‚ğæ“¾
+// å®Ÿæ•°ã‹ã‚‰æ•´æ•°éƒ¨ï¼å°æ•°éƒ¨ã‚’å–å¾—
 template<class T>
 int	GetIntegral( T d ) { return (int)d; }
 template<class T>
@@ -187,7 +187,7 @@ inline	int	Hex2Num(int c) {
 	return	c-'a'+10;
 }
 
-// “ñæ‚³‚ñ
+// äºŒä¹—ã•ã‚“
 template<class T>
 T	pow2(const T& t) { return t*t; }
 

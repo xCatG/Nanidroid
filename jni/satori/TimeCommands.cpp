@@ -28,11 +28,11 @@ string	TimeCommands(
 	}
 	else if ( iCommand=="tm_span" ) {
 		if ( iArguments.size()!=2 )
-			return	"Error: ‚QŒÂ‚Ìˆø”‚ª•K—v‚Å‚·B";
+			return	"Error: ï¼’å€‹ã®å¼•æ•°ãŒå¿…è¦ã§ã™ã€‚";
 		if ( !isSTF(iArguments[0]) )
-			return	"Error: ¶•Ó‚Ìtime’l‚ª•s³‚Å‚·B";
+			return	"Error: å·¦è¾ºã®timeå€¤ãŒä¸æ­£ã§ã™ã€‚";
 		if ( !isSTF(iArguments[1]) )
-			return	"Error: ‰E•Ó‚Ìtime’l‚ª•s³‚Å‚·B";
+			return	"Error: å³è¾ºã®timeå€¤ãŒä¸æ­£ã§ã™ã€‚";
 		uint64	from = STFtoUINT64(iArguments[0]);
 		uint64	to = STFtoUINT64(iArguments[1]);
 		//return	SYSTEMTIMEtoSTF(UINT64toSYSTEMTIME_daycount(ui64));
@@ -40,7 +40,7 @@ string	TimeCommands(
 		return	itos(span_second);
 	}
 	else {
-		return	string("Error: '")+iCommand+"'‚Æ‚¢‚¤ŠÖ”‚Í’è‹`‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB";
+		return	string("Error: '")+iCommand+"'ã¨ã„ã†é–¢æ•°ã¯å®šç¾©ã•ã‚Œã¦ã„ã¾ã›ã‚“ã€‚";
 	}*/
 	return	"";
 }
@@ -49,7 +49,7 @@ string	TimeCommands(
 
 #if	0
 #define	STF_HEADER	"STF"	// STF_YY_MM_DD_HH_mm_SS_mill
-#define	STSF_HEADER	"STSF"	// STSF_DDDDDDDDDD_HH_mm_SS_mill	“ú•t‚Í10ƒPƒ^B
+#define	STSF_HEADER	"STSF"	// STSF_DDDDDDDDDD_HH_mm_SS_mill	æ—¥ä»˜ã¯10ã‚±ã‚¿ã€‚
 
 
 static	bool	isSTF(const string& stf) {
@@ -121,7 +121,7 @@ static	SYSTEMTIME	UINT64toSYSTEMTIME(uint64 ui64) {
 }
 
 static	SYSTEMTIME	UINT64toSYSTEMTIME_daycount(uint64 ui64) {
-	ui64 /= 10000;	// ’PˆÊ‚ğ100ns‚©‚ç1ms‚ÖB
+	ui64 /= 10000;	// å˜ä½ã‚’100nsã‹ã‚‰1msã¸ã€‚
 	SYSTEMTIME	st;
 	::ZeroMemory(&st, sizeof(st));
 	st.wMilliseconds = ui64%1000;
@@ -173,48 +173,48 @@ struct	TimeSpan {
 	bool	from_string(const string& iString);
 };
 
-// “ú‚ğì¬
+// æ—¥æ™‚ã‚’ä½œæˆ
 TimePos		tm(int,int=1,int=1,int=0,int=0,int=0,int=0)
-// ŠúŠÔ‚ğì¬
+// æœŸé–“ã‚’ä½œæˆ
 TimeSpan	tmd(int,int=0,int=0,int=0,int=0)
 TimeSpan	tmh(int,int=0,int=0,int=0)
 TimeSpan	tmm(int,int=0,int=0)
 TimeSpan	tms(int,int=0)
-// o—Í
+// å‡ºåŠ›
 string	tmf(const string&, const TimePos&);
 string	tmf(const string&, const TimeSpan&);
-// ‚Q‚Â‚Ì“ú‚©‚çŠúŠÔ‚ğŒvZ
+// ï¼’ã¤ã®æ—¥æ™‚ã‹ã‚‰æœŸé–“ã‚’è¨ˆç®—
 TimeSpan	tm_span(const TimePos&, const TimePos&);
-// ‚Q‚Â‚Ì“ú‚Ü‚½‚ÍŠúŠÔ‚ğ”äŠrB•Ô’l‚Í -1, 0, 1B
+// ï¼’ã¤ã®æ—¥æ™‚ã¾ãŸã¯æœŸé–“ã‚’æ¯”è¼ƒã€‚è¿”å€¤ã¯ -1, 0, 1ã€‚
 int	tm_comp(const TimeSpan&, const TimeSpan&);
 int	tm_comp(const TimeSpan&, const TimeSpan&);
-// “ú‚ÆŠúŠÔ‚Ì‰ÁŒ¸Z
+// æ—¥æ™‚ã¨æœŸé–“ã®åŠ æ¸›ç®—
 TimePos	tm_add(const TimePos&, const TimeSpan&);
 TimePos	tm_sub(const TimePos&, const TimeSpan&);
-// ŠúŠÔ“¯m‚Ì‰ÁŒ¸Z
+// æœŸé–“åŒå£«ã®åŠ æ¸›ç®—
 TimeSpan	tm_add(const TimeSpan& iTimeSpan, const TimeSpan& iTimeSpan);
 TimeSpan	tm_sub(const TimeSpan& iTimeSpan, const TimeSpan& iTimeSpan);
-// ŠúŠÔ‚Æ®”‚ÌæœZ
+// æœŸé–“ã¨æ•´æ•°ã®ä¹—é™¤ç®—
 TimeSpan	tm_mul(const TimeSpan& iTimeSpan, int n);
 TimeSpan	tm_div(const TimeSpan& iTimeSpan, int n);
-// Ÿ‚ÌmŒn“ú‚Ü‚Å‚ÌŠúŠÔ
+// æ¬¡ã®mæœˆnæ—¥ã¾ã§ã®æœŸé–“
 TimeSpan	tm_from
 TimeSpan	tm_to
 
 
 
-¡”N‚Ì‚WŒ‚Q‚P“ú
-itm_span,itm_now,&yearj,jj
+ä»Šå¹´ã®ï¼˜æœˆï¼’ï¼‘æ—¥
+ï¼ˆtm_span,ï¼ˆtm_now,&yearï¼‰,ï¼‰ï¼‰
 	
-itmnow,%yearj
-itmprintf,itmnowj,%yearj
-itmscanf,itmnowj,%yearj
+ï¼ˆtmnow,%yearï¼‰
+ï¼ˆtmprintf,ï¼ˆtmnowï¼‰,%yearï¼‰
+ï¼ˆtmscanf,ï¼ˆtmnowï¼‰,%yearï¼‰
 
 
 
-”¼ŠpƒJƒbƒR‚Ì“WŠJ	—LŒø
-”¼ŠpƒJƒbƒR‚Ì“WŠJ	–³Œø
+ï¼„åŠè§’ã‚«ãƒƒã‚³ã®å±•é–‹	æœ‰åŠ¹
+ï¼„åŠè§’ã‚«ãƒƒã‚³ã®å±•é–‹	ç„¡åŠ¹
 
-iiijjj
+ï¼ˆï¼ˆï¼ˆï¼‰ï¼‰ï¼‰
 
 #endif

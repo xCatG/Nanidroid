@@ -12,18 +12,18 @@ bool	Satori::Translate(string& ioScript) {
 
 	const bool is_OnTranslate = (mRequestID=="OnTranslate");
 
-	// ‚³‚­‚çƒXƒNƒŠƒvƒg‚Æ‚»‚êˆÈŠO‚ğ•ªŠ„‚µ‚Äˆ—‚ğ‰Á‚¦‚é
+	// ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã¨ãã‚Œä»¥å¤–ã‚’åˆ†å‰²ã—ã¦å‡¦ç†ã‚’åŠ ãˆã‚‹
 	vector<string>	vec;
 	string	acum;
-	bool	content=false;	// •¶‚É’†g‚ª‚ ‚é‚Ì‚©
-	bool	is_first_question = true; // ‘I‘ğ•ªŠò‹L˜^‚ÌÁ‹ˆ——pB
+	bool	content=false;	// æ–‡ã«ä¸­èº«ãŒã‚ã‚‹ã®ã‹
+	bool	is_first_question = true; // é¸æŠåˆ†å²è¨˜éŒ²ã®æ¶ˆå»å‡¦ç†ç”¨ã€‚
 	int	last_speaker=0;
 	const char* p = ioScript.c_str();
 	while (*p) {
-		string	c=get_a_chr(p);	// ‘SŠp”¼Šp–â‚í‚¸ˆê•¶šæ“¾‚µAp‚ğˆê•¶š‚·‚·‚ß‚é
+		string	c=get_a_chr(p);	// å…¨è§’åŠè§’å•ã‚ãšä¸€æ–‡å­—å–å¾—ã—ã€pã‚’ä¸€æ–‡å­—ã™ã™ã‚ã‚‹
 		
 		if ( c=="\\" || c=="%" ) {
-			if (*p=='\\'||*p=='%') {	// ƒGƒXƒP[ƒv‚³‚ê‚½\, %
+			if (*p=='\\'||*p=='%') {	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸ\, %
 				acum += c + *p++;
 				continue;
 			}
@@ -38,40 +38,40 @@ bool	Satori::Translate(string& ioScript) {
 			if (*p=='[') {
 				const char* opt_start = ++p;
 				while (*p!=']') {
-					if (p[0]=='\\' && p[1]==']')	// ƒGƒXƒP[ƒv‚³‚ê‚½]
+					if (p[0]=='\\' && p[1]==']')	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸ]
 						++p;
 					p += _ismbblead(*p) ? 2 : 1;
 				}
 				opt.assign(opt_start, p++ -opt_start);
 			}
 			
-			// ‘I‘ğ•ªŠòƒ‰ƒxƒ‹‚É‘Î‚·‚é“Áêˆ—
+			// é¸æŠåˆ†å²ãƒ©ãƒ™ãƒ«ã«å¯¾ã™ã‚‹ç‰¹æ®Šå‡¦ç†
 			if ( !is_OnTranslate && 
 				cmd=="q" && opt!="" && count(opt, ",")>0 && 
 				mRequestID!="OnHeadlinesense.OnFind") {
 
-				// ‘I‘ğ•ªŠò‚ª‚ ‚éƒXƒNƒŠƒvƒg‚Å‚ ‚ê‚ÎA‚»‚Ì‰‰ñ‚Å‘I‘ğ•ªŠò‹L˜^‚ğƒNƒŠƒA
+				// é¸æŠåˆ†å²ãŒã‚ã‚‹ã‚¹ã‚¯ãƒªãƒ—ãƒˆã§ã‚ã‚Œã°ã€ãã®åˆå›ã§é¸æŠåˆ†å²è¨˜éŒ²ã‚’ã‚¯ãƒªã‚¢
 				if ( is_first_question ) {
 					question_record.clear();	
 					is_first_question = false;
 				}
 
-				// ‘I‘ğ•ªŠò‚ğ‹L˜^
+				// é¸æŠåˆ†å²ã‚’è¨˜éŒ²
 				{
 					strvec	vec;
 					split(opt, ",", vec);
-					if ( vec.size()==1 )	// count‚Æsplit‚Ìã©B
+					if ( vec.size()==1 )	// countã¨splitã®ç½ ã€‚
 						vec.push_back("");	// 
 					string	label=vec[0], id=vec[1];
 
 					if ( false == compare_head(id, "On") )
 					{ 
-						// On‚Ån‚Ü‚é‚à‚Ì‚ÍOnChoiceSelect‚ğŒo—R‚³‚ê‚È‚¢‚½‚ßA‘ÎÛŠO‚Æ‚·‚é
+						// Onã§å§‹ã¾ã‚‹ã‚‚ã®ã¯OnChoiceSelectã‚’çµŒç”±ã•ã‚Œãªã„ãŸã‚ã€å¯¾è±¡å¤–ã¨ã™ã‚‹
 
 						int	count = question_record.size()+1;
 						question_record[id] = pair<int,string>(count, label);
 
-						// ƒ‰ƒxƒ‹‚h‚c‚É‘‚«–ß‚µ
+						// ãƒ©ãƒ™ãƒ«ï¼©ï¼¤ã«æ›¸ãæˆ»ã—
 						opt = label+","+id+byte1_dlmt+label+byte1_dlmt+itos(count);
 						for (int i=2;i<vec.size();++i)
 							opt += string(",") + vec[i];
@@ -103,7 +103,7 @@ bool	Satori::Translate(string& ioScript) {
 				vec.push_back(c + cmd + "[" + opt + "]");
 			acum="";
 
-			static	set<string>	nc_cmd;	// —LŒø‚Æ”‚¦‚È‚¢‚³‚­‚çƒXƒNƒŠƒvƒgŒQ
+			static	set<string>	nc_cmd;	// æœ‰åŠ¹ã¨æ•°ãˆãªã„ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆç¾¤
 			static	bool	initialized=false;
 			if (!initialized) {
 				initialized=true;
@@ -123,15 +123,15 @@ bool	Satori::Translate(string& ioScript) {
 		vec.push_back(acum);
 
 	if (!content)
-		return	false;	// ’†g‚Ì–³‚¢ƒXƒNƒŠƒvƒgiÀs‚µ‚Ä‚à‚µ‚È‚­‚Ä‚àˆêj‚Æ”»’fB
+		return	false;	// ä¸­èº«ã®ç„¡ã„ã‚¹ã‚¯ãƒªãƒ—ãƒˆï¼ˆå®Ÿè¡Œã—ã¦ã‚‚ã—ãªãã¦ã‚‚ä¸€ç·’ï¼‰ã¨åˆ¤æ–­ã€‚
 
 	ioScript="";
 
 	for (vector<string>::iterator i=vec.begin() ; i!=vec.end() ; ++i) {
 		if ( i->at(0)!='\\' && i->at(0)!='%' ) {
-			// ‚³‚­‚çƒXƒNƒŠƒvƒgˆÈŠO‚Ì•¶‚Ö‚Ìˆ—
+			// ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆä»¥å¤–ã®æ–‡ã¸ã®å‡¦ç†
 
-			// ƒAƒ“ƒJ[‘}“ü
+			// ã‚¢ãƒ³ã‚«ãƒ¼æŒ¿å…¥
 			if ( !is_OnTranslate )
 				for ( set<string>::iterator j=anchors.begin() ; j!=anchors.end() ; ++j )
 					replace(*i, *j, string("\\_a[")+*j+"]"+*j+"\\_a");
@@ -140,14 +140,14 @@ bool	Satori::Translate(string& ioScript) {
 	}
 
 
-	// –Œã’u‚«Š·‚¦«‘‚ğ“K—p
+	// äº‹å¾Œç½®ãæ›ãˆè¾æ›¸ã‚’é©ç”¨
 	if ( !is_OnTranslate )
 		for ( strmap::iterator di=replace_after_dic.begin() ; di!=replace_after_dic.end() ; ++di )
 			replace(ioScript, di->first, di->second);
 
-	diet_script(ioScript);	// ƒ‰ƒXƒgƒ_ƒCƒGƒbƒg
+	diet_script(ioScript);	// ãƒ©ã‚¹ãƒˆãƒ€ã‚¤ã‚¨ãƒƒãƒˆ
 
-	// ƒGƒXƒP[ƒv‚µ‚Ä‚ ‚Á‚½•¶š‚ğ–ß‚·
+	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã—ã¦ã‚ã£ãŸæ–‡å­—ã‚’æˆ»ã™
 	m_escaper.unescape(ioScript);
 
 	return	true;

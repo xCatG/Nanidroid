@@ -5,10 +5,10 @@
 #define	STLTOOL_H
 
 #ifdef _MSC_VER 
-// ƒeƒ“ƒvƒŒ[ƒg–¼‚ª’·‚¢‚ÌŒx‚ğ—}§
-#pragma warning( disable : 4786 ) //uƒfƒoƒbƒOî•ñ“à‚Å‚Ì¯•ÊqØÌ‚Äv
-#pragma warning( disable : 4503 ) //u‘•ü‚³‚ê‚½–¼‘O‚Ì’·‚³‚ªŒÀŠE‚ğ‰z‚¦‚Ü‚µ‚½B–¼‘O‚ÍØ‚èÌ‚Ä‚ç‚ê‚Ü‚·Bv
-// forƒXƒR[ƒv‚ğANSI€‹’‚³‚¹‚é
+// ãƒ†ãƒ³ãƒ—ãƒ¬ãƒ¼ãƒˆåãŒé•·ã„æ™‚ã®è­¦å‘Šã‚’æŠ‘åˆ¶
+#pragma warning( disable : 4786 ) //ã€Œãƒ‡ãƒãƒƒã‚°æƒ…å ±å†…ã§ã®è­˜åˆ¥å­åˆ‡æ¨ã¦ã€
+#pragma warning( disable : 4503 ) //ã€Œè£…é£¾ã•ã‚ŒãŸåå‰ã®é•·ã•ãŒé™ç•Œã‚’è¶Šãˆã¾ã—ãŸã€‚åå‰ã¯åˆ‡ã‚Šæ¨ã¦ã‚‰ã‚Œã¾ã™ã€‚ã€
+// forã‚¹ã‚³ãƒ¼ãƒ—ã‚’ANSIæº–æ‹ ã•ã›ã‚‹
 #ifndef for
 #define for if(0);else for
 #endif	// for
@@ -80,22 +80,22 @@ public:
 	bool	load(const string& iFileName);
 };
 
-// ƒfƒŠƒ~ƒ^‚Ü‚Å“Ç‚İ‚İ
+// ãƒ‡ãƒªãƒŸã‚¿ã¾ã§èª­ã¿è¾¼ã¿
 bool	getline(istream& i, string& o, int delimtier='\n');
 bool	getline(istream& i, int& o, int delimtier='\n');
 
-// int‚Æ‚Ì‘ŠŒİ•ÏŠ·
+// intã¨ã®ç›¸äº’å¤‰æ›
 inline int	stoi(const string& s) { return atoi(s.c_str()); }
 inline string	itos(int i, const char* iFormat="%d") { char buf[32]; sprintf(buf,iFormat,i); return buf; }
 
-// ‚»‚ê‚Ä‚È‚ÉB
+// ãã‚Œã¦ãªã«ã€‚
 bool	aredigits(const string& s);
 bool	arealphabets(const string& s);
 
-// target’†‚ÌÅ‰‚Éfind•¶š—ñ‚ªoŒ»‚·‚éˆÊ’u‚ğ•Ô‚·B”¼Šp‘SŠp—¼‘Î‰
+// targetä¸­ã®æœ€åˆã«findæ–‡å­—åˆ—ãŒå‡ºç¾ã™ã‚‹ä½ç½®ã‚’è¿”ã™ã€‚åŠè§’å…¨è§’ä¸¡å¯¾å¿œ
 const char*	strstr_hz(const char* target, const char* find);
 
-// •¶š—ñ’uŠ·
+// æ–‡å­—åˆ—ç½®æ›
 bool	replace_first(string& str, const string& before, const string& after);
 int	replace(string& str, const string& before, const string& after);
 template<class T>
@@ -106,35 +106,35 @@ int	multi_replace(string& str, T* array1, T* array2, int array_size) {
 	return	count;
 }
 
-// •¶š—ñÁ‹
+// æ–‡å­—åˆ—æ¶ˆå»
 bool	erase_first(string& str, const string& before);
 int	erase(string& str, const string& before);
-// ‘ÎÛŒê‹å‚Ì”‚ğ”‚¦‚é
+// å¯¾è±¡èªå¥ã®æ•°ã‚’æ•°ãˆã‚‹
 int	count(const string& str, const string& target);
-// ‘ÎÛŒê‹å‚Ì‘¶İŠm”F
+// å¯¾è±¡èªå¥ã®å­˜åœ¨ç¢ºèª
 inline bool find(const string& str, const string& target) { return	strstr_hz(str.c_str(), target.c_str())!=NULL; }
 
 
-// deque‚ÌŒã‚ë‚©‚ç n ŒÂ–Ú‚ğQÆ‚·‚é
+// dequeã®å¾Œã‚ã‹ã‚‰ n å€‹ç›®ã‚’å‚ç…§ã™ã‚‹
 template<class T>
 T&	from_back(deque<T>& iDeque, int n) {
 	assert(n>=0 && n<iDeque.size());
 	return	iDeque[iDeque.size()-1-n];
 }
 
-// ƒtƒ@ƒCƒ‹©¨string
+// ãƒ•ã‚¡ã‚¤ãƒ«â†â†’string
 bool	string_from_file(string& o, const string& iFileName);
 bool	string_to_file(const string& i, const string& iFileName);
-// ƒtƒ@ƒCƒ‹©¨strvec
+// ãƒ•ã‚¡ã‚¤ãƒ«â†â†’strvec
 bool	strvec_from_file(strvec& o, const string& iFileName);
 bool	strvec_to_file(const strvec& i, const string& iFileName);
-// ƒtƒ@ƒCƒ‹©¨strmap
+// ãƒ•ã‚¡ã‚¤ãƒ«â†â†’strmap
 bool	strmap_from_file(strmap& o, const string& iFileName, const string& dlmt);
 bool	strmap_to_file(const strmap& i, const string& iFileName, const string& dlmt);
-// ‘SŠp”¼Šp–â‚í‚¸ˆê•¶šæ“¾
+// å…¨è§’åŠè§’å•ã‚ãšä¸€æ–‡å­—å–å¾—
 string	get_a_chr(const char*& p);
 
-// •¶š’PˆÊ‚É•ªŠ„
+// æ–‡å­—å˜ä½ã«åˆ†å‰²
 template<class T>
 int	split(const string& i, T& o) {
 	const char* p=i.c_str();
@@ -143,7 +143,7 @@ int	split(const string& i, T& o) {
 	return	o.size();
 }
 
-// ’PŒê’PˆÊ‚É•ªŠ„ max_words‚ÍÅ‘åØ‚èo‚µ’PŒê”B0‚È‚ç§ŒÀ‚µ‚È‚¢B
+// å˜èªå˜ä½ã«åˆ†å‰² max_wordsã¯æœ€å¤§åˆ‡ã‚Šå‡ºã—å˜èªæ•°ã€‚0ãªã‚‰åˆ¶é™ã—ãªã„ã€‚
 template<class T>
 int	split(const string& i, const string& dlmt, T& o, int max_words=0) {
 	set<string>	dlmt_set;
@@ -167,7 +167,7 @@ int	split(const string& i, const string& dlmt, T& o, int max_words=0) {
 			if ( word.size() > 0 ) {
 				o.push_back(word);
 
-				if ( max_words>0 && o.size()+1 >= max_words ) {	// ’PŒê”§ŒÀ
+				if ( max_words>0 && o.size()+1 >= max_words ) {	// å˜èªæ•°åˆ¶é™
 					word = p;
 					break;
 				} else
@@ -201,7 +201,7 @@ inline int	splitToSet(const string& iString, set<string>& oSet, int iDelimiter) 
 
 
 
-// map‚©‚çkey‚Ìˆê——‚ğæ“¾
+// mapã‹ã‚‰keyã®ä¸€è¦§ã‚’å–å¾—
 template<typename C, typename K, typename V>
 int	keys(const map<K,V>& iMap, C& oContainer) {
 	oContainer.clear();
@@ -209,7 +209,7 @@ int	keys(const map<K,V>& iMap, C& oContainer) {
 		oContainer.push_back(i->first);
 	return	oContainer.size();
 }
-// map‚©‚çkey‚Ìˆê——‚ğæ“¾
+// mapã‹ã‚‰keyã®ä¸€è¦§ã‚’å–å¾—
 template<typename C, typename K, typename V>
 C	keys(const map<K,V>& iMap) {
 	C	theContainer;
@@ -217,7 +217,7 @@ C	keys(const map<K,V>& iMap) {
 	return	theContainer;
 }
 
-// map‚©‚çvalue‚Ìˆê——‚ğæ“¾
+// mapã‹ã‚‰valueã®ä¸€è¦§ã‚’å–å¾—
 template<typename C, typename K, typename V>
 int	values(const map<K,V>& iMap, C& oContainer) {
 	oContainer.clear();
@@ -225,7 +225,7 @@ int	values(const map<K,V>& iMap, C& oContainer) {
 		oContainer.push_back(i->second);
 	return	oContainer.size();
 }
-// map‚©‚çvalue‚Ìˆê——‚ğæ“¾
+// mapã‹ã‚‰valueã®ä¸€è¦§ã‚’å–å¾—
 template<typename C, typename K, typename V>
 C	values(const map<K,V>& iMap) {
 	C	theContainer;
@@ -233,7 +233,7 @@ C	values(const map<K,V>& iMap) {
 	return	theContainer;
 }
 
-// ƒRƒ“ƒeƒi—v‘f‚ğ’Pˆê‚Ìstring‚ÉŒ‹‡Bdlmt‚ğŠÔ‚É‹²‚ŞB•Ô’l‚Ístring‚Ì‘å‚«‚³
+// ã‚³ãƒ³ãƒ†ãƒŠè¦ç´ ã‚’å˜ä¸€ã®stringã«çµåˆã€‚dlmtã‚’é–“ã«æŒŸã‚€ã€‚è¿”å€¤ã¯stringã®å¤§ãã•
 template<class T>
 int	combine(string& out, const T& in, const string& dlmt="", bool add_dlmt_on_final=false) {
 	typename T::const_iterator i=in.begin();
@@ -262,19 +262,19 @@ string	combine(const T& in, const string& dlmt="", bool add_dlmt_on_final=false)
 
 
 
-// ƒtƒ@ƒCƒ‹‚Ì‘¶İ‚ğŠm”F
+// ãƒ•ã‚¡ã‚¤ãƒ«ã®å­˜åœ¨ã‚’ç¢ºèª
 bool	is_exist_file(const string& iFileName);
 
-// str‚Ìæ“ª‚ªhead‚Å‚ ‚ê‚Îtrue
+// strã®å…ˆé ­ãŒheadã§ã‚ã‚Œã°true
 inline bool	compare_head(const string& str, const string& head) { return str.compare(0, head.size(), head)==0; }
 inline bool	compare_head(const char* str, const char* head) { return strncmp(str, head, strlen(head))==0; }
-// str‚Ì––”ö‚ªtail‚Å‚ ‚ê‚Îtrue
+// strã®æœ«å°¾ãŒtailã§ã‚ã‚Œã°true
 bool	compare_tail(const string& str, const string& tail);	
 
-// target’†‚ÌÅ‰‚Éfind•¶š—ñ‚ªoŒ»‚·‚éˆÊ’u‚ğ•Ô‚·B”¼Šp‘SŠp—¼‘Î‰
+// targetä¸­ã®æœ€åˆã«findæ–‡å­—åˆ—ãŒå‡ºç¾ã™ã‚‹ä½ç½®ã‚’è¿”ã™ã€‚åŠè§’å…¨è§’ä¸¡å¯¾å¿œ
 const char*	strstr_hz(const char* target, const char* find);
 
-// “Á’è‚Ìˆê•¶š‚ªÅŒã‚ÉoŒ»‚·‚éˆÊ’u‚ğ•Ô‚·
+// ç‰¹å®šã®ä¸€æ–‡å­—ãŒæœ€å¾Œã«å‡ºç¾ã™ã‚‹ä½ç½®ã‚’è¿”ã™
 const char*	find_final_char(const char* str, char c);
 inline char* find_final_char(char* str, char c) { return const_cast<char*>(find_final_char(static_cast<const char*>(str), c)); }
 /*#include	<mbctype.h>	// for _ismbblead,_ismbbtrail
@@ -287,17 +287,17 @@ T*	find_final_char(T* str, const T& c) {
 	return	last;
 }*/
 
-// ŠÈˆÕˆÃ†‰»
+// ç°¡æ˜“æš—å·åŒ–
 string	encode(const string& s);
 string	decode(const string& s);
 
-// ƒoƒCƒiƒŠƒf[ƒ^‚Æ16i”•\Œ»‚ğ‘ŠŒİ•ÏŠ·
+// ãƒã‚¤ãƒŠãƒªãƒ‡ãƒ¼ã‚¿ã¨16é€²æ•°è¡¨ç¾ã‚’ç›¸äº’å¤‰æ›
 string	binary_to_string(const byte* iArray, int iLength);
 void	string_to_binary(const string& iString, byte* oArray);
-								// oArray ‚É‚Í iString.size()/2 ƒoƒCƒg‚Ìƒƒ‚ƒŠ‚ğŠm•Û‚µ‚Ä‚ ‚é‚±‚ÆB
+								// oArray ã«ã¯ iString.size()/2 ãƒã‚¤ãƒˆã®ãƒ¡ãƒ¢ãƒªã‚’ç¢ºä¿ã—ã¦ã‚ã‚‹ã“ã¨ã€‚
 
 
-// ƒRƒ“ƒeƒi“à‚ğŒŸõA‘¶İ—L–³‚ğbool‚Å•Ô‚·
+// ã‚³ãƒ³ãƒ†ãƒŠå†…ã‚’æ¤œç´¢ã€å­˜åœ¨æœ‰ç„¡ã‚’boolã§è¿”ã™
 template<typename C, typename E>
 bool exists(const C& iC, const E& iE) {
 	for ( typename C::const_iterator i=iC.begin() ; i!=iC.end() ; ++i )
@@ -317,26 +317,26 @@ inline bool exists< set<T> >(const set<T>& iC, const E& iE) {
 }
 */
 
-// xor ƒtƒBƒ‹ƒ^
+// xor ãƒ•ã‚£ãƒ«ã‚¿
 void	xor_filter(byte* iArray, int iLength, byte _xor);
 
-// ƒtƒ‹ƒpƒX‚Ì•ª‰ğ
+// ãƒ•ãƒ«ãƒ‘ã‚¹ã®åˆ†è§£
 string	get_file_name(const string& str);
 string	get_folder_name(const string& str);
 string	get_extention(const string& str);
-// Šg’£q‚ğ•ÏX‚µ‚½‚à‚Ì‚ğ•Ô‚·
+// æ‹¡å¼µå­ã‚’å¤‰æ›´ã—ãŸã‚‚ã®ã‚’è¿”ã™
 string	set_extention(const string& str, const char* new_ext);
 inline string	set_extention(const string& str, const string& new_ext) { return set_extention(str, new_ext.c_str()); }
-// Šg’£q‚ğ•Ô‚·
+// æ‹¡å¼µå­ã‚’è¿”ã™
 inline string	get_extension(const string& str) {
 	const char* p = find_final_char(str.c_str(), '.');
 	return p ? p+1 : "";
 }
-// ƒtƒ@ƒCƒ‹–¼•”•ª‚ğ•ÏX‚µ‚½‚à‚Ì‚ğ•Ô‚·
+// ãƒ•ã‚¡ã‚¤ãƒ«åéƒ¨åˆ†ã‚’å¤‰æ›´ã—ãŸã‚‚ã®ã‚’è¿”ã™
 string	set_filename(const string& str, const char* new_filename);
 inline string	set_filename(const string& str, const string& new_filename) { return set_filename(str, new_filename.c_str()); }
 
-// o—Í
+// å‡ºåŠ›
 ostream& operator<<(ostream& o, const strvec& i);
 ostream& operator<<(ostream& o, const strmap& i);
 ostream& operator<<(ostream& o, const strintmap& i);
@@ -347,15 +347,15 @@ inline ostream& operator<<(ostream& o, const strpairvec& i) {
 }
 
 
-// “ü—Í
+// å…¥åŠ›
 istream& operator>>(istream& i, strvec& o);
 istream& operator>>(istream& i, strmap& o);
 istream& operator>>(istream& i, strintmap& o);
 
 /*
-// ‚È‚ñ‚©A‚ ‚ñ‚Ü‚èg‚Á‚Ä‚¢‚È‚¢‚à‚ÌBB
+// ãªã‚“ã‹ã€ã‚ã‚“ã¾ã‚Šä½¿ã£ã¦ã„ãªã„ã‚‚ã®ã€‚ã€‚
 
-// ƒtƒ@ƒCƒ‹ƒAƒNƒZƒT
+// ãƒ•ã‚¡ã‚¤ãƒ«ã‚¢ã‚¯ã‚»ã‚µ
 template<class T>
 bool	put(const char* iFileName, T& i) {
 	ofstream	o(iFileName);
@@ -383,17 +383,17 @@ bool	read_text_file(
 	if ( !in.is_open() )
 		return	false;
 	while ( in.peek() != EOF ) {
-		// ‚Ps“Ç‚İ‚İ
+		// ï¼‘è¡Œèª­ã¿è¾¼ã¿
 		strstream	line;
 		int	c;
 		while ( (c=in.get()) != '\n' && c!=EOF)
 			line.put(c);
 		line.put('\0');
 
-		// sƒXƒgƒŠ[ƒ€‚ğŒÅ’èAŠes‚É‘Î‚µˆ—
+		// è¡Œã‚¹ãƒˆãƒªãƒ¼ãƒ ã‚’å›ºå®šã€å„è¡Œã«å¯¾ã—å‡¦ç†
 		char* p=line.str();
 		oT.push_back(p);
-		// sƒXƒgƒŠ[ƒ€‚ÌŒÅ’è‚ğ‰ğœ
+		// è¡Œã‚¹ãƒˆãƒªãƒ¼ãƒ ã®å›ºå®šã‚’è§£é™¤
 		line.rdbuf()->freeze(0);
 	}
 	in.close();
@@ -402,7 +402,7 @@ bool	read_text_file(
 
 template<class T>
 bool	write_text_file(
-	const T& iT,	// ƒRƒ“ƒeƒi‚Íbegin()‚Æend()‚ÆForwardAccessIterator‚ª—v‚éB‰×•¨‚É‚Í operator<< ‚ª—v‚éB‚Â‚©Œ´‘¥string‚¾‚ÈB
+	const T& iT,	// ã‚³ãƒ³ãƒ†ãƒŠã¯begin()ã¨end()ã¨ForwardAccessIteratorãŒè¦ã‚‹ã€‚è·ç‰©ã«ã¯ operator<< ãŒè¦ã‚‹ã€‚ã¤ã‹åŸå‰‡stringã ãªã€‚
 	const string& iFileName)
 {
 	ofstream	out(iFileName.c_str());
@@ -417,16 +417,16 @@ bool	write_text_file(
 */
 
 
-// 32bit—”
+// 32bitä¹±æ•°
 extern void	randomize(int);
 #ifndef POSIX
 extern int	random();
 #endif
 
-// printfŒİŠ·‚Å•¶š—ñ‚ğ¶¬‚µAstringŒ^‚Å•Ô‚·B
+// printfäº’æ›ã§æ–‡å­—åˆ—ã‚’ç”Ÿæˆã—ã€stringå‹ã§è¿”ã™ã€‚
 extern string stringf(const char* iFormat, ...);
 
-// ”CˆÓ‚ÌŒ…‚ğlÌŒÜ“ü‚·‚éBfigureÈ—ª‚Í¬”‘æˆêˆÊ‚ğlÌŒÜ“üB
+// ä»»æ„ã®æ¡ã‚’å››æ¨äº”å…¥ã™ã‚‹ã€‚figureçœç•¥æ™‚ã¯å°æ•°ç¬¬ä¸€ä½ã‚’å››æ¨äº”å…¥ã€‚
 template<typename T>
 T	round(T num, const int figure=0) {
 	if ( figure>=0 ) {
@@ -447,7 +447,7 @@ T	round(T num, const int figure=0) {
 
 
 
-// ƒfƒBƒŒƒNƒgƒŠ‹æØ‚è
+// ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªåŒºåˆ‡ã‚Š
 #ifdef POSIX
   #define DIR_CHAR '/'
   inline string unify_dir_char(const string& i_str) { string r=i_str; replace(r, "\\", "/"); return r; }
@@ -457,7 +457,7 @@ T	round(T num, const int figure=0) {
 #endif
 
 
-// DOS/Windows‚âHTTP‚È‚Ç‚É‚¨‚¯‚ésƒfƒŠƒ~ƒ^
+// DOS/Windowsã‚„HTTPãªã©ã«ãŠã‘ã‚‹è¡Œãƒ‡ãƒªãƒŸã‚¿
 static const string CRLF = "\x0d\x0a";
 
 

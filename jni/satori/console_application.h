@@ -5,16 +5,16 @@ using namespace std;
 #  include <windows.h>
 #endif
 
-// ƒRƒ“ƒ\[ƒ‹ƒAƒvƒŠƒP[ƒVƒ‡ƒ“‚ğŒÄ‚Ño‚·
-inline string // ƒGƒ‰[ƒƒbƒZ[ƒWB""‚È‚ç³íI—¹
+// ã‚³ãƒ³ã‚½ãƒ¼ãƒ«ã‚¢ãƒ—ãƒªã‚±ãƒ¼ã‚·ãƒ§ãƒ³ã‚’å‘¼ã³å‡ºã™
+inline string // ã‚¨ãƒ©ãƒ¼ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã€‚""ãªã‚‰æ­£å¸¸çµ‚äº†
 call_console_application(
-	const string& i_command_line,   // ƒRƒ}ƒ“ƒh‚Æˆø”
-	const string& i_boot_directory, // Às‚ÌƒfƒBƒŒƒNƒgƒŠ
-	string& o_stdout // •W€o—Í“à—e
+	const string& i_command_line,   // ã‚³ãƒãƒ³ãƒ‰ã¨å¼•æ•°
+	const string& i_boot_directory, // å®Ÿè¡Œæ™‚ã®ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒª
+	string& o_stdout // æ¨™æº–å‡ºåŠ›å†…å®¹
 	)
 {
 #ifdef POSIX
-	return ""; // –¢ƒTƒ|[ƒgB‚±‚ÌŠÖ”‚ÍŒÄ‚Î‚ê‚È‚¢B
+	return ""; // æœªã‚µãƒãƒ¼ãƒˆã€‚ã“ã®é–¢æ•°ã¯å‘¼ã°ã‚Œãªã„ã€‚
 
 #else /* POSIX */   
 	SECURITY_ATTRIBUTES	sa; 
@@ -23,7 +23,7 @@ call_console_application(
 	sa.lpSecurityDescriptor = NULL; 
 	sa.bInheritHandle = TRUE; 
 
-	// HANDLEƒzƒ‹ƒ_B
+	// HANDLEãƒ›ãƒ«ãƒ€ã€‚
 	class Handle
 	{
 		HANDLE mHandle;
@@ -38,14 +38,14 @@ call_console_application(
 	Handle stdout_read, stdout_write;
 	if ( !::CreatePipe(stdout_read.p(), stdout_write.p(), &sa, 0) )
 	{
-		return	"CreatePipe‚Å¸”sB";
+		return	"CreatePipe\x82\xC5\x8E\xB8\x94\x73\x81\x42";
 	}
 	
 	if ( !::DuplicateHandle(
 		::GetCurrentProcess(), stdout_write, 
 		::GetCurrentProcess(), NULL, 0, FALSE, DUPLICATE_SAME_ACCESS) )
 	{
-		return "DuplicateHandle‚Å¸”sB";
+		return "DuplicateHandle\x82\xC5\x8E\xB8\x94\x73\x81\x42";
 	}
 
 	STARTUPINFO si; 
@@ -64,11 +64,11 @@ call_console_application(
 	if ( !::CreateProcess(NULL, command_line,
 	 NULL, NULL, TRUE, 0, NULL, i_boot_directory.c_str(), &si, &pi))
 	{ 
-		return	"CreateProcess‚Å¸”sB";
+		return	"CreateProcess\x82\xC5\x8E\xB8\x94\x73\x81\x42";
 	}
 	if ( ::WaitForSingleObject(pi.hProcess, 10000)==WAIT_TIMEOUT )
 	{
-		return	"ŒÄ‚Ño‚µƒ^ƒCƒ€ƒAƒEƒgB";
+		return	"\x8C\xC4\x82\xD1\x8F\x6F\x82\xB5\x83\x5E\x83\x43\x83\x80\x83\x41\x83\x45\x83\x67\x81\x42";
 	}
 
 	while (true)

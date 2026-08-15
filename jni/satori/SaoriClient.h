@@ -1,7 +1,7 @@
 #include "SakuraDLLClient.h"
 
-// SAORI/1.0 -universal ƒNƒ‰ƒCƒAƒ“ƒg
-//  uŠex‚©‚çŒÄ‚Ño‚¹‚é‹¤’Êƒvƒ‰ƒOƒCƒ“‹KŠi‘Î‰DLLv‚ğŒÄ‚ÔB
+// SAORI/1.0 -universal ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆ
+//  ã€Œå„æ ã‹ã‚‰å‘¼ã³å‡ºã›ã‚‹å…±é€šãƒ—ãƒ©ã‚°ã‚¤ãƒ³è¦æ ¼å¯¾å¿œDLLã€ã‚’å‘¼ã¶ã€‚
 class SaoriClient : public SakuraDLLClient
 {
 public:
@@ -21,7 +21,7 @@ public:
 		vector<string>& o_value);
 };
 
-// ‚Å‚àSakuraDLLClient‚©‚çŒp³‚·‚é‚Ì‚Í•s“KØ‚¾
-// request‚¾‚¯‚ğæ‚èo‚·‚×‚«‚©
+// ã§ã‚‚SakuraDLLClientã‹ã‚‰ç¶™æ‰¿ã™ã‚‹ã®ã¯ä¸é©åˆ‡ã 
+// requestã ã‘ã‚’å–ã‚Šå‡ºã™ã¹ãã‹
 
 

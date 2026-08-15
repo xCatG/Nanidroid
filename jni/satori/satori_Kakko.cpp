@@ -7,17 +7,17 @@
 
 
 void	add_characters(const char* p, int& characters) {
-	// ‚³‚­‚çƒXƒNƒŠƒvƒg‚Æ‚»‚êˆÈŠO‚ğ•ªŠ„‚µ‚Äˆ—‚ğ‰Á‚¦‚é
+	// ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã¨ãã‚Œä»¥å¤–ã‚’åˆ†å‰²ã—ã¦å‡¦ç†ã‚’åŠ ãˆã‚‹
 	while (*p) {
 		if (*p=='\\'||*p=='%') {
 			++p;
-			if (*p=='\\'||*p=='%')	// ƒGƒXƒP[ƒv‚³‚ê‚½\, %
+			if (*p=='\\'||*p=='%')	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸ\, %
 				continue;
 			while (!_ismbblead(*p) && (isalpha(*p)||isdigit(*p)||*p=='!'||*p=='*'||*p=='&'||*p=='?'||*p=='_'))
 				++p;
 			if (*p=='[') {
 				for (++p ; *p!=']' ;)
-					if (p[0]=='\\' && p[1]==']')	// ƒGƒXƒP[ƒv‚³‚ê‚½]
+					if (p[0]=='\\' && p[1]==']')	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸ]
 						++p;
 					else
 						p += _ismbblead(*p) ? 2 : 1;
@@ -49,7 +49,7 @@ string	Satori::inc_call(
 	bool iIsSecure) 
 {
 	if ( !iIsSecure ) {
-		sender << "local/Local‚Å‚È‚¢‚Ì‚ÅR‚è‚Ü‚µ‚½: " << iCallName << endl;
+		sender << "local/Local\x82\xC5\x82\xC8\x82\xA2\x82\xCC\x82\xC5\x8F\x52\x82\xE8\x82\xDC\x82\xB5\x82\xBD: " << iCallName << endl;
 		return	"";
 	}
 
@@ -58,15 +58,15 @@ string	Satori::inc_call(
 			string	result, key=iArgv[0], value=iArgv[1];
 
 			if ( aredigits(zen2han(key)) ) {
-				sender << "" << key << "@”š‚Ì‚İ‚Ì•Ï”–¼‚Íˆµ‚¦‚Ü‚¹‚ñ." << endl;
-				erase_var(key);	// ‘¶İ–•Á
+				sender << "\x81\x90" << key << "\x81\x40\x90\x94\x8E\x9A\x82\xCC\x82\xDD\x82\xCC\x95\xCF\x90\x94\x96\xBC\x82\xCD\x88\xB5\x82\xA6\x82\xDC\x82\xB9\x82\xF1." << endl;
+				erase_var(key);	// å­˜åœ¨æŠ¹æ¶ˆ
 			}
 			else if ( value=="" ) {
-				sender << "" << key << "^cleared." << endl;
-				erase_var(key);	// ‘¶İ–•Á
+				sender << "\x81\x90" << key << "\x81\x5E" "cleared." << endl;
+				erase_var(key);	// å­˜åœ¨æŠ¹æ¶ˆ
 			}
 			else {
-				sender << "" << key << "" << value << "^" << 
+				sender << "\x81\x90" << key << "\x81\x81" << value << "\x81\x5E" << 
 					(( variables.find(key) == variables.end() ) ?
 					"writed." : "overwrited.")<< endl;
 
@@ -100,7 +100,7 @@ string	Satori::inc_call(
 			if ( init>max )
 				return	"";
 			for (int i=init ; i<=max ; i+=step ) {
-				variables[name+"ƒJƒEƒ“ƒ^"] = itos(i);
+				variables[name+"\x83\x4A\x83\x45\x83\x93\x83\x5E"] = itos(i);
 				if ( !Call(name, temp) )
 					return	"";
 				ret += temp;
@@ -110,13 +110,13 @@ string	Satori::inc_call(
 			if ( init<max )
 				return	"";
 			for (int i=init ; i>=max ; i+=step ) {
-				variables[name+"ƒJƒEƒ“ƒ^"] = itos(i);
+				variables[name+"\x83\x4A\x83\x45\x83\x93\x83\x5E"] = itos(i);
 				if ( !Call(name, temp) )
 					return	"";
 				ret += temp;
 			}
 		}
-		variables.erase(name+"ƒJƒEƒ“ƒ^");
+		variables.erase(name+"\x83\x4A\x83\x45\x83\x93\x83\x5E");
 		return	ret;
 	}
 	else if ( iCallName=="sync" ) {
@@ -152,7 +152,7 @@ string	Satori::inc_call(
 
 
 	}
-	else if ( iCallName == "’PŒê‚Ì’Ç‰Á" ) {
+	else if ( iCallName == "\x92\x50\x8C\xEA\x82\xCC\x92\xC7\x89\xC1" ) {
 
 		if ( iArgv.size() == 2 )
 		{
@@ -160,15 +160,15 @@ string	Satori::inc_call(
 			if ( f == NULL || false == f->is_exist_element(iArgv[1]) )
 			{
 				mAppendedWords[ iArgv[0] ].push_back( f->add_element(iArgv[1]) );
-				sender << "’PŒêŒQu" << iArgv[0] << "v‚É’PŒêu" << iArgv[1] << "v‚ª’Ç‰Á‚³‚ê‚Ü‚µ‚½B" << endl;
+				sender << "\x92\x50\x8C\xEA\x8C\x51\x81\x75" << iArgv[0] << "\x81\x76\x82\xC9\x92\x50\x8C\xEA\x81\x75" << iArgv[1] << "\x81\x76\x82\xAA\x92\xC7\x89\xC1\x82\xB3\x82\xEA\x82\xDC\x82\xB5\x82\xBD\x81\x42" << endl;
 			}
 			else
 			{
-				sender << "’PŒêŒQu" << iArgv[0] << "v‚É’PŒêu" << iArgv[1] << "v‚ÍŠù‚É‘¶İ‚µ‚Ü‚·B" << endl;
+				sender << "\x92\x50\x8C\xEA\x8C\x51\x81\x75" << iArgv[0] << "\x81\x76\x82\xC9\x92\x50\x8C\xEA\x81\x75" << iArgv[1] << "\x81\x76\x82\xCD\x8A\xF9\x82\xC9\x91\xB6\x8D\xDD\x82\xB5\x82\xDC\x82\xB7\x81\x42" << endl;
 			}
 		}
 		else
-			sender << "error: '’PŒê‚Ì’Ç‰Á' : ˆø”‚ª•s³‚Å‚·B" << endl;
+			sender << "error: '\x92\x50\x8C\xEA\x82\xCC\x92\xC7\x89\xC1' : \x88\xF8\x90\x94\x82\xAA\x95\x73\x90\xB3\x82\xC5\x82\xB7\x81\x42" << endl;
 
 	}
 	else if ( iCallName=="nop" ) {
@@ -177,14 +177,14 @@ string	Satori::inc_call(
 }
 
 
-// ˆø”‚É“n‚³‚ê‚½‚à‚Ì‚ğ‰½‚©‚Ì–¼‘O‚Å‚ ‚é‚Æ‚µA’u‚«Š·‚¦‘ÎÛ‚ª‚ ‚ê‚Î’u‚«Š·‚¦‚éB
+// å¼•æ•°ã«æ¸¡ã•ã‚ŒãŸã‚‚ã®ã‚’ä½•ã‹ã®åå‰ã§ã‚ã‚‹ã¨ã—ã€ç½®ãæ›ãˆå¯¾è±¡ãŒã‚ã‚Œã°ç½®ãæ›ãˆã‚‹ã€‚
 bool	Satori::Call(const string& iName, string& oResult) {
 	string	hankaku;
 	strvec*	p_kakko_replace_history = kakko_replace_history.empty() ? NULL : &(kakko_replace_history.top());
 
 	bool	_pre_called_=false;
 
-	// SAORI‘Î‰, “à‘ ŠÖ”ŒÄ‚Ño‚µ‚à‚±‚±‚Å
+	// SAORIå¯¾å¿œ, å†…è”µé–¢æ•°å‘¼ã³å‡ºã—ã‚‚ã“ã“ã§
 	{
 		string	thePluginName="";
 		set<string>::const_iterator theDelimiter = mDelimiters.end();
@@ -199,17 +199,17 @@ bool	Satori::Call(const string& iName, string& oResult) {
 
 			static set<string> inner_commands;
 			if ( inner_commands.empty() ) {
-				// –{“–‚Ímap<name, function>‚¾‚È[@‚Ş[
+				// æœ¬å½“ã¯map<name, function>ã ãªãƒ¼ã€€ã‚€ãƒ¼
 				inner_commands.insert("set");
 				inner_commands.insert("nop");
 				inner_commands.insert("sync");
 				inner_commands.insert("loop");
 				inner_commands.insert("remember");
-				inner_commands.insert("’PŒê‚Ì’Ç‰Á");
+				inner_commands.insert("\x92\x50\x8C\xEA\x82\xCC\x92\xC7\x89\xC1");
 				inner_commands.insert("call");
 				inner_commands.insert("freeze");
-				//inner_commands.insert("’PŒê‚Ìíœ");
-				//inner_commands.insert("’PŒê‚Ì‘¶İ");
+				//inner_commands.insert("å˜èªã®å‰Šé™¤");
+				//inner_commands.insert("å˜èªã®å­˜åœ¨");
 			}
 
 			for (set<string>::const_iterator i=mDelimiters.begin() ; i!=mDelimiters.end() ; ++i) {
@@ -217,7 +217,7 @@ bool	Satori::Call(const string& iName, string& oResult) {
 				if ( p==NULL )
 					continue;
 				string	str(iName.c_str(), p-iName.c_str());
-				if ( mShioriPlugins.find(str) ) {	// ‘¶İŠm”F
+				if ( mShioriPlugins.find(str) ) {	// å­˜åœ¨ç¢ºèª
 					thePluginName=str;
 					theDelimiter=i;
 					state = SAORI_CALL;
@@ -240,7 +240,7 @@ bool	Satori::Call(const string& iName, string& oResult) {
 			_pre_called_=true;
 			strvec	theArguments, theResults;
 
-			if ( p!=NULL )// ˆø”‚ª‚ ‚é‚È‚ç
+			if ( p!=NULL )// å¼•æ•°ãŒã‚ã‚‹ãªã‚‰
 			{
 				assert(theDelimiter != mDelimiters.end());
 				string argstr = UnKakko(p);
@@ -275,20 +275,20 @@ bool	Satori::Call(const string& iName, string& oResult) {
 				}
 			}
 
-			// ˆø”“n‚µ‚Ä•Ô’l‚ğæ“¾A‚ÆB
+			// å¼•æ•°æ¸¡ã—ã¦è¿”å€¤ã‚’å–å¾—ã€ã¨ã€‚
 			if ( state==SAORI_CALL )
 				oResult = mShioriPlugins.request(thePluginName, theArguments, theResults, secure_flag ? "Local" : "External" );
 			else
 				oResult = inc_call(thePluginName, theArguments, theResults, secure_flag);
-			oResult = UnKakko(oResult.c_str());	// •Ô’l‚ğÄ“xƒJƒbƒR“WŠJ
+			oResult = UnKakko(oResult.c_str());	// è¿”å€¤ã‚’å†åº¦ã‚«ãƒƒã‚³å±•é–‹
 			
-			// •¡”•Ô’l‚ğ•Ï”‚ÉƒZƒbƒg
+			// è¤‡æ•°è¿”å€¤ã‚’å¤‰æ•°ã«ã‚»ãƒƒãƒˆ
 			int	id=0;
 			for ( strvec::iterator i=theResults.begin() ; i!=theResults.end() ; ++i ) {
 				if ( i->size()==0 )
-					variables.erase( string("‚r")+int2zen(id++));
+					variables.erase( string("\x82\x72")+int2zen(id++));
 				else
-					variables[string("‚r")+int2zen(id++)] = *i;
+					variables[string("\x82\x72")+int2zen(id++)] = *i;
 			}
 		}
 	}
@@ -296,70 +296,70 @@ bool	Satori::Call(const string& iName, string& oResult) {
 	const Word* w;
 
 	if ( _pre_called_ ) {
-		// ‘O’iŠK‚Å‚·‚Å‚É‘Î‰ƒJƒbƒR“WŠJÏ‚İ
+		// å‰æ®µéšã§ã™ã§ã«å¯¾å¿œã‚«ãƒƒã‚³å±•é–‹æ¸ˆã¿
 	}
 	else if ( (w = words.select(iName, *this)) != NULL )
 	{
-		// ’PŒê‚ğ‘I‘ğ‚µ‚½
-		sender << "—" << iName << endl;
+		// å˜èªã‚’é¸æŠã—ãŸ
+		sender << "\x81\x97" << iName << endl;
 		oResult = UnKakko( w->c_str() );
 		speaked_speaker.insert(speaker);
 		add_characters(oResult.c_str(), characters);
 	}
 	else if ( talks.is_exist(iName) ) {
-		// –‚É’è‹`‚ª‚ ‚ê‚Î•¶‚ğæ“¾
+		// ï¼Šã«å®šç¾©ãŒã‚ã‚Œã°æ–‡ã‚’å–å¾—
 		oResult = GetSentence(iName);
 	}
 	else if ( variables.find(iName) != variables.end() ) {
-		// •Ï”–¼‚Å‚ ‚ê‚Î•Ï”‚Ì“à—e‚ğ•Ô‚·
+		// å¤‰æ•°åã§ã‚ã‚Œã°å¤‰æ•°ã®å†…å®¹ã‚’è¿”ã™
 		oResult = variables[iName];
 	}
 	else if ( aredigits(hankaku=zen2han(iName)) || (hankaku[0]=='-' && aredigits(hankaku.c_str()+1)) ) {
-		// ƒT[ƒtƒFƒXØ‚è‘Ö‚¦
+		// ã‚µãƒ¼ãƒ•ã‚§ã‚¹åˆ‡ã‚Šæ›¿ãˆ
 		int	s = stoi(hankaku);
-		if ( s != -1 ) // -1‚ÍuÁ‚µv‚È‚Ì‚Å“Á•Êˆµ‚¢
+		if ( s != -1 ) // -1ã¯ã€Œæ¶ˆã—ã€ãªã®ã§ç‰¹åˆ¥æ‰±ã„
 			s += surface_add_value[speaker];
 		oResult = string("\\s[") + itos(s) + "]";
 		if ( !is_speaked(speaker) )
 			surface_changed_before_speak.insert(speaker);
 	}
 	else if ( hankaku[0]=='R' && aredigits(hankaku.c_str()+1) ) {
-		// Event’Ê’m‚Ìˆø”æ“¾
+		// Eventé€šçŸ¥æ™‚ã®å¼•æ•°å–å¾—
 		int	ref=atoi(hankaku.c_str()+1);
 		oResult = (ref>=0 && ref<mReferences.size()) ? mReferences[ref] : "";
 		//oResult = mRequestMap[ string("Reference") + (hankaku.c_str()+1) ];
 	}
 	else if ( hankaku[0]=='H' && p_kakko_replace_history!=NULL && aredigits(hankaku.c_str()+1) ) {
-		// ‰ß‹‚Ì’u‚«Š·‚¦—š—ğ‚ğQÆ
+		// éå»ã®ç½®ãæ›ãˆå±¥æ­´ã‚’å‚ç…§
 		int	num = atoi(hankaku.c_str() +1) - 1;
 		if ( num>=0 && num < p_kakko_replace_history->size() )
 			oResult = p_kakko_replace_history->at(num);
 	}
 	else if ( hankaku[0]=='A' && mCallStack.size()>0 && aredigits(hankaku.c_str()+1)) {
-		// call‚É‚æ‚éŒÄ‚Ño‚µ‚Ìˆø”‚ğQÆ
+		// callã«ã‚ˆã‚‹å‘¼ã³å‡ºã—ã®å¼•æ•°ã‚’å‚ç…§
 		int	num = atoi(hankaku.c_str() +1);
 		strvec&	v = mCallStack.top();
 		if ( num < v.size() )
 			oResult = v.at(num);
 	}
 	else if ( hankaku=="argc" ) {
-		// call‚É‚æ‚éŒÄ‚Ño‚µ‚Ìˆø”‚ğ‚Ü‚Æ‚ß‚Ä
+		// callã«ã‚ˆã‚‹å‘¼ã³å‡ºã—ã®å¼•æ•°ã‚’ã¾ã¨ã‚ã¦
 		int	num = atoi(hankaku.c_str() +1) - 1;
 		strvec&	v = mCallStack.top();
 		if ( num < v.size() )
 			oResult = v.at(num);
 	}
 	else if ( hankaku=="argv" ) {
-		// call‚É‚æ‚éŒÄ‚Ño‚µ‚Ìˆø”‚ğ‚Ü‚Æ‚ß‚Ä
+		// callã«ã‚ˆã‚‹å‘¼ã³å‡ºã—ã®å¼•æ•°ã‚’ã¾ã¨ã‚ã¦
 		int	num = atoi(hankaku.c_str() +1) - 1;
 		strvec&	v = mCallStack.top();
 		if ( num < v.size() )
 			oResult = v.at(num);
 	}
-	else if ( strncmp(iName.c_str(), "—”", 4)==0 && iName.size()>6 ) { 
+	else if ( strncmp(iName.c_str(), "\x97\x90\x90\x94", 4)==0 && iName.size()>6 ) { 
 		strvec	vec;
-		if ( split( iName.c_str()+4, "`", vec ) != 2 ) {
-			oResult = "¦@—”‚Ìw’è‚ª•Ï‚Å‚·@¦";
+		if ( split( iName.c_str()+4, "\x81\x60", vec ) != 2 ) {
+			oResult = "\x81\xA6\x81\x40\x97\x90\x90\x94\x82\xCC\x8E\x77\x92\xE8\x82\xAA\x95\xCF\x82\xC5\x82\xB7\x81\x40\x81\xA6";
 		}
 		else {
 			int	bottom = stoi(zen2han(vec[0]));
@@ -373,7 +373,7 @@ bool	Satori::Call(const string& iName, string& oResult) {
 				oResult = int2zen( ((unsigned)random())%(top-bottom+1) + bottom );
 		}
 	}
-	else if ( iName == "Œ»İ”N" ) {
+	else if ( iName == "\x8C\xBB\x8D\xDD\x94\x4E" ) {
 #ifdef POSIX
 	        time_t st = time(NULL);
 	        oResult = int2zen(localtime(&st)->tm_year + 1900);
@@ -381,45 +381,45 @@ bool	Satori::Call(const string& iName, string& oResult) {
 		SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wYear);
 #endif
 	}
-	else if ( iName == "Œ»İ—j“ú" ) {
+	else if ( iName == "\x8C\xBB\x8D\xDD\x97\x6A\x93\xFA" ) {
 #ifdef POSIX
 	        time_t st = time(NULL);
 		struct tm* st_tm = localtime(&st);
-		static const char* const ary[7]={"“ú","Œ","‰Î","…","–Ø","‹à","“y"};
-		oResult = (st_tm->tm_wday >= 0 && st_tm->tm_wday < 7) ? ary[st_tm->tm_wday] : "H";
+		static const char* const ary[7]={"\x93\xFA","\x8C\x8E","\x89\xCE","\x90\x85","\x96\xD8","\x8B\xE0","\x93\x79"};
+		oResult = (st_tm->tm_wday >= 0 && st_tm->tm_wday < 7) ? ary[st_tm->tm_wday] : "\x81\x48";
 #else
 		SYSTEMTIME st; ::GetLocalTime(&st);
-		static const char* const ary[7]={"“ú","Œ","‰Î","…","–Ø","‹à","“y"};
-		oResult = ( st.wDayOfWeek >= 0 && st.wDayOfWeek < 7 ) ? ary[st.wDayOfWeek] : "H";
+		static const char* const ary[7]={"\x93\xFA","\x8C\x8E","\x89\xCE","\x90\x85","\x96\xD8","\x8B\xE0","\x93\x79"};
+		oResult = ( st.wDayOfWeek >= 0 && st.wDayOfWeek < 7 ) ? ary[st.wDayOfWeek] : "\x81\x48";
 #endif
 	}
 #ifdef POSIX
-	else if ( iName == "Œ»İŒ" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_mon + 1); }
-	else if ( iName == "Œ»İ“ú" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_mday); }
-	else if ( iName == "Œ»İ" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_hour); }
-	else if ( iName == "Œ»İ•ª" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_min); }
-	else if ( iName == "Œ»İ•b" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_sec); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x8C\x8E" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_mon + 1); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x93\xFA" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_mday); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x8E\x9E" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_hour); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x95\xAA" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_min); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x95\x62" ) { time_t st = time(NULL); oResult = int2zen(localtime(&st)->tm_sec); }
 #else
-	else if ( iName == "Œ»İŒ" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wMonth); }
-	else if ( iName == "Œ»İ“ú" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wDay); }
-	else if ( iName == "Œ»İ" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wHour); }
-	else if ( iName == "Œ»İ•ª" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wMinute); }
-	else if ( iName == "Œ»İ•b" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wSecond); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x8C\x8E" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wMonth); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x93\xFA" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wDay); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x8E\x9E" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wHour); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x95\xAA" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wMinute); }
+	else if ( iName == "\x8C\xBB\x8D\xDD\x95\x62" ) { SYSTEMTIME st; ::GetLocalTime(&st); oResult=int2zen(st.wSecond); }
 #endif
 #ifdef POSIX
-	else if (iName == "‹N“®") {
+	else if (iName == "\x8B\x4E\x93\xAE\x8E\x9E") {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load;
 	    int hour = msec / 1000 / 60 / 60;
 	    oResult = int2zen(hour);
 	}
-	else if (iName == "‹N“®•ª") {
+	else if (iName == "\x8B\x4E\x93\xAE\x95\xAA") {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load;
 	    int hour = msec / 1000 / 60 / 60;
 	    msec -= hour * 60 * 60 * 1000;
 	    int minute = msec / 1000 / 60;
 	    oResult = int2zen(minute);
 	}
-	else if (iName == "‹N“®•b" ) {
+	else if (iName == "\x8B\x4E\x93\xAE\x95\x62" ) {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load;
 	    int hour = msec / 1000 / 60 / 60;
 	    msec -= hour * 60 * 60 * 1000;
@@ -428,48 +428,48 @@ bool	Satori::Call(const string& iName, string& oResult) {
 	    int second = msec / 1000;
 	    oResult = int2zen(second);
 	}
-	else if (iName == "’Pƒ‹N“®•b" ) {
+	else if (iName == "\x92\x50\x8F\x83\x8B\x4E\x93\xAE\x95\x62" ) {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load;
 	    oResult = int2zen(msec / 1000);
 	}
-	else if (iName == "’Pƒ‹N“®•ª") {
+	else if (iName == "\x92\x50\x8F\x83\x8B\x4E\x93\xAE\x95\xAA") {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load;
 	    oResult = int2zen(msec / 1000 / 60);
 	}
 #else
-	else if ( iName == "‹N“®" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()-tick_count_at_load).wHour); }
-	else if ( iName == "‹N“®•ª" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()-tick_count_at_load).wMinute); }
-	else if ( iName == "‹N“®•b" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()-tick_count_at_load).wSecond); }
-	else if ( iName == "’Pƒ‹N“®•b" ) { oResult=int2zen( (::GetTickCount()-tick_count_at_load)/1000 ); }
-	else if ( iName == "’Pƒ‹N“®•ª" ) { oResult=int2zen( (::GetTickCount()-tick_count_at_load)/1000/60 ); }
+	else if ( iName == "\x8B\x4E\x93\xAE\x8E\x9E" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()-tick_count_at_load).wHour); }
+	else if ( iName == "\x8B\x4E\x93\xAE\x95\xAA" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()-tick_count_at_load).wMinute); }
+	else if ( iName == "\x8B\x4E\x93\xAE\x95\x62" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()-tick_count_at_load).wSecond); }
+	else if ( iName == "\x92\x50\x8F\x83\x8B\x4E\x93\xAE\x95\x62" ) { oResult=int2zen( (::GetTickCount()-tick_count_at_load)/1000 ); }
+	else if ( iName == "\x92\x50\x8F\x83\x8B\x4E\x93\xAE\x95\xAA" ) { oResult=int2zen( (::GetTickCount()-tick_count_at_load)/1000/60 ); }
 #endif
 #ifdef POSIX
-	else if (iName == "‚n‚r‹N“®" || iName == "‚n‚r‹N“®•ª" || iName == "‚n‚r‹N“®•b" ||
-		 iName == "’Pƒ‚n‚r‹N“®•b" || iName == "’Pƒ‚n‚r‹N“®•ª") {
-	    // æ“¾‚·‚é•û–@‚ª–³‚¢B
+	else if (iName == "\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x8E\x9E" || iName == "\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\xAA" || iName == "\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\x62" ||
+		 iName == "\x92\x50\x8F\x83\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\x62" || iName == "\x92\x50\x8F\x83\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\xAA") {
+	    // å–å¾—ã™ã‚‹æ–¹æ³•ãŒç„¡ã„ã€‚
 	    oResult = int2zen(0);
 	}
 #else
-	else if ( iName == "‚n‚r‹N“®" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()).wHour); }
-	else if ( iName == "‚n‚r‹N“®•ª" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()).wMinute); }
-	else if ( iName == "‚n‚r‹N“®•b" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()).wSecond); }
-	else if ( iName == "’Pƒ‚n‚r‹N“®•b" ) { oResult=int2zen( ::GetTickCount() / 1000 ); }
-	else if ( iName == "’Pƒ‚n‚r‹N“®•ª" ) { oResult=int2zen( ::GetTickCount() / 1000/60 ); }
+	else if ( iName == "\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x8E\x9E" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()).wHour); }
+	else if ( iName == "\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\xAA" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()).wMinute); }
+	else if ( iName == "\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\x62" ) { oResult=int2zen(DwordToSystemTime(::GetTickCount()).wSecond); }
+	else if ( iName == "\x92\x50\x8F\x83\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\x62" ) { oResult=int2zen( ::GetTickCount() / 1000 ); }
+	else if ( iName == "\x92\x50\x8F\x83\x82\x6E\x82\x72\x8B\x4E\x93\xAE\x95\xAA" ) { oResult=int2zen( ::GetTickCount() / 1000/60 ); }
 #endif
 #ifdef POSIX
-	else if (iName == "—İŒv") {
+	else if (iName == "\x97\xDD\x8C\x76\x8E\x9E") {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load + tick_count_total;
 	    int hour = msec / 1000 / 60 / 60;
 	    oResult = int2zen(hour);
 	}
-	else if (iName == "—İŒv•ª" ) {
+	else if (iName == "\x97\xDD\x8C\x76\x95\xAA" ) {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load + tick_count_total;
 	    int hour = msec / 1000 / 60 / 60;
 	    msec -= hour * 60 * 60 * 1000;
 	    int minute = msec / 1000 / 60;
 	    oResult = int2zen(minute);
 	}
-	else if (iName == "—İŒv•b") {
+	else if (iName == "\x97\xDD\x8C\x76\x95\x62") {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load + tick_count_total;
 	    int hour = msec / 1000 / 60 / 60;
 	    msec -= hour * 60 * 60 * 1000;
@@ -478,40 +478,40 @@ bool	Satori::Call(const string& iName, string& oResult) {
 	    int second = msec / 1000;
 	    oResult = int2zen(second);
 	}
-	else if (iName == "’Pƒ—İŒv•b") {
+	else if (iName == "\x92\x50\x8F\x83\x97\xDD\x8C\x76\x95\x62") {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load + tick_count_total;
 	    oResult = int2zen(msec / 1000);
 	}
-	else if (iName == "’Pƒ—İŒv•ª") {
+	else if (iName == "\x92\x50\x8F\x83\x97\xDD\x8C\x76\x95\xAA") {
 	    unsigned long msec = posix_get_current_millis() - tick_count_at_load + tick_count_total;
 	    oResult = int2zen(msec / 1000 / 60);
 	}
 #else
-	else if ( iName == "—İŒv" ) { oResult=int2zen(DwordToSystemTime( ::GetTickCount() - tick_count_at_load + tick_count_total ).wHour); }
-	else if ( iName == "—İŒv•ª" ) { oResult=int2zen(DwordToSystemTime( ::GetTickCount() - tick_count_at_load + tick_count_total ).wMinute); }
-	else if ( iName == "—İŒv•b" ) { oResult=int2zen(DwordToSystemTime( ::GetTickCount() - tick_count_at_load + tick_count_total ).wSecond); }
-	else if ( iName == "’Pƒ—İŒv•b" ) { oResult=int2zen( (::GetTickCount() - tick_count_at_load + tick_count_total)/1000 ); }
-	else if ( iName == "’Pƒ—İŒv•ª" ) { oResult=int2zen( (::GetTickCount() - tick_count_at_load + tick_count_total)/1000/60 ); }
+	else if ( iName == "\x97\xDD\x8C\x76\x8E\x9E" ) { oResult=int2zen(DwordToSystemTime( ::GetTickCount() - tick_count_at_load + tick_count_total ).wHour); }
+	else if ( iName == "\x97\xDD\x8C\x76\x95\xAA" ) { oResult=int2zen(DwordToSystemTime( ::GetTickCount() - tick_count_at_load + tick_count_total ).wMinute); }
+	else if ( iName == "\x97\xDD\x8C\x76\x95\x62" ) { oResult=int2zen(DwordToSystemTime( ::GetTickCount() - tick_count_at_load + tick_count_total ).wSecond); }
+	else if ( iName == "\x92\x50\x8F\x83\x97\xDD\x8C\x76\x95\x62" ) { oResult=int2zen( (::GetTickCount() - tick_count_at_load + tick_count_total)/1000 ); }
+	else if ( iName == "\x92\x50\x8F\x83\x97\xDD\x8C\x76\x95\xAA" ) { oResult=int2zen( (::GetTickCount() - tick_count_at_load + tick_count_total)/1000/60 ); }
 #endif
 	else if ( iName == "time_t" ) { time_t tm; time(&tm); oResult=itos(tm); }
-	else if ( iName == "ÅIƒg[ƒN‚©‚ç‚ÌŒo‰ß•b" ) { oResult=itos(second_from_last_talk); }
+	else if ( iName == "\x8D\xC5\x8F\x49\x83\x67\x81\x5B\x83\x4E\x82\xA9\x82\xE7\x82\xCC\x8C\x6F\x89\xDF\x95\x62" ) { oResult=itos(second_from_last_talk); }
 
 	else if ( compare_head(iName, "ResponseHistory") && aredigits(iName.c_str()+strlen("ResponseHistory")) ) {
 	}
 
-	else if ( compare_head(iName, "ƒT[ƒtƒFƒX") && aredigits(iName.c_str()+10) ) {
+	else if ( compare_head(iName, "\x83\x54\x81\x5B\x83\x74\x83\x46\x83\x58") && aredigits(iName.c_str()+10) ) {
 		oResult=itos(cur_surface[ atoi(iName.c_str()+10) ]);
 	}
-	else if ( compare_head(iName, "‘O‰ñI—¹ƒT[ƒtƒFƒX") && aredigits(iName.c_str()+20) ) {
+	else if ( compare_head(iName, "\x91\x4F\x89\xF1\x8F\x49\x97\xB9\x8E\x9E\x83\x54\x81\x5B\x83\x74\x83\x46\x83\x58") && aredigits(iName.c_str()+20) ) {
 		oResult=itos(last_talk_exiting_surface[ atoi(iName.c_str()+20) ]);
 	}
 
-	else if ( iName == "—×‚Å‹N“®‚µ‚Ä‚¢‚éƒS[ƒXƒg" ) { 
-		updateGhostsInfo();	// ƒS[ƒXƒgî•ñ‚ğXV
+	else if ( iName == "\x97\xD7\x82\xC5\x8B\x4E\x93\xAE\x82\xB5\x82\xC4\x82\xA2\x82\xE9\x83\x53\x81\x5B\x83\x58\x83\x67" ) { 
+		updateGhostsInfo();	// ã‚´ãƒ¼ã‚¹ãƒˆæƒ…å ±ã‚’æ›´æ–°
 		oResult = ( ghosts_info.size()>=2 ) ? (ghosts_info[1])["name"] : ""; 
 	}
-	else if ( iName == "‹N“®‚µ‚Ä‚¢‚éƒS[ƒXƒg”" ) { 
-		updateGhostsInfo();	// ƒS[ƒXƒgî•ñ‚ğXV
+	else if ( iName == "\x8B\x4E\x93\xAE\x82\xB5\x82\xC4\x82\xA2\x82\xE9\x83\x53\x81\x5B\x83\x58\x83\x67\x90\x94" ) { 
+		updateGhostsInfo();	// ã‚´ãƒ¼ã‚¹ãƒˆæƒ…å ±ã‚’æ›´æ–°
 		oResult = itos(ghosts_info.size()); 
 	}
 	else if ( compare_head(iName, "isempty") && iName.size()>=8 ) {
@@ -519,20 +519,20 @@ bool	Satori::Call(const string& iName, string& oResult) {
 		mbinc(p);
 		oResult = (*p=='\0') ? "1" : "0";
 	}
-	else if ( compare_head(iName, "•¶u") && compare_tail(iName, "v‚Ì‘¶İ") ) {
+	else if ( compare_head(iName, "\x95\xB6\x81\x75") && compare_tail(iName, "\x81\x76\x82\xCC\x91\xB6\x8D\xDD") ) {
 		string	str(iName, 4, iName.length()-4-8);
 		oResult = talks.is_exist(str) ? "1" : "0";
 	}
-	else if ( compare_head(iName, "•Ï”u") && compare_tail(iName, "v‚Ì‘¶İ") ) {
+	else if ( compare_head(iName, "\x95\xCF\x90\x94\x81\x75") && compare_tail(iName, "\x81\x76\x82\xCC\x91\xB6\x8D\xDD") ) {
 		string	str(iName, 6, iName.length()-6-8);
 		oResult = (variables.find(str) != variables.end()) ? "1" : "0";
 	}
-	else if ( compare_head(iName, "’PŒêŒQu") && compare_tail(iName, "v‚Ì‘¶İ") ) {
+	else if ( compare_head(iName, "\x92\x50\x8C\xEA\x8C\x51\x81\x75") && compare_tail(iName, "\x81\x76\x82\xCC\x91\xB6\x8D\xDD") ) {
 		string	str(iName, 8, iName.length()-8-8);
 		oResult = words.is_exist(str) ? "1" : "0";
 	}
-	else if ( compare_tail(iName, "‚Ì‘¶İ") ) {
-		updateGhostsInfo();	// ƒS[ƒXƒgî•ñ‚ğXV
+	else if ( compare_tail(iName, "\x82\xCC\x91\xB6\x8D\xDD") ) {
+		updateGhostsInfo();	// ã‚´ãƒ¼ã‚¹ãƒˆæƒ…å ±ã‚’æ›´æ–°
 		vector<strmap>::iterator i=ghosts_info.begin();
 		for ( ; i!=ghosts_info.end() ; ++i )
 			if ( compare_head(iName, (*i)["name"]) )
@@ -541,8 +541,8 @@ bool	Satori::Call(const string& iName, string& oResult) {
 				break;
 		oResult = ( i==ghosts_info.end() ) ? "0" : "1";
 	}
-	else if ( compare_tail(iName, "‚ÌƒT[ƒtƒFƒX") ) {
-		updateGhostsInfo();	// ƒS[ƒXƒgî•ñ‚ğXV
+	else if ( compare_tail(iName, "\x82\xCC\x83\x54\x81\x5B\x83\x74\x83\x46\x83\x58") ) {
+		updateGhostsInfo();	// ã‚´ãƒ¼ã‚¹ãƒˆæƒ…å ±ã‚’æ›´æ–°
 		vector<strmap>::iterator i=ghosts_info.begin();
 		for ( ; i!=ghosts_info.end() ; ++i )
 			if ( compare_head(iName, (*i)["name"]) ) {
@@ -558,7 +558,7 @@ bool	Satori::Call(const string& iName, string& oResult) {
 		}
 	}
 	else if ( compare_head(iName, "FMO") && iName.size()>4 ) { // FMO?head
-		updateGhostsInfo();	// ƒS[ƒXƒgî•ñ‚ğXV
+		updateGhostsInfo();	// ã‚´ãƒ¼ã‚¹ãƒˆæƒ…å ±ã‚’æ›´æ–°
 		if ( !isdigit(iName[3]) )
 			NULL;
 		else if ( iName[3]-'0' > ghosts_info.size() )
@@ -628,7 +628,7 @@ bool	Satori::Call(const string& iName, string& oResult) {
 				{
 					for ( Talk::const_iterator tk_it = (*el_it)->begin() ; tk_it != (*el_it)->end() ; ++tk_it )
 					{
-						n += count(*tk_it, "i");
+						n += count(*tk_it, "\x81\x69");
 					}
 				}
 			}
@@ -638,24 +638,24 @@ bool	Satori::Call(const string& iName, string& oResult) {
 				it->second.get_elements_pointers(v);
 				for ( vector<const Word*>::const_iterator el_it = v.begin() ; el_it != v.end() ; ++el_it )
 				{
-					n += count(**el_it, "i");
+					n += count(**el_it, "\x81\x69");
 				}
 			}
 			oResult = itos(n);
 		}
 	}
-	else if ( iName=="Ÿ‚Ìƒg[ƒN" ) {
+	else if ( iName=="\x8E\x9F\x82\xCC\x83\x67\x81\x5B\x83\x4E" ) {
 		map<int,string>::iterator it = reserved_talk.find(1);
 		if ( it != reserved_talk.end() ) 
 			oResult = it->second;
 	}
-	else if ( compare_head(iName,"Ÿ‚©‚ç") && compare_tail(iName,"‰ñ–Ú‚Ìƒg[ƒN") ) {
+	else if ( compare_head(iName,"\x8E\x9F\x82\xA9\x82\xE7") && compare_tail(iName,"\x89\xF1\x96\xDA\x82\xCC\x83\x67\x81\x5B\x83\x4E") ) {
 		int	count = stoi( zen2han( string(iName.c_str()+6, iName.length()-6-12) ) );
 		map<int,string>::iterator it = reserved_talk.find(count);
 		if ( it != reserved_talk.end() ) 
 			oResult = it->second;
 	}
-	else if ( compare_head(iName, "ƒg[ƒNu") && compare_tail(iName, "v‚Ì—\\x96\xf1—L–³") ) { // u–ñv‚É‚Í\‚ªŠÜ‚Ü‚ê‚éB
+	else if ( compare_head(iName, "\x83\x67\x81\x5B\x83\x4E\x81\x75") && compare_tail(iName, "\x81\x76\x82\xCC\x97\x5C\x96\xf1\x97\x4C\x96\xB3") ) { // ã€Œç´„ã€ã«ã¯\ãŒå«ã¾ã‚Œã‚‹ã€‚
 		string	str(iName, 8, iName.length()-8-12);
 		oResult = "0";
 		for (map<int, string>::iterator it=reserved_talk.begin(); it!=reserved_talk.end() ; ++it) {
@@ -665,24 +665,24 @@ bool	Satori::Call(const string& iName, string& oResult) {
 			}
 		}
 	}
-	else if ( iName == "—\\x96\xf1ƒg[ƒN”" ) { // u–ñv‚É‚Í\‚ªŠÜ‚Ü‚ê‚éB
+	else if ( iName == "\x97\x5C\x96\xf1\x83\x67\x81\x5B\x83\x4E\x90\x94" ) { // ã€Œç´„ã€ã«ã¯\ãŒå«ã¾ã‚Œã‚‹ã€‚
 		oResult = itos( reserved_talk.size() );
 	}
-	else if ( iName == "ƒCƒxƒ“ƒg–¼" ) { oResult=mRequestID; }
-	else if ( iName == "’¼‘O‚Ì‘I‘ğˆ–¼" ) { oResult=last_choice_name; }
+	else if ( iName == "\x83\x43\x83\x78\x83\x93\x83\x67\x96\xBC" ) { oResult=mRequestID; }
+	else if ( iName == "\x92\xBC\x91\x4F\x82\xCC\x91\x49\x91\xF0\x8E\x88\x96\xBC" ) { oResult=last_choice_name; }
 	else if ( mRequestMap.find(iName) != mRequestMap.end() ) {
 		oResult = mRequestMap[iName];
 	}
 	else {
-		// Œ©‚Â‚©‚ç‚È‚©‚Á‚½B’Êí’‚èH
+		// è¦‹ã¤ã‹ã‚‰ãªã‹ã£ãŸã€‚é€šå¸¸å–‹ã‚Šï¼Ÿ
 		speaked_speaker.insert(speaker);
 		characters += oResult.size();
-		sender << "i" << iName << "j not found." << endl;
+		sender << "\x81\x69" << iName << "\x81\x6A not found." << endl;
 		return	false;
 	}
 
 	if ( p_kakko_replace_history!=NULL )
 		p_kakko_replace_history->push_back(oResult);
-	sender << "i" << iName << "j¨" << oResult << "" << endl;
+	sender << "\x81\x69" << iName << "\x81\x6A\x81\xA8" << oResult << "" << endl;
 	return	true;
 }

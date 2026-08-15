@@ -1,36 +1,36 @@
 #include "SakuraClient.h"
 
 #ifndef POSIX
-#  include <windows.h> // HMODULE,BOOL,HGLOBAL‚Æ‚©
+#  include <windows.h> // HMODULE,BOOL,HGLOBALã¨ã‹
 #endif
 
 
-// dllƒzƒ‹ƒ_[Bdll‚ğƒ[ƒh‚µ‚ÄƒŠƒNƒGƒXƒg‚ğ‘—‚é
+// dllãƒ›ãƒ«ãƒ€ãƒ¼ã€‚dllã‚’ãƒ­ãƒ¼ãƒ‰ã—ã¦ãƒªã‚¯ã‚¨ã‚¹ãƒˆã‚’é€ã‚‹
 class SakuraDLLClient : public SakuraClient
 {
 public:
 	SakuraDLLClient();
 	virtual ~SakuraDLLClient();
 
-	// ‚Í‚¶‚ß‚é‚æ
+	// ã¯ã˜ã‚ã‚‹ã‚ˆ
 	virtual bool load(
 		const string& i_sender,
 		const string& i_charset,
 		const string& i_protocol,
 		const string& i_protocol_version,
-		const string& i_work_folder,	// ì‹ÆƒfƒBƒŒƒNƒgƒŠBDLL::load‚Ìˆø”BÅŒã‚É \ ‚Ü‚½‚Í / ‚ª•K—v
-		const string& i_dll_fullpath);	// DLL‚Ìƒtƒ‹ƒpƒX
+		const string& i_work_folder,	// ä½œæ¥­ãƒ‡ã‚£ãƒ¬ã‚¯ãƒˆãƒªã€‚DLL::loadã®å¼•æ•°ã€‚æœ€å¾Œã« \ ã¾ãŸã¯ / ãŒå¿…è¦
+		const string& i_dll_fullpath);	// DLLã®ãƒ•ãƒ«ãƒ‘ã‚¹
 
-	// ‚¨‚í‚é‚æ
+	// ãŠã‚ã‚‹ã‚ˆ
 	virtual void unload();
 
-	// ƒo[ƒWƒ‡ƒ“æ“¾BGET Version‚µ‚Ä"SAORI/1.0" ‚İ‚½‚¢‚Ì‚ğ•Ô‚·B
+	// ãƒãƒ¼ã‚¸ãƒ§ãƒ³å–å¾—ã€‚GET Versionã—ã¦"SAORI/1.0" ã¿ãŸã„ã®ã‚’è¿”ã™ã€‚
 	virtual string get_version(const string& i_security_level);
 
-	// ‘f‚ÌƒŠƒNƒGƒXƒg•¶š—ñ‚ğ‘—‚èA‘f‚ÌƒŒƒXƒ|ƒ“ƒX•¶š—ñ‚ğó‚¯æ‚éB
+	// ç´ ã®ãƒªã‚¯ã‚¨ã‚¹ãƒˆæ–‡å­—åˆ—ã‚’é€ã‚Šã€ç´ ã®ãƒ¬ã‚¹ãƒãƒ³ã‚¹æ–‡å­—åˆ—ã‚’å—ã‘å–ã‚‹ã€‚
 	virtual string request(const string& i_request_string);
 
-	// ƒŠƒNƒGƒXƒg‚ğ‘—‚èAƒŒƒXƒ|ƒ“ƒX‚ğó‚¯æ‚éB–ß‚è’l‚ÍƒŠƒ^[ƒ“ƒR[ƒhB
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆã‚’é€ã‚Šã€ãƒ¬ã‚¹ãƒãƒ³ã‚¹ã‚’å—ã‘å–ã‚‹ã€‚æˆ»ã‚Šå€¤ã¯ãƒªã‚¿ãƒ¼ãƒ³ã‚³ãƒ¼ãƒ‰ã€‚
 	virtual int request(
 		const string& i_command,
 		const strpairvec& i_data,
