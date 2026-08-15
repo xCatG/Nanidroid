@@ -31,6 +31,7 @@ internal class ReservedGhost internal constructor(
  */
 internal class GhostSessionCoordinator {
     private class RootState {
+        @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
         val monitor = java.lang.Object()
         var reservation: ReservedGhost? = null
         var construction: GhostConstructionReservation? = null
@@ -48,6 +49,7 @@ internal class GhostSessionCoordinator {
 
     private val roots = ConcurrentHashMap<String, RootState>()
     private val generations = AtomicLong()
+    @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
     private val globalMonitor = java.lang.Object()
     private var globalOwner: GlobalOwner? = null
     private var globalPoison: Throwable? = null
