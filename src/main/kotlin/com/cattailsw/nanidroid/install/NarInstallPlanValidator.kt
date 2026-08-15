@@ -4,8 +4,7 @@ import java.io.File
 import java.util.Arrays
 
 /** Kotlin transcription baseline for the identity-bound NAR plan validator. */
-@Suppress("ERROR_SUPPRESSION", "EXPOSED_PARAMETER_TYPE")
-class NarInstallPlanValidator(private val io: ArchiveIo) {
+class NarInstallPlanValidator internal constructor(private val io: ArchiveIo) {
     constructor() : this(FileArchiveIo())
 
     fun validate(archive: File?, installRoot: File?, forcedId: String?): NarInstallPlanResult = try {
@@ -32,8 +31,8 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
         NarInstallPlanResult.success(plan)
     } catch (failure: Failure) { result(failure) }
 
-    @Suppress("ERROR_SUPPRESSION", "EXPOSED_PARAMETER_TYPE")
-    fun validateStaged(staged: NarStagedSource?, installRoot: File?, forcedId: String?): NarInstallPlanResult {
+    @JvmName("validateStaged")
+    internal fun validateStaged(staged: NarStagedSource?, installRoot: File?, forcedId: String?): NarInstallPlanResult {
         val archive = staged?.claim() ?: return NarInstallPlanResult.failure(NarInstallError.STAGED_SOURCE_INVALID, "staged source already claimed")
         var retained: RetainedArchive? = null; var transferred = false
         return try { validateArguments(archive, installRoot); val before = readIdentity(archive); requireCleanClose(before)
@@ -43,8 +42,8 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
         finally { if (!transferred) cleanup(retained, archive) }
     }
 
-    @Suppress("ERROR_SUPPRESSION", "EXPOSED_PARAMETER_TYPE")
-    fun verifyStaged(staged: NarStagedSource?, plan: NarInstallPlan?): NarInstallPlanResult {
+    @JvmName("verifyStaged")
+    internal fun verifyStaged(staged: NarStagedSource?, plan: NarInstallPlan?): NarInstallPlanResult {
         val archive = staged?.claim() ?: return NarInstallPlanResult.failure(NarInstallError.STAGED_SOURCE_INVALID, "staged source already claimed")
         var retained: RetainedArchive? = null; var transferred = false
         return try { if (plan == null) fail(NarInstallError.ARCHIVE_IDENTITY_MISMATCH, "missing plan")
