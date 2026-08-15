@@ -114,7 +114,7 @@ internal object NarGhostTreePolicy {
 
         return try {
             val root = storageRootIdentity.clone()
-            val targetId = validatedTargetId!!
+            val targetId = requireNotNull(validatedTargetId)
             val fingerprint = fingerprint(targetId, root, state, entries)
             Result.success(Manifest(targetId, root, state, entries, fingerprint))
         } catch (_: NoSuchAlgorithmException) {

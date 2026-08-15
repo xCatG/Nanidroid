@@ -2,14 +2,14 @@ package com.cattailsw.nanidroid.install
 
 /** Pure structural policy over caller-supplied central-directory records. */
 class NarArchiveInventoryValidator {
-    fun validate(centralEntries: List<out CentralEntry?>?): NarArchiveInventoryResult = try {
+    fun validate(centralEntries: List<CentralEntry?>?): NarArchiveInventoryResult = try {
         NarArchiveInventoryResult.success(inspect(centralEntries))
     } catch (rejected: Rejected) {
         NarArchiveInventoryResult.failure(rejected.error, rejected.message!!)
     }
 
     @Throws(Rejected::class)
-    private fun inspect(centralEntries: List<out CentralEntry?>?): NarArchiveInventory {
+    private fun inspect(centralEntries: List<CentralEntry?>?): NarArchiveInventory {
         if (centralEntries == null) {
             reject(NarInstallError.INVALID_ENTRY_METADATA, "null inventory")
         }

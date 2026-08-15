@@ -4,7 +4,7 @@ import java.io.File
 import java.util.Arrays
 
 /** Kotlin transcription baseline for the identity-bound NAR plan validator. */
-@Suppress("EXPOSED_PARAMETER_TYPE")
+@Suppress("ERROR_SUPPRESSION", "EXPOSED_PARAMETER_TYPE")
 class NarInstallPlanValidator(private val io: ArchiveIo) {
     constructor() : this(FileArchiveIo())
 
@@ -32,7 +32,7 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
         NarInstallPlanResult.success(plan)
     } catch (failure: Failure) { result(failure) }
 
-    @Suppress("EXPOSED_PARAMETER_TYPE")
+    @Suppress("ERROR_SUPPRESSION", "EXPOSED_PARAMETER_TYPE")
     fun validateStaged(staged: NarStagedSource?, installRoot: File?, forcedId: String?): NarInstallPlanResult {
         val archive = staged?.claim() ?: return NarInstallPlanResult.failure(NarInstallError.STAGED_SOURCE_INVALID, "staged source already claimed")
         var retained: RetainedArchive? = null; var transferred = false
@@ -43,7 +43,7 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
         finally { if (!transferred) cleanup(retained, archive) }
     }
 
-    @Suppress("EXPOSED_PARAMETER_TYPE")
+    @Suppress("ERROR_SUPPRESSION", "EXPOSED_PARAMETER_TYPE")
     fun verifyStaged(staged: NarStagedSource?, plan: NarInstallPlan?): NarInstallPlanResult {
         val archive = staged?.claim() ?: return NarInstallPlanResult.failure(NarInstallError.STAGED_SOURCE_INVALID, "staged source already claimed")
         var retained: RetainedArchive? = null; var transferred = false
@@ -72,7 +72,6 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
     ): NarInstallPlan {
         val root = try { io.canonical(installRoot) }
         catch (_: Exception) { throw Failure(NarInstallError.INSTALL_ROOT_INVALID, "install root") }
-            ?: fail(NarInstallError.INSTALL_ROOT_INVALID, "null canonical root")
         val target = File(root, descriptor.getTargetId())
         if (root != target.parentFile) fail(NarInstallError.INVALID_TARGET_ID, "target parent")
         return NarInstallPlan(identity.length, identity.digest, inventory, descriptor, root, target)
@@ -87,7 +86,7 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
     }
 
     private fun planArchive(archive: File, installRoot: File, forcedId: String?, identity: SourceIdentity, retain: Boolean): RetainedArchive {
-        val preflight = inspectBeforeZip(archive); var zip: OpenArchive? = null; var entries: List<out ArchiveEntry>? = null; var failure: Failure? = null; var plan: NarInstallPlan? = null
+        val preflight = inspectBeforeZip(archive); var zip: OpenArchive? = null; var entries: List<ArchiveEntry>? = null; var failure: Failure? = null; var plan: NarInstallPlan? = null
         try { zip = io.openArchive(archive); entries = zip.entries(ENTRY_LIMIT_PLUS_ONE); failure = validateEnumeration(preflight, entries)
             if (failure == null) { val inventoryResult = NarArchiveInventoryValidator().validate(entries)
                 if (!inventoryResult.isSuccess()) failure = Failure(inventoryResult.getError()!!, inventoryResult.getDetail())
@@ -105,7 +104,7 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
     }
 
     private fun verifyCentral(archive: File, plan: NarInstallPlan, retain: Boolean): RetainedArchive {
-        val preflight = inspectBeforeZip(archive); var zip: OpenArchive? = null; var actual: List<out ArchiveEntry>? = null; var failure: Failure? = null
+        val preflight = inspectBeforeZip(archive); var zip: OpenArchive? = null; var actual: List<ArchiveEntry>? = null; var failure: Failure? = null
         try { zip = io.openArchive(archive); actual = zip.entries(ENTRY_LIMIT_PLUS_ONE); failure = validateEnumeration(preflight, actual)
             if (failure == null) { val expected = plan.entries; if (actual.size != expected.size) failure = identityMismatch("central count")
                 else for (index in actual.indices) if (!expected[index].sameCentral(actual[index])) { failure = identityMismatch("central record"); break } }
@@ -156,7 +155,7 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
         try { io.delete(stagedFile) } catch (_: RuntimeException) { }
     }
 
-    private class RetainedArchive(val plan: NarInstallPlan, val archive: OpenArchive?, val entries: List<out ArchiveEntry>?)
+    private class RetainedArchive(val plan: NarInstallPlan, val archive: OpenArchive?, val entries: List<ArchiveEntry>?)
 
     companion object {
         private const val MAX_ARCHIVE_BYTES = 544L * 1024L * 1024L
@@ -171,7 +170,7 @@ class NarInstallPlanValidator(private val io: ArchiveIo) {
             if (archive == null) fail(NarInstallError.ARCHIVE_READ_FAILED, "null archive")
             if (installRoot == null) fail(NarInstallError.INSTALL_ROOT_INVALID, "null install root")
         }
-        private fun validateEnumeration(preflightCount: Int, entries: List<out ArchiveEntry>): Failure? = when {
+        private fun validateEnumeration(preflightCount: Int, entries: List<ArchiveEntry>): Failure? = when {
             entries.size > ENTRY_LIMIT -> Failure(NarInstallError.ENTRY_COUNT_LIMIT, "entry count exceeds 10000")
             entries.size != preflightCount -> identityMismatch("preflight count")
             else -> null

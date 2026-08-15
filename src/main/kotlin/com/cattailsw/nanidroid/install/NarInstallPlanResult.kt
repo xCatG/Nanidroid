@@ -9,7 +9,7 @@ class NarInstallPlanResult private constructor(
 ) {
     fun isSuccess(): Boolean = plan != null
 
-    @Suppress("EXPOSED_FUNCTION_RETURN_TYPE")
+    @Suppress("ERROR_SUPPRESSION", "EXPOSED_FUNCTION_RETURN_TYPE")
     fun getVerifiedSession(): NarVerifiedInstallSession? = verifiedSession
 
     companion object {
@@ -18,7 +18,7 @@ class NarInstallPlanResult private constructor(
             NarInstallPlanResult(plan, null, null, "")
 
         @JvmStatic
-        @Suppress("EXPOSED_PARAMETER_TYPE")
+        @Suppress("ERROR_SUPPRESSION", "EXPOSED_PARAMETER_TYPE")
         fun stagedSuccess(
             plan: NarInstallPlan?,
             verifiedSession: NarVerifiedInstallSession?,
