@@ -4143,7 +4143,7 @@ CValue	CSystemFunction::GETTIME(CSF_FUNCPARAM &p)
 static const char * const g_pWDayArray[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
 static const char * const g_pMonthArray[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
 
-static unsigned int Utils_HTTPToSystemTime_MonthConv(char *pMon)
+static unsigned int Utils_HTTPToSystemTime_MonthConv(const char *pMon)
 {
 	static const unsigned int n = sizeof(g_pMonthArray) / sizeof(g_pMonthArray[0]);
 	unsigned int i = 0;
@@ -4155,7 +4155,7 @@ static unsigned int Utils_HTTPToSystemTime_MonthConv(char *pMon)
 	return i + 1;
 }
 
-static int Utils_TimeZoneConvert(char *pTZ)
+static int Utils_TimeZoneConvert(const char *pTZ)
 {
 	if ( ! pTZ || ! *pTZ ) { return 0; }
 
@@ -4234,7 +4234,7 @@ static bool Utils_HTTPToTM(const char *pText,struct tm &outTime)
 	char *pTok = strtok(pData,HTTP_DATE_TOKEN);
 	unsigned int num = 0;
 
-	char *pTokArray[8];
+	const char *pTokArray[8];
 	memset(&pTokArray,0,sizeof(pTokArray));
 
 	while ( pTok && (num <= 7) ) {
