@@ -116,6 +116,23 @@ class NormalizeSatoriSourceEncodingTest(unittest.TestCase):
             )
             self.assertEqual(0, run("--check", source))
 
+    def test_preserves_wide_raw_literal_syntax_while_decoding_its_body(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "sample.cpp"
+            source.write_bytes(b'const wchar_t* s = LR"tag(\\n\x82\xa0)tag";\r\n')
+
+            self.assertEqual(0, run("--write", source))
+            self.assertEqual(
+                'const wchar_t* s = LR"tag(\\nあ)tag";\r\n'.encode("utf-8"),
+                source.read_bytes(),
+            )
+
+    def test_default_check_verifies_the_documented_repository_scope(self):
+        command = [sys.executable, str(TOOL), "--check"]
+        result = subprocess.run(command, check=False, cwd=TOOL.parent.parent)
+
+        self.assertEqual(0, result.returncode)
+
 
 if __name__ == "__main__":
     unittest.main()

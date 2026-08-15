@@ -180,6 +180,12 @@ def normalize_cp932_source(data: bytes) -> bytes:
             output.extend(prefix_without_raw)
             output.extend(rewrite_narrow_body(body, delimiter, raw=raw))
             output.append(delimiter)
+        elif raw:
+            output.extend(prefix)
+            output.extend(raw_delimiter)
+            output.append(ord("("))
+            output.extend(decode_cp932_source_fragment(body))
+            output.extend(b")" + raw_delimiter + b'"')
         else:
             output.extend(prefix_without_raw)
             output.extend(decode_cp932_source_fragment(body))
@@ -462,9 +468,16 @@ def main(argv: list[str] | None = None) -> int:
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--check", action="store_true")
     action.add_argument("--write", action="store_true")
-    parser.add_argument("path", type=Path)
+    parser.add_argument("path", type=Path, nargs="?")
     parser.add_argument("--manifest", type=Path)
     arguments = parser.parse_args(argv)
+    if arguments.path is None:
+        if arguments.write or arguments.manifest is not None:
+            parser.error("--write and --manifest require a source path")
+        return max(
+            check(Path("jni/_"), Path("jni/_/source-literal-manifest.json")),
+            check(Path("jni/satori"), Path("jni/satori/source-literal-manifest.json")),
+        )
     return (
         check(arguments.path, arguments.manifest)
         if arguments.check
