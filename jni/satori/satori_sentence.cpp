@@ -79,10 +79,12 @@ string	Satori::GetSentence(const string& name) {
 
 // 自動挿入ウェイト
 #define	character_wait_clear	\
-	if ( mRequestID == "OnHeadlinesense.OnFind" ) { characters = 0;	} \
+	do { \
+		if ( mRequestID == "OnHeadlinesense.OnFind" ) { characters = 0;	} \
 	else if( characters > 0 ) { \
 		result += string("\\_w[") + itos( int(characters*basewait*rate_of_auto_insert_wait/100) ) + "]"; characters=0; \
-	} else NULL
+	} \
+	} while (0)
 
 string	Satori::SentenceToSakuraScript(const strvec& vec) {
 
