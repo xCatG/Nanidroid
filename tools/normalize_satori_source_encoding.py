@@ -43,6 +43,13 @@ def decode_cp932(data: bytes) -> bytes:
     return data.decode("cp932").encode("utf-8")
 
 
+def is_cp932_double_byte(first: int, second: int) -> bool:
+    try:
+        return len(bytes((first, second)).decode("cp932")) == 1
+    except UnicodeDecodeError:
+        return False
+
+
 def rewrite_narrow_body(body: bytes, delimiter: int, *, raw: bool) -> bytes:
     """Return ASCII spelling whose runtime bytes equal a narrow literal body."""
 
@@ -53,6 +60,11 @@ def rewrite_narrow_body(body: bytes, delimiter: int, *, raw: bool) -> bytes:
         value = body[index]
         if value >= 0x80:
             output.extend(f"\\x{value:02X}".encode("ascii"))
+            if index + 1 < len(body) and is_cp932_double_byte(value, body[index + 1]):
+                output.extend(f"\\x{body[index + 1]:02X}".encode("ascii"))
+                index += 2
+                last_was_hex_escape = True
+                continue
             last_was_hex_escape = True
             index += 1
             continue

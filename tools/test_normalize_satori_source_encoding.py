@@ -21,6 +21,17 @@ def run(mode: str, source: Path, manifest: Path | None = None) -> int:
 
 
 class NormalizeSatoriSourceEncodingTest(unittest.TestCase):
+    def test_preserves_cp932_character_whose_trailing_byte_is_backslash(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "sample.cpp"
+            source.write_bytes(b'const char* s = "\x95\\\x82\xA0";\r\n')
+
+            self.assertEqual(0, run("--write", source))
+            self.assertEqual(
+                b'const char* s = "\\x95\\x5C\\x82\\xA0";\r\n',
+                source.read_bytes(),
+            )
+
     def test_manifest_detects_converted_literal_byte_drift(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
