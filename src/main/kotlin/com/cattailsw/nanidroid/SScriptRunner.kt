@@ -297,7 +297,7 @@ open class SScriptRunner internal constructor(
         msgs.forEach { msgQueue.add(it) }
     }
     fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
-    private val clockHandler: Handler by lazy { object: Handler() { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
+    private val clockHandler: Handler by lazy { object: Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
     fun resumeEvt() {
         val resumed = synchronized(this) {
             val state = playback

@@ -1,7 +1,6 @@
 package com.cattailsw.nanidroid
 
 import android.os.Bundle
-import android.preference.PreferenceManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
@@ -38,7 +37,7 @@ import com.cattailsw.nanidroid.compose.NanidroidTheme
 class Preferences : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext)
+        val preferences = applicationContext.getSharedPreferences("${applicationContext.packageName}_preferences", MODE_PRIVATE)
         setContent {
             var analyticsEnabled by remember {
                 mutableStateOf(preferences.getBoolean(Setup.PREF_KEY_USE_ANALYTICS, true))

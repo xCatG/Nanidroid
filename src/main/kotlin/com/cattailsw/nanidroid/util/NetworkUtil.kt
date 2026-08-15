@@ -98,7 +98,7 @@ object NetworkUtil {
         if (context == null) return "Nanidroid (gzip)"
         return try {
             val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            "${info.packageName}/${info.versionName} (${info.versionCode}) (gzip)"
+            "${info.packageName}/${info.versionName} (${info.longVersionCode}) (gzip)"
         } catch (_: PackageManager.NameNotFoundException) {
             "Nanidroid (gzip)"
         }

@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -10,13 +11,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
+import android.os.Looper
 import android.os.Message
-import android.preference.PreferenceManager
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.compose.setContent
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.runtime.getValue
@@ -312,6 +314,22 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var awaitingNarDocument = false
     private var replacingNarDownloadId: String? = null
     private var archiveIntentState = ArchiveIntentState()
+    private val narDocumentPicker = registerForActivityResult(NarDocumentPickerContract()) { result ->
+        if (!awaitingNarDocument) return@registerForActivityResult
+        awaitingNarDocument = false
+        val replacementId = replacingNarDownloadId
+        replacingNarDownloadId = null
+        when (result) {
+            is NarDocumentPickerResult.Returned -> result.uri?.let {
+                importPickedNar(it, replacementId, ActionOrigin.USER)
+            } ?: Toast.makeText(
+                this,
+                "The selected document is no longer available.",
+                Toast.LENGTH_LONG,
+            ).show()
+            NarDocumentPickerResult.Cancelled -> Unit
+        }
+    }
     private var pendingDurableNotificationPermission = false
     private val durableNotificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -608,9 +626,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             var line = br.readLine(); while (line != null) { if (line.isNotEmpty() && !line.startsWith("#")) runner!!.addMsgToQueue(arrayOf(line)); line = br.readLine() }
         }
     } catch (_: Exception) { runner!!.addMsgToQueue(arrayOf("\\0Oops, something wrong with first run script!\\e")) }
-    private fun initGA() { val enabled = PreferenceManager.getDefaultSharedPreferences(applicationContext).getBoolean(Setup.PREF_KEY_USE_ANALYTICS, true); AnalyticsUtils.getInstance(applicationContext, Setup.UA_CODE, enabled); AnalyticsUtils.getInstance(applicationContext).dispatch() }
+    private fun initGA() { val enabled = applicationContext.getSharedPreferences("${applicationContext.packageName}_preferences", MODE_PRIVATE).getBoolean(Setup.PREF_KEY_USE_ANALYTICS, true); AnalyticsUtils.getInstance(applicationContext, Setup.UA_CODE, enabled); AnalyticsUtils.getInstance(applicationContext).dispatch() }
     private fun dbgRelatedSetup(ghost: Ghost) { updateSurfaceKeys(ghost); currentSurfaceKey = surfaceKeys!![0]; currentSurface = ghost.mgr!!.getSakuraSurface(currentSurfaceKey!!) }
-    private fun updateSurfaceKeys(ghost: Ghost) { surfaceKeys = ghost.mgr!!.getSurfaceKeys().toTypedArray(); Arrays.sort(surfaceKeys) }
+    private fun updateSurfaceKeys(ghost: Ghost) { surfaceKeys = ghost.mgr!!.getSurfaceKeys().toTypedArray(); Arrays.sort(requireNotNull(surfaceKeys)) }
 
     override fun onPause() { super.onPause(); runner?.stopClock(); sendStopIntent() }
     override fun onSaveInstanceState(outState: Bundle) {
@@ -664,7 +682,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         override fun canExit() { runner!!.setCallback(null); finish() }
         override fun ghostSwitchScriptComplete() { runner!!.setCallback(null); runOnUiThread(ghostSwitchStep2Caller) }
     }
-    private val mGH = object : Handler() { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
+    private val mGH = object : Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
     private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
     fun onNextSurface() {
@@ -854,10 +872,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )
         awaitingNarDocument = true
         replacingNarDownloadId = replaceId
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-        }, NAR_PICK_REQUEST)
+        narDocumentPicker.launch(Unit)
     }
     fun showNarErrDlg(dir: Boolean) {
         AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "more_ghost_install_sd", if (dir) "no_nar_folder" else "no_nar_file", if (dir) -1 else -2)
@@ -965,17 +980,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun refreshDurableAttention() {
         runCatching {
             SharedDurableOperationSupervisor.attention(applicationContext).refresh()
-        }
-    }
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != NAR_PICK_REQUEST || !awaitingNarDocument) return
-        awaitingNarDocument = false
-        val replacementId = replacingNarDownloadId
-        replacingNarDownloadId = null
-        if (resultCode == RESULT_OK) {
-            data?.data?.let { importPickedNar(it, replacementId, ActionOrigin.USER) }
-                ?: Toast.makeText(this, "The selected document is no longer available.", Toast.LENGTH_LONG).show()
         }
     }
     private fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); simpleDialog = createUrlEntryDialog() }
@@ -1226,7 +1230,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         simpleDialog = createAboutDialog()
     }
     fun onSetupClick() = showPreference()
-    private fun showPreference() { val target = Intent(Intent.ACTION_VIEW); target.addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET); target.setClassName(this, Preferences::class.java.name); AnalyticsUtils.getInstance(this).trackPageView("/Preference"); startActivity(target) }
+    private fun showPreference() { val target = Intent(Intent.ACTION_VIEW); target.setClassName(this, Preferences::class.java.name); AnalyticsUtils.getInstance(this).trackPageView("/Preference"); startActivity(target) }
     fun frameClick() {
         if (!toolbarVisible) AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar")
         toolbarVisible = !toolbarVisible
@@ -1242,5 +1246,20 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         // racing it or consuming a pending choice on host recreation.
     }
 
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_REQUEST = 4017; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"; private const val DIALOG_NO_README = "no_readme" }
+    private sealed interface NarDocumentPickerResult {
+        data class Returned(val uri: Uri?) : NarDocumentPickerResult
+        data object Cancelled : NarDocumentPickerResult
+    }
+    private class NarDocumentPickerContract : ActivityResultContract<Unit, NarDocumentPickerResult>() {
+        override fun createIntent(context: Context, input: Unit): Intent =
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+            }
+
+        override fun parseResult(resultCode: Int, intent: Intent?): NarDocumentPickerResult =
+            if (resultCode == RESULT_OK) NarDocumentPickerResult.Returned(intent?.data)
+            else NarDocumentPickerResult.Cancelled
+    }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"; private const val DIALOG_NO_README = "no_readme" }
 }
