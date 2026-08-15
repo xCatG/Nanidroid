@@ -12,14 +12,15 @@ internal object NarStagedTree {
         fun describe(handle: Handle): NarStagedTreeInventory.Description
         fun discard(context: Context, handle: Handle): Error?
     }
-    private class NativeHandle(token: ByteArray?, val description: NarStagedTreeInventory.Description?) : Handle {
+    private class NativeHandle(token: ByteArray?, description: NarStagedTreeInventory.Description?) : Handle {
         val token: ByteArray
-        init { require(token != null && token.size == NATIVE_TOKEN_BYTES && description != null) { "native handle" }; this.token = token.clone() }
+        val description: NarStagedTreeInventory.Description
+        init { require(token != null && token.size == NATIVE_TOKEN_BYTES && description != null) { "native handle" }; this.token = token.clone(); this.description = requireNotNull(description) }
     }
     class NativeBackend : Backend {
         private var loaded = false
         override fun begin(context: Context, root: NarFilesystemInspector.TrustedRoot, target: CharSequence): BeginResult? { ensureLoaded(); return nativeBegin(context.getDir("narfs-stage-v1", Context.MODE_PRIVATE).absolutePath, NarFilesystemInspector.sourceRootValue(root), target.toString()) }
-        override fun describe(handle: Handle): NarStagedTreeInventory.Description = owned(handle).description!!
+        override fun describe(handle: Handle): NarStagedTreeInventory.Description = owned(handle).description
         override fun discard(context: Context, handle: Handle): Error? { ensureLoaded(); return fromNativeError(nativeDiscard(context.getDir("narfs-stage-v1", Context.MODE_PRIVATE).absolutePath, owned(handle).token)) }
         @Synchronized private fun ensureLoaded() { if (!loaded) { System.loadLibrary("narfs"); loaded = true } }
         private fun owned(handle: Handle): NativeHandle = handle as? NativeHandle ?: throw IllegalArgumentException("native handle")
@@ -44,14 +45,14 @@ internal object NarStagedTree {
         fun stage(root:NarFilesystemInspector.TrustedRoot?, target:String?):StageResult {
             if(root==null||target==null)return StageResult.failure(Error.INPUT,Error.OK,"input")
             var pending:Handle?=null; var pendingOwner:DiscardOwner?=null; var result:StageResult?=null
-            try { val begun=owner.backend.begin(context,root,target); if(begun==null) result=StageResult.failure(Error.NATIVE,Error.OK,"begin") else { pending=begun.handle; if(pending!=null)pendingOwner=DiscardOwner(owner.backend,context,pending!!)
+            try { val begun=owner.backend.begin(context,root,target); if(begun==null) result=StageResult.failure(Error.NATIVE,Error.OK,"begin") else { pending=begun.handle; if(pending!=null)pendingOwner=DiscardOwner(owner.backend,context,pending)
                 result=when { begun.kind==1&&pending==null -> fromInventory(owner,this,context,NarStagedTreeInventory.absent(target,begun.storageDevice,begun.storageInode),null)
-                    begun.kind==2&&pending!=null -> { val r=fromInventory(owner,this,context,NarStagedTreeInventory.present(target,owner.backend.describe(pending!!)),pending); if(r.isSuccess()){pending=null;pendingOwner=null};r }
+                    begun.kind==2&&pending!=null -> { val r=fromInventory(owner,this,context,NarStagedTreeInventory.present(target,owner.backend.describe(pending)),pending); if(r.isSuccess()){pending=null;pendingOwner=null};r }
                     begun.kind==3 -> StageResult.failure(begun.primaryError,begun.cleanupError,"begin")
                     else -> StageResult.failure(Error.NATIVE,Error.OK,"begin shape") }
             }} catch(_:RuntimeException){result=StageResult.failure(Error.NATIVE,Error.OK,"backend")} catch(_:LinkageError){result=StageResult.failure(Error.NATIVE,Error.OK,"backend")}
-            finally { if(pendingOwner!=null){ if(result!=null)result!!.cleanup.recovery=pendingOwner; val discarded=try{pendingOwner!!.discard()}catch(_:OutOfMemoryError){Error.NATIVE}; if(result!=null){result!!.cleanup.discardError=discarded;if(discarded==Error.OK)result!!.cleanup.recovery=null} } else if(pending!=null) try{Resource.discard(owner.backend,context,pending!!)}catch(_:OutOfMemoryError){} }
-            return result!!
+            finally { if(pendingOwner!=null){ if(result!=null)result.cleanup.recovery=pendingOwner; val discarded=try{pendingOwner.discard()}catch(_:OutOfMemoryError){Error.NATIVE}; if(result!=null){result.cleanup.discardError=discarded;if(discarded==Error.OK)result.cleanup.recovery=null} } else if(pending!=null) try{Resource.discard(owner.backend,context,pending)}catch(_:OutOfMemoryError){} }
+            return result
         }
         fun consume(tree:Tree?):ConsumeResult { if(tree==null)return ConsumeResult.failure(Error.INPUT); synchronized(tree){ return when { tree.owner!==owner->ConsumeResult.failure(Error.FOREIGN); tree.session!==this->ConsumeResult.failure(Error.WRONG_SESSION); tree.consumed->ConsumeResult.failure(Error.CONSUMED); tree.resource.isClosed()->ConsumeResult.failure(Error.CLOSED); else->{tree.consumed=true;ConsumeResult.success(Claim(tree.resource))} } } }
     }
