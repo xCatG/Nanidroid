@@ -116,8 +116,8 @@ string TKVMCodeString::DisCompile(void) const{
 	unsigned int pos=0;
 
 	while(pos<len) {
-		unsigned int pos2=ws.find_first_of(illchs, pos);
-		if (pos2==string::npos) {
+		wstring::size_type pos2=ws.find_first_of(illchs, pos);
+		if (pos2==wstring::npos) {
 			retstr+=ws.substr(pos);
 			break;
 		}else{
