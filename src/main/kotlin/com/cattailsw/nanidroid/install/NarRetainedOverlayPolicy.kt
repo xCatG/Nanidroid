@@ -31,16 +31,16 @@ internal object NarRetainedOverlayPolicy {
         baseline: NarGhostTreePolicy.Manifest?,
         inventory: List<NarStagedTreeInventory.Entry>?,
     ): Result {
-        requireThat(plan != null, Error.MALFORMED_PLAN, "plan")
-        requireThat(baseline != null && inventory != null, Error.MALFORMED_BASELINE, "baseline")
-        val descriptor = plan!!.descriptor
-        requireThat(descriptor != null, Error.MALFORMED_PLAN, "descriptor")
-        requireThat(descriptor!!.getType() == "ghost", Error.UNSUPPORTED_TYPE, "type")
+        val checkedPlan = plan ?: reject(Error.MALFORMED_PLAN, "plan")
+        val checkedBaseline = baseline ?: reject(Error.MALFORMED_BASELINE, "baseline")
+        val checkedInventory = inventory ?: reject(Error.MALFORMED_BASELINE, "baseline")
+        val descriptor = checkedPlan.descriptor
+        requireThat(descriptor.getType() == "ghost", Error.UNSUPPORTED_TYPE, "type")
         val metadata = descriptor.getMetadata()
-        requireThat(metadata != null && metadata["type"] == "ghost", Error.MALFORMED_PLAN, "descriptor type")
-        for ((key, value) in metadata!!) {
+        requireThat(metadata["type"] == "ghost", Error.MALFORMED_PLAN, "descriptor type")
+        for ((key, value) in metadata) {
             requireThat(
-                value != "1" || (key != "refresh" && (key == null || !key.endsWith(".refresh"))),
+                value != "1" || (key != "refresh" && !key.endsWith(".refresh")),
                 Error.UNSUPPORTED_REFRESH,
                 "refresh",
             )
@@ -48,13 +48,13 @@ internal object NarRetainedOverlayPolicy {
         val target = descriptor.getTargetId()
         val normalized = NarRelativePathPolicy.normalize(target)
         requireThat(
-            normalized.isSuccess() && target == normalized.normalized && target?.indexOf('/') == -1,
+            normalized.isSuccess() && target == normalized.normalized && target.indexOf('/') == -1,
             Error.MALFORMED_PLAN,
             "target",
         )
-        requireThat(target == baseline!!.targetId, Error.TARGET_MISMATCH, "target")
-        val retained = prepareBaseline(baseline, inventory!!)
-        val archive = prepareArchive(plan)
+        requireThat(target == checkedBaseline.targetId, Error.TARGET_MISMATCH, "target")
+        val retained = prepareBaseline(checkedBaseline, checkedInventory)
+        val archive = prepareArchive(checkedPlan)
         val merged = HashMap(retained)
         val archiveEntries = ArrayList(archive.values)
         archiveEntries.sortWith(WORK_ORDER)
@@ -87,7 +87,7 @@ internal object NarRetainedOverlayPolicy {
                 output.add(item.finish(fileOrdinal++))
             } else output.add(item.finish(-1))
         }
-        return Result.success(Recipe(baseline, output, fileOrdinal, if (unknownTotal) -1 else total))
+        return Result.success(Recipe(checkedBaseline, output, fileOrdinal, if (unknownTotal) -1 else total))
     }
 
     private fun prepareBaseline(
@@ -106,7 +106,6 @@ internal object NarRetainedOverlayPolicy {
         supplied: List<NarStagedTreeInventory.Entry>,
     ): Map<String, Work> {
         val facts = manifest.entries
-        requireThat(manifest.state != null, Error.MALFORMED_BASELINE, "state")
         val inventory = HashMap<String, NarStagedTreeInventory.Entry>()
         val policyFacts = ArrayList<NarGhostTreePolicy.InputEntry>()
         val seenOrdinals = BooleanArray(MAX_ENTRIES)
@@ -116,8 +115,7 @@ internal object NarRetainedOverlayPolicy {
         while (iterator.hasNext()) {
             requireThat(count++ < MAX_ENTRIES, Error.MALFORMED_BASELINE, "inventory count")
             val entry = iterator.next()
-            requireThat(entry != null, Error.MALFORMED_BASELINE, "inventory")
-            val entryPath = entry!!.path()
+            val entryPath = entry.path()
             val normalized = NarRelativePathPolicy.normalize(entryPath)
             requireThat(normalized.isSuccess() && normalized.normalized == entryPath, Error.MALFORMED_BASELINE, "inventory name")
             val path = entryPath!!
@@ -160,17 +158,15 @@ internal object NarRetainedOverlayPolicy {
     }
 
     private fun prepareArchive(plan: NarInstallPlan): Map<String, Work> {
-        val supplied = plan.entries
-        requireThat(supplied != null, Error.MALFORMED_PLAN, "entries")
         val result = HashMap<String, Work>()
         var ordinal = 0
-        val iterator = supplied!!.iterator()
+        val iterator = plan.entries.iterator()
         while (iterator.hasNext()) {
             requireThat(ordinal < MAX_ENTRIES, Error.MALFORMED_PLAN, "entry count")
             val entry = iterator.next()
-            requireThat(entry != null && entry.ordinal == ordinal, Error.MALFORMED_PLAN, "ordinal")
+            requireThat(entry.ordinal == ordinal, Error.MALFORMED_PLAN, "ordinal")
             ordinal++
-            if (!entry!!.isInstallEntry) {
+            if (!entry.isInstallEntry) {
                 requireThat(entry.isDirectory, Error.MALFORMED_PLAN, "wrapper")
                 continue
             }

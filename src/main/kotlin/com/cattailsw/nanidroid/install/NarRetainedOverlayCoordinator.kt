@@ -89,8 +89,8 @@ internal object NarRetainedOverlayCoordinator {
                 if (first == null) { first = failure; message = "baseline discard" }
             }
             if (!archiveCleaned || !treeCleaned) when (first) {
-                is IOException -> throw first as IOException
-                is java.lang.Error -> throw first as java.lang.Error
+                is IOException -> throw first
+                is java.lang.Error -> throw first
                 null -> throw IOException(message)
                 else -> throw IOException(message, first)
             }
