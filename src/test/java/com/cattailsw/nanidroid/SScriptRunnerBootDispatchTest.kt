@@ -1210,9 +1210,9 @@ class SScriptRunnerBootDispatchTest {
 
         public override fun doShioriEvent(
             event: String,
-            references: Array<String>?
+            ref: Array<String>?
         ): com.cattailsw.nanidroid.ShioriResponse {
-            trace.add(fakeGhostId + ":" + event + ":" + references.contentToString())
+            trace.add(fakeGhostId + ":" + event + ":" + ref.contentToString())
             return com.cattailsw.nanidroid.ShioriResponse("SHIORI/3.0 204 No Content")
         }
     }

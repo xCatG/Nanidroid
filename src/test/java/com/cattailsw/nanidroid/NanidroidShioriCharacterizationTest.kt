@@ -37,7 +37,7 @@ class NanidroidShioriCharacterizationTest {
     @Test
     @Throws(Exception::class)
     fun languageDirectoryFallsBackToJapaneseAndCustomEventsUseExactEnvelope() {
-        Locale.setDefault(Locale("zz"))
+        Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent(
             "ja",
             ("; comment\n"
@@ -61,7 +61,7 @@ class NanidroidShioriCharacterizationTest {
     @Test
     @Throws(Exception::class)
     fun ghostTransitionEventsUseJavaFormatReferenceZeroSubstitution() {
-        Locale.setDefault(Locale("zz"))
+        Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent(
             "ja",
             "OnGhostChanging,switch to %s\n"
@@ -82,7 +82,7 @@ class NanidroidShioriCharacterizationTest {
     @Test
     @Throws(Exception::class)
     fun onCloseHasContentOverrideAndLiteralFallback() {
-        Locale.setDefault(Locale("zz"))
+        Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent("ja", "Malformed line without a separator\n")
         val fallback: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
         Assert.assertEquals(response("OnClose"), fallback.request(request("OnClose")))
@@ -95,7 +95,7 @@ class NanidroidShioriCharacterizationTest {
     @Test
     @Throws(Exception::class)
     fun malformedContentCreatesAnEmptyTableAndUnknownEventIsNoContent() {
-        Locale.setDefault(Locale("zz"))
+        Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent("ja", "; comment\nmissing separator\n")
         val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
 
@@ -105,7 +105,7 @@ class NanidroidShioriCharacterizationTest {
     @Test
     @Throws(Exception::class)
     fun missingContentLeavesEventTableNullAndRequestCrashes() {
-        Locale.setDefault(Locale("zz"))
+        Locale.setDefault(Locale.forLanguageTag("zz"))
         val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
 
         Assert.assertThrows<NullPointerException?>(
@@ -116,7 +116,7 @@ class NanidroidShioriCharacterizationTest {
     @Test
     @Throws(Exception::class)
     fun missingIdCrashesAfterTheRequestParserAcceptsTheHeader() {
-        Locale.setDefault(Locale("zz"))
+        Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent("ja", "OnBoot,boot\n")
         val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
 

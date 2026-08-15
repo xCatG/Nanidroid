@@ -400,7 +400,7 @@ class SScriptRunnerPresentationTest {
             reattached.pendingChoices,
         )
         Assert.assertEquals(pending.generation, reattached.pendingInput!!.generation)
-        Assert.assertEquals(pending.deadlineElapsedMillis, reattached.pendingInput!!.deadlineElapsedMillis)
+        Assert.assertEquals(pending.deadlineElapsedMillis, reattached.pendingInput.deadlineElapsedMillis)
 
         fixture.clock.value = pending.deadlineElapsedMillis - 1L
         fixture.runner.processExpiredInput()

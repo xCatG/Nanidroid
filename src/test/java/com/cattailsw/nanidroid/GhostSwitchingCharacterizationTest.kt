@@ -809,13 +809,13 @@ class GhostSwitchingCharacterizationTest {
         }
 public override fun doShioriEvent(
             event: String,
-            references: Array<String>?
+            ref: Array<String>?
         ): com.cattailsw.nanidroid.ShioriResponse {
             entered?.countDown()
             release?.await(2, TimeUnit.SECONDS)
             trace.add(
                 ("request:" + fakeGhostId + ":" + event + ":"
-                        + references.contentToString())
+                        + ref.contentToString())
             )
             if ("OnGhostChanging" == event && transitionScript != null) {
                 val values = Hashtable<String, String>()
