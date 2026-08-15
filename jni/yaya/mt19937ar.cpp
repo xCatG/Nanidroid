@@ -268,7 +268,7 @@ void init_by_array64(MersenneTwister64& rs,const std::uint64_t init_key[],
 		if (i>=NN) { rs.mt[0] = rs.mt[NN-1]; i=1; }
 	}
 
-	rs.mt[0] = ULL_DEF(1) << 63; /* MSB is 1; assuring non-zero initial array */ 
+	rs.mt[0] = std::uint64_t(1) << 63; /* MSB is 1; assuring non-zero initial array */
 }
 
 /* generates a random number on [0, 2^64-1]-interval */
