@@ -30,6 +30,8 @@ LITERAL_PREFIXES = (
     b"'",
 )
 
+SOURCE_SUFFIXES = frozenset({".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"})
+
 
 def is_hex_digit(value: int) -> bool:
     return 48 <= value <= 57 or 65 <= value <= 70 or 97 <= value <= 102
@@ -215,7 +217,19 @@ def has_non_ascii_narrow_literal(data: bytes) -> bool:
     return False
 
 
-def check(path: Path) -> int:
+def source_paths(path: Path) -> list[Path]:
+    if path.is_file():
+        return [path]
+    if path.is_dir():
+        return sorted(
+            candidate
+            for candidate in path.rglob("*")
+            if candidate.is_file() and candidate.suffix.lower() in SOURCE_SUFFIXES
+        )
+    raise ValueError(f"{path}: not a file or directory")
+
+
+def check_one(path: Path) -> int:
     data = path.read_bytes()
     try:
         data.decode("utf-8")
@@ -228,7 +242,7 @@ def check(path: Path) -> int:
     return 0
 
 
-def write(path: Path) -> int:
+def write_one(path: Path) -> int:
     data = path.read_bytes()
     try:
         data.decode("utf-8")
@@ -239,7 +253,27 @@ def write(path: Path) -> int:
             print(f"{path}: {error}", file=sys.stderr)
             return 1
         path.write_bytes(normalized)
-    return check(path)
+    return check_one(path)
+
+
+def check(path: Path) -> int:
+    try:
+        paths = source_paths(path)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    results = [check_one(candidate) for candidate in paths]
+    return int(any(results))
+
+
+def write(path: Path) -> int:
+    try:
+        paths = source_paths(path)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    results = [write_one(candidate) for candidate in paths]
+    return int(any(results))
 
 
 def main(argv: list[str] | None = None) -> int:

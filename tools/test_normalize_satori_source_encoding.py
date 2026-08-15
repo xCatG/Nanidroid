@@ -18,6 +18,28 @@ def run(mode: str, source: Path) -> int:
 
 
 class NormalizeSatoriSourceEncodingTest(unittest.TestCase):
+    def test_rewrites_only_cpp_sources_in_a_directory_scope(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "nested" / "sample.cpp"
+            source.parent.mkdir()
+            source.write_bytes(b'const char* s = "\x82\xA0";\r\n')
+            header = root / "sample.h"
+            header.write_bytes(b'const char* h = "\x82\xA0";\r\n')
+            ignored = root / "ignored.txt"
+            ignored.write_bytes(b'\x82\xA0\r\n')
+
+            self.assertEqual(0, run("--write", root))
+            self.assertEqual(
+                b'const char* s = "\\x82\\xA0";\r\n',
+                source.read_bytes(),
+            )
+            self.assertEqual(
+                b'const char* h = "\\x82\\xA0";\r\n',
+                header.read_bytes(),
+            )
+            self.assertEqual(b'\x82\xA0\r\n', ignored.read_bytes())
+
     def test_preserves_cp932_literal_bytes_and_prevents_hex_run_on(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             source = Path(temporary_directory) / "sample.cpp"
