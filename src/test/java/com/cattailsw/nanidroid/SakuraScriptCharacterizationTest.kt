@@ -155,8 +155,8 @@ class SakuraScriptCharacterizationTest {
             trace.add("input:" + id)
         }
 
-        override fun showUserSelection(labels: Array<String>, ids: Array<String>) {
-            trace.add("choice:" + labels.contentToString() + ":" + ids.contentToString())
+        override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
+            trace.add("choice:" + textlabel.contentToString() + ":" + ids.contentToString())
         }
     }
 
