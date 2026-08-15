@@ -1523,7 +1523,7 @@ class NarInstallPlanValidatorTest {
                     Assert.assertFalse(forbiddenLeaseType(parameter))
                 }
             }
-            Collections.sort<String?>(actual)
+            Collections.sort(actual)
             Assert.assertEquals(mutableListOf<String>("cleanup", "plan"), actual)
         }
 

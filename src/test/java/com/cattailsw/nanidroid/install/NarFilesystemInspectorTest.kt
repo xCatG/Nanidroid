@@ -150,6 +150,7 @@ class NarFilesystemInspectorTest {
             malformed.error()
         )
         Assert.assertTrue(malformed.entries().isEmpty())
+        @Suppress("UNCHECKED_CAST")
         val nullPath: com.cattailsw.nanidroid.install.NarFilesystemInspector.Result =
             com.cattailsw.nanidroid.install.NarFilesystemInspector.fromNative(
                 2, 0, 0, 1, 0, (arrayOfNulls<String>(1) as Array<String>), intArrayOf(1),

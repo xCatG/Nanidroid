@@ -477,7 +477,7 @@ class NarTransactionalInstallerTest {
         @Throws(IOException::class)
         private fun write(target: File, content: ByteArray) {
             val parent = target.parentFile
-            if (!parent.exists() && !parent.mkdirs()) throw IOException("parent")
+            if (parent != null && !parent.exists() && !parent.mkdirs()) throw IOException("parent")
             FileOutputStream(target).use { output -> output.write(content) }
         }
 
