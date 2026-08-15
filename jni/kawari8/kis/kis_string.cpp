@@ -83,9 +83,9 @@ static int _match(const wstring &target, const wstring &pattern, int idx, bool f
 		idx=normalizeIndex(idx, target.length());
 		if(idx<0) return -1;
 	}
-	unsigned int pos=(f)?
+	wstring::size_type pos=(f)?
 		target.find(pattern, idx):target.rfind(pattern, idx);
-	if (pos!=string::npos){
+	if (pos!=wstring::npos){
 		return static_cast<int>(pos);
 	}else{
 		return -1;
@@ -209,7 +209,7 @@ string KIS_gsub::Function(const vector<string>& args){
 	int tmp=(args.size()>4)?
 		normalizeIndex(atoi(args[4].c_str()), target.length()):0;
 	if(tmp<0) return (args[1]);
-	unsigned int pos=tmp;
+	wstring::size_type pos=tmp;
 	if(!target.length()) return args[1];
 	if((!pattern.length())&&(!subst.length())) return args[1];
 	// int stride=max(subst.length(), 1);
@@ -219,7 +219,7 @@ string KIS_gsub::Function(const vector<string>& args){
 
 	while (pos<target.length()){
 		pos=target.find(pattern, pos);
-		if(pos==string::npos) break;
+		if(pos==wstring::npos) break;
 		target=target.replace(pos, pattern.length(), subst);
 		pos+=stride;
 	}
@@ -245,12 +245,12 @@ string KIS_tr::Function(const vector<string>& args){
 	wstring search=ctow(args[2]);
 	wstring replace=ctow(args[3]);
 
-	unsigned int pos=0;
-	unsigned int replen=replace.length();
+	wstring::size_type pos=0;
+	wstring::size_type replen=replace.length();
 	while (pos<target.length()){
 		pos=target.find_first_of(search, pos);
-		if (pos==string::npos) return wtoc(target);
-		unsigned int index=search.find(target[pos]);
+		if (pos==wstring::npos) return wtoc(target);
+		wstring::size_type index=search.find(target[pos]);
 		if (index<replen) {
 			target[pos]=replace[index];
 			pos++;

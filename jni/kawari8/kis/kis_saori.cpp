@@ -87,9 +87,9 @@ bool KIS_callsaori::CallSaori(
 
 	// ステータスラインの分解
 	const string &statusline=response.GetStartline();
-	unsigned int pos=statusline.find(' ');
+	string::size_type pos=statusline.find(' ');
 	if (pos==string::npos) return false;
-	unsigned int npos=statusline.find(' ', pos+1);
+	string::size_type npos=statusline.find(' ', pos+1);
 	string statuscode=statusline.substr(pos+1, npos-pos-1);
 
 	if (!(statuscode[0]=='2')) return false;
