@@ -60,13 +60,13 @@ string TSplitter::Next(void)
 	if (!HasNext())
 		return "";
 
-	unsigned int idx;	// 注目中のポインタ
+	wstring::size_type idx;	// 注目中のポインタ
 	string ret;
 	if(cs.length()==0){
 		// 区切り文字無し
 		ret=wtoc(str.substr(pos, 1));
 		pos++;
-	}else if((idx=str.find(cs, pos))!=string::npos) {
+	}else if((idx=str.find(cs, pos))!=wstring::npos) {
 		// 発見
 		ret=wtoc(str.substr(pos,idx-pos));	// 空文字列が返ることもある
 		pos=idx+cs.length();			// 区切り文字列分だけポインタ前進

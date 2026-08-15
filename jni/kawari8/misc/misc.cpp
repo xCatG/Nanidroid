@@ -105,8 +105,8 @@ string CanonicalPath(const string &basepath, const string &path){
 			break;
 		
 		if (StringCompare<wchar_t>(p, parentlink, 0, 3)==0){
-			unsigned int pos=bp.rfind(SEPARATOR);
-			if (pos==string::npos){
+			wstring::size_type pos=bp.rfind(SEPARATOR);
+			if (pos==wstring::npos){
 				bp=ctow("");
 			}else{
 				bp=bp.substr(0, pos);
@@ -125,8 +125,8 @@ string CanonicalPath(const string &basepath, const string &path){
 //---------------------------------------------------------------------------
 string PathToFileName(const string &p){
 	const wstring path=ctow(p);
-	unsigned int pos=path.rfind(SEPARATOR);
-	if (pos==string::npos)
+	wstring::size_type pos=path.rfind(SEPARATOR);
+	if (pos==wstring::npos)
 		return p;
 	else
 		return wtoc(path.substr(pos+1));
@@ -134,8 +134,8 @@ string PathToFileName(const string &p){
 //---------------------------------------------------------------------------
 string PathToBaseDir(const string &p){
 	const wstring path=ctow(p);
-	unsigned int pos=path.rfind(SEPARATOR);
-	if (pos==string::npos)
+	wstring::size_type pos=path.rfind(SEPARATOR);
+	if (pos==wstring::npos)
 		return ("");
 	else
 		return wtoc(path.substr(0, pos));

@@ -228,8 +228,8 @@ string KIS_isexist::Function(const vector<string>& args)
 	string dirname=PathToBaseDir(CanonicalPath(Engine->GetDataPath(), args[1]));
 	string filename=PathToFileName(CanonicalPath(Engine->GetDataPath(), args[1]));
 
-	unsigned int pos=ctow(dirname).rfind(FILE_SEPARATOR);
-	if(pos==string::npos) {
+	wstring::size_type pos=ctow(dirname).rfind(FILE_SEPARATOR);
+	if(pos==wstring::npos) {
 		// フルパスなのにdirnameにFILE_SEPARATORがない場合、推定でルート
 		// FILE_SEPARATORを追加しカレントディレクトリとの誤認を防ぐ
 		dirname+=FILE_SEPARATOR;
