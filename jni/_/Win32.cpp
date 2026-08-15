@@ -63,12 +63,12 @@ RECT PointToRect( POINT pt1, POINT pt2 ) {
 BOOL	StartCapture( HWND hWnd, const RECT* pRect ) {
 	if ( ::GetCapture() == hWnd )
 		return	FALSE;
-	// ‹éŒ`‚ðŽæ“¾
+	// çŸ©å½¢ã‚’å–å¾—
 	RECT rc = ( pRect == NULL ) ? 
 		GetClientRectOnScreen( hWnd ) :
 		*pRect;
 	::SetCapture(hWnd);
-	::ClipCursor(&rc);	// ƒ}ƒEƒX‚ÌˆÚ“®”ÍˆÍ‚ð§ŒÀ
+	::ClipCursor(&rc);	// ãƒžã‚¦ã‚¹ã®ç§»å‹•ç¯„å›²ã‚’åˆ¶é™
 	return	TRUE;
 }
 
@@ -79,13 +79,13 @@ BOOL	isCapture( HWND hWnd ) {
 BOOL	EndCapture( HWND hWnd ) {
 	if ( ::GetCapture() != hWnd )
 		return	FALSE;
-	::ClipCursor(NULL);	// ƒ}ƒEƒX‚ÌˆÚ“®§ŒÀ‚ð‰ðœ
+	::ClipCursor(NULL);	// ãƒžã‚¦ã‚¹ã®ç§»å‹•åˆ¶é™ã‚’è§£é™¤
 	::ReleaseCapture();
 	return	TRUE;
 }
 
 void	EndCapture() {
-	::ClipCursor(NULL);	// ƒ}ƒEƒX‚ÌˆÚ“®§ŒÀ‚ð‰ðœ
+	::ClipCursor(NULL);	// ãƒžã‚¦ã‚¹ã®ç§»å‹•åˆ¶é™ã‚’è§£é™¤
 	::ReleaseCapture();
 }
 
@@ -324,11 +324,11 @@ PutWindowMessage( UINT message, WPARAM wParam, LPARAM lParam )
 
 	LPSTR	ptr = buf+lstrlen(buf);
 	if ( message == WM_MOUSEWHEEL ) {
-		// ƒzƒC[ƒ‹
+		// ãƒ›ã‚¤ãƒ¼ãƒ«
 		sprintf( ptr, "\t\t\t( fwKeys:%x, zDelta:%d, x:%d, y:%d )\n", LOWORD(wParam), (short) HIWORD(wParam), LOWORD(lParam), HIWORD(lParam) );
 	}
 	else if ( message >= WM_MOUSEMOVE && message <= WM_MOUSEWHEEL ) {
-		// ƒ}ƒEƒXŠÖ˜AƒƒbƒZ[ƒW
+		// ãƒžã‚¦ã‚¹é–¢é€£ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸
 		sprintf( ptr, "\t\t\t( fwKeys:%x, x:%d, y:%d )\n", wParam, LOWORD(lParam), HIWORD(lParam) );
 	}
 	else if ( message == WM_ACTIVATE ) {
@@ -366,7 +366,7 @@ PutWindowMessage( UINT message, WPARAM wParam, LPARAM lParam )
 		ptr += sprintf( ptr, ", w:%d, h:%d )\n", LOWORD(lParam), HIWORD(lParam) );
 	}
 	else if ( message == WM_WINDOWPOSCHANGED || message == WM_WINDOWPOSCHANGING ) {
-		// WINDOWPOS\‘¢‘Ì‚ðŽg—p‚·‚éƒƒbƒZ[ƒW
+		// WINDOWPOSæ§‹é€ ä½“ã‚’ä½¿ç”¨ã™ã‚‹ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸
 		LPWINDOWPOS	p = (LPWINDOWPOS)lParam;
 		ptr += sprintf( ptr, "\t\t\t( x:%d, y:%d, cx:%d, cy:%d )\n",
 			p->x, p->y, p->cx, p->cy );
@@ -394,7 +394,7 @@ PutWindowMessage( UINT message, WPARAM wParam, LPARAM lParam )
 		ptr += sprintf( ptr, "\n" );
 	}
 	else if ( message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) {
-		// ‰¼‘zƒL[ƒR[ƒh‚Ì•\Ž¦
+		// ä»®æƒ³ã‚­ãƒ¼ã‚³ãƒ¼ãƒ‰ã®è¡¨ç¤º
 		ptr += sprintf( ptr, "\t\t\t( VK_" );
 		int	vk = (int)wParam;
 		switch ( vk ) {
@@ -522,7 +522,7 @@ PutWindowMessage( UINT message, WPARAM wParam, LPARAM lParam )
 		ptr += sprintf( ptr, ", %x )\n", lParam );
 	}
 	else {
-		// ‚»‚êˆÈŠO‚Ìˆê”ÊŒ`
+		// ãã‚Œä»¥å¤–ã®ä¸€èˆ¬å½¢
 		sprintf( ptr, "\t\t\t( %x, %x )\n", wParam, lParam );
 	}
 	
@@ -531,20 +531,20 @@ PutWindowMessage( UINT message, WPARAM wParam, LPARAM lParam )
 }
 
 
-// ƒNƒ‰ƒCƒAƒ“ƒg—Ìˆæ‚ÌƒTƒCƒY‚ð•ÏX‚·‚éB
-// ‚³‚ç‚ÉAƒEƒBƒ“ƒhƒEˆÊ’u‚ª‰æ–Ê“à‚ÉŽû‚Ü‚é‚æ‚¤’²®‚·‚éB
+// ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆé ˜åŸŸã®ã‚µã‚¤ã‚ºã‚’å¤‰æ›´ã™ã‚‹ã€‚
+// ã•ã‚‰ã«ã€ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ä½ç½®ãŒç”»é¢å†…ã«åŽã¾ã‚‹ã‚ˆã†èª¿æ•´ã™ã‚‹ã€‚
 BOOL	ResizeClientRect( HWND hWnd, int w, int h ) {
 
 	int		xPos, yPos, width, height;
 	RECT	rectWindow, rectDesktop, rectClient;
 
-	// ƒfƒXƒNƒgƒbƒvAƒEƒBƒ“ƒhƒE‘S‘ÌAƒNƒ‰ƒCƒAƒ“ƒg—ÌˆæA
-	// ‚»‚ê‚¼‚ê‚Ì‹éŒ`‚ðŽæ“¾
+	// ãƒ‡ã‚¹ã‚¯ãƒˆãƒƒãƒ—ã€ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦å…¨ä½“ã€ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆé ˜åŸŸã€
+	// ãã‚Œãžã‚Œã®çŸ©å½¢ã‚’å–å¾—
 	GetWindowRect( hWnd, &rectWindow );
 	GetClientRect( hWnd, &rectClient );
 	GetWindowRect( GetDesktopWindow(), &rectDesktop );
 
-	// •‚Æ‚‚³‚ðŒvŽZ
+	// å¹…ã¨é«˜ã•ã‚’è¨ˆç®—
 	width = w + 
 				(rectClient.left - rectWindow.left) +
 				(rectWindow.right - rectClient.right);
@@ -567,7 +567,7 @@ BOOL	ResizeClientRect( HWND hWnd, int w, int h ) {
 	return	MoveWindow( hWnd, xPos,	yPos, width, height, TRUE );
 }
 
-// iBase‚ðŒ´“_‚Æ‚µ‚ÄA‰E‰ñ‚è‚É90“x‰ñ“]
+// iBaseã‚’åŽŸç‚¹ã¨ã—ã¦ã€å³å›žã‚Šã«90åº¦å›žè»¢
 POINT	RotateRight90(POINT iBase, POINT iPoint) {
 	iPoint -= iBase;
 	Swap(&iPoint.x, &iPoint.y);
@@ -576,7 +576,7 @@ POINT	RotateRight90(POINT iBase, POINT iPoint) {
 	return	iPoint;
 }
 
-// iBase‚ðŒ´“_‚Æ‚µ‚ÄA¶‰ñ‚è‚É90“x‰ñ“]
+// iBaseã‚’åŽŸç‚¹ã¨ã—ã¦ã€å·¦å›žã‚Šã«90åº¦å›žè»¢
 POINT	RotateLeft90(POINT iBase, POINT iPoint) {
 	iPoint -= iBase;
 	Swap(&iPoint.x, &iPoint.y);
@@ -585,7 +585,7 @@ POINT	RotateLeft90(POINT iBase, POINT iPoint) {
 	return	iPoint;
 }
 
-// iBase‚ðŒ´“_‚Æ‚µ‚ÄA180“x‰ñ“]
+// iBaseã‚’åŽŸç‚¹ã¨ã—ã¦ã€180åº¦å›žè»¢
 POINT	Rotate180(POINT iBase, POINT iPoint) {
 	iPoint.x = Reverse(iBase.x, iPoint.x);
 	iPoint.y = Reverse(iBase.y, iPoint.y);
@@ -593,7 +593,7 @@ POINT	Rotate180(POINT iBase, POINT iPoint) {
 }
 
 
-// ƒNƒ‰ƒCƒAƒ“ƒg’·•ûŒ`‚ðƒXƒNƒŠ[ƒ“À•W‚Å•Ô‚·B
+// ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆé•·æ–¹å½¢ã‚’ã‚¹ã‚¯ãƒªãƒ¼ãƒ³åº§æ¨™ã§è¿”ã™ã€‚
 RECT	GetClientRectOnScreen( HWND hWnd ) {
 	RECT	rect;
 	::GetClientRect( hWnd, &rect );
@@ -614,7 +614,7 @@ RECT	ScreenToClient(HWND iWnd, RECT iRect) {
 	return	iRect;
 }
 
-// ƒJ[ƒ\ƒ‹ˆÊ’u‚ðÝ’èEŽæ“¾
+// ã‚«ãƒ¼ã‚½ãƒ«ä½ç½®ã‚’è¨­å®šãƒ»å–å¾—
 void	SetCursorPos( POINT pt ) {
 	::SetCursorPos( pt.x, pt.y );
 }
@@ -625,7 +625,7 @@ POINT	GetCursorPos() {
 	return	pt;
 }
 
-// ƒNƒ‰ƒCƒAƒ“ƒgÀ•WŒn‚ÅƒJ[ƒ\ƒ‹ˆÊ’u‚ðÝ’èEŽæ“¾
+// ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆåº§æ¨™ç³»ã§ã‚«ãƒ¼ã‚½ãƒ«ä½ç½®ã‚’è¨­å®šãƒ»å–å¾—
 void	SetCursorPos( HWND hWnd, POINT pt ) {
 	::ClientToScreen( hWnd, &pt );
 	::SetCursorPos( pt.x, pt.y );
@@ -638,14 +638,14 @@ POINT	GetCursorPos( HWND hWnd ) {
 	return	pt;
 }
 
-// ƒJ[ƒ\ƒ‹‚ÍƒNƒ‰ƒCƒAƒ“ƒg—Ìˆæ“à‚©H
+// ã‚«ãƒ¼ã‚½ãƒ«ã¯ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆé ˜åŸŸå†…ã‹ï¼Ÿ
 BOOL	isCursorOnClient(HWND hWnd) {
 	POINT	pt = GetCursorPos(hWnd);
 	RECT	rect = GetClientRect(hWnd);
 	return	isOn(rect, pt.x, pt.y);
 }
 
-// ƒEƒBƒ“ƒhƒEˆÊ’uÀ•W‚ðŽæ“¾
+// ã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ä½ç½®åº§æ¨™ã‚’å–å¾—
 RECT	GetWindowRect( HWND hWnd ) {
 	RECT	rc = {0,0,0,0};
 	::GetWindowRect( hWnd, &rc );
@@ -657,7 +657,7 @@ POINT	GetWindowPoint( HWND hWnd ) {
 	return	MAKEPOINT(rc.left,rc.top);
 }
 
-// DWORD’l‚ðŽž•ª•bƒ~ƒŠ•b‚É•ª‰ð
+// DWORDå€¤ã‚’æ™‚åˆ†ç§’ãƒŸãƒªç§’ã«åˆ†è§£
 void	DwordToSystemTime( DWORD dw, SYSTEMTIME* pst ) {
 	assert( pst != NULL );
 	::ZeroMemory( pst, sizeof(SYSTEMTIME) );
@@ -671,7 +671,7 @@ void	DwordToSystemTime( DWORD dw, SYSTEMTIME* pst ) {
 	pst->wHour = WORD(dw);
 }
 
-// ‰Â•Ïˆø”‘Î‰žTextOut
+// å¯å¤‰å¼•æ•°å¯¾å¿œTextOut
 void	TextOutF( HDC hDC, int xPos, int yPos, char* format, ... ) {
 /*	char	buf[256];
 	va_list	argptr;
@@ -682,7 +682,7 @@ void	TextOutF( HDC hDC, int xPos, int yPos, char* format, ... ) {
 }
 
 int	CompareSystemTime(  const SYSTEMTIME& lhs, const SYSTEMTIME& rhs ) {
-	// ÅIXV“ú•t‚ð”äŠr
+	// æœ€çµ‚æ›´æ–°æ—¥ä»˜ã‚’æ¯”è¼ƒ
 	if ( lhs.wYear > rhs.wYear )	return	1;
 	else if ( lhs.wYear < rhs.wYear )	return	-1;
 	if ( lhs.wMonth > rhs.wMonth )	return	1;
@@ -697,7 +697,7 @@ int	CompareSystemTime(  const SYSTEMTIME& lhs, const SYSTEMTIME& rhs ) {
 	else if ( lhs.wSecond < rhs.wSecond )	return	-1;
 	if ( lhs.wMilliseconds > rhs.wMilliseconds )	return	1;
 	else if ( lhs.wMilliseconds < rhs.wMilliseconds )	return	-1;
-	// Š®‘Sˆê’v
+	// å®Œå…¨ä¸€è‡´
 	return	0;
 }
 bool operator < ( const SYSTEMTIME& lhs, const SYSTEMTIME& rhs ) {	return ( CompareSystemTime( lhs, rhs ) < 0 ); }
@@ -712,7 +712,7 @@ bool operator != ( const SYSTEMTIME& lhs, const SYSTEMTIME& rhs ) {	return ( Com
 
 //------------------------------------------------------------
 
-// ‰Â•Ïˆø”‘Î‰ž‚ÌOutputDebugString
+// å¯å¤‰å¼•æ•°å¯¾å¿œã®OutputDebugString
 void	DbgStr( const char* format, ... ) {
 	char	buf[256];
 	va_list	argptr;
@@ -722,7 +722,7 @@ void	DbgStr( const char* format, ... ) {
 	::OutputDebugString(buf);
 }
 
-// ‰Â•Ïˆø”‘Î‰ž‚ÌŠÈˆÕ•ñ—pƒƒbƒZ[ƒWƒ{ƒbƒNƒX
+// å¯å¤‰å¼•æ•°å¯¾å¿œã®ç°¡æ˜“å ±å‘Šç”¨ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ãƒœãƒƒã‚¯ã‚¹
 void	MesBox( const char* format, ... ) {
 	char	buf[256];
 	va_list	argptr;
@@ -732,7 +732,7 @@ void	MesBox( const char* format, ... ) {
 	::MessageBox( NULL, buf, "notice", MB_OK|MB_SYSTEMMODAL );
 }
 
-// ‰Â•Ïˆø”‘Î‰ž‚ÌŠÈˆÕ•ñ—pSetWindowText
+// å¯å¤‰å¼•æ•°å¯¾å¿œã®ç°¡æ˜“å ±å‘Šç”¨SetWindowText
 void	SetWinText( HWND hWnd, const char* format, ... ) {
 	char	buf[256];
 	va_list	argptr;

@@ -6,15 +6,15 @@
 #include	<stdarg.h>
 #include	<stdio.h>
 
-// ƒ_ƒCƒAƒƒOƒ{ƒbƒNƒX‚ÌŠî’êƒNƒ‰ƒXB
-// Žg‚¢•û‚Í‰º‚Ì•û‚ÉB
+// ãƒ€ã‚¤ã‚¢ãƒ­ã‚°ãƒœãƒƒã‚¯ã‚¹ã®åŸºåº•ã‚¯ãƒ©ã‚¹ã€‚
+// ä½¿ã„æ–¹ã¯ä¸‹ã®æ–¹ã«ã€‚
 class	Dialog {
 
 private:
 	static	Dialog*	sm_pDialog;
 	static	BOOL WINAPI DialogProcedure( HWND, UINT, WPARAM, LPARAM );
 
-	// ƒCƒxƒ“ƒgƒnƒ“ƒhƒ‰
+	// ã‚¤ãƒ™ãƒ³ãƒˆãƒãƒ³ãƒ‰ãƒ©
 	virtual	BOOL	OnInitDialog( HWND hwndFocus, LONG lInitParam ) { return TRUE; }
 	virtual	BOOL	OnCommand( WORD wNotifyCode, WORD wID, HWND hwndCrl ) { return FALSE; }
 	virtual	BOOL	OnSysCommand( UINT uCmdType, WORD xPos, WORD yPos );
@@ -34,7 +34,7 @@ protected:
 	BOOL		m_fModeless;
 
 public:
-	// ƒRƒ“ƒgƒ[ƒ‹ƒAƒNƒZƒXƒwƒ‹ƒp[
+	// ã‚³ãƒ³ãƒˆãƒ­ãƒ¼ãƒ«ã‚¢ã‚¯ã‚»ã‚¹ãƒ˜ãƒ«ãƒ‘ãƒ¼
 	
 	HWND	toHWND( int id ) { return ::GetDlgItem( m_hDlg, id ); }
 	int		toID( HWND hWnd ) { return ::GetDlgCtrlID( hWnd ); }
@@ -105,17 +105,17 @@ public:
 	LONG	CB_GetCurSel( int id ) { return ::SendDlgItemMessage( m_hDlg, id, CB_GETCURSEL, 0, 0 ); }
 	LONG	CB_SetTopIndex( int id, int index ) { return ::SendDlgItemMessage( m_hDlg, id, CB_SETTOPINDEX, (WPARAM)index, 0 ); }
 
-	// ƒ_ƒCƒAƒƒOƒ{ƒbƒNƒX‚ðŠJŽnBI—¹‚·‚é‚Ü‚Åˆ—‚ð–ß‚³‚È‚¢B
+	// ãƒ€ã‚¤ã‚¢ãƒ­ã‚°ãƒœãƒƒã‚¯ã‚¹ã‚’é–‹å§‹ã€‚çµ‚äº†ã™ã‚‹ã¾ã§å‡¦ç†ã‚’æˆ»ã•ãªã„ã€‚
 	virtual 
-	int		// EndDialog‚É“n‚³‚ê‚½’lB
+	int		// EndDialogã«æ¸¡ã•ã‚ŒãŸå€¤ã€‚
 	Run( 
-		HINSTANCE hInstance,	// ƒCƒ“ƒXƒ^ƒ“ƒXƒnƒ“ƒhƒ‹
-		WORD idDialog, 			// ƒŠƒ\[ƒXID
-		HWND hwndOwner=NULL );	// eƒEƒBƒ“ƒhƒE‚Ìƒnƒ“ƒhƒ‹
+		HINSTANCE hInstance,	// ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ãƒãƒ³ãƒ‰ãƒ«
+		WORD idDialog, 			// ãƒªã‚½ãƒ¼ã‚¹ID
+		HWND hwndOwner=NULL );	// è¦ªã‚¦ã‚£ãƒ³ãƒ‰ã‚¦ã®ãƒãƒ³ãƒ‰ãƒ«
 
-	// ƒ_ƒCƒAƒƒOƒ{ƒbƒNƒX‚ðŠJŽnBŠJŽn‚µ‚½‚çˆ—‚ð–ß‚·B
+	// ãƒ€ã‚¤ã‚¢ãƒ­ã‚°ãƒœãƒƒã‚¯ã‚¹ã‚’é–‹å§‹ã€‚é–‹å§‹ã—ãŸã‚‰å‡¦ç†ã‚’æˆ»ã™ã€‚
 	virtual 
-	HWND	// ì¬‚µ‚½ƒ_ƒCƒAƒƒO‚Ìƒnƒ“ƒhƒ‹
+	HWND	// ä½œæˆã—ãŸãƒ€ã‚¤ã‚¢ãƒ­ã‚°ã®ãƒãƒ³ãƒ‰ãƒ«
 	RunAsync( 
 		HINSTANCE hInstance, WORD idDialog, HWND hwndOwner=NULL );
 };
@@ -137,17 +137,17 @@ void	foo() {
 
 ------------------------------------------------------------------*/
 
-// ˆê”Ê“I‚É‚æ‚­Žg‚¤ƒ_ƒCƒAƒƒO‚Ìƒeƒ“ƒvƒŒ[ƒg
+// ä¸€èˆ¬çš„ã«ã‚ˆãä½¿ã†ãƒ€ã‚¤ã‚¢ãƒ­ã‚°ã®ãƒ†ãƒ³ãƒ—ãƒ¬ãƒ¼ãƒˆ
 
-// ‚Qƒ{ƒ^ƒ“A‚Rƒ{ƒ^ƒ“A•¶Žš—ñ‚Ì“ü—ÍA®”’l‚Ì“ü—ÍA•¡”‘I‘ðA‚È‚ÇB
+// ï¼’ãƒœã‚¿ãƒ³ã€ï¼“ãƒœã‚¿ãƒ³ã€æ–‡å­—åˆ—ã®å…¥åŠ›ã€æ•´æ•°å€¤ã®å…¥åŠ›ã€è¤‡æ•°é¸æŠžã€ãªã©ã€‚
 
-BOOL	// •ÏX‚Ì—L–³
+BOOL	// å¤‰æ›´ã®æœ‰ç„¡
 GetStringFromDialog(
-	LPCSTR	szTitle,	// ƒ_ƒCƒAƒƒOƒ^ƒCƒgƒ‹
-	LPCSTR	szMessage,	// STATIC_TEXT’l
-	LPCSTR	szDefault,	// “ü—ÍƒGƒŠƒA‚Ì‰Šú’l
-	LPSTR	szBuffer,	// “ü—Í‚³‚ê‚½•¶Žš—ñ
-	int		iBufSize	// szBuffer‚ÌƒTƒCƒY
+	LPCSTR	szTitle,	// ãƒ€ã‚¤ã‚¢ãƒ­ã‚°ã‚¿ã‚¤ãƒˆãƒ«
+	LPCSTR	szMessage,	// STATIC_TEXTå€¤
+	LPCSTR	szDefault,	// å…¥åŠ›ã‚¨ãƒªã‚¢ã®åˆæœŸå€¤
+	LPSTR	szBuffer,	// å…¥åŠ›ã•ã‚ŒãŸæ–‡å­—åˆ—
+	int		iBufSize	// szBufferã®ã‚µã‚¤ã‚º
 );
 
 

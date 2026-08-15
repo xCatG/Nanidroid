@@ -6,27 +6,27 @@
 #  include	<mbctype.h>
 #endif
 
-// ”’lE•¶š—ñ‰‰Z‚ğs‚Á‚ÄŒ‹‰Ê‚ğString‚ÉB•Ô’lfalse‚È‚ç®‚ª•ÏB
-// ‚Q€‰‰Zq +,-,*,/,%,^,<,>,<=,>=,==,!=,&&,||,=~,!~
-// ’P€‰‰Zq +,-,!
-// ”í‰‰Zq ®”’lAƒJƒbƒRA•¶š—ñ
+// æ•°å€¤ãƒ»æ–‡å­—åˆ—æ¼”ç®—ã‚’è¡Œã£ã¦çµæœã‚’Stringã«ã€‚è¿”å€¤falseãªã‚‰å¼ãŒå¤‰ã€‚
+// ï¼’é …æ¼”ç®—å­ +,-,*,/,%,^,<,>,<=,>=,==,!=,&&,||,=~,!~
+// å˜é …æ¼”ç®—å­ +,-,!
+// è¢«æ¼”ç®—å­ æ•´æ•°å€¤ã€ã‚«ãƒƒã‚³ã€æ–‡å­—åˆ—
 
-// ”’l‚Í‘S‚Ä‰‰Z‰Â”\A•¶š—ñ‚ğˆµ‚¤‰‰Z‚ÍˆÈ‰º‚Ì‚İB‚½‚¾‚µA”’l‚Í•¶š—ñ‚ÖƒLƒƒƒXƒg‚³‚ê‚é
-// •¶š—ñ != •¶š—ñ
-// •¶š—ñ == •¶š—ñ
-// •¶š—ñ + •¶š—ñ
-// •¶š—ñ - •¶š—ñ@Á‹
-// •¶š—ñ < •¶š—ñ@’·‚³”äŠr
-// •¶š—ñ > •¶š—ñ@’·‚³”äŠr
-// •¶š—ñ <= •¶š—ñ@’·‚³”äŠr
-// •¶š—ñ >= •¶š—ñ@’·‚³”äŠr
-// •¶š—ñ * ”’l@
-// •¶š—ñ =~ •¶š—ñ
-// •¶š—ñ !~ •¶š—ñ
+// æ•°å€¤ã¯å…¨ã¦æ¼”ç®—å¯èƒ½ã€æ–‡å­—åˆ—ã‚’æ‰±ã†æ¼”ç®—ã¯ä»¥ä¸‹ã®ã¿ã€‚ãŸã ã—ã€æ•°å€¤ã¯æ–‡å­—åˆ—ã¸ã‚­ãƒ£ã‚¹ãƒˆã•ã‚Œã‚‹
+// æ–‡å­—åˆ— != æ–‡å­—åˆ—
+// æ–‡å­—åˆ— == æ–‡å­—åˆ—
+// æ–‡å­—åˆ— + æ–‡å­—åˆ—
+// æ–‡å­—åˆ— - æ–‡å­—åˆ—ã€€æ¶ˆå»
+// æ–‡å­—åˆ— < æ–‡å­—åˆ—ã€€é•·ã•æ¯”è¼ƒ
+// æ–‡å­—åˆ— > æ–‡å­—åˆ—ã€€é•·ã•æ¯”è¼ƒ
+// æ–‡å­—åˆ— <= æ–‡å­—åˆ—ã€€é•·ã•æ¯”è¼ƒ
+// æ–‡å­—åˆ— >= æ–‡å­—åˆ—ã€€é•·ã•æ¯”è¼ƒ
+// æ–‡å­—åˆ— * æ•°å€¤ã€€
+// æ–‡å­—åˆ— =~ æ–‡å­—åˆ—
+// æ–‡å­—åˆ— !~ æ–‡å­—åˆ—
 
-// ‘S‚Ä”¼Šp‚Å‚ ‚é‚±‚ÆB‹ó”’“™‚Í”F‚ß‚È‚¢
+// å…¨ã¦åŠè§’ã§ã‚ã‚‹ã“ã¨ã€‚ç©ºç™½ç­‰ã¯èªã‚ãªã„
 extern bool calc(const char* iExpression, string& oResult);
-// ”¼Šp‘SŠpƒXƒy[ƒX‚Æƒ^ƒu‹L†‚ÌÁ‹A”šE‹L†‚Ì”¼Šp‰»‚Ü‚Å‘S•”‚â‚Á‚½‚°‚é
+// åŠè§’å…¨è§’ã‚¹ãƒšãƒ¼ã‚¹ã¨ã‚¿ãƒ–è¨˜å·ã®æ¶ˆå»ã€æ•°å­—ãƒ»è¨˜å·ã®åŠè§’åŒ–ã¾ã§å…¨éƒ¨ã‚„ã£ãŸã’ã‚‹
 extern	bool calc(string& ioString);
 
 
@@ -39,10 +39,10 @@ struct calc_element {
 
 
 
-// g—p‰Â”\‰‰Zq‚©H@‚»‚¤‚È‚ç’·‚³i1or2j‚ğA‚³‚à‚È‚­‚Î 0 ‚ğ•Ô‚·B
+// ä½¿ç”¨å¯èƒ½æ¼”ç®—å­ã‹ï¼Ÿã€€ãã†ãªã‚‰é•·ã•ï¼ˆ1or2ï¼‰ã‚’ã€ã•ã‚‚ãªãã° 0 ã‚’è¿”ã™ã€‚
 inline int check_operator(const char* p) {
 
-	static const char*	oprs[] = { // ’·‚¢‚à‚Ì‡‚É”äŠr‚·‚é‚ÌB
+	static const char*	oprs[] = { // é•·ã„ã‚‚ã®é †ã«æ¯”è¼ƒã™ã‚‹ã®ã€‚
 		"&&","||","==","!=","<=",">=","=~","!~","<",">","+","-","*","/","%"};
 	static const int	num_oprs = sizeof(oprs)/sizeof(oprs[0]);
 
@@ -51,7 +51,7 @@ inline int check_operator(const char* p) {
 		if ( strncmp(p, oprs[i], len) == 0 )
 			return	len;
 	}
-	return	0;	// ‚Ç‚Ì‰‰Zq‚Å‚à‚È‚¢
+	return	0;	// ã©ã®æ¼”ç®—å­ã§ã‚‚ãªã„
 }
 
 
@@ -60,7 +60,7 @@ inline bool my_isdigit(int c) {
 	return	( c>='0' && c<='9' );
 }
 
-// ”’l‚©H@‚»‚¤‚È‚ç’·‚³‚ğA‚³‚à‚È‚­‚Î 0 ‚ğ•Ô‚·B
+// æ•°å€¤ã‹ï¼Ÿã€€ãã†ãªã‚‰é•·ã•ã‚’ã€ã•ã‚‚ãªãã° 0 ã‚’è¿”ã™ã€‚
 inline int check_number(const char* start_pos) {
 	const char* p=start_pos;
 	while ( my_isdigit(*p) )
@@ -68,12 +68,12 @@ inline int check_number(const char* start_pos) {
 	int	len = p-start_pos;
 
 	if ( len==0 )
-		return	0;	// Å‰‚©‚çˆá‚¤
+		return	0;	// æœ€åˆã‹ã‚‰é•ã†
 	if ( *p=='\0' || *p==')' )
-		return	len;	// ”’l‚Å€‚ªI‚í‚Á‚Ä‚é‚È‚çtrue
+		return	len;	// æ•°å€¤ã§é …ãŒçµ‚ã‚ã£ã¦ã‚‹ãªã‚‰true
 	if ( check_operator(p)>0 )
-		return	len;	// Ÿ‚ª‰‰Zq‚Å‚à‚n‚j
-	return	0;	// ‚»‚¤‚Å‚È‚¢‚È‚çA‚±‚ê‚Í•¶š—ñ‚¾‚ë‚¤B
+		return	len;	// æ¬¡ãŒæ¼”ç®—å­ã§ã‚‚ï¼¯ï¼«
+	return	0;	// ãã†ã§ãªã„ãªã‚‰ã€ã“ã‚Œã¯æ–‡å­—åˆ—ã ã‚ã†ã€‚
 }
 
 
@@ -82,29 +82,29 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 
 	while (true) {
 
-		// ”í‰‰Zq‚Ü‚½‚Í’P€‰‰Zq‚ğæ“¾
+		// è¢«æ¼”ç®—å­ã¾ãŸã¯å˜é …æ¼”ç®—å­ã‚’å–å¾—
 		int	len;
 
 		if ( *p == '(' ) {
 			oDeque.push_back( calc_element("(", 110) );
-			if ( !make_deque(++p, oDeque) )	// ƒJƒbƒR“à‚ğÄ‹Aˆ—
-				return	false;	// ƒGƒ‰[‚Íƒgƒbƒv‚Ü‚Å“`‚¦‚é
+			if ( !make_deque(++p, oDeque) )	// ã‚«ãƒƒã‚³å†…ã‚’å†å¸°å‡¦ç†
+				return	false;	// ã‚¨ãƒ©ãƒ¼ã¯ãƒˆãƒƒãƒ—ã¾ã§ä¼ãˆã‚‹
 			if ( *p++ !=')' )
 				return	false;
 			oDeque.push_back( calc_element(")", 10) );
 		}
-		else if (*p=='!' || *p=='+' || *p=='-') {	// ’P€‰‰Zq
+		else if (*p=='!' || *p=='+' || *p=='-') {	// å˜é …æ¼”ç®—å­
 			oDeque.push_back( calc_element(string(p++, 1), 90) );
 			continue;
 		}
-		else if ( (len=check_number(p))!=0 ) {	// ”í‰‰Zqi”’lj
+		else if ( (len=check_number(p))!=0 ) {	// è¢«æ¼”ç®—å­ï¼ˆæ•°å€¤ï¼‰
 			oDeque.push_back( calc_element(string(p,len), 100) );
 			p+=len;
 		}
-		else {	// ”í‰‰Zqi•¶š—ñj
-			//return	false;	// ‚±‚±‚ğ—LŒø‚É‚·‚é‚Æ•¶š—ñ‰‰Z‚ğ‚µ‚È‚¢Bˆµ‚í‚¹‚æ‚¤‚Æ‚·‚é‚ÆƒGƒ‰[
+		else {	// è¢«æ¼”ç®—å­ï¼ˆæ–‡å­—åˆ—ï¼‰
+			//return	false;	// ã“ã“ã‚’æœ‰åŠ¹ã«ã™ã‚‹ã¨æ–‡å­—åˆ—æ¼”ç®—ã‚’ã—ãªã„ã€‚æ‰±ã‚ã›ã‚ˆã†ã¨ã™ã‚‹ã¨ã‚¨ãƒ©ãƒ¼
 
-			// ‰‰ZqorI—¹‚Ü‚Å‘S‚Ä‚ğ•¶š—ñ‚ÆŒ©‚È‚·
+			// æ¼”ç®—å­orçµ‚äº†ã¾ã§å…¨ã¦ã‚’æ–‡å­—åˆ—ã¨è¦‹ãªã™
 			const char*	start=p;
 			while (*p!='\0') {
 				if (*p=='!' || *p=='+' || *p=='-' )
@@ -114,25 +114,25 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 				p += _ismbblead(*p) ? 2 : 1;
 			}
 			if (p==start)
-				return	false;	// ”í‰‰Zq‚ª•K—v‚È‚Ì‚ÉA‚È‚¢B
+				return	false;	// è¢«æ¼”ç®—å­ãŒå¿…è¦ãªã®ã«ã€ãªã„ã€‚
 
 			oDeque.push_back( calc_element(string(start,p-start), 100) );
 		}
 
-		// €‚ÌI—¹B”í‰‰Zq‚ÌŒã‚Å‚ ‚é‚±‚ÌêŠ‚Å‚Ì‚İ³í’Eo
+		// é …ã®çµ‚äº†ã€‚è¢«æ¼”ç®—å­ã®å¾Œã§ã‚ã‚‹ã“ã®å ´æ‰€ã§ã®ã¿æ­£å¸¸è„±å‡º
 		if ( *p=='\0' || *p==')' )
 			return	true;
 
-		// ‚Q€‰‰Zq‚ğæ“¾
+		// ï¼’é …æ¼”ç®—å­ã‚’å–å¾—
 		if ( (len=check_operator(p))==0 )
-			return	false;	// ‚Ç‚Ì‰‰Zq‚Å‚à‚È‚¢
+			return	false;	// ã©ã®æ¼”ç®—å­ã§ã‚‚ãªã„
 		string	str(p,len);
 		p+=len;
 
-		// ‰‰Zq‚É‰‚¶‚Ä—Dæ“x‚ğİ’è
+		// æ¼”ç®—å­ã«å¿œã˜ã¦å„ªå…ˆåº¦ã‚’è¨­å®š
 		int	priority;
 		if ( str=="^" ) { priority=80; }
-		else if ( str=="=~" || str=="!~" ) { priority=75; } // ƒpƒ^[ƒ“ƒ}ƒbƒ`
+		else if ( str=="=~" || str=="!~" ) { priority=75; } // ãƒ‘ã‚¿ãƒ¼ãƒ³ãƒãƒƒãƒ
 		else if ( str=="*" || str=="/" || str=="%" ) { priority=70; }
 		else if ( str=="+" || str=="-" ) { priority=60; }
 		else if ( str=="<" || str==">" || str=="<=" || str==">=" ) { priority=80; }
@@ -145,7 +145,7 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 	}
 }
 
-// ‚Q€‰‰Zi”’l‚Ì‚İ—pj
+// ï¼’é …æ¼”ç®—ï¼ˆæ•°å€¤ã®ã¿ç”¨ï¼‰
 #define	a_op_b(op)	\
 	else if ( el.str == #op ) {	\
 		assert(stack.size()>=2); \
@@ -153,14 +153,14 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 		int	result = stoi(stack.from_top(1)) op stoi(stack.from_top(0)); \
 		stack.pop(2); stack.push(itos(result)); }
 
-// ‚Q€‰‰Zistring‚Æ‚µ‚Äˆµ‚¤ != ‚Æ == —pj
+// ï¼’é …æ¼”ç®—ï¼ˆstringã¨ã—ã¦æ‰±ã† != ã¨ == ç”¨ï¼‰
 #define	even_a_op_b(op)	\
 	else if ( el.str == #op ) {	\
 		assert(stack.size()>=2); \
 		int	result = stack.from_top(1) op stack.from_top(0); \
 		stack.pop(2); stack.push(itos(result)); }
 
-// ‚Q€‰‰Zistring‚Æ‚µ‚Äˆµ‚¤ != ‚Æ == —pj
+// ï¼’é …æ¼”ç®—ï¼ˆstringã¨ã—ã¦æ‰±ã† != ã¨ == ç”¨ï¼‰
 #define	length_a_op_b(op)	\
 	else if ( el.str == #op ) {	\
 		assert(stack.size()>=2); \
@@ -178,10 +178,10 @@ static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult) {
 	simple_stack<string>	stack;
 	for ( int n=0 ; n<polish.size()-1 ; n++ ) {
 		calc_element&	el=polish[n];
-		if ( el.priority==100 ) { // ”í‰‰Zq
+		if ( el.priority==100 ) { // è¢«æ¼”ç®—å­
 			stack.push(el.str);
 		}
-		else if ( el.priority==90 ) {	// ’P€‰‰Zq
+		else if ( el.priority==90 ) {	// å˜é …æ¼”ç®—å­
 			assert(stack.size()>=1);
 			if ( !aredigits(stack.top()) )
 				return	false;
@@ -226,7 +226,7 @@ static bool	calc_polish(simple_stack<calc_element>& polish, string& oResult) {
 			}
 		}
 		else if ( el.str == "=~" || el.str == "!~" ) {
-			// ƒpƒ^[ƒ“ƒ}ƒbƒ`
+			// ãƒ‘ã‚¿ãƒ¼ãƒ³ãƒãƒƒãƒ
 			assert(stack.size()>=2);
 			string	target=stack.pop(), re=stack.pop();
 
@@ -254,10 +254,10 @@ bool calc(const char* iExpression, string& oResult) {
 	if ( !make_deque(iExpression, org) )
 		return	false;
 	if ( *iExpression!='\0' )
-		return	false;	// ‚È‚ñ‚©ƒSƒ~‚ªc‚Á‚Ä‚½H
+		return	false;	// ãªã‚“ã‹ã‚´ãƒŸãŒæ®‹ã£ã¦ãŸï¼Ÿ
 
 	simple_stack<calc_element>	stack,polish;
-	stack.push(calc_element("Guard", 0));	// ”Ô•º
+	stack.push(calc_element("Guard", 0));	// ç•ªå…µ
 
 	deque<calc_element>::const_iterator i;
 	for ( i=org.begin() ; i!=org.end() ; ++i ) {
@@ -266,50 +266,50 @@ bool calc(const char* iExpression, string& oResult) {
 		if ( i->str != ")" ) stack.push(*i); else stack.pop();
 	}
 
-	// stack‚©‚çc‚è‚ğæ‚èo‚·
+	// stackã‹ã‚‰æ®‹ã‚Šã‚’å–ã‚Šå‡ºã™
 	while ( !stack.empty() )
 		polish.push(stack.pop());
 
-	// ŒvZ
+	// è¨ˆç®—
 	return	calc_polish(polish, oResult);
 }
 
 
 bool calc(string& ioString) {
-	erase(ioString, "@");
+	erase(ioString, "\x81\x40");
 	erase(ioString, " ");
 	erase(ioString, "\t");
 
-	// Æ®Û‚Í’P‘Ì‚Å‰‰Zq‚É‚Í‚µ‚½‚­‚È‚¢[
-	replace(ioString, "`", "=~");
-	replace(ioString, "I`", "!~");
+	// ï¾†ï½®ï¾›ã¯å˜ä½“ã§æ¼”ç®—å­ã«ã¯ã—ãŸããªã„ãƒ¼
+	replace(ioString, "\x81\x81\x81\x60", "=~");
+	replace(ioString, "\x81\x49\x81\x60", "!~");
 
-	replace(ioString, "{", "+");
-	replace(ioString, "|", "-");
-	replace(ioString, "–", "*");
-	replace(ioString, "~", "*");
-	replace(ioString, "^", "/");
-	replace(ioString, "€", "/");
-	replace(ioString, "“", "%");
-	replace(ioString, "O", "^");
-	replace(ioString, "ƒ", "<");
-	replace(ioString, "„", ">");
-	replace(ioString, "", "=");
-	replace(ioString, "I", "!");
-	replace(ioString, "•", "&");
-	replace(ioString, "b", "|");
-	replace(ioString, "i", "(");
-	replace(ioString, "j", ")");
-	replace(ioString, "‚O", "0");
-	replace(ioString, "‚P", "1");
-	replace(ioString, "‚Q", "2");
-	replace(ioString, "‚R", "3");
-	replace(ioString, "‚S", "4");
-	replace(ioString, "‚T", "5");
-	replace(ioString, "‚U", "6");
-	replace(ioString, "‚V", "7");
-	replace(ioString, "‚W", "8");
-	replace(ioString, "‚X", "9");
+	replace(ioString, "\x81\x7B", "+");
+	replace(ioString, "\x81\x7C", "-");
+	replace(ioString, "\x81\x96", "*");
+	replace(ioString, "\x81\x7E", "*");
+	replace(ioString, "\x81\x5E", "/");
+	replace(ioString, "\x81\x80", "/");
+	replace(ioString, "\x81\x93", "%");
+	replace(ioString, "\x81\x4F", "^");
+	replace(ioString, "\x81\x83", "<");
+	replace(ioString, "\x81\x84", ">");
+	replace(ioString, "\x81\x81", "=");
+	replace(ioString, "\x81\x49", "!");
+	replace(ioString, "\x81\x95", "&");
+	replace(ioString, "\x81\x62", "|");
+	replace(ioString, "\x81\x69", "(");
+	replace(ioString, "\x81\x6A", ")");
+	replace(ioString, "\x82\x4F", "0");
+	replace(ioString, "\x82\x50", "1");
+	replace(ioString, "\x82\x51", "2");
+	replace(ioString, "\x82\x52", "3");
+	replace(ioString, "\x82\x53", "4");
+	replace(ioString, "\x82\x54", "5");
+	replace(ioString, "\x82\x55", "6");
+	replace(ioString, "\x82\x56", "7");
+	replace(ioString, "\x82\x57", "8");
+	replace(ioString, "\x82\x58", "9");
 	string	theResult;
 	if ( !calc(ioString.c_str(), theResult) )
 		return	false;

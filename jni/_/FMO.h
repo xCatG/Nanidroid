@@ -3,7 +3,7 @@
 #include	<windows.h>
 #include	<assert.h>
 
-// “Ç‚Ş‚¾‚¯B‘‚¯‚È‚¢B¢‚Á‚½‚à‚ñ‚¾B
+// èª­ã‚€ã ã‘ã€‚æ›¸ã‘ãªã„ã€‚å›°ã£ãŸã‚‚ã‚“ã ã€‚
 class	FMO {
 	HANDLE	mHandle;
 public:
@@ -43,11 +43,11 @@ public:
 template<class T, class U>
 class	FMOmap {
 
-	// FMO‚Ì–¼‘OBƒvƒƒZƒXŠÔ‚Å‹¤—L‚µ‚Ä—p‚¢‚éB
+	// FMOã®åå‰ã€‚ãƒ—ãƒ­ã‚»ã‚¹é–“ã§å…±æœ‰ã—ã¦ç”¨ã„ã‚‹ã€‚
 	FMO	mFMO;
 	string	mName;
 
-	// lock‚µ‚Äunlock‚·‚é‚Ü‚Å—LŒøB
+	// lockã—ã¦unlockã™ã‚‹ã¾ã§æœ‰åŠ¹ã€‚
 	map<T,U>	mMap;
 
 private:

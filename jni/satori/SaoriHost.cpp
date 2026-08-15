@@ -11,19 +11,19 @@ int	SaoriHost::request(
 	string& o_protocol_version,
 	strpairvec& o_data)
 {
-	// •Ô‚·ƒvƒƒgƒRƒ‹‚ÍÅ‰‚ÉŒˆ‚ß‚Ä‚¨‚­
+	// è¿”ã™ãƒ—ãƒ­ãƒˆã‚³ãƒ«ã¯æœ€åˆã«æ±ºã‚ã¦ãŠã
 	o_protocol = "SAORI";
 	o_protocol_version = "1.0";
 
-	// SAORI‚Å‚ ‚é‚±‚ÆBƒo[ƒWƒ‡ƒ“‚ÍÅ’á‚½‚é1.0‚ğ–‚½‚µ‚Ä‚¢‚ê‚Î—Ç‚¢‚Ì‚Å–â‚í‚È‚¢
+	// SAORIã§ã‚ã‚‹ã“ã¨ã€‚ãƒãƒ¼ã‚¸ãƒ§ãƒ³ã¯æœ€ä½ãŸã‚‹1.0ã‚’æº€ãŸã—ã¦ã„ã‚Œã°è‰¯ã„ã®ã§å•ã‚ãªã„
 	if ( i_protocol != "SAORI" ) { return 400; }
 
-	// GET Version‚È‚ç‚»‚Ì‚Ü‚Ü200‚ğ•Ô‚·
+	// GET Versionãªã‚‰ãã®ã¾ã¾200ã‚’è¿”ã™
 	if ( i_command == "GET Version" ) { return 200; }
-	// ‚»‚êˆÈŠO‚Ìcommand‚Í•s³
+	// ãã‚Œä»¥å¤–ã®commandã¯ä¸æ­£
 	if ( i_command != "EXECUTE" ) { return 400; }
 
-	// ˆø”‚ğ Argument? ‚ÉŠi”[
+	// å¼•æ•°ã‚’ Argument? ã«æ ¼ç´
 	deque<string> arguments;
 	for ( strpairvec::const_iterator it=i_data.begin() ; it!=i_data.end() ; ++it)
 	{
@@ -41,11 +41,11 @@ int	SaoriHost::request(
 		}
 	}
 
-	// SAORIÀs
+	// SAORIå®Ÿè¡Œ
 	deque<string> values;
 	SRV	srv = request(arguments, values);
 
-	// –ß‚è’l‚ğ‰ğÍ•Ši”[
+	// æˆ»ã‚Šå€¤ã‚’è§£æï¼†æ ¼ç´
 	o_data.push_back( strpair("Charset", "Shift_JIS") );
 	o_data.push_back( strpair("Result", srv.mResultString) );
 	int n=0;

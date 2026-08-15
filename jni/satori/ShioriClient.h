@@ -1,6 +1,6 @@
 #include "SakuraDLLClient.h"
 
-// SHIORI/3.0ƒNƒ‰ƒCƒAƒ“ƒg
+// SHIORI/3.0ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆ
 class ShioriClient : public SakuraDLLClient
 {
 public:
@@ -14,10 +14,10 @@ public:
 		const string& i_fullpath);
 
 	int ShioriClient::request(
-		const string& i_id, // OnBoot‚Æ‚©
+		const string& i_id, // OnBootã¨ã‹
 		const vector<string>& i_references, // Reference?
 		bool i_is_secure, // SecurityLevel
-		string& o_value, // x‚ª•Ô‚µ‚½‚³‚­‚çƒXƒNƒŠƒvƒg‚â•¶š—ñƒŠƒ\[ƒX
-		vector<string>& o_references // •¡”–ß‚è’lB’Êí‚ÍOnCommunicate‚Å‚µ‚©g‚í‚È‚¢
+		string& o_value, // æ ãŒè¿”ã—ãŸã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã‚„æ–‡å­—åˆ—ãƒªã‚½ãƒ¼ã‚¹
+		vector<string>& o_references // è¤‡æ•°æˆ»ã‚Šå€¤ã€‚é€šå¸¸ã¯OnCommunicateã§ã—ã‹ä½¿ã‚ãªã„
 		);
 };

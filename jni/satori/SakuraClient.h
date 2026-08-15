@@ -3,19 +3,19 @@
 
 #include "SakuraCS.h"
 
-// SHIORI, SAORI, MAKOTO, SSTP‚È‚Ç‚ÌƒNƒ‰ƒCƒAƒ“ƒgB
-// ƒŠƒNƒGƒXƒg‚ğ‘—‚é‘¤‚Ìƒˆ‰¼‘zƒx[ƒXƒNƒ‰ƒXB
+// SHIORI, SAORI, MAKOTO, SSTPãªã©ã®ã‚¯ãƒ©ã‚¤ã‚¢ãƒ³ãƒˆã€‚
+// ãƒªã‚¯ã‚¨ã‚¹ãƒˆã‚’é€ã‚‹å´ã®ç´”ç²‹ä»®æƒ³ãƒ™ãƒ¼ã‚¹ã‚¯ãƒ©ã‚¹ã€‚
 class SakuraClient : public SakuraCS
 {
 public:
 	SakuraClient() {}
 	virtual ~SakuraClient() {}
 	
-	// ‘f‚ÌƒŠƒNƒGƒXƒg•¶š—ñ‚ğ‘—‚èA‘f‚ÌƒŒƒXƒ|ƒ“ƒX•¶š—ñ‚ğó‚¯‚Æ‚éB
-	// À‘•‚Í’ÊMè’i‚É‚æ‚éB
+	// ç´ ã®ãƒªã‚¯ã‚¨ã‚¹ãƒˆæ–‡å­—åˆ—ã‚’é€ã‚Šã€ç´ ã®ãƒ¬ã‚¹ãƒãƒ³ã‚¹æ–‡å­—åˆ—ã‚’å—ã‘ã¨ã‚‹ã€‚
+	// å®Ÿè£…ã¯é€šä¿¡æ‰‹æ®µã«ã‚ˆã‚‹ã€‚
 	virtual string request(const string& i_request_string)=0;
 
-	// ƒŠƒNƒGƒXƒg‚ğ‘—‚èAƒŒƒXƒ|ƒ“ƒX‚ğó‚¯æ‚éB–ß‚è’l‚ÍƒŠƒ^[ƒ“ƒR[ƒhB
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆã‚’é€ã‚Šã€ãƒ¬ã‚¹ãƒãƒ³ã‚¹ã‚’å—ã‘å–ã‚‹ã€‚æˆ»ã‚Šå€¤ã¯ãƒªã‚¿ãƒ¼ãƒ³ã‚³ãƒ¼ãƒ‰ã€‚
 	virtual int request(
 		const string& i_protocol,
 		const string& i_protocol_version,

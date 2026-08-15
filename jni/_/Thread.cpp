@@ -3,17 +3,17 @@
 bool	Thread::create(void* iParam, bool iSuspendedCreate) {
 	assert(mThread==NULL);
 
-	// ƒXƒŒƒbƒhŠÖ”‚Ì–{—ˆ‚Ìˆø”‚Íƒƒ“ƒo‚ÉƒRƒs[‚µ‚Ä‚¨‚­B
+	// ã‚¹ãƒ¬ãƒƒãƒ‰é–¢æ•°ã®æœ¬æ¥ã®å¼•æ•°ã¯ãƒ¡ãƒ³ãƒã«ã‚³ãƒ”ãƒ¼ã—ã¦ãŠãã€‚
 	mParam=iParam;
 	
-	// ƒXƒŒƒbƒhì¬
+	// ã‚¹ãƒ¬ãƒƒãƒ‰ä½œæˆ
 	mThread=::CreateThread(
-		NULL,				// ƒZƒLƒ…ƒŠƒeƒB‘®«
-		0,					// ‰ŠúƒXƒ^ƒbƒNƒTƒCƒY 0 ‚Å©“®
-		Thread::ThreadProc,	// ƒXƒŒƒbƒhŠÖ”
-		(LPVOID)this,		// ƒXƒŒƒbƒhŠÖ”‚Ìˆø”
-		iSuspendedCreate ? CREATE_SUSPENDED : 0,	// ‘¦À‚ÉÀs‚·‚é‚©”Û‚©
-		&mID );				// ƒXƒŒƒbƒhIDó‚¯æ‚è
+		NULL,				// ã‚»ã‚­ãƒ¥ãƒªãƒ†ã‚£å±æ€§
+		0,					// åˆæœŸã‚¹ã‚¿ãƒƒã‚¯ã‚µã‚¤ã‚º 0 ã§è‡ªå‹•
+		Thread::ThreadProc,	// ã‚¹ãƒ¬ãƒƒãƒ‰é–¢æ•°
+		(LPVOID)this,		// ã‚¹ãƒ¬ãƒƒãƒ‰é–¢æ•°ã®å¼•æ•°
+		iSuspendedCreate ? CREATE_SUSPENDED : 0,	// å³åº§ã«å®Ÿè¡Œã™ã‚‹ã‹å¦ã‹
+		&mID );				// ã‚¹ãƒ¬ãƒƒãƒ‰IDå—ã‘å–ã‚Š
 
 	return	(mThread!=NULL);
 }

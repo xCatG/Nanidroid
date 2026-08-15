@@ -34,7 +34,7 @@ public:
 int main() {
 	
 #ifdef	_DEBUG
-	//ƒƒ‚ƒŠƒŠ[ƒN‚ÌŒŸo(_DEBUG‚ª’è‹`‚³‚ê‚Ä‚¢‚½ê‡‚Ì‚İ—LŒø‚Å‚·B)
+	//ãƒ¡ãƒ¢ãƒªãƒªãƒ¼ã‚¯ã®æ¤œå‡º(_DEBUGãŒå®šç¾©ã•ã‚Œã¦ã„ãŸå ´åˆã®ã¿æœ‰åŠ¹ã§ã™ã€‚)
 	int tmpDbgFlag;
 	tmpDbgFlag = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
 	//tmpDbgFlag |= _CRTDBG_DELAY_FREE_MEM_DF;
@@ -70,34 +70,34 @@ public:
 
 A foo(A i_a)
 {
-	A the_a("ƒ[ƒJƒ‹•Ï”");
-	return A("–ß‚è’l");
+	A the_a("ãƒ­ãƒ¼ã‚«ãƒ«å¤‰æ•°");
+	return A("æˆ»ã‚Šå€¤");
 }
 
 
 	/*{
-		foo(A("ˆø”"));
+		foo(A("å¼•æ•°"));
 		return 0;
 	}*/
 
 	/*
 	{
 		Families<string> fs;
-		fs.add_element("–¼‘O", "’†g", "ğŒ®");
+		fs.add_element("åå‰", "ä¸­èº«", "æ¡ä»¶å¼");
 	}*/
 
 	//for ( int i=0 ; i<10 ; ++i )
 
 
 	//cout << ghost.request("get") << endl;
-	//cout << ghost.request("‚¤‚ñ‚±") << endl;
+	//cout << ghost.request("ã†ã‚“ã“") << endl;
 /*	cout << typeid(Ghost).name() << endl;
 	
-	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;
-	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;
-	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;
-	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;
-	cout << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << ghost.request("‚½‚ñ‚²") << endl;
+	cout << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << endl;
+	cout << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << endl;
+	cout << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << endl;
+	cout << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << endl;
+	cout << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << ghost.request("ãŸã‚“ã”") << endl;
 */
  
 

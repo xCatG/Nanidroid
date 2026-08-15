@@ -2,7 +2,7 @@
 #define	SENDER_H
 
 /*
-	ƒƒOƒAƒvƒŠƒP[ƒVƒ‡ƒ“u‚ê‚µ‚Îv‚ÉƒƒbƒZ[ƒW‚ğ‘—MB
+	ãƒ­ã‚°ã‚¢ãƒ—ãƒªã‚±ãƒ¼ã‚·ãƒ§ãƒ³ã€Œã‚Œã—ã°ã€ã«ãƒ¡ãƒƒã‚»ãƒ¼ã‚¸ã‚’é€ä¿¡ã€‚
 */
 
 #include	<iostream>
@@ -18,7 +18,7 @@ using namespace std;
 class Sender
 {
 #ifndef POSIX
-	// o—ÍæƒEƒBƒ“ƒhƒE
+	// å‡ºåŠ›å…ˆã‚¦ã‚£ãƒ³ãƒ‰ã‚¦
 	static HWND sm_receiver_window;
 #endif
 
@@ -35,7 +35,7 @@ class Sender
 		char	line[MAX+1];
 		int		pos;
 	};
-	static bool	sm_sender_flag;		// “®ì—LŒø‰Â”Û
+	static bool	sm_sender_flag;		// å‹•ä½œæœ‰åŠ¹å¯å¦
 
 	Sender();
 public:
@@ -47,7 +47,7 @@ public:
 		sender_stream() : ostream(&buf) {}
 	};
 
-	// ‚±‚ÌƒNƒ‰ƒX‚ÌƒCƒ“ƒXƒ^ƒ“ƒX‚Ìƒ‰ƒCƒtƒ^ƒCƒ€‚É‡‚í‚¹AƒƒO•\¦‚ÌÛ‚ÉƒlƒXƒg‚ğs‚¤
+	// ã“ã®ã‚¯ãƒ©ã‚¹ã®ã‚¤ãƒ³ã‚¹ã‚¿ãƒ³ã‚¹ã®ãƒ©ã‚¤ãƒ•ã‚¿ã‚¤ãƒ ã«åˆã‚ã›ã€ãƒ­ã‚°è¡¨ç¤ºã®éš›ã«ãƒã‚¹ãƒˆã‚’è¡Œã†
 	class nest_object
 	{
 		static int sm_nest;
@@ -66,7 +66,7 @@ public:
 	static bool is_validated() { return sm_sender_flag; }
 };
 
-// ƒƒOo—ÍƒXƒgƒŠ[ƒ€
+// ãƒ­ã‚°å‡ºåŠ›ã‚¹ãƒˆãƒªãƒ¼ãƒ 
 extern	Sender::sender_stream	sender;	
 
 #endif	// SENDER_H

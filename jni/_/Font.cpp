@@ -3,7 +3,7 @@
 
 Font::Font() {
 	init();
-	mChanged=true;	// ‚P‰ñ–Ú‚Í•K‚¸ì‚é
+	mChanged=true;	// ï¼‘å›ç›®ã¯å¿…ãšä½œã‚‹
 	mFont=NULL;
 }
 
@@ -19,7 +19,7 @@ void	Font::init() {
 	Underline(false);
 	Color(255,255,255);
 	Size(24);
-	Face("‚l‚r ƒSƒVƒbƒN");
+	Face("\x82\x6C\x82\x72 \x83\x53\x83\x56\x83\x62\x83\x4E");
 }
 
 
@@ -89,27 +89,27 @@ void	Font::Face(LPCTSTR iFace) {
 bool	Font::update() {
 
 	if ( !mChanged )
-		return	true;	// •ÏX‚³‚ê‚Ä–³‚¢
+		return	true;	// å¤‰æ›´ã•ã‚Œã¦ç„¡ã„
 
-	// •ÏX‚³‚ê‚½‚Ì‚Åì‚è’¼‚µB
+	// å¤‰æ›´ã•ã‚ŒãŸã®ã§ä½œã‚Šç›´ã—ã€‚
 	if ( mFont != NULL )
 		::DeleteObject(mFont);
 
 	LOGFONT	theLogFont;
 	::ZeroMemory(&theLogFont, sizeof(LOGFONT));
-	theLogFont.lfWidth = mSize.cx;// ƒtƒHƒ“ƒg•\¦ˆæ‚Ì‰¡•
-	theLogFont.lfHeight = mSize.cy;	// ƒtƒHƒ“ƒg•\¦ˆæ‚Ì‚‚³
-	theLogFont.lfEscapement = 0;	// cŒX‚«
-	theLogFont.lfOrientation = 0;	// ‰¡ŒX‚«
-	theLogFont.lfWeight = mBold ? FW_BOLD : 0;	// ƒtƒHƒ“ƒg‚Ì‘¾‚³i 0‚Ìê‡‚ÍƒfƒtƒHƒ‹ƒgj
-	theLogFont.lfItalic = mItalic;	// Î‘Ìw’è
-	theLogFont.lfUnderline = mUnderline;	// ‰ºüw’è
-	theLogFont.lfStrikeOut = mStrike;	// æ‚èÁ‚µüw’è
-	theLogFont.lfCharSet = SHIFTJIS_CHARSET;		// ƒLƒƒƒ‰ƒNƒ^ƒZƒbƒg
-	theLogFont.lfOutPrecision = OUT_DEFAULT_PRECIS;	// o—Í¸“x
-	theLogFont.lfClipPrecision = CLIP_DEFAULT_PRECIS;// ƒNƒŠƒbƒsƒ“ƒO•û–@
-	theLogFont.lfQuality = DEFAULT_QUALITY;			// ŠOŠÏ‚ÌƒNƒIƒŠƒeƒB
-	theLogFont.lfPitchAndFamily = DEFAULT_PITCH | FF_ROMAN;	// ƒsƒbƒ`‚Æí—Ş
+	theLogFont.lfWidth = mSize.cx;// ãƒ•ã‚©ãƒ³ãƒˆè¡¨ç¤ºåŸŸã®æ¨ªå¹…
+	theLogFont.lfHeight = mSize.cy;	// ãƒ•ã‚©ãƒ³ãƒˆè¡¨ç¤ºåŸŸã®é«˜ã•
+	theLogFont.lfEscapement = 0;	// ç¸¦å‚¾ã
+	theLogFont.lfOrientation = 0;	// æ¨ªå‚¾ã
+	theLogFont.lfWeight = mBold ? FW_BOLD : 0;	// ãƒ•ã‚©ãƒ³ãƒˆã®å¤ªã•ï¼ˆ 0ã®å ´åˆã¯ãƒ‡ãƒ•ã‚©ãƒ«ãƒˆï¼‰
+	theLogFont.lfItalic = mItalic;	// æ–œä½“æŒ‡å®š
+	theLogFont.lfUnderline = mUnderline;	// ä¸‹ç·šæŒ‡å®š
+	theLogFont.lfStrikeOut = mStrike;	// å–ã‚Šæ¶ˆã—ç·šæŒ‡å®š
+	theLogFont.lfCharSet = SHIFTJIS_CHARSET;		// ã‚­ãƒ£ãƒ©ã‚¯ã‚¿ã‚»ãƒƒãƒˆ
+	theLogFont.lfOutPrecision = OUT_DEFAULT_PRECIS;	// å‡ºåŠ›ç²¾åº¦
+	theLogFont.lfClipPrecision = CLIP_DEFAULT_PRECIS;// ã‚¯ãƒªãƒƒãƒ”ãƒ³ã‚°æ–¹æ³•
+	theLogFont.lfQuality = DEFAULT_QUALITY;			// å¤–è¦³ã®ã‚¯ã‚ªãƒªãƒ†ã‚£
+	theLogFont.lfPitchAndFamily = DEFAULT_PITCH | FF_ROMAN;	// ãƒ”ãƒƒãƒã¨ç¨®é¡
 	::lstrcpy(theLogFont.lfFaceName, mFace);
 	mFont = ::CreateFontIndirect(&theLogFont);
 	if ( mFont == NULL )

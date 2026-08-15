@@ -5,13 +5,13 @@
 
 typedef	double	VALUE_TYPE;
 
-// ”’l‰‰Z‚ğs‚Á‚ÄŒ‹‰Ê‚ğString‚ÉB•Ô’lfalse‚È‚ç®‚ª•ÏB
-// ‚Q€‰‰Zq +,-,*,/,%,^,<,>,<=,>=,==,!=,&&,||
-// ’P€‰‰Zq +,-,!
-// ”í‰‰Zq ®”’l, ƒJƒbƒRB
-// ‘S‚Ä”¼Šp‚Å‚ ‚é‚±‚ÆB‹ó”’“™‚Í”F‚ß‚È‚¢
+// æ•°å€¤æ¼”ç®—ã‚’è¡Œã£ã¦çµæœã‚’Stringã«ã€‚è¿”å€¤falseãªã‚‰å¼ãŒå¤‰ã€‚
+// ï¼’é …æ¼”ç®—å­ +,-,*,/,%,^,<,>,<=,>=,==,!=,&&,||
+// å˜é …æ¼”ç®—å­ +,-,!
+// è¢«æ¼”ç®—å­ æ•´æ•°å€¤, ã‚«ãƒƒã‚³ã€‚
+// å…¨ã¦åŠè§’ã§ã‚ã‚‹ã“ã¨ã€‚ç©ºç™½ç­‰ã¯èªã‚ãªã„
 extern bool calc_float(const char* iExpression, int* oResult);
-// ”¼Šp‘SŠpƒXƒy[ƒX‚Æƒ^ƒu‹L†‚ÌÁ‹A”šE‹L†‚Ì”¼Šp‰»‚Ü‚Å‘S•”‚â‚Á‚½‚°‚é
+// åŠè§’å…¨è§’ã‚¹ãƒšãƒ¼ã‚¹ã¨ã‚¿ãƒ–è¨˜å·ã®æ¶ˆå»ã€æ•°å­—ãƒ»è¨˜å·ã®åŠè§’åŒ–ã¾ã§å…¨éƒ¨ã‚„ã£ãŸã’ã‚‹
 extern	bool calc_float(string& ioString);
 
 
@@ -26,12 +26,12 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 
 	while (true) {
 
-		// ”í‰‰Zq‚Ü‚½‚Í’P€‰‰Zq‚ğæ“¾
+		// è¢«æ¼”ç®—å­ã¾ãŸã¯å˜é …æ¼”ç®—å­ã‚’å–å¾—
 
 		if ( *p == '(' ) {
 			oDeque.push_back( calc_element("(", 110) );
-			if ( !make_deque(++p, oDeque) )	// ƒJƒbƒR“à‚ğÄ‹Aˆ—
-				return	false;	// ƒGƒ‰[‚Íƒgƒbƒv‚Ü‚Å“`‚¦‚é
+			if ( !make_deque(++p, oDeque) )	// ã‚«ãƒƒã‚³å†…ã‚’å†å¸°å‡¦ç†
+				return	false;	// ã‚¨ãƒ©ãƒ¼ã¯ãƒˆãƒƒãƒ—ã¾ã§ä¼ãˆã‚‹
 			if ( *p++ !=')' )
 				return	false;
 			oDeque.push_back( calc_element(")", 10) );
@@ -42,7 +42,7 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 				if ( *p=='!' ) str="!";
 				else if ( *p=='+' ) str="+";
 				else if ( *p=='-' ) str="-";
-				else return false;	// ’P€‰‰Zq‚¶‚á‚È‚¢A‡”Ô‚ª•Ï
+				else return false;	// å˜é …æ¼”ç®—å­ã˜ã‚ƒãªã„ã€é †ç•ªãŒå¤‰
 				++p;
 				oDeque.push_back( calc_element(str, 90) );
 				continue;
@@ -53,18 +53,18 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 
 			string	str(p,len);
 			if ( count(str,".")>=2 )
-				return	false;	// ¬”“_‚ª‚QŒÂˆÈã‚ ‚é
+				return	false;	// å°æ•°ç‚¹ãŒï¼’å€‹ä»¥ä¸Šã‚ã‚‹
 			oDeque.push_back( calc_element(str, 100) );
 			p+=len;
 		}
 
-		// ”í‰‰Zq‚ÌŒã‚É‚Ì‚İA³í’Eo
+		// è¢«æ¼”ç®—å­ã®å¾Œã«ã®ã¿ã€æ­£å¸¸è„±å‡º
 		if ( *p=='\0' || *p==')' )
 			return	true;
 
-		// ‚Q€‰‰Zq‚ğæ“¾
+		// ï¼’é …æ¼”ç®—å­ã‚’å–å¾—
 
-		const char*	oprs[] = { // ’·‚¢‚à‚Ì‡‚É”äŠr‚·‚é‚ÌB
+		const char*	oprs[] = { // é•·ã„ã‚‚ã®é †ã«æ¯”è¼ƒã™ã‚‹ã®ã€‚
 			"&&","||","==","!=","<=",">=","<",">","+","-","*","/"/*,"."*/};
 
 		int	len=0, i;
@@ -74,14 +74,14 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 				break;
 		}
 		if ( i==sizeof(oprs)/sizeof(oprs[0]) )
-			return	false;	// ‚Ç‚Ì‰‰Zq‚Å‚à‚È‚¢
+			return	false;	// ã©ã®æ¼”ç®—å­ã§ã‚‚ãªã„
 
-		// ‰‰Zq‚É‰‚¶‚Ä—Dæ“x‚ğİ’è
+		// æ¼”ç®—å­ã«å¿œã˜ã¦å„ªå…ˆåº¦ã‚’è¨­å®š
 		string	str(p,len);
 		p+=len;
 		int	priority;
 
-		/*if ( str=="." ) { priority=85; }	// ¬”“_
+		/*if ( str=="." ) { priority=85; }	// å°æ•°ç‚¹
 		else */if ( str=="^" ) { priority=80; }
 		else if ( str=="*" || str=="/" || str=="%" ) { priority=70; }
 		else if ( str=="+" || str=="-" ) { priority=60; }
@@ -95,28 +95,28 @@ static bool	make_deque(const char*& p, deque<calc_element>& oDeque) {
 	}
 }
 
-// ‚Q€‰‰Z
+// ï¼’é …æ¼”ç®—
 #define	a_op_b(op)	\
 	else if ( el.str == #op ) {	\
 		assert(stack.size()>=2); \
 		VALUE_TYPE	result = stack.from_top(1) op stack.from_top(0); \
 		stack.pop(2); stack.push(result); }
-//uicalc_float,5/3jv
+//ã€Œï¼ˆcalc_float,5/3ï¼‰ã€
 static VALUE_TYPE	calc_polish(simple_stack<calc_element>& polish) {
 	simple_stack<VALUE_TYPE>	stack;
 	for ( int n=0 ; n<polish.size()-1 ; n++ ) {
 		calc_element&	el=polish[n];
-		if ( el.priority==100 ) { // ”í‰‰Zq
+		if ( el.priority==100 ) { // è¢«æ¼”ç®—å­
 			stack.push( atof(el.str.c_str()) );
 		}
-		else if ( el.priority==90 ) {	// ’P€‰‰Zq
+		else if ( el.priority==90 ) {	// å˜é …æ¼”ç®—å­
 			assert(stack.size()>=1);
 			if ( el.str=="!" ) stack.push( !stack.pop() );
 			else if ( el.str=="+" ) NULL;
 			else if ( el.str=="-" ) stack.push( -stack.pop() );
 			else assert(0);
 		}
-		/*else if ( el.priority==85 ) {	// ¬”“_
+		/*else if ( el.priority==85 ) {	// å°æ•°ç‚¹
 			assert(stack.size()>=2);
 			assert(el.str==".");
 			char	buf[256];
@@ -149,10 +149,10 @@ bool calc_float(const char* iExpression, VALUE_TYPE* oResult) {
 	if ( !make_deque(iExpression, org) )
 		return	false;
 	if ( *iExpression!='\0' )
-		return	false;	// ‚È‚ñ‚©ƒSƒ~‚ªc‚Á‚Ä‚½H
+		return	false;	// ãªã‚“ã‹ã‚´ãƒŸãŒæ®‹ã£ã¦ãŸï¼Ÿ
 
 	simple_stack<calc_element>	stack,polish;
-	stack.push(calc_element("Guard", 0));	// ”Ô•º
+	stack.push(calc_element("Guard", 0));	// ç•ªå…µ
 
 	deque<calc_element>::const_iterator i;
 	for ( i=org.begin() ; i!=org.end() ; ++i ) {
@@ -161,45 +161,45 @@ bool calc_float(const char* iExpression, VALUE_TYPE* oResult) {
 		if ( i->str != ")" ) stack.push(*i); else stack.pop();
 	}
 
-	// stack‚©‚çc‚è‚ğæ‚èo‚·
+	// stackã‹ã‚‰æ®‹ã‚Šã‚’å–ã‚Šå‡ºã™
 	while ( !stack.empty() )
 		polish.push(stack.pop());
 
-	// ŒvZ
+	// è¨ˆç®—
 	*oResult = calc_polish(polish);
 	return	true;
 }
 
 
 bool calc_float(string& ioString) {
-	erase(ioString, "@");
+	erase(ioString, "\x81\x40");
 	erase(ioString, " ");
 	erase(ioString, "\t");
-	replace(ioString, "{", "+");
-	replace(ioString, "|", "-");
-	replace(ioString, "–", "*");
-	replace(ioString, "~", "*");
-	replace(ioString, "^", "/");
-	replace(ioString, "€", "/");
-	replace(ioString, "ƒ", "<");
-	replace(ioString, "„", ">");
-	replace(ioString, "", "=");
-	replace(ioString, "I", "!");
-	replace(ioString, "•", "&");
-	replace(ioString, "b", "|");
-	replace(ioString, "i", "(");
-	replace(ioString, "j", ")");
-	replace(ioString, "‚O", "0");
-	replace(ioString, "‚P", "1");
-	replace(ioString, "‚Q", "2");
-	replace(ioString, "‚R", "3");
-	replace(ioString, "‚S", "4");
-	replace(ioString, "‚T", "5");
-	replace(ioString, "‚U", "6");
-	replace(ioString, "‚V", "7");
-	replace(ioString, "‚W", "8");
-	replace(ioString, "‚X", "9");
-	replace(ioString, "D", ".");
+	replace(ioString, "\x81\x7B", "+");
+	replace(ioString, "\x81\x7C", "-");
+	replace(ioString, "\x81\x96", "*");
+	replace(ioString, "\x81\x7E", "*");
+	replace(ioString, "\x81\x5E", "/");
+	replace(ioString, "\x81\x80", "/");
+	replace(ioString, "\x81\x83", "<");
+	replace(ioString, "\x81\x84", ">");
+	replace(ioString, "\x81\x81", "=");
+	replace(ioString, "\x81\x49", "!");
+	replace(ioString, "\x81\x95", "&");
+	replace(ioString, "\x81\x62", "|");
+	replace(ioString, "\x81\x69", "(");
+	replace(ioString, "\x81\x6A", ")");
+	replace(ioString, "\x82\x4F", "0");
+	replace(ioString, "\x82\x50", "1");
+	replace(ioString, "\x82\x51", "2");
+	replace(ioString, "\x82\x52", "3");
+	replace(ioString, "\x82\x53", "4");
+	replace(ioString, "\x82\x54", "5");
+	replace(ioString, "\x82\x55", "6");
+	replace(ioString, "\x82\x56", "7");
+	replace(ioString, "\x82\x57", "8");
+	replace(ioString, "\x82\x58", "9");
+	replace(ioString, "\x81\x44", ".");
 	VALUE_TYPE	result;
 	if ( !calc_float(ioString.c_str(), &result) )
 		return	false;

@@ -7,16 +7,16 @@
 #include	"Utilities.h"
 
 //----------------------------------------------------------
-// �N���b�v�{�[�h
+// クリップボード
 
-// �������ݒ肷��BhWnd��NULL�ł��\��Ȃ��B
+// 文字列を設定する。hWndはNULLでも構わない。
 bool	SetClipBoard(HWND iWnd, const char* iFormat, ...);
 #ifdef	_STRING_
 string	GetClipBoard();
 #endif
 
 //----------------------------------------------------------
-// �v���Z�X�E�X���b�h
+// プロセス・スレッド
 
 BOOL	CreateThread( DWORD (* iCallBack)(LPVOID), LPVOID iParam);
 
@@ -26,33 +26,33 @@ BOOL	Start( LPSTR lpstrFileName );
 BOOL	Start( LPCSTR lpszImageName, LPSTR lpszCommandLine );
 
 //----------------------------------------------------------
-// �L�[�{�[�h�E�}�E�X
+// キーボード・マウス
 
-// �w��̃L�[�͉�����Ă��邩�H
+// 指定のキーは押されているか？
 inline	BOOL isKeyDown( int nVirtKey ) { return ( ::GetAsyncKeyState(nVirtKey) & 0x8000 ); }
 
-// �J�[�\���ʒu��ݒ�E�擾
+// カーソル位置を設定・取得
 POINT	GetCursorPos();
 void	SetCursorPos( POINT pt );
-// �N���C�A���g���W�n�ŃJ�[�\���ʒu��ݒ�E�擾
+// クライアント座標系でカーソル位置を設定・取得
 POINT	GetCursorPos( HWND hWnd );
 void	SetCursorPos( HWND hWnd, POINT pt );
-// �J�[�\���̓N���C�A���g�̈�����H
+// カーソルはクライアント領域内か？
 BOOL	isCursorOnClient( HWND hWnd );
 
-// �}�E�X�L���v�`���̊J�n�^�I��
+// マウスキャプチャの開始／終了
 BOOL	StartCapture( HWND hWnd, const RECT* =NULL );
 BOOL	isCapture( HWND hWnd );
 void	EndCapture();
-// �w��window�������Ă����ꍇ�Ɍ�������TRUE��Ԃ��B
+// 指定windowが持っていた場合に限り解放しTRUEを返す。
 BOOL	EndCapture( HWND hWnd ); 
 
-// �}�E�X�z�C�[������̓��͂��T�|�[�g�B
+// マウスホイールからの入力をサポート。
 // WinProc() { if ( message == msgMOUSEWHEEL ) message = WM_MOUSEWHEEL; ...
 extern const UINT msgMOUSEWHEEL;
 
 //----------------------------------------------------------
-// �_
+// 点
 
 inline POINT MAKEPOINT( int x, int y ) { POINT	pt = { x, y }; return pt; }
 inline POINT MAKEPOINT( LPARAM lParam ) { POINT	pt = { LOWORD(lParam), HIWORD(lParam) }; return	pt; }
@@ -68,28 +68,28 @@ inline POINT operator - ( POINT& pt ) { return MAKEPOINT( -pt.x, -pt.y ); }
 inline bool operator == (const POINT& lhs, const POINT& rhs) { return (lhs.x == rhs.x && lhs.y == rhs.y); }
 inline bool operator != (const POINT& lhs, const POINT& rhs) { return (lhs.x != rhs.x || lhs.y != rhs.y); }
 
-// iBase�����_�Ƃ��āA�E����90�x��]
+// iBaseを原点として、右回りに90度回転
 POINT	RotateRight90(POINT iBase, POINT iPoint);
-// iBase�����_�Ƃ��āA������90�x��]
+// iBaseを原点として、左回りに90度回転
 POINT	RotateLeft90(POINT iBase, POINT iPoint);
-// iBase�����_�Ƃ��āA180�x��]
+// iBaseを原点として、180度回転
 POINT	Rotate180(POINT iBase, POINT iPoint);
 
 //----------------------------------------------------------
-// �����`
+// 長方形
 
-// ��`�̍��W�t�]���C������B�I�_����l���B
+// 矩形の座標逆転を修正する。終点ずれ考慮。
 RECT NormalizeRect( RECT rc );
-// �Q�_�����`���쐬����B�t�]�ƏI�_������l���B
+// ２点から矩形を作成する。逆転と終点ずれを考慮。
 RECT PointToRect( POINT pt1, POINT pt2 );
-// ��`�̈�_���擾�B�I�_����l���B
+// 矩形の一点を取得。終点ずれ考慮。
 inline POINT LeftTop( RECT rc ) { return MAKEPOINT(rc.left,rc.top); }
 inline POINT RightTop( RECT rc ) { return MAKEPOINT(rc.right-1,rc.top); }
 inline POINT LeftBottom( RECT rc ) { return MAKEPOINT(rc.left,rc.bottom-1); }
 inline POINT RightBottom( RECT rc ) { return MAKEPOINT(rc.right-1,rc.bottom-1); }
-// �_����`��ɂ��邩�ǂ����B�I�_����l���B
+// 点が矩形上にあるかどうか。終点ずれ考慮。
 inline BOOL isOnRect( RECT rc, POINT pt ) { return ( pt.x >= rc.left && pt.x < rc.right && pt.y >= rc.top && pt.y < rc.bottom ); }
-// ��`���ړ�
+// 矩形を移動
 inline RECT& MoveRect( RECT& rc, POINT pt ) { rc.left+=pt.x; rc.top+=pt.y;  rc.right+=pt.x; rc.bottom+=pt.y; return rc; }
 
 // operators
@@ -103,18 +103,18 @@ inline SIZE MAKESIZE( int cx, int cy ) { SIZE size={ cx, cy }; return size; }
 inline SIZE RECTSIZE( RECT rc ) { SIZE size={ rc.right - rc.left, rc.bottom - rc.top }; return size; }
 inline RECT SIZERECT( SIZE siz ) { RECT rc={ 0, 0, siz.cx, siz.cy }; return rc; }
 
-// �����`���ړ�
+// 長方形を移動
 inline void Move( RECT* rc, int x, int y ) { assert(rc!=NULL); rc->left+=x; rc->top+=y; rc->right+=x; rc->bottom+=y; }
-// �ړ���̒����`���擾
+// 移動後の長方形を取得
 inline RECT Move( RECT rc, int x, int y ) { return MAKERECT( rc.left+x, rc.top+y, rc.right+x, rc.bottom+y ); }
-// �����`�̕��E�����𓾂�
+// 長方形の幅・高さを得る
 inline int Width(const RECT& rc) { return rc.right - rc.left; }
 inline int Height(const RECT& rc) { return rc.bottom - rc.top; }
-// �_�������`�̒��ɂ��邩
+// 点が長方形の中にあるか
 inline BOOL isOn( const RECT& rect, int x, int y ) { return (x >= rect.left && x < rect.right &&	y >= rect.top && y < rect.bottom ); }
-// �����`�͋�i�傫���������Ă��Ȃ��j��
+// 長方形は空（大きさを持っていない）か
 inline BOOL isEmpty( const RECT& rc ) { return ( rc.right <= rc.left || rc.bottom <= rc.top ); }
-// rcChild��rcParent�Ɏ��܂�悤����
+// rcChildがrcParentに収まるよう調整
 inline void Clip( const RECT& rcParent, RECT* rcChild ) {
 	assert( rcChild != NULL );
 	if ( rcChild->left < rcParent.left ) rcChild->left = rcParent.left;
@@ -127,36 +127,36 @@ inline void Clip( const RECT& rcParent, RECT* rcChild ) {
 #define	OpenPoint(pt)	pt.x, pt.y
 
 //----------------------------------------------------------
-// �E�B���h�E����
+// ウィンドウ操作
 
-// �N���C�A���g�̈�̃T�C�Y��ύX����B
-// ����ɁA�E�B���h�E�ʒu����ʓ��Ɏ��܂�悤��������B
+// クライアント領域のサイズを変更する。
+// さらに、ウィンドウ位置が画面内に収まるよう調整する。
 BOOL	ResizeClientRect( HWND hWnd, int w, int h );
 inline	BOOL	ResizeClientRect( HWND hWnd, SIZE siz ) { return ResizeClientRect(hWnd, siz.cx, siz.cy ); }
 
-// �N���C�A���g�����`���擾
+// クライアント長方形を取得
 inline	RECT	GetClientRect(HWND iWnd) { RECT rc; ::GetClientRect(iWnd, &rc); return rc; }
-// �N���C�A���g�����`���X�N���[�����W�ŕԂ��B
+// クライアント長方形をスクリーン座標で返す。
 RECT	GetClientRectOnScreen( HWND hWnd );
-// ���W�ϊ� for RECT
+// 座標変換 for RECT
 RECT	ClientToScreen(HWND iWnd, RECT iRect);
 RECT	ScreenToClient(HWND iWnd, RECT iRect);
-// �E�B���h�E�ʒu���W���擾
+// ウィンドウ位置座標を取得
 RECT	GetWindowRect( HWND hWnd );
 POINT	GetWindowPoint( HWND hWnd );
-// �E�B���h�E�̑傫�����擾
+// ウィンドウの大きさを取得
 inline SIZE	GetSize(HWND iWnd) { RECT rc=GetWindowRect(iWnd); SIZE siz={Width(rc), Height(rc)}; return siz; }
 
 
 //----------------------------------------------------------
-// ����
+// 時間
 
-// DWORD�l�������b�~���b�ɕ���
+// DWORD値を時分秒ミリ秒に分解
 void	DwordToSystemTime( DWORD dw, SYSTEMTIME* pst );
-// SYSTEMTIME�\���̂�DWORD�l�ɕϊ��i������49���܂Łj
+// SYSTEMTIME構造体をDWORD値に変換（ただし49日まで）
 void	SystemTimeToDword( const SYSTEMTIME*pst, DWORD pdw );
 
-// SYSTEMTIME�\���̓��m���r�B�V�������t���u�傫���v�Ƃ���B
+// SYSTEMTIME構造体同士を比較。新しい日付が「大きい」とする。
 bool operator < ( const SYSTEMTIME& lhs, const SYSTEMTIME& rhs );
 bool operator > ( const SYSTEMTIME& lhs, const SYSTEMTIME& rhs );
 bool operator <= ( const SYSTEMTIME& lhs, const SYSTEMTIME& rhs );
@@ -165,19 +165,19 @@ bool operator == ( const SYSTEMTIME& lhs, const SYSTEMTIME& rhs );
 bool operator != ( const SYSTEMTIME& lhs, const SYSTEMTIME& rhs );
 
 //----------------------------------------------------------
-// ��
+// 報告
 
-// �E�B���h�E���b�Z�[�W��Output�ɕ\��
+// ウィンドウメッセージをOutputに表示
 void	PutWindowMessage( UINT message, WPARAM wParam, LPARAM lParam );
 
-// �ψ����Ή�TextOut
+// 可変引数対応TextOut
 void	TextOutF( HDC hDC, int xPos, int yPos, char* format, ... );
 
-// �ψ����Ή���OutputDebugString
+// 可変引数対応のOutputDebugString
 void	DbgStr( const char* format, ... );
-// �ψ����Ή��̊ȈՕ񍐗p���b�Z�[�W�{�b�N�X
+// 可変引数対応の簡易報告用メッセージボックス
 void	MesBox( const char* format, ... );
-// �ψ����Ή��̊ȈՕ񍐗pSetWindowText
+// 可変引数対応の簡易報告用SetWindowText
 void	SetWinText( HWND hWnd, const char* format, ... );
 
 #endif	// WIN32_H

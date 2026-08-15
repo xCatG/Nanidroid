@@ -1,24 +1,24 @@
 /* -*- c++ -*- */
 #ifndef POSIX
-#  include <windows.h>	// HMODULE,BOOL,HGLOBAL‚Æ‚©
+#  include <windows.h>	// HMODULE,BOOL,HGLOBALã¨ã‹
 #endif
 
 #include "SaoriClient.h"
 
-// ƒvƒ‰ƒOƒCƒ“‚Ì‘‡ŠÇ—
+// ãƒ—ãƒ©ã‚°ã‚¤ãƒ³ã®ç·åˆç®¡ç†
 class	ShioriPlugins {
 
-	struct CallData {	// ŒÄ‚Ño‚µ–¼‚²‚Æ‚Ìî•ñ
+	struct CallData {	// å‘¼ã³å‡ºã—åã”ã¨ã®æƒ…å ±
 		string	mDllPath;
 		strvec	mPreDefinedArguments;
 		bool	mIsBasic;
 	};
-	struct DllData {	// DLL‚²‚Æ‚Ìî•ñ
+	struct DllData {	// DLLã”ã¨ã®æƒ…å ±
 		SaoriClient	mSaoriClient;
 		int	mRefCount;
 	};
-	map<string, CallData>	mCallData;	// ŒÄ‚Ño‚µ–¼GŒÄ‚Ño‚µ–¼‚²‚Æ‚Ìî•ñ
-	map<string, DllData>	mDllData;	// DLL‚Ìƒtƒ‹ƒpƒXGDLL‚²‚Æ‚Ìî•ñ
+	map<string, CallData>	mCallData;	// å‘¼ã³å‡ºã—åï¼›å‘¼ã³å‡ºã—åã”ã¨ã®æƒ…å ±
+	map<string, DllData>	mDllData;	// DLLã®ãƒ•ãƒ«ãƒ‘ã‚¹ï¼›DLLã”ã¨ã®æƒ…å ±
 
 	string	mBaseFolder;
 #ifdef POSIX

@@ -10,35 +10,35 @@
 
 
 
-// �E�B���h�E�̊��N���X�B
-// �E�B���h�E�n���h���A
-// ���ʂ̃E�B���h�E�v���V�[�W���A
-// �C�x���g�i���b�Z�[�W�j�n���h���A
-// ���상�\�b�h�i���API�̃��b�p�j����Ȃ�B
+// ウィンドウの基底クラス。
+// ウィンドウハンドル、
+// 共通のウィンドウプロシージャ、
+// イベント（メッセージ）ハンドラ、
+// 操作メソッド（主にAPIのラッパ）からなる。
 class	Window {
 
 private:
 
 	//-------------------------------------------------------
-	// �E�B���h�E�v���V�[�W��
+	// ウィンドウプロシージャ
 
-	// WNDCLASS::WndProc�ɂ�����w�肵����ŁA
-	// WindowExtraArea�̐擪��
-	// Window�N���X��this�|�C���^���i�[���邱�Ƃɂ��A
-	// �e��̃C�x���g�n���h�����Ăяo�����B
+	// WNDCLASS::WndProcにこれを指定した上で、
+	// WindowExtraAreaの先頭に
+	// Windowクラスのthisポインタを格納することにより、
+	// 各種のイベントハンドラが呼び出される。
 
 	static	LRESULT WINAPI WindowProcedure(HWND, UINT, WPARAM, LPARAM);
 
-	// �u�^�X�N�o�[���Ō�Đ����v�ւ̑Ή��p
+	// 「タスクバー消滅後再生成」への対応用
 	static UINT gTaskbarCreatedMessage;
 
 protected:
-	HWND	mWnd;	// �E�B���h�E�n���h��
+	HWND	mWnd;	// ウィンドウハンドル
 
 	//-------------------------------------------------------
-	// �C�x���g�n���h���B�p�����ăI�[�o�[���[�h���Ďg���B
+	// イベントハンドラ。継承してオーバーロードして使う。
 	//
-	// false��Ԃ����ꍇ�A�������b�Z�[�W��DefWindowProc�ɑ���B
+	// falseを返した場合、同じメッセージをDefWindowProcに送る。
 
 	virtual	bool	OnCreate(LPCREATESTRUCT iCreateStruct);
 	virtual	bool	OnClose();
@@ -86,7 +86,7 @@ protected:
 	virtual	bool OnDrawClipboard();
 	virtual	bool OnChangeCBChain(HWND hWndRemove, HWND hWndNext);
 
-	// WM_USER�`0x7FFF�̏ꍇ�͂�����ĂԁB�����͒��n���B
+	// WM_USER～0x7FFFの場合はこれを呼ぶ。引数は直渡し。
 	virtual	LRESULT	OnUser(UINT message, WPARAM wParam, LPARAM lParam);
 
 public:
@@ -166,7 +166,7 @@ public:
 	}
 
 	//-------------------------------------------------------
-	// ���상�\�b�h�i���API�̃��b�p�j
+	// 操作メソッド（主にAPIのラッパ）
 
 	operator HWND() { return mWnd; }
 	HINSTANCE	Instance() { ::GetWindowLong(mWnd, GWL_HINSTANCE); }

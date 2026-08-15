@@ -1,7 +1,7 @@
 #include "../_/stltool.h"
 #include "SSTPClient.h"
 
-// ƒCƒxƒ“ƒg‚ğ‘—‚é“z‚Æ‚©
+// ã‚¤ãƒ™ãƒ³ãƒˆã‚’é€ã‚‹å¥´ã¨ã‹
 // http://futaba.sakura.st/sstp.html#notify11
 
 
@@ -27,7 +27,7 @@ bool direct_sstp(
 		CRLF;
 
 	COPYDATASTRUCT cds;
-	cds.dwData = 9801; // ‚Å‚¢‚¢‚Ì‚©‚È
+	cds.dwData = 9801; // ã§ã„ã„ã®ã‹ãª
 	cds.cbData = request.size();
 	cds.lpData = (LPVOID)request.c_str();
 

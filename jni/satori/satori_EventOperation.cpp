@@ -24,41 +24,41 @@ inline bool	is_empty_script(const string& script) {
 
 int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 {
-	// ƒg[ƒNæ“ª‚Éu¨v‚ª‚ ‚é‚Æİ’è‚³‚ê‚éB–³‚¯‚ê‚Î""‚Ì‚Ü‚ÜB
+	// ãƒˆãƒ¼ã‚¯å…ˆé ­ã«ã€Œâ†’ã€ãŒã‚ã‚‹ã¨è¨­å®šã•ã‚Œã‚‹ã€‚ç„¡ã‘ã‚Œã°""ã®ã¾ã¾ã€‚
 	mCommunicateFor="";
-	// ƒXƒNƒŠƒvƒg•¶š—ñ
+	// ã‚¹ã‚¯ãƒªãƒ—ãƒˆæ–‡å­—åˆ—
 	string	script="";
 
-	// ƒVƒXƒeƒ€‚ª—~‚µ‚¢î•ñ‚ğE‚Á‚Ä‚¨‚­
+	// ã‚·ã‚¹ãƒ†ãƒ ãŒæ¬²ã—ã„æƒ…å ±ã‚’æ‹¾ã£ã¦ãŠã
 	if ( iEvent=="OnSecondChange" || iEvent=="OnMinuteChange" ) {
 
 #ifndef POSIX
 		if ( characters_hwnd[0]==NULL && updateGhostsInfo() && !ghosts_info.empty() ) {
-			sender << "¡FMO‚©‚çhwnd‚ğæ“¾‚µ‚Ü‚µ‚½B" << endl;
+			sender << "\x81\xA1" "FMO\x82\xA9\x82\xE7hwnd\x82\xF0\x8E\xE6\x93\xBE\x82\xB5\x82\xDC\x82\xB5\x82\xBD\x81\x42" << endl;
 			characters_hwnd[0] = (HWND)(stoi( (ghosts_info[0])["hwnd"] )); 
 		}
 
 		//if ( !is_single_monitor && characters_hwnd[0]!=NULL ) {
 		if ( is_single_monitor ) {
-			//sender << "¡ƒVƒ“ƒOƒ‹ƒ‚ƒjƒ^‚Å‚·BŒ©Ø‚ê‚Ì“Æ©”»’è‚ğs‚¢‚Ü‚¹‚ñB" << endl;
+			//sender << "â– ã‚·ãƒ³ã‚°ãƒ«ãƒ¢ãƒ‹ã‚¿ã§ã™ã€‚è¦‹åˆ‡ã‚Œã®ç‹¬è‡ªåˆ¤å®šã‚’è¡Œã„ã¾ã›ã‚“ã€‚" << endl;
 		}
 		else if ( characters_hwnd[0]==NULL ) {
-			//sender << "¡ƒ}ƒ‹ƒ`ƒ‚ƒjƒ^‚Å‚·‚ªAhwnd‚ªæ“¾‚Å‚«‚Ä‚¢‚È‚¢‚½‚ßAŒ©Ø‚ê‚Ì“Æ©”»’è‚ğs‚¢‚Ü‚¹‚ñB" << endl;
+			//sender << "â– ãƒãƒ«ãƒãƒ¢ãƒ‹ã‚¿ã§ã™ãŒã€hwndãŒå–å¾—ã§ãã¦ã„ãªã„ãŸã‚ã€è¦‹åˆ‡ã‚Œã®ç‹¬è‡ªåˆ¤å®šã‚’è¡Œã„ã¾ã›ã‚“ã€‚" << endl;
 
 		}
 		else {
-		//	sender << "¡Œ©Ø‚ê”»’èˆ—" << endl;
+		//	sender << "â– è¦‹åˆ‡ã‚Œåˆ¤å®šå‡¦ç†" << endl;
 			RECT	rc;
 			::GetWindowRect(characters_hwnd[0], &rc);
 			int	center = (rc.left + rc.right)/2;
 			mRequestMap["Reference1"] = mReferences[1] =
 				( center >= max_screen_rect.left && center <= max_screen_rect.right ) ? "0" : "1";
-			/*sender << "ƒVƒFƒ‹‚Ì¶’[: " << rc.left << endl;
-			sender << "ƒVƒFƒ‹‚Ì‰E’[: " << rc.right << endl;
-			sender << "ƒVƒFƒ‹‚Ì’†‰›: " << center << endl;
-			sender << "ƒfƒXƒNƒgƒbƒv‚Ì¶’[: " << max_screen_rect.left << endl;
-			sender << "ƒfƒXƒNƒgƒbƒv‚Ì‰E’[: " << max_screen_rect.right << endl;
-			sender << "¡Œ©Ø‚ê”»’èŒ‹‰Ê: " << mReferences[1] << endl;*/
+			/*sender << "ã‚·ã‚§ãƒ«ã®å·¦ç«¯: " << rc.left << endl;
+			sender << "ã‚·ã‚§ãƒ«ã®å³ç«¯: " << rc.right << endl;
+			sender << "ã‚·ã‚§ãƒ«ã®ä¸­å¤®: " << center << endl;
+			sender << "ãƒ‡ã‚¹ã‚¯ãƒˆãƒƒãƒ—ã®å·¦ç«¯: " << max_screen_rect.left << endl;
+			sender << "ãƒ‡ã‚¹ã‚¯ãƒˆãƒƒãƒ—ã®å³ç«¯: " << max_screen_rect.right << endl;
+			sender << "â– è¦‹åˆ‡ã‚Œåˆ¤å®šçµæœ: " << mReferences[1] << endl;*/
 		}
 #endif
 
@@ -89,28 +89,28 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 	if ( !script.empty() ) {
 	}
 	else if ( iEvent=="OnAnchorSelect" && anchors.find(mReferences[0])!=anchors.end() ) {
-		// OnAnchorSelect‚ª‚«‚½‚Æ‚«Aref0‚ªdicAnchor‚Ì•¶–¼‚Ìê‡‚Í
-		// ƒCƒxƒ“ƒg‚ª’è‹`‚³‚ê‚Ä‚¢‚éê‡‚Å‚àƒVƒXƒeƒ€‘¤‚ğ—Dæ‚·‚éB
+		// OnAnchorSelectãŒããŸã¨ãã€ref0ãŒdicAnchorã®æ–‡åã®å ´åˆã¯
+		// ã‚¤ãƒ™ãƒ³ãƒˆãŒå®šç¾©ã•ã‚Œã¦ã„ã‚‹å ´åˆã§ã‚‚ã‚·ã‚¹ãƒ†ãƒ å´ã‚’å„ªå…ˆã™ã‚‹ã€‚
 		script=GetSentence(mReferences[0]);
 	}
-	else if ( FindEventTalk(iEvent) ) {	// ‚±‚ÌÛAŒİŠ·ƒCƒxƒ“ƒg‚Ö‚Ì’uŠ·‚à“¯‚És‚í‚ê‚é
-		// ’è‹`‚³‚ê‚Ä‚¢‚é‚È‚ç‚»‚ê‚ğ—Dæ‚·‚éB
+	else if ( FindEventTalk(iEvent) ) {	// ã“ã®éš›ã€äº’æ›ã‚¤ãƒ™ãƒ³ãƒˆã¸ã®ç½®æ›ã‚‚åŒæ™‚ã«è¡Œã‚ã‚Œã‚‹
+		// å®šç¾©ã•ã‚Œã¦ã„ã‚‹ãªã‚‰ãã‚Œã‚’å„ªå…ˆã™ã‚‹ã€‚
 		script=GetSentence(iEvent);
 
-		// ‚±‚ê‚æ‚èˆÈ‰º‚ÍAƒCƒxƒ“ƒg‚ª’è‹`‚³‚ê‚Ä‚¢‚È‚¢ê‡‚ÌƒfƒtƒHƒ‹ƒgˆ—‚Å‚ ‚éB
+		// ã“ã‚Œã‚ˆã‚Šä»¥ä¸‹ã¯ã€ã‚¤ãƒ™ãƒ³ãƒˆãŒå®šç¾©ã•ã‚Œã¦ã„ãªã„å ´åˆã®ãƒ‡ãƒ•ã‚©ãƒ«ãƒˆå‡¦ç†ã§ã‚ã‚‹ã€‚
 	}
 	else if ( iEvent=="OnMouseDoubleClick" )
 	{
 		static strvec v;
 		if ( v.empty() )
 		{
-			v.push_back("„i‚q‚Rji‚q‚Sj‚Â‚Â‚©‚ê");
-			v.push_back("ij");
+			v.push_back("\x81\x84\x81\x69\x82\x71\x82\x52\x81\x6A\x81\x69\x82\x71\x82\x53\x81\x6A\x82\xC2\x82\xC2\x82\xA9\x82\xEA");
+			v.push_back("\x81\x69\x81\x6A");
 		}
 		script = SentenceToSakuraScript(v);
 	}
 	else if ( iEvent=="OnMouseMove" ) {
-		nade_valid_time = nade_valid_time_initializer; // ‚È‚ÅƒZƒbƒVƒ‡ƒ“‚Ì—LŒøŠúŒÀ‚ğXV
+		nade_valid_time = nade_valid_time_initializer; // ãªã§ã‚»ãƒƒã‚·ãƒ§ãƒ³ã®æœ‰åŠ¹æœŸé™ã‚’æ›´æ–°
 		int&	cur_nede_count = nade_count[ mReferences[4] ];
 		if ( ++cur_nede_count >= nade_sensitivity ) {
 #ifdef POSIX
@@ -128,7 +128,7 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 #endif
 			
 			if ( ret == 0 ) {
-				string	str = mReferences[3]+mReferences[4]+"‚È‚Å‚ç‚ê";
+				string	str = mReferences[3]+mReferences[4]+"\x82\xC8\x82\xC5\x82\xE7\x82\xEA";
 				if ( talks.is_exist(str) )
 					script=GetSentence(str);
 				sender << "Talk: " << script << endl;
@@ -142,17 +142,17 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 	else if ( iEvent=="OnWindowStateRestore"
 		|| iEvent=="OnShellChanged"
 		|| iEvent=="OnSurfaceRestore"
-		|| iEvent=="‹N“®" ) {	// u‹N“®v‚ÍuOnBootvuOnGhostChangedv‚©‚çƒŠƒ_ƒCƒŒƒNƒg‚³‚ê‚é
+		|| iEvent=="\x8B\x4E\x93\xAE" ) {	// ã€Œèµ·å‹•ã€ã¯ã€ŒOnBootã€ã€ŒOnGhostChangedã€ã‹ã‚‰ãƒªãƒ€ã‚¤ãƒ¬ã‚¯ãƒˆã•ã‚Œã‚‹
 		script=surface_restore_string();
 	}
-	else if ( iEvent=="I—¹" ) {
+	else if ( iEvent=="\x8F\x49\x97\xB9" ) {
 		script = "\\-";
 	}
 	else if ( iEvent=="OnMouseWheel" ) {
 		koro_valid_time = 3;
 		koro_count[ mReferences[4] ] += 1;
 		if ( koro_count[ mReferences[4] ] >= 2 ) {
-			string	str = mReferences[3]+mReferences[4]+"‚±‚ë‚±‚ë";
+			string	str = mReferences[3]+mReferences[4]+"\x82\xB1\x82\xEB\x82\xB1\x82\xEB";
 			if ( talks.is_exist(str) ) {
 				script=GetSentence(str);
 				koro_count.clear();
@@ -170,33 +170,33 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 		else
 			script="";
 	}
-	else if ( iEvent=="OnCommunicate" ) {	// ˜b‚µŠ|‚¯‚ç‚ê‚½
+	else if ( iEvent=="OnCommunicate" ) {	// è©±ã—æ›ã‘ã‚‰ã‚ŒãŸ
 
-		// Sender	iif,i‚q‚Oj==User,ƒ†[ƒU,i‚q‚Ojj
+		// ï¼„Sender	ï¼ˆif,ï¼ˆï¼²ï¼ï¼‰==User,ãƒ¦ãƒ¼ã‚¶,ï¼ˆï¼²ï¼ï¼‰ï¼‰
 		if ( mReferences[0]=="user" )
-			mReferences[0]="ƒ†[ƒU";
+			mReferences[0]="\x83\x86\x81\x5B\x83\x55";
 
-		// ƒXƒNƒŠƒvƒg‚É˜bÒ–¼‚ğ•t‰Á
-		if ( !TalkSearch(mReferences[0]+"u"+mReferences[1]+"v", script, false) )
-			script=GetSentence("COMMUNICATEŠY“–‚È‚µ");
+		// ã‚¹ã‚¯ãƒªãƒ—ãƒˆã«è©±è€…åã‚’ä»˜åŠ 
+		if ( !TalkSearch(mReferences[0]+"\x81\x75"+mReferences[1]+"\x81\x76", script, false) )
+			script=GetSentence("COMMUNICATE\x8A\x59\x93\x96\x82\xC8\x82\xB5");
 
-		if ( mCommunicateFor==""  ) {	// è“®‘Å‚¿Ø‚è
-			sender << "—¢XCOMMUNICATEA«‘‚É‘±sw¦‚ª–³‚¢‚±‚Æ‚É‚æ‚é‘Å‚¿Ø‚è" << endl;
+		if ( mCommunicateFor==""  ) {	// æ‰‹å‹•æ‰“ã¡åˆ‡ã‚Š
+			sender << "\x97\xA2\x81\x58" "COMMUNICATE\x81\x41\x8E\xAB\x8F\x91\x82\xC9\x91\xB1\x8D\x73\x8E\x77\x8E\xA6\x82\xAA\x96\xB3\x82\xA2\x82\xB1\x82\xC6\x82\xC9\x82\xE6\x82\xE9\x91\xC5\x82\xBF\x90\xD8\x82\xE8" << endl;
 			mCommunicateLog.clear();
 		}
 		else if ( mCommunicateLog.find(script) != mCommunicateLog.end() ) {
-			sender << "—¢XCOMMUNICATEA©•ª‘¤ƒ‹[ƒv‚É‚æ‚è‘Å‚¿Ø‚è" << endl;
-			script="";	// ‰½‚àŒ¾‚í‚È‚¢
+			sender << "\x97\xA2\x81\x58" "COMMUNICATE\x81\x41\x8E\xA9\x95\xAA\x91\xA4\x83\x8B\x81\x5B\x83\x76\x82\xC9\x82\xE6\x82\xE8\x91\xC5\x82\xBF\x90\xD8\x82\xE8" << endl;
+			script="";	// ä½•ã‚‚è¨€ã‚ãªã„
 			mCommunicateLog.clear();
 			mCommunicateFor = "";
 		}
 		else  if ( mCommunicateLog.find(mReferences[1]) != mCommunicateLog.end() ) {
-			sender << "—¢XCOMMUNICATEA‘Šè‘¤ƒ‹[ƒv‚É‚æ‚è‘Å‚¿Ø‚è" << endl;
+			sender << "\x97\xA2\x81\x58" "COMMUNICATE\x81\x41\x91\x8A\x8E\xE8\x91\xA4\x83\x8B\x81\x5B\x83\x76\x82\xC9\x82\xE6\x82\xE8\x91\xC5\x82\xBF\x90\xD8\x82\xE8" << endl;
 			mCommunicateLog.clear();
 			mCommunicateFor = "";
 		} 
-		else {	// ‘±s
-			sender << "—¢XCOMMUNICATEA‘±s" << endl;
+		else {	// ç¶šè¡Œ
+			sender << "\x97\xA2\x81\x58" "COMMUNICATE\x81\x41\x91\xB1\x8D\x73" << endl;
 			mCommunicateLog.insert(mReferences[1]);
 			mCommunicateLog.insert(script);
 		}
@@ -204,11 +204,11 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 
 	if ( iEvent=="OnSecondChange" ) {
 
-		// ‘¶İ‚·‚éƒ^ƒCƒ}‚ÌƒfƒBƒNƒŠƒƒ“ƒg
+		// å­˜åœ¨ã™ã‚‹ã‚¿ã‚¤ãƒã®ãƒ‡ã‚£ã‚¯ãƒªãƒ¡ãƒ³ãƒˆ
 		for (strintmap::iterator i=timer.begin();i!=timer.end();++i)
-			variables[i->first + "ƒ^ƒCƒ}"] = int2zen( --(i->second) );
+			variables[i->first + "\x83\x5E\x83\x43\x83\x7D"] = int2zen( --(i->second) );
 
-		// ©“®ƒZ[ƒu
+		// è‡ªå‹•ã‚»ãƒ¼ãƒ–
 		if ( mAutoSaveInterval > 0 ) {
 			if ( --mAutoSaveCurrentCount <= 0 ) {
 				this->Save(false);
@@ -220,11 +220,11 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 	diet_script(script);
 	if ( is_empty_script(script) && can_talk_flag && iEvent=="OnSecondChange" ) {
 
-		// ƒ^ƒCƒ}—\–ñ”­˜b
+		// ã‚¿ã‚¤ãƒäºˆç´„ç™ºè©±
 		for (strintmap::iterator i=timer.begin();i!=timer.end();++i) {
 			if ( i->second < 1 ) {
-				string	var_name = i->first + "ƒ^ƒCƒ}";
-				sender << var_name << "‚ª”­“®B" << endl;
+				string	var_name = i->first + "\x83\x5E\x83\x43\x83\x7D";
+				sender << var_name << "\x82\xAA\x94\xAD\x93\xAE\x81\x42" << endl;
 				script=GetSentence(i->first);
 				timer.erase(i);
 				variables.erase(var_name);
@@ -234,7 +234,7 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 			}
 		}
 
-		// ©“®”­˜b
+		// è‡ªå‹•ç™ºè©±
 		if ( is_empty_script(script) && !mikire_flag ) {
 			if ( nade_valid_time>0 )
 				if ( --nade_valid_time == 0 )
@@ -252,37 +252,37 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 	}
 
 	if ( is_empty_script(script) )
-		return	204;	// ’‚ç‚È‚¢
+		return	204;	// å–‹ã‚‰ãªã„
 
-	// script‚Ö‚Ì•t—^ˆ—
+	// scriptã¸ã®ä»˜ä¸å‡¦ç†
 	if ( is_speaked_anybody() ) {
 		script = surface_restore_string() + append_at_talk_start + script + append_at_talk_end;
 
-		// ’‚èƒJƒEƒ“ƒg‰Šú‰»
+		// å–‹ã‚Šã‚«ã‚¦ãƒ³ãƒˆåˆæœŸåŒ–
 		int	dist = int(talk_interval*(talk_interval_random/100.0));
 		talk_interval_count = ( dist==0 ) ? talk_interval : 
 			(talk_interval-dist)+(random()%(dist*2));
 	}
-	script += ( iEvent=="OnClose" || iEvent=="I—¹" ) ? "\\-" : "\\e";
+	script += ( iEvent=="OnClose" || iEvent=="\x8F\x49\x97\xB9" ) ? "\\-" : "\\e";
 
 
-	if ( !mCommunicateFor.empty() ) { // ˜b‚µ‚©‚¯‚Ì—L–³
-		sender << "—¢XCOMMUNICATEAu" << mCommunicateFor << "v‚Ö˜b‚µŠ|‚¯" << endl;
+	if ( !mCommunicateFor.empty() ) { // è©±ã—ã‹ã‘ã®æœ‰ç„¡
+		sender << "\x97\xA2\x81\x58" "COMMUNICATE\x81\x41\x81\x75" << mCommunicateFor << "\x81\x76\x82\xD6\x98\x62\x82\xB5\x8A\x7C\x82\xAF" << endl;
 		oResponse["Reference0"] = mCommunicateFor;
 		oResponse["To"] = mCommunicateFor;
 		if ( iEvent!="OnCommunicate" )
 		{
-			mCommunicateLog.clear(); // ‰‰ñ‚Ì‚İB‘±s‚É‚Í‚±‚±‚ÅƒNƒŠƒA‚Í‚µ‚È‚¢B
+			mCommunicateLog.clear(); // åˆå›ã®ã¿ã€‚ç¶šè¡Œæ™‚ã«ã¯ã“ã“ã§ã‚¯ãƒªã‚¢ã¯ã—ãªã„ã€‚
 		}
 		//mCommunicateLog.insert(script);
 	}
 	oResponse["Value"]=script;
 
-	// ‚Pƒg[ƒN’†‚Å‚Ì‚İ—LŒø‚Èd•¡‰ñ”ğ‚ğƒNƒŠƒA
+	// ï¼‘ãƒˆãƒ¼ã‚¯ä¸­ã§ã®ã¿æœ‰åŠ¹ãªé‡è¤‡å›é¿ã‚’ã‚¯ãƒªã‚¢
 	words.handle_talk_end();
 	talks.handle_talk_end();
 
-	// ƒoƒ‹[ƒ“ˆÊ’u‚ª—LŒø‚È‚çİ’è
+	// ãƒãƒ«ãƒ¼ãƒ³ä½ç½®ãŒæœ‰åŠ¹ãªã‚‰è¨­å®š
 	if ( validBalloonOffset[0] && validBalloonOffset[1] )
 		oResponse["BalloonOffset"]=string()+BalloonOffset[0]+byte1_dlmt+BalloonOffset[1];
 
@@ -297,7 +297,7 @@ int	Satori::EventOperation(string iEvent, map<string,string> &oResponse)
 
 
 
-// CommunicateŒ`®ŒŸõBŠY“–‚ ‚è‚È‚ç‚»‚ÌƒXƒNƒŠƒvƒg‚ğæ“¾AŠY“–‚È‚µ‚È‚çfalseB
+// Communicateå½¢å¼æ¤œç´¢ã€‚è©²å½“ã‚ã‚Šãªã‚‰ãã®ã‚¹ã‚¯ãƒªãƒ—ãƒˆã‚’å–å¾—ã€è©²å½“ãªã—ãªã‚‰falseã€‚
 bool	Satori::TalkSearch(const string& iSentence, string& oScript, bool iAndMode)
 {
 	const Talk* talk = talks.communicate_search(iSentence, iAndMode);

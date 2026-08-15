@@ -18,9 +18,9 @@ void	Satori::InitMembers() {
 
 	mDelimiters.clear();
 	mDelimiters.insert(",");
-	mDelimiters.insert("A");
-	mDelimiters.insert("¤");
-	mDelimiters.insert("C");
+	mDelimiters.insert("\x81\x41");
+	mDelimiters.insert("\xA4");
+	mDelimiters.insert("\x81\x43");
 	mDelimiters.insert(byte1_dlmt);
 
 	talks.clear();
@@ -67,8 +67,8 @@ void	Satori::InitMembers() {
 	validBalloonOffset.clear();
 
 #ifdef POSIX
-	// GetTickCount()‚ÍWindows‹N“®Œã‚ÌŒo‰ßƒ~ƒŠ•bc‚ç‚µ‚¢B
-	// ‚»‚ê‚ğæ“¾‚·‚é‚±‚Æ‚Ío—ˆ‚È‚¢‚Ì‚ÅAƒGƒ|ƒbƒNƒ~ƒŠ•b‚Å‘ã—pI
+	// GetTickCount()ã¯Windowsèµ·å‹•å¾Œã®çµŒéãƒŸãƒªç§’â€¦ã‚‰ã—ã„ã€‚
+	// ãã‚Œã‚’å–å¾—ã™ã‚‹ã“ã¨ã¯å‡ºæ¥ãªã„ã®ã§ã€ã‚¨ãƒãƒƒã‚¯ãƒŸãƒªç§’ã§ä»£ç”¨ï¼
 	tick_count_at_load = posix_get_current_millis();
 #else
 	tick_count_at_load = ::GetTickCount();
@@ -95,7 +95,7 @@ void	Satori::InitMembers() {
 	on_loaded_script = "";
 	on_unloading_script = "";
 
-	//@ mShioriPlugins.clear(); // “ÁêB
+	//@ mShioriPlugins.clear(); // ç‰¹æ®Šã€‚
 
 	secure_flag = false;
 

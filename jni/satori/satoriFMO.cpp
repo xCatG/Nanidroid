@@ -29,7 +29,7 @@ bool readSakuraFMO(map<string, strmap>& oSakuraFMOMap)
 	strvec	lines;
 	split(v.begin()+4, ret_dlmt, lines);
 	for( strvec::iterator i=lines.begin() ; i!=lines.end() ; ++i ) {
-		//sender << "¡" << *i << endl;
+		//sender << "â– " << *i << endl;
 		strvec	MD5andDATA;
 		if ( split(*i, ".", MD5andDATA, 2) != 2 )
 			continue;
@@ -46,7 +46,7 @@ bool readSakuraFMO(map<string, strmap>& oSakuraFMOMap)
 		strmap&	m = i->second;
 		sender << i->first << endl;
 		for( strmap::iterator j=m.begin() ; j!=m.end() ; ++j ) {
-			sender << "@" << j->first << ":" << j->second << endl;
+			sender << "\x81\x40" << j->first << ":" << j->second << endl;
 		}
 	}/**/
 	
@@ -67,7 +67,7 @@ bool	Satori::updateGhostsInfo() {
 	ghosts_info.push_back( strmap() );
 	for( map<string, strmap>::iterator i=theSakuraFMO.begin() ; i!=theSakuraFMO.end() ; ++i ) {
 		strmap&	m = i->second;
-		bool	isSelfData = false;// ©•ª©g‚Ìƒf[ƒ^‚©H
+		bool	isSelfData = false;// è‡ªåˆ†è‡ªèº«ã®ãƒ‡ãƒ¼ã‚¿ã‹ï¼Ÿ
 
 		if ( m.find("ghostpath") != m.end() ) {
 			if ( stricmp((m["ghostpath"]+"ghost\\master\\").c_str(), mBaseFolder.c_str())==0 )
@@ -81,7 +81,7 @@ bool	Satori::updateGhostsInfo() {
 		if ( isSelfData )
 			ghosts_info[0]=m;	
 		else
-			ghosts_info.push_back(m);	// ‘¼‚Í‡Ÿ––”ö‚É
+			ghosts_info.push_back(m);	// ä»–ã¯é †æ¬¡æœ«å°¾ã«
 	}
 
 	return	true;

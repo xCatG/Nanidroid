@@ -1,7 +1,7 @@
 #include "SakuraClient.h"
 
 
-// ƒŠƒNƒGƒXƒg‚ð‘—‚èAƒŒƒXƒ|ƒ“ƒX‚ðŽó‚¯Žæ‚éB–ß‚è’l‚ÍƒŠƒ^[ƒ“ƒR[ƒhB
+// ãƒªã‚¯ã‚¨ã‚¹ãƒˆã‚’é€ã‚Šã€ãƒ¬ã‚¹ãƒãƒ³ã‚¹ã‚’å—ã‘å–ã‚‹ã€‚æˆ»ã‚Šå€¤ã¯ãƒªã‚¿ãƒ¼ãƒ³ã‚³ãƒ¼ãƒ‰ã€‚
 int SakuraClient::request(
 	const string& i_protocol,
 	const string& i_protocol_version,
@@ -13,7 +13,7 @@ int SakuraClient::request(
 	strpairvec& o_data)
 {
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	// ƒŠƒNƒGƒXƒg•¶Žš—ñ‚ðì¬
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆæ–‡å­—åˆ—ã‚’ä½œæˆ
 
 	string	request = i_command + " " + i_protocol + "/" + i_protocol_version + CRLF;
 	for ( strpairvec::const_iterator it = i_data.begin() ; it != i_data.end() ; ++it )
@@ -24,21 +24,21 @@ int SakuraClient::request(
 
 
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	// ƒŠƒNƒGƒXƒgŽÀs
+	// ãƒªã‚¯ã‚¨ã‚¹ãƒˆå®Ÿè¡Œ
 
 	string response = this->request(request);
 
 
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-	// ‚¨•ÔŽ–‚ð‰ðÍ
+	// ãŠè¿”äº‹ã‚’è§£æž
 
-	// ˆês–Ú‚ðØ‚èo‚µ
+	// ä¸€è¡Œç›®ã‚’åˆ‡ã‚Šå‡ºã—
 	o_protocol = cut_token(response, "/");
 	o_protocol_version = cut_token(response, " ");
 	int return_code = atoi( cut_token(response, " ").c_str() );
 	string return_string = cut_token(response, CRLF);
 
-	// ˆÈ~‚Ìƒf[ƒ^s‚ðØ‚èo‚µ
+	// ä»¥é™ã®ãƒ‡ãƒ¼ã‚¿è¡Œã‚’åˆ‡ã‚Šå‡ºã—
 	while ( response.size() > 0 )
 	{
 		string value = cut_token(response, CRLF);

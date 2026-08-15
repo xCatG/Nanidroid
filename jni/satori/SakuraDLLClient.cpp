@@ -27,7 +27,7 @@ string	SakuraDLLClient::request(const string& iRequestString)
 {
 	if ( mRequest==NULL )
 	{
-		PluginError("SakuraDLLClient::request: ƒ[ƒh‚µ‚Ä‚¢‚È‚¢ƒ‰ƒCƒuƒ‰ƒŠ‚Érequest‚µ‚æ‚¤‚Æ‚µ‚Ü‚µ‚½B");
+		PluginError("SakuraDLLClient::request: \x83\x8D\x81\x5B\x83\x68\x82\xB5\x82\xC4\x82\xA2\x82\xC8\x82\xA2\x83\x89\x83\x43\x83\x75\x83\x89\x83\x8A\x82\xC9request\x82\xB5\x82\xE6\x82\xA4\x82\xC6\x82\xB5\x82\xDC\x82\xB5\x82\xBD\x81\x42");
 		return	"";
 	}
 
@@ -50,7 +50,7 @@ string	SakuraDLLClient::request(const string& iRequestString)
 #endif
 }
 
-// ƒo[ƒWƒ‡ƒ“æ“¾BGET Version‚µ‚Ä"SAORI/1.0" ‚İ‚½‚¢‚Ì‚ğ•Ô‚·B
+// ãƒãƒ¼ã‚¸ãƒ§ãƒ³å–å¾—ã€‚GET Versionã—ã¦"SAORI/1.0" ã¿ãŸã„ã®ã‚’è¿”ã™ã€‚
 string SakuraDLLClient::get_version(const string& i_security_level)
 {
 	strpairvec data;
@@ -72,7 +72,7 @@ string SakuraDLLClient::get_version(const string& i_security_level)
 	return r_protocol + "/" + r_protocol_version;
 }
 
-// ƒŠƒNƒGƒXƒg‚ğ‘—‚èAƒŒƒXƒ|ƒ“ƒX‚ğó‚¯æ‚éB–ß‚è’l‚ÍƒŠƒ^[ƒ“ƒR[ƒhB
+// ãƒªã‚¯ã‚¨ã‚¹ãƒˆã‚’é€ã‚Šã€ãƒ¬ã‚¹ãƒãƒ³ã‚¹ã‚’å—ã‘å–ã‚‹ã€‚æˆ»ã‚Šå€¤ã¯ãƒªã‚¿ãƒ¼ãƒ³ã‚³ãƒ¼ãƒ‰ã€‚
 int SakuraDLLClient::request(
 	const string& i_command,
 	const strpairvec& i_data,
@@ -139,7 +139,7 @@ bool	SakuraDLLClient::load(
 	mModule = ::LoadLibrary(dll_fullpath.c_str());
 	if ( mModule==NULL ) {
 		sender << "failed." << endl;
-		PluginError(dll_fullpath + ": LoadLibrary‚Å¸”sB");
+		PluginError(dll_fullpath + ": LoadLibrary\x82\xC5\x8E\xB8\x94\x73\x81\x42");
 		return	false;
 	}
 #endif
@@ -157,7 +157,7 @@ bool	SakuraDLLClient::load(
 	{
 		sender << "failed." << endl;
 		unload();
-		PluginError(dll_fullpath + ": request‚ªƒGƒNƒXƒ|[ƒg‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB");
+		PluginError(dll_fullpath + ": request\x82\xAA\x83\x47\x83\x4E\x83\x58\x83\x7C\x81\x5B\x83\x67\x82\xB3\x82\xEA\x82\xC4\x82\xA2\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 		return	false;
 	}
 	if ( mLoad!=NULL )
@@ -173,7 +173,7 @@ bool	SakuraDLLClient::load(
 		{
 			sender << "failed." << endl;
 			unload();
-			PluginError(dll_fullpath + ": load()‚ªFALSE‚ğ•Ô‚µ‚Ü‚µ‚½B");
+			PluginError(dll_fullpath + ": load()\x82\xAA" "FALSE\x82\xF0\x95\xD4\x82\xB5\x82\xDC\x82\xB5\x82\xBD\x81\x42");
 			return	false;
 		}
 	}

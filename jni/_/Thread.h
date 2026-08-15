@@ -6,33 +6,33 @@
 
 class	Thread {
 private:
-	HANDLE	mThread;	// ƒXƒŒƒbƒhƒnƒ“ƒhƒ‹
-	DWORD	mID;		// ƒXƒŒƒbƒh‚ÌID
+	HANDLE	mThread;	// ã‚¹ãƒ¬ãƒƒãƒ‰ãƒãƒ³ãƒ‰ãƒ«
+	DWORD	mID;		// ã‚¹ãƒ¬ãƒƒãƒ‰ã®ID
 	
-	// ƒXƒŒƒbƒh‚ÌƒƒCƒ“ŠÖ”iƒˆ‰¼‘zj
+	// ã‚¹ãƒ¬ãƒƒãƒ‰ã®ãƒ¡ã‚¤ãƒ³é–¢æ•°ï¼ˆç´”ç²‹ä»®æƒ³ï¼‰
 	virtual	DWORD	ThreadMain()=0;
-	// ‰¼ƒXƒŒƒbƒhŠÖ”i_this->ThreadMain‚ğŒÄ‚Ño‚·‚¾‚¯j
+	// ä»®ã‚¹ãƒ¬ãƒƒãƒ‰é–¢æ•°ï¼ˆ_this->ThreadMainã‚’å‘¼ã³å‡ºã™ã ã‘ï¼‰
 	static	DWORD WINAPI ThreadProc(LPVOID iThis) { return reinterpret_cast<Thread*>(iThis)->ThreadMain(); }
 
 protected:
-	LPVOID	mParam;	// ƒXƒŒƒbƒh‹N“®‚Ìˆø”
+	LPVOID	mParam;	// ã‚¹ãƒ¬ãƒƒãƒ‰èµ·å‹•æ™‚ã®å¼•æ•°
 
 public:
 	Thread() : mThread(NULL), mID(0), mParam(NULL) {}
 	virtual	~Thread() {}
 
-	// ì¬
+	// ä½œæˆ
 	virtual	bool	create(void* iParam=NULL, bool iSuspendedCreate=false);
-	// ƒnƒ“ƒhƒ‹‚ğ•Â‚¶‚é
+	// ãƒãƒ³ãƒ‰ãƒ«ã‚’é–‰ã˜ã‚‹
 	virtual	void	close();
 
-	// —Dæ“xİ’è
+	// å„ªå…ˆåº¦è¨­å®š
 	virtual	BOOL	setPriority(int nPriority) { return ::SetThreadPriority(mThread, nPriority); }
-	// ‹­§’†’f
+	// å¼·åˆ¶ä¸­æ–­
 	virtual	BOOL	terminate(DWORD dwExitCode=-1) { return ::TerminateThread(mThread, dwExitCode); }
-	// I—¹‘Ò‚¿
+	// çµ‚äº†å¾…ã¡
 	virtual	DWORD	waitEnd(DWORD dwTimeOut=INFINITE) { return ::WaitForSingleObject(mThread, dwTimeOut); };
-	// I—¹‚ğŠm”F
+	// çµ‚äº†ã‚’ç¢ºèª
 	virtual	DWORD	isEnd() { return ( ::WaitForSingleObject(mThread, 0 ) == WAIT_OBJECT_0 );}
 };
 

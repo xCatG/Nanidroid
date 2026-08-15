@@ -1,5 +1,5 @@
 /*
-  POSIXŠÂ‹«‚Å•K—v‚É‚È‚éƒ}ƒNƒ‚âƒCƒ“ƒ‰ƒCƒ“ŠÖ”—ŞB
+  POSIXç’°å¢ƒã§å¿…è¦ã«ãªã‚‹ãƒã‚¯ãƒ­ã‚„ã‚¤ãƒ³ãƒ©ã‚¤ãƒ³é–¢æ•°é¡ã€‚
 */
 #if !defined(_POSIX_UTILS_H_INCLUDED_) && defined(POSIX)
 #define _POSIX_UTILS_H_INCLUDED_
@@ -9,8 +9,8 @@ inline long posix_get_current_millis() {
     struct timeval tv;
     struct timezone tz;
     gettimeofday(&tv, &tz);
-    // tv_usec‚ÍƒGƒ|ƒbƒN‚©‚ç‚Ìƒ}ƒCƒNƒ•b‚Å‚Í*‚È‚¢*!
-    // tv_sec‚©‚ç‚Ì’Ç‰Áƒ}ƒCƒNƒ•b‚Å‚ ‚éB
+    // tv_usecã¯ã‚¨ãƒãƒƒã‚¯ã‹ã‚‰ã®ãƒã‚¤ã‚¯ãƒ­ç§’ã§ã¯*ãªã„*!
+    // tv_secã‹ã‚‰ã®è¿½åŠ ãƒã‚¤ã‚¯ãƒ­ç§’ã§ã‚ã‚‹ã€‚
     return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 

@@ -5,24 +5,24 @@
 
 class Font {
 
-	// �t�H���g�̊e��ݒ�
+	// フォントの各種設定
 	bool		mBold, mItalic, mStrike, mUnderline;
 	COLORREF	mColor;
 	SIZE		mSize;
 	TCHAR		mFace[LF_FACESIZE];
 
-	// �t�H���g���̕ύX�L���B
-	// �`�掞�A�ύX�������mFont����蒼���B
+	// フォント情報の変更有無。
+	// 描画時、変更があればmFontを作り直す。
 	bool		mChanged;
 
-	// �쐬�ς݃t�H���g�̃n���h��
+	// 作成済みフォントのハンドル
 	HFONT		mFont;	
 	
 public:
 	Font();
 	~Font();
-	void	init();		// �ݒ��������Ԃɖ߂�
-	// �ݒ�𔽉f����mFont���ŐV��Ԃɂ���BTextOut�O�ɂ͖Y�ꂸ�Ɏ��s���܂��傤�B
+	void	init();		// 設定を初期状態に戻す
+	// 設定を反映してmFontを最新状態にする。TextOut前には忘れずに実行しましょう。
 	bool	update();	
 	void	del() { if (mFont!=NULL) ::DeleteObject(mFont); }
 	HFONT	getFont() { return mFont; }

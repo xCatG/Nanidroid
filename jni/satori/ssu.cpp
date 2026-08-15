@@ -1,6 +1,6 @@
 //------------------------------------------------
 //
-//	—¢X“¯«ƒ†[ƒeƒBƒŠƒeƒBƒ‰ƒCƒuƒ‰ƒŠ@ssu.dll
+//	é‡Œã€…åŒæ¢±ãƒ¦ãƒ¼ãƒ†ã‚£ãƒªãƒ†ã‚£ãƒ©ã‚¤ãƒ–ãƒ©ãƒªã€€ssu.dll
 //
 #include	"SaoriHost.h"
 #include	<map>
@@ -14,16 +14,16 @@ SakuraDLLHost* SakuraDLLHost::m_dll = new ssu;
 
 static SRV	call_ssu(string iCommand, deque<string>& iArguments, deque<string>& oValues)
 {
-	// –¼‘O‚Æ–½—ß‚ğŠÖ˜A•t‚¯‚½map
+	// åå‰ã¨å‘½ä»¤ã‚’é–¢é€£ä»˜ã‘ãŸmap
 	typedef SRV (*Command)(deque<string>&, deque<string>&);
 	static map<string, Command>	theMap;
 	if ( theMap.empty() )
 	{ 
-		// ‰‰ñ€”õ
+		// åˆå›æº–å‚™
 		#define	d(iName)	\
 			SRV	_##iName(deque<string>&, deque<string>&); \
 			theMap[ #iName ] = _##iName
-		// –½—ßˆê——‚ÌéŒ¾‚ÆŠÖ˜A•t‚¯B
+		// å‘½ä»¤ä¸€è¦§ã®å®£è¨€ã¨é–¢é€£ä»˜ã‘ã€‚
 		d(calc);			d(calc_float);		d(if);				d(unless);
 		d(nswitch);			d(switch);			d(iflist);			d(substr);
 		d(split);			d(join);			d(replace);			d(replace_first);	d(erase);
@@ -35,27 +35,27 @@ static SRV	call_ssu(string iCommand, deque<string>& iArguments, deque<string>& o
 		#undef	d
 	}
 
-	// –½—ß‚Ì‘¶İ‚ğŠm”F
+	// å‘½ä»¤ã®å­˜åœ¨ã‚’ç¢ºèª
 	map<string, Command>::iterator i = theMap.find(iCommand);
 	if ( i==theMap.end() )
-		return SRV(400, string()+"Error: '"+iCommand+"'‚Æ‚¢‚¤–¼‘O‚Ì–½—ß‚Í’è‹`‚³‚ê‚Ä‚¢‚Ü‚¹‚ñB");
+		return SRV(400, string()+"Error: '"+iCommand+"'\x82\xC6\x82\xA2\x82\xA4\x96\xBC\x91\x4F\x82\xCC\x96\xBD\x97\xDF\x82\xCD\x92\xE8\x8B\x60\x82\xB3\x82\xEA\x82\xC4\x82\xA2\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
-	// ÀÛ‚ÉŒÄ‚Ô
+	// å®Ÿéš›ã«å‘¼ã¶
 	return	i->second(iArguments, oValues);
 }
 
 SRV	ssu::request(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<1 )
-		return	SRV(400, "–½—ß‚ªw’è‚³‚ê‚Ä‚¢‚Ü‚¹‚ñ");
+		return	SRV(400, "\x96\xBD\x97\xDF\x82\xAA\x8E\x77\x92\xE8\x82\xB3\x82\xEA\x82\xC4\x82\xA2\x82\xDC\x82\xB9\x82\xF1");
 
-	// Å‰‚Ìˆø”‚Í–½—ß–¼‚Æ‚µ‚Äˆµ‚¤
+	// æœ€åˆã®å¼•æ•°ã¯å‘½ä»¤åã¨ã—ã¦æ‰±ã†
 	string	theCommand = iArguments.front();
 	iArguments.pop_front();
 	return	call_ssu(theCommand, iArguments, oValues);
 }
 
 
-// ‚±‚±‚©‚çÀ‘•
+// ã“ã“ã‹ã‚‰å®Ÿè£…
 
 #ifdef POSIX
 #  include      "../_/Utilities.h"
@@ -65,20 +65,20 @@ SRV	ssu::request(deque<string>& iArguments, deque<string>& oValues) {
 #endif
 #include	"../_/stltool.h"
 
-/* uƒ\v‚Ì2ƒoƒCƒg–Ú‚Íu\v‚Å‚ ‚é‚Ì‚ÅAƒGƒXƒP[ƒv‚·‚é•K—v‚ª‚ ‚éB */
+/* ã€Œã‚½ã€ã®2ãƒã‚¤ãƒˆç›®ã¯ã€Œ\ã€ã§ã‚ã‚‹ã®ã§ã€ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã™ã‚‹å¿…è¦ãŒã‚ã‚‹ã€‚ */
 static const char	zen[] = 
-	"@‚`‚a‚b‚c‚d‚e‚f‚g‚h‚i‚j‚k‚l‚m‚n‚o‚p‚q‚r‚s‚t‚u‚v‚w‚x‚y‚‚‚‚ƒ‚„‚…‚†‚‡‚ˆ‚‰‚Š‚‹‚Œ‚‚‚‚‚‘‚’‚“‚”‚•‚–‚—‚˜‚™‚š"
-	"‚O‚P‚Q‚R‚S‚T‚U‚V‚W‚XIh”“•fij`beo{–pƒ„HQ[O—uGFvABE€~|CDmn"
-	"ƒAƒCƒEƒGƒIƒJƒLƒNƒPƒRƒTƒVƒXƒZ\x83\x5cƒ^ƒ`ƒcƒeƒgƒiƒjƒkƒlƒmƒnƒqƒtƒwƒzƒ}ƒ~ƒ€ƒƒ‚ƒ„ƒ†ƒˆƒ‰ƒŠƒ‹ƒŒƒƒƒ’ƒ“ƒ@ƒBƒDƒFƒHƒƒƒ…ƒ‡JKAB";
+	"\x81\x40\x82\x60\x82\x61\x82\x62\x82\x63\x82\x64\x82\x65\x82\x66\x82\x67\x82\x68\x82\x69\x82\x6A\x82\x6B\x82\x6C\x82\x6D\x82\x6E\x82\x6F\x82\x70\x82\x71\x82\x72\x82\x73\x82\x74\x82\x75\x82\x76\x82\x77\x82\x78\x82\x79\x82\x81\x82\x82\x82\x83\x82\x84\x82\x85\x82\x86\x82\x87\x82\x88\x82\x89\x82\x8A\x82\x8B\x82\x8C\x82\x8D\x82\x8E\x82\x8F\x82\x90\x82\x91\x82\x92\x82\x93\x82\x94\x82\x95\x82\x96\x82\x97\x82\x98\x82\x99\x82\x9A"
+	"\x82\x4F\x82\x50\x82\x51\x82\x52\x82\x53\x82\x54\x82\x55\x82\x56\x82\x57\x82\x58\x81\x49\x81\x68\x81\x94\x81\x90\x81\x93\x81\x95\x81\x66\x81\x69\x81\x6A\x81\x81\x81\x60\x81\x62\x81\x65\x81\x6F\x81\x7B\x81\x96\x81\x70\x81\x83\x81\x84\x81\x48\x81\x51\x81\x5B\x81\x4F\x81\x8F\x81\x97\x81\x75\x81\x47\x81\x46\x81\x76\x81\x41\x81\x42\x81\x45\x81\x80\x81\x7E\x81\x7C\x81\x43\x81\x44\x81\x6D\x81\x6E"
+	"\x83\x41\x83\x43\x83\x45\x83\x47\x83\x49\x83\x4A\x83\x4C\x83\x4E\x83\x50\x83\x52\x83\x54\x83\x56\x83\x58\x83\x5A\x83\x5c\x83\x5E\x83\x60\x83\x63\x83\x65\x83\x67\x83\x69\x83\x6A\x83\x6B\x83\x6C\x83\x6D\x83\x6E\x83\x71\x83\x74\x83\x77\x83\x7A\x83\x7D\x83\x7E\x83\x80\x83\x81\x83\x82\x83\x84\x83\x86\x83\x88\x83\x89\x83\x8A\x83\x8B\x83\x8C\x83\x8D\x83\x8F\x83\x92\x83\x93\x83\x40\x83\x42\x83\x44\x83\x46\x83\x48\x83\x83\x83\x85\x83\x87\x81\x4A\x81\x4B\x81\x41\x81\x42";
 static const char	han[] = 
 	" ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	"0123456789!\"#$%&'()=~|`{+*}<>?_-^\\@[;:],.¥/*-,.[]"
-	"±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏĞÑÒÓÔÕÖ×ØÙÚÛÜ¦İ§¨©ª«¬­®Şß¤¡";
-static const char	kata[] = "ƒAƒCƒEƒGƒIƒJƒLƒNƒPƒRƒTƒVƒXƒZ\x83\x5cƒ^ƒ`ƒcƒeƒgƒiƒjƒkƒlƒmƒnƒqƒtƒwƒzƒ}ƒ~ƒ€ƒƒ‚ƒ„ƒ†ƒˆƒ‰ƒŠƒ‹ƒŒƒƒƒƒ‘ƒ’ƒ“ƒ@ƒBƒDƒFƒHƒƒƒ…ƒ‡ƒbƒKƒMƒOƒQƒSƒUƒWƒYƒ[ƒ]ƒ_ƒaƒdƒfƒhƒoƒrƒuƒxƒ{ƒpƒsƒvƒyƒ|";
-static const char	hira[] = "‚ ‚¢‚¤‚¦‚¨‚©‚«‚­‚¯‚±‚³‚µ‚·‚¹‚»‚½‚¿‚Â‚Ä‚Æ‚È‚É‚Ê‚Ë‚Ì‚Í‚Ğ‚Ó‚Ö‚Ù‚Ü‚İ‚Ş‚ß‚à‚â‚ä‚æ‚ç‚è‚é‚ê‚ë‚í‚î‚ï‚ğ‚ñ‚Ÿ‚¡‚£‚¥‚§‚á‚ã‚å‚ÁƒKƒMƒOƒQƒS‚´‚¶‚¸‚º‚¼‚¾‚À‚Ã‚Å‚Ç‚Î‚Ñ‚Ô‚×‚Ú‚Ï‚Ò‚Õ‚Ø‚Û";
-static const char	zen_alpha[] = "‚`‚a‚b‚c‚d‚e‚f‚g‚h‚i‚j‚k‚l‚m‚n‚o‚p‚q‚r‚s‚t‚u‚v‚w‚x‚y‚‚‚‚ƒ‚„‚…‚†‚‡‚ˆ‚‰‚Š‚‹‚Œ‚‚‚‚‚‘‚’‚“‚”‚•‚–‚—‚˜‚™‚š";
+	"0123456789!\"#$%&'()=~|`{+*}<>?_-^\\@[;:],.\xA5/*-,.[]"
+	"\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB\xBC\xBD\xBE\xBF\xC0\xC1\xC2\xC3\xC4\xC5\xC6\xC7\xC8\xC9\xCA\xCB\xCC\xCD\xCE\xCF\xD0\xD1\xD2\xD3\xD4\xD5\xD6\xD7\xD8\xD9\xDA\xDB\xDC\xA6\xDD\xA7\xA8\xA9\xAA\xAB\xAC\xAD\xAE\xDE\xDF\xA4\xA1";
+static const char	kata[] = "\x83\x41\x83\x43\x83\x45\x83\x47\x83\x49\x83\x4A\x83\x4C\x83\x4E\x83\x50\x83\x52\x83\x54\x83\x56\x83\x58\x83\x5A\x83\x5c\x83\x5E\x83\x60\x83\x63\x83\x65\x83\x67\x83\x69\x83\x6A\x83\x6B\x83\x6C\x83\x6D\x83\x6E\x83\x71\x83\x74\x83\x77\x83\x7A\x83\x7D\x83\x7E\x83\x80\x83\x81\x83\x82\x83\x84\x83\x86\x83\x88\x83\x89\x83\x8A\x83\x8B\x83\x8C\x83\x8D\x83\x8F\x83\x90\x83\x91\x83\x92\x83\x93\x83\x40\x83\x42\x83\x44\x83\x46\x83\x48\x83\x83\x83\x85\x83\x87\x83\x62\x83\x4B\x83\x4D\x83\x4F\x83\x51\x83\x53\x83\x55\x83\x57\x83\x59\x83\x5B\x83\x5D\x83\x5F\x83\x61\x83\x64\x83\x66\x83\x68\x83\x6F\x83\x72\x83\x75\x83\x78\x83\x7B\x83\x70\x83\x73\x83\x76\x83\x79\x83\x7C";
+static const char	hira[] = "\x82\xA0\x82\xA2\x82\xA4\x82\xA6\x82\xA8\x82\xA9\x82\xAB\x82\xAD\x82\xAF\x82\xB1\x82\xB3\x82\xB5\x82\xB7\x82\xB9\x82\xBB\x82\xBD\x82\xBF\x82\xC2\x82\xC4\x82\xC6\x82\xC8\x82\xC9\x82\xCA\x82\xCB\x82\xCC\x82\xCD\x82\xD0\x82\xD3\x82\xD6\x82\xD9\x82\xDC\x82\xDD\x82\xDE\x82\xDF\x82\xE0\x82\xE2\x82\xE4\x82\xE6\x82\xE7\x82\xE8\x82\xE9\x82\xEA\x82\xEB\x82\xED\x82\xEE\x82\xEF\x82\xF0\x82\xF1\x82\x9F\x82\xA1\x82\xA3\x82\xA5\x82\xA7\x82\xE1\x82\xE3\x82\xE5\x82\xC1\x83\x4B\x83\x4D\x83\x4F\x83\x51\x83\x53\x82\xB4\x82\xB6\x82\xB8\x82\xBA\x82\xBC\x82\xBE\x82\xC0\x82\xC3\x82\xC5\x82\xC7\x82\xCE\x82\xD1\x82\xD4\x82\xD7\x82\xDA\x82\xCF\x82\xD2\x82\xD5\x82\xD8\x82\xDB";
+static const char	zen_alpha[] = "\x82\x60\x82\x61\x82\x62\x82\x63\x82\x64\x82\x65\x82\x66\x82\x67\x82\x68\x82\x69\x82\x6A\x82\x6B\x82\x6C\x82\x6D\x82\x6E\x82\x6F\x82\x70\x82\x71\x82\x72\x82\x73\x82\x74\x82\x75\x82\x76\x82\x77\x82\x78\x82\x79\x82\x81\x82\x82\x82\x83\x82\x84\x82\x85\x82\x86\x82\x87\x82\x88\x82\x89\x82\x8A\x82\x8B\x82\x8C\x82\x8D\x82\x8E\x82\x8F\x82\x90\x82\x91\x82\x92\x82\x93\x82\x94\x82\x95\x82\x96\x82\x97\x82\x98\x82\x99\x82\x9A";
 static const char	han_alpha[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-static const char	zen_digit[] = "‚O‚P‚Q‚R‚S‚T‚U‚V‚W‚X";
+static const char	zen_digit[] = "\x82\x4F\x82\x50\x82\x51\x82\x52\x82\x53\x82\x54\x82\x55\x82\x56\x82\x57\x82\x58";
 static const char	han_digit[] = "0123456789";
 
 extern	bool calc(string& ioString);
@@ -86,7 +86,7 @@ extern	bool calc_float(string& ioString);
 
 #include	<sstream>
 
-// ”¼Šp/‘SŠp‚ğ“¯“™‚Éˆµ‚Á‚½ã‚Å•¶š’·‚ğ•Ô‚·
+// åŠè§’/å…¨è§’ã‚’åŒç­‰ã«æ‰±ã£ãŸä¸Šã§æ–‡å­—é•·ã‚’è¿”ã™
 int	sjis_strlen(const char* p) {
 	int	n=0;
 	for (int i=0 ; p[i] != '\0' ; i += _ismbblead(p[i]) ? 2 : 1 )
@@ -94,7 +94,7 @@ int	sjis_strlen(const char* p) {
 	return	n;
 }
 
-// ”¼Šp/‘SŠp‚ğ“¯“™‚Éˆµ‚Á‚½ã‚Ån•¶šˆÚ“®A’´‰ß‚ÍNULL
+// åŠè§’/å…¨è§’ã‚’åŒç­‰ã«æ‰±ã£ãŸä¸Šã§næ–‡å­—ç§»å‹•ã€è¶…éæ™‚ã¯NULL
 const char*	sjis_at(const char* p, int n) {
 	for (int i=0 ; i<n ; ++i) {
 		if ( *p == '\0' )
@@ -107,13 +107,13 @@ const char*	sjis_at(const char* p, int n) {
 bool	printf_format(const char*& p, deque<string>& iArguments, stringstream& os) {
 	assert(*p=='%');
 	if ( iArguments.empty() )
-		return	false;	// ’u‚«Š·‚¦‘ÎÛ‚ª–³‚¢
+		return	false;	// ç½®ãæ›ãˆå¯¾è±¡ãŒç„¡ã„
 
 	++p;
 	string	str = iArguments.front();
 	iArguments.pop_front();
 
-	// ƒtƒ‰ƒOw’è“Ç‚İ‚İ
+	// ãƒ•ãƒ©ã‚°æŒ‡å®šèª­ã¿è¾¼ã¿
 	bool	isLeft=false, isZeroFill=false, isSharp=false;
 	enum { MINUS_ONLY, MINUS_AND_PLUS, IF_PLUS_THEN_PUT_SPACE } SignMode = MINUS_ONLY;
 	while (true) {
@@ -125,7 +125,7 @@ bool	printf_format(const char*& p, deque<string>& iArguments, stringstream& os) 
 		else break;
 	}
 
-	// •w’è“Ç‚İ‚İ
+	// å¹…æŒ‡å®šèª­ã¿è¾¼ã¿
 	int	width=0;
 	bool	isReadWidth = false;
 	if ( *p=='*' ) {
@@ -139,7 +139,7 @@ bool	printf_format(const char*& p, deque<string>& iArguments, stringstream& os) 
 		}
 	}
 
-	// ¸“xw’è“Ç‚İ‚İ
+	// ç²¾åº¦æŒ‡å®šèª­ã¿è¾¼ã¿
 	/*int	precision=0;
 	if ( *p == '.' ) {
 		++p;
@@ -150,9 +150,9 @@ bool	printf_format(const char*& p, deque<string>& iArguments, stringstream& os) 
 		os.precision(precision);
 	}*/
 
-	// ƒTƒCƒYw’èq‚Í–¢‘Î‰
+	// ã‚µã‚¤ã‚ºæŒ‡å®šå­ã¯æœªå¯¾å¿œ
 
-	// •ÏŠ·•¶š‚É‰‚¶‚Ä‘}“ü
+	// å¤‰æ›æ–‡å­—ã«å¿œã˜ã¦æŒ¿å…¥
 	int	n = atoi(str.c_str());
 	switch (*p) {
 	case 's': os << str; break;
@@ -192,57 +192,57 @@ string	sprintf(deque<string>& iArguments) {
 
 SRV _calc(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=1 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	string	exp = iArguments[0];
 	if ( !calc(exp) )
-		return	SRV(400, string()+"'"+iArguments[0]+"' ®‚ªŒvZ•s\x94\x5c‚Å‚·B"); // u”\v‚Ì2ƒoƒCƒg–Ú‚Íu\v
+		return	SRV(400, string()+"'"+iArguments[0]+"' \x8E\xAE\x82\xAA\x8C\x76\x8E\x5A\x95\x73\x94\x5c\x82\xC5\x82\xB7\x81\x42"); // ã€Œèƒ½ã€ã®2ãƒã‚¤ãƒˆç›®ã¯ã€Œ\ã€
 	return	exp;
 }
 
 SRV _calc_float(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=1 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	string	exp = iArguments[0];
 	if ( !calc_float(exp) )
-	    return	SRV(400, string()+"'"+iArguments[0]+"' ®‚ªŒvZ•s\x94\x5c‚Å‚·B");
+	    return	SRV(400, string()+"'"+iArguments[0]+"' \x8E\xAE\x82\xAA\x8C\x76\x8E\x5A\x95\x73\x94\x5c\x82\xC5\x82\xB7\x81\x42");
 	return	exp;
 }
 
 SRV _if(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<2 || iArguments.size()>3 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	string	exp = iArguments[0];
 	if ( !calc(exp) )
-		return	SRV(400, string()+"'"+iArguments[0]+"' ®‚ªŒvZ•s\x94\x5c‚Å‚·B");
+		return	SRV(400, string()+"'"+iArguments[0]+"' \x8E\xAE\x82\xAA\x8C\x76\x8E\x5A\x95\x73\x94\x5c\x82\xC5\x82\xB7\x81\x42");
 	if ( exp!="0" )
-		return	iArguments[1];	// ^
+		return	iArguments[1];	// çœŸ
 	else
 		if ( iArguments.size()==3 )
-			return	iArguments[2];	// ‹U
+			return	iArguments[2];	// å½
 		else
-			return	SRV(204);	// ‹U‚Åelse‚È‚µ
+			return	SRV(204);	// å½ã§elseãªã—
 }
 
 SRV _unless(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<2 || iArguments.size()>3 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	string	exp = iArguments[0];
 	if ( !calc(exp) )
-		return	SRV(400, string()+"'"+iArguments[0]+"' ®‚ªŒvZ•s\x94\x5c‚Å‚·B");
+		return	SRV(400, string()+"'"+iArguments[0]+"' \x8E\xAE\x82\xAA\x8C\x76\x8E\x5A\x95\x73\x94\x5c\x82\xC5\x82\xB7\x81\x42");
 	if ( exp=="0" )
-		return	iArguments[1];	// ‹U
+		return	iArguments[1];	// å½
 	else
 		if ( iArguments.size()==3 )
-			return	iArguments[2];	// ^
+			return	iArguments[2];	// çœŸ
 		else
-			return	SRV(204);	// ^‚Åelse‚È‚µ
+			return	SRV(204);	// çœŸã§elseãªã—
 }
 
 SRV _nswitch(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<2 )
-		return	SRV(400, "ˆø”‚ª‘«‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xAA\x91\xAB\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	if ( !calc(iArguments[0]) )
-		return	SRV(400, string()+"'"+iArguments[0]+"' ®‚ªŒvZ•s\x94\x5c‚Å‚·B");
+		return	SRV(400, string()+"'"+iArguments[0]+"' \x8E\xAE\x82\xAA\x8C\x76\x8E\x5A\x95\x73\x94\x5c\x82\xC5\x82\xB7\x81\x42");
 
 	int	n = stoi(iArguments[0]);
 	//iArguments.pop_front();
@@ -255,16 +255,16 @@ SRV _nswitch(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _switch(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<2 )
-		return	SRV(400, "ˆø”‚ª‘«‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xAA\x91\xAB\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	const string	lhs = iArguments[0];
 	const int max = iArguments.size();
 	for (int i=1 ; i<max ; i+=2) {
-		if ( i==max-1 ) // ˆø”‚ªŠï”ŒÂ‚Ìê‡AÅŒã‚Ì‚P‚Â‚Íelse®
+		if ( i==max-1 ) // å¼•æ•°ãŒå¥‡æ•°å€‹ã®å ´åˆã€æœ€å¾Œã®ï¼‘ã¤ã¯elseå¼
 			return	SRV(200, iArguments[i]);
 		string	exp = string("(") + lhs + ")==(" + iArguments[i] + ")";
 		if ( !calc(exp) )
-			return	SRV(400, string()+"switch‚Ì"+itos((i-1)/2+1)+"ŒÂ–ÚA® '"+exp+"' ‚ÍŒvZ•s\x94\x5c‚Å‚µ‚½B");
+			return	SRV(400, string()+"switch\x82\xCC"+itos((i-1)/2+1)+"\x8C\xC2\x96\xDA\x81\x41\x8E\xAE '"+exp+"' \x82\xCD\x8C\x76\x8E\x5A\x95\x73\x94\x5c\x82\xC5\x82\xB5\x82\xBD\x81\x42");
 		if ( exp!="0" )
 			return	SRV(200, iArguments[i+1]);
 	}
@@ -273,16 +273,16 @@ SRV _switch(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _iflist(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<2 )
-		return	SRV(400, "ˆø”‚ª‘«‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xAA\x91\xAB\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	const string	lhs = iArguments[0];
 	const int max = iArguments.size();
 	for (int i=1 ; i<max ; i+=2) {
-		if ( i==max-1 ) // ˆø”‚ªŠï”ŒÂ‚Ìê‡AÅŒã‚Ì‚P‚Â‚Íelseˆµ‚¢B‚±‚±‚Ü‚Å‚«‚½‚ç–³ğŒ‚Å‚»‚ê‚ğ•Ô‚·B
+		if ( i==max-1 ) // å¼•æ•°ãŒå¥‡æ•°å€‹ã®å ´åˆã€æœ€å¾Œã®ï¼‘ã¤ã¯elseæ‰±ã„ã€‚ã“ã“ã¾ã§ããŸã‚‰ç„¡æ¡ä»¶ã§ãã‚Œã‚’è¿”ã™ã€‚
 			return	SRV(200, iArguments[i]);
 		string	exp = lhs + iArguments[i];
 		if ( !calc(exp) )
-			return	SRV(400, string()+"iflist‚Ì"+itos((i-1)/2+1)+"ŒÂ–ÚA® '"+exp+"' ‚ÍŒvZ•s\x94\x5c‚Å‚µ‚½B");
+			return	SRV(400, string()+"iflist\x82\xCC"+itos((i-1)/2+1)+"\x8C\xC2\x96\xDA\x81\x41\x8E\xAE '"+exp+"' \x82\xCD\x8C\x76\x8E\x5A\x95\x73\x94\x5c\x82\xC5\x82\xB5\x82\xBD\x81\x42");
 		if ( exp!="0" )
 			return	SRV(200, iArguments[i+1]);
 	}
@@ -293,23 +293,23 @@ SRV _iflist(deque<string>& iArguments, deque<string>& oValues) {
 SRV _substr(deque<string>& iArguments, deque<string>& oValues) {
 
 	if ( iArguments.size()<1 )
-		return	SRV(400, "ˆø”‚ª‘«‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xAA\x91\xAB\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
-	// ‘ÎÛ•¶š—ñ
+	// å¯¾è±¡æ–‡å­—åˆ—
 	const char* p = iArguments[0].c_str();
 	if ( iArguments.size()==1 )
-		return	SRV(200, p); // ˆø”‚PŒÂ‚È‚ç‘S‘Ì‚ğ•Ô‚·
+		return	SRV(200, p); // å¼•æ•°ï¼‘å€‹ãªã‚‰å…¨ä½“ã‚’è¿”ã™
 
 	const int	len = sjis_strlen(p);
 
-	// n“_
+	// å§‹ç‚¹
 	int	start = atoi(iArguments[1].c_str());
 	if ( start < 0 )
 		start = len + start;
 
-	// n“_‚©‚ç‚ÌƒIƒtƒZƒbƒg’l
+	// å§‹ç‚¹ã‹ã‚‰ã®ã‚ªãƒ•ã‚»ãƒƒãƒˆå€¤
 	int offset = (iArguments.size()<=2) ? len : atoi(iArguments[2].c_str());
-	if ( offset==0 || offset==INT_MIN ) // INT_MIN‚Ì‚Í•„†”½“]‚ªŒø‚©‚È‚¢‚Ì‚Å0ˆµ‚¢B
+	if ( offset==0 || offset==INT_MIN ) // INT_MINã®æ™‚ã¯ç¬¦å·åè»¢ãŒåŠ¹ã‹ãªã„ã®ã§0æ‰±ã„ã€‚
 		return	SRV(204);
 	if ( offset<0 ) {
 		start += offset;
@@ -331,7 +331,7 @@ SRV _substr(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _split(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<1 || iArguments.size()>3 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	strvec	vec;
 	if ( iArguments.size()==1 ) {
@@ -342,7 +342,7 @@ SRV _split(deque<string>& iArguments, deque<string>& oValues) {
 	}
 	else {
 		if ( !calc(iArguments[2]) )
-			return	SRV(400, "split‚Ì‘æ‚Rˆø”‚Í®‚Ü‚½‚Í”’l‚Å‚ ‚é•K—v‚ª‚ ‚è‚Ü‚·B");
+			return	SRV(400, "split\x82\xCC\x91\xE6\x82\x52\x88\xF8\x90\x94\x82\xCD\x8E\xAE\x82\xDC\x82\xBD\x82\xCD\x90\x94\x92\x6C\x82\xC5\x82\xA0\x82\xE9\x95\x4B\x97\x76\x82\xAA\x82\xA0\x82\xE8\x82\xDC\x82\xB7\x81\x42");
 		split(iArguments[0],iArguments[1],vec,stoi(iArguments[2]));
 	}
 
@@ -353,7 +353,7 @@ SRV _split(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _join(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()<1 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	string	r = iArguments[1];
 	for (int n=2 ; n<iArguments.size() ; ++n)
@@ -363,53 +363,53 @@ SRV _join(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _replace(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=3 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	replace(iArguments[0], iArguments[1], iArguments[2]);
 	return	SRV(200, iArguments[0]);
 }
 
 SRV _replace_first(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=3 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	replace_first(iArguments[0], iArguments[1], iArguments[2]);
 	return	iArguments[0];
 }
 
 SRV _erase(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=2 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	erase(iArguments[0], iArguments[1]);
 	return	iArguments[0];
 }
 
 SRV _erase_first(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=2 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	erase_first(iArguments[0], iArguments[1]);
 	return	iArguments[0];
 }
 
 SRV _count(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=2 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	return	itos( count(iArguments[0], iArguments[1]) );
 }
 
 SRV _compare(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=2 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	return	(strcmp(iArguments[0].c_str(), iArguments[1].c_str())==0) ? "1" : "0";
 }
 
 SRV _compare_head(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=2 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	return	compare_head(iArguments[0], iArguments[1]) ? "1" : "0";
 }
 
 SRV _compare_tail(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=2 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	return	compare_tail(iArguments[0], iArguments[1]) ? "1" : "0";
 }
 
@@ -456,9 +456,9 @@ SRV _is_alpha(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _zen2han(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=1 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
-	char	before[3]="@", after[2]=" ";
+	char	before[3]="\x81\x40", after[2]=" ";
 	string&	str=iArguments[0];
 	for (int n=0 ; n<sizeof(han) ; ++n) {
 		before[0]=zen[n*2];
@@ -471,7 +471,7 @@ SRV _zen2han(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _han2zen(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=1 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	char	before[2]=" ", after[3]="  ";
 	string&	str=iArguments[0];
@@ -486,7 +486,7 @@ SRV _han2zen(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _hira2kata(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=1 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	string&	str=iArguments[0];
 	for (int i=0 ; str[i]!='\0' ; i+=_ismbblead(str[i])?2:1) {
@@ -502,7 +502,7 @@ SRV _hira2kata(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _kata2hira(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.size()!=1 )
-		return	SRV(400, "ˆø”‚ÌŒÂ”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xCC\x8C\xC2\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	string&	str=iArguments[0];
 	for (int i=0 ; str[i]!='\0' ; i+=_ismbblead(str[i])?2:1) {
@@ -518,13 +518,13 @@ SRV _kata2hira(deque<string>& iArguments, deque<string>& oValues) {
 
 SRV _sprintf(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.empty() )
-		return	SRV(400, "ˆø”‚ª‘«‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xAA\x91\xAB\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 	return	sprintf(iArguments);
 }
 
 SRV _reverse(deque<string>& iArguments, deque<string>& oValues) {
 	if ( iArguments.empty() )
-		return	SRV(400, "ˆø”‚ª‘«‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xAA\x91\xAB\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 
 	string	r;
 	const char* p = iArguments[0].c_str();
@@ -546,7 +546,7 @@ SRV _at(deque<string>& iArguments, deque<string>& oValues) {
 	//else if ( iArguments.size()==3 ) {
 	//}
 	else
-		return	SRV(400, "ˆø”‚ª³‚µ‚­‚ ‚è‚Ü‚¹‚ñB");
+		return	SRV(400, "\x88\xF8\x90\x94\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xA0\x82\xE8\x82\xDC\x82\xB9\x82\xF1\x81\x42");
 }
 
 

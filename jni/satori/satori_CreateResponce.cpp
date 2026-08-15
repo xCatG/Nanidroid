@@ -2,7 +2,7 @@
 
 int		Satori::CreateResponse(strmap& oResponse)
 {
-	// NOTIFY‚Å‚ ‚ê‚Î’l‚ğ•Û‘¶
+	// NOTIFYã§ã‚ã‚Œã°å€¤ã‚’ä¿å­˜
 	/*strmap	mNotifiedMap;
 	if ( mRequestCommand=="NOTIFY" )
 		mNotifiedMap[mRequestID] = mRequestMap["Reference0"];*/
@@ -13,7 +13,7 @@ int		Satori::CreateResponse(strmap& oResponse)
 			const int max = split(mReferences[0], byte1_dlmt, vec);
 			for (int n=0 ; n<max ; ++n) {
 				characters_hwnd[n] = (HWND)(stoi(vec[n]));
-				sender << "—¢X‚Í id:" << n << " ‚ÌhWnd‚ğæ“¾‚µ‚Ü‚µ‚½B" << endl;
+				sender << "\x97\xA2\x81\x58\x82\xCD id:" << n << " \x82\xCChWnd\x82\xF0\x8E\xE6\x93\xBE\x82\xB5\x82\xDC\x82\xB5\x82\xBD\x81\x42" << endl;
 			}
 #endif
 		}
@@ -44,7 +44,7 @@ int		Satori::CreateResponse(strmap& oResponse)
 			return	204;
 		}
 		else {
-			sender << "local/Local‚Å‚È‚¢‚Ì‚ÅR‚è‚Ü‚µ‚½: " << str << endl;
+			sender << "local/Local\x82\xC5\x82\xC8\x82\xA2\x82\xCC\x82\xC5\x8F\x52\x82\xE8\x82\xDC\x82\xB5\x82\xBD: " << str << endl;
 			return	204;
 		}
 	}
@@ -66,7 +66,7 @@ int		Satori::CreateResponse(strmap& oResponse)
 		mRequestID=="kero.recommendsites" ||
 		mRequestID=="sakura.portalsites" ) 
 	{
-		if ( !GetURLList(mRequestID, result) )	// URLƒŠƒXƒg‚Ìæ“¾
+		if ( !GetURLList(mRequestID, result) )	// URLãƒªã‚¹ãƒˆã®å–å¾—
 			return	204;
 	} 
 	else if ( !Call(mRequestID, result) ) {

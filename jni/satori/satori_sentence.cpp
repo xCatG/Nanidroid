@@ -36,19 +36,19 @@ bool	Satori::FindEventTalk(string& ioevent) {
 	static	strmap	replace_map;
 	static	bool	isinit=false;
 	if ( !isinit ) {
-		replace_map["OnBoot"]="‹N“®";
-		replace_map["OnClose"]="I—¹";
-		replace_map["OnFirstBoot"]="‰‰ñ";
-		replace_map["OnGhostChanged"]="‘¼‚ÌƒS[ƒXƒg‚©‚ç•ÏX";
-		replace_map["OnGhostChanging"]="‘¼‚ÌƒS[ƒXƒg‚Ö•ÏX";
+		replace_map["OnBoot"]="\x8B\x4E\x93\xAE";
+		replace_map["OnClose"]="\x8F\x49\x97\xB9";
+		replace_map["OnFirstBoot"]="\x8F\x89\x89\xF1";
+		replace_map["OnGhostChanged"]="\x91\xBC\x82\xCC\x83\x53\x81\x5B\x83\x58\x83\x67\x82\xA9\x82\xE7\x95\xCF\x8D\x58";
+		replace_map["OnGhostChanging"]="\x91\xBC\x82\xCC\x83\x53\x81\x5B\x83\x58\x83\x67\x82\xD6\x95\xCF\x8D\x58";
 		//replace_map["OnMouseDoubleClick"]="OnTalk";
-		replace_map["‰‰ñ"]="OnBoot";
-		replace_map["‘¼‚ÌƒS[ƒXƒg‚©‚ç•ÏX"]="OnBoot";
-		replace_map["‘¼‚ÌƒS[ƒXƒg‚Ö•ÏX"]="OnClose";
-		replace_map["OnVanishSelecting"]="Á–Åw¦";
-		replace_map["OnVanishCancel"]="Á–Å“P‰ñ";
-		replace_map["OnVanishSelected"]="Á–ÅŒˆ’è";
-		replace_map["OnVanishButtonHold"]="Á–Å’†’f";
+		replace_map["\x8F\x89\x89\xF1"]="OnBoot";
+		replace_map["\x91\xBC\x82\xCC\x83\x53\x81\x5B\x83\x58\x83\x67\x82\xA9\x82\xE7\x95\xCF\x8D\x58"]="OnBoot";
+		replace_map["\x91\xBC\x82\xCC\x83\x53\x81\x5B\x83\x58\x83\x67\x82\xD6\x95\xCF\x8D\x58"]="OnClose";
+		replace_map["OnVanishSelecting"]="\x8F\xC1\x96\xC5\x8E\x77\x8E\xA6";
+		replace_map["OnVanishCancel"]="\x8F\xC1\x96\xC5\x93\x50\x89\xF1";
+		replace_map["OnVanishSelected"]="\x8F\xC1\x96\xC5\x8C\x88\x92\xE8";
+		replace_map["OnVanishButtonHold"]="\x8F\xC1\x96\xC5\x92\x86\x92\x66";
 		replace_map["OnTalk"]="";
 		//replace_map[""]="";
 		isinit = true;
@@ -56,10 +56,10 @@ bool	Satori::FindEventTalk(string& ioevent) {
 
 	while (true) {
 		if ( talks.is_exist(ioevent) )
-			return	true;	// ƒCƒxƒ“ƒg‚ª‘¶İA‚»‚ê‚ÉŒˆ’è
+			return	true;	// ã‚¤ãƒ™ãƒ³ãƒˆãŒå­˜åœ¨ã€ãã‚Œã«æ±ºå®š
 		if ( replace_map.find(ioevent) == replace_map.end() )
-			return	false;	// ’u‚«Š·‚¦‘ÎÛ‚ª‚à‚¤–³‚¢
-		sender << "event replaced " << ioevent <<  " ¨ " <<  replace_map[ioevent] << endl;
+			return	false;	// ç½®ãæ›ãˆå¯¾è±¡ãŒã‚‚ã†ç„¡ã„
+		sender << "event replaced " << ioevent <<  " \x81\xA8 " <<  replace_map[ioevent] << endl;
 		ioevent = replace_map[ioevent];
 	}
 }
@@ -77,7 +77,7 @@ string	Satori::GetSentence(const string& name) {
 
 
 
-// ©“®‘}“üƒEƒFƒCƒg
+// è‡ªå‹•æŒ¿å…¥ã‚¦ã‚§ã‚¤ãƒˆ
 #define	character_wait_clear	\
 	do { \
 		if ( mRequestID == "OnHeadlinesense.OnFind" ) { characters = 0;	} \
@@ -88,88 +88,88 @@ string	Satori::GetSentence(const string& name) {
 
 string	Satori::SentenceToSakuraScript(const strvec& vec) {
 
-	// Ä‹AŠÇ—
+	// å†å¸°ç®¡ç†
 	static	int nest_count=0;
 	++nest_count;
 	//DBG(sender << "enter SentenceToSakuraScript, nest-count: " << nest_count << ", vector_size: " << vec.size() << endl);
 
 
 	if ( nest_count==1 ) {
-		question_num=0;	// ‘I‘ğˆ”Ô†
-		speaked_speaker.clear(); // ­‚µ‚Å‚à’‚Á‚½‚©‚Ç‚¤‚©
-		surface_changed_before_speak.clear(); // ‰ï˜b‘O‚ÉƒT[ƒtƒFƒXØ‚èŠ·‚¦w¦‚ª‚ ‚Á‚½‚©
-		characters = 0;	// ’‚Á‚½š”
+		question_num=0;	// é¸æŠè‚¢ç•ªå·
+		speaked_speaker.clear(); // å°‘ã—ã§ã‚‚å–‹ã£ãŸã‹ã©ã†ã‹
+		surface_changed_before_speak.clear(); // ä¼šè©±å‰ã«ã‚µãƒ¼ãƒ•ã‚§ã‚¹åˆ‡ã‚Šæ›ãˆæŒ‡ç¤ºãŒã‚ã£ãŸã‹
+		characters = 0;	// å–‹ã£ãŸå­—æ•°
 	}
-	kakko_replace_history.push(strvec()); // ƒJƒbƒR‚Ì‘O•ûQÆ—p
+	kakko_replace_history.push(strvec()); // ã‚«ãƒƒã‚³ã®å‰æ–¹å‚ç…§ç”¨
 
 	static const int basewait=3;
 	string	result;
 
 	result = "\\1";
-	speaker = 1;	// –{‘Ì‚Í 0 ‚¤‚É‚ã‚¤‚Í 1
+	speaker = 1;	// æœ¬ä½“ã¯ 0 ã†ã«ã‚…ã†ã¯ 1
 
 	strvec::const_iterator it = vec.begin();
 	for ( ; it != vec.end() ; ++it) {
 		const char*	p = it->c_str();
 		//DBG(sender << nest_count << " '" << p << "'" << endl);
 
-		if ( it==vec.begin() && strncmp(p, "¨", 2)==0 ) {
+		if ( it==vec.begin() && strncmp(p, "\x81\xA8", 2)==0 ) {
 			p+=2;
 
-			if ( ghosts_info.size()>=2 ) {	// ‚»‚à‚»‚à©•ªˆÈŠO‚ÉƒS[ƒXƒg‚Í‚¢‚é‚Ì‚©B
+			if ( ghosts_info.size()>=2 ) {	// ãã‚‚ãã‚‚è‡ªåˆ†ä»¥å¤–ã«ã‚´ãƒ¼ã‚¹ãƒˆã¯ã„ã‚‹ã®ã‹ã€‚
 				string	temp = p;
-				vector<strmap>::iterator i=ghosts_info.begin(); ++i; // ©•ª‚Í”ò‚Î‚·
+				vector<strmap>::iterator i=ghosts_info.begin(); ++i; // è‡ªåˆ†ã¯é£›ã°ã™
 				for ( ; i!=ghosts_info.end() ; ++i ) { 
 					string	name = (*i)["name"];
 					sender << "ghost: " << name <<endl;
-					if ( compare_head(temp, name) ) {// ‘Šè‚ğ“Á’è
+					if ( compare_head(temp, name) ) {// ç›¸æ‰‹ã‚’ç‰¹å®š
 						mCommunicateFor = name;
 						p += mCommunicateFor.size();
 					}
 				}
-				if ( i==ghosts_info.end() ) {	// “Á’è‚µ‚È‚©‚Á‚½ê‡
-					// ƒ‰ƒ“ƒ_ƒ€
+				if ( i==ghosts_info.end() ) {	// ç‰¹å®šã—ãªã‹ã£ãŸå ´åˆ
+					// ãƒ©ãƒ³ãƒ€ãƒ 
 					//int n = (random()%(ghosts_info.size()-1))+1;
 					//assert( n>=1 && n < ghosts_info.size());
 					mCommunicateFor = (ghosts_info[1])["name"];
 
-					// ‚ ‚©‚ñA—×‚Å‹N“®‚µ‚Ä‚¢‚é``‚É‚È‚ç‚ñ
+					// ã‚ã‹ã‚“ã€éš£ã§èµ·å‹•ã—ã¦ã„ã‚‹ï½ï½ã«ãªã‚‰ã‚“
 				}
 			}
 		}
 
-		// ‘I‘ğˆ	\q?[id,string]
-		if ( strncmp(p, "Q", 2)==0 ) {
+		// é¸æŠè‚¢	\q?[id,string]
+		if ( strncmp(p, "\x81\x51", 2)==0 ) {
 			if ( strlen(p)>1023 )
 				continue;
 			char	buf[1024];
 			strcpy(buf, p+2);
 
 			char*	choiced = buf;
-			char*	id = strstr(buf, "\t"); // ‘I‘ğˆƒ‰ƒxƒ‹‚ÆƒWƒƒƒ“ƒvæ‚Ì‹æØ‚è
+			char*	id = strstr(buf, "\t"); // é¸æŠè‚¢ãƒ©ãƒ™ãƒ«ã¨ã‚¸ãƒ£ãƒ³ãƒ—å…ˆã®åŒºåˆ‡ã‚Š
 			if ( id == NULL ) {
 				string	str=UnKakko(choiced);
 				//result += string("\\q")+itos(question_num++)+"["+str+"]["+str+"]";
 				result += string("\\q")+"["+str+","+str+"]\\n";
 			} else {
 				*id++='\0';
-				while ( *id=='\t' ) ++id; // ‘I‘ğˆƒ‰ƒxƒ‹‚ÆƒWƒƒƒ“ƒvæ‚Ì‹æØ‚è
+				while ( *id=='\t' ) ++id; // é¸æŠè‚¢ãƒ©ãƒ™ãƒ«ã¨ã‚¸ãƒ£ãƒ³ãƒ—å…ˆã®åŒºåˆ‡ã‚Š
 				//result += string("\\q")+itos(question_num++)+"["+UnKakko(id)+"]["+UnKakko(choiced)+"]";
 				result += "\\q["+UnKakko(choiced)+","+UnKakko(id)+"]\\n";
 			}
 			continue;
 		}
 
-		// ‚¿‚å‚Á‚Æ”÷–­‚È‘¶İˆÓ‹`B
+		// ã¡ã‚‡ã£ã¨å¾®å¦™ãªå­˜åœ¨æ„ç¾©ã€‚
 		if ( strncmp(p, "\\s", 2)==0 ) {	
 			if ( !is_speaked(speaker) )
 				surface_changed_before_speak.insert(speaker);
 		}
 
-		// ƒWƒƒƒ“ƒv
-		if ( strncmp(p, "„", 2)==0 || strncmp(p, "â", 2)==0 ) {
+		// ã‚¸ãƒ£ãƒ³ãƒ—
+		if ( strncmp(p, "\x81\x84", 2)==0 || strncmp(p, "\x81\xE2", 2)==0 ) {
 			strvec	words;
-			split(p+2, "\t", words); // ƒWƒƒƒ“ƒvæ‚ÆƒWƒƒƒ“ƒvğŒ‚Ì‹æØ‚è
+			split(p+2, "\t", words); // ã‚¸ãƒ£ãƒ³ãƒ—å…ˆã¨ã‚¸ãƒ£ãƒ³ãƒ—æ¡ä»¶ã®åŒºåˆ‡ã‚Š
 			string	jump_to="";
 			if ( words.size()>=1 ) {
 				jump_to = UnKakko(words[0].c_str());
@@ -177,51 +177,51 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 					string	r;
 					if ( !calculate(words[1], r) )
 						break;
-					if ( r=="0" || r=="‚O" )
+					if ( r=="0" || r=="\x82\x4F" )
 					{
-						sender << "–ŒvZŒ‹‰Ê‚ª‚O‚¾‚Á‚½‚½‚ßA‘±s‚µ‚Ü‚·B" << endl;
+						sender << "\x81\x96\x8C\x76\x8E\x5A\x8C\x8B\x89\xCA\x82\xAA\x82\x4F\x82\xBE\x82\xC1\x82\xBD\x82\xBD\x82\xDF\x81\x41\x91\xB1\x8D\x73\x82\xB5\x82\xDC\x82\xB7\x81\x42" << endl;
 						continue;
 					}
 				}
 			}
 
-			if ( strncmp(p, "â", 2)==0 ) {
+			if ( strncmp(p, "\x81\xE2", 2)==0 ) {
 
 				string	script;
 				if ( TalkSearch(jump_to, script, (mRequestID!="OnCommunicate") ) ) {
 					result += script;
-					break;	// ‚±‚ÌƒtƒF[ƒY‚ÍI—¹‚·‚é
+					break;	// ã“ã®ãƒ•ã‚§ãƒ¼ã‚ºã¯çµ‚äº†ã™ã‚‹
 				}
-				sender << "â" << jump_to << " not found." << endl;
+				sender << "\x81\xE2" << jump_to << " not found." << endl;
 			}
 			else if ( talks.is_exist(jump_to) ) {
-				sender << "„" << jump_to << "" << endl;
+				sender << "\x81\x84" << jump_to << "" << endl;
 				result += GetSentence(jump_to);
-				break;	// ‚±‚ÌƒtƒF[ƒY‚ÍI—¹‚·‚é
+				break;	// ã“ã®ãƒ•ã‚§ãƒ¼ã‚ºã¯çµ‚äº†ã™ã‚‹
 			} 
 			else {
-				sender << "„" << jump_to << " not found." << endl;
+				sender << "\x81\x84" << jump_to << " not found." << endl;
 			}
 			continue;
 		}
 
-		// •Ï”‚ğİ’è
-		if ( strncmp(p, "", 2)==0 ) {
+		// å¤‰æ•°ã‚’è¨­å®š
+		if ( strncmp(p, "\x81\x90", 2)==0 ) {
 			const char* v;
 			string	value;
 			bool	do_calc=false;
 			p+=2;
-			if ( (v=strstr(p, "\t"))!=NULL ) { // •Ï”–¼‚Æ•Ï”‚Éİ’è‚·‚é“à—e‚Ì‹æØ‚è
+			if ( (v=strstr(p, "\t"))!=NULL ) { // å¤‰æ•°åã¨å¤‰æ•°ã«è¨­å®šã™ã‚‹å†…å®¹ã®åŒºåˆ‡ã‚Š
 				value = UnKakko(v+1);
 			}
-			else if ( (v=strstr(p, ""))!=NULL || (v=strstr(p, "="))!=NULL ) {
+			else if ( (v=strstr(p, "\x81\x81"))!=NULL || (v=strstr(p, "="))!=NULL ) {
 				value = UnKakko(v+((*v=='=') ? 1 : 2));
 				do_calc=true;
 			}
 			else {
 				//v = p+strlen(p);
 				//value="";
-				result += "\\n¦@‚É‚æ‚é•Ï”‘ã“ü•¶‚É‚ÍAƒ^ƒu‚É‚æ‚é‹æØ‚è‚©A‚É‚æ‚éŒvZ®‚ª•K—v‚Å‚·@¦\\n\\n[half]'" + value +"'";
+				result += "\\n\x81\xA6\x81\x40\x81\x90\x82\xC9\x82\xE6\x82\xE9\x95\xCF\x90\x94\x91\xE3\x93\xFC\x95\xB6\x82\xC9\x82\xCD\x81\x41\x83\x5E\x83\x75\x82\xC9\x82\xE6\x82\xE9\x8B\xE6\x90\xD8\x82\xE8\x82\xA9\x81\x41\x81\x81\x82\xC9\x82\xE6\x82\xE9\x8C\x76\x8E\x5A\x8E\xAE\x82\xAA\x95\x4B\x97\x76\x82\xC5\x82\xB7\x81\x40\x81\xA6\\n\\n[half]'" + value +"'";
 				break;
 			}
 
@@ -229,20 +229,20 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 			key = UnKakko(key.c_str());
 
 			if ( key=="" ) {
-				result += ""; // ‚»‚Ì‚Ü‚Ü•\¦
+				result += "\x81\x90"; // ï¼„ãã®ã¾ã¾è¡¨ç¤º
 			}
 			else if ( aredigits(zen2han(key)) ) {
-				sender << "" << key << "@”š‚Ì‚İ‚Ì•Ï”–¼‚Íˆµ‚¦‚Ü‚¹‚ñ." << endl;
-				erase_var(key);	// ‘¶İ–•Á
+				sender << "\x81\x90" << key << "\x81\x40\x90\x94\x8E\x9A\x82\xCC\x82\xDD\x82\xCC\x95\xCF\x90\x94\x96\xBC\x82\xCD\x88\xB5\x82\xA6\x82\xDC\x82\xB9\x82\xF1." << endl;
+				erase_var(key);	// å­˜åœ¨æŠ¹æ¶ˆ
 			}
 			else if ( value=="" ) {
-				sender << "" << key << "^cleared." << endl;
-				erase_var(key);	// ‘¶İ–•Á
+				sender << "\x81\x90" << key << "\x81\x5E" "cleared." << endl;
+				erase_var(key);	// å­˜åœ¨æŠ¹æ¶ˆ
 			}
 			else {
 
 				if ( do_calc ) {
-					// ‘ã“üæ‚ğæ‚ÉQÆ‚·‚éAƒGƒ‰[‚ğ•Ô‚³‚È‚¢‚æ‚¤‚ÉB
+					// ä»£å…¥å…ˆã‚’å…ˆã«å‚ç…§ã™ã‚‹æ™‚ã€ã‚¨ãƒ©ãƒ¼ã‚’è¿”ã•ãªã„ã‚ˆã†ã«ã€‚
 					variables[key] = "0";	
 
 					if ( !calculate(value, value) )
@@ -252,7 +252,7 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 					}
 				}
 
-				sender << "" << key << "" << value << "^" << 
+				sender << "\x81\x90" << key << "\x81\x81" << value << "\x81\x5E" << 
 					(( variables.find(key) == variables.end() ) ?
 					"writed." : "overwrited.")<< endl;
 
@@ -262,15 +262,15 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 			continue;
 		}
 
-		// ’Êíˆ—
+		// é€šå¸¸å‡¦ç†
 		while ( p[0] != '\0' ) {
-			string	c=get_a_chr(p);	// ‘SŠp”¼Šp–â‚í‚¸ˆê•¶šæ“¾‚µAp‚ğˆê•¶š‚·‚·‚ß‚é
+			string	c=get_a_chr(p);	// å…¨è§’åŠè§’å•ã‚ãšä¸€æ–‡å­—å–å¾—ã—ã€pã‚’ä¸€æ–‡å­—ã™ã™ã‚ã‚‹
 
-			if ( c=="i" ) {	// ‰½‚©‚ğæ“¾E‘}“ü
+			if ( c=="\x81\x69" ) {	// ä½•ã‹ã‚’å–å¾—ãƒ»æŒ¿å…¥
 				string	tmp = KakkoSection(p);
 				result += tmp;
 			}
-			else if ( c=="F" ) {	// ƒXƒR[ƒvØ‚è‘Ö‚¦ - ‚±‚±‚Í“ñl‚ğ‘z’èB
+			else if ( c=="\x81\x46" ) {	// ã‚¹ã‚³ãƒ¼ãƒ—åˆ‡ã‚Šæ›¿ãˆ - ã“ã“ã¯äºŒäººã‚’æƒ³å®šã€‚
 				if ( is_speaked(speaker) ) {
 					result += append_at_scope_change;
 					characters += 2;
@@ -279,9 +279,9 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 				character_wait_clear;
 				result += (speaker ? "\\1" : "\\0");
 			}
-			else if ( c=="\\" || c=="%" ) {	// ‚³‚­‚çƒXƒNƒŠƒvƒg‚Ì‰ğßA‚Æ‚¢‚¤‚©‰ğß‚ÌƒXƒLƒbƒvB
+			else if ( c=="\\" || c=="%" ) {	// ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã®è§£é‡ˆã€ã¨ã„ã†ã‹è§£é‡ˆã®ã‚¹ã‚­ãƒƒãƒ—ã€‚
 
-				if (*p=='\\'||*p=='%') {	// ƒGƒXƒP[ƒv‚³‚ê‚½\, %
+				if (*p=='\\'||*p=='%') {	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸ\, %
 					result += c + *p++;
 					continue;
 				}
@@ -296,7 +296,7 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 				if (*p=='[') {
 					const char* opt_start = ++p;
 					while (*p!=']') {
-						if (p[0]=='\\' && p[1]==']')	// ƒGƒXƒP[ƒv‚³‚ê‚½]
+						if (p[0]=='\\' && p[1]==']')	// ã‚¨ã‚¹ã‚±ãƒ¼ãƒ—ã•ã‚ŒãŸ]
 							++p;
 						p += _ismbblead(*p) ? 2 : 1;
 					}
@@ -305,11 +305,11 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 				}
 
 				if ( cmd=="n" ) {
-					// ‰üs
+					// æ”¹è¡Œ
 					character_wait_clear;
 				}
 				else if ( (cmd=="0" && speaker==1) || (cmd=="1" && speaker==0) ) {
-					// ƒXƒR[ƒvØ‚è‘Ö‚¦
+					// ã‚¹ã‚³ãƒ¼ãƒ—åˆ‡ã‚Šæ›¿ãˆ
 					if ( is_speaked(speaker) ) {
 						result += append_at_scope_change_with_sakura_script;
 						characters += 2;
@@ -318,7 +318,7 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 					character_wait_clear;
 				}
 				else if ( cmd=="p" && aredigits(opt) ) {
-					// ƒXƒR[ƒvØ‚è‘Ö‚¦onSSP/CROW
+					// ã‚¹ã‚³ãƒ¼ãƒ—åˆ‡ã‚Šæ›¿ãˆonSSP/CROW
 					if ( is_speaked(speaker) ) {
 						result += append_at_scope_change_with_sakura_script;
 						characters += 2;
@@ -338,11 +338,11 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 
 				//result += string(start, p-start);
 			}
-			else {	// ’Êí‚Ìˆê•¶š
+			else {	// é€šå¸¸ã®ä¸€æ–‡å­—
 				speaked_speaker.insert(speaker);
 				result += c;
 				characters += c.size();
-				if ( c=="B" || c=="A" )
+				if ( c=="\x81\x42" || c=="\x81\x41" )
 					character_wait_clear;
 			}
 
@@ -360,15 +360,15 @@ string	Satori::SentenceToSakuraScript(const strvec& vec) {
 #undef	DBG
 #define	DBG(a)	a
 
-// w’è‚³‚ê‚½–¼‘O‚ÉŠY“–‚·‚éŒó•â‚©‚çƒ‰ƒ“ƒ_ƒ€‚Åˆê‚Â‘I‚ÑA
-// ‚³‚­‚çƒXƒNƒŠƒvƒg‚É“WŠJ‚µ‚Ä•Ô‚·B
-// Ä‹A‚ğƒJƒEƒ“ƒg‚µ‚Ä‚é‚Ì‚Å•s—pˆÓ‚Èreturn‚ÍŒµ‹ÖB
+// æŒ‡å®šã•ã‚ŒãŸåå‰ã«è©²å½“ã™ã‚‹å€™è£œã‹ã‚‰ãƒ©ãƒ³ãƒ€ãƒ ã§ä¸€ã¤é¸ã³ã€
+// ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã«å±•é–‹ã—ã¦è¿”ã™ã€‚
+// å†å¸°ã‚’ã‚«ã‚¦ãƒ³ãƒˆã—ã¦ã‚‹ã®ã§ä¸ç”¨æ„ãªreturnã¯å³ç¦ã€‚
 bool	Satori::GetSentence(string& ioSentenceName, string& oResultScript) {
-	// Ä‹AŠÇ—
+	// å†å¸°ç®¡ç†
 	static	int nest_count=0;
 	++nest_count;
 
-	// ƒ‰ƒ“ƒ_ƒ€ƒg[ƒN‚ª—\–ñ‚³‚ê‚Ä‚¢‚½ê‡‚Ì“Áêˆ—B‚½‚¾‚µ‚P‰ñ‚Ìƒg[ƒN¶¬‚Å‚P‰ñ‚¾‚¯B
+	// ãƒ©ãƒ³ãƒ€ãƒ ãƒˆãƒ¼ã‚¯ãŒäºˆç´„ã•ã‚Œã¦ã„ãŸå ´åˆã®ç‰¹æ®Šå‡¦ç†ã€‚ãŸã ã—ï¼‘å›ã®ãƒˆãƒ¼ã‚¯ç”Ÿæˆã§ï¼‘å›ã ã‘ã€‚
 	static	bool	reserved_talk_processed;
 	if ( nest_count==1 )
 		reserved_talk_processed=false;
@@ -376,9 +376,9 @@ bool	Satori::GetSentence(string& ioSentenceName, string& oResultScript) {
 	{
 		reserved_talk_processed = true;
 
-		string	reserved_talk_name;	// ¡‰ñ˜b‚·‚×‚«ƒg[ƒN‚ª‚ ‚ê‚ÎA‚»‚Ì–¼‘O‚É‚È‚é
+		string	reserved_talk_name;	// ä»Šå›è©±ã™ã¹ããƒˆãƒ¼ã‚¯ãŒã‚ã‚Œã°ã€ãã®åå‰ã«ãªã‚‹
 		if ( !reserved_talk.empty() ) {
-			// —\–ñƒg[ƒN‚Ì“Yš‚ğ1‚¸‚ÂƒfƒNƒŠƒƒ“ƒg
+			// äºˆç´„ãƒˆãƒ¼ã‚¯ã®æ·»å­—ã‚’1ãšã¤ãƒ‡ã‚¯ãƒªãƒ¡ãƒ³ãƒˆ
 			map<int, string>::iterator	it = reserved_talk.begin();
 			while ( it!=reserved_talk.end() )
 			{
@@ -386,44 +386,44 @@ bool	Satori::GetSentence(string& ioSentenceName, string& oResultScript) {
 				reserved_talk.erase(it++);
 			}
 
-			// æ“ª‚Ìƒg[ƒN‚ª˜b‚·‚×‚«‡‚É‚È‚Á‚Ä‚¢‚ê‚ÎA–¼‘O‚ğæ“¾‚µ‚½ãAƒLƒ…[ƒAƒEƒgB
+			// å…ˆé ­ã®ãƒˆãƒ¼ã‚¯ãŒè©±ã™ã¹ãé †ã«ãªã£ã¦ã„ã‚Œã°ã€åå‰ã‚’å–å¾—ã—ãŸä¸Šã€ã‚­ãƒ¥ãƒ¼ã‚¢ã‚¦ãƒˆã€‚
 			it=reserved_talk.begin();
 			if ( it->first<=0 ) {
 				reserved_talk_name = it->second;
-				reserved_talk.erase(it);	// ¡‰ñ‚Ì‚Ííœ
+				reserved_talk.erase(it);	// ä»Šå›ã®ã¯å‰Šé™¤
 			}
 		}
 
 		if ( ioSentenceName=="OnTalk" && talks.is_exist("OnTalk") ) {	
-			// OnTalk‚Å‚ ‚èA‚©‚Â’è‹`‚³‚ê‚Ä‚éê‡
-			if ( reserved_talk_name.empty() ) {	// ˜b‚·‚×‚«ƒg[ƒN‚Í‚È‚¢ƒ‰ƒ“ƒ_ƒ€ƒg[ƒN‚Å‚¢‚¢
+			// OnTalkã§ã‚ã‚Šã€ã‹ã¤å®šç¾©ã•ã‚Œã¦ã‚‹å ´åˆ
+			if ( reserved_talk_name.empty() ) {	// è©±ã™ã¹ããƒˆãƒ¼ã‚¯ã¯ãªã„ï¼ãƒ©ãƒ³ãƒ€ãƒ ãƒˆãƒ¼ã‚¯ã§ã„ã„
 				mRequestMap["Reference0"]=mReferences[0]="0";
 				mRequestMap["Reference1"]=mReferences[1]="";
 			}
-			else {	// ¡‰ñA˜b‚·‚×‚«—\–ñƒg[ƒN‚ª‘¶İ‚·‚é
+			else {	// ä»Šå›ã€è©±ã™ã¹ãäºˆç´„ãƒˆãƒ¼ã‚¯ãŒå­˜åœ¨ã™ã‚‹
 				mRequestMap["Reference0"]=mReferences[0]="1";
 				mRequestMap["Reference1"]=mReferences[1]=reserved_talk_name;
 			}
 		}
 		else {
-			// –³–¼‚©AOnTalk‚Å‚ ‚Á‚½‚Æ‚µ‚Ä‚à’è‹`‚³‚ê‚Ä‚È‚¢ê‡
-			if ( !reserved_talk_name.empty() )	// ¡‰ñA˜b‚·‚×‚«—\–ñƒg[ƒN‚ª‘¶İ‚·‚é
-				ioSentenceName = reserved_talk_name;	// ƒCƒxƒ“ƒg–¼‚ğ—\–ñƒg[ƒN‚Å’u‚«Š·‚¦‚é
+			// ç„¡åã‹ã€OnTalkã§ã‚ã£ãŸã¨ã—ã¦ã‚‚å®šç¾©ã•ã‚Œã¦ãªã„å ´åˆ
+			if ( !reserved_talk_name.empty() )	// ä»Šå›ã€è©±ã™ã¹ãäºˆç´„ãƒˆãƒ¼ã‚¯ãŒå­˜åœ¨ã™ã‚‹
+				ioSentenceName = reserved_talk_name;	// ã‚¤ãƒ™ãƒ³ãƒˆåã‚’äºˆç´„ãƒˆãƒ¼ã‚¯ã§ç½®ãæ›ãˆã‚‹
 		}
 	}
 
-	// map‚©‚çw’è–¼‚ğ‚Âƒg[ƒNŒQ‚ğŒŸõ
-	sender << "–" << ioSentenceName;
+	// mapã‹ã‚‰æŒ‡å®šåã‚’æŒã¤ãƒˆãƒ¼ã‚¯ç¾¤ã‚’æ¤œç´¢
+	sender << "\x81\x96" << ioSentenceName;
 	const Talk* talk = talks.select(ioSentenceName, *this);
 	if ( talk == NULL )
 	{
-		sender << " not matched." << endl; // ğŒ‚Éˆê’v‚·‚é‚à‚Ì‚ª‚È‚©‚Á‚½B
+		sender << " not matched." << endl; // æ¡ä»¶ã«ä¸€è‡´ã™ã‚‹ã‚‚ã®ãŒãªã‹ã£ãŸã€‚
 		--nest_count;
 		return	false;
 	}
 	sender << endl;
 
-	// ƒg[ƒN‚ğ‚³‚­‚çƒXƒNƒŠƒvƒg‚É•ÏŠ·
+	// ãƒˆãƒ¼ã‚¯ã‚’ã•ãã‚‰ã‚¹ã‚¯ãƒªãƒ—ãƒˆã«å¤‰æ›
 	{
 		Sender::nest_object smo(2); 
 		oResultScript = SentenceToSakuraScript(*talk);

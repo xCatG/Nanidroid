@@ -39,7 +39,7 @@ static void lines_to_units(
 	{
 		//cout << *line_it << endl;
 
-		// s“ª‚Étypemarks‚Ì‚¢‚¸‚ê‚©‚ªoŒ»‚µ‚Ä‚¢‚é‚©’T‚·
+		// è¡Œé ­ã«typemarksã®ã„ãšã‚Œã‹ãŒå‡ºç¾ã—ã¦ã„ã‚‹ã‹æ¢ã™
 		vector<string>::const_iterator mark_it = i_typemarks.begin();
 		for ( ; mark_it != i_typemarks.end() ; ++mark_it) 
 		{
@@ -49,7 +49,7 @@ static void lines_to_units(
 			}
 		}
 		
-		// oŒ»‚µ‚Ä‚½‚çƒwƒbƒ_A‚³‚à‚È‚­‚Îƒ{ƒfƒB
+		// å‡ºç¾ã—ã¦ãŸã‚‰ãƒ˜ãƒƒãƒ€ã€ã•ã‚‚ãªãã°ãƒœãƒ‡ã‚£
 		if ( mark_it != i_typemarks.end() )
 		{
 			satori_unit unit;
@@ -73,17 +73,17 @@ static void lines_to_units(
 		{
 			if ( o_units.empty() ) 
 			{
-				// o_units‚ª‹ó‚Ì‚Æ‚«iÅ‰‚ÌtypemarksoŒ»‘Oj‚ÍƒRƒƒ“ƒg‚ÆŒ©˜ô‚µA‰½‚à‚µ‚È‚¢B
+				// o_unitsãŒç©ºã®ã¨ãï¼ˆæœ€åˆã®typemarkså‡ºç¾å‰ï¼‰ã¯ã‚³ãƒ¡ãƒ³ãƒˆã¨è¦‹åšã—ã€ä½•ã‚‚ã—ãªã„ã€‚
 			}
 			else
 			{
-				// ÅŒã‚Ìo_units‚Éƒ~‚ğ’Ç‰Á
+				// æœ€å¾Œã®o_unitsã«ãƒŸã‚’è¿½åŠ 
 				o_units.back().body.push_back(*line_it);
 			}
 		}
 	}
 
-	// Šeunit––”ö‚Ì‹ós‚ğí‚é
+	// å„unitæœ«å°¾ã®ç©ºè¡Œã‚’å‰Šã‚‹
 	for ( vector<satori_unit>::iterator i = o_units.begin() ; i != o_units.end() ; ++i )
 	{
 		while (true)
@@ -101,8 +101,8 @@ static void lines_to_units(
 }
 
 
-// ƒvƒŠƒvƒƒZƒX“I‚Èˆ—B
-// ‰üsƒLƒƒƒ“ƒZƒ‹“K—pAƒRƒƒ“ƒgíœAbefore_replace‚Ì“K—p
+// ãƒ—ãƒªãƒ—ãƒ­ã‚»ã‚¹çš„ãªå‡¦ç†ã€‚
+// æ”¹è¡Œã‚­ãƒ£ãƒ³ã‚»ãƒ«é©ç”¨ã€ã‚³ãƒ¡ãƒ³ãƒˆå‰Šé™¤ã€before_replaceã®é©ç”¨
 static bool pre_process(
 	const strvec& in,
 	strvec& out,
@@ -112,42 +112,42 @@ static bool pre_process(
 	
 	)
 {
-	int	kakko_nest_count=0;	// "i" ‚ÌƒlƒXƒg”B1ˆÈã‚Ìê‡‚Í‰üs‚ğ–³Œø‰»‚·‚éB
-	string	accumulater="";	// s‚ ‚«‚ã‚Ş‚ê[‚½
+	int	kakko_nest_count=0;	// "ï¼ˆ" ã®ãƒã‚¹ãƒˆæ•°ã€‚1ä»¥ä¸Šã®å ´åˆã¯æ”¹è¡Œã‚’ç„¡åŠ¹åŒ–ã™ã‚‹ã€‚
+	string	accumulater="";	// è¡Œã‚ãã‚…ã‚€ã‚Œãƒ¼ãŸ
 	int	line_number=1;
 	for ( strvec::const_iterator fi=in.begin() ; fi!=in.end() ; ++fi, ++line_number )
 	{
 		const char* p=fi->c_str();
 		bool	escape = false;
 
-		// ƒJƒbƒR“à‚Ìê‡As“ª‚Ìƒ^ƒu‚Í–³‹‚·‚éB
+		// ã‚«ãƒƒã‚³å†…ã®å ´åˆã€è¡Œé ­ã®ã‚¿ãƒ–ã¯ç„¡è¦–ã™ã‚‹ã€‚
 		if ( kakko_nest_count>0 )
 			while ( *p=='\t' )
 				++p;
 
-		// ˆêsi•¨—sj‚É‘Î‚·‚éˆ—
+		// ä¸€è¡Œï¼ˆç‰©ç†è¡Œï¼‰ã«å¯¾ã™ã‚‹å‡¦ç†
 		while ( *p!='\0' )
 		{
-			string	c=get_a_chr(p);	// ‘SŠp”¼Šp–â‚í‚¸ˆê•¶šæ“¾B
+			string	c=get_a_chr(p);	// å…¨è§’åŠè§’å•ã‚ãšä¸€æ–‡å­—å–å¾—ã€‚
 
 			if ( escape ) 
 			{
-				accumulater += (c=="ƒÓ") ? c : io_escaper.insert(c);
+				accumulater += (c=="\x83\xD3") ? c : io_escaper.insert(c);
 				escape = false;
 			}
 			else 
 			{
-				if ( c=="ƒÓ" ) 
+				if ( c=="\x83\xD3" ) 
 				{
 					escape = true;
 					continue;
 				}
-				if ( c=="”" )
-					break;	// sI—¹
+				if ( c=="\x81\x94" )
+					break;	// è¡Œçµ‚äº†
 
-				if ( c=="i" )
+				if ( c=="\x81\x69" )
 					++kakko_nest_count;
-				else if (  c=="j" && kakko_nest_count>0 )
+				else if (  c=="\x81\x6A" && kakko_nest_count>0 )
 					--kakko_nest_count;
 
 				accumulater += c;
@@ -161,20 +161,20 @@ static bool pre_process(
 
 		if ( kakko_nest_count==0 )
 		{
-			// ’u‚«Š·‚¦«‘“K—p
+			// ç½®ãæ›ãˆè¾æ›¸é©ç”¨
 			for ( strmap::iterator di=io_replace_dic.begin() ; di!=io_replace_dic.end() ; ++di )
 			{
 				replace(accumulater, di->first, di->second);
 			}
 
-			// ˆês’Ç‰Á
+			// ä¸€è¡Œè¿½åŠ 
 			out.push_back(accumulater);
 			//sender << line_number << " [" << accumulater << "]" << endl;
 			accumulater="";
 		}
 		else if ( line_number == in.size() ) 
 		{
-			// ƒGƒ‰[
+			// ã‚¨ãƒ©ãƒ¼
 			return false;
 		}
 	}
@@ -188,15 +188,15 @@ string	Satori::SentenceToSakuraScript_with_PreProcess(const strvec& i_vec)
 	return SentenceToSakuraScript(vec);
 }
 
-// .txt‚Æ.sat‚Ì—¼•û‚ª‚­‚é‚Ì‚ÅAV‚µ‚¢•û‚¾‚¯‚ğ“Ç‚İ‚ŞB
+// .txtã¨.satã®ä¸¡æ–¹ãŒãã‚‹ã®ã§ã€æ–°ã—ã„æ–¹ã ã‘ã‚’èª­ã¿è¾¼ã‚€ã€‚
 static bool select_dict_and_load_to_vector(const string& iFileName, strvec& oFileBody)
 {
 	string txtfile = set_extention(iFileName, "txt");
 	string satfile = set_extention(iFileName, "sat");
 
 
-	// ‚Qƒtƒ@ƒCƒ‹‚Ì“ú‚ğ”äŠr‚·‚éBfile1‚ªV‚µ‚¯‚ê‚Î³‚Ì’lAfile2‚ªV‚µ‚¯‚ê‚Î•‰‚Ì’lA“™‚µ‚¯‚ê‚Î0‚ğ•Ô‚·B
-	// ƒtƒ@ƒCƒ‹‚ª‘¶İ‚µ‚È‚¢ê‡A‘¶İ‚µ‚È‚¢•û‚ªŒÃ‚¢‚Æ”»’è‚·‚éB
+	// ï¼’ãƒ•ã‚¡ã‚¤ãƒ«ã®æ—¥æ™‚ã‚’æ¯”è¼ƒã™ã‚‹ã€‚file1ãŒæ–°ã—ã‘ã‚Œã°æ­£ã®å€¤ã€file2ãŒæ–°ã—ã‘ã‚Œã°è² ã®å€¤ã€ç­‰ã—ã‘ã‚Œã°0ã‚’è¿”ã™ã€‚
+	// ãƒ•ã‚¡ã‚¤ãƒ«ãŒå­˜åœ¨ã—ãªã„å ´åˆã€å­˜åœ¨ã—ãªã„æ–¹ãŒå¤ã„ã¨åˆ¤å®šã™ã‚‹ã€‚
 #ifdef POSIX
 	int CompareTime(const string& file1, const string& file2);
 #else
@@ -205,7 +205,7 @@ static bool select_dict_and_load_to_vector(const string& iFileName, strvec& oFil
 
 	if ( CompareTime(txtfile.c_str(), satfile.c_str())>=0 )
 	{
-		// .txt‚Ì•û‚ªV‚µ‚©‚Á‚½
+		// .txtã®æ–¹ãŒæ–°ã—ã‹ã£ãŸ
 		if ( get_extention(iFileName) == "sat" )
 		{
 			sender << "  " << satfile << "is older file.";
@@ -221,7 +221,7 @@ static bool select_dict_and_load_to_vector(const string& iFileName, strvec& oFil
 	}
 	else
 	{
-		// .sat‚Ì•û‚ªV‚µ‚©‚Á‚½
+		// .satã®æ–¹ãŒæ–°ã—ã‹ã£ãŸ
 		if ( get_extention(iFileName) == "txt" )
 		{
 			sender << "  " << txtfile << "is older file.";
@@ -235,7 +235,7 @@ static bool select_dict_and_load_to_vector(const string& iFileName, strvec& oFil
 			return	false;
 		}
 
-		// ˆÃ†‰»‚ğ‰ğœ
+		// æš—å·åŒ–ã‚’è§£é™¤
 		for ( strvec::iterator it=oFileBody.begin() ; it!=oFileBody.end() ; ++it )
 		{
 			*it = decode( decode(*it) );
@@ -246,11 +246,11 @@ static bool select_dict_and_load_to_vector(const string& iFileName, strvec& oFil
 
 
 
-// «‘‚ğ“Ç‚İ‚ŞB
+// è¾æ›¸ã‚’èª­ã¿è¾¼ã‚€ã€‚
 bool	Satori::LoadDictionary(const string& iFileName) 
 {
-	// ƒtƒ@ƒCƒ‹‚©‚çvector‚Ö“Ç‚İ‚ŞB
-	// ‚»‚ÌÛA“¯ƒtƒ@ƒCƒ‹–¼‚ÅŠg’£q‚ª.txt‚Æ.sat‚Ìƒtƒ@ƒCƒ‹‚Ì“ú•t‚ğ”äŠr‚µAV‚µ‚¢•û‚¾‚¯‚ğÌ—p‚·‚éB
+	// ãƒ•ã‚¡ã‚¤ãƒ«ã‹ã‚‰vectorã¸èª­ã¿è¾¼ã‚€ã€‚
+	// ãã®éš›ã€åŒãƒ•ã‚¡ã‚¤ãƒ«åã§æ‹¡å¼µå­ãŒ.txtã¨.satã®ãƒ•ã‚¡ã‚¤ãƒ«ã®æ—¥ä»˜ã‚’æ¯”è¼ƒã—ã€æ–°ã—ã„æ–¹ã ã‘ã‚’æ¡ç”¨ã™ã‚‹ã€‚
 	strvec	file_vec;
 	if ( !select_dict_and_load_to_vector(iFileName, file_vec) )
 	{
@@ -263,7 +263,7 @@ bool	Satori::LoadDictionary(const string& iFileName)
 	if ( false == pre_process(file_vec, preprocessed_vec, m_escaper, replace_before_dic) )
 	{
 #ifdef POSIX
-	        // MessageBox‚È‚ñ‚Ä–³‚¢I
+	        // MessageBoxãªã‚“ã¦ç„¡ã„ï¼
 	        std::cerr <<
 		    "syntax error - SATORI : " << iFileName << std::endl <<
 		    std::endl <<
@@ -276,10 +276,10 @@ bool	Satori::LoadDictionary(const string& iFileName)
 		::MessageBox(NULL, 
 			(string() + iFileName + "\n\n"
 			"\n"
-			"ƒJƒbƒR‚Ì‘Î‰ŠÖŒW‚ª³‚µ‚­‚È‚¢•”•ª‚ª‚ ‚è‚Ü‚·B" "\n"
-			"«‘‚Í³‚µ‚­“Ç‚İ‚Ü‚ê‚Ä‚¢‚Ü‚¹‚ñB" "\n"
+			"\x83\x4A\x83\x62\x83\x52\x82\xCC\x91\xCE\x89\x9E\x8A\xD6\x8C\x57\x82\xAA\x90\xB3\x82\xB5\x82\xAD\x82\xC8\x82\xA2\x95\x94\x95\xAA\x82\xAA\x82\xA0\x82\xE8\x82\xDC\x82\xB7\x81\x42" "\n"
+			"\x8E\xAB\x8F\x91\x82\xCD\x90\xB3\x82\xB5\x82\xAD\x93\xC7\x82\xDD\x8D\x9E\x82\xDC\x82\xEA\x82\xC4\x82\xA2\x82\xDC\x82\xB9\x82\xF1\x81\x42" "\n"
 			"\n"
-			"ƒJƒbƒR‚ğ’P“Æ‚Å•\¦‚·‚éê‡‚Í@ƒÓi@‚Æ‹Lq‚µ‚Ä‚­‚¾‚³‚¢B").c_str(),
+			"\x83\x4A\x83\x62\x83\x52\x82\xF0\x92\x50\x93\xC6\x82\xC5\x95\x5C\x8E\xA6\x82\xB7\x82\xE9\x8F\xEA\x8D\x87\x82\xCD\x81\x40\x83\xD3\x81\x69\x81\x40\x82\xC6\x8B\x4C\x8F\x71\x82\xB5\x82\xC4\x82\xAD\x82\xBE\x82\xB3\x82\xA2\x81\x42").c_str(),
 			"syntax error - SATORI", MB_OK|MB_SYSTEMMODAL);
 #endif
 	}
@@ -287,17 +287,17 @@ bool	Satori::LoadDictionary(const string& iFileName)
 	static vector<string> typemarks;
 	if ( typemarks.empty() )
 	{
-		typemarks.push_back("–");
-		typemarks.push_back("—");
+		typemarks.push_back("\x81\x96");
+		typemarks.push_back("\x81\x97");
 	}
 
 	vector<satori_unit> units;
-	lines_to_units(preprocessed_vec, typemarks, "\t", units); // ’PŒêŒQ–¼/ƒg[ƒN–¼‚ÆÌ—pğŒ®‚Ì‹æØ‚è
+	lines_to_units(preprocessed_vec, typemarks, "\t", units); // å˜èªç¾¤å/ãƒˆãƒ¼ã‚¯åã¨æ¡ç”¨æ¡ä»¶å¼ã®åŒºåˆ‡ã‚Š
 
 
 	for ( vector<satori_unit>::iterator i=units.begin() ; i!=units.end() ; ++i)
 	{
-		// ––”ö‚Ì‹ós‚ğíœ
+		// æœ«å°¾ã®ç©ºè¡Œã‚’å‰Šé™¤
 		//while ( i->body.size()>0 && i->body.size()==0 )
 		//{
 		//	i->body.pop_back();
@@ -306,15 +306,15 @@ bool	Satori::LoadDictionary(const string& iFileName)
 		        i->body.pop_back();
 		}
 		
-		if ( i->typemark == "–" )
+		if ( i->typemark == "\x81\x96" )
 		{
-			// ƒg[ƒN‚Ìê‡
+			// ãƒˆãƒ¼ã‚¯ã®å ´åˆ
 			if ( is_for_anchor ) { anchors.insert(i->name); }
 			talks.add_element(i->name, i->body, i->condition);
 		}
 		else
 		{
-			// ’PŒêŒQ‚Ìê‡
+			// å˜èªç¾¤ã®å ´åˆ
 			const strvec& v = i->body;
 			for ( strvec::const_iterator j=v.begin() ; j!=v.end() ; ++j)
 			{
@@ -324,7 +324,7 @@ bool	Satori::LoadDictionary(const string& iFileName)
 
 	}
 
-	//sender << "@@@talk:" << talks.count_all() << ", word:" << words.count_all() << endl;
+	//sender << "ã€€ã€€ã€€talk:" << talks.count_all() << ", word:" << words.count_all() << endl;
 	sender << "... ok." << endl;
 	return	true;
 }
@@ -336,7 +336,7 @@ bool	Satori::LoadDictionary(const string& iFileName)
 
 void list_files(string i_path, list<string>& o_files)
 {
-	unify_dir_char(i_path); // \\‚Æ/‚ğŠÂ‹«‚É‰‚¶‚Ä“KØ‚È•û‚É“ˆê
+	unify_dir_char(i_path); // \\ã¨/ã‚’ç’°å¢ƒã«å¿œã˜ã¦é©åˆ‡ãªæ–¹ã«çµ±ä¸€
 #ifdef POSIX
 
 	DIR* dh = opendir(i_path.c_str());
@@ -359,8 +359,8 @@ void list_files(string i_path, list<string>& o_files)
 	}
 	closedir(dh);
 #else /* POSIX */
-	HANDLE			hFIND;	// ŒŸõƒnƒ“ƒhƒ‹
-	WIN32_FIND_DATA	fdFOUND;// Œ©‚Â‚©‚Á‚½ƒtƒ@ƒCƒ‹‚Ìî•ñ
+	HANDLE			hFIND;	// æ¤œç´¢ãƒãƒ³ãƒ‰ãƒ«
+	WIN32_FIND_DATA	fdFOUND;// è¦‹ã¤ã‹ã£ãŸãƒ•ã‚¡ã‚¤ãƒ«ã®æƒ…å ±
 	hFIND = ::FindFirstFile((i_path+"*.*").c_str(), &fdFOUND);
 	if ( hFIND == INVALID_HANDLE_VALUE )
 	{
@@ -388,7 +388,7 @@ bool Satori::LoadDicFolder(const string& i_base_folder)
 	for (list<string>::const_iterator it=files.begin() ; it!=files.end() ; ++it)
 	{
 		const int len = it->size();
-		if ( len < 7 ) { continue; } // dic.txt‚ªÅ’Zƒtƒ@ƒCƒ‹–¼
+		if ( len < 7 ) { continue; } // dic.txtãŒæœ€çŸ­ãƒ•ã‚¡ã‚¤ãƒ«å
 		if ( it->substr(0,3) != "dic" ) { continue; }
 		if ( it->substr(len-4) != ".txt" && it->substr(len-4) != ".sat" ) { continue; }
 
