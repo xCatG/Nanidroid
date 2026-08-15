@@ -9,6 +9,8 @@ files first.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -217,6 +219,147 @@ def has_non_ascii_narrow_literal(data: bytes) -> bool:
     return False
 
 
+def narrow_literal_payload_spans(data: bytes) -> list[tuple[int, int, int, bytes]]:
+    """Extract narrow literal source spans and runtime bytes in source order."""
+
+    payloads = []
+    index = 0
+    while index < len(data):
+        if data.startswith(b"//", index):
+            end = data.find(b"\n", index)
+            index = len(data) if end < 0 else end + 1
+            continue
+        if data.startswith(b"/*", index):
+            end = data.find(b"*/", index + 2)
+            if end < 0:
+                raise ValueError("unterminated block comment")
+            index = end + 2
+            continue
+        literal = literal_at(data, index)
+        if literal is None:
+            index += 1
+            continue
+        prefix, delimiter, raw, narrow = literal
+        body_start = index + len(prefix)
+        if raw:
+            delimiter_end = data.find(b"(", body_start)
+            if delimiter_end < 0:
+                raise ValueError("unterminated raw string delimiter")
+            raw_delimiter = data[body_start:delimiter_end]
+            body_start = delimiter_end + 1
+            body_end = find_raw_literal_end(data, body_start, raw_delimiter)
+            literal_end = body_end + len(raw_delimiter) + 2
+        else:
+            body_end = find_normal_literal_end(data, body_start, delimiter)
+            literal_end = body_end + 1
+        if narrow:
+            body = data[body_start:body_end]
+            payloads.append(
+                (index, literal_end, delimiter, body if raw else decode_narrow_escapes(body)),
+            )
+        index = literal_end
+    return payloads
+
+
+def decode_narrow_escapes(body: bytes) -> bytes:
+    """Interpret the C++ narrow-literal escapes needed for semantic comparison."""
+
+    simple_escapes = {
+        ord("a"): 7,
+        ord("b"): 8,
+        ord("f"): 12,
+        ord("n"): 10,
+        ord("r"): 13,
+        ord("t"): 9,
+        ord("v"): 11,
+    }
+    output = bytearray()
+    index = 0
+    while index < len(body):
+        value = body[index]
+        if value != ord("\\") or index + 1 == len(body):
+            output.append(value)
+            index += 1
+            continue
+        escaped = body[index + 1]
+        if escaped == ord("x"):
+            end = index + 2
+            while end < len(body) and is_hex_digit(body[end]):
+                end += 1
+            if end == index + 2:
+                raise ValueError("invalid hex escape in narrow literal")
+            output.append(int(body[index + 2 : end], 16) & 0xFF)
+            index = end
+        elif 48 <= escaped <= 55:
+            end = index + 2
+            while end < min(index + 4, len(body)) and 48 <= body[end] <= 55:
+                end += 1
+            output.append(int(body[index + 1 : end], 8) & 0xFF)
+            index = end
+        elif escaped in simple_escapes:
+            output.append(simple_escapes[escaped])
+            index += 2
+        else:
+            output.append(escaped)
+            index += 2
+    return bytes(output)
+
+
+def literal_fingerprint(data: bytes) -> dict[str, int | str]:
+    digest = hashlib.sha256()
+    groups: list[bytes] = []
+    for start, end, delimiter, payload in narrow_literal_payload_spans(data):
+        if (
+            delimiter == ord('"')
+            and groups
+            and data[previous_end:start].strip(b" \t\r\n\v\f") == b""
+            and previous_delimiter == ord('"')
+        ):
+            groups[-1] += payload
+        else:
+            groups.append(payload)
+        previous_end = end
+        previous_delimiter = delimiter
+    for payload in groups:
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return {"literal_count": len(groups), "sha256": digest.hexdigest()}
+
+
+def manifest_entries(path: Path, paths: list[Path]) -> dict[str, dict[str, int | str]]:
+    root = path if path.is_dir() else path.parent
+    return {
+        candidate.relative_to(root).as_posix(): literal_fingerprint(candidate.read_bytes())
+        for candidate in paths
+    }
+
+
+def write_manifest(manifest: Path, entries: dict[str, dict[str, int | str]]) -> None:
+    manifest.write_text(
+        json.dumps({"files": entries, "version": 1}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+def check_manifest(
+    path: Path,
+    paths: list[Path],
+    manifest: Path,
+) -> int:
+    try:
+        saved = json.loads(manifest.read_text(encoding="utf-8"))
+        expected = saved["files"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        print(f"{manifest}: invalid literal manifest: {error}", file=sys.stderr)
+        return 1
+    actual = manifest_entries(path, paths)
+    if saved.get("version") != 1 or expected != actual:
+        print(f"{manifest}: narrow literal semantic fingerprint mismatch", file=sys.stderr)
+        return 1
+    return 0
+
+
 def source_paths(path: Path) -> list[Path]:
     if path.is_file():
         return [path]
@@ -256,24 +399,35 @@ def write_one(path: Path) -> int:
     return check_one(path)
 
 
-def check(path: Path) -> int:
+def check(path: Path, manifest: Path | None = None) -> int:
     try:
         paths = source_paths(path)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
     results = [check_one(candidate) for candidate in paths]
-    return int(any(results))
+    if any(results):
+        return 1
+    return check_manifest(path, paths, manifest) if manifest is not None else 0
 
 
-def write(path: Path) -> int:
+def write(path: Path, manifest: Path | None = None) -> int:
     try:
         paths = source_paths(path)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
+    try:
+        entries = manifest_entries(path, paths) if manifest is not None else None
+    except ValueError as error:
+        print(f"{error}", file=sys.stderr)
+        return 1
     results = [write_one(candidate) for candidate in paths]
-    return int(any(results))
+    if any(results):
+        return 1
+    if manifest is not None:
+        write_manifest(manifest, entries)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -282,8 +436,13 @@ def main(argv: list[str] | None = None) -> int:
     action.add_argument("--check", action="store_true")
     action.add_argument("--write", action="store_true")
     parser.add_argument("path", type=Path)
+    parser.add_argument("--manifest", type=Path)
     arguments = parser.parse_args(argv)
-    return check(arguments.path) if arguments.check else write(arguments.path)
+    return (
+        check(arguments.path, arguments.manifest)
+        if arguments.check
+        else write(arguments.path, arguments.manifest)
+    )
 
 
 if __name__ == "__main__":

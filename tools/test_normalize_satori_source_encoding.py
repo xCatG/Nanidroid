@@ -8,9 +8,12 @@ from pathlib import Path
 TOOL = Path(__file__).with_name("normalize_satori_source_encoding.py")
 
 
-def run(mode: str, source: Path) -> int:
+def run(mode: str, source: Path, manifest: Path | None = None) -> int:
+    command = [sys.executable, str(TOOL), mode, str(source)]
+    if manifest is not None:
+        command.extend(["--manifest", str(manifest)])
     return subprocess.run(
-        [sys.executable, str(TOOL), mode, str(source)],
+        command,
         check=False,
         capture_output=True,
         text=True,
@@ -18,6 +21,18 @@ def run(mode: str, source: Path) -> int:
 
 
 class NormalizeSatoriSourceEncodingTest(unittest.TestCase):
+    def test_manifest_detects_converted_literal_byte_drift(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "sample.cpp"
+            manifest = root / "literal-bytes.json"
+            source.write_bytes(b'const char* s = "\x82\xA0A";\r\n')
+
+            self.assertEqual(0, run("--write", source, manifest))
+            self.assertEqual(0, run("--check", source, manifest))
+            source.write_bytes(source.read_bytes().replace(b"\\xA0", b"\\xA1"))
+            self.assertNotEqual(0, run("--check", source, manifest))
+
     def test_rewrites_only_cpp_sources_in_a_directory_scope(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
