@@ -32,6 +32,19 @@ class NormalizeSatoriSourceEncodingTest(unittest.TestCase):
                 source.read_bytes(),
             )
 
+    def test_preserves_byte_after_cp932_character_whose_trailing_byte_is_backslash(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "sample.cpp"
+            manifest = Path(temporary_directory) / "literal-bytes.json"
+            source.write_bytes(b'const char* s = "\x97\\x9";\r\n')
+
+            self.assertEqual(0, run("--write", source, manifest))
+            self.assertEqual(
+                b'const char* s = "\\x97\\x5Cx9";\r\n',
+                source.read_bytes(),
+            )
+            self.assertEqual(0, run("--check", source, manifest))
+
     def test_manifest_detects_converted_literal_byte_drift(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

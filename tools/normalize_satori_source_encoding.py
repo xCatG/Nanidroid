@@ -94,6 +94,13 @@ def rewrite_narrow_body(body: bytes, delimiter: int, *, raw: bool) -> bytes:
 def find_normal_literal_end(data: bytes, start: int, delimiter: int) -> int:
     index = start
     while index < len(data):
+        if (
+            data[index] >= 0x80
+            and index + 1 < len(data)
+            and is_cp932_double_byte(data[index], data[index + 1])
+        ):
+            index += 2
+            continue
         if data[index] == ord("\\"):
             index += 2
             continue
@@ -289,6 +296,14 @@ def decode_narrow_escapes(body: bytes) -> bytes:
     index = 0
     while index < len(body):
         value = body[index]
+        if (
+            value >= 0x80
+            and index + 1 < len(body)
+            and is_cp932_double_byte(value, body[index + 1])
+        ):
+            output.extend(body[index : index + 2])
+            index += 2
+            continue
         if value != ord("\\") or index + 1 == len(body):
             output.append(value)
             index += 1
