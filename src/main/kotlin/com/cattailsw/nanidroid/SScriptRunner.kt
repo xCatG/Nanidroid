@@ -276,7 +276,7 @@ open class SScriptRunner internal constructor(
             LegacyPlatform.debug(TAG, "ghost activation count update failed: ${error.message}")
         }
         if (outgoingName != null && newGhost != null) {
-            if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(outgoingName, null) as Array<String>)
+            if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(outgoingName, null))
             else {
                 doShioriEvent("OnFirstBoot", arrayOf("0"))
                 AnalyticsUtils.getInstance(null).trackEvent(
@@ -662,7 +662,7 @@ open class SScriptRunner internal constructor(
                 if (matcher.find()) {
                     state.charIndex += matcher.group().length
                     try {
-                        state.waitTime = matcher.group(1).toLong()
+                        state.waitTime = requireNotNull(matcher.group(1)).toLong()
                         return true
                     } catch (_: Exception) {
                     }
@@ -791,7 +791,7 @@ open class SScriptRunner internal constructor(
     private fun handleAnimation(state: PlaybackState, apply: Boolean): Boolean {
         val matcher = PatternHolders.ani_ptrn.matcher(state.msg!!.substring(state.charIndex))
         if (!matcher.find()) return false
-        if (apply) queueAnimation(state, matcher.group(1))
+        if (apply) queueAnimation(state, requireNotNull(matcher.group(1)))
         state.charIndex += matcher.group().length
         return true
     }
@@ -802,7 +802,7 @@ open class SScriptRunner internal constructor(
         val commandStart = state.charIndex - 2
         if (!matcher.find(commandStart) || matcher.start() != commandStart) return false
         state.charIndex = matcher.end()
-        if (publishSelection) appendChoiceLabel(state, matcher.group(1))
+        if (publishSelection) appendChoiceLabel(state, requireNotNull(matcher.group(1)))
         val callback = synchronized(this) {
             if (playback !== state || !state.running) return false
             ucb
@@ -818,7 +818,7 @@ open class SScriptRunner internal constructor(
         playbackHooks.afterSelectionEffectCaptured()
         publishPlaybackEffect(state) {
             if (ucb !== callback) return@publishPlaybackEffect
-            callback?.showUserSelection(
+            callback.showUserSelection(
                 remainingChoices.map { it.label }.toTypedArray(),
                 remainingChoices.map { it.id }.toTypedArray(),
             )
@@ -1520,6 +1520,6 @@ open class SScriptRunner internal constructor(
             },
         )
     }
-    fun doBoot(){g?.let{val shell=it.getShellName();val count=it.getCreateCount();if(count>1){doShioriEvent("OnBoot",arrayOf(shell) as Array<String>);AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onboot",it.getGhostId(),count.toInt())}else{doShioriEvent("OnFirstBoot",arrayOf("0"));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",it.getGhostId(),0)}}}
+    fun doBoot(){g?.let{val shell=it.getShellName();val count=it.getCreateCount();if(count>1){doShioriEvent("OnBoot",arrayOf(shell));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onboot",it.getGhostId(),count.toInt())}else{doShioriEvent("OnFirstBoot",arrayOf("0"));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",it.getGhostId(),0)}}}
     fun getStringValueFromShiori(id:String):String?=withCurrentGhost { it.getStringFromShiori(id) };fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
 }
