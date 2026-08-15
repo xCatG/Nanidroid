@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid
 
 import android.app.Notification
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -82,12 +83,6 @@ class NanidroidService : Service() {
         return START_NOT_STICKY
     }
 
-    @Suppress("DEPRECATION")
-    override fun onStart(intent: Intent?, startId: Int) {
-        super.onStart(intent, startId)
-        handleCommand(intent, startId)
-    }
-
     private fun handleCommand(intent: Intent?, startId: Int) {
         if (intent == null) {
             finishForegroundWork(startId)
@@ -137,12 +132,12 @@ class NanidroidService : Service() {
             activeForegroundStartIds.remove(startId)
             activeForegroundStartIds.isEmpty()
         }
-        if (noForegroundWorkRemains) stopForeground(true)
+        if (noForegroundWorkRemains) stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
     }
 
     private fun ensureForeground() {
-        if (Build.VERSION.SDK_INT >= 26) createNotificationChannelCompat()
+        createNotificationChannel()
         startForeground(FOREGROUND_NOTIFICATION_ID, createForegroundNotification())
     }
 
@@ -156,33 +151,23 @@ class NanidroidService : Service() {
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val builder = Notification.Builder(this)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.notification)
             .setContentTitle(getString(R.string.download_in_progress))
             .setContentText(getString(R.string.download_in_progress))
             .setContentIntent(contentIntent)
             .setOngoing(true)
-        if (Build.VERSION.SDK_INT >= 26) {
-            try {
-                builder.javaClass.getMethod("setChannelId", String::class.java).invoke(builder, CHANNEL_ID)
-            } catch (e: Exception) {
-                Log.w(TAG, "notification channel API unavailable", e)
-            }
-        }
-        @Suppress("DEPRECATION")
-        return builder.notification
+        return builder.build()
     }
 
-    private fun createNotificationChannelCompat() {
-        try {
-            val channelClass = Class.forName("android.app.NotificationChannel")
-            val channel = channelClass.getConstructor(String::class.java, CharSequence::class.java, Int::class.javaPrimitiveType)
-                .newInstance(CHANNEL_ID, getString(R.string.download_channel_name), 2)
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.javaClass.getMethod("createNotificationChannel", channelClass).invoke(manager, channel)
-        } catch (e: Exception) {
-            Log.w(TAG, "notification channel API unavailable", e)
-        }
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            getString(R.string.download_channel_name),
+            NotificationManager.IMPORTANCE_LOW,
+        )
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .createNotificationChannel(channel)
     }
 
     override fun onDestroy() {

@@ -8,7 +8,6 @@ package com.cattailsw.nanidroid.util
 
 import android.content.Context
 import android.os.Build
-import android.preference.PreferenceManager
 import android.util.Log
 import com.google.android.apps.analytics.GoogleAnalyticsTracker
 import java.util.concurrent.Executors
@@ -25,7 +24,7 @@ open class AnalyticsUtils private constructor(context: Context?) {
             tracker = GoogleAnalyticsTracker.getInstance()
             tracker.startNewSession(uaCode, DISPATCH_PERIOD_SECONDS, applicationContext)
 
-            val preferences = PreferenceManager.getDefaultSharedPreferences(applicationContext)
+            val preferences = applicationContext.getSharedPreferences("${applicationContext.packageName}_preferences", Context.MODE_PRIVATE)
             if (preferences.getBoolean(FIRST_RUN_KEY, true)) {
                 Log.d(TAG, "Analytics firstRun")
                 tracker.setCustomVar(1, "apiLevel", Build.VERSION.SDK_INT.toString(), VISITOR_SCOPE)
