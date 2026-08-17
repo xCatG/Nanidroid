@@ -114,6 +114,26 @@ accepted native-crash path additionally requires the exact known Kawari target,
 host/device cleanup, representative parser and dialogue behavior, authored collision
 geometry, optical bounds, asymmetric stages, and unsupported non-ghost packages.
 
+## Phase 1 shipped-state audit
+
+The compatibility decision for removing the unshipped durable workflows is
+recorded in `docs/modernization/phase1-shipped-state-ledger.json`. Verify its
+Path-A-only schema, exact audited head, Git ancestry, writer epochs, application
+identity, exact audit/observation dates and GitHub limitation, exact required
+evidence, closed schema-v1 object keys, persistent-resource contracts, and
+owner-attestation requirement offline. Unrelated generic-valid evidence remains
+the explicit extension point:
+
+```powershell
+python -m unittest tools.test_verify_phase1_shipped_state_audit
+python tools/verify_phase1_shipped_state_audit.py
+```
+
+The verifier requires full Git history for the three effective writer commits.
+It makes no network, device, APK, WorkManager, DownloadManager, URI-grant, or
+filesystem-cleanup calls. Refreshing dated GitHub observations requires an
+explicit schema revision and is not part of routine verification.
+
 ## Full verification
 
 ```powershell

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-08-17",
+  "repository": {
+    "applicationId": "com.cattailsw.nanidroid",
+    "versionCode": 6,
+    "versionName": "open_0.1",
+    "auditedHead": "f7d037bc066ff648d73b4c2d403a890765b44523"
+  },
+  "writerEpochs": [
+    {"id":"nar-queue-workmanager","commit":"19da89d3f4d1faaaaaae3e000b8bc852f73c2c38","introducedPaths":["src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadStore.kt","src/main/kotlin/com/cattailsw/nanidroid/install/InstallNarWorker.kt","src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadReceiver.kt","src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadRecoveryReceiver.kt"]},
+    {"id":"durable-operation-store","commit":"ec78fcc282c0a528f371609fca0e66fbf773b5ff","introducedPaths":["src/main/kotlin/com/cattailsw/nanidroid/durable/SharedPreferencesDurableOperationStore.kt","src/main/kotlin/com/cattailsw/nanidroid/durable/DurableOperationSupervisor.kt"]},
+    {"id":"transactional-ghost-update","commit":"19956d7f5f2406e045c819593e761a4c1fb08ae6","introducedPaths":["src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateWorker.kt","src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateRepository.kt","src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateJournal.kt"]}
+  ],
+  "persistentResources": [
+    {"id":"nar-download-queue","ownership":"APP_OWNED_LOSSY_DECODE_FAIL_CLOSED","locations":["shared_prefs/nar-download-queue.xml#records-v1"],"formats":["v1","v2","v3","v4"],"cleanupPolicy":"Preserve on unknown version or malformed row; never infer absence from an empty production decode"},
+    {"id":"durable-operations","ownership":"APP_OWNED_STRICT_DECODE","locations":["shared_prefs/durable_operations_v1.xml#records","shared_prefs/durable_operations_v1.xml#records_corruption_quarantine","shared_prefs/durable_operations_v1.xml#records_corruption_recovery_required"],"formats":["v1","v2","v3","v4","v5","v6"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"workmanager-worker-fqcns","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["com.cattailsw.nanidroid.install.InstallNarWorker","com.cattailsw.nanidroid.install.StageLocalNarWorker","com.cattailsw.nanidroid.durable.GhostUpdateWorker","com.cattailsw.nanidroid.durable.GhostUpdateRecoveryWorker"],"formats":[],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"workmanager-unique-work","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["install-nar-<itemId>","stage-local-nar-<itemId>","ghost-update-<32hex:sha256(canonical-ghost-root)>","ghost-update-recovery-<32hex:sha256(canonical-target-or-storage-root)>"],"formats":["ExistingWorkPolicy.KEEP"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"workmanager-request-uuids","ownership":"PLATFORM_OWNED_HISTORICAL_EXACT_IDENTITY","locations":["InstallNarWorker","StageLocalNarWorker","GhostUpdateWorker","GhostUpdateRecoveryWorker"],"formats":["InstallNarWorker:legacy-WorkManager-random,current-durableWorkManagerId-v1(NAR_INSTALL,attempt,itemId)","StageLocalNarWorker:early-WorkManager-random,current-durableWorkManagerId-v1(LOCAL_NAR,attempt,itemId)","GhostUpdateWorker:early-UUID.randomUUID,current-durableWorkManagerId-v1(GHOST_UPDATE,attempt,canonical-operation-id)","GhostUpdateRecoveryWorker:WorkManager-random"],"cleanupPolicy":"Preserve every historical and current request identity; no cleanup in audit PR"},
+    {"id":"downloadmanager-rows","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["external-files/Download/nar-downloads/<itemId>.nar"],"formats":["exact-row-id","binding-history"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"persisted-uri-grants","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["queue-source-uri","queue-retained-uri","pendingPersistedGrantReleaseUri","pending-grant-release"],"formats":["read-grant"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"local-import-staging","ownership":"APP_OWNED_CANONICAL_PATH","locations":["filesDir/nar-local-imports"],"formats":["nar-local-<24hex>.nar"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"install-attempt-staging","ownership":"APP_OWNED_CANONICAL_PATH","locations":["cacheDir/nar-install-attempts/<64hex:sha256(itemId)>/<UUID>/nar-import-<24hex>.zip"],"formats":["64-lowercase-hex-item-directory","canonical-UUID-attempt-directory","24-lowercase-hex-archive-token"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"external-ghost-install-staging","ownership":"APP_OWNED_CANONICAL_PATH","locations":["<ghost-install-root>/.nanidroid-install-staging/candidate-<32hex>/staged-<32hex>.nar","<ghost-install-root>/.nanidroid-install-staging/candidate-<32hex>/tree"],"formats":["32-lowercase-hex-candidate-token","32-lowercase-hex-staged-archive-token"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"ghost-update-unpublished-staging","ownership":"APP_OWNED_EXACT_STAGING_JOURNAL_AND_SIBLING_MARKER","locations":["<ghost-storage>/.nanidroid-staging-<32hex:sha256(operationId)>","<staging>/journal.v1","<staging>/journal.v1.tmp","<ghost-storage>/.nanidroid-update-owner-<UUID>.tmp","<ghost-storage>/.nanidroid-update-writing-<File.createTempFile-random>.tmp"],"formats":["operationId=ghost-update-<64hex:sha256(canonical-ghost-root)>","phase=PREPARED","journal=journal.v1-or-complete-journal.v1.tmp","sibling-owner-marker=readable-exact-journal-match","prefix-alone-is-not-ownership"],"cleanupPolicy":"Preserve incomplete writing residue and ambiguous or unmatched staging; no cleanup from a prefix; no cleanup in audit PR"},
+    {"id":"ghost-update-transaction","ownership":"APP_OWNED_EXACT_PUBLISHED_JOURNAL_LOCK_AND_TOPOLOGY","locations":["<ghost-storage>/.nanidroid-update-<32hex:sha256(operationId)>","<transaction>/candidate","<transaction>/backup","<transaction>/journal.v1","<transaction>/journal.v1.tmp","<ghost-storage>/.nanidroid-update-lock-<24hex:sha256(canonical-ghost-root)>"],"formats":["operationId=ghost-update-<64hex:sha256(canonical-ghost-root)>","phases=PREPARED|BACKED_UP|PUBLISHED|CLEANED|ROLLBACK_CLASSIFIED|NO_CHANGES_PENDING","topologies=LIVE_CANDIDATE|CANDIDATE_BACKUP|LIVE_BACKUP|LIVE_ONLY|INVALID","owner-marker=deleted-after-publish-and-not-required","prefix-alone-is-not-ownership"],"cleanupPolicy":"Preserve ambiguous topology; no cleanup from a prefix; no cleanup in audit PR"},
+    {"id":"installed-live-ghost-trees","ownership":"APP_OWNED_LIVE_PRODUCT_STATE_RETAIN","locations":["external-files/ghost/<validated-targetId>"],"formats":["published-live-ghost-tree-usability-not-cleanup-ownership"],"cleanupPolicy":"Preserve from generic workflow cleanup; mutate only through exact transactional publication or recovery, or explicit user removal; no cleanup in audit PR"},
+    {"id":"runtime-last-ghost","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/CATTAILSW_NANIDROID_PREFS.xml#lastrunghost"],"formats":["string"],"cleanupPolicy":"Never delete as workflow cleanup or by deleting the containing preference file"},
+    {"id":"runtime-activation-counts","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/CATTAILSW_NANIDROID_PREFS.xml#createcount_ghost*"],"formats":["long"],"cleanupPolicy":"Never delete as workflow cleanup or by deleting the containing preference file"},
+    {"id":"runtime-launch-time","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/CATTAILSW_NANIDROID_PREFS.xml#keylaunchtime"],"formats":["long"],"cleanupPolicy":"Never delete as workflow cleanup or by deleting the containing preference file"},
+    {"id":"default-preference-analytics","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/com.cattailsw.nanidroid_preferences.xml#enable_analytics"],"formats":["boolean"],"cleanupPolicy":"Never delete by deleting the co-resident default preference file"},
+    {"id":"default-preference-first-run","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/com.cattailsw.nanidroid_preferences.xml#firstRun"],"formats":["boolean"],"cleanupPolicy":"Never delete by deleting the co-resident default preference file"},
+    {"id":"shared-nar-storage","ownership":"FOREIGN_PRESERVE","locations":["/sdcard/nar"],"formats":["File.createTempFile(prefix=nanidroid,suffix=tmp)=>nanidroid<implementation-random>tmp"],"cleanupPolicy":"Never infer ownership or delete from name or prefix"},
+    {"id":"backup-device-transfer-boundaries","ownership":"ANDROID_BACKUP_POLICY_EXACT_BOUNDARY","locations":["AndroidManifest.xml#application@fullBackupContent=@xml/backup_rules","AndroidManifest.xml#application@dataExtractionRules=@xml/data_extraction_rules","backup_rules.xml#exclude:sharedpref/durable_operations_v1.xml","backup_rules.xml#exclude:sharedpref/nar-download-queue.xml","data_extraction_rules.xml#cloud-backup/exclude:sharedpref/durable_operations_v1.xml","data_extraction_rules.xml#cloud-backup/exclude:sharedpref/nar-download-queue.xml","data_extraction_rules.xml#device-transfer/exclude:sharedpref/durable_operations_v1.xml","data_extraction_rules.xml#device-transfer/exclude:sharedpref/nar-download-queue.xml"],"formats":["otherwise eligible unlisted state remains governed by Android default backup eligibility; no inclusion claim for cache, code-cache, no-backup, shared, or out-of-domain storage"],"cleanupPolicy":"Preserve full-backup, cloud-backup, and device-transfer exclusions; no cleanup in audit PR"},
+    {"id":"durable-android-components","ownership":"ANDROID_COMPONENT_EXACT_IDENTITY","locations":["com.cattailsw.nanidroid.NanidroidService|service|exported=false|foregroundServiceType=dataSync","com.cattailsw.nanidroid.install.NarDownloadReceiver|receiver|exported=false|android.intent.action.DOWNLOAD_COMPLETE","com.cattailsw.nanidroid.install.NarDownloadRecoveryReceiver|receiver|exported=false|android.intent.action.BOOT_COMPLETED|android.intent.action.MY_PACKAGE_REPLACED","com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver|receiver|exported=false|explicit-only"],"formats":["android.permission.RECEIVE_BOOT_COMPLETED"],"cleanupPolicy":"No component or intent-filter removal in audit PR"},
+    {"id":"durable-pending-intents","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["broadcast|requestCode=0|component=com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver|actions=com.cattailsw.nanidroid.action.DURABLE_KEEP_WAITING,com.cattailsw.nanidroid.action.DURABLE_STOP,com.cattailsw.nanidroid.action.DURABLE_RETRY_STOP|data=nanidroid://durable-operation/<encoded-operationId>/<attemptId>|package=com.cattailsw.nanidroid","activity|requestCode=0|component=com.cattailsw.nanidroid.Nanidroid|action=android.intent.action.MAIN|data=nanidroid://durable-operation/open","activity|requestCode=0|component=com.cattailsw.nanidroid.Nanidroid|action=<null>|data=<null>|intentFlags=FLAG_ACTIVITY_CLEAR_TOP|FLAG_ACTIVITY_SINGLE_TOP"],"formats":["FLAG_UPDATE_CURRENT","FLAG_IMMUTABLE"],"cleanupPolicy":"Preserve persisted PendingIntent identity until its owning notification/component is deliberately migrated"},
+    {"id":"durable-attention-notifications","ownership":"PLATFORM_OWNED_NOTIFICATION_EXACT_IDENTITY","locations":["channel|id=nanidroid_operation_attention|app-declared-initial-importance=IMPORTANCE_DEFAULT|description=@string/durable_attention_channel_description","active-notification|tag=durable:<operationId>::<attemptId>|id=43"],"formats":["channel-runtime-user-sound-vibration-and-importance-not-fixed"],"cleanupPolicy":"Preserve channel identity and user configuration; reconcile or cancel active notifications only by exact durable:<operationId>::<attemptId> tag and ID 43 until deliberate migration or removal; no cleanup in audit PR"},
+    {"id":"nanidroid-service-foreground-notification","ownership":"PLATFORM_OWNED_NOTIFICATION_EXACT_IDENTITY","locations":["channel|id=nanidroid_downloads|app-declared-initial-importance=IMPORTANCE_LOW","foreground-notification|id=41"],"formats":["startForeground-service-notification"],"cleanupPolicy":"Preserve channel identity and user configuration and foreground notification ID 41 until NanidroidService is deliberately stopped and removed; no cleanup in audit PR"}
+  ],
+  "distribution": {
+    "github": {
+      "observedAt": "2026-08-17",
+      "releaseCount": 0,
+      "tagCount": 0,
+      "actionsArtifactCount": 192,
+      "postWriterApkArtifactCount": 0,
+      "postWriterReportOnlyArtifactCount": 2,
+      "limitation": "Current metadata cannot disprove deleted releases or private distribution."
+    },
+    "channels": [
+      {"id": "github-releases", "status": "none"},
+      {"id": "github-actions-apk-after-writer-epoch", "status": "none"},
+      {"id": "google-play", "status": "none"},
+      {"id": "f-droid", "status": "none"},
+      {"id": "website", "status": "none"},
+      {"id": "drive-discord-direct-share", "status": "none"},
+      {"id": "other", "status": "none"}
+    ],
+    "ownerAttestation": {
+      "confirmed": true,
+      "date": "2026-08-17",
+      "stateCapableApkDistributed": false,
+      "signingKeyRecovered": false,
+      "statement": "No APK built from 19da89d3f4d1faaaaaae3e000b8bc852f73c2c38 or later was released or distributed; the signing key has not been recovered."
+    }
+  },
+  "decision": {
+    "path": "A",
+    "rationaleEvidenceIds": [
+      "git-writer-epochs",
+      "git-app-identity-reuse",
+      "github-releases-tags-empty-2026-08-17",
+      "github-actions-no-post-writer-apk-2026-08-17",
+      "baseline-artifacts-unavailable",
+      "owner-attestation-2026-08-17"
+    ],
+    "supportedUpgradeFloor": "No distributed state-capable modernization build",
+    "sequentialUpgradeEnforced": false,
+    "compatibilityRemovalFloor": null
+  },
+  "evidence": [
+    {"id":"git-writer-epochs","type":"git-history","claim":"The three effective writer epochs are recorded in the audited history.","source":"Git history","observedAt":"2026-08-17"},
+    {"id":"git-app-identity-reuse","type":"git-history","claim":"Application identity code 6/name open_0.1 is reused at every writer epoch.","source":"build.gradle.kts at writer commits","observedAt":"2026-08-17"},
+    {"id":"github-releases-tags-empty-2026-08-17","type":"github-metadata-observation","claim":"Current GitHub release and tag API arrays are empty.","source":"GitHub release and tag metadata","observedAt":"2026-08-17"},
+    {"id":"github-actions-no-post-writer-apk-2026-08-17","type":"github-metadata-observation","claim":"APK-like artifacts predate 19da; two later artifacts contain reports only.","source":"GitHub Actions artifact metadata","observedAt":"2026-08-17"},
+    {"id":"baseline-artifacts-unavailable","type":"repository-document","claim":"PR_A_BASELINE.md records missing historical APK, signing identity/hash, and toolchain.","source":"docs/modernization/PR_A_BASELINE.md","observedAt":"2026-08-17"},
+    {"id":"owner-attestation-2026-08-17","type":"owner-attestation","claim":"No state-capable APK was distributed and the signing key was not recovered.","source":"Owner attestation","observedAt":"2026-08-17"}
+  ]
+}
