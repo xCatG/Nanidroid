@@ -5,9 +5,10 @@ $cliPath = Join-Path $repoRoot 'scripts\build-nar-corpus-metadata-ledger.ps1'
 $fixtureRoot = Join-Path $PSScriptRoot 'fixtures\nar-corpus-metadata-resolver'
 $phaseOneFixture = Join-Path $fixtureRoot 'phase-one-synthetic.json'
 $payloadFixture = Join-Path $fixtureRoot 'payload-shaped.json'
-$outputRoot = Join-Path ([IO.Path]::GetTempPath()) ('nanidroid-nar-ledger-' + [Guid]::NewGuid().ToString('N'))
-$unsafeOutputRoot = Join-Path ([IO.Path]::GetTempPath()) ('nanidroid-nar-ledger-unsafe-' + [Guid]::NewGuid().ToString('N'))
-$generatedFixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ('nanidroid-nar-ledger-fixtures-' + [Guid]::NewGuid().ToString('N'))
+$testScratchRoot = Join-Path (Join-Path $repoRoot 'build') ('nar-ledger-test-' + [Guid]::NewGuid().ToString('N'))
+$outputRoot = Join-Path $testScratchRoot 'output'
+$unsafeOutputRoot = Join-Path $testScratchRoot 'unsafe-output'
+$generatedFixtureRoot = Join-Path $testScratchRoot 'fixtures'
 
 function Assert-Equal([object] $Expected, [object] $Actual, [string] $Message) {
     if ($Expected -ne $Actual) {
@@ -203,22 +204,21 @@ try {
     $orderingResultB = Invoke-Resolver -FixturePath $orderingFixtureB -OutputPath $orderingOutputB
     Assert-Equal 0 $orderingResultA.ExitCode 'The first ordering fixture should be accepted.'
     Assert-Equal 0 $orderingResultB.ExitCode 'The reordered ordering fixture should be accepted.'
-    $orderingLedgerA = [IO.File]::ReadAllText((Join-Path $orderingOutputA 'ledger.json'))
-    $orderingLedgerB = [IO.File]::ReadAllText((Join-Path $orderingOutputB 'ledger.json'))
-    Assert-Equal $orderingLedgerA $orderingLedgerB 'Equivalent fixture row orderings must produce byte-identical ledger.json output.'
+    $orderingLedgerAPath = Join-Path $orderingOutputA 'ledger.json'
+    $orderingLedgerBPath = Join-Path $orderingOutputB 'ledger.json'
+    $orderingLedgerABytes = [IO.File]::ReadAllBytes($orderingLedgerAPath)
+    $orderingLedgerBBytes = [IO.File]::ReadAllBytes($orderingLedgerBPath)
+    $orderingLedgerABase64 = [Convert]::ToBase64String($orderingLedgerABytes)
+    $orderingLedgerBBase64 = [Convert]::ToBase64String($orderingLedgerBBytes)
+    Assert-Equal $orderingLedgerABase64 $orderingLedgerBBase64 'Equivalent fixture row orderings must produce byte-identical ledger.json output.'
+    $orderingLedgerA = [Text.Encoding]::UTF8.GetString($orderingLedgerABytes)
     $orderingRowsOutput = @((ConvertFrom-Json $orderingLedgerA).rows)
     $orderingKeys = @($orderingRowsOutput | ForEach-Object { '{0}:{1}' -f $_.snapshotId, $_.sourceRowOrdinal })
     Assert-Equal 'snapshot-a:1|snapshot-a:2|snapshot-z:1|snapshot-z:2' ($orderingKeys -join '|') 'Ledger rows must be sorted by snapshotId and sourceRowOrdinal.'
 }
 finally {
-    if (Test-Path -LiteralPath $outputRoot) {
-        Remove-Item -LiteralPath $outputRoot -Recurse -Force
-    }
-    if (Test-Path -LiteralPath $unsafeOutputRoot) {
-        Remove-Item -LiteralPath $unsafeOutputRoot -Recurse -Force
-    }
-    if (Test-Path -LiteralPath $generatedFixtureRoot) {
-        Remove-Item -LiteralPath $generatedFixtureRoot -Recurse -Force
+    if (Test-Path -LiteralPath $testScratchRoot) {
+        Remove-Item -LiteralPath $testScratchRoot -Recurse -Force
     }
 }
 
