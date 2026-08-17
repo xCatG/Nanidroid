@@ -159,27 +159,42 @@ REQUIRED_RESOURCES = {
         ],
         "cleanupPolicy": "No cleanup in audit PR",
     },
-    "ghost-update-transaction": {
-        "ownership": "APP_OWNED_EXACT_JOURNAL_LOCK_AND_TOPOLOGY",
+    "ghost-update-unpublished-staging": {
+        "ownership": "APP_OWNED_EXACT_STAGING_JOURNAL_AND_SIBLING_MARKER",
         "locations": [
-            "<ghost-storage>/.nanidroid-update-<32hex:sha256(operationId)>",
-            "<ghost-storage>/.nanidroid-staging-<same-32hex>",
-            "<transaction>/candidate",
-            "<transaction>/backup",
-            "<transaction>/journal.v1",
-            "<transaction>/journal.v1.tmp",
-            "<ghost-storage>/.nanidroid-update-lock-<24hex:sha256(canonical-ghost-root)>",
+            "<ghost-storage>/.nanidroid-staging-<32hex:sha256(operationId)>",
+            "<staging>/journal.v1",
+            "<staging>/journal.v1.tmp",
             "<ghost-storage>/.nanidroid-update-owner-<UUID>.tmp",
             "<ghost-storage>/.nanidroid-update-writing-<File.createTempFile-random>.tmp",
         ],
         "formats": [
             "operationId=ghost-update-<64hex:sha256(canonical-ghost-root)>",
-            "phases=PREPARED|BACKED_UP|PUBLISHED|CLEANED|ROLLBACK_CLASSIFIED|NO_CHANGES_PENDING",
-            "topologies=LIVE_CANDIDATE|CANDIDATE_BACKUP|LIVE_BACKUP|LIVE_ONLY|INVALID",
-            "owner-marker=readable-exact-journal-match",
+            "phase=PREPARED",
+            "journal=journal.v1-or-complete-journal.v1.tmp",
+            "sibling-owner-marker=readable-exact-journal-match",
             "prefix-alone-is-not-ownership",
         ],
-        "cleanupPolicy": "Preserve ambiguous topology and writing residue; no cleanup from a prefix; no cleanup in audit PR",
+        "cleanupPolicy": "Preserve incomplete writing residue and ambiguous or unmatched staging; no cleanup from a prefix; no cleanup in audit PR",
+    },
+    "ghost-update-transaction": {
+        "ownership": "APP_OWNED_EXACT_PUBLISHED_JOURNAL_LOCK_AND_TOPOLOGY",
+        "locations": [
+            "<ghost-storage>/.nanidroid-update-<32hex:sha256(operationId)>",
+            "<transaction>/candidate",
+            "<transaction>/backup",
+            "<transaction>/journal.v1",
+            "<transaction>/journal.v1.tmp",
+            "<ghost-storage>/.nanidroid-update-lock-<24hex:sha256(canonical-ghost-root)>",
+        ],
+        "formats": [
+            "operationId=ghost-update-<64hex:sha256(canonical-ghost-root)>",
+            "phases=PREPARED|BACKED_UP|PUBLISHED|CLEANED|ROLLBACK_CLASSIFIED|NO_CHANGES_PENDING",
+            "topologies=LIVE_CANDIDATE|CANDIDATE_BACKUP|LIVE_BACKUP|LIVE_ONLY|INVALID",
+            "owner-marker=deleted-after-publish-and-not-required",
+            "prefix-alone-is-not-ownership",
+        ],
+        "cleanupPolicy": "Preserve ambiguous topology; no cleanup from a prefix; no cleanup in audit PR",
     },
     "runtime-last-ghost": {
         "ownership": "APP_RUNTIME_STATE_RETAIN",
@@ -229,7 +244,9 @@ REQUIRED_RESOURCES = {
             "data_extraction_rules.xml#device-transfer/exclude:sharedpref/durable_operations_v1.xml",
             "data_extraction_rules.xml#device-transfer/exclude:sharedpref/nar-download-queue.xml",
         ],
-        "formats": ["all unlisted state remains included by Android default policy"],
+        "formats": [
+            "otherwise eligible unlisted state remains governed by Android default backup eligibility; no inclusion claim for cache, code-cache, no-backup, shared, or out-of-domain storage",
+        ],
         "cleanupPolicy": "Preserve full-backup, cloud-backup, and device-transfer exclusions; no cleanup in audit PR",
     },
     "durable-android-components": {
@@ -246,7 +263,7 @@ REQUIRED_RESOURCES = {
     "durable-pending-intents": {
         "ownership": "PLATFORM_OWNED_EXACT_IDENTITY",
         "locations": [
-            "broadcast|requestCode=0|component=com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver|actions=DURABLE_KEEP_WAITING,DURABLE_STOP,DURABLE_RETRY_STOP|data=nanidroid://durable-operation/<encoded-operationId>/<attemptId>|package=com.cattailsw.nanidroid",
+            "broadcast|requestCode=0|component=com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver|actions=com.cattailsw.nanidroid.action.DURABLE_KEEP_WAITING,com.cattailsw.nanidroid.action.DURABLE_STOP,com.cattailsw.nanidroid.action.DURABLE_RETRY_STOP|data=nanidroid://durable-operation/<encoded-operationId>/<attemptId>|package=com.cattailsw.nanidroid",
             "activity|requestCode=0|component=com.cattailsw.nanidroid.Nanidroid|action=android.intent.action.MAIN|data=nanidroid://durable-operation/open",
             "activity|requestCode=0|component=com.cattailsw.nanidroid.Nanidroid|action=<null>|data=<null>|intentFlags=FLAG_ACTIVITY_CLEAR_TOP|FLAG_ACTIVITY_SINGLE_TOP",
         ],
@@ -268,9 +285,20 @@ REQUIRED_OWNER_ATTESTATION_EVIDENCE = {
     "source": "Owner attestation",
     "observedAt": "2026-08-17",
 }
+REQUIRED_PATH_A_SUPPORTED_UPGRADE_FLOOR = (
+    "No distributed state-capable modernization build"
+)
+REQUIRED_PATH_A_RATIONALE_EVIDENCE_IDS = {
+    "git-writer-epochs",
+    "git-app-identity-reuse",
+    "github-releases-tags-empty-2026-08-17",
+    "github-actions-no-post-writer-apk-2026-08-17",
+    "baseline-artifacts-unavailable",
+    "owner-attestation-2026-08-17",
+}
 
 
-def load_ledger(path: Path) -> dict[str, Any]:
+def load_ledger(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -316,7 +344,10 @@ def shallow_history_notice(repo_root: Path) -> str:
     return ""
 
 
-def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
+def validate_ledger(data: Any, repo_root: Path) -> list[str]:
+    if not isinstance(data, dict):
+        return ["ledger must be a top-level object"]
+
     failures: list[str] = []
     decision = data.get("decision", {})
     if not isinstance(decision, dict):
@@ -535,6 +566,24 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     if channel_ids_set != REQUIRED_CHANNEL_IDS or len(channel_ids) != len(channel_ids_set):
         failures.append("distribution channel IDs must exactly match the required unique set")
     if path == "A":
+        rationale_ids_are_unique_strings = (
+            isinstance(rationale_ids, list) and
+            all(isinstance(evidence_id, str) for evidence_id in rationale_ids) and
+            len(rationale_ids) == len(set(rationale_ids))
+        )
+        if (
+            not rationale_ids_are_unique_strings or
+            set(rationale_ids) != REQUIRED_PATH_A_RATIONALE_EVIDENCE_IDS
+        ):
+            failures.append(
+                "Path A rationale evidence IDs must exactly match the required unique set"
+            )
+        if decision.get("supportedUpgradeFloor") != REQUIRED_PATH_A_SUPPORTED_UPGRADE_FLOOR:
+            failures.append("Path A supportedUpgradeFloor must exactly match the current value")
+        if decision.get("sequentialUpgradeEnforced") is not False:
+            failures.append("Path A sequentialUpgradeEnforced must exactly match false")
+        if decision.get("compatibilityRemovalFloor") is not None:
+            failures.append("Path A compatibilityRemovalFloor must exactly match null")
         if attestation != REQUIRED_OWNER_ATTESTATION:
             failures.append("Path A owner attestation must exactly match the approved statement")
         if attestation.get("confirmed") is not True:
@@ -579,6 +628,40 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             attestation.get("stateCapableApkDistributed") is False
         ):
             failures.append(f"Path {path} contradicts the confirmed no-distribution attestation")
+        github = distribution.get("github", {})
+        if not isinstance(github, dict):
+            github = {}
+        channels_by_id = {
+            channel.get("id"): channel
+            for channel in valid_channels
+            if isinstance(channel.get("id"), str)
+        }
+        if (
+            channels_by_id.get("github-releases", {}).get("status") == "state-capable" and
+            (
+                not isinstance(github.get("releaseCount"), int) or
+                isinstance(github.get("releaseCount"), bool) or
+                github["releaseCount"] <= 0
+            )
+        ):
+            failures.append(
+                "state-capable github-releases channel requires positive releaseCount"
+            )
+        if (
+            channels_by_id.get(
+                "github-actions-apk-after-writer-epoch",
+                {},
+            ).get("status") == "state-capable" and
+            (
+                not isinstance(github.get("postWriterApkArtifactCount"), int) or
+                isinstance(github.get("postWriterApkArtifactCount"), bool) or
+                github["postWriterApkArtifactCount"] <= 0
+            )
+        ):
+            failures.append(
+                "state-capable GitHub Actions channel requires positive "
+                "postWriterApkArtifactCount"
+            )
 
     for channel in valid_channels:
         if channel.get("status") not in ALLOWED_CHANNEL_STATUS:
