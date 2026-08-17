@@ -15,7 +15,6 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "modernization" / "phase1-shipped-state-ledger.json"
-ALLOWED_PATHS = {"A", "B", "C"}
 ALLOWED_CHANNEL_STATUS = {"none", "state-capable", "unknown"}
 ALLOWED_EVIDENCE_TYPES = {
     "git-history",
@@ -23,6 +22,41 @@ ALLOWED_EVIDENCE_TYPES = {
     "repository-document",
     "owner-attestation",
 }
+REQUIRED_LEDGER_FIELDS = {
+    "schemaVersion",
+    "auditDate",
+    "repository",
+    "writerEpochs",
+    "persistentResources",
+    "distribution",
+    "decision",
+    "evidence",
+}
+REQUIRED_REPOSITORY_FIELDS = {
+    "applicationId",
+    "versionCode",
+    "versionName",
+    "auditedHead",
+}
+REQUIRED_WRITER_EPOCH_FIELDS = {"id", "commit", "introducedPaths"}
+REQUIRED_DECISION_FIELDS = {
+    "path",
+    "rationaleEvidenceIds",
+    "supportedUpgradeFloor",
+    "sequentialUpgradeEnforced",
+    "compatibilityRemovalFloor",
+}
+REQUIRED_DISTRIBUTION_FIELDS = {"github", "channels", "ownerAttestation"}
+REQUIRED_GITHUB_FIELDS = {
+    "observedAt",
+    "releaseCount",
+    "tagCount",
+    "actionsArtifactCount",
+    "postWriterApkArtifactCount",
+    "postWriterReportOnlyArtifactCount",
+    "limitation",
+}
+REQUIRED_CHANNEL_FIELDS = {"id", "status"}
 REQUIRED_CHANNEL_IDS = {
     "github-releases",
     "github-actions-apk-after-writer-epoch",
@@ -38,6 +72,17 @@ REQUIRED_PATH_A_GITHUB_COUNTS = {
     "actionsArtifactCount": 192,
     "postWriterApkArtifactCount": 0,
     "postWriterReportOnlyArtifactCount": 2,
+}
+REQUIRED_AUDIT_DATE = "2026-08-17"
+REQUIRED_PATH_A_GITHUB_OBSERVED_AT = REQUIRED_AUDIT_DATE
+REQUIRED_PATH_A_GITHUB_LIMITATION = (
+    "Current metadata cannot disprove deleted releases or private distribution."
+)
+REQUIRED_AUDITED_HEAD = "f7d037bc066ff648d73b4c2d403a890765b44523"
+REQUIRED_REPOSITORY_IDENTITY = {
+    "applicationId": "com.cattailsw.nanidroid",
+    "versionCode": 6,
+    "versionName": "open_0.1",
 }
 REQUIRED_WRITER_EPOCHS = {
     "nar-queue-workmanager": {
@@ -123,7 +168,7 @@ REQUIRED_RESOURCES = {
     },
     "downloadmanager-rows": {
         "ownership": "PLATFORM_OWNED_EXACT_IDENTITY",
-        "locations": ["external-files/Downloads/nar-downloads/<itemId>.nar"],
+        "locations": ["external-files/Download/nar-downloads/<itemId>.nar"],
         "formats": ["exact-row-id", "binding-history"],
         "cleanupPolicy": "No cleanup in audit PR",
     },
@@ -203,6 +248,12 @@ REQUIRED_RESOURCES = {
         ],
         "cleanupPolicy": "Preserve ambiguous topology; no cleanup from a prefix; no cleanup in audit PR",
     },
+    "installed-live-ghost-trees": {
+        "ownership": "APP_OWNED_LIVE_PRODUCT_STATE_RETAIN",
+        "locations": ["external-files/ghost/<validated-targetId>"],
+        "formats": ["published-live-ghost-tree-usability-not-cleanup-ownership"],
+        "cleanupPolicy": "Preserve from generic workflow cleanup; mutate only through exact transactional publication or recovery, or explicit user removal; no cleanup in audit PR",
+    },
     "runtime-last-ghost": {
         "ownership": "APP_RUNTIME_STATE_RETAIN",
         "locations": ["shared_prefs/CATTAILSW_NANIDROID_PREFS.xml#lastrunghost"],
@@ -277,6 +328,24 @@ REQUIRED_RESOURCES = {
         "formats": ["FLAG_UPDATE_CURRENT", "FLAG_IMMUTABLE"],
         "cleanupPolicy": "Preserve persisted PendingIntent identity until its owning notification/component is deliberately migrated",
     },
+    "durable-attention-notifications": {
+        "ownership": "PLATFORM_OWNED_NOTIFICATION_EXACT_IDENTITY",
+        "locations": [
+            "channel|id=nanidroid_operation_attention|app-declared-initial-importance=IMPORTANCE_DEFAULT|description=@string/durable_attention_channel_description",
+            "active-notification|tag=durable:<operationId>::<attemptId>|id=43",
+        ],
+        "formats": ["channel-runtime-user-sound-vibration-and-importance-not-fixed"],
+        "cleanupPolicy": "Preserve channel identity and user configuration; reconcile or cancel active notifications only by exact durable:<operationId>::<attemptId> tag and ID 43 until deliberate migration or removal; no cleanup in audit PR",
+    },
+    "nanidroid-service-foreground-notification": {
+        "ownership": "PLATFORM_OWNED_NOTIFICATION_EXACT_IDENTITY",
+        "locations": [
+            "channel|id=nanidroid_downloads|app-declared-initial-importance=IMPORTANCE_LOW",
+            "foreground-notification|id=41",
+        ],
+        "formats": ["startForeground-service-notification"],
+        "cleanupPolicy": "Preserve channel identity and user configuration and foreground notification ID 41 until NanidroidService is deliberately stopped and removed; no cleanup in audit PR",
+    },
 }
 REQUIRED_OWNER_ATTESTATION = {
     "confirmed": True,
@@ -285,12 +354,49 @@ REQUIRED_OWNER_ATTESTATION = {
     "signingKeyRecovered": False,
     "statement": "No APK built from 19da89d3f4d1faaaaaae3e000b8bc852f73c2c38 or later was released or distributed; the signing key has not been recovered.",
 }
-REQUIRED_OWNER_ATTESTATION_EVIDENCE = {
-    "id": "owner-attestation-2026-08-17",
-    "type": "owner-attestation",
-    "claim": "No state-capable APK was distributed and the signing key was not recovered.",
-    "source": "Owner attestation",
-    "observedAt": "2026-08-17",
+REQUIRED_PATH_A_EVIDENCE = {
+    "git-writer-epochs": {
+        "id": "git-writer-epochs",
+        "type": "git-history",
+        "claim": "The three effective writer epochs are recorded in the audited history.",
+        "source": "Git history",
+        "observedAt": "2026-08-17",
+    },
+    "git-app-identity-reuse": {
+        "id": "git-app-identity-reuse",
+        "type": "git-history",
+        "claim": "Application identity code 6/name open_0.1 is reused at every writer epoch.",
+        "source": "build.gradle.kts at writer commits",
+        "observedAt": "2026-08-17",
+    },
+    "github-releases-tags-empty-2026-08-17": {
+        "id": "github-releases-tags-empty-2026-08-17",
+        "type": "github-metadata-observation",
+        "claim": "Current GitHub release and tag API arrays are empty.",
+        "source": "GitHub release and tag metadata",
+        "observedAt": "2026-08-17",
+    },
+    "github-actions-no-post-writer-apk-2026-08-17": {
+        "id": "github-actions-no-post-writer-apk-2026-08-17",
+        "type": "github-metadata-observation",
+        "claim": "APK-like artifacts predate 19da; two later artifacts contain reports only.",
+        "source": "GitHub Actions artifact metadata",
+        "observedAt": "2026-08-17",
+    },
+    "baseline-artifacts-unavailable": {
+        "id": "baseline-artifacts-unavailable",
+        "type": "repository-document",
+        "claim": "PR_A_BASELINE.md records missing historical APK, signing identity/hash, and toolchain.",
+        "source": "docs/modernization/PR_A_BASELINE.md",
+        "observedAt": "2026-08-17",
+    },
+    "owner-attestation-2026-08-17": {
+        "id": "owner-attestation-2026-08-17",
+        "type": "owner-attestation",
+        "claim": "No state-capable APK was distributed and the signing key was not recovered.",
+        "source": "Owner attestation",
+        "observedAt": "2026-08-17",
+    },
 }
 REQUIRED_PATH_A_SUPPORTED_UPGRADE_FLOOR = (
     "No distributed state-capable modernization build"
@@ -356,18 +462,41 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
         return ["ledger must be a top-level object"]
 
     failures: list[str] = []
+    if set(data) != REQUIRED_LEDGER_FIELDS:
+        failures.append("ledger keys must exactly match schema version 1")
     decision = data.get("decision", {})
     if not isinstance(decision, dict):
         failures.append("decision must be an object")
         decision = {}
-    if data.get("schemaVersion") != 1:
-        failures.append("schemaVersion must be 1")
+    if set(decision) != REQUIRED_DECISION_FIELDS:
+        failures.append("decision keys must exactly match schema version 1")
+    schema_version = data.get("schemaVersion")
+    if type(schema_version) is not int or schema_version != 1:
+        failures.append("schemaVersion must be 1 (a true JSON integer)")
+    audit_date = data.get("auditDate")
+    if not isinstance(audit_date, str) or audit_date != REQUIRED_AUDIT_DATE:
+        failures.append(f"auditDate must exactly match {REQUIRED_AUDIT_DATE}")
 
     repository = data.get("repository", {})
     if not isinstance(repository, dict):
         failures.append("repository must be an object")
         repository = {}
+    if set(repository) != REQUIRED_REPOSITORY_FIELDS:
+        failures.append("repository keys must exactly match schema version 1")
+    for field in ("applicationId", "versionName"):
+        if repository.get(field) != REQUIRED_REPOSITORY_IDENTITY[field]:
+            failures.append(f"repository.{field} must exactly match the audited identity")
+    repository_version_code = repository.get("versionCode")
+    if (
+        type(repository_version_code) is not int or
+        repository_version_code != REQUIRED_REPOSITORY_IDENTITY["versionCode"]
+    ):
+        failures.append("repository.versionCode must be 6 (a true JSON integer)")
     audited_head = repository.get("auditedHead")
+    if audited_head != REQUIRED_AUDITED_HEAD:
+        failures.append(
+            f"repository.auditedHead must exactly match {REQUIRED_AUDITED_HEAD}"
+        )
     if not isinstance(audited_head, str) or not re.fullmatch(r"[0-9a-f]{40}", audited_head):
         failures.append("audited head must be 40 lowercase hexadecimal characters")
     else:
@@ -386,6 +515,8 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
             failures.append("writer epoch entries must be objects")
         else:
             valid_writer_epochs.append(epoch)
+            if set(epoch) != REQUIRED_WRITER_EPOCH_FIELDS:
+                failures.append("writer epoch keys must exactly match schema version 1")
     writer_ids = [epoch.get("id") for epoch in valid_writer_epochs]
     writer_ids_set = {item for item in writer_ids if isinstance(item, str)}
     if len(writer_ids_set) != len(writer_ids):
@@ -528,6 +659,12 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
                 failures.append(f"evidence {evidence_id} requires nonempty {field}")
         if isinstance(item.get("observedAt"), str) and item["observedAt"] and not is_iso_calendar_date(item["observedAt"]):
             failures.append(f"evidence {evidence_id} observedAt must be an ISO calendar date")
+    for evidence_id, expected_evidence in REQUIRED_PATH_A_EVIDENCE.items():
+        matching_evidence = [
+            item for item in valid_evidence if item.get("id") == evidence_id
+        ]
+        if matching_evidence != [expected_evidence]:
+            failures.append(f"Path A evidence contract mismatch: {evidence_id}")
     rationale_ids = decision.get("rationaleEvidenceIds", [])
     if not isinstance(rationale_ids, list):
         failures.append("decision.rationaleEvidenceIds must be an array")
@@ -540,13 +677,15 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
             failures.append(f"dangling evidence reference: {evidence_id}")
 
     path = decision.get("path")
-    if path not in ALLOWED_PATHS:
-        failures.append("decision.path must resolve to A, B, or C")
+    if path != "A":
+        failures.append("schemaVersion 1 requires decision.path exactly A")
 
     distribution = data.get("distribution", {})
     if not isinstance(distribution, dict):
         failures.append("distribution must be an object")
         distribution = {}
+    if set(distribution) != REQUIRED_DISTRIBUTION_FIELDS:
+        failures.append("distribution keys must exactly match schema version 1")
     attestation = distribution.get("ownerAttestation", {})
     channels = distribution.get("channels", [])
     if not isinstance(attestation, dict):
@@ -561,6 +700,10 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
             failures.append("distribution channel entries must be objects")
         else:
             valid_channels.append(channel)
+            if set(channel) != REQUIRED_CHANNEL_FIELDS:
+                failures.append(
+                    "distribution channel keys must exactly match schema version 1"
+                )
             if (
                 not isinstance(channel.get("id"), str) or
                 not isinstance(channel.get("status"), str)
@@ -594,20 +737,41 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
         if attestation != REQUIRED_OWNER_ATTESTATION:
             failures.append("Path A owner attestation must exactly match the approved statement")
         if attestation.get("confirmed") is not True:
-            failures.append("Path A requires confirmed owner attestation")
+            failures.append(
+                "Path A ownerAttestation.confirmed must be exactly true"
+            )
         if attestation.get("stateCapableApkDistributed") is not False:
-            failures.append("Path A forbids state-capable APK distribution")
+            failures.append(
+                "Path A ownerAttestation.stateCapableApkDistributed must be exactly false"
+            )
+        if attestation.get("signingKeyRecovered") is not False:
+            failures.append(
+                "Path A ownerAttestation.signingKeyRecovered must be exactly false"
+            )
         if not valid_channels or any(channel.get("status") != "none" for channel in valid_channels):
             failures.append("Path A requires every distribution channel to be none")
         github = distribution.get("github", {})
         if not isinstance(github, dict):
             failures.append("Path A requires GitHub observations")
             github = {}
+        if set(github) != REQUIRED_GITHUB_FIELDS:
+            failures.append(
+                "distribution.github keys must exactly match schema version 1"
+            )
         github_observed_at = github.get("observedAt")
         if not isinstance(github_observed_at, str) or not github_observed_at:
             failures.append("Path A requires GitHub observation date")
         elif not is_iso_calendar_date(github_observed_at):
             failures.append("GitHub observation date must be an ISO calendar date")
+        if github_observed_at != REQUIRED_PATH_A_GITHUB_OBSERVED_AT:
+            failures.append(
+                "Path A GitHub observedAt must exactly match "
+                f"{REQUIRED_PATH_A_GITHUB_OBSERVED_AT}"
+            )
+        if github.get("limitation") != REQUIRED_PATH_A_GITHUB_LIMITATION:
+            failures.append(
+                "Path A GitHub limitation must exactly match the current constraint"
+            )
         for field, expected in REQUIRED_PATH_A_GITHUB_COUNTS.items():
             actual = github.get(field)
             if type(actual) is not int or actual != expected:
@@ -616,59 +780,6 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
                 )
         if "owner-attestation-2026-08-17" not in rationale_ids:
             failures.append("Path A decision must reference owner attestation")
-        owner_evidence = [
-            item for item in valid_evidence
-            if item.get("id") == "owner-attestation-2026-08-17"
-        ]
-        if owner_evidence != [REQUIRED_OWNER_ATTESTATION_EVIDENCE]:
-            failures.append("Path A owner-attestation evidence must exactly match the approved claim")
-    if path == "B" and decision.get("sequentialUpgradeEnforced") is not True:
-        failures.append("Path B requires enforced sequential upgrade")
-    if path == "C" and not decision.get("compatibilityRemovalFloor"):
-        failures.append("Path C requires compatibilityRemovalFloor")
-
-    if path in {"B", "C"}:
-        if not any(channel.get("status") == "state-capable" for channel in valid_channels):
-            failures.append(f"Path {path} requires state-capable distribution evidence")
-        if (
-            attestation.get("confirmed") is True and
-            attestation.get("stateCapableApkDistributed") is False
-        ):
-            failures.append(f"Path {path} contradicts the confirmed no-distribution attestation")
-        github = distribution.get("github", {})
-        if not isinstance(github, dict):
-            github = {}
-        channels_by_id = {
-            channel.get("id"): channel
-            for channel in valid_channels
-            if isinstance(channel.get("id"), str)
-        }
-        if (
-            channels_by_id.get("github-releases", {}).get("status") == "state-capable" and
-            (
-                not isinstance(github.get("releaseCount"), int) or
-                isinstance(github.get("releaseCount"), bool) or
-                github["releaseCount"] <= 0
-            )
-        ):
-            failures.append(
-                "state-capable github-releases channel requires positive releaseCount"
-            )
-        if (
-            channels_by_id.get(
-                "github-actions-apk-after-writer-epoch",
-                {},
-            ).get("status") == "state-capable" and
-            (
-                not isinstance(github.get("postWriterApkArtifactCount"), int) or
-                isinstance(github.get("postWriterApkArtifactCount"), bool) or
-                github["postWriterApkArtifactCount"] <= 0
-            )
-        ):
-            failures.append(
-                "state-capable GitHub Actions channel requires positive "
-                "postWriterApkArtifactCount"
-            )
 
     for channel in valid_channels:
         if channel.get("status") not in ALLOWED_CHANNEL_STATUS:

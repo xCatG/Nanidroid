@@ -38,24 +38,6 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
     def evidence(self, data: dict[str, object], evidence_id: str) -> dict[str, object]:
         return next(item for item in data["evidence"] if item["id"] == evidence_id)
 
-    def record_state_capable_distribution(
-        self,
-        data: dict[str, object],
-        channel_id: str = "other",
-    ) -> None:
-        channel = next(
-            channel
-            for channel in data["distribution"]["channels"]
-            if channel["id"] == channel_id
-        )
-        channel["status"] = "state-capable"
-        attestation = data["distribution"]["ownerAttestation"]
-        attestation["stateCapableApkDistributed"] = True
-        attestation["statement"] = "A state-capable APK was distributed."
-        self.evidence(data, "owner-attestation-2026-08-17")[
-            "claim"
-        ] = "A state-capable APK was distributed."
-
     def test_committed_path_a_ledger_is_valid(self) -> None:
         self.assertEqual([], phase1_audit.validate_ledger(self.ledger(), ROOT))
 
@@ -64,10 +46,107 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["schemaVersion"] = 99
         self.assert_failure(data, "schemaVersion must be 1")
 
+    def test_rejects_boolean_or_float_schema_version(self) -> None:
+        for value in (True, 1.0):
+            with self.subTest(value=value):
+                data = self.ledger()
+                data["schemaVersion"] = value
+                self.assert_failure(
+                    data,
+                    "schemaVersion must be 1 (a true JSON integer)",
+                )
+
+    def test_rejects_non_exact_audit_date(self) -> None:
+        mutations = (
+            lambda data: data.__setitem__("auditDate", "2026-08-16"),
+            lambda data: data.pop("auditDate"),
+            lambda data: data.__setitem__("auditDate", 20260817),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                data = self.ledger()
+                mutate(data)
+                self.assert_failure(
+                    data,
+                    "auditDate must exactly match 2026-08-17",
+                )
+
+    def test_rejects_boolean_or_float_repository_version_code(self) -> None:
+        for value in (True, 6.0):
+            with self.subTest(value=value):
+                data = self.ledger()
+                data["repository"]["versionCode"] = value
+                self.assert_failure(
+                    data,
+                    "repository.versionCode must be 6 (a true JSON integer)",
+                )
+
+    def test_schema_v1_rejects_unknown_object_keys(self) -> None:
+        mutations = (
+            (
+                "ledger",
+                lambda data: data.__setitem__("compatibilityMode", "contradiction"),
+                "ledger keys must exactly match schema version 1",
+            ),
+            (
+                "repository",
+                lambda data: data["repository"].__setitem__(
+                    "releasePublished",
+                    True,
+                ),
+                "repository keys must exactly match schema version 1",
+            ),
+            (
+                "writer epoch",
+                lambda data: data["writerEpochs"][0].__setitem__(
+                    "writerDisabled",
+                    True,
+                ),
+                "writer epoch keys must exactly match schema version 1",
+            ),
+            (
+                "decision",
+                lambda data: data["decision"].__setitem__(
+                    "fallbackPath",
+                    "B",
+                ),
+                "decision keys must exactly match schema version 1",
+            ),
+            (
+                "distribution",
+                lambda data: data["distribution"].__setitem__(
+                    "privatelyDistributed",
+                    True,
+                ),
+                "distribution keys must exactly match schema version 1",
+            ),
+            (
+                "distribution.github",
+                lambda data: data["distribution"]["github"].__setitem__(
+                    "deletedReleaseCount",
+                    1,
+                ),
+                "distribution.github keys must exactly match schema version 1",
+            ),
+            (
+                "distribution channel",
+                lambda data: data["distribution"]["channels"][0].__setitem__(
+                    "stateCapable",
+                    True,
+                ),
+                "distribution channel keys must exactly match schema version 1",
+            ),
+        )
+        for category, mutate, expected_failure in mutations:
+            with self.subTest(category=category):
+                data = self.ledger()
+                mutate(data)
+                self.assert_failure(data, expected_failure)
+
     def test_rejects_unresolved_decision_path(self) -> None:
         data = self.ledger()
         data["decision"]["path"] = "UNRESOLVED"
-        self.assert_failure(data, "decision.path must resolve to A, B, or C")
+        self.assert_failure(data, "schemaVersion 1 requires decision.path exactly A")
 
     def test_main_rejects_unresolved_decision_path(self) -> None:
         data = self.ledger()
@@ -77,7 +156,10 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
             with contextlib.redirect_stderr(stderr):
                 result = phase1_audit.main()
         self.assertEqual(1, result)
-        self.assertIn("decision.path must resolve to A, B, or C", stderr.getvalue())
+        self.assertIn(
+            "schemaVersion 1 requires decision.path exactly A",
+            stderr.getvalue(),
+        )
 
     def test_valid_json_top_level_non_object_is_a_structured_failure(self) -> None:
         self.assertEqual(
@@ -95,14 +177,59 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
     def test_rejects_path_a_without_confirmed_owner_attestation(self) -> None:
         data = self.ledger()
         data["distribution"]["ownerAttestation"]["confirmed"] = False
-        self.assert_failure(data, "Path A requires confirmed owner attestation")
+        self.assert_failure(
+            data,
+            "Path A ownerAttestation.confirmed must be exactly true",
+        )
 
     def test_rejects_path_a_when_state_capable_apk_was_distributed(self) -> None:
         data = self.ledger()
         data["distribution"]["ownerAttestation"][
             "stateCapableApkDistributed"
         ] = True
-        self.assert_failure(data, "Path A forbids state-capable APK distribution")
+        self.assert_failure(
+            data,
+            "Path A ownerAttestation.stateCapableApkDistributed must be exactly false",
+        )
+
+    def test_rejects_numeric_aliases_for_path_a_attestation_booleans(self) -> None:
+        mutations = (
+            (
+                "confirmed",
+                1,
+                "Path A ownerAttestation.confirmed must be exactly true",
+            ),
+            (
+                "confirmed",
+                1.0,
+                "Path A ownerAttestation.confirmed must be exactly true",
+            ),
+            (
+                "stateCapableApkDistributed",
+                0,
+                "Path A ownerAttestation.stateCapableApkDistributed must be exactly false",
+            ),
+            (
+                "stateCapableApkDistributed",
+                0.0,
+                "Path A ownerAttestation.stateCapableApkDistributed must be exactly false",
+            ),
+            (
+                "signingKeyRecovered",
+                0,
+                "Path A ownerAttestation.signingKeyRecovered must be exactly false",
+            ),
+            (
+                "signingKeyRecovered",
+                0.0,
+                "Path A ownerAttestation.signingKeyRecovered must be exactly false",
+            ),
+        )
+        for field, value, expected_failure in mutations:
+            with self.subTest(field=field, value=value):
+                data = self.ledger()
+                data["distribution"]["ownerAttestation"][field] = value
+                self.assert_failure(data, expected_failure)
 
     def test_rejects_every_mutated_path_a_attestation_field(self) -> None:
         mutations = {
@@ -138,7 +265,10 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
             with self.subTest(field=field):
                 data = self.ledger()
                 self.evidence(data, "owner-attestation-2026-08-17")[field] = value
-                self.assert_failure(data, "Path A owner-attestation evidence must exactly match")
+                self.assert_failure(
+                    data,
+                    "Path A evidence contract mismatch: owner-attestation-2026-08-17",
+                )
 
     def test_rejects_unknown_distribution_channel_for_path_a(self) -> None:
         data = self.ledger()
@@ -176,67 +306,33 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
                     failures,
                 )
 
-    def test_rejects_path_b_without_enforced_sequential_upgrade(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "B"
-        data["decision"]["sequentialUpgradeEnforced"] = False
-        self.assert_failure(data, "Path B requires enforced sequential upgrade")
-
-    def test_rejects_path_b_without_state_capable_distribution(self) -> None:
+    def test_rejects_former_positive_path_b_fixture(self) -> None:
         data = self.ledger()
         data["decision"]["path"] = "B"
         data["decision"]["sequentialUpgradeEnforced"] = True
-        self.assert_failure(data, "Path B requires state-capable distribution evidence")
+        data["distribution"]["channels"][-1]["status"] = "state-capable"
+        data["distribution"]["ownerAttestation"]["stateCapableApkDistributed"] = True
+        data["distribution"]["ownerAttestation"][
+            "statement"
+        ] = "A state-capable APK was distributed."
+        self.evidence(data, "owner-attestation-2026-08-17")[
+            "claim"
+        ] = "A state-capable APK was distributed."
+        self.assert_failure(data, "schemaVersion 1 requires decision.path exactly A")
 
-    def test_rejects_path_b_that_contradicts_confirmed_attestation(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "B"
-        data["decision"]["sequentialUpgradeEnforced"] = True
-        data["distribution"]["channels"][0]["status"] = "state-capable"
-        self.assert_failure(data, "Path B contradicts the confirmed no-distribution attestation")
-
-    def test_rejects_path_c_without_compatibility_removal_floor(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "C"
-        data["decision"]["compatibilityRemovalFloor"] = ""
-        self.assert_failure(data, "Path C requires compatibilityRemovalFloor")
-
-    def test_rejects_path_c_without_state_capable_distribution(self) -> None:
+    def test_rejects_former_positive_path_c_fixture(self) -> None:
         data = self.ledger()
         data["decision"]["path"] = "C"
         data["decision"]["compatibilityRemovalFloor"] = "version 2"
-        self.assert_failure(data, "Path C requires state-capable distribution evidence")
-
-    def test_rejects_path_c_that_contradicts_confirmed_attestation(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "C"
-        data["decision"]["compatibilityRemovalFloor"] = "version 2"
-        data["distribution"]["channels"][0]["status"] = "state-capable"
-        self.assert_failure(data, "Path C contradicts the confirmed no-distribution attestation")
-
-    def test_valid_path_b_reports_path_b(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "B"
-        data["decision"]["sequentialUpgradeEnforced"] = True
-        self.record_state_capable_distribution(data)
-        stdout = io.StringIO()
-        with mock.patch.object(phase1_audit, "load_ledger", return_value=data):
-            with contextlib.redirect_stdout(stdout):
-                result = phase1_audit.main()
-        self.assertEqual(0, result)
-        self.assertIn("compatibility Path B.", stdout.getvalue())
-
-    def test_valid_path_c_reports_path_c(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "C"
-        data["decision"]["compatibilityRemovalFloor"] = "version 2"
-        self.record_state_capable_distribution(data)
-        stdout = io.StringIO()
-        with mock.patch.object(phase1_audit, "load_ledger", return_value=data):
-            with contextlib.redirect_stdout(stdout):
-                result = phase1_audit.main()
-        self.assertEqual(0, result)
-        self.assertIn("compatibility Path C.", stdout.getvalue())
+        data["distribution"]["channels"][-1]["status"] = "state-capable"
+        data["distribution"]["ownerAttestation"]["stateCapableApkDistributed"] = True
+        data["distribution"]["ownerAttestation"][
+            "statement"
+        ] = "A state-capable APK was distributed."
+        self.evidence(data, "owner-attestation-2026-08-17")[
+            "claim"
+        ] = "A state-capable APK was distributed."
+        self.assert_failure(data, "schemaVersion 1 requires decision.path exactly A")
 
     def test_rejects_nonexistent_writer_commit(self) -> None:
         data = self.ledger()
@@ -250,6 +346,20 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
             ROOT, "rev-parse", "HEAD"
         )
         self.assert_failure(data, "writer commit is not an ancestor")
+
+    def test_rejects_real_newer_descendant_as_audited_head(self) -> None:
+        data = self.ledger()
+        newer_descendant = phase1_audit.git_text(ROOT, "rev-parse", "HEAD")
+        self.assertNotEqual(
+            "f7d037bc066ff648d73b4c2d403a890765b44523",
+            newer_descendant,
+        )
+        data["repository"]["auditedHead"] = newer_descendant
+        self.assert_failure(
+            data,
+            "repository.auditedHead must exactly match "
+            "f7d037bc066ff648d73b4c2d403a890765b44523",
+        )
 
     def test_rejects_incorrect_app_identity(self) -> None:
         data = self.ledger()
@@ -362,6 +472,169 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         self.resource(data, resource_id)["extra"] = True
         self.assert_failure(data, f"persistent resource contract mismatch: {resource_id}")
 
+    def test_downloadmanager_rows_uses_android_download_directory(self) -> None:
+        data = self.ledger()
+        self.resource(data, "downloadmanager-rows")["locations"] = [
+            "external-files/Download/nar-downloads/<itemId>.nar"
+        ]
+        self.assertEqual([], phase1_audit.validate_ledger(data, ROOT))
+
+    def test_requires_installed_live_ghost_trees_resource(self) -> None:
+        data = self.ledger()
+        data["persistentResources"] = [
+            resource
+            for resource in data["persistentResources"]
+            if resource["id"] != "installed-live-ghost-trees"
+        ]
+        self.assert_failure(data, "missing persistent resource: installed-live-ghost-trees")
+
+    def test_binds_installed_live_ghost_trees_contract(self) -> None:
+        data = self.ledger()
+        desired = {
+            "id": "installed-live-ghost-trees",
+            "ownership": "APP_OWNED_LIVE_PRODUCT_STATE_RETAIN",
+            "locations": ["external-files/ghost/<validated-targetId>"],
+            "formats": ["published-live-ghost-tree-usability-not-cleanup-ownership"],
+            "cleanupPolicy": "Preserve from generic workflow cleanup; mutate only through exact transactional publication or recovery, or explicit user removal; no cleanup in audit PR",
+        }
+        data["persistentResources"] = [
+            resource
+            for resource in data["persistentResources"]
+            if resource["id"] != desired["id"]
+        ]
+        desired["cleanupPolicy"] += " mutated"
+        data["persistentResources"].append(desired)
+        self.assert_failure(
+            data,
+            "persistent resource contract mismatch: installed-live-ghost-trees",
+        )
+
+    def test_installed_live_ghost_format_denies_cleanup_ownership(self) -> None:
+        data = self.ledger()
+        self.resource(data, "installed-live-ghost-trees")["formats"] = [
+            "published-live-ghost-tree-usability-not-cleanup-ownership"
+        ]
+        self.assertEqual([], phase1_audit.validate_ledger(data, ROOT))
+
+    def test_rejects_installed_live_ghost_usability_as_cleanup_ownership(self) -> None:
+        data = self.ledger()
+        self.resource(data, "installed-live-ghost-trees")["formats"] = [
+            "published-usable-ghost-tree"
+        ]
+        self.assert_failure(
+            data,
+            "persistent resource contract mismatch: installed-live-ghost-trees",
+        )
+
+    def test_requires_durable_attention_notifications_resource(self) -> None:
+        data = self.ledger()
+        data["persistentResources"] = [
+            resource
+            for resource in data["persistentResources"]
+            if resource["id"] != "durable-attention-notifications"
+        ]
+        self.assert_failure(
+            data,
+            "missing persistent resource: durable-attention-notifications",
+        )
+
+    def test_binds_durable_attention_notification_channel_tag_and_id(self) -> None:
+        desired = {
+            "id": "durable-attention-notifications",
+            "ownership": "PLATFORM_OWNED_NOTIFICATION_EXACT_IDENTITY",
+            "locations": [
+                "channel|id=nanidroid_operation_attention|app-declared-initial-importance=IMPORTANCE_DEFAULT|description=@string/durable_attention_channel_description",
+                "active-notification|tag=durable:<operationId>::<attemptId>|id=43",
+            ],
+            "formats": ["channel-runtime-user-sound-vibration-and-importance-not-fixed"],
+            "cleanupPolicy": "Preserve channel identity and user configuration; reconcile or cancel active notifications only by exact durable:<operationId>::<attemptId> tag and ID 43 until deliberate migration or removal; no cleanup in audit PR",
+        }
+        mutations = (
+            lambda resource: resource["locations"].__setitem__(
+                0,
+                resource["locations"][0].replace(
+                    "nanidroid_operation_attention",
+                    "nanidroid_operation_attention_v2",
+                ),
+            ),
+            lambda resource: resource["locations"].__setitem__(
+                1,
+                resource["locations"][1].replace("durable:", "operation:"),
+            ),
+            lambda resource: resource["locations"].__setitem__(
+                1,
+                resource["locations"][1].replace("id=43", "id=44"),
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                data = self.ledger()
+                resource = copy.deepcopy(desired)
+                mutate(resource)
+                data["persistentResources"] = [
+                    item
+                    for item in data["persistentResources"]
+                    if item["id"] != desired["id"]
+                ]
+                data["persistentResources"].append(resource)
+                self.assert_failure(
+                    data,
+                    "persistent resource contract mismatch: durable-attention-notifications",
+                )
+
+    def test_requires_nanidroid_service_foreground_notification_resource(self) -> None:
+        data = self.ledger()
+        data["persistentResources"] = [
+            resource
+            for resource in data["persistentResources"]
+            if resource["id"] != "nanidroid-service-foreground-notification"
+        ]
+        self.assert_failure(
+            data,
+            "missing persistent resource: nanidroid-service-foreground-notification",
+        )
+
+    def test_binds_nanidroid_service_notification_channel_importance_and_id(self) -> None:
+        desired = {
+            "id": "nanidroid-service-foreground-notification",
+            "ownership": "PLATFORM_OWNED_NOTIFICATION_EXACT_IDENTITY",
+            "locations": [
+                "channel|id=nanidroid_downloads|app-declared-initial-importance=IMPORTANCE_LOW",
+                "foreground-notification|id=41",
+            ],
+            "formats": ["startForeground-service-notification"],
+            "cleanupPolicy": "Preserve channel identity and user configuration and foreground notification ID 41 until NanidroidService is deliberately stopped and removed; no cleanup in audit PR",
+        }
+        mutations = (
+            lambda resource: resource["locations"].__setitem__(
+                0,
+                resource["locations"][0].replace("nanidroid_downloads", "downloads"),
+            ),
+            lambda resource: resource["locations"].__setitem__(
+                0,
+                resource["locations"][0].replace("IMPORTANCE_LOW", "IMPORTANCE_DEFAULT"),
+            ),
+            lambda resource: resource["locations"].__setitem__(
+                1,
+                resource["locations"][1].replace("id=41", "id=42"),
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                data = self.ledger()
+                resource = copy.deepcopy(desired)
+                mutate(resource)
+                data["persistentResources"] = [
+                    item
+                    for item in data["persistentResources"]
+                    if item["id"] != desired["id"]
+                ]
+                data["persistentResources"].append(resource)
+                self.assert_failure(
+                    data,
+                    "persistent resource contract mismatch: nanidroid-service-foreground-notification",
+                )
+
     def test_rejects_dangling_decision_evidence_reference(self) -> None:
         data = self.ledger()
         data["decision"]["rationaleEvidenceIds"].append("missing-evidence")
@@ -376,6 +649,67 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data = self.ledger()
         data["evidence"][0]["type"] = "guess"
         self.assert_failure(data, "unknown evidence type")
+
+    def test_binds_each_previously_loose_path_a_evidence_object(self) -> None:
+        evidence_ids = (
+            "git-writer-epochs",
+            "git-app-identity-reuse",
+            "github-releases-tags-empty-2026-08-17",
+            "github-actions-no-post-writer-apk-2026-08-17",
+            "baseline-artifacts-unavailable",
+        )
+        mutations = (
+            lambda item: item.__setitem__("type", "owner-attestation"),
+            lambda item: item.__setitem__("claim", "Valid but incorrect claim."),
+            lambda item: item.__setitem__("source", "Valid but incorrect source"),
+            lambda item: item.__setitem__("observedAt", "2026-08-16"),
+            lambda item: item.pop("claim"),
+            lambda item: item.__setitem__("note", "unexpected"),
+        )
+        for evidence_id in evidence_ids:
+            for mutate in mutations:
+                with self.subTest(evidence_id=evidence_id, mutation=mutate):
+                    data = self.ledger()
+                    mutate(self.evidence(data, evidence_id))
+                    self.assert_failure(
+                        data,
+                        f"Path A evidence contract mismatch: {evidence_id}",
+                    )
+
+    def test_path_a_evidence_order_does_not_change_id_bound_contracts(self) -> None:
+        data = self.ledger()
+        data["evidence"].reverse()
+        self.assertEqual([], phase1_audit.validate_ledger(data, ROOT))
+
+    def test_allows_unrelated_generic_valid_evidence(self) -> None:
+        data = self.ledger()
+        data["evidence"].append(
+            {
+                "id": "unrelated-valid-evidence",
+                "type": "repository-document",
+                "claim": "A valid unrelated observation.",
+                "source": "Independent document",
+                "observedAt": "2026-08-17",
+                "extension": {"reviewed": True},
+            }
+        )
+        self.assertEqual([], phase1_audit.validate_ledger(data, ROOT))
+
+    def test_rejects_unrelated_evidence_that_is_not_generic_valid(self) -> None:
+        data = self.ledger()
+        data["evidence"].append(
+            {
+                "id": "unrelated-invalid-evidence",
+                "type": "repository-document",
+                "claim": "",
+                "source": "Independent document",
+                "observedAt": "2026-08-17",
+            }
+        )
+        self.assert_failure(
+            data,
+            "evidence unrelated-invalid-evidence requires nonempty claim",
+        )
 
     def test_rejects_path_a_with_post_writer_apk_artifact(self) -> None:
         data = self.ledger()
@@ -478,29 +812,6 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
                     "Path A rationale evidence IDs must exactly match the required unique set",
                 )
 
-    def test_rejects_github_release_channel_without_observed_release(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "B"
-        data["decision"]["sequentialUpgradeEnforced"] = True
-        self.record_state_capable_distribution(data, "github-releases")
-        self.assert_failure(
-            data,
-            "state-capable github-releases channel requires positive releaseCount",
-        )
-
-    def test_rejects_github_actions_channel_without_observed_apk_artifact(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "C"
-        data["decision"]["compatibilityRemovalFloor"] = "version 2"
-        self.record_state_capable_distribution(
-            data,
-            "github-actions-apk-after-writer-epoch",
-        )
-        self.assert_failure(
-            data,
-            "state-capable GitHub Actions channel requires positive postWriterApkArtifactCount",
-        )
-
     def test_binds_separate_ghost_staging_and_published_contracts(self) -> None:
         data = self.ledger()
         staging = self.resource(data, "ghost-update-unpublished-staging")
@@ -568,6 +879,31 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data = self.ledger()
         data["distribution"]["github"]["observedAt"] = "2026-02-30"
         self.assert_failure(data, "GitHub observation date must be an ISO calendar date")
+
+    def test_rejects_different_valid_github_observation_date(self) -> None:
+        data = self.ledger()
+        data["distribution"]["github"]["observedAt"] = "2026-08-16"
+        self.assert_failure(
+            data,
+            "Path A GitHub observedAt must exactly match 2026-08-17",
+        )
+
+    def test_rejects_missing_or_contradictory_github_limitation(self) -> None:
+        mutations = (
+            lambda github: github.pop("limitation"),
+            lambda github: github.__setitem__(
+                "limitation",
+                "Current metadata proves no private distribution occurred.",
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                data = self.ledger()
+                mutate(data["distribution"]["github"])
+                self.assert_failure(
+                    data,
+                    "Path A GitHub limitation must exactly match the current constraint",
+                )
 
     def test_ancestry_failure_reports_shallow_history_requirement(self) -> None:
         data = self.ledger()

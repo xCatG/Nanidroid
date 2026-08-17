@@ -118,8 +118,11 @@ geometry, optical bounds, asymmetric stages, and unsupported non-ghost packages.
 
 The compatibility decision for removing the unshipped durable workflows is
 recorded in `docs/modernization/phase1-shipped-state-ledger.json`. Verify its
-schema, Git ancestry, writer epochs, application identity, evidence references,
-owner-attestation requirement, and A/B/C decision prerequisites offline:
+Path-A-only schema, exact audited head, Git ancestry, writer epochs, application
+identity, exact audit/observation dates and GitHub limitation, exact required
+evidence, closed schema-v1 object keys, persistent-resource contracts, and
+owner-attestation requirement offline. Unrelated generic-valid evidence remains
+the explicit extension point:
 
 ```powershell
 python -m unittest tools.test_verify_phase1_shipped_state_audit
@@ -128,8 +131,8 @@ python tools/verify_phase1_shipped_state_audit.py
 
 The verifier requires full Git history for the three effective writer commits.
 It makes no network, device, APK, WorkManager, DownloadManager, URI-grant, or
-filesystem-cleanup calls. Refreshing dated GitHub observations is a deliberate
-audit update, not part of routine verification.
+filesystem-cleanup calls. Refreshing dated GitHub observations requires an
+explicit schema revision and is not part of routine verification.
 
 ## Full verification
 

@@ -9,6 +9,13 @@ authorization and non-authorization boundaries below. The machine-readable
 ledger is [`phase1-shipped-state-ledger.json`](phase1-shipped-state-ledger.json),
 checked by [`verify_phase1_shipped_state_audit.py`](../../tools/verify_phase1_shipped_state_audit.py),
 and the decision is tracked with [issue #382](https://github.com/xCatG/Nanidroid/issues/382).
+Schema version 1 represents only this Path A decision. It binds the audited head
+exactly to `f7d037bc066ff648d73b4c2d403a890765b44523`; a different compatibility
+decision or refreshed observation requires an explicit schema revision. The
+top-level audit date and GitHub observation date are both exactly `2026-08-17`.
+Schema-v1 ledger, repository, writer-epoch, decision, distribution, GitHub, and
+channel objects are closed: missing or unknown keys are rejected. Unrelated
+generic-valid evidence objects remain the sole explicit schema extension point.
 
 ## Owner attestation
 
@@ -34,7 +41,12 @@ signing identity/hash, and release toolchain are unavailable; see
 [`PR_A_BASELINE.md`](PR_A_BASELINE.md). These observations are recorded in the
 ledger evidence IDs `github-releases-tags-empty-2026-08-17`,
 `github-actions-no-post-writer-apk-2026-08-17`, and
-`baseline-artifacts-unavailable`.
+`baseline-artifacts-unavailable`. All six required Path A evidence objects are
+bound by ID to their exact type, claim, source, observation date, and key set.
+Unrelated evidence may be added only when it satisfies the generic evidence
+shape and type rules; it may carry extension-specific keys.
+The recorded GitHub limitation is also exact: current metadata cannot disprove
+deleted releases or private distribution.
 
 ## Persisted-state capability
 
@@ -58,6 +70,18 @@ actions are exactly
 `com.cattailsw.nanidroid.action.DURABLE_STOP`, and
 `com.cattailsw.nanidroid.action.DURABLE_RETRY_STOP`.
 
+The adjacent notification state is inventoried separately. Durable-attention
+notifications use channel `nanidroid_operation_attention`, whose app-declared
+initial importance is `IMPORTANCE_DEFAULT` and whose description is
+`@string/durable_attention_channel_description`; active notifications use tag
+`durable:<operationId>::<attemptId>` and ID `43`. Reconciliation and cancellation
+must use that exact tag and ID. The inventory preserves the channel identity and
+the user's channel configuration without freezing runtime sound, vibration, or
+importance settings. `NanidroidService` uses channel `nanidroid_downloads` with
+app-declared initial `IMPORTANCE_LOW` and foreground notification ID `41`; those
+identities remain protected until the service is deliberately stopped and
+removed.
+
 Install staging is split by topology. Cache attempts use
 `nar-install-attempts/<64hex-item-hash>/<UUID>/nar-import-<24hex>.zip`; external
 ghost installation uses
@@ -73,6 +97,13 @@ candidate and backup paths, per-ghost lock, and valid live/candidate/backup
 topology. Its owner marker is deleted after publish and is not required for the
 published transaction; ambiguous topology remains preserved.
 
+Installed live ghost trees at
+`external-files/ghost/<validated-targetId>` are product state, not staging.
+Generic workflow cleanup must preserve them. They may be changed only through
+exact transactional publication or recovery, or explicit user removal; this
+audit performs no such mutation. A tree's published usability never establishes
+cleanup ownership.
+
 Runtime keys `lastrunghost`, `createcount_ghost*`, and `keylaunchtime` are
 recorded in `CATTAILSW_NANIDROID_PREFS.xml`. The co-resident default-preference
 keys `enable_analytics` and `firstRun` are inventoried separately in
@@ -84,20 +115,21 @@ otherwise eligible unlisted state remains governed by Android's default backup
 eligibility. This does not classify cache, code-cache, no-backup, shared, or
 out-of-domain storage as included.
 
-DownloadManager row IDs and files, persisted URI grants, private local imports,
-and shared `/sdcard/nar` storage remain inventoried. The shared temporary name is
+DownloadManager row IDs and files at
+`external-files/Download/nar-downloads/<itemId>.nar`, persisted URI grants,
+private local imports, and shared `/sdcard/nar` storage remain inventoried. The
+shared temporary name is
 the actual `File.createTempFile("nanidroid", "tmp", ...)` shape—there is no dot
 inserted before `tmp`—and names or prefixes never establish cleanup ownership.
 All app-owned, platform-owned, runtime-retained, journaled, and foreign-preserve
 resources remain protected by the ledger's no-cleanup policies.
 
-## Why Path B and Path C are not selected
+## Schema version 1 scope
 
-Path B's sequential-upgrade requirement and Path C's compatibility-removal
-floor are unnecessary because no state-capable distributed build exists within
-the supported population. The absence of a recovered signing key reinforces
-that the owner attestation, rather than an APK hash comparison, is governing
-distribution evidence.
+This schema intentionally validates only the selected Path A decision. Alternate
+compatibility decisions are not partially represented or accepted by schema
+version 1. The absence of a recovered signing key reinforces that the owner
+attestation, rather than an APK hash comparison, governs this decision.
 
 ## Limitations
 

@@ -6,6 +6,10 @@
 
 **Architecture:** Store the audit decision and its evidence in one versioned JSON ledger, validate it with a Python standard-library tool, and explain the human-readable conclusion in one modernization document. The verifier proves repository facts from Git and enforces the owner-attestation requirements for Path A; it does not inspect or mutate devices, WorkManager, DownloadManager, URI grants, APKs, or ghost files.
 
+Schema version 1 closes the key sets for the top-level ledger, repository,
+writer-epoch, decision, distribution, GitHub, and channel objects. Unrelated
+generic-valid evidence objects remain the sole explicit extension point.
+
 **Tech Stack:** Python 3 standard library, `unittest`, JSON, Git CLI, Markdown, Gradle wrapper.
 
 ## Global Constraints
@@ -26,7 +30,7 @@
 ## File Map
 
 - Create `docs/modernization/phase1-shipped-state-ledger.json`: versioned machine-readable evidence, persisted-resource inventory, owner attestation, and selected Path A.
-- Create `tools/verify_phase1_shipped_state_audit.py`: offline ledger, Git-history, app-identity, evidence-reference, and A/B/C prerequisite verifier.
+- Create `tools/verify_phase1_shipped_state_audit.py`: offline Path-A-only ledger, Git-history, app-identity, exact-evidence, and persistent-resource verifier.
 - Create `tools/test_verify_phase1_shipped_state_audit.py`: positive and negative `unittest` coverage for every verifier decision rule.
 - Create `docs/modernization/phase1-shipped-state-audit.md`: human-readable provenance, limitations, capability timeline, Path A rationale, and next cleanup authorization.
 - Modify `docs/testing.md`: document the focused audit verification commands and scope.
@@ -83,7 +87,7 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
     def test_rejects_unknown_schema_version(self) -> None:
         data = self.ledger()
         data["schemaVersion"] = 99
-        self.assert_failure(data, "schemaVersion must be 1")
+        self.assert_failure(data, "schemaVersion must be 1 (a true JSON integer)")
 
     def test_rejects_path_a_without_confirmed_owner_attestation(self) -> None:
         data = self.ledger()
@@ -102,17 +106,10 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["distribution"]["channels"][0]["status"] = "unknown"
         self.assert_failure(data, "Path A requires every distribution channel")
 
-    def test_rejects_path_b_without_enforced_sequential_upgrade(self) -> None:
+    def test_rejects_non_path_a_decision(self) -> None:
         data = self.ledger()
         data["decision"]["path"] = "B"
-        data["decision"]["sequentialUpgradeEnforced"] = False
-        self.assert_failure(data, "Path B requires enforced sequential upgrade")
-
-    def test_rejects_path_c_without_compatibility_removal_floor(self) -> None:
-        data = self.ledger()
-        data["decision"]["path"] = "C"
-        data["decision"]["compatibilityRemovalFloor"] = ""
-        self.assert_failure(data, "Path C requires compatibilityRemovalFloor")
+        self.assert_failure(data, "schemaVersion 1 requires decision.path exactly A")
 
 
 if __name__ == "__main__":
@@ -191,7 +188,6 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "modernization" / "phase1-shipped-state-ledger.json"
-ALLOWED_PATHS = {"UNRESOLVED", "A", "B", "C"}
 ALLOWED_CHANNEL_STATUS = {"none", "state-capable", "unknown"}
 
 
@@ -201,13 +197,14 @@ def load_ledger(path: Path) -> dict[str, Any]:
 
 def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     failures: list[str] = []
-    if data.get("schemaVersion") != 1:
-        failures.append("schemaVersion must be 1")
+    schema_version = data.get("schemaVersion")
+    if type(schema_version) is not int or schema_version != 1:
+        failures.append("schemaVersion must be 1 (a true JSON integer)")
 
     decision = data.get("decision", {})
     path = decision.get("path")
-    if path not in ALLOWED_PATHS:
-        failures.append(f"decision.path must be one of {sorted(ALLOWED_PATHS)}")
+    if path != "A":
+        failures.append("schemaVersion 1 requires decision.path exactly A")
 
     distribution = data.get("distribution", {})
     attestation = distribution.get("ownerAttestation", {})
@@ -219,11 +216,6 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             failures.append("Path A forbids state-capable APK distribution")
         if not channels or any(channel.get("status") != "none" for channel in channels):
             failures.append("Path A requires every distribution channel to be none")
-    if path == "B" and decision.get("sequentialUpgradeEnforced") is not True:
-        failures.append("Path B requires enforced sequential upgrade")
-    if path == "C" and not decision.get("compatibilityRemovalFloor"):
-        failures.append("Path C requires compatibilityRemovalFloor")
-
     for channel in channels:
         if channel.get("status") not in ALLOWED_CHANNEL_STATUS:
             failures.append(f"unknown distribution status for {channel.get('id')}")
@@ -354,6 +346,7 @@ REQUIRED_RESOURCES = {
     "external-ghost-install-staging",
     "ghost-update-unpublished-staging",
     "ghost-update-transaction",
+    "installed-live-ghost-trees",
     "runtime-last-ghost",
     "runtime-activation-counts",
     "runtime-launch-time",
@@ -363,6 +356,8 @@ REQUIRED_RESOURCES = {
     "backup-device-transfer-boundaries",
     "durable-android-components",
     "durable-pending-intents",
+    "durable-attention-notifications",
+    "nanidroid-service-foreground-notification",
 }
 
 
@@ -402,15 +397,12 @@ Import `re`. Extend `validate_ledger` so it:
 
 Use failure strings matching the tests exactly.
 
-For Path A, bind `supportedUpgradeFloor` exactly to
+Schema version 1 is Path-A-only. Bind `supportedUpgradeFloor` exactly to
 `No distributed state-capable modernization build`, require
 `sequentialUpgradeEnforced` to be `false`, require
 `compatibilityRemovalFloor` to be `null`, and require exactly the six unique
-rationale evidence IDs committed in the ledger. For Paths B and C, a
-state-capable `github-releases` channel requires a positive `releaseCount`, and
-a state-capable `github-actions-apk-after-writer-epoch` channel requires a
-positive `postWriterApkArtifactCount`. Positive non-GitHub fixtures use the
-`other` channel.
+rationale evidence IDs committed in the ledger. Reject every other decision
+path rather than implementing partial alternate-path prerequisites.
 
 - [ ] **Step 4: Populate the effective writer epochs**
 
@@ -472,6 +464,7 @@ install-attempt-staging
 external-ghost-install-staging
 ghost-update-unpublished-staging
 ghost-update-transaction
+installed-live-ghost-trees
 runtime-last-ghost
 runtime-activation-counts
 runtime-launch-time
@@ -481,6 +474,8 @@ shared-nar-storage
 backup-device-transfer-boundaries
 durable-android-components
 durable-pending-intents
+durable-attention-notifications
+nanidroid-service-foreground-notification
 ```
 
 The queue contract is lossy/fail-closed for unknown versions and malformed
@@ -491,14 +486,25 @@ marker as a sibling under ghost storage. A published
 `.nanidroid-update-<digest>` is bound by its journal, lock, candidate/backup
 paths, and topology; its marker is deleted after publish and is not required.
 Ambiguous topology, ambiguous or unmatched staging, and incomplete writing
-residue are preserved. Work
+residue are preserved. Installed live ghost trees under
+`external-files/ghost/<validated-targetId>` are retained product state and may
+be changed only through exact transactional publication/recovery or explicit
+user removal. Published usability never establishes cleanup ownership.
+DownloadManager rows bind the singular Android
+`external-files/Download/nar-downloads/<itemId>.nar` directory. Work
 UUID history is recorded per worker kind, runtime/default preference containers
 are explicit, and backup/device-transfer plus Android component and persisted
 `PendingIntent` identities are part of the required inventory. The exact
 durable action identities are
 `com.cattailsw.nanidroid.action.DURABLE_KEEP_WAITING`,
 `com.cattailsw.nanidroid.action.DURABLE_STOP`, and
-`com.cattailsw.nanidroid.action.DURABLE_RETRY_STOP`. Otherwise eligible
+`com.cattailsw.nanidroid.action.DURABLE_RETRY_STOP`. Durable-attention
+notifications bind channel `nanidroid_operation_attention`, app-declared
+initial `IMPORTANCE_DEFAULT`, its description resource, exact
+`durable:<operationId>::<attemptId>` tag, and ID `43`, while preserving user
+channel configuration rather than freezing runtime sound/vibration values.
+`NanidroidService` binds channel `nanidroid_downloads`, app-declared initial
+`IMPORTANCE_LOW`, and foreground notification ID `41`. Otherwise eligible
 unlisted state remains governed by Android default backup eligibility; this
 does not classify cache, code-cache, no-backup, shared, or out-of-domain
 storage as included. Shared NAR
@@ -514,7 +520,10 @@ python -m unittest tools.test_verify_phase1_shipped_state_audit
 python tools/verify_phase1_shipped_state_audit.py
 ```
 
-Expected: all tests pass, all three commits exist and are ancestors of `f7d037bc066ff648d73b4c2d403a890765b44523`, and all three have `com.cattailsw.nanidroid`, code `6`, name `open_0.1`.
+Expected: all tests pass, `repository.auditedHead` is exactly
+`f7d037bc066ff648d73b4c2d403a890765b44523`, all three commits exist and are
+ancestors of that commit, and all three have `com.cattailsw.nanidroid`, code
+`6`, name `open_0.1`.
 
 - [ ] **Step 7: Commit Git-backed verification**
 
@@ -586,11 +595,18 @@ ALLOWED_EVIDENCE_TYPES = {
 }
 ```
 
-Require every evidence object to have a unique nonempty `id`, allowed `type`, nonempty `claim`, nonempty `source`, and ISO date `observedAt`. Under Path A require:
+Require every evidence object to have a unique nonempty `id`, allowed `type`, nonempty `claim`, nonempty `source`, and ISO date `observedAt`. Bind all six required Path A evidence objects exactly by ID while allowing unrelated evidence only when it remains generic-valid. Require:
 
-- `distribution.github.releaseCount == 0`;
-- `distribution.github.tagCount == 0`;
-- `distribution.github.postWriterApkArtifactCount == 0`;
+- top-level `auditDate == "2026-08-17"` as an exact string;
+- integer `distribution.github.releaseCount == 0`;
+- integer `distribution.github.tagCount == 0`;
+- integer `distribution.github.actionsArtifactCount == 192`;
+- integer `distribution.github.postWriterApkArtifactCount == 0`;
+- integer `distribution.github.postWriterReportOnlyArtifactCount == 2`;
+- `distribution.github.observedAt == "2026-08-17"` in addition to ISO-date shape;
+- `distribution.github.limitation == "Current metadata cannot disprove deleted releases or private distribution."`;
+- owner-attestation `confirmed is true`, `stateCapableApkDistributed is false`,
+  and `signingKeyRecovered is false` using strict JSON-boolean identity checks;
 - `owner-attestation-2026-08-17` in `decision.rationaleEvidenceIds`;
 - every rationale ID to resolve to one evidence object.
 
@@ -632,7 +648,7 @@ Create `docs/modernization/phase1-shipped-state-audit.md` with these exact secti
 3. `Effective writer epochs` — table for commits 19da, ec78, and 1995.
 4. `Distribution evidence` — zero releases/tags, artifact chronology, version reuse, missing baseline artifacts.
 5. `Persisted-state capability` — summary of worker identities, preference formats, external IDs, grants, staging, journals, runtime preferences, and shared storage.
-6. `Why Path B and Path C are not selected` — no state-capable distributed build exists within the supported population.
+6. `Schema version 1 scope` — the checked-in schema accepts only the selected Path A decision and requires an explicit schema revision for any alternate decision.
 7. `Limitations` — deleted/private distribution is established by owner attestation rather than Git metadata; GitHub observations are dated, not permanent facts.
 8. `Cleanup authorization` — later PRs may remove compatibility handling, but each deletion still needs reachability, security, and current-state tests.
 9. `Non-authorization` — this audit does not authorize deleting runtime preferences, user-owned archives, installed ghosts, or weakening the transactional installer.
@@ -682,8 +698,11 @@ Insert a `## Phase 1 shipped-state audit` section before `## Full verification` 
 
 The compatibility decision for removing the unshipped durable workflows is
 recorded in `docs/modernization/phase1-shipped-state-ledger.json`. Verify its
-schema, Git ancestry, writer epochs, application identity, evidence references,
-owner-attestation requirement, and A/B/C decision prerequisites offline:
+Path-A-only schema, exact audited head, Git ancestry, writer epochs, application
+identity, exact audit/observation dates and GitHub limitation, exact required
+evidence, closed schema-v1 object keys, persistent-resource contracts, and
+owner-attestation requirement offline. Unrelated generic-valid evidence remains
+the explicit extension point:
 
 ```powershell
 python -m unittest tools.test_verify_phase1_shipped_state_audit
@@ -692,8 +711,8 @@ python tools/verify_phase1_shipped_state_audit.py
 
 The verifier requires full Git history for the three effective writer commits.
 It makes no network, device, APK, WorkManager, DownloadManager, URI-grant, or
-filesystem-cleanup calls. Refreshing dated GitHub observations is a deliberate
-audit update, not part of routine verification.
+filesystem-cleanup calls. Refreshing dated GitHub observations requires an
+explicit schema revision and is not part of routine verification.
 ````
 
 Use four backticks around the outer plan snippet while editing so the nested PowerShell fence remains valid Markdown.
@@ -769,7 +788,9 @@ Mark it ready only after local and multi-agent reviews pass. Inspect GitHub auto
 This plan is complete only when:
 
 - the committed ledger selects Path A and passes its verifier;
+- schema version 1 rejects every non-Path-A decision and binds the exact audited head;
 - the exact owner attestation is recorded;
+- all six required evidence objects are exact and ID-bound while unrelated evidence remains generic-valid;
 - every writer epoch and required persistent resource is machine-checked;
 - the audit document states both authorization and non-authorization boundaries;
 - no production file or dependency changed;
