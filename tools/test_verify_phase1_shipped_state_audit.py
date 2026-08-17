@@ -186,6 +186,11 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["evidence"][0]["observedAt"] = ""
         self.assert_failure(data, "requires nonempty observedAt")
 
+    def test_rejects_evidence_with_missing_observed_at(self) -> None:
+        data = self.ledger()
+        del data["evidence"][0]["observedAt"]
+        self.assert_failure(data, "requires nonempty observedAt")
+
     def test_rejects_evidence_with_invalid_calendar_date(self) -> None:
         data = self.ledger()
         data["evidence"][0]["observedAt"] = "2026-02-30"
