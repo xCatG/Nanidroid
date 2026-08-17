@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import importlib.util
+import io
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +36,21 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["schemaVersion"] = 99
         self.assert_failure(data, "schemaVersion must be 1")
 
+    def test_rejects_unresolved_decision_path(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "UNRESOLVED"
+        self.assert_failure(data, "decision.path must resolve to A, B, or C")
+
+    def test_main_rejects_unresolved_decision_path(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "UNRESOLVED"
+        stderr = io.StringIO()
+        with mock.patch.object(phase1_audit, "load_ledger", return_value=data):
+            with contextlib.redirect_stderr(stderr):
+                result = phase1_audit.main()
+        self.assertEqual(1, result)
+        self.assertIn("decision.path must resolve to A, B, or C", stderr.getvalue())
+
     def test_rejects_path_a_without_confirmed_owner_attestation(self) -> None:
         data = self.ledger()
         data["distribution"]["ownerAttestation"]["confirmed"] = False
@@ -50,6 +68,23 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["distribution"]["channels"][0]["status"] = "unknown"
         self.assert_failure(data, "Path A requires every distribution channel")
 
+    def test_rejects_missing_distribution_channel_id(self) -> None:
+        data = self.ledger()
+        data["distribution"]["channels"].pop()
+        self.assert_failure(data, "distribution channel IDs must exactly match")
+
+    def test_rejects_extra_distribution_channel_id(self) -> None:
+        data = self.ledger()
+        data["distribution"]["channels"].append({"id": "unexpected", "status": "none"})
+        self.assert_failure(data, "distribution channel IDs must exactly match")
+
+    def test_rejects_duplicate_distribution_channel_id(self) -> None:
+        data = self.ledger()
+        data["distribution"]["channels"].append(
+            {"id": "github-releases", "status": "none"}
+        )
+        self.assert_failure(data, "distribution channel IDs must exactly match")
+
     def test_rejects_path_b_without_enforced_sequential_upgrade(self) -> None:
         data = self.ledger()
         data["decision"]["path"] = "B"
@@ -61,6 +96,28 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["decision"]["path"] = "C"
         data["decision"]["compatibilityRemovalFloor"] = ""
         self.assert_failure(data, "Path C requires compatibilityRemovalFloor")
+
+    def test_valid_path_b_reports_path_b(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "B"
+        data["decision"]["sequentialUpgradeEnforced"] = True
+        stdout = io.StringIO()
+        with mock.patch.object(phase1_audit, "load_ledger", return_value=data):
+            with contextlib.redirect_stdout(stdout):
+                result = phase1_audit.main()
+        self.assertEqual(0, result)
+        self.assertIn("compatibility Path B.", stdout.getvalue())
+
+    def test_valid_path_c_reports_path_c(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "C"
+        data["decision"]["compatibilityRemovalFloor"] = "version 2"
+        stdout = io.StringIO()
+        with mock.patch.object(phase1_audit, "load_ledger", return_value=data):
+            with contextlib.redirect_stdout(stdout):
+                result = phase1_audit.main()
+        self.assertEqual(0, result)
+        self.assertIn("compatibility Path C.", stdout.getvalue())
 
 
 if __name__ == "__main__":

@@ -11,8 +11,17 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "modernization" / "phase1-shipped-state-ledger.json"
-ALLOWED_PATHS = {"UNRESOLVED", "A", "B", "C"}
+ALLOWED_PATHS = {"A", "B", "C"}
 ALLOWED_CHANNEL_STATUS = {"none", "state-capable", "unknown"}
+REQUIRED_CHANNEL_IDS = {
+    "github-releases",
+    "github-actions-apk-after-writer-epoch",
+    "google-play",
+    "f-droid",
+    "website",
+    "drive-discord-direct-share",
+    "other",
+}
 
 
 def load_ledger(path: Path) -> dict[str, Any]:
@@ -27,11 +36,14 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     decision = data.get("decision", {})
     path = decision.get("path")
     if path not in ALLOWED_PATHS:
-        failures.append(f"decision.path must be one of {sorted(ALLOWED_PATHS)}")
+        failures.append("decision.path must resolve to A, B, or C")
 
     distribution = data.get("distribution", {})
     attestation = distribution.get("ownerAttestation", {})
     channels = distribution.get("channels", [])
+    channel_ids = [channel.get("id") for channel in channels]
+    if set(channel_ids) != REQUIRED_CHANNEL_IDS or len(channel_ids) != len(set(channel_ids)):
+        failures.append("distribution channel IDs must exactly match the required unique set")
     if path == "A":
         if attestation.get("confirmed") is not True:
             failures.append("Path A requires confirmed owner attestation")
@@ -51,13 +63,15 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
 
 
 def main() -> int:
-    failures = validate_ledger(load_ledger(LEDGER), ROOT)
+    data = load_ledger(LEDGER)
+    failures = validate_ledger(data, ROOT)
     if failures:
         print("Phase 1 shipped-state audit verification failed:", file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
-    print("Phase 1 shipped-state audit verified: compatibility Path A.")
+    path = data.get("decision", {}).get("path")
+    print(f"Phase 1 shipped-state audit verified: compatibility Path {path}.")
     return 0
 
 
