@@ -176,6 +176,31 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["decision"]["rationaleEvidenceIds"].remove("owner-attestation-2026-08-17")
         self.assert_failure(data, "Path A decision must reference owner attestation")
 
+    def test_rejects_evidence_with_missing_source(self) -> None:
+        data = self.ledger()
+        del data["evidence"][0]["source"]
+        self.assert_failure(data, "requires nonempty source")
+
+    def test_rejects_evidence_with_empty_observed_at(self) -> None:
+        data = self.ledger()
+        data["evidence"][0]["observedAt"] = ""
+        self.assert_failure(data, "requires nonempty observedAt")
+
+    def test_rejects_evidence_with_invalid_calendar_date(self) -> None:
+        data = self.ledger()
+        data["evidence"][0]["observedAt"] = "2026-02-30"
+        self.assert_failure(data, "observedAt must be an ISO calendar date")
+
+    def test_rejects_path_a_with_missing_github_observation_date(self) -> None:
+        data = self.ledger()
+        del data["distribution"]["github"]["observedAt"]
+        self.assert_failure(data, "Path A requires GitHub observation date")
+
+    def test_rejects_path_a_with_invalid_github_observation_date(self) -> None:
+        data = self.ledger()
+        data["distribution"]["github"]["observedAt"] = "2026-02-30"
+        self.assert_failure(data, "GitHub observation date must be an ISO calendar date")
+
     def test_ancestry_failure_reports_shallow_history_requirement(self) -> None:
         data = self.ledger()
         real_git_text = phase1_audit.git_text

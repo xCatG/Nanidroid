@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,18 @@ def read_app_identity(repo_root: Path, commit: str) -> tuple[str, int, str]:
     if not application_id or not version_code or not version_name:
         raise ValueError(f"application identity missing at {commit}")
     return application_id.group(1), int(version_code.group(1)), version_name.group(1)
+
+
+def is_iso_calendar_date(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is not None and _parse_date(value)
+
+
+def _parse_date(value: str) -> bool:
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 def shallow_history_notice(repo_root: Path) -> str:
@@ -205,10 +218,8 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
         for field in ("claim", "source", "observedAt"):
             if not isinstance(item.get(field), str) or not item[field]:
                 failures.append(f"evidence {evidence_id} requires nonempty {field}")
-        if isinstance(item.get("observedAt"), str) and not re.fullmatch(
-            r"\d{4}-\d{2}-\d{2}", item["observedAt"]
-        ):
-            failures.append(f"evidence {evidence_id} observedAt must be an ISO date")
+        if isinstance(item.get("observedAt"), str) and item["observedAt"] and not is_iso_calendar_date(item["observedAt"]):
+            failures.append(f"evidence {evidence_id} observedAt must be an ISO calendar date")
     rationale_ids = decision.get("rationaleEvidenceIds", [])
     if not isinstance(rationale_ids, list):
         failures.append("decision.rationaleEvidenceIds must be an array")
@@ -250,6 +261,11 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
         if not isinstance(github, dict):
             failures.append("Path A requires GitHub observations")
             github = {}
+        github_observed_at = github.get("observedAt")
+        if not isinstance(github_observed_at, str) or not github_observed_at:
+            failures.append("Path A requires GitHub observation date")
+        elif not is_iso_calendar_date(github_observed_at):
+            failures.append("GitHub observation date must be an ISO calendar date")
         if github.get("releaseCount") != 0:
             failures.append("Path A requires zero GitHub releases")
         if github.get("tagCount") != 0:
