@@ -94,13 +94,11 @@ function ConvertTo-NarCanonicalLandingUrl {
         return $null
     }
 
-    $builder = [UriBuilder]::new($uri)
-    $builder.Fragment = ''
-    $canonical = $builder.Uri.AbsoluteUri
+    $canonical = '{0}://{1}{2}' -f $uri.Scheme.ToLowerInvariant(), $uri.Authority, $uri.GetComponents([UriComponents]::PathAndQuery, [UriFormat]::UriEscaped)
     if ($canonical.EndsWith('/')) {
         $canonical = $canonical.TrimEnd('/')
     }
-    return $canonical.ToLowerInvariant()
+    return $canonical
 }
 
 function Assert-NarCorpusMetadataRows {
@@ -124,10 +122,13 @@ function Assert-NarCorpusMetadataRows {
         $author = Get-NarPropertyValue -Object $row -Name 'author'
         $landingUrl = Get-NarPropertyValue -Object $row -Name 'landingUrl'
 
-        if ([string]::IsNullOrWhiteSpace([string] $snapshotId) -or
+        if ($snapshotId -isnot [string] -or
+            $title -isnot [string] -or
+            $author -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($snapshotId) -or
             $null -eq $ordinal -or
-            [string]::IsNullOrWhiteSpace([string] $title) -or
-            [string]::IsNullOrWhiteSpace([string] $author) -or
+            [string]::IsNullOrWhiteSpace($title) -or
+            [string]::IsNullOrWhiteSpace($author) -or
             $null -eq (ConvertTo-NarCanonicalLandingUrl -Value $landingUrl)) {
             throw 'Each metadata row requires snapshotId, sourceRowOrdinal, title, author, and an absolute HTTP(S) landingUrl.'
         }
@@ -143,6 +144,22 @@ function Assert-NarCorpusMetadataRows {
         }
         $ordinals[$ordinalKey] = $true
     }
+}
+
+function Assert-NarCorpusMetadataFixture {
+    param([AllowNull()][object] $Fixture)
+
+    if ($null -eq $Fixture -or $Fixture -is [string] -or $Fixture -is [ValueType]) {
+        throw 'Fixture must be an object containing a rows array.'
+    }
+
+    Assert-NoNarPayloadFields -Value $Fixture
+    $rows = Get-NarPropertyValue -Object $Fixture -Name 'rows'
+    if ($null -eq $rows -or $rows -is [string]) {
+        throw 'Fixture must contain a non-null rows array.'
+    }
+
+    Assert-NarCorpusMetadataRows -Rows @($rows)
 }
 
 function Get-NarEvidenceUrls {
@@ -170,7 +187,7 @@ function Resolve-NarCorpusMetadataRows {
 
     Assert-NarCorpusMetadataRows -Rows $Rows
     $orderedRows = @($Rows | Sort-Object @{ Expression = { [string] (Get-NarPropertyValue -Object $_ -Name 'snapshotId') } }, @{ Expression = { [int] (Get-NarPropertyValue -Object $_ -Name 'sourceRowOrdinal') } })
-    $canonicalRecords = @{}
+    $canonicalRecords = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
     $results = [System.Collections.Generic.List[object]]::new()
 
     foreach ($row in $orderedRows) {
@@ -262,4 +279,4 @@ function ConvertTo-NarCanonicalJson {
     }) -join ',') + '}'
 }
 
-Export-ModuleMember -Function Assert-NarCorpusMetadataRows, ConvertTo-NarCanonicalJson, Resolve-NarCorpusMetadataRows
+Export-ModuleMember -Function Assert-NarCorpusMetadataFixture, Assert-NarCorpusMetadataRows, ConvertTo-NarCanonicalJson, Resolve-NarCorpusMetadataRows

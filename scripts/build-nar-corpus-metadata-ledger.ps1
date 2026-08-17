@@ -18,13 +18,24 @@ try {
     }
 
     Import-Module (Join-Path $PSScriptRoot 'nar-corpus-metadata-resolver.psm1') -Force
-    $fixture = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $FixturePath)) | ConvertFrom-Json
-    if ($null -eq $fixture -or $null -eq $fixture.PSObject.Properties['rows']) {
+    $fixtureJson = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $FixturePath))
+    $fixtureDocument = [Text.Json.JsonDocument]::Parse($fixtureJson)
+    if ($fixtureDocument.RootElement.ValueKind -ne [Text.Json.JsonValueKind]::Object) {
+        throw 'Fixture must be an object containing a rows array.'
+    }
+    try {
+        $fixtureRowsElement = $fixtureDocument.RootElement.GetProperty('rows')
+    }
+    catch {
         throw 'Fixture must contain a rows array.'
     }
-
+    if ($fixtureRowsElement.ValueKind -ne [Text.Json.JsonValueKind]::Array) {
+        throw 'Fixture must contain a non-null rows array.'
+    }
+    $fixtureDocument.Dispose()
+    $fixture = $fixtureJson | ConvertFrom-Json
+    Assert-NarCorpusMetadataFixture -Fixture $fixture
     $rows = @($fixture.rows)
-    Assert-NarCorpusMetadataRows -Rows $rows
     $ledger = [PSCustomObject]@{ rows = @(Resolve-NarCorpusMetadataRows -Rows $rows) }
     $json = ConvertTo-NarCanonicalJson -Value $ledger
 
