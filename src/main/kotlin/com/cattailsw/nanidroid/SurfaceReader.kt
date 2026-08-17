@@ -10,7 +10,6 @@ import com.cattailsw.nanidroid.surface.CollisionGeometryParser
 import com.cattailsw.nanidroid.surface.CollisionShape
 import com.cattailsw.nanidroid.surface.ParsedCollision
 import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
-import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -27,7 +26,6 @@ class SurfaceReader {
         get() = mutableDiagnostics.toList()
 
     private var rootPath: String? = null
-    private var descPath: String? = null
     private var manager: SurfaceManager? = null
     private var parseTime = 0L
     private var transparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY
@@ -49,7 +47,6 @@ class SurfaceReader {
         transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
     ) {
         rootPath = shellRoot
-        descPath = descriptorPath
         this.manager = manager
         this.transparencyPolicy = transparencyPolicy
         loadShell(File(shellRoot))
@@ -57,7 +54,6 @@ class SurfaceReader {
 
     constructor(file: File) {
         rootPath = file.parent
-        descPath = file.absolutePath
     }
 
     private fun loadShell(root: File) {
@@ -123,16 +119,6 @@ class SurfaceReader {
 
         parseTime = LegacyPlatform.uptimeMillis() - started
         LegacyPlatform.debug(TAG, "parse time:${parseTime}ms")
-        try {
-            AnalyticsUtils.getInstance(null).trackEvent(
-                Setup.ANA_PERF,
-                "parsing time[ms]",
-                descPath,
-                parseTime.toInt(),
-            )
-        } catch (_: Exception) {
-            // Parsing remains available in local JVM tests and minimal host environments.
-        }
     }
 
     private fun discoverSourceFiles(root: File): List<File> =

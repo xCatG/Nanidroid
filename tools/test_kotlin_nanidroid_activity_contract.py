@@ -38,7 +38,6 @@ class KotlinNanidroidActivityContractTest(unittest.TestCase):
             "fun onUpdate()",
             "fun onListGhost()",
             "fun onHelp()",
-            "fun onSetupClick()",
             "fun frameClick()",
             "override fun showUserInputBox(id: String)",
             "override fun showUserSelection(textlabel: Array<String>, ids: Array<String>)",

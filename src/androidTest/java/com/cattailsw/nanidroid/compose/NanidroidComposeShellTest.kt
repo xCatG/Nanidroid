@@ -90,7 +90,6 @@ class NanidroidComposeShellTest {
                     toolbarVisible = false,
                     onListGhost = {},
                     onUpdate = {},
-                    onPreferences = {},
                     onHelp = {},
                     simpleDialog = null,
                     onDismissSimpleDialog = {},
@@ -121,7 +120,7 @@ class NanidroidComposeShellTest {
     }
 
     @Test
-    fun shell_exposes_compose_controls_and_keeps_the_stage_in_compose() {
+    fun shell_exposes_retained_controls_without_preferences_and_keeps_the_stage_in_compose() {
         var selected = ""
         val loading = mutableStateOf(false)
         composeRule.setContent {
@@ -133,7 +132,6 @@ class NanidroidComposeShellTest {
                 onListGhost = { selected = "list" },
                 onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
-                onPreferences = { selected = "preferences" },
                 onHelp = { selected = "help" },
                 showDebugControls = false,
                 simpleDialog = null,
@@ -152,9 +150,7 @@ class NanidroidComposeShellTest {
         composeRule.onNodeWithTag("readme").performClick()
         composeRule.runOnIdle { assertEquals("readme", selected) }
         openOverflowMenu()
-        composeRule.onNodeWithTag("preferences").performClick()
-        composeRule.runOnIdle { assertEquals("preferences", selected) }
-        openOverflowMenu()
+        assertNoNodeWithTag("preferences")
         composeRule.onNodeWithTag("help").performClick()
         composeRule.runOnIdle { assertEquals("help", selected) }
         composeRule.runOnIdle { loading.value = true }
@@ -174,7 +170,6 @@ class NanidroidComposeShellTest {
                 onListGhost = { selected = "list" },
                 onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
-                onPreferences = { selected = "preferences" },
                 onHelp = { selected = "help" },
                 onArchiveQueue = { selected = "queue" },
                 showDebugControls = true,
@@ -214,7 +209,6 @@ class NanidroidComposeShellTest {
                 onListGhost = {},
                 onUpdate = {},
                 onReadme = {},
-                onPreferences = {},
                 onHelp = {},
                 showDebugControls = false,
                 onDebug = {},
@@ -246,7 +240,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = true,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = NanidroidSimpleDialog.Notice(
                     title = android.R.string.dialog_alert_title,
@@ -281,7 +274,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -320,7 +312,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -374,7 +365,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -400,7 +390,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -431,7 +420,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -478,7 +466,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -517,7 +504,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -554,7 +540,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -593,7 +578,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = dialog.value,
                 onDismissSimpleDialog = {},
@@ -628,7 +612,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -670,7 +653,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = NanidroidSimpleDialog.Notice(
                     title = android.R.string.dialog_alert_title,
@@ -720,7 +702,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -753,7 +734,6 @@ class NanidroidComposeShellTest {
                 onListGhost = { selected = "list" },
                 onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
-                onPreferences = { selected = "preferences" },
                 onHelp = { selected = "help" },
                 onArchiveQueue = { selected = "queue" },
                 showDebugControls = false,
@@ -790,7 +770,6 @@ class NanidroidComposeShellTest {
                 onListGhost = {},
                 onUpdate = {},
                 onReadme = {},
-                onPreferences = {},
                 onHelp = {},
                 showDebugControls = false,
                 simpleDialog = null,
@@ -818,7 +797,6 @@ class NanidroidComposeShellTest {
                 onListGhost = {},
                 onUpdate = {},
                 onReadme = { selected = "readme" },
-                onPreferences = {},
                 onHelp = {},
                 onArchiveQueue = { selected = "archive-queue" },
                 archiveDownloads = listOf(
@@ -851,7 +829,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = true,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 archiveDownloads = downloads.value,
                 simpleDialog = null,
@@ -914,7 +891,6 @@ class NanidroidComposeShellTest {
                 onListGhost = {},
                 onUpdate = {},
                 onReadme = {},
-                onPreferences = {},
                 onHelp = {},
                 onDebug = { selected = "debug" },
                 showDebugControls = debugEnabled.value,
@@ -942,7 +918,6 @@ class NanidroidComposeShellTest {
                 onListGhost = {},
                 onUpdate = {},
                 onReadme = {},
-                onPreferences = {},
                 onHelp = {},
                 showDebugControls = true,
                 simpleDialog = null,
@@ -1041,7 +1016,6 @@ class NanidroidComposeShellTest {
                 toolbarVisible = true,
                 onListGhost = { selectedGhost.value = "Fixture Ghost" },
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -1292,10 +1266,10 @@ class NanidroidComposeShellTest {
     }
 
     @Test
-    fun ghost_list_exposes_selection_more_and_cancellation_actions() {
+    fun ghost_list_exposes_selection_more_and_dismissal_actions() {
         var selected = -1
         var more = false
-        var cancelled = false
+        var dismissed = false
         composeRule.setContent {
             NanidroidSimpleDialogHost(
                 dialog = NanidroidSimpleDialog.GhostList(
@@ -1303,17 +1277,17 @@ class NanidroidComposeShellTest {
                     ids = listOf("fixture"),
                     onSelect = { selected = it },
                     onMore = { more = true },
-                    onCancel = { cancelled = true },
                 ),
-                onDismiss = {},
+                onDismiss = { dismissed = true },
             )
         }
         composeRule.onNodeWithTag("ghost-choice-0").performClick()
         composeRule.runOnIdle { assertEquals(0, selected) }
         composeRule.onNodeWithTag("ghost-list-more").performClick()
         composeRule.runOnIdle { assertEquals(true, more) }
+        composeRule.runOnIdle { dismissed = false }
         composeRule.onNodeWithTag("ghost-list-cancel").performClick()
-        composeRule.runOnIdle { assertEquals(true, cancelled) }
+        composeRule.runOnIdle { assertEquals(true, dismissed) }
     }
 
     @Test

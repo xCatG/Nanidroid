@@ -54,8 +54,6 @@ import com.cattailsw.nanidroid.compose.debug.showDebugSurface
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
-import com.cattailsw.nanidroid.util.AnalyticsUtils
-import com.cattailsw.nanidroid.util.CrashReporting
 import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.PrefUtil
 import com.cattailsw.nanidroid.install.NarContentUriImport
@@ -362,7 +360,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             handleArchiveIngress = { handleIncomingIntent(intent) },
         )
         val dbgBuild = isDbgBuild()
-        initGA()
         setupViews(dbgBuild)
         observeDurableNotificationPermissionAcceptance()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
@@ -439,7 +436,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val ghost = launchCandidateIds(lastId, gm!!.getGnames().orEmpty().toList())
             .firstNotNullOfOrNull(gm!!::createGhost)
             ?: return null
-        CrashReporting.setCustomKey("current_ghost", ghost.ghost.getGhostId())
         gm!!.setLastRunGhost(ghost.ghost)
         currentGhost = ghost.ghost
         return ghost
@@ -503,7 +499,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     onListGhost = ::onListGhost,
                     onUpdate = ::onUpdate,
                     onReadme = ::openCurrentGhostReadme,
-                    onPreferences = ::onSetupClick,
                     onHelp = ::onHelp,
                     onArchiveQueue = {
                         simpleDialog = NanidroidSimpleDialog.ArchiveQueue(
@@ -626,7 +621,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             var line = br.readLine(); while (line != null) { if (line.isNotEmpty() && !line.startsWith("#")) runner!!.addMsgToQueue(arrayOf(line)); line = br.readLine() }
         }
     } catch (_: Exception) { runner!!.addMsgToQueue(arrayOf("\\0Oops, something wrong with first run script!\\e")) }
-    private fun initGA() { val enabled = applicationContext.getSharedPreferences("${applicationContext.packageName}_preferences", MODE_PRIVATE).getBoolean(Setup.PREF_KEY_USE_ANALYTICS, true); AnalyticsUtils.getInstance(applicationContext, Setup.UA_CODE, enabled); AnalyticsUtils.getInstance(applicationContext).dispatch() }
     private fun dbgRelatedSetup(ghost: Ghost) { updateSurfaceKeys(ghost); currentSurfaceKey = surfaceKeys!![0]; currentSurface = ghost.mgr!!.getSakuraSurface(currentSurfaceKey!!) }
     private fun updateSurfaceKeys(ghost: Ghost) { surfaceKeys = ghost.mgr!!.getSurfaceKeys().toTypedArray(); Arrays.sort(requireNotNull(surfaceKeys)) }
 
@@ -659,7 +653,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             runner?.startClock()
             runner?.run()
         }
-        AnalyticsUtils.getInstance(applicationContext).trackPageView(TAG)
     }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -713,7 +706,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
     private fun installFirstGhost() { try { assets.open("nanidroid.zip").use { input -> val target = File(externalCacheDir, "nanidroid.nar"); NarUtil.copyFile(input, FileOutputStream(target)); gm!!.installFirstGhost("nanidroid", target.path) } } catch (e: IOException) { e.printStackTrace() } }
     private fun showReadme(readme: File, ghostId: String) {
-        AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_README}:$ghostId")
         simpleDialog = createReadmeDialog(readme, ghostId)
     }
     private fun openCurrentGhostReadme() {
@@ -721,7 +713,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val ghostId = ghost.getGhostId()
         val readme = gm?.getGhostReadMe(ghostId)
         if (readme?.exists() == true) {
-            AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_README}:$ghostId")
             simpleDialog = NanidroidSimpleDialog.TextDocument(
                 getString(R.string.readme_menu_text),
                 PlainTextDocument.read(readme),
@@ -736,13 +727,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }
     private fun showGhostInstalledDlg(ghostId: String) {
-        AnalyticsUtils.getInstance(applicationContext).trackPageView("/${Setup.DLG_NO_REAMDE}:$ghostId")
         simpleDialog = createNoReadmeDialog(ghostId, gm!!.getGhostDispName(ghostId) ?: ghostId)
     }
     fun onNextGhost() {
         simpleDialog = NanidroidSimpleDialog.DebugMessage(currentGhost!!.mgr!!.dumpSurfaces())
     }
-    fun switchGhost(nextId: String) { if (!allows(GuardedAction.SWITCH_GHOST)) return; val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)); AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_PGM_FLOW, "ghost_switch", nextGhostId, 0) }
+    fun switchGhost(nextId: String) { if (!allows(GuardedAction.SWITCH_GHOST)) return; val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)) }
     fun ghostSwitchStep2() {
         val targetGhostId = nextGhostId ?: run {
             Log.w(TAG, "ghost switch completed without a target ghost")
@@ -761,7 +751,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "ghost_switch", targetGhostId, -1)
                         Log.d(TAG, "failed to switch to ghost:$targetGhostId", e)
                     }
                 }
@@ -781,7 +770,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     hideProgress()
                     val exactReservation = ownedReservation ?: return@routeGhostSwitchResult
                     val ghost = exactReservation.ghost
-                    CrashReporting.setCustomKey("current_ghost", ghost.getGhostId())
                     // Keep the Compose stage and runner on the UI thread; its frame
                     // cache and scheduler state are intentionally not synchronized.
                     composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
@@ -839,7 +827,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     fun onUpdate() {
         if (!allows(GuardedAction.UPDATE)) return
-        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "Update", "", 0)
         val home = runner!!.getStringValueFromShiori("homeurl") ?: return
         runner!!.doShioriEvent(
             "OnUpdateBegin",
@@ -854,28 +841,20 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             ),
         )
     }
-    fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "list_ghost", "", 0); showGhostListDlg() }
+    fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; showGhostListDlg() }
     fun onHelp() {
-        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "help", "", 0)
-        AnalyticsUtils.getInstance(this).trackPageView("/Help_menu")
         simpleDialog = createHelpMenuDialog()
     }
-    fun getMoreGhost(source: Int) {
-        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_BTN, "MoreGhost", if (source == 0) "MainUI" else Setup.DLG_G_LIST, source)
-        AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_MORE_G}")
+    fun getMoreGhost() {
         simpleDialog = createMoreGhostDialog()
     }
     private fun startInstallFromSDCard(replaceId: String? = null, origin: ActionOrigin = ActionOrigin.USER) {
         if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
-        AnalyticsUtils.getInstance(applicationContext).trackEvent(
-            Setup.ANA_UI_TOUCH, "more_ghost_install_sd", "install_from_sd", 0,
-        )
         awaitingNarDocument = true
         replacingNarDownloadId = replaceId
         narDocumentPicker.launch(Unit)
     }
     fun showNarErrDlg(dir: Boolean) {
-        AnalyticsUtils.getInstance(applicationContext).trackEvent(Setup.ANA_ERR, "more_ghost_install_sd", if (dir) "no_nar_folder" else "no_nar_file", if (dir) -1 else -2)
         simpleDialog = NanidroidSimpleDialog.Notice(
             R.string.err_nar_title,
             if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file,
@@ -982,30 +961,27 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             SharedDurableOperationSupervisor.attention(applicationContext).refresh()
         }
     }
-    private fun showUrlDlg() { AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_E_URL}"); simpleDialog = createUrlEntryDialog() }
+    private fun showUrlDlg() { simpleDialog = createUrlEntryDialog() }
     private fun showGhostTown() {
-        AnalyticsUtils.getInstance(this).trackPageView("/ghost_town_portal")
         simpleDialog = NanidroidSimpleDialog.Notice(R.string.not_implemeted_title, R.string.not_implemented)
     }
-    fun onMoreGhost() = getMoreGhost(0)
+    fun onMoreGhost() = getMoreGhost()
     private fun showGhostListDlg() {
         val manager = gm ?: return
-        AnalyticsUtils.getInstance(this).trackPageView("/${Setup.DLG_G_LIST}")
         simpleDialog = createGhostListDialog(
             manager.getGDispNames()?.map { it ?: "" }.orEmpty(),
             manager.getGnames()?.toList().orEmpty(),
         )
     }
     private fun showHelp() {
-        AnalyticsUtils.getInstance(applicationContext).trackPageView("/help")
         simpleDialog = createGeneralHelpDialog()
     }
     private fun createHelpMenuDialog() = NanidroidSimpleDialog.HelpMenu(
         onGeneralHelp = { showHelp() }, onAbout = { showAbout() }, onFeedback = { showFeedback() },
     )
     private fun createGeneralHelpDialog() = NanidroidSimpleDialog.GeneralHelp(
-        onInstallHelp = { openHelpPage(R.string.url_help_install, "/help/install") },
-        onSupportedOperations = { openHelpPage(R.string.url_support_ops, "/help/supported_ops") },
+        onInstallHelp = { openHelpPage(R.string.url_help_install) },
+        onSupportedOperations = { openHelpPage(R.string.url_support_ops) },
     )
     private fun createMoreGhostDialog() = NanidroidSimpleDialog.MoreGhost(
         onEnterUrl = { showUrlDlg() }, onInstallFromSdCard = { startInstallFromSDCard() }, onGhostTown = { showGhostTown() },
@@ -1063,18 +1039,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     ) = dialogueDialogBinding.restoreUserChoice(labels, ids, restoration)
     private fun createGhostListDialog(names: List<String>, ids: List<String>) = NanidroidSimpleDialog.GhostList(
         names, ids,
-        onSelect = { index -> selectGhostFromList(ids.getOrNull(index), names.getOrNull(index) ?: "", index) },
-        onMore = { getMoreGhost(1) },
-        onCancel = { AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_BTN, "ghost_list_cancel", "", 0) },
+        onSelect = { index -> selectGhostFromList(ids.getOrNull(index), names.getOrNull(index) ?: "") },
+        onMore = { getMoreGhost() },
     )
     private fun createReadmeDialog(readme: File, ghostId: String) = NanidroidSimpleDialog.TextDocument(
         getString(R.string.new_ghost_installed_title), PlainTextDocument.read(readme), ::openDocumentLink, ghostId,
-        { AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_BTN, "ghost_switch", "ghost_readme_dlg", 0); switchGhost(ghostId) },
+        { switchGhost(ghostId) },
     )
     private fun createNoReadmeDialog(ghostId: String, ghostName: String) = NanidroidSimpleDialog.SwitchConfirmation(
         ghostId, ghostName,
-        onSwitch = { AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_BTN, "ghost_switch", "ghost_readme_dlg", 1); switchGhost(ghostId) },
-        onCancel = { AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_BTN, "close", "ghost_readme_dlg", 1) },
+        onSwitch = { switchGhost(ghostId) },
     )
     private fun createAboutDialog() = NanidroidSimpleDialog.TextDocument(
         getString(R.string.about_title),
@@ -1086,10 +1060,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (uri.scheme !in setOf("https", "http", "mailto")) return
         startActivity(Intent(Intent.ACTION_VIEW, uri))
     }
-    private fun selectGhostFromList(id: String?, name: String, index: Int) {
+    private fun selectGhostFromList(id: String?, name: String) {
         val manager = gm ?: return
         val ghostId = id ?: return
-        AnalyticsUtils.getInstance(this).trackEvent(Setup.ANA_UI_TOUCH, "ghost_list_touch", name, manager.getGhostLaunchCount(index))
         if (manager.getGhostReadMe(ghostId).exists()) showReadme(manager.getGhostReadMe(ghostId), ghostId)
         else simpleDialog = createNoReadmeDialog(ghostId, name)
     }
@@ -1220,19 +1193,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             else -> null
         }
     }
-    private fun openHelpPage(urlRes: Int, page: String) {
-        AnalyticsUtils.getInstance(this).trackPageView(page)
+    private fun openHelpPage(urlRes: Int) {
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(urlRes))))
     }
-    private fun showFeedback() { AnalyticsUtils.getInstance(applicationContext).trackPageView("/feedback"); startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.feedback_url)))) }
+    private fun showFeedback() { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.feedback_url)))) }
     private fun showAbout() {
-        AnalyticsUtils.getInstance(applicationContext).trackPageView("/about")
         simpleDialog = createAboutDialog()
     }
-    fun onSetupClick() = showPreference()
-    private fun showPreference() { val target = Intent(Intent.ACTION_VIEW); target.setClassName(this, Preferences::class.java.name); AnalyticsUtils.getInstance(this).trackPageView("/Preference"); startActivity(target) }
     fun frameClick() {
-        if (!toolbarVisible) AnalyticsUtils.getInstance(this).trackPageView("/main_btn_bar")
         toolbarVisible = !toolbarVisible
     }
     override fun showUserInputBox(id: String) {

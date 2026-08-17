@@ -78,9 +78,9 @@ internal sealed interface NanidroidSimpleDialog {
         val restoration: DialogueDialogRestoration? = null,
         val onChoice: (Int) -> Unit,
     ) : NanidroidSimpleDialog
-    data class GhostList(val names: List<String>, val ids: List<String>, val onSelect: (Int) -> Unit, val onMore: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
+    data class GhostList(val names: List<String>, val ids: List<String>, val onSelect: (Int) -> Unit, val onMore: () -> Unit) : NanidroidSimpleDialog
     data class TextDocument(val title: String, val text: String, val onOpenLink: (String) -> Unit, val sourceId: String? = null, val onSwitch: (() -> Unit)? = null) : NanidroidSimpleDialog
-    data class SwitchConfirmation(val ghostId: String, val ghostName: String, val onSwitch: () -> Unit, val onCancel: () -> Unit) : NanidroidSimpleDialog
+    data class SwitchConfirmation(val ghostId: String, val ghostName: String, val onSwitch: () -> Unit) : NanidroidSimpleDialog
     data class ArchiveQueue(val onRetry: (String) -> Unit, val onReselect: (String) -> Unit, val onDelete: (String) -> Unit) : NanidroidSimpleDialog
 }
 
@@ -276,11 +276,11 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 )
 
 @Composable private fun GhostListDialog(dialog: NanidroidSimpleDialog.GhostList, onDismiss: () -> Unit) = AlertDialog(
-    onDismissRequest = { onDismiss(); dialog.onCancel() },
+    onDismissRequest = onDismiss,
     title = { Text(stringResource(R.string.list_ghost_dlg_title)) },
     text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) { dialog.names.forEachIndexed { index, name -> TextButton(modifier = Modifier.fillMaxWidth().testTag("ghost-choice-$index"), onClick = { onDismiss(); dialog.onSelect(index) }) { Text(name) } } } },
     confirmButton = { TextButton(onClick = { onDismiss(); dialog.onMore() }, modifier = Modifier.testTag("ghost-list-more")) { Text(stringResource(R.string.more_ghosts_btn_text)) } },
-    dismissButton = { TextButton(onClick = { onDismiss(); dialog.onCancel() }, modifier = Modifier.testTag("ghost-list-cancel")) { Text(stringResource(android.R.string.cancel)) } },
+    dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.testTag("ghost-list-cancel")) { Text(stringResource(android.R.string.cancel)) } },
 )
 
 @Composable private fun TextDocumentDialog(dialog: NanidroidSimpleDialog.TextDocument, onDismiss: () -> Unit) = AlertDialog(
@@ -302,11 +302,11 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 )
 
 @Composable private fun SwitchConfirmationDialog(dialog: NanidroidSimpleDialog.SwitchConfirmation, onDismiss: () -> Unit) = AlertDialog(
-    onDismissRequest = { onDismiss(); dialog.onCancel() },
+    onDismissRequest = onDismiss,
     title = { Text(stringResource(R.string.no_readme_dlg_title)) },
     text = { Text(stringResource(R.string.no_readme_text, dialog.ghostName)) },
     confirmButton = { TextButton(onClick = { onDismiss(); dialog.onSwitch() }, modifier = Modifier.testTag("no-readme-switch")) { Text(stringResource(R.string.switch_to_ghost_btn_text)) } },
-    dismissButton = { TextButton(onClick = { onDismiss(); dialog.onCancel() }, modifier = Modifier.testTag("no-readme-cancel")) { Text(stringResource(android.R.string.cancel)) } },
+    dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.testTag("no-readme-cancel")) { Text(stringResource(android.R.string.cancel)) } },
 )
 
 @Composable private fun ArchiveQueueDialog(dialog: NanidroidSimpleDialog.ArchiveQueue, downloads: List<NarDownload>, onDismiss: () -> Unit) = AlertDialog(

@@ -893,7 +893,6 @@ class RenderedTransformContractTest {
                 showDebugControls = debug.value,
                 onListGhost = {},
                 onUpdate = {},
-                onPreferences = {},
                 onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},

@@ -10,7 +10,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
 import java.io.File
-import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
 import com.cattailsw.nanidroid.surface.CollisionGeometryParser
 import com.cattailsw.nanidroid.surface.ParsedCollision
@@ -142,7 +141,7 @@ open class ShellSurface {
     fun dumpAnimation(sb:StringBuilder):StringBuilder { animationTable?.let{table->sb.append("[dumping animation]\n");table.values.forEach{a->sb.append("[Animation] id:").append(a.id).append(",interval:").append(a.interval).append('\n')}};animationTypeTable?.let{table->sb.append("[dumping animation type table]\n");table.values.forEach{sb.append(it).append('\n')};sb.append("[done dumping animation type table]\n")};return sb }
     private fun readBitmapInfo(filename:String):BitmapFactory.Options = BitmapFactory.Options().apply{inJustDecodeBounds=true;BitmapFactory.decodeFile(filename,this)}
     private fun findIdInCollision(id:Int):CollisionArea? = collisionAreas[id]
-    private fun handleOptions(value:String) { LegacyPlatform.debug("ShellSurface", "surface parse not support: $value"); try { AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_ERR,"surface parse not support",value,-1) } catch (_:Exception) {} }
+    private fun handleOptions(value:String) { LegacyPlatform.debug("ShellSurface", "surface parse not support: $value") }
     private fun addAltAnimation(id:String, ids:String, splitter:String) = addAltAnimation(id,ids.split(Regex(splitter)).toTypedArray())
     private fun addAltAnimation(id:String, ids:String) = addAltAnimation(id,ids.split(",").toTypedArray())
     fun getAnimation(patternId:Int,res:Resources):Drawable? = getAnimation(patternId.toString(),res)

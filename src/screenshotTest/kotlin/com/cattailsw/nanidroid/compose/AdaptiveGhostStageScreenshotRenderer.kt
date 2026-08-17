@@ -145,7 +145,6 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
         onListGhost = {},
         onUpdate = {},
         onReadme = {},
-        onPreferences = {},
         onHelp = {},
         onArchiveQueue = {},
         showDebugControls = true,
