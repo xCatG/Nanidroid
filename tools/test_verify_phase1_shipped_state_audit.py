@@ -119,6 +119,43 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertIn("compatibility Path C.", stdout.getvalue())
 
+    def test_rejects_nonexistent_writer_commit(self) -> None:
+        data = self.ledger()
+        data["writerEpochs"][0]["commit"] = "0" * 40
+        self.assert_failure(data, "writer commit does not exist")
+
+    def test_rejects_writer_commit_outside_audited_head(self) -> None:
+        data = self.ledger()
+        data["repository"]["auditedHead"] = data["writerEpochs"][0]["commit"]
+        data["writerEpochs"][-1]["commit"] = phase1_audit.git_text(
+            ROOT, "rev-parse", "HEAD"
+        )
+        self.assert_failure(data, "writer commit is not an ancestor")
+
+    def test_rejects_incorrect_app_identity(self) -> None:
+        data = self.ledger()
+        data["repository"]["applicationId"] = "example.invalid"
+        self.assert_failure(data, "application identity mismatch")
+
+    def test_rejects_missing_required_writer_epoch(self) -> None:
+        data = self.ledger()
+        data["writerEpochs"] = data["writerEpochs"][1:]
+        self.assert_failure(data, "missing writer epoch: nar-queue-workmanager")
+
+    def test_rejects_missing_required_persistent_resource(self) -> None:
+        data = self.ledger()
+        data["persistentResources"] = [
+            resource
+            for resource in data["persistentResources"]
+            if resource["id"] != "workmanager-worker-fqcns"
+        ]
+        self.assert_failure(data, "missing persistent resource: workmanager-worker-fqcns")
+
+    def test_rejects_dangling_decision_evidence_reference(self) -> None:
+        data = self.ledger()
+        data["decision"]["rationaleEvidenceIds"].append("missing-evidence")
+        self.assert_failure(data, "dangling evidence reference: missing-evidence")
+
 
 if __name__ == "__main__":
     unittest.main()

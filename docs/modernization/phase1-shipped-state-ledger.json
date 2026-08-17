@@ -7,8 +7,25 @@
     "versionName": "open_0.1",
     "auditedHead": "f7d037bc066ff648d73b4c2d403a890765b44523"
   },
-  "writerEpochs": [],
-  "persistentResources": [],
+  "writerEpochs": [
+    {"id":"nar-queue-workmanager","commit":"19da89d3f4d1faaaaaae3e000b8bc852f73c2c38","introducedPaths":["src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadStore.kt","src/main/kotlin/com/cattailsw/nanidroid/install/InstallNarWorker.kt","src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadReceiver.kt","src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadRecoveryReceiver.kt"]},
+    {"id":"durable-operation-store","commit":"ec78fcc282c0a528f371609fca0e66fbf773b5ff","introducedPaths":["src/main/kotlin/com/cattailsw/nanidroid/durable/SharedPreferencesDurableOperationStore.kt","src/main/kotlin/com/cattailsw/nanidroid/durable/DurableOperationSupervisor.kt"]},
+    {"id":"transactional-ghost-update","commit":"19956d7f5f2406e045c819593e761a4c1fb08ae6","introducedPaths":["src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateWorker.kt","src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateRepository.kt","src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateJournal.kt"]}
+  ],
+  "persistentResources": [
+    {"id":"nar-download-queue","ownership":"APP_OWNED_STRICT_DECODE","locations":["shared_prefs/nar-download-queue.xml#records-v1"],"formats":["v1","v2","v3","v4"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"durable-operations","ownership":"APP_OWNED_STRICT_DECODE","locations":["shared_prefs/durable_operations_v1.xml#records","shared_prefs/durable_operations_v1.xml#records_corruption_quarantine","shared_prefs/durable_operations_v1.xml#records_corruption_recovery_required"],"formats":["v1","v2","v3","v4","v5","v6"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"workmanager-worker-fqcns","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["com.cattailsw.nanidroid.install.InstallNarWorker","com.cattailsw.nanidroid.install.StageLocalNarWorker","com.cattailsw.nanidroid.durable.GhostUpdateWorker","com.cattailsw.nanidroid.durable.GhostUpdateRecoveryWorker"],"formats":[],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"workmanager-unique-work","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["install-nar-<itemId>","stage-local-nar-<itemId>","ghost-update-<rootDigest>","ghost-update-recovery-<rootDigest>"],"formats":["legacy-random-install-uuid","durableWorkManagerId-v1"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"downloadmanager-rows","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["external-files/Downloads/nar-downloads/<itemId>.nar"],"formats":["exact-row-id","binding-history"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"persisted-uri-grants","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["queue-source-uri","queue-retained-uri","pendingPersistedGrantReleaseUri","pending-grant-release"],"formats":["read-grant"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"local-import-staging","ownership":"APP_OWNED_CANONICAL_PATH","locations":["filesDir/nar-local-imports"],"formats":["nar-local-<24hex>.nar"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"install-attempt-staging","ownership":"APP_OWNED_CANONICAL_PATH","locations":["cacheDir/nar-install-attempts","ghost/.nanidroid-install-staging"],"formats":["candidate-<32hex>","staged-<32hex>.nar"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"ghost-update-transaction","ownership":"APP_OWNED_JOURNAL_AND_CANONICAL_PATH","locations":[".nanidroid-update-*",".nanidroid-staging-*","journal.v1","journal.v1.tmp","candidate","backup"],"formats":["PREPARED","BACKED_UP","PUBLISHED","CLEANED","ROLLBACK_CLASSIFIED","NO_CHANGES_PENDING"],"cleanupPolicy":"No cleanup in audit PR"},
+    {"id":"runtime-last-ghost","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/lastrunghost"],"formats":[],"cleanupPolicy":"Never delete as workflow cleanup"},
+    {"id":"runtime-activation-counts","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/createcount_ghost*"],"formats":[],"cleanupPolicy":"Never delete as workflow cleanup"},
+    {"id":"shared-nar-storage","ownership":"FOREIGN_PRESERVE","locations":["/sdcard/nar"],"formats":["nanidroid*.tmp"],"cleanupPolicy":"Never infer ownership or delete from prefix"}
+  ],
   "distribution": {
     "channels": [
       {"id": "github-releases", "status": "none"},
@@ -29,10 +46,10 @@
   },
   "decision": {
     "path": "A",
-    "rationaleEvidenceIds": [],
+    "rationaleEvidenceIds": ["owner-attestation-path-a"],
     "supportedUpgradeFloor": "No distributed state-capable modernization build",
     "sequentialUpgradeEnforced": false,
     "compatibilityRemovalFloor": null
   },
-  "evidence": []
+  "evidence": [{"id":"owner-attestation-path-a","summary":"Owner attestation confirms no distributed state-capable modernization APK."}]
 }
