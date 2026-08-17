@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-08-17",
+  "repository": {
+    "applicationId": "com.cattailsw.nanidroid",
+    "versionCode": 6,
+    "versionName": "open_0.1",
+    "auditedHead": "f7d037bc066ff648d73b4c2d403a890765b44523"
+  },
+  "writerEpochs": [],
+  "persistentResources": [],
+  "distribution": {
+    "channels": [
+      {"id": "github-releases", "status": "none"},
+      {"id": "github-actions-apk-after-writer-epoch", "status": "none"},
+      {"id": "google-play", "status": "none"},
+      {"id": "f-droid", "status": "none"},
+      {"id": "website", "status": "none"},
+      {"id": "drive-discord-direct-share", "status": "none"},
+      {"id": "other", "status": "none"}
+    ],
+    "ownerAttestation": {
+      "confirmed": true,
+      "date": "2026-08-17",
+      "stateCapableApkDistributed": false,
+      "signingKeyRecovered": false,
+      "statement": "No APK built from 19da89d3f4d1faaaaaae3e000b8bc852f73c2c38 or later was released or distributed; the signing key has not been recovered."
+    }
+  },
+  "decision": {
+    "path": "A",
+    "rationaleEvidenceIds": [],
+    "supportedUpgradeFloor": "No distributed state-capable modernization build",
+    "sequentialUpgradeEnforced": false,
+    "compatibilityRemovalFloor": null
+  },
+  "evidence": []
+}
