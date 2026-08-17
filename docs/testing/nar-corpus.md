@@ -1,5 +1,27 @@
 # NAR corpus runtime audit
 
+## Local synthetic metadata ledger
+
+Build the metadata-only ledger from the checked-in synthetic fixture with:
+
+```powershell
+pwsh -NoProfile -File scripts/build-nar-corpus-metadata-ledger.ps1 `
+  -FixturePath scripts/tests/fixtures/nar-corpus-metadata-resolver/phase-one-synthetic.json `
+  -OutputRoot build/nar-corpus-metadata-ledger
+```
+
+The command writes `ledger.json` under the chosen output root. Its rows are
+classified as exactly one of these dispositions: `nar-downloadable`,
+`manifest-only`, `unavailable`, `permission-excluded`, or
+`duplicate-catalog-record`.
+
+This is a local, metadata-only resolver. It accepts the synthetic JSON fixture
+only: it must not be given a `.nar` payload or fixture fields that point to
+archive payloads, and it performs no network requests. It is neither the rolling
+downloader nor the emulator runtime-audit runner. In particular, it does not
+download, install, inspect, or execute archives, and it leaves the pinned corpus
+and its manifest unchanged.
+
 `run-nar-corpus-audit.ps1` executes a deterministic, manifest-driven compatibility
 run. For each archive, the script installs/builds target and test APKs once, copies
 the archive into one per-run private staging path, invokes
