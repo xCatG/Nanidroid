@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid
 
-import com.cattailsw.nanidroid.util.NarUtil
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.InputStream
@@ -50,7 +49,7 @@ class DescReader {
 
     private fun charsetForFirstLine(firstLine: String?): Charset {
         if (firstLine == null) throw NullPointerException()
-        val line = firstLine.removePrefix(NarUtil.UTF8_BOM)
+        val line = firstLine.removePrefix(UTF8_BOM)
         val charsetFields = line.split(",".toRegex())
         if (charsetFields.size != 2 || !charsetFields[0].contains("charset")) {
             return DEFAULT_CHARSET
@@ -97,6 +96,7 @@ class DescReader {
     }
 
     private companion object {
+        const val UTF8_BOM = "\uFEFF"
         val DEFAULT_CHARSET: Charset = Charset.forName("Shift_JIS")
         const val TAG = "DescReader"
     }
