@@ -202,6 +202,19 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         failures = phase1_audit.validate_ledger(data, ROOT)
         self.assertTrue(failures)
 
+    def test_malformed_introduced_paths_return_failures(self) -> None:
+        for value in (None, "scalar", {"path": "mapping"}, ["", 7, None]):
+            data = self.ledger()
+            data["writerEpochs"][0]["introducedPaths"] = value
+            try:
+                failures = phase1_audit.validate_ledger(data, ROOT)
+            except (TypeError, AttributeError, KeyError):
+                self.fail(f"validate_ledger raised for malformed introducedPaths: {value!r}")
+            self.assertTrue(
+                any("introducedPaths" in failure for failure in failures),
+                failures,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

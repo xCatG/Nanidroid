@@ -147,7 +147,14 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
                 failures.append(f"application identity mismatch at {commit}")
         except (RuntimeError, ValueError):
             failures.append(f"application identity mismatch at {commit}")
-        for path in epoch.get("introducedPaths", []):
+        introduced_paths = epoch.get("introducedPaths", [])
+        if not isinstance(introduced_paths, list):
+            failures.append(f"introducedPaths must be an array: {commit}")
+            continue
+        if any(not isinstance(path, str) or not path for path in introduced_paths):
+            failures.append(f"introducedPaths must contain nonempty strings: {commit}")
+            continue
+        for path in introduced_paths:
             try:
                 git_text(repo_root, "cat-file", "-e", f"{commit}:{path}")
             except RuntimeError:
