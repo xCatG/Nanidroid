@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -32,23 +33,240 @@ REQUIRED_CHANNEL_IDS = {
     "other",
 }
 REQUIRED_WRITER_EPOCHS = {
-    "nar-queue-workmanager",
-    "durable-operation-store",
-    "transactional-ghost-update",
+    "nar-queue-workmanager": {
+        "commit": "19da89d3f4d1faaaaaae3e000b8bc852f73c2c38",
+        "introducedPaths": {
+            "src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadStore.kt",
+            "src/main/kotlin/com/cattailsw/nanidroid/install/InstallNarWorker.kt",
+            "src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadReceiver.kt",
+            "src/main/kotlin/com/cattailsw/nanidroid/install/NarDownloadRecoveryReceiver.kt",
+        },
+    },
+    "durable-operation-store": {
+        "commit": "ec78fcc282c0a528f371609fca0e66fbf773b5ff",
+        "introducedPaths": {
+            "src/main/kotlin/com/cattailsw/nanidroid/durable/SharedPreferencesDurableOperationStore.kt",
+            "src/main/kotlin/com/cattailsw/nanidroid/durable/DurableOperationSupervisor.kt",
+        },
+    },
+    "transactional-ghost-update": {
+        "commit": "19956d7f5f2406e045c819593e761a4c1fb08ae6",
+        "introducedPaths": {
+            "src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateWorker.kt",
+            "src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateRepository.kt",
+            "src/main/kotlin/com/cattailsw/nanidroid/durable/GhostUpdateJournal.kt",
+        },
+    },
 }
+REQUIRED_RESOURCE_FIELDS = {"id", "ownership", "locations", "formats", "cleanupPolicy"}
 REQUIRED_RESOURCES = {
-    "nar-download-queue",
-    "durable-operations",
-    "workmanager-worker-fqcns",
-    "workmanager-unique-work",
-    "downloadmanager-rows",
-    "persisted-uri-grants",
-    "local-import-staging",
-    "install-attempt-staging",
-    "ghost-update-transaction",
-    "runtime-last-ghost",
-    "runtime-activation-counts",
-    "shared-nar-storage",
+    "nar-download-queue": {
+        "ownership": "APP_OWNED_LOSSY_DECODE_FAIL_CLOSED",
+        "locations": ["shared_prefs/nar-download-queue.xml#records-v1"],
+        "formats": ["v1", "v2", "v3", "v4"],
+        "cleanupPolicy": "Preserve on unknown version or malformed row; never infer absence from an empty production decode",
+    },
+    "durable-operations": {
+        "ownership": "APP_OWNED_STRICT_DECODE",
+        "locations": [
+            "shared_prefs/durable_operations_v1.xml#records",
+            "shared_prefs/durable_operations_v1.xml#records_corruption_quarantine",
+            "shared_prefs/durable_operations_v1.xml#records_corruption_recovery_required",
+        ],
+        "formats": ["v1", "v2", "v3", "v4", "v5", "v6"],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "workmanager-worker-fqcns": {
+        "ownership": "PLATFORM_OWNED_EXACT_IDENTITY",
+        "locations": [
+            "com.cattailsw.nanidroid.install.InstallNarWorker",
+            "com.cattailsw.nanidroid.install.StageLocalNarWorker",
+            "com.cattailsw.nanidroid.durable.GhostUpdateWorker",
+            "com.cattailsw.nanidroid.durable.GhostUpdateRecoveryWorker",
+        ],
+        "formats": [],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "workmanager-unique-work": {
+        "ownership": "PLATFORM_OWNED_EXACT_IDENTITY",
+        "locations": [
+            "install-nar-<itemId>",
+            "stage-local-nar-<itemId>",
+            "ghost-update-<32hex:sha256(canonical-ghost-root)>",
+            "ghost-update-recovery-<32hex:sha256(canonical-target-or-storage-root)>",
+        ],
+        "formats": ["ExistingWorkPolicy.KEEP"],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "workmanager-request-uuids": {
+        "ownership": "PLATFORM_OWNED_HISTORICAL_EXACT_IDENTITY",
+        "locations": [
+            "InstallNarWorker",
+            "StageLocalNarWorker",
+            "GhostUpdateWorker",
+            "GhostUpdateRecoveryWorker",
+        ],
+        "formats": [
+            "InstallNarWorker:legacy-WorkManager-random,current-durableWorkManagerId-v1(NAR_INSTALL,attempt,itemId)",
+            "StageLocalNarWorker:early-WorkManager-random,current-durableWorkManagerId-v1(LOCAL_NAR,attempt,itemId)",
+            "GhostUpdateWorker:early-UUID.randomUUID,current-durableWorkManagerId-v1(GHOST_UPDATE,attempt,canonical-operation-id)",
+            "GhostUpdateRecoveryWorker:WorkManager-random",
+        ],
+        "cleanupPolicy": "Preserve every historical and current request identity; no cleanup in audit PR",
+    },
+    "downloadmanager-rows": {
+        "ownership": "PLATFORM_OWNED_EXACT_IDENTITY",
+        "locations": ["external-files/Downloads/nar-downloads/<itemId>.nar"],
+        "formats": ["exact-row-id", "binding-history"],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "persisted-uri-grants": {
+        "ownership": "PLATFORM_OWNED_EXACT_IDENTITY",
+        "locations": [
+            "queue-source-uri",
+            "queue-retained-uri",
+            "pendingPersistedGrantReleaseUri",
+            "pending-grant-release",
+        ],
+        "formats": ["read-grant"],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "local-import-staging": {
+        "ownership": "APP_OWNED_CANONICAL_PATH",
+        "locations": ["filesDir/nar-local-imports"],
+        "formats": ["nar-local-<24hex>.nar"],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "install-attempt-staging": {
+        "ownership": "APP_OWNED_CANONICAL_PATH",
+        "locations": ["cacheDir/nar-install-attempts/<64hex:sha256(itemId)>/<UUID>/nar-import-<24hex>.zip"],
+        "formats": [
+            "64-lowercase-hex-item-directory",
+            "canonical-UUID-attempt-directory",
+            "24-lowercase-hex-archive-token",
+        ],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "external-ghost-install-staging": {
+        "ownership": "APP_OWNED_CANONICAL_PATH",
+        "locations": [
+            "<ghost-install-root>/.nanidroid-install-staging/candidate-<32hex>/staged-<32hex>.nar",
+            "<ghost-install-root>/.nanidroid-install-staging/candidate-<32hex>/tree",
+        ],
+        "formats": [
+            "32-lowercase-hex-candidate-token",
+            "32-lowercase-hex-staged-archive-token",
+        ],
+        "cleanupPolicy": "No cleanup in audit PR",
+    },
+    "ghost-update-transaction": {
+        "ownership": "APP_OWNED_EXACT_JOURNAL_LOCK_AND_TOPOLOGY",
+        "locations": [
+            "<ghost-storage>/.nanidroid-update-<32hex:sha256(operationId)>",
+            "<ghost-storage>/.nanidroid-staging-<same-32hex>",
+            "<transaction>/candidate",
+            "<transaction>/backup",
+            "<transaction>/journal.v1",
+            "<transaction>/journal.v1.tmp",
+            "<ghost-storage>/.nanidroid-update-lock-<24hex:sha256(canonical-ghost-root)>",
+            "<ghost-storage>/.nanidroid-update-owner-<UUID>.tmp",
+            "<ghost-storage>/.nanidroid-update-writing-<File.createTempFile-random>.tmp",
+        ],
+        "formats": [
+            "operationId=ghost-update-<64hex:sha256(canonical-ghost-root)>",
+            "phases=PREPARED|BACKED_UP|PUBLISHED|CLEANED|ROLLBACK_CLASSIFIED|NO_CHANGES_PENDING",
+            "topologies=LIVE_CANDIDATE|CANDIDATE_BACKUP|LIVE_BACKUP|LIVE_ONLY|INVALID",
+            "owner-marker=readable-exact-journal-match",
+            "prefix-alone-is-not-ownership",
+        ],
+        "cleanupPolicy": "Preserve ambiguous topology and writing residue; no cleanup from a prefix; no cleanup in audit PR",
+    },
+    "runtime-last-ghost": {
+        "ownership": "APP_RUNTIME_STATE_RETAIN",
+        "locations": ["shared_prefs/CATTAILSW_NANIDROID_PREFS.xml#lastrunghost"],
+        "formats": ["string"],
+        "cleanupPolicy": "Never delete as workflow cleanup or by deleting the containing preference file",
+    },
+    "runtime-activation-counts": {
+        "ownership": "APP_RUNTIME_STATE_RETAIN",
+        "locations": ["shared_prefs/CATTAILSW_NANIDROID_PREFS.xml#createcount_ghost*"],
+        "formats": ["long"],
+        "cleanupPolicy": "Never delete as workflow cleanup or by deleting the containing preference file",
+    },
+    "runtime-launch-time": {
+        "ownership": "APP_RUNTIME_STATE_RETAIN",
+        "locations": ["shared_prefs/CATTAILSW_NANIDROID_PREFS.xml#keylaunchtime"],
+        "formats": ["long"],
+        "cleanupPolicy": "Never delete as workflow cleanup or by deleting the containing preference file",
+    },
+    "default-preference-analytics": {
+        "ownership": "APP_RUNTIME_STATE_RETAIN",
+        "locations": ["shared_prefs/com.cattailsw.nanidroid_preferences.xml#enable_analytics"],
+        "formats": ["boolean"],
+        "cleanupPolicy": "Never delete by deleting the co-resident default preference file",
+    },
+    "default-preference-first-run": {
+        "ownership": "APP_RUNTIME_STATE_RETAIN",
+        "locations": ["shared_prefs/com.cattailsw.nanidroid_preferences.xml#firstRun"],
+        "formats": ["boolean"],
+        "cleanupPolicy": "Never delete by deleting the co-resident default preference file",
+    },
+    "shared-nar-storage": {
+        "ownership": "FOREIGN_PRESERVE",
+        "locations": ["/sdcard/nar"],
+        "formats": ["File.createTempFile(prefix=nanidroid,suffix=tmp)=>nanidroid<implementation-random>tmp"],
+        "cleanupPolicy": "Never infer ownership or delete from name or prefix",
+    },
+    "backup-device-transfer-boundaries": {
+        "ownership": "ANDROID_BACKUP_POLICY_EXACT_BOUNDARY",
+        "locations": [
+            "AndroidManifest.xml#application@fullBackupContent=@xml/backup_rules",
+            "AndroidManifest.xml#application@dataExtractionRules=@xml/data_extraction_rules",
+            "backup_rules.xml#exclude:sharedpref/durable_operations_v1.xml",
+            "backup_rules.xml#exclude:sharedpref/nar-download-queue.xml",
+            "data_extraction_rules.xml#cloud-backup/exclude:sharedpref/durable_operations_v1.xml",
+            "data_extraction_rules.xml#cloud-backup/exclude:sharedpref/nar-download-queue.xml",
+            "data_extraction_rules.xml#device-transfer/exclude:sharedpref/durable_operations_v1.xml",
+            "data_extraction_rules.xml#device-transfer/exclude:sharedpref/nar-download-queue.xml",
+        ],
+        "formats": ["all unlisted state remains included by Android default policy"],
+        "cleanupPolicy": "Preserve full-backup, cloud-backup, and device-transfer exclusions; no cleanup in audit PR",
+    },
+    "durable-android-components": {
+        "ownership": "ANDROID_COMPONENT_EXACT_IDENTITY",
+        "locations": [
+            "com.cattailsw.nanidroid.NanidroidService|service|exported=false|foregroundServiceType=dataSync",
+            "com.cattailsw.nanidroid.install.NarDownloadReceiver|receiver|exported=false|android.intent.action.DOWNLOAD_COMPLETE",
+            "com.cattailsw.nanidroid.install.NarDownloadRecoveryReceiver|receiver|exported=false|android.intent.action.BOOT_COMPLETED|android.intent.action.MY_PACKAGE_REPLACED",
+            "com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver|receiver|exported=false|explicit-only",
+        ],
+        "formats": ["android.permission.RECEIVE_BOOT_COMPLETED"],
+        "cleanupPolicy": "No component or intent-filter removal in audit PR",
+    },
+    "durable-pending-intents": {
+        "ownership": "PLATFORM_OWNED_EXACT_IDENTITY",
+        "locations": [
+            "broadcast|requestCode=0|component=com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver|actions=DURABLE_KEEP_WAITING,DURABLE_STOP,DURABLE_RETRY_STOP|data=nanidroid://durable-operation/<encoded-operationId>/<attemptId>|package=com.cattailsw.nanidroid",
+            "activity|requestCode=0|component=com.cattailsw.nanidroid.Nanidroid|action=android.intent.action.MAIN|data=nanidroid://durable-operation/open",
+            "activity|requestCode=0|component=com.cattailsw.nanidroid.Nanidroid|action=<null>|data=<null>|intentFlags=FLAG_ACTIVITY_CLEAR_TOP|FLAG_ACTIVITY_SINGLE_TOP",
+        ],
+        "formats": ["FLAG_UPDATE_CURRENT", "FLAG_IMMUTABLE"],
+        "cleanupPolicy": "Preserve persisted PendingIntent identity until its owning notification/component is deliberately migrated",
+    },
+}
+REQUIRED_OWNER_ATTESTATION = {
+    "confirmed": True,
+    "date": "2026-08-17",
+    "stateCapableApkDistributed": False,
+    "signingKeyRecovered": False,
+    "statement": "No APK built from 19da89d3f4d1faaaaaae3e000b8bc852f73c2c38 or later was released or distributed; the signing key has not been recovered.",
+}
+REQUIRED_OWNER_ATTESTATION_EVIDENCE = {
+    "id": "owner-attestation-2026-08-17",
+    "type": "owner-attestation",
+    "claim": "No state-capable APK was distributed and the signing key was not recovered.",
+    "source": "Owner attestation",
+    "observedAt": "2026-08-17",
 }
 
 
@@ -56,6 +274,7 @@ def load_ledger(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=None)
 def git_text(repo_root: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", *args], cwd=repo_root, text=True, capture_output=True
@@ -133,10 +352,28 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     writer_ids_set = {item for item in writer_ids if isinstance(item, str)}
     if len(writer_ids_set) != len(writer_ids):
         failures.append("writer epoch IDs must be strings and unique")
-    for missing in sorted(REQUIRED_WRITER_EPOCHS - writer_ids_set):
+    if writer_ids_set != set(REQUIRED_WRITER_EPOCHS):
+        failures.append("writer epoch contracts must exactly match the required unique set")
+    for missing in sorted(set(REQUIRED_WRITER_EPOCHS) - writer_ids_set):
         failures.append(f"missing writer epoch: {missing}")
     for epoch in valid_writer_epochs:
+        epoch_id = epoch.get("id")
         commit = epoch.get("commit")
+        expected_epoch = REQUIRED_WRITER_EPOCHS.get(epoch_id) if isinstance(epoch_id, str) else None
+        introduced_paths_value = epoch.get("introducedPaths")
+        introduced_paths_set = (
+            set(introduced_paths_value)
+            if isinstance(introduced_paths_value, list) and
+            all(isinstance(path, str) for path in introduced_paths_value)
+            else set()
+        )
+        if expected_epoch is not None and (
+            commit != expected_epoch["commit"] or
+            introduced_paths_set != expected_epoch["introducedPaths"] or
+            not isinstance(introduced_paths_value, list) or
+            len(introduced_paths_set) != len(introduced_paths_value)
+        ):
+            failures.append(f"writer epoch contract mismatch: {epoch_id}")
         if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
             failures.append(f"writer commit must be 40 lowercase hexadecimal characters: {commit}")
             continue
@@ -146,6 +383,17 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             failures.append(
                 f"writer commit does not exist: {commit}{shallow_history_notice(repo_root)}"
             )
+            continue
+        try:
+            commit_and_parents = git_text(
+                repo_root, "rev-list", "--parents", "-n", "1", commit,
+            ).split()
+            if len(commit_and_parents) != 2:
+                failures.append(f"writer commit must have exactly one parent: {commit}")
+                continue
+            parent = commit_and_parents[1]
+        except RuntimeError:
+            failures.append(f"writer commit parent cannot be resolved: {commit}")
             continue
         if isinstance(audited_head, str) and re.fullmatch(r"[0-9a-f]{40}", audited_head):
             try:
@@ -175,9 +423,21 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             continue
         for path in introduced_paths:
             try:
-                git_text(repo_root, "cat-file", "-e", f"{commit}:{path}")
+                status = git_text(
+                    repo_root,
+                    "diff-tree",
+                    "--no-commit-id",
+                    "--name-status",
+                    "-r",
+                    parent,
+                    commit,
+                    "--",
+                    path,
+                ).split("\t", 1)[0]
             except RuntimeError:
-                failures.append(f"introduced path does not exist at {commit}: {path}")
+                status = ""
+            if status != "A":
+                failures.append(f"introduced path must be an addition at {commit}: {path}")
 
     resources = data.get("persistentResources", [])
     if not isinstance(resources, list):
@@ -193,8 +453,18 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     resource_ids_set = {item for item in resource_ids if isinstance(item, str)}
     if len(resource_ids_set) != len(resource_ids):
         failures.append("persistent resource IDs must be strings and unique")
-    for missing in sorted(REQUIRED_RESOURCES - resource_ids_set):
+    if resource_ids_set != set(REQUIRED_RESOURCES):
+        failures.append("persistent resource contracts must exactly match the required unique set")
+    for missing in sorted(set(REQUIRED_RESOURCES) - resource_ids_set):
         failures.append(f"missing persistent resource: {missing}")
+    for resource in valid_resources:
+        resource_id = resource.get("id")
+        expected_resource = REQUIRED_RESOURCES.get(resource_id) if isinstance(resource_id, str) else None
+        if expected_resource is None:
+            continue
+        expected_contract = {"id": resource_id, **expected_resource}
+        if set(resource) != REQUIRED_RESOURCE_FIELDS or resource != expected_contract:
+            failures.append(f"persistent resource contract mismatch: {resource_id}")
     evidence = data.get("evidence", [])
     if not isinstance(evidence, list):
         failures.append("evidence must be an array")
@@ -247,15 +517,31 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     if not isinstance(channels, list):
         failures.append("distribution channels must be an array")
         channels = []
-    channel_ids = [channel.get("id") for channel in channels]
-    if set(channel_ids) != REQUIRED_CHANNEL_IDS or len(channel_ids) != len(set(channel_ids)):
+    valid_channels = []
+    for channel in channels:
+        if not isinstance(channel, dict):
+            failures.append("distribution channel entries must be objects")
+        else:
+            valid_channels.append(channel)
+            if (
+                not isinstance(channel.get("id"), str) or
+                not isinstance(channel.get("status"), str)
+            ):
+                failures.append(
+                    "distribution channel entries must be objects with string id and status"
+                )
+    channel_ids = [channel.get("id") for channel in valid_channels]
+    channel_ids_set = {item for item in channel_ids if isinstance(item, str)}
+    if channel_ids_set != REQUIRED_CHANNEL_IDS or len(channel_ids) != len(channel_ids_set):
         failures.append("distribution channel IDs must exactly match the required unique set")
     if path == "A":
+        if attestation != REQUIRED_OWNER_ATTESTATION:
+            failures.append("Path A owner attestation must exactly match the approved statement")
         if attestation.get("confirmed") is not True:
             failures.append("Path A requires confirmed owner attestation")
         if attestation.get("stateCapableApkDistributed") is not False:
             failures.append("Path A forbids state-capable APK distribution")
-        if not channels or any(channel.get("status") != "none" for channel in channels):
+        if not valid_channels or any(channel.get("status") != "none" for channel in valid_channels):
             failures.append("Path A requires every distribution channel to be none")
         github = distribution.get("github", {})
         if not isinstance(github, dict):
@@ -274,12 +560,27 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             failures.append("Path A requires zero post-writer GitHub APK artifacts")
         if "owner-attestation-2026-08-17" not in rationale_ids:
             failures.append("Path A decision must reference owner attestation")
+        owner_evidence = [
+            item for item in valid_evidence
+            if item.get("id") == "owner-attestation-2026-08-17"
+        ]
+        if owner_evidence != [REQUIRED_OWNER_ATTESTATION_EVIDENCE]:
+            failures.append("Path A owner-attestation evidence must exactly match the approved claim")
     if path == "B" and decision.get("sequentialUpgradeEnforced") is not True:
         failures.append("Path B requires enforced sequential upgrade")
     if path == "C" and not decision.get("compatibilityRemovalFloor"):
         failures.append("Path C requires compatibilityRemovalFloor")
 
-    for channel in channels:
+    if path in {"B", "C"}:
+        if not any(channel.get("status") == "state-capable" for channel in valid_channels):
+            failures.append(f"Path {path} requires state-capable distribution evidence")
+        if (
+            attestation.get("confirmed") is True and
+            attestation.get("stateCapableApkDistributed") is False
+        ):
+            failures.append(f"Path {path} contradicts the confirmed no-distribution attestation")
+
+    for channel in valid_channels:
         if channel.get("status") not in ALLOWED_CHANNEL_STATUS:
             failures.append(f"unknown distribution status for {channel.get('id')}")
     return failures

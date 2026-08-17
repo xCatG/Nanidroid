@@ -28,6 +28,25 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
             f"expected {text!r} in {failures!r}",
         )
 
+    def resource(self, data: dict[str, object], resource_id: str) -> dict[str, object]:
+        return next(
+            resource
+            for resource in data["persistentResources"]
+            if resource["id"] == resource_id
+        )
+
+    def evidence(self, data: dict[str, object], evidence_id: str) -> dict[str, object]:
+        return next(item for item in data["evidence"] if item["id"] == evidence_id)
+
+    def record_state_capable_distribution(self, data: dict[str, object]) -> None:
+        data["distribution"]["channels"][0]["status"] = "state-capable"
+        attestation = data["distribution"]["ownerAttestation"]
+        attestation["stateCapableApkDistributed"] = True
+        attestation["statement"] = "A state-capable APK was distributed."
+        self.evidence(data, "owner-attestation-2026-08-17")[
+            "claim"
+        ] = "A state-capable APK was distributed."
+
     def test_committed_path_a_ledger_is_valid(self) -> None:
         self.assertEqual([], phase1_audit.validate_ledger(self.ledger(), ROOT))
 
@@ -63,6 +82,42 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         ] = True
         self.assert_failure(data, "Path A forbids state-capable APK distribution")
 
+    def test_rejects_every_mutated_path_a_attestation_field(self) -> None:
+        mutations = {
+            "confirmed": False,
+            "date": "2026-08-16",
+            "stateCapableApkDistributed": True,
+            "signingKeyRecovered": True,
+            "statement": "No state-capable APK was distributed.",
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field):
+                data = self.ledger()
+                data["distribution"]["ownerAttestation"][field] = value
+                self.assert_failure(data, "Path A owner attestation must exactly match")
+
+    def test_rejects_path_a_attestation_with_missing_or_extra_field(self) -> None:
+        data = self.ledger()
+        del data["distribution"]["ownerAttestation"]["signingKeyRecovered"]
+        self.assert_failure(data, "Path A owner attestation must exactly match")
+
+        data = self.ledger()
+        data["distribution"]["ownerAttestation"]["note"] = "extra"
+        self.assert_failure(data, "Path A owner attestation must exactly match")
+
+    def test_rejects_mutated_path_a_attestation_evidence(self) -> None:
+        mutations = {
+            "type": "repository-document",
+            "claim": "No APK was distributed.",
+            "source": "Unspecified",
+            "observedAt": "2026-08-16",
+        }
+        for field, value in mutations.items():
+            with self.subTest(field=field):
+                data = self.ledger()
+                self.evidence(data, "owner-attestation-2026-08-17")[field] = value
+                self.assert_failure(data, "Path A owner-attestation evidence must exactly match")
+
     def test_rejects_unknown_distribution_channel_for_path_a(self) -> None:
         data = self.ledger()
         data["distribution"]["channels"][0]["status"] = "unknown"
@@ -85,11 +140,38 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         )
         self.assert_failure(data, "distribution channel IDs must exactly match")
 
+    def test_malformed_distribution_channel_entries_return_failures(self) -> None:
+        for value in (None, "github-releases", [], {"id": []}):
+            with self.subTest(value=value):
+                data = self.ledger()
+                data["distribution"]["channels"][0] = value
+                try:
+                    failures = phase1_audit.validate_ledger(data, ROOT)
+                except (TypeError, AttributeError, KeyError):
+                    self.fail(f"validate_ledger raised for malformed channel: {value!r}")
+                self.assertTrue(
+                    any("distribution channel entries must be objects" in failure for failure in failures),
+                    failures,
+                )
+
     def test_rejects_path_b_without_enforced_sequential_upgrade(self) -> None:
         data = self.ledger()
         data["decision"]["path"] = "B"
         data["decision"]["sequentialUpgradeEnforced"] = False
         self.assert_failure(data, "Path B requires enforced sequential upgrade")
+
+    def test_rejects_path_b_without_state_capable_distribution(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "B"
+        data["decision"]["sequentialUpgradeEnforced"] = True
+        self.assert_failure(data, "Path B requires state-capable distribution evidence")
+
+    def test_rejects_path_b_that_contradicts_confirmed_attestation(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "B"
+        data["decision"]["sequentialUpgradeEnforced"] = True
+        data["distribution"]["channels"][0]["status"] = "state-capable"
+        self.assert_failure(data, "Path B contradicts the confirmed no-distribution attestation")
 
     def test_rejects_path_c_without_compatibility_removal_floor(self) -> None:
         data = self.ledger()
@@ -97,10 +179,24 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["decision"]["compatibilityRemovalFloor"] = ""
         self.assert_failure(data, "Path C requires compatibilityRemovalFloor")
 
+    def test_rejects_path_c_without_state_capable_distribution(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "C"
+        data["decision"]["compatibilityRemovalFloor"] = "version 2"
+        self.assert_failure(data, "Path C requires state-capable distribution evidence")
+
+    def test_rejects_path_c_that_contradicts_confirmed_attestation(self) -> None:
+        data = self.ledger()
+        data["decision"]["path"] = "C"
+        data["decision"]["compatibilityRemovalFloor"] = "version 2"
+        data["distribution"]["channels"][0]["status"] = "state-capable"
+        self.assert_failure(data, "Path C contradicts the confirmed no-distribution attestation")
+
     def test_valid_path_b_reports_path_b(self) -> None:
         data = self.ledger()
         data["decision"]["path"] = "B"
         data["decision"]["sequentialUpgradeEnforced"] = True
+        self.record_state_capable_distribution(data)
         stdout = io.StringIO()
         with mock.patch.object(phase1_audit, "load_ledger", return_value=data):
             with contextlib.redirect_stdout(stdout):
@@ -112,6 +208,7 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data = self.ledger()
         data["decision"]["path"] = "C"
         data["decision"]["compatibilityRemovalFloor"] = "version 2"
+        self.record_state_capable_distribution(data)
         stdout = io.StringIO()
         with mock.patch.object(phase1_audit, "load_ledger", return_value=data):
             with contextlib.redirect_stdout(stdout):
@@ -142,6 +239,58 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["writerEpochs"] = data["writerEpochs"][1:]
         self.assert_failure(data, "missing writer epoch: nar-queue-workmanager")
 
+    def test_rejects_extra_writer_epoch(self) -> None:
+        data = self.ledger()
+        data["writerEpochs"].append(copy.deepcopy(data["writerEpochs"][0]))
+        data["writerEpochs"][-1]["id"] = "unexpected"
+        self.assert_failure(data, "writer epoch contracts must exactly match")
+
+    def test_rejects_writer_epoch_commit_substitution(self) -> None:
+        data = self.ledger()
+        data["writerEpochs"][0]["commit"] = data["writerEpochs"][1]["commit"]
+        self.assert_failure(data, "writer epoch contract mismatch: nar-queue-workmanager")
+
+    def test_rejects_missing_extra_or_substituted_introduced_path(self) -> None:
+        mutations = (
+            lambda paths: paths.pop(),
+            lambda paths: paths.append("src/main/kotlin/example/Unexpected.kt"),
+            lambda paths: paths.__setitem__(0, "build.gradle.kts"),
+        )
+        for mutate in mutations:
+            data = self.ledger()
+            mutate(data["writerEpochs"][0]["introducedPaths"])
+            self.assert_failure(data, "writer epoch contract mismatch: nar-queue-workmanager")
+
+    def test_writer_epoch_order_does_not_change_id_bound_contracts(self) -> None:
+        data = self.ledger()
+        data["writerEpochs"].reverse()
+        self.assertEqual([], phase1_audit.validate_ledger(data, ROOT))
+
+    def test_rejects_introduced_path_not_added_against_only_parent(self) -> None:
+        data = self.ledger()
+        real_git_text = phase1_audit.git_text
+
+        def fake_git_text(repo_root: Path, *args: str) -> str:
+            if args[:2] == ("diff-tree", "--no-commit-id"):
+                return "M"
+            return real_git_text(repo_root, *args)
+
+        with mock.patch.object(phase1_audit, "git_text", side_effect=fake_git_text):
+            self.assert_failure(data, "introduced path must be an addition")
+
+    def test_rejects_writer_commit_without_exactly_one_parent(self) -> None:
+        data = self.ledger()
+        real_git_text = phase1_audit.git_text
+
+        def fake_git_text(repo_root: Path, *args: str) -> str:
+            if args[:3] == ("rev-list", "--parents", "-n"):
+                commit = args[-1]
+                return f"{commit} {'1' * 40} {'2' * 40}"
+            return real_git_text(repo_root, *args)
+
+        with mock.patch.object(phase1_audit, "git_text", side_effect=fake_git_text):
+            self.assert_failure(data, "writer commit must have exactly one parent")
+
     def test_rejects_missing_required_persistent_resource(self) -> None:
         data = self.ledger()
         data["persistentResources"] = [
@@ -150,6 +299,46 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
             if resource["id"] != "workmanager-worker-fqcns"
         ]
         self.assert_failure(data, "missing persistent resource: workmanager-worker-fqcns")
+
+    def test_rejects_extra_or_duplicate_persistent_resource(self) -> None:
+        data = self.ledger()
+        extra = copy.deepcopy(data["persistentResources"][0])
+        extra["id"] = "unexpected"
+        data["persistentResources"].append(extra)
+        self.assert_failure(data, "persistent resource contracts must exactly match")
+
+        data = self.ledger()
+        data["persistentResources"].append(copy.deepcopy(data["persistentResources"][0]))
+        self.assert_failure(data, "persistent resource IDs must be strings and unique")
+
+    def test_rejects_mutation_of_every_persistent_resource_contract(self) -> None:
+        data = self.ledger()
+        resource_ids = [resource["id"] for resource in data["persistentResources"]]
+        for resource_id in resource_ids:
+            with self.subTest(resource_id=resource_id):
+                mutated = self.ledger()
+                self.resource(mutated, resource_id)["cleanupPolicy"] += " mutated"
+                self.assert_failure(mutated, f"persistent resource contract mismatch: {resource_id}")
+
+    def test_rejects_missing_extra_or_mutated_persistent_resource_fields(self) -> None:
+        resource_id = "nar-download-queue"
+        for field in ("ownership", "locations", "formats", "cleanupPolicy"):
+            with self.subTest(field=field):
+                data = self.ledger()
+                resource = self.resource(data, resource_id)
+                if isinstance(resource[field], list):
+                    resource[field].append("unexpected")
+                else:
+                    resource[field] += " mutated"
+                self.assert_failure(data, f"persistent resource contract mismatch: {resource_id}")
+
+        data = self.ledger()
+        del self.resource(data, resource_id)["formats"]
+        self.assert_failure(data, f"persistent resource contract mismatch: {resource_id}")
+
+        data = self.ledger()
+        self.resource(data, resource_id)["extra"] = True
+        self.assert_failure(data, f"persistent resource contract mismatch: {resource_id}")
 
     def test_rejects_dangling_decision_evidence_reference(self) -> None:
         data = self.ledger()
