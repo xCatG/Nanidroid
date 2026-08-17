@@ -32,7 +32,7 @@ class NanidroidGhostStartupTest {
     fun `restored terminal startup notices keep finish confirmation`() {
         assertTrue(finishAfterRestoredNotice(R.string.err_no_sdcard))
         assertTrue(finishAfterRestoredNotice(R.string.err_no_ghost_available))
-        assertTrue(!finishAfterRestoredNotice(R.string.not_implemented))
+        assertTrue(!finishAfterRestoredNotice(android.R.string.ok))
     }
 
     @Test

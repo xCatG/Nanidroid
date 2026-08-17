@@ -102,6 +102,27 @@ internal fun tryLaunchDialogueExternalUri(launch: () -> Unit): Boolean = try {
     false
 }
 
+internal fun tryLaunchDocumentExternalUrl(value: String, launch: (String) -> Unit): Boolean {
+    val uri = try {
+        java.net.URI(value)
+    } catch (_: Exception) {
+        return false
+    }
+    val scheme = uri.scheme ?: return false
+    val isAllowed = when {
+        scheme.equals("http", ignoreCase = true) || scheme.equals("https", ignoreCase = true) ->
+            try {
+                uri.toURL().host.isNotBlank()
+            } catch (_: Exception) {
+                false
+            }
+        scheme.equals("mailto", ignoreCase = true) ->
+            uri.schemeSpecificPart.substringBefore('?').isNotBlank()
+        else -> false
+    }
+    return isAllowed && tryLaunchDialogueExternalUri { launch(value) }
+}
+
 internal fun allowsArchiveIntentIngress(
     activityRunner: SScriptRunner?,
     retainedRunner: () -> SScriptRunner,
@@ -207,7 +228,6 @@ private const val TEXT_DOCUMENT_RESTORE_TEXT = "text_document_restore_text"
 private const val TEXT_DOCUMENT_RESTORE_SOURCE_ID = "text_document_restore_source_id"
 
 internal enum class TextDocumentRestoreKind {
-    ABOUT,
     INSTALLED_GHOST_README,
     CURRENT_GHOST_README,
 }
@@ -223,8 +243,7 @@ internal fun NanidroidSimpleDialog.TextDocument.toTextDocumentRestoreSnapshot() 
     TextDocumentRestoreSnapshot(
         kind = when {
             onSwitch != null -> TextDocumentRestoreKind.INSTALLED_GHOST_README
-            sourceId != null -> TextDocumentRestoreKind.CURRENT_GHOST_README
-            else -> TextDocumentRestoreKind.ABOUT
+            else -> TextDocumentRestoreKind.CURRENT_GHOST_README
         },
         title = title,
         text = text,
@@ -499,7 +518,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     onListGhost = ::onListGhost,
                     onUpdate = ::onUpdate,
                     onReadme = ::openCurrentGhostReadme,
-                    onHelp = ::onHelp,
                     onArchiveQueue = {
                         simpleDialog = NanidroidSimpleDialog.ArchiveQueue(
                             onRetry = { if (allows(GuardedAction.IMPORT_INSTALL)) narDownloads.retry(it) },
@@ -842,9 +860,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )
     }
     fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; showGhostListDlg() }
-    fun onHelp() {
-        simpleDialog = createHelpMenuDialog()
-    }
     fun getMoreGhost() {
         simpleDialog = createMoreGhostDialog()
     }
@@ -962,9 +977,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }
     private fun showUrlDlg() { simpleDialog = createUrlEntryDialog() }
-    private fun showGhostTown() {
-        simpleDialog = NanidroidSimpleDialog.Notice(R.string.not_implemeted_title, R.string.not_implemented)
-    }
     fun onMoreGhost() = getMoreGhost()
     private fun showGhostListDlg() {
         val manager = gm ?: return
@@ -973,18 +985,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             manager.getGnames()?.toList().orEmpty(),
         )
     }
-    private fun showHelp() {
-        simpleDialog = createGeneralHelpDialog()
-    }
-    private fun createHelpMenuDialog() = NanidroidSimpleDialog.HelpMenu(
-        onGeneralHelp = { showHelp() }, onAbout = { showAbout() }, onFeedback = { showFeedback() },
-    )
-    private fun createGeneralHelpDialog() = NanidroidSimpleDialog.GeneralHelp(
-        onInstallHelp = { openHelpPage(R.string.url_help_install) },
-        onSupportedOperations = { openHelpPage(R.string.url_support_ops) },
-    )
     private fun createMoreGhostDialog() = NanidroidSimpleDialog.MoreGhost(
-        onEnterUrl = { showUrlDlg() }, onInstallFromSdCard = { startInstallFromSDCard() }, onGhostTown = { showGhostTown() },
+        onEnterUrl = { showUrlDlg() }, onInstallFromSdCard = { startInstallFromSDCard() },
     )
     private fun createUrlEntryDialog(value: String = "", error: Boolean = false): NanidroidSimpleDialog.UrlEntry = NanidroidSimpleDialog.UrlEntry(
         value, error,
@@ -1050,15 +1052,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         ghostId, ghostName,
         onSwitch = { switchGhost(ghostId) },
     )
-    private fun createAboutDialog() = NanidroidSimpleDialog.TextDocument(
-        getString(R.string.about_title),
-        "Nanidroid\n\nCopyright 2012-2014 Yenchi Lin\n\nLicensed under the Apache License, Version 2.0.\nhttps://www.apache.org/licenses/LICENSE-2.0\n\nCredits\nProgram: CatTail Software LLC\nBuilt-in Ghost & Shell: CatG Studio.\nAndroid Robot artwork is used according to the Android brand guidelines and Creative Commons Attribution 3.0.",
-        ::openDocumentLink,
-    )
     private fun openDocumentLink(link: String) {
-        val uri = Uri.parse(link)
-        if (uri.scheme !in setOf("https", "http", "mailto")) return
-        startActivity(Intent(Intent.ACTION_VIEW, uri))
+        tryLaunchDocumentExternalUrl(link) { value ->
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value)))
+        }
     }
     private fun selectGhostFromList(id: String?, name: String) {
         val manager = gm ?: return
@@ -1077,8 +1074,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             // Surface dumps may be arbitrarily large for installed ghosts. Do
             // not put them in the Activity Bundle (Binder-size bounded).
             is NanidroidSimpleDialog.DebugMessage -> Unit
-            is NanidroidSimpleDialog.HelpMenu -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_HELP_MENU)
-            is NanidroidSimpleDialog.GeneralHelp -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_GENERAL_HELP)
             is NanidroidSimpleDialog.MoreGhost -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_MORE_GHOST)
             is NanidroidSimpleDialog.UrlEntry -> {
                 outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_URL_ENTRY)
@@ -1108,7 +1103,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 outState.putString(
                     SIMPLE_DIALOG_TYPE,
                     when (snapshot.kind) {
-                        TextDocumentRestoreKind.ABOUT -> DIALOG_ABOUT
                         TextDocumentRestoreKind.INSTALLED_GHOST_README -> DIALOG_README
                         TextDocumentRestoreKind.CURRENT_GHOST_README -> DIALOG_CURRENT_GHOST_README
                     },
@@ -1149,8 +1143,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     if (finishAfterRestoredNotice(message)) ({ finish() }) else null,
                 )
             }
-            DIALOG_HELP_MENU -> createHelpMenuDialog()
-            DIALOG_GENERAL_HELP -> createGeneralHelpDialog()
             DIALOG_MORE_GHOST -> createMoreGhostDialog()
             DIALOG_URL_ENTRY -> createUrlEntryDialog(state.getString(SIMPLE_DIALOG_VALUE) ?: "", state.getBoolean(SIMPLE_DIALOG_ERROR, false))
             DIALOG_USER_INPUT -> restoreUserInputDialog(
@@ -1164,7 +1156,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 dialogueDialogRestoration(state),
             )
             DIALOG_GHOST_LIST -> createGhostListDialog(state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(), state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty())
-            DIALOG_ABOUT -> createAboutDialog()
             DIALOG_README -> {
                 val snapshot = state.readTextDocumentRestoreSnapshot()
                 val ghostId = snapshot?.sourceId ?: state.getString(SIMPLE_DIALOG_ID).orEmpty()
@@ -1182,23 +1173,17 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                         !it.sourceId.isNullOrBlank()
                 }
                 ?.let { snapshot ->
+                    val ghostId = snapshot.sourceId ?: return@let null
                     NanidroidSimpleDialog.TextDocument(
                         snapshot.title,
                         snapshot.text,
                         ::openDocumentLink,
-                        snapshot.sourceId,
+                        ghostId,
                     )
                 }
             DIALOG_NO_README -> createNoReadmeDialog(state.getString(SIMPLE_DIALOG_ID).orEmpty(), state.getString(SIMPLE_DIALOG_VALUE).orEmpty())
             else -> null
         }
-    }
-    private fun openHelpPage(urlRes: Int) {
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(urlRes))))
-    }
-    private fun showFeedback() { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.feedback_url)))) }
-    private fun showAbout() {
-        simpleDialog = createAboutDialog()
     }
     fun frameClick() {
         toolbarVisible = !toolbarVisible
@@ -1229,5 +1214,5 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             if (resultCode == RESULT_OK) NarDocumentPickerResult.Returned(intent?.data)
             else NarDocumentPickerResult.Cancelled
     }
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_HELP_MENU = "help_menu"; private const val DIALOG_GENERAL_HELP = "general_help"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_ABOUT = "about"; private const val DIALOG_README = "readme"; private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"; private const val DIALOG_NO_README = "no_readme" }
+    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_README = "readme"; private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"; private const val DIALOG_NO_README = "no_readme" }
 }
