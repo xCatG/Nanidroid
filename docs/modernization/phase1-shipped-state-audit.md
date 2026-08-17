@@ -52,18 +52,26 @@ local-stage and ghost-update requests; current deterministic
 random recovery-worker requests. It also records the manifest identities of the
 download-complete, boot/package-replaced, durable-attention, and update-service
 components, plus the exact component/action/data/request-code identities of the
-notification `PendingIntent`s that may outlive a process.
+notification `PendingIntent`s that may outlive a process. The durable broadcast
+actions are exactly
+`com.cattailsw.nanidroid.action.DURABLE_KEEP_WAITING`,
+`com.cattailsw.nanidroid.action.DURABLE_STOP`, and
+`com.cattailsw.nanidroid.action.DURABLE_RETRY_STOP`.
 
 Install staging is split by topology. Cache attempts use
 `nar-install-attempts/<64hex-item-hash>/<UUID>/nar-import-<24hex>.zip`; external
 ghost installation uses
 `.nanidroid-install-staging/candidate-<32hex>/{staged-<32hex>.nar,tree}`. A ghost
 update owns neither `.nanidroid-update-*` nor `.nanidroid-staging-*` by prefix.
-Ownership requires the exact operation and transaction digests, canonical
-candidate and backup paths, a readable matching `journal.v1` or complete
-`journal.v1.tmp`, the per-ghost lock, a matching private owner marker, and a
-valid live/candidate/backup topology. Ambiguous topology and
-`.nanidroid-update-writing-*` residue are preserved.
+Before publish, authenticated staging is the exact
+`.nanidroid-staging-<digest>` containing a matching `journal.v1` or complete
+`journal.v1.tmp`, together with its matching private owner marker as a sibling
+under ghost storage. Incomplete `.nanidroid-update-writing-*` marker residue
+and ambiguous or unmatched staging are preserved. After publish, the exact
+`.nanidroid-update-<digest>` transaction is authenticated by its journal,
+candidate and backup paths, per-ghost lock, and valid live/candidate/backup
+topology. Its owner marker is deleted after publish and is not required for the
+published transaction; ambiguous topology remains preserved.
 
 Runtime keys `lastrunghost`, `createcount_ghost*`, and `keylaunchtime` are
 recorded in `CATTAILSW_NANIDROID_PREFS.xml`. The co-resident default-preference
@@ -72,7 +80,9 @@ keys `enable_analytics` and `firstRun` are inventoried separately in
 silently removing unrelated state. The ledger also binds the manifest's full
 backup and data-extraction rules: the queue and durable-operation preference
 files are excluded from full backup, cloud backup, and device transfer, while
-unlisted state retains Android's default inclusion behavior.
+otherwise eligible unlisted state remains governed by Android's default backup
+eligibility. This does not classify cache, code-cache, no-backup, shared, or
+out-of-domain storage as included.
 
 DownloadManager row IDs and files, persisted URI grants, private local imports,
 and shared `/sdcard/nar` storage remain inventoried. The shared temporary name is

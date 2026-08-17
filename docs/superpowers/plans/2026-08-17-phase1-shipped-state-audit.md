@@ -42,7 +42,7 @@
 
 **Interfaces:**
 - Consumes: repository root resolved from `Path(__file__).parents[1]` and JSON from `docs/modernization/phase1-shipped-state-ledger.json`.
-- Produces: `load_ledger(path: Path) -> dict[str, object]`, `validate_ledger(data: dict[str, object], repo_root: Path) -> list[str]`, and `main() -> int`.
+- Produces: `load_ledger(path: Path) -> object`, `validate_ledger(data: object, repo_root: Path) -> list[str]`, and `main() -> int`; a valid JSON top-level non-object is a structured validation failure.
 - Produces ledger schema version `1` with stable IDs used by later tasks.
 
 - [ ] **Step 1: Write the failing schema and Path A prerequisite tests**
@@ -352,6 +352,7 @@ REQUIRED_RESOURCES = {
     "local-import-staging",
     "install-attempt-staging",
     "external-ghost-install-staging",
+    "ghost-update-unpublished-staging",
     "ghost-update-transaction",
     "runtime-last-ghost",
     "runtime-activation-counts",
@@ -400,6 +401,16 @@ Import `re`. Extend `validate_ledger` so it:
 8. reports a clear full-history requirement if Git objects are absent from a shallow checkout.
 
 Use failure strings matching the tests exactly.
+
+For Path A, bind `supportedUpgradeFloor` exactly to
+`No distributed state-capable modernization build`, require
+`sequentialUpgradeEnforced` to be `false`, require
+`compatibilityRemovalFloor` to be `null`, and require exactly the six unique
+rationale evidence IDs committed in the ledger. For Paths B and C, a
+state-capable `github-releases` channel requires a positive `releaseCount`, and
+a state-capable `github-actions-apk-after-writer-epoch` channel requires a
+positive `postWriterApkArtifactCount`. Positive non-GitHub fixtures use the
+`other` channel.
 
 - [ ] **Step 4: Populate the effective writer epochs**
 
@@ -459,6 +470,7 @@ persisted-uri-grants
 local-import-staging
 install-attempt-staging
 external-ghost-install-staging
+ghost-update-unpublished-staging
 ghost-update-transaction
 runtime-last-ghost
 runtime-activation-counts
@@ -472,12 +484,24 @@ durable-pending-intents
 ```
 
 The queue contract is lossy/fail-closed for unknown versions and malformed
-rows. Cache-attempt and external-ghost staging are separate topologies. Ghost
-update ownership requires its exact digests, journal, lock, candidate/backup
-topology, and private marker; ambiguous or writing residue is preserved. Work
+rows. Cache-attempt and external-ghost staging are separate topologies. An
+unpublished ghost update is the exact `.nanidroid-staging-<digest>` with a
+matching `journal.v1` or complete `journal.v1.tmp` and matching private owner
+marker as a sibling under ghost storage. A published
+`.nanidroid-update-<digest>` is bound by its journal, lock, candidate/backup
+paths, and topology; its marker is deleted after publish and is not required.
+Ambiguous topology, ambiguous or unmatched staging, and incomplete writing
+residue are preserved. Work
 UUID history is recorded per worker kind, runtime/default preference containers
 are explicit, and backup/device-transfer plus Android component and persisted
-`PendingIntent` identities are part of the required inventory. Shared NAR
+`PendingIntent` identities are part of the required inventory. The exact
+durable action identities are
+`com.cattailsw.nanidroid.action.DURABLE_KEEP_WAITING`,
+`com.cattailsw.nanidroid.action.DURABLE_STOP`, and
+`com.cattailsw.nanidroid.action.DURABLE_RETRY_STOP`. Otherwise eligible
+unlisted state remains governed by Android default backup eligibility; this
+does not classify cache, code-cache, no-backup, shared, or out-of-domain
+storage as included. Shared NAR
 temporary names use the actual `File.createTempFile("nanidroid", "tmp", ...)`
 shape, and a name or prefix never proves ownership.
 
