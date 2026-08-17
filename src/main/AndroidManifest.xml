@@ -7,8 +7,6 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-  <uses-permission android:name="android.permission.GET_ACCOUNTS" />
-  <uses-permission android:name="android.permission.USE_CREDENTIALS" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 	    
@@ -27,10 +25,6 @@
         android:value="androidx.startup"
         tools:node="remove" />
     </provider>
-    <!-- The bundled, pre-modern Google Analytics and ACRA jars still link
-         Apache HTTP.  API 36 exposes it only as this optional compatibility
-         shared library; the later Kotlin dependency migration removes it. -->
-    <uses-library android:name="org.apache.http.legacy" android:required="false" />
     <activity android:name="Nanidroid"
       android:label="@string/app_name"
       android:launchMode="singleTop"
@@ -68,8 +62,6 @@
     <receiver
       android:name=".durable.DurableOperationAttentionReceiver"
       android:exported="false" />
-    <activity android:name=".Preferences" android:exported="false" android:theme="@style/NanidroidTheme" />
-
   </application>
   
 </manifest>

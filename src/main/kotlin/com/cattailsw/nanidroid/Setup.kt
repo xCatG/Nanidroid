@@ -1,9 +1,8 @@
 package com.cattailsw.nanidroid
 
-/** Shared protocol, dialog, analytics, and preference identifiers. */
+/** Shared protocol and dialog identifiers. */
 object Setup {
     const val NANIDROID = "Nanidroid"
-    const val UA_CODE = "UA-17040435-8"
 
     const val DLG_README = "readmedialog"
     const val DLG_NO_REAMDE = "noreadme"
@@ -18,13 +17,4 @@ object Setup {
     const val DLG_DBG_MSG = "dlgdebugmessage"
     const val DLG_USR_INPUT = "dlguserinput"
     const val DLG_USR_SEL = "dlguserselection"
-
-    const val ANA_BTN = "BtnClick"
-    const val ANA_PGM_FLOW = "ProgramFlow"
-    const val ANA_ERR = "Error"
-    const val ANA_UI_TOUCH = "UITouch"
-    const val ANA_SSC = "SakuraScriptEvent"
-    const val ANA_PERF = "Performance"
-
-    const val PREF_KEY_USE_ANALYTICS = "enable_analytics"
 }

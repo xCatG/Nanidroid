@@ -66,7 +66,6 @@ internal fun NanidroidComposeShell(
     onListGhost: () -> Unit,
     onUpdate: () -> Unit,
     onReadme: () -> Unit = {},
-    onPreferences: () -> Unit,
     onHelp: () -> Unit,
     onArchiveQueue: () -> Unit = {},
     archiveDownloads: List<NarDownload> = emptyList(),
@@ -111,7 +110,6 @@ internal fun NanidroidComposeShell(
                                 onListGhost = onListGhost,
                                 onUpdate = onUpdate,
                                 onReadme = onReadme,
-                                onPreferences = onPreferences,
                                 onHelp = onHelp,
                                 onArchiveQueue = onArchiveQueue,
                                 isDebuggable = isDebuggable,
@@ -168,7 +166,6 @@ private fun NanidroidToolbar(
     onListGhost: () -> Unit,
     onUpdate: () -> Unit,
     onReadme: () -> Unit,
-    onPreferences: () -> Unit,
     onHelp: () -> Unit,
     onArchiveQueue: () -> Unit = {},
     isDebuggable: Boolean,
@@ -240,14 +237,6 @@ private fun NanidroidToolbar(
                     },
                     text = { Text(stringResource(R.string.readme_menu_text)) },
                     modifier = Modifier.testTag("readme"),
-                )
-                DropdownMenuItem(
-                    onClick = {
-                        showMenu = false
-                        onPreferences()
-                    },
-                    text = { Text(stringResource(R.string.setup_btn_text)) },
-                    modifier = Modifier.testTag("preferences"),
                 )
                 DropdownMenuItem(
                     onClick = {
@@ -369,7 +358,6 @@ private fun NanidroidToolbarPreview() {
             onListGhost = {},
             onUpdate = {},
             onReadme = {},
-            onPreferences = {},
             onHelp = {},
             onArchiveQueue = {},
             isDebuggable = true,

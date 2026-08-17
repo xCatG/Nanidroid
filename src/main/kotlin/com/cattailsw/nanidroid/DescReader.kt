@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid
 
-import com.cattailsw.nanidroid.util.AnalyticsUtils
 import com.cattailsw.nanidroid.util.NarUtil
 import java.io.File
 import java.io.FileNotFoundException
@@ -88,12 +87,6 @@ class DescReader {
         File(path).inputStream().use { input -> parseBytes(input.readBytes(), result) }
         parseTime = LegacyPlatform.uptimeMillis() - parseTime
         LegacyPlatform.debug(TAG, "parsing took:${parseTime}ms")
-        AnalyticsUtils.getInstance(null).trackEvent(
-            Setup.ANA_PERF,
-            "parsing time[ms]",
-            infilePath,
-            parseTime.toInt(),
-        )
         return result
     }
 

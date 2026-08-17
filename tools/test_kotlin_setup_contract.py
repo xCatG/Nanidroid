@@ -10,7 +10,7 @@ class KotlinSetupContractTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("object Setup", source)
-        for name in ("NANIDROID", "UA_CODE", "DLG_README", "ANA_PERF", "PREF_KEY_USE_ANALYTICS"):
+        for name in ("NANIDROID", "DLG_README"):
             self.assertIn("const val " + name, source)
 
     def test_constants_have_no_archived_java_overlay(self):

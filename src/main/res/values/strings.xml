@@ -24,10 +24,6 @@
   <string name="menu_feedback">Provide Feedback</string>
   <string name="feedback_url" translatable="false">http://blog.cattail-sw.com/nanidroid-feedback/</string>
   <string name="about_title">About Nanidroid</string>
-  <string name="setup_btn_text">Setup</string>
-  <string name="enable_analytic_title">Allow Anonymous Usage Data</string>
-  <string name="enable_analytic_desc">Allow using Google Analytics to collect anonymous usage data to help improve this product</string>
-
   <string name="more_g_title">To Get More Ghosts</string>
   <string name="more_g_enter_url_text">Enter URL</string>
   <string name="more_g_from_SD_text">Install from SD card</string>

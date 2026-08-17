@@ -22,10 +22,6 @@
   <string name="url_help_install">http://blog.cattail-sw.com/?p=197</string>
   <string name="url_support_ops">http://blog.cattail-sw.com/?p=212</string>
   <string name="about_title">關於Nanidroid</string>
-  <string name="setup_btn_text">設定</string>
-  <string name="enable_analytic_title">允許匿名使用資料</string>
-  <string name="enable_analytic_desc">允許使用Google Analytics收集匿名的使用資料，以幫助改善本產品</string>
-
   <string name="more_g_title">取得更多偽人格</string>
   <string name="more_g_enter_url_text">輸入網址</string>
   <string name="more_g_from_SD_text">從SD卡安裝</string>

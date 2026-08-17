@@ -118,9 +118,6 @@ dependencies {
     screenshotTestImplementation(libs.screenshot.validation.api)
     screenshotTestImplementation(libs.androidx.compose.ui.tooling)
 
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.crashlytics)
-    implementation(files("libs/libGoogleAnalytics.jar"))
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
 }

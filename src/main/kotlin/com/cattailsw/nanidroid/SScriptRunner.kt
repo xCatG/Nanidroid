@@ -24,7 +24,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
-import com.cattailsw.nanidroid.util.AnalyticsUtils
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -279,9 +278,6 @@ open class SScriptRunner internal constructor(
             if (!firstActivation) doShioriEvent("OnGhostChanged", arrayOf(outgoingName, null))
             else {
                 doShioriEvent("OnFirstBoot", arrayOf("0"))
-                AnalyticsUtils.getInstance(null).trackEvent(
-                    Setup.ANA_PGM_FLOW, "onfirstboot", newGhost.getGhostId(), 0,
-                )
             }
             bootDispatchState.markBootDispatched()
             deliverPendingTerminalEvent(newGhost)
@@ -566,12 +562,7 @@ open class SScriptRunner internal constructor(
                 'b' -> if (handleBalloon(state, state.scope < 2)) break
                 'q' -> if (state.scope < 2) handleSelection(state) else if (handleSelection(state, false)) Unit
                 '-', '4', '5', '6', 'v' -> Log.d(TAG, "ignore unsupported $c2 tag")
-                else -> AnalyticsUtils.getInstance(null).trackEvent(
-                    Setup.ANA_SSC,
-                    "tag_unsupport_other",
-                    "$c2",
-                    -1,
-                )
+                else -> Unit
             }
         } catch (_: Exception) {
             break
@@ -1520,6 +1511,16 @@ open class SScriptRunner internal constructor(
             },
         )
     }
-    fun doBoot(){g?.let{val shell=it.getShellName();val count=it.getCreateCount();if(count>1){doShioriEvent("OnBoot",arrayOf(shell));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onboot",it.getGhostId(),count.toInt())}else{doShioriEvent("OnFirstBoot",arrayOf("0"));AnalyticsUtils.getInstance(null).trackEvent(Setup.ANA_PGM_FLOW,"onfirstboot",it.getGhostId(),0)}}}
+    fun doBoot() {
+        g?.let {
+            val shell = it.getShellName()
+            val count = it.getCreateCount()
+            if (count > 1) {
+                doShioriEvent("OnBoot", arrayOf(shell))
+            } else {
+                doShioriEvent("OnFirstBoot", arrayOf("0"))
+            }
+        }
+    }
     fun getStringValueFromShiori(id:String):String?=withCurrentGhost { it.getStringFromShiori(id) };fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
 }
