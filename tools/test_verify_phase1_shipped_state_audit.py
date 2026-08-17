@@ -156,6 +156,52 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["decision"]["rationaleEvidenceIds"].append("missing-evidence")
         self.assert_failure(data, "dangling evidence reference: missing-evidence")
 
+    def test_ancestry_failure_reports_shallow_history_requirement(self) -> None:
+        data = self.ledger()
+        real_git_text = phase1_audit.git_text
+
+        def fake_git_text(repo_root: Path, *args: str) -> str:
+            if args[:2] == ("merge-base", "--is-ancestor"):
+                raise RuntimeError("simulated missing ancestry")
+            if args == ("rev-parse", "--is-shallow-repository"):
+                return "true"
+            return real_git_text(repo_root, *args)
+
+        with mock.patch.object(phase1_audit, "git_text", side_effect=fake_git_text):
+            failures = phase1_audit.validate_ledger(data, ROOT)
+        self.assertTrue(any("writer commit is not an ancestor" in failure for failure in failures))
+        self.assertTrue(any("full Git history is required" in failure for failure in failures))
+
+    def test_malformed_collection_shapes_return_failures(self) -> None:
+        mutations = {
+            "writerEpochs": [None, "scalar", {"id": []}],
+            "persistentResources": [None, "scalar", {"id": []}],
+            "evidence": [None, "scalar", {"id": []}],
+            "decision": {"path": "A", "rationaleEvidenceIds": None},
+        }
+        for field, value in mutations.items():
+            data = self.ledger()
+            if field == "decision":
+                data[field] = value
+            else:
+                data[field] = value
+            try:
+                failures = phase1_audit.validate_ledger(data, ROOT)
+            except (TypeError, AttributeError, KeyError):
+                self.fail(f"validate_ledger raised for malformed {field}")
+            self.assertTrue(failures, field)
+
+    def test_wrong_collection_types_and_unhashable_references_return_failures(self) -> None:
+        for field in ("writerEpochs", "persistentResources", "evidence"):
+            for value in (None, {"id": "wrong-shape"}, "scalar"):
+                data = self.ledger()
+                data[field] = value
+                self.assertTrue(phase1_audit.validate_ledger(data, ROOT), field)
+        data = self.ledger()
+        data["decision"]["rationaleEvidenceIds"] = [[], None, "scalar"]
+        failures = phase1_audit.validate_ledger(data, ROOT)
+        self.assertTrue(failures)
+
 
 if __name__ == "__main__":
     unittest.main()

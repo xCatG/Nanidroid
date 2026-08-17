@@ -81,10 +81,16 @@ def shallow_history_notice(repo_root: Path) -> str:
 def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     failures: list[str] = []
     decision = data.get("decision", {})
+    if not isinstance(decision, dict):
+        failures.append("decision must be an object")
+        decision = {}
     if data.get("schemaVersion") != 1:
         failures.append("schemaVersion must be 1")
 
     repository = data.get("repository", {})
+    if not isinstance(repository, dict):
+        failures.append("repository must be an object")
+        repository = {}
     audited_head = repository.get("auditedHead")
     if not isinstance(audited_head, str) or not re.fullmatch(r"[0-9a-f]{40}", audited_head):
         failures.append("audited head must be 40 lowercase hexadecimal characters")
@@ -95,12 +101,22 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             failures.append(f"audited head does not exist: {error}{shallow_history_notice(repo_root)}")
 
     writer_epochs = data.get("writerEpochs", [])
-    writer_ids = [epoch.get("id") for epoch in writer_epochs]
-    if len(writer_ids) != len(set(writer_ids)):
-        failures.append("duplicate writer epoch ID")
-    for missing in sorted(REQUIRED_WRITER_EPOCHS - set(writer_ids)):
-        failures.append(f"missing writer epoch: {missing}")
+    if not isinstance(writer_epochs, list):
+        failures.append("writerEpochs must be an array")
+        writer_epochs = []
+    valid_writer_epochs = []
     for epoch in writer_epochs:
+        if not isinstance(epoch, dict):
+            failures.append("writer epoch entries must be objects")
+        else:
+            valid_writer_epochs.append(epoch)
+    writer_ids = [epoch.get("id") for epoch in valid_writer_epochs]
+    writer_ids_set = {item for item in writer_ids if isinstance(item, str)}
+    if len(writer_ids_set) != len(writer_ids):
+        failures.append("writer epoch IDs must be strings and unique")
+    for missing in sorted(REQUIRED_WRITER_EPOCHS - writer_ids_set):
+        failures.append(f"missing writer epoch: {missing}")
+    for epoch in valid_writer_epochs:
         commit = epoch.get("commit")
         if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
             failures.append(f"writer commit must be 40 lowercase hexadecimal characters: {commit}")
@@ -116,7 +132,10 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             try:
                 git_text(repo_root, "merge-base", "--is-ancestor", commit, audited_head)
             except RuntimeError:
-                failures.append(f"writer commit is not an ancestor: {commit}")
+                failures.append(
+                    f"writer commit is not an ancestor: {commit}"
+                    f"{shallow_history_notice(repo_root)}"
+                )
         try:
             identity = read_app_identity(repo_root, commit)
             expected = (
@@ -135,16 +154,43 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
                 failures.append(f"introduced path does not exist at {commit}: {path}")
 
     resources = data.get("persistentResources", [])
-    resource_ids = [resource.get("id") for resource in resources]
-    if len(resource_ids) != len(set(resource_ids)):
-        failures.append("duplicate persistent resource ID")
-    for missing in sorted(REQUIRED_RESOURCES - set(resource_ids)):
+    if not isinstance(resources, list):
+        failures.append("persistentResources must be an array")
+        resources = []
+    valid_resources = []
+    for resource in resources:
+        if not isinstance(resource, dict):
+            failures.append("persistent resource entries must be objects")
+        else:
+            valid_resources.append(resource)
+    resource_ids = [resource.get("id") for resource in valid_resources]
+    resource_ids_set = {item for item in resource_ids if isinstance(item, str)}
+    if len(resource_ids_set) != len(resource_ids):
+        failures.append("persistent resource IDs must be strings and unique")
+    for missing in sorted(REQUIRED_RESOURCES - resource_ids_set):
         failures.append(f"missing persistent resource: {missing}")
-    evidence_ids = [item.get("id") for item in data.get("evidence", [])]
-    if len(evidence_ids) != len(set(evidence_ids)):
-        failures.append("duplicate evidence ID")
-    evidence_set = set(evidence_ids)
-    for evidence_id in decision.get("rationaleEvidenceIds", []):
+    evidence = data.get("evidence", [])
+    if not isinstance(evidence, list):
+        failures.append("evidence must be an array")
+        evidence = []
+    valid_evidence = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            failures.append("evidence entries must be objects")
+        else:
+            valid_evidence.append(item)
+    evidence_ids = [item.get("id") for item in valid_evidence]
+    evidence_set = {item for item in evidence_ids if isinstance(item, str)}
+    if len(evidence_set) != len(evidence_ids):
+        failures.append("evidence IDs must be strings and unique")
+    rationale_ids = decision.get("rationaleEvidenceIds", [])
+    if not isinstance(rationale_ids, list):
+        failures.append("decision.rationaleEvidenceIds must be an array")
+        rationale_ids = []
+    for evidence_id in rationale_ids:
+        if not isinstance(evidence_id, str):
+            failures.append(f"evidence reference IDs must be strings: {evidence_id}")
+            continue
         if evidence_id not in evidence_set:
             failures.append(f"dangling evidence reference: {evidence_id}")
 
