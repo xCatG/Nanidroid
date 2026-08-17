@@ -3,7 +3,6 @@ package com.cattailsw.nanidroid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.Executor
 import java.io.File
 
 class NanidroidGhostStartupTest {
@@ -33,21 +32,6 @@ class NanidroidGhostStartupTest {
         assertTrue(finishAfterRestoredNotice(R.string.err_no_sdcard))
         assertTrue(finishAfterRestoredNotice(R.string.err_no_ghost_available))
         assertTrue(!finishAfterRestoredNotice(android.R.string.ok))
-    }
-
-    @Test
-    fun `service dispatch does not run ghost reconciliation inline`() {
-        var queued: Runnable? = null
-        var enteredBlockingReconciliation = false
-        val deferred = Executor { queued = it }
-
-        dispatchGhostUpdateEnqueue(deferred) {
-            enteredBlockingReconciliation = true
-        }
-
-        assertTrue(!enteredBlockingReconciliation)
-        queued!!.run()
-        assertTrue(enteredBlockingReconciliation)
     }
 
     @Test

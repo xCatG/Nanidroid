@@ -29,8 +29,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.repeatOnLifecycle
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
@@ -41,9 +39,9 @@ import com.cattailsw.nanidroid.install.NarContentUriImport
 import com.cattailsw.nanidroid.install.NarDownloadRepository
 import com.cattailsw.nanidroid.install.NarLiveGrantHandoff
 import com.cattailsw.nanidroid.install.NarDownloadState
+import com.cattailsw.nanidroid.install.NarUserEnqueueResult
 import com.cattailsw.nanidroid.install.StageLocalNarWorker
 import com.cattailsw.nanidroid.durable.DurableAttentionNotificationPolicy
-import com.cattailsw.nanidroid.durable.DurableNotificationPermissionAcceptance
 import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
 import com.cattailsw.nanidroid.runtime.dialogue.ActionOrigin
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
@@ -58,7 +56,6 @@ import java.io.InputStreamReader
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -302,7 +299,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             handleArchiveIngress = { handleIncomingIntent(intent) },
         )
         setupViews()
-        observeDurableNotificationPermissionAcceptance()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             simpleDialog = NanidroidSimpleDialog.Notice(
                 R.string.err_title,
@@ -429,7 +425,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     progressMessage = progressMessage,
                     toolbarVisible = toolbarVisible,
                     onListGhost = ::onListGhost,
-                    onUpdate = ::onUpdate,
                     onReadme = ::openCurrentGhostReadme,
                     onArchiveQueue = {
                         simpleDialog = NanidroidSimpleDialog.ArchiveQueue(
@@ -483,7 +478,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             var line = br.readLine(); while (line != null) { if (line.isNotEmpty() && !line.startsWith("#")) runner!!.addMsgToQueue(arrayOf(line)); line = br.readLine() }
         }
     } catch (_: Exception) { runner!!.addMsgToQueue(arrayOf("\\0Oops, something wrong with first run script!\\e")) }
-    override fun onPause() { super.onPause(); runner?.stopClock(); sendStopIntent() }
+    override fun onPause() { super.onPause(); runner?.stopClock() }
     override fun onSaveInstanceState(outState: Bundle) {
         saveSimpleDialog(outState)
         transientUiSnapshotToSave(
@@ -501,7 +496,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onDestroy() {
         narLiveGrantExecutor.shutdown()
         super.onDestroy()
-        sendStopIntent()
     }
     override fun onResume() {
         super.onResume()
@@ -536,7 +530,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private val mGH = object : Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
     private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
-    private fun sendStopIntent() { stopService(Intent(this, NanidroidService::class.java)) }
     private fun addNarToDownload(target: Uri) {
         if (!allows(GuardedAction.IMPORT_INSTALL)) return
         val value = target.toString()
@@ -545,9 +538,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             return
         }
         val result = narDownloads.enqueueRemoteForUser(value)
-        if (result.acceptedActive) onUserDurableWorkAccepted()
+        handleAcceptedNarUserEnqueueResult(result)
     }
-    private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     private fun installFirstGhost() {
         var target: File? = null
         try {
@@ -676,22 +668,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         handleIncomingIntent(intent, isNewIntent = true)
         if (initComplete) enqueuePendingArchiveIntent()
     }
-    fun onUpdate() {
-        if (!allows(GuardedAction.UPDATE)) return
-        val home = runner!!.getStringValueFromShiori("homeurl") ?: return
-        runner!!.doShioriEvent(
-            "OnUpdateBegin",
-            arrayOf(currentGhost!!.getGhostName(), currentGhost!!.getGhostPath()),
-        )
-        startModernService(
-            NanidroidService.createUpdateIntent(
-                this,
-                home,
-                currentGhost!!.getGhostId(),
-                currentGhost!!.getGhostPath(),
-            ),
-        )
-    }
     fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; showGhostListDlg() }
     fun getMoreGhost() {
         simpleDialog = createMoreGhostDialog()
@@ -746,7 +722,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     false
                 }
             }
-            if (result?.acceptedActive == true) onUserDurableWorkAccepted()
+            handleAcceptedNarUserEnqueueResult(result)
             if (result != null) {
                 return
             }
@@ -761,9 +737,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 "The selected document is no longer available.",
                 Toast.LENGTH_LONG,
             ).show()
-        } else if (accepted.acceptedActive) {
-            onUserDurableWorkAccepted()
-        }
+        } else handleAcceptedNarUserEnqueueResult(accepted)
+    }
+
+    private fun handleAcceptedNarUserEnqueueResult(result: NarUserEnqueueResult?) {
+        if (result?.acceptedActive == true) onUserDurableWorkAccepted()
     }
 
     private fun onUserDurableWorkAccepted() {
@@ -774,18 +752,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
         pendingDurableNotificationPermission = true
         requestPendingDurableNotificationPermission()
-    }
-
-    private fun observeDurableNotificationPermissionAcceptance() {
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                DurableNotificationPermissionAcceptance.observe().collect { accepted ->
-                    if (accepted && DurableNotificationPermissionAcceptance.consumeAccepted()) {
-                        onUserDurableWorkAccepted()
-                    }
-                }
-            }
-        }
     }
 
     private fun requestPendingDurableNotificationPermission() {
