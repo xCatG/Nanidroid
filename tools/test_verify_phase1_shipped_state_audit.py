@@ -156,6 +156,26 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
         data["decision"]["rationaleEvidenceIds"].append("missing-evidence")
         self.assert_failure(data, "dangling evidence reference: missing-evidence")
 
+    def test_rejects_duplicate_evidence_ids(self) -> None:
+        data = self.ledger()
+        data["evidence"].append(copy.deepcopy(data["evidence"][0]))
+        self.assert_failure(data, "duplicate evidence id")
+
+    def test_rejects_unknown_evidence_type(self) -> None:
+        data = self.ledger()
+        data["evidence"][0]["type"] = "guess"
+        self.assert_failure(data, "unknown evidence type")
+
+    def test_rejects_path_a_with_post_writer_apk_artifact(self) -> None:
+        data = self.ledger()
+        data["distribution"]["github"]["postWriterApkArtifactCount"] = 1
+        self.assert_failure(data, "Path A requires zero post-writer GitHub APK artifacts")
+
+    def test_rejects_path_a_without_attestation_evidence_reference(self) -> None:
+        data = self.ledger()
+        data["decision"]["rationaleEvidenceIds"].remove("owner-attestation-2026-08-17")
+        self.assert_failure(data, "Path A decision must reference owner attestation")
+
     def test_ancestry_failure_reports_shallow_history_requirement(self) -> None:
         data = self.ledger()
         real_git_text = phase1_audit.git_text

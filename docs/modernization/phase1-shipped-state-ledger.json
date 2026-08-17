@@ -27,6 +27,15 @@
     {"id":"shared-nar-storage","ownership":"FOREIGN_PRESERVE","locations":["/sdcard/nar"],"formats":["nanidroid*.tmp"],"cleanupPolicy":"Never infer ownership or delete from prefix"}
   ],
   "distribution": {
+    "github": {
+      "observedAt": "2026-08-17",
+      "releaseCount": 0,
+      "tagCount": 0,
+      "actionsArtifactCount": 192,
+      "postWriterApkArtifactCount": 0,
+      "postWriterReportOnlyArtifactCount": 2,
+      "limitation": "Current metadata cannot disprove deleted releases or private distribution."
+    },
     "channels": [
       {"id": "github-releases", "status": "none"},
       {"id": "github-actions-apk-after-writer-epoch", "status": "none"},
@@ -46,10 +55,24 @@
   },
   "decision": {
     "path": "A",
-    "rationaleEvidenceIds": ["owner-attestation-path-a"],
+    "rationaleEvidenceIds": [
+      "git-writer-epochs",
+      "git-app-identity-reuse",
+      "github-releases-tags-empty-2026-08-17",
+      "github-actions-no-post-writer-apk-2026-08-17",
+      "baseline-artifacts-unavailable",
+      "owner-attestation-2026-08-17"
+    ],
     "supportedUpgradeFloor": "No distributed state-capable modernization build",
     "sequentialUpgradeEnforced": false,
     "compatibilityRemovalFloor": null
   },
-  "evidence": [{"id":"owner-attestation-path-a","summary":"Owner attestation confirms no distributed state-capable modernization APK."}]
+  "evidence": [
+    {"id":"git-writer-epochs","type":"git-history","claim":"The three effective writer epochs are recorded in the audited history.","source":"Git history","observedAt":"2026-08-17"},
+    {"id":"git-app-identity-reuse","type":"git-history","claim":"Application identity code 6/name open_0.1 is reused at every writer epoch.","source":"build.gradle.kts at writer commits","observedAt":"2026-08-17"},
+    {"id":"github-releases-tags-empty-2026-08-17","type":"github-metadata-observation","claim":"Current GitHub release and tag API arrays are empty.","source":"GitHub release and tag metadata","observedAt":"2026-08-17"},
+    {"id":"github-actions-no-post-writer-apk-2026-08-17","type":"github-metadata-observation","claim":"APK-like artifacts predate 19da; two later artifacts contain reports only.","source":"GitHub Actions artifact metadata","observedAt":"2026-08-17"},
+    {"id":"baseline-artifacts-unavailable","type":"repository-document","claim":"PR_A_BASELINE.md records missing historical APK, signing identity/hash, and toolchain.","source":"docs/modernization/PR_A_BASELINE.md","observedAt":"2026-08-17"},
+    {"id":"owner-attestation-2026-08-17","type":"owner-attestation","claim":"No state-capable APK was distributed and the signing key was not recovered.","source":"Owner attestation","observedAt":"2026-08-17"}
+  ]
 }

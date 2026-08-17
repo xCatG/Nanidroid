@@ -15,6 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / "docs" / "modernization" / "phase1-shipped-state-ledger.json"
 ALLOWED_PATHS = {"A", "B", "C"}
 ALLOWED_CHANNEL_STATUS = {"none", "state-capable", "unknown"}
+ALLOWED_EVIDENCE_TYPES = {
+    "git-history",
+    "github-metadata-observation",
+    "repository-document",
+    "owner-attestation",
+}
 REQUIRED_CHANNEL_IDS = {
     "github-releases",
     "github-actions-apk-after-writer-epoch",
@@ -189,7 +195,20 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
     evidence_ids = [item.get("id") for item in valid_evidence]
     evidence_set = {item for item in evidence_ids if isinstance(item, str)}
     if len(evidence_set) != len(evidence_ids):
-        failures.append("evidence IDs must be strings and unique")
+        failures.append("duplicate evidence id or non-string evidence id")
+    for item in valid_evidence:
+        evidence_id = item.get("id")
+        if not isinstance(evidence_id, str) or not evidence_id:
+            failures.append("evidence IDs must be nonempty strings")
+        if item.get("type") not in ALLOWED_EVIDENCE_TYPES:
+            failures.append(f"unknown evidence type: {item.get('type')}")
+        for field in ("claim", "source", "observedAt"):
+            if not isinstance(item.get(field), str) or not item[field]:
+                failures.append(f"evidence {evidence_id} requires nonempty {field}")
+        if isinstance(item.get("observedAt"), str) and not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}", item["observedAt"]
+        ):
+            failures.append(f"evidence {evidence_id} observedAt must be an ISO date")
     rationale_ids = decision.get("rationaleEvidenceIds", [])
     if not isinstance(rationale_ids, list):
         failures.append("decision.rationaleEvidenceIds must be an array")
@@ -206,8 +225,17 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
         failures.append("decision.path must resolve to A, B, or C")
 
     distribution = data.get("distribution", {})
+    if not isinstance(distribution, dict):
+        failures.append("distribution must be an object")
+        distribution = {}
     attestation = distribution.get("ownerAttestation", {})
     channels = distribution.get("channels", [])
+    if not isinstance(attestation, dict):
+        failures.append("ownerAttestation must be an object")
+        attestation = {}
+    if not isinstance(channels, list):
+        failures.append("distribution channels must be an array")
+        channels = []
     channel_ids = [channel.get("id") for channel in channels]
     if set(channel_ids) != REQUIRED_CHANNEL_IDS or len(channel_ids) != len(set(channel_ids)):
         failures.append("distribution channel IDs must exactly match the required unique set")
@@ -218,6 +246,18 @@ def validate_ledger(data: dict[str, Any], repo_root: Path) -> list[str]:
             failures.append("Path A forbids state-capable APK distribution")
         if not channels or any(channel.get("status") != "none" for channel in channels):
             failures.append("Path A requires every distribution channel to be none")
+        github = distribution.get("github", {})
+        if not isinstance(github, dict):
+            failures.append("Path A requires GitHub observations")
+            github = {}
+        if github.get("releaseCount") != 0:
+            failures.append("Path A requires zero GitHub releases")
+        if github.get("tagCount") != 0:
+            failures.append("Path A requires zero GitHub tags")
+        if github.get("postWriterApkArtifactCount") != 0:
+            failures.append("Path A requires zero post-writer GitHub APK artifacts")
+        if "owner-attestation-2026-08-17" not in rationale_ids:
+            failures.append("Path A decision must reference owner attestation")
     if path == "B" and decision.get("sequentialUpgradeEnforced") is not True:
         failures.append("Path B requires enforced sequential upgrade")
     if path == "C" and not decision.get("compatibilityRemovalFloor"):
