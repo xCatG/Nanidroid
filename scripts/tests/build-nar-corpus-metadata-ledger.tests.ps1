@@ -136,6 +136,79 @@ try {
     $caseLedger = Get-Content -LiteralPath (Join-Path $caseOutputRoot 'ledger.json') -Raw | ConvertFrom-Json
     Assert-Equal 'manifest-only|manifest-only' ((@($caseLedger.rows | ForEach-Object { $_.disposition })) -join '|') 'Path/query case variants must not be duplicates.'
     Assert-Equal 'https://example.test/CasePath?Mode=UPPER' $caseLedger.rows[0].evidenceUrls[0] 'Evidence URLs must preserve observed path/query case.'
+
+    $orderingRows = @(
+        [PSCustomObject]@{
+            snapshotId = 'snapshot-z'
+            sourceRowOrdinal = 2
+            title = 'Zeta Two'
+            author = 'Fixture Author'
+            landingUrl = 'https://example.test/zeta-two'
+            manifest = $true
+            evidence = [PSCustomObject]@{
+                url = 'https://example.test/zeta-two'
+                robotsAllowed = $true
+                termsAllowed = $true
+                titleSpecificInitialNarLink = $false
+            }
+        },
+        [PSCustomObject]@{
+            snapshotId = 'snapshot-a'
+            sourceRowOrdinal = 2
+            title = 'Alpha Two'
+            author = 'Fixture Author'
+            landingUrl = 'https://example.test/alpha-two'
+            manifest = $true
+            evidence = [PSCustomObject]@{
+                url = 'https://example.test/alpha-two'
+                robotsAllowed = $true
+                termsAllowed = $true
+                titleSpecificInitialNarLink = $false
+            }
+        },
+        [PSCustomObject]@{
+            snapshotId = 'snapshot-z'
+            sourceRowOrdinal = 1
+            title = 'Zeta One'
+            author = 'Fixture Author'
+            landingUrl = 'https://example.test/zeta-one'
+            manifest = $true
+            evidence = [PSCustomObject]@{
+                url = 'https://example.test/zeta-one'
+                robotsAllowed = $true
+                termsAllowed = $true
+                titleSpecificInitialNarLink = $false
+            }
+        },
+        [PSCustomObject]@{
+            snapshotId = 'snapshot-a'
+            sourceRowOrdinal = 1
+            title = 'Alpha One'
+            author = 'Fixture Author'
+            landingUrl = 'https://example.test/alpha-one'
+            manifest = $true
+            evidence = [PSCustomObject]@{
+                url = 'https://example.test/alpha-one'
+                robotsAllowed = $true
+                termsAllowed = $true
+                titleSpecificInitialNarLink = $false
+            }
+        }
+    )
+    $orderingFixtureA = Write-GeneratedFixture -Name 'ordering-a' -Fixture ([PSCustomObject]@{ rows = @($orderingRows) })
+    $orderingFixtureB = Write-GeneratedFixture -Name 'ordering-b' -Fixture ([PSCustomObject]@{ rows = @($orderingRows[3], $orderingRows[1], $orderingRows[0], $orderingRows[2]) })
+    $orderingOutputA = Join-Path $outputRoot 'ordering-a'
+    $orderingOutputB = Join-Path $outputRoot 'ordering-b'
+    $orderingResultA = Invoke-Resolver -FixturePath $orderingFixtureA -OutputPath $orderingOutputA
+    $orderingResultB = Invoke-Resolver -FixturePath $orderingFixtureB -OutputPath $orderingOutputB
+    Assert-Equal 0 $orderingResultA.ExitCode 'The first ordering fixture should be accepted.'
+    Assert-Equal 0 $orderingResultB.ExitCode 'The reordered ordering fixture should be accepted.'
+    $orderingLedgerA = [IO.File]::ReadAllText((Join-Path $orderingOutputA 'ledger.json'))
+    $orderingLedgerB = [IO.File]::ReadAllText((Join-Path $orderingOutputB 'ledger.json'))
+    Assert-Equal $orderingLedgerA $orderingLedgerB 'Equivalent fixture row orderings must produce byte-identical ledger.json output.'
+    $orderingRowsOutput = @((ConvertFrom-Json $orderingLedgerA).rows)
+    $orderingKeys = @($orderingRowsOutput | ForEach-Object { '{0}:{1}' -f $_.snapshotId, $_.sourceRowOrdinal })
+    Assert-Equal 'snapshot-a:1|snapshot-a:2|snapshot-z:1|snapshot-z:2' ($orderingKeys -join '|') 'Ledger rows must be sorted by snapshotId and sourceRowOrdinal.'
 }
 finally {
     if (Test-Path -LiteralPath $outputRoot) {
