@@ -117,7 +117,7 @@ internal fun tryLaunchDocumentExternalUrl(value: String, launch: (String) -> Uni
                 false
             }
         scheme.equals("mailto", ignoreCase = true) ->
-            uri.rawSchemeSpecificPart.substringBefore('?').isNotBlank()
+            uri.schemeSpecificPart.substringBefore('?').isNotBlank()
         else -> false
     }
     return isAllowed && tryLaunchDialogueExternalUri { launch(value) }

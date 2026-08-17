@@ -31,9 +31,13 @@ class DialogueExternalUriLaunchTest {
             "https:/missing-host",
             "http://",
             "mailto:   ",
+            "mailto:%20",
+            "mailto:%09",
             "not a uri",
         ).forEach { value ->
-            assertFalse(value, tryLaunchDocumentExternalUrl(value) { error("must not launch") })
+            var launched = false
+            assertFalse(value, tryLaunchDocumentExternalUrl(value) { launched = true })
+            assertFalse("$value launched", launched)
         }
     }
 
