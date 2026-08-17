@@ -35,12 +35,12 @@ existing references only; updating a baseline requires human image-diff review.
 After a screenshot-plugin upgrade, regenerate and review every golden. The
 HTML comparison report is `build/reports/screenshotTest/preview/debug/index.html`.
 
-The adaptive ghost-stage suite contains exactly 34 named cases: nine window-size
-grid cases, 19 product-state cases, and six pairwise theme/direction/font/density
+The adaptive ghost-stage suite contains exactly 31 named cases: nine window-size
+grid cases, 16 product-state cases, and six pairwise theme/direction/font/density
 cases. Its deterministic Layoutlib fixtures exercise the production shell,
-stage, bubbles, compositor, collision overlay, debug content, and durable-prompt
+stage, bubbles, compositor, collision overlay, and durable-prompt
 content without reading files, using the network, or depending on a clock. The
-debug-sheet, full-modal, and durable-prompt previews use static Layoutlib hosts;
+durable-prompt previews use static Layoutlib hosts;
 they do not replace connected tests of the real platform modal surfaces.
 
 ## NAR corpus (introduced in Task 17)
@@ -203,14 +203,14 @@ pattern. Normal `finally` cleanup stops the watchdog first, restores device
 state, asks the owned emulator to exit, and then enforces exact-tree cleanup.
 Failure to establish the watchdog handshake aborts the audit.
 
-The versioned, deterministic manifest contains 67 automated cases plus 2
+The versioned, deterministic manifest contains 64 automated cases plus 2
 required fresh live interaction artifacts. The automated cases combine three
-authoritative sources (12 live profiles, 34 fixtures, and 21 NAR
+authoritative sources (12 live profiles, 31 fixtures, and 21 NAR
 representative/profile cases):
 
 - live production `CatTailApplication` captures through Android CLI at the eight
   required dp sizes, font scales 1.0/1.5/2.0, and native-density passes;
-- all 34 current Compose screenshot fixtures after
+- all 31 current Compose screenshot fixtures after
   `validateDebugScreenshotTest`; and
 - Task 17 production-stage probes for exactly `2elf-2.46`, `Snake and Otacon
   V1.3.2`, `Nanika Atsume 1.0.1`, `Watchdog Bancho`, `Big Red Button`,
@@ -305,9 +305,9 @@ marked `pass` must have an empty Defect cell. Capture the two
 required interaction PNGs from the current build, then fill their exact manifest
 identity, path, SHA-256, invariant text, explicit `pass`, and empty Defect cell
 in the separate interaction-evidence table. Set `Audit status: complete` only
-after all 67 automated rows and both interaction rows are explicit passes. Then complete the
+after all 64 automated rows and both interaction rows are explicit passes. Then complete the
 interaction checklist for touch, mouse single/double click, keyboard and D-pad,
-bubble scrolling/actions, debug presentations, rotation/recreation, input IME,
+bubble scrolling/actions, collision-overlay alignment, rotation/recreation, input IME,
 the passive stall prompt, TalkBack plus Switch Access or Voice Access, collision
 custom actions, focus recovery, and exact SHIORI event identity and diagnostics. The audit fails on
 case-count mismatch or any unresolved visual/interaction result; automated pixel
@@ -318,8 +318,8 @@ records the exact git HEAD, resolved debug APK path and SHA-256, and capture sta
 time. Before report initialization, capture preflights both required interaction
 paths; an accidental rerun with either artifact already present aborts without
 rewriting the prior summary in `finally`. Finish with the fail-closed verifier. It requires the same current HEAD and
-APK, rehashes the exact current report PNG set (67 screenshots, 12 annotations,
-and 2 fresh interaction artifacts), rejects extra or stale PNGs, checks all 67
+APK, rehashes the exact current report PNG set (64 screenshots, 12 annotations,
+and 2 fresh interaction artifacts), rejects extra or stale PNGs, checks all 64
 automated rows, both interaction-evidence rows, and all 12 exact checklist labels,
 and refuses any blank, stale, duplicate, unchecked, defect-bearing, or non-pass
 result. It is the only mode that changes the summary status to `complete`:

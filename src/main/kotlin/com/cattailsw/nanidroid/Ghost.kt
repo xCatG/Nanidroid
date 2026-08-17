@@ -2,7 +2,6 @@ package com.cattailsw.nanidroid
 
 import android.content.Context
 import com.cattailsw.nanidroid.shiori.Shiori
-import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.dialogue.GhostEventCapabilityDiscovery
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
@@ -23,16 +22,6 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
     @JvmField protected var shellDesc: Map<String, String>? = null
     @JvmField protected var error: Boolean = false
     @JvmField protected var mCtx: Context? = ctx
-    @JvmField val shioriLog = BoundedShioriLog(
-        maxEvents = if (
-            ctx == null ||
-            ctx.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
-        ) {
-            BoundedShioriLog.DEFAULT_MAX_EVENTS
-        } else {
-            0
-        },
-    )
     private var eventCapabilities = PointerEventCapabilities()
 
     init {
@@ -174,17 +163,6 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
         } catch (_: Exception) {
             // The parsed response remains authoritative.
         }
-        shioriLog.append(
-            event = requestText.lineSequence()
-                .firstOrNull { it.startsWith("ID:", ignoreCase = true) }
-                ?.substringAfter(':')
-                ?.trim()
-                .orEmpty(),
-            request = requestText,
-            responseStatus = response.getStatusCode(),
-            responseValue = response.getKey("Value").orEmpty(),
-            response = responseText,
-        )
         return response
     }
 

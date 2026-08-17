@@ -116,21 +116,6 @@ fun TinyWidePreview() = AdaptiveGhostStageScreenshot("tiny_wide")
 fun TinyTallPreview() = AdaptiveGhostStageScreenshot("tiny_tall")
 
 @PreviewTest
-@Preview(name = "debug_bottom_sheet", group = "product", widthDp = 360, heightDp = 720, device = "spec:width=360dp,height=720dp,dpi=320")
-@Composable
-fun DebugBottomSheetPreview() = AdaptiveGhostStageScreenshot("debug_bottom_sheet")
-
-@PreviewTest
-@Preview(name = "debug_full_modal", group = "product", widthDp = 720, heightDp = 360, device = "spec:width=720dp,height=360dp,dpi=320")
-@Composable
-fun DebugFullModalPreview() = AdaptiveGhostStageScreenshot("debug_full_modal")
-
-@PreviewTest
-@Preview(name = "debug_side_panel", group = "product", widthDp = 1280, heightDp = 800, device = "spec:width=1280dp,height=800dp,dpi=320")
-@Composable
-fun DebugSidePanelPreview() = AdaptiveGhostStageScreenshot("debug_side_panel")
-
-@PreviewTest
 @Preview(name = "stalled_normal", group = "product", widthDp = 360, heightDp = 720, device = "spec:width=360dp,height=720dp,dpi=320")
 @Composable
 fun StalledNormalPreview() = AdaptiveGhostStageScreenshot("stalled_normal")

@@ -81,7 +81,8 @@ Preserve exactly:
 10. Recut the visual catalog atomically:
     - remove only `debug_bottom_sheet`, `debug_full_modal`, and
       `debug_side_panel` fixtures/previews/reference PNGs (349,444 bytes);
-    - retain `collision_shapes_combined` unchanged;
+    - retain the `collision_shapes_combined` case and regenerate its reference
+      with the other 30 retained cases after the toolbar icon removal;
     - replace `StageFixtureState.debug` with a screenshot-only
       `collisionOverlaySpeaker: SurfaceSpeaker? = null`, set to `SAKURA` only
       for `collision_shapes_combined`, and pass it directly through the retained
@@ -105,8 +106,10 @@ Run on the exact committed head:
 - `lint`;
 - `validateDebugScreenshotTest` with exactly 31 passing cases and no regenerated
   non-debug golden accepted without visual inspection;
-- retain the `collision_shapes_combined` reference byte-for-byte with SHA-256
-  `896f79fd2e0296b060e46c81db57ab8d6880cdf536eb87a45bd2bfff64eeb7e8`;
+- regenerate and visually inspect all 31 retained references because deleting the
+  shipped debug toolbar icon intentionally recenters the `Ghosts` and `More`
+  actions. Record the before/after `collision_shapes_combined` hashes and stop if
+  any stage, dialogue, surface, or collision pixels change;
 - `pwsh -NoProfile -ExecutionPolicy Bypass -File
   scripts/run-ui-visual-audit.ps1 -DryRun -HostSelfTest` with 64 cases;
 - `python tools/verify_phase1_shipped_state_audit.py`;

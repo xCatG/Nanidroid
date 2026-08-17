@@ -29,7 +29,7 @@ $narReportRoot = Join-Path $repoRoot 'build\reports\nar-corpus'
 $targetPackage = 'com.cattailsw.nanidroid'
 $testPackage = 'com.cattailsw.nanidroid.test'
 $mainActivity = 'com.cattailsw.nanidroid/.Nanidroid'
-$expectedCaseCount = 67
+$expectedCaseCount = 64
 $script:adbTransportDead = $false
 $script:ownedEmulator = $null
 $script:ownedEmulatorProcessId = $null
@@ -237,7 +237,7 @@ function New-UiAuditManifest {
     $interactionEvidence = @(Get-RequiredInteractionEvidenceContract)
     $manifest = [pscustomobject][ordered]@{
         schemaVersion = 2
-        caseSetVersion = '2026-08-04.2'
+        caseSetVersion = '2026-08-17.1'
         caseCount = $cases.Count
         interactionEvidenceCount = $interactionEvidence.Count
         generatedBy = 'scripts/run-ui-visual-audit.ps1'
@@ -303,11 +303,11 @@ function Assert-ReportPngHash([string]$Root, [string]$RelativePath, [string]$Exp
 }
 
 function Assert-UiAuditManifest([object]$Manifest) {
-    if ($Manifest.schemaVersion -ne 2 -or $Manifest.caseSetVersion -ne '2026-08-04.2') { Fail 'Unexpected UI audit manifest version.' }
+    if ($Manifest.schemaVersion -ne 2 -or $Manifest.caseSetVersion -ne '2026-08-17.1') { Fail 'Unexpected UI audit manifest version.' }
     Assert-InteractionEvidenceManifestContract $Manifest
     if ($Manifest.caseCount -ne $expectedCaseCount -or @($Manifest.cases).Count -ne $expectedCaseCount) { Fail "UI audit case-count gate expected $expectedCaseCount, got $($Manifest.caseCount)/$(@($Manifest.cases).Count)." }
     $kinds = @($Manifest.cases | Group-Object kind | ForEach-Object { @{ name = $_.Name; count = $_.Count } })
-    foreach ($expected in @(@{name='live';count=12}, @{name='fixture';count=34}, @{name='nar';count=21})) {
+    foreach ($expected in @(@{name='live';count=12}, @{name='fixture';count=31}, @{name='nar';count=21})) {
         $actual = @($kinds | Where-Object { $_.name -eq $expected.name })
         if ($actual.Count -ne 1 -or $actual[0].count -ne $expected.count) { Fail "Expected $($expected.count) $($expected.name) cases." }
     }
@@ -1207,7 +1207,7 @@ function Get-RequiredInteractionChecklistLabels {
         'Scroll/click bubbles and reopen choices.',
         'Tab, Shift-Tab, arrows, Page Up, Page Down, Enter, Space, Escape, and D-pad.',
         'Toggle chrome only through empty stage or its labeled semantic action.',
-        'Open and close bottom-sheet, side-panel, and full-modal debug presentations.',
+        'Verify collision overlays remain aligned with authored rectangle, ellipse, and polygon regions.',
         'Rotate, resize, and recreate the Activity.',
         'TalkBack plus Switch Access or Voice Access; merged and unmerged semantics.',
         'Invoke collision custom actions and verify focus recovery.',
@@ -1934,7 +1934,7 @@ function Invoke-DryRunSelfTest([object]$Manifest, [string]$ManifestHash) {
         'Scroll/click bubbles and reopen choices.',
         'Tab, Shift-Tab, arrows, Page Up, Page Down, Enter, Space, Escape, and D-pad.',
         'Toggle chrome only through empty stage or its labeled semantic action.',
-        'Open and close bottom-sheet, side-panel, and full-modal debug presentations.',
+        'Verify collision overlays remain aligned with authored rectangle, ellipse, and polygon regions.',
         'Rotate, resize, and recreate the Activity.',
         'TalkBack plus Switch Access or Voice Access; merged and unmerged semantics.',
         'Invoke collision custom actions and verify focus recovery.',

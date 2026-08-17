@@ -121,7 +121,6 @@ class RenderedTransformContractTest {
         assertSame(firstSakura.transform, firstSakura.pointerTransform)
         assertSame(firstSakura.transform, firstSakura.overlayTransform)
         assertSame(firstSakura.transform, firstSakura.semanticsTransform)
-        assertSame(firstSakura.transform, firstSakura.debugTransform)
         assertExactSurfaceEdges(firstSakura)
 
         composeRule.runOnIdle { sakura.value = sourceOnlyBase }
@@ -872,9 +871,8 @@ class RenderedTransformContractTest {
     }
 
     @Test
-    fun toolbarAndDebugVisibilityDoNotChangeTheMeasuredStageAtFixedWindowGeometry() {
+    fun toolbarVisibilityDoesNotChangeTheMeasuredStageAtFixedWindowGeometry() {
         val toolbar = mutableStateOf(true)
-        val debug = mutableStateOf(false)
         val state = GhostStageMeasureState()
         composeRule.setContent {
             NanidroidComposeShell(
@@ -890,7 +888,6 @@ class RenderedTransformContractTest {
                 loading = false,
                 progressMessage = "",
                 toolbarVisible = toolbar.value,
-                showDebugControls = debug.value,
                 onListGhost = {},
                 onUpdate = {},
                 simpleDialog = null,
@@ -899,22 +896,10 @@ class RenderedTransformContractTest {
         }
         composeRule.waitForIdle()
         val before = requireNotNull(state.latest)
-        composeRule.onNodeWithTag("debug", useUnmergedTree = true).assertDoesNotExist()
-
-        composeRule.runOnIdle { debug.value = true }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("debug", useUnmergedTree = true).assertExists()
-        val withVisibleDebugIcon = requireNotNull(state.latest)
-
         composeRule.runOnIdle { toolbar.value = false }
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("debug", useUnmergedTree = true).assertDoesNotExist()
         val after = requireNotNull(state.latest)
 
-        assertEquals(before.layoutDp.mode, withVisibleDebugIcon.layoutDp.mode)
-        assertEquals(before.layoutDp.content, withVisibleDebugIcon.layoutDp.content)
-        assertEquals(requireNotNull(before.kero).transform.renderedBounds, requireNotNull(withVisibleDebugIcon.kero).transform.renderedBounds)
-        assertEquals(requireNotNull(before.sakura).transform.renderedBounds, requireNotNull(withVisibleDebugIcon.sakura).transform.renderedBounds)
         assertEquals(before.layoutDp.mode, after.layoutDp.mode)
         assertEquals(before.layoutDp.content, after.layoutDp.content)
         assertEquals(requireNotNull(before.kero).transform.renderedBounds, requireNotNull(after.kero).transform.renderedBounds)

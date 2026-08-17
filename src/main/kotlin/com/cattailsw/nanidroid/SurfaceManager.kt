@@ -68,10 +68,6 @@ class SurfaceManager(@Suppress("UNUSED_PARAMETER") ghostid: String) {
             null
         }
 
-    fun dumpSurfaces(): String = buildString {
-        surfaces.keys.sorted().forEach { id -> append(surfaces.getValue(id).dumpSurfaceStat()) }
-    }
-
     private companion object {
         const val SAKURA_DEFAULT_ID = "0"
         const val KERO_DEFAULT_ID = "10"

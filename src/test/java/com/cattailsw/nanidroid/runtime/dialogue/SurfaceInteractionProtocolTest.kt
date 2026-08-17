@@ -7,8 +7,6 @@ import com.cattailsw.nanidroid.SScriptRunner
 import com.cattailsw.nanidroid.SScriptPlaybackScheduler
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
-import com.cattailsw.nanidroid.compose.debug.PointerDispatchOutcome
-import com.cattailsw.nanidroid.compose.debug.pointerDispatchOutcome
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -370,10 +368,6 @@ class SurfaceInteractionProtocolTest {
         assertEquals("OnMouseClick", diagnosticDispatch.candidateEvent)
         assertTrue(!diagnosticDispatch.accepted)
         assertEquals(1, capabilityQueries)
-        assertEquals(
-            PointerDispatchOutcome.REJECTED,
-            pointerDispatchOutcome(diagnosticDispatch.candidateEvent, diagnosticDispatch.accepted),
-        )
         assertEquals(1, unloads)
         assertEquals(1, stops)
         assertEquals(1, handoffs)
@@ -425,10 +419,6 @@ class SurfaceInteractionProtocolTest {
         assertEquals(null, diagnosticDispatch.candidateEvent)
         assertTrue(!diagnosticDispatch.accepted)
         assertEquals(1, capabilityQueries)
-        assertEquals(
-            PointerDispatchOutcome.NOT_RESOLVED,
-            pointerDispatchOutcome(diagnosticDispatch.candidateEvent, diagnosticDispatch.accepted),
-        )
     }
 }
 

@@ -7,7 +7,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.SurfaceCollision
 import com.cattailsw.nanidroid.SurfaceDefinition
-import com.cattailsw.nanidroid.compose.debug.DebugPanelState
 import com.cattailsw.nanidroid.durable.AttemptId
 import com.cattailsw.nanidroid.durable.DurableOperationRecord
 import com.cattailsw.nanidroid.durable.OperationId
@@ -47,14 +46,13 @@ enum class ScreenshotInvariant {
     CENTER_SPLIT,
     NO_CLIP,
     TINY_ONLY,
-    DEBUG_MODAL,
 }
 
 data class StageFixtureState(
     val presentation: GhostPresentationState,
     val sakura: ScreenshotSurfaceFixture,
     val kero: ScreenshotSurfaceFixture,
-    val debug: DebugPanelState,
+    val collisionOverlaySpeaker: SurfaceSpeaker? = null,
     val stalledOperation: DurableOperationRecord?,
     val displayFeatures: List<StageDisplayFeature> = emptyList(),
 )
@@ -159,7 +157,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                     ),
                     sakura = sakuraStandard,
                     kero = keroStandard,
-                    debug = DebugPanelState(visible = false),
                     stalledOperation = null,
                 ),
             )
@@ -191,7 +188,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -214,7 +210,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -232,7 +227,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -252,7 +246,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -274,7 +267,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -296,7 +288,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -314,7 +305,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -332,7 +322,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -350,7 +339,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -368,7 +356,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -390,7 +377,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
                 displayFeatures = foldFeatures,
             ),
@@ -409,7 +395,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -427,75 +412,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
-                stalledOperation = null,
-            ),
-        ),
-        stageCase(
-            name = "debug_bottom_sheet",
-            window = DpSize(360.dp, 720.dp),
-            posture = StagePosture.FLAT,
-            invariants = setOf(ScreenshotInvariant.KERO_LEFT, ScreenshotInvariant.SAKURA_RIGHT),
-            state = StageFixtureState(
-                presentation = presentationState(
-                    sakuraText = "Sakura with debug sheet expected.",
-                    keroText = "Kero reply.",
-                    sakuraSurfaceId = sakuraStandard.definition.id,
-                    keroSurfaceId = keroStandard.definition.id,
-                ),
-                sakura = sakuraStandard,
-                kero = keroStandard,
-                debug = DebugPanelState(
-                    visible = true,
-                    selectedSpeaker = SurfaceSpeaker.SAKURA,
-                    showCollisionOverlay = false,
-                ),
-                stalledOperation = null,
-            ),
-        ),
-        stageCase(
-            name = "debug_full_modal",
-            window = DpSize(720.dp, 360.dp),
-            posture = StagePosture.FLAT,
-            invariants = setOf(
-                ScreenshotInvariant.KERO_LEFT,
-                ScreenshotInvariant.SAKURA_RIGHT,
-                ScreenshotInvariant.DEBUG_MODAL,
-            ),
-            state = StageFixtureState(
-                presentation = presentationState(
-                    sakuraText = "Sakura with modal debug.",
-                    keroText = "Kero reply.",
-                    sakuraSurfaceId = sakuraStandard.definition.id,
-                    keroSurfaceId = keroStandard.definition.id,
-                ),
-                sakura = sakuraStandard,
-                kero = keroStandard,
-                debug = DebugPanelState(
-                    visible = true,
-                    selectedSpeaker = SurfaceSpeaker.KERO,
-                ),
-                stalledOperation = null,
-            ),
-        ),
-        stageCase(
-            name = "debug_side_panel",
-            window = DpSize(1280.dp, 800.dp),
-            posture = StagePosture.FLAT,
-            invariants = setOf(ScreenshotInvariant.KERO_LEFT, ScreenshotInvariant.SAKURA_RIGHT),
-            state = StageFixtureState(
-                presentation = presentationState(
-                    sakuraText = "Sakura side panel case.",
-                    keroText = "Kero side panel.",
-                    sakuraSurfaceId = sakuraStandard.definition.id,
-                    keroSurfaceId = keroStandard.definition.id,
-                ),
-                sakura = sakuraStandard,
-                kero = keroStandard,
-                debug = DebugPanelState(
-                    visible = true,
-                    selectedSpeaker = SurfaceSpeaker.SAKURA,
-                ),
                 stalledOperation = null,
             ),
         ),
@@ -516,7 +432,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = stalledRunning,
             ),
         ),
@@ -537,7 +452,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = stalledPassive,
             ),
         ),
@@ -555,11 +469,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraOverlay,
                 kero = keroStandard,
-                debug = DebugPanelState(
-                    visible = false,
-                    selectedSpeaker = SurfaceSpeaker.SAKURA,
-                    showCollisionOverlay = true,
-                ),
+                collisionOverlaySpeaker = SurfaceSpeaker.SAKURA,
                 stalledOperation = null,
             ),
         ),
@@ -584,7 +494,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -606,7 +515,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -628,7 +536,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -650,7 +557,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -672,7 +578,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -694,7 +599,6 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                debug = DebugPanelState(visible = false),
                 stalledOperation = null,
             ),
         ),
@@ -711,7 +615,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
 internal fun validateAdaptiveGhostStageFixtures(
     cases: List<StageScreenshotCase> = ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES,
 ): List<String> = buildList {
-    if (cases.size != 34) add("expected 34 cases, got ${cases.size}")
+    if (cases.size != 31) add("expected 31 cases, got ${cases.size}")
 
     val names = cases.map { it.name }
     val duplicateNames = names.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
@@ -744,9 +648,6 @@ internal fun validateAdaptiveGhostStageFixtures(
         "foldable_vertical_separating",
         "tiny_wide",
         "tiny_tall",
-        "debug_bottom_sheet",
-        "debug_full_modal",
-        "debug_side_panel",
         "stalled_normal",
         "stalled_passive",
         "collision_shapes_combined",
@@ -772,11 +673,10 @@ internal fun validateAdaptiveGhostStageFixtures(
             it.name.startsWith("tablet_") ||
             it.name.startsWith("foldable_") ||
             it.name.startsWith("tiny_") ||
-            it.name.startsWith("debug_") ||
             it.name.startsWith("stalled_") ||
             it.name == "collision_shapes_combined"
     }
-    if (stateCases.size != 19) add("expected 19 state cases, got ${stateCases.size}")
+    if (stateCases.size != 16) add("expected 16 state cases, got ${stateCases.size}")
     if (stateCases.map { it.name }.toSet() != expectedState) {
         val missing = expectedState - stateCases.map { it.name }.toSet()
         val extra = stateCases.map { it.name }.toSet() - expectedState
@@ -814,10 +714,6 @@ internal fun validateAdaptiveGhostStageFixtures(
         ) {
             add("case ${case.name} expects center split with non-compact mode and no separating feature")
         }
-        if (ScreenshotInvariant.DEBUG_MODAL in case.expectedInvariants && !case.state.debug.visible) {
-            add("case ${case.name} requires DEBUG_MODAL but debug panel is not visible")
-        }
-
         val hasVerticalFold = case.state.displayFeatures.any { it.separating }
         if (case.name == "foldable_vertical_separating" && !hasVerticalFold) {
             add("foldable_vertical_separating requires explicit vertical separating display feature")

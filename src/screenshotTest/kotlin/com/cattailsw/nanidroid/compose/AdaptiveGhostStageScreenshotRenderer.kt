@@ -16,21 +16,12 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
-import com.cattailsw.nanidroid.compose.debug.DebugPresentation
-import com.cattailsw.nanidroid.compose.debug.GhostDebugSurface
-import com.cattailsw.nanidroid.compose.debug.PointerDispatchOutcome
-import com.cattailsw.nanidroid.compose.debug.SurfaceDebugSelection
-import com.cattailsw.nanidroid.compose.debug.SurfacePointerDebugEvent
-import com.cattailsw.nanidroid.compose.debug.collisionOverlaySpeaker
-import com.cattailsw.nanidroid.compose.debug.resolveDebugPresentation
 import com.cattailsw.nanidroid.compose.stage.BubbleUiState
 import com.cattailsw.nanidroid.compose.stage.GhostBubble
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.MeasuredGhostStageLayout
 import com.cattailsw.nanidroid.compose.stage.RenderedSurfaceLayer
-import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
@@ -81,10 +72,7 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
             sakura = sakura.metrics(),
         ).mode
     }
-    val overlaySpeaker = fixture.state.debug.collisionOverlaySpeaker(
-        loading = false,
-        debugBuild = true,
-    )
+    val overlaySpeaker = fixture.state.collisionOverlaySpeaker
 
     NanidroidComposeShell(
         ghostStage = {
@@ -146,18 +134,10 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
         onUpdate = {},
         onReadme = {},
         onArchiveQueue = {},
-        showDebugControls = true,
-        onDebug = {},
         simpleDialog = null,
         onDismissSimpleDialog = {},
         stalledOperations = listOfNotNull(fixture.state.stalledOperation),
         staticDurablePromptPreview = true,
-        transientOverlay = {
-            FixtureDebugSurface(
-                fixture = fixture,
-                presentation = resolveDebugPresentation(fixture.windowSizeDp.width, mode),
-            )
-        },
     )
 }
 
@@ -192,69 +172,6 @@ private fun FixtureBubble(
             talkId = 16L,
             contentRevision = 1L,
         ),
-    )
-}
-
-@Composable
-private fun FixtureDebugSurface(
-    fixture: StageScreenshotCase,
-    presentation: DebugPresentation,
-) {
-    val selected = when (fixture.state.debug.selectedSpeaker) {
-        SurfaceSpeaker.SAKURA -> fixture.state.sakura
-        SurfaceSpeaker.KERO -> fixture.state.kero
-    }
-    GhostDebugSurface(
-        presentation = presentation,
-        state = fixture.state.debug,
-        selection = SurfaceDebugSelection(
-            speaker = fixture.state.debug.selectedSpeaker,
-            scope = fixture.state.debug.selectedSpeaker.name.lowercase(),
-            surfaceId = selected.definition.id.toString(),
-            intrinsicWidth = selected.definition.width,
-            intrinsicHeight = selected.definition.height,
-            composedLeft = 24,
-            composedTop = 96,
-            composedRight = 264,
-            composedBottom = 356,
-            composedWidth = 240,
-            composedHeight = 260,
-            visibleLeft = 0,
-            visibleTop = 0,
-            visibleRight = selected.definition.width,
-            visibleBottom = selected.definition.height,
-            animationId = "fixture-idle",
-            visible = true,
-            animationRunning = true,
-            revision = 1L,
-        ),
-        lastInput = SurfacePointerDebugEvent(
-            speaker = fixture.state.debug.selectedSpeaker,
-            viewportX = 120,
-            viewportY = 180,
-            sourceX = 60,
-            sourceY = 90,
-            collisionId = 1,
-            collisionName = "Face",
-            buttonId = 0,
-            candidateEvent = "OnMouseDoubleClick",
-            dispatchOutcome = PointerDispatchOutcome.ACCEPTED,
-            source = "touch",
-        ),
-        logs = listOf(
-            BoundedShioriLog.Entry(
-                id = 0L,
-                event = "OnBoot",
-                request = "GET SHIORI/3.0",
-                responseStatus = 200,
-                responseValue = "Hello from the deterministic fixture",
-            ),
-        ),
-        onSelectSpeaker = {},
-        onCollisionOverlayChange = {},
-        onNarTest = {},
-        onDismiss = {},
-        staticPreview = true,
     )
 }
 
