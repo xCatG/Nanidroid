@@ -54,7 +54,6 @@ import com.cattailsw.nanidroid.compose.debug.showDebugSurface
 import com.cattailsw.nanidroid.runtime.BoundedShioriLog
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
-import com.cattailsw.nanidroid.util.NarUtil
 import com.cattailsw.nanidroid.util.PrefUtil
 import com.cattailsw.nanidroid.install.NarContentUriImport
 import com.cattailsw.nanidroid.install.NarDownloadRepository
@@ -72,7 +71,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import java.io.BufferedReader
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStreamReader
 import java.util.Arrays
@@ -407,7 +405,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     currentRunCount = getStartCount()
                     if (currentRunCount == 0L) loadFirstRunScript()
                     setStartCount(++currentRunCount)
-                    NarUtil.createNarDirOnSDCard()
                 }
                 if (isDestroyed || isFinishing) {
                     return@launch
@@ -722,7 +719,21 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     private fun startModernService(intent: Intent) { if (Build.VERSION.SDK_INT >= 26) { try { javaClass.getMethod("startForegroundService", Intent::class.java).invoke(this, intent); return } catch (e: Exception) { Log.w(TAG, "foreground-service API unavailable", e) } }; startService(intent) }
     fun narTest() { runner!!.addMsgToQueue(arrayOf("\\h\\s[0]\\w4なんやCatGさん？\\n\\n\\q[なにか話して,Manzai]\n\\q[モードチェンジ,ChangeMode]\\n\\q[各種設定,OpenSetup]\\n\\n\\q[取り消し,Cancel]\\e\\e")); runner!!.run() }
-    private fun installFirstGhost() { try { assets.open("nanidroid.zip").use { input -> val target = File(externalCacheDir, "nanidroid.nar"); NarUtil.copyFile(input, FileOutputStream(target)); gm!!.installFirstGhost("nanidroid", target.path) } } catch (e: IOException) { e.printStackTrace() } }
+    private fun installFirstGhost() {
+        var target: File? = null
+        try {
+            val archive = File.createTempFile("nanidroid-", ".nar", cacheDir)
+            target = archive
+            assets.open("nanidroid.zip").use { input ->
+                archive.outputStream().use(input::copyTo)
+            }
+            gm!!.installFirstGhost("nanidroid", archive.path)
+        } catch (exception: IOException) {
+            exception.printStackTrace()
+        } finally {
+            target?.delete()
+        }
+    }
     private fun showReadme(readme: File, ghostId: String) {
         simpleDialog = createReadmeDialog(readme, ghostId)
     }
