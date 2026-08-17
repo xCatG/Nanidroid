@@ -94,11 +94,29 @@ function ConvertTo-NarCanonicalLandingUrl {
         return $null
     }
 
-    $canonical = '{0}://{1}{2}' -f $uri.Scheme.ToLowerInvariant(), $uri.Authority, $uri.GetComponents([UriComponents]::PathAndQuery, [UriFormat]::UriEscaped)
-    if ($canonical.EndsWith('/')) {
-        $canonical = $canonical.TrimEnd('/')
+    $path = $uri.GetComponents([UriComponents]::Path, [UriFormat]::UriEscaped)
+    if ($path.EndsWith('/')) {
+        $path = $path.TrimEnd('/')
     }
-    return $canonical
+    if ($path.Length -gt 0) {
+        $path = "/$path"
+    }
+    $query = $uri.GetComponents([UriComponents]::Query, [UriFormat]::UriEscaped)
+    $querySuffix = if ($query.Length -gt 0) { "?$query" } else { '' }
+    return '{0}://{1}{2}{3}' -f $uri.Scheme.ToLowerInvariant(), $uri.Authority, $path, $querySuffix
+}
+
+function Assert-NarOptionalBooleanProperty {
+    param(
+        [Parameter(Mandatory)][object] $Object,
+        [Parameter(Mandatory)][string] $Name,
+        [Parameter(Mandatory)][string] $Location
+    )
+
+    $value = Get-NarPropertyValue -Object $Object -Name $Name
+    if ($null -ne $value -and $value -isnot [bool]) {
+        throw "$Location.$Name must be a boolean when present."
+    }
 }
 
 function Assert-NarCorpusMetadataRows {
@@ -121,6 +139,8 @@ function Assert-NarCorpusMetadataRows {
         $title = Get-NarPropertyValue -Object $row -Name 'title'
         $author = Get-NarPropertyValue -Object $row -Name 'author'
         $landingUrl = Get-NarPropertyValue -Object $row -Name 'landingUrl'
+        $evidence = Get-NarPropertyValue -Object $row -Name 'evidence'
+        $manifest = Get-NarPropertyValue -Object $row -Name 'manifest'
 
         if ($snapshotId -isnot [string] -or
             $title -isnot [string] -or
@@ -131,6 +151,22 @@ function Assert-NarCorpusMetadataRows {
             [string]::IsNullOrWhiteSpace($author) -or
             $null -eq (ConvertTo-NarCanonicalLandingUrl -Value $landingUrl)) {
             throw 'Each metadata row requires snapshotId, sourceRowOrdinal, title, author, and an absolute HTTP(S) landingUrl.'
+        }
+        if ($null -eq $evidence -or $evidence -is [string] -or $evidence -is [ValueType] -or $evidence -is [System.Collections.IEnumerable]) {
+            throw 'evidence must be an object.'
+        }
+        if ($null -ne $manifest -and $manifest -isnot [bool]) {
+            throw 'manifest must be a boolean when present.'
+        }
+        foreach ($policyField in @(
+            'robotsAllowed',
+            'termsAllowed',
+            'authorNoticeExcluded',
+            'personalUseOnly',
+            'accessBoundary',
+            'titleSpecificInitialNarLink'
+        )) {
+            Assert-NarOptionalBooleanProperty -Object $evidence -Name $policyField -Location 'evidence'
         }
 
         $ordinalNumber = 0

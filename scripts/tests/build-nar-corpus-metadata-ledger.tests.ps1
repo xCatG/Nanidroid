@@ -33,12 +33,16 @@ function Write-GeneratedFixture([string] $Name, [object] $Fixture) {
 
 function Assert-Rejected([object] $Fixture, [string] $Name, [string] $ExpectedMessage) {
     $fixturePath = Write-GeneratedFixture -Name $Name -Fixture $Fixture
-    $result = Invoke-Resolver -FixturePath $fixturePath -OutputPath (Join-Path $unsafeOutputRoot $Name)
+    $rejectedOutputRoot = Join-Path $unsafeOutputRoot $Name
+    $result = Invoke-Resolver -FixturePath $fixturePath -OutputPath $rejectedOutputRoot
     if ($result.ExitCode -eq 0) {
         throw "Fixture '$Name' should be rejected with a non-zero exit code."
     }
     if ($result.Output -notmatch $ExpectedMessage) {
         throw "Fixture '$Name' rejection should match '$ExpectedMessage'. Output: $($result.Output)"
+    }
+    if (Test-Path -LiteralPath (Join-Path $rejectedOutputRoot 'ledger.json') -PathType Leaf) {
+        throw "Fixture '$Name' must not write ledger.json after validation failure."
     }
 }
 
@@ -137,6 +141,60 @@ try {
     $caseLedger = Get-Content -LiteralPath (Join-Path $caseOutputRoot 'ledger.json') -Raw | ConvertFrom-Json
     Assert-Equal 'manifest-only|manifest-only' ((@($caseLedger.rows | ForEach-Object { $_.disposition })) -join '|') 'Path/query case variants must not be duplicates.'
     Assert-Equal 'https://example.test/CasePath?Mode=UPPER' $caseLedger.rows[0].evidenceUrls[0] 'Evidence URLs must preserve observed path/query case.'
+
+    $queryIdentityFixture = Write-GeneratedFixture -Name 'query-identity' -Fixture ([PSCustomObject]@{
+        rows = @(
+            [PSCustomObject]@{
+                snapshotId = 'query-identity'
+                sourceRowOrdinal = 1
+                title = 'Query Ghost'
+                author = 'Fixture Author'
+                landingUrl = 'https://example.test/p?q=/'
+                manifest = $true
+                evidence = [PSCustomObject]@{
+                    url = 'https://example.test/p?q=/'
+                    robotsAllowed = $true
+                    termsAllowed = $true
+                    titleSpecificInitialNarLink = $false
+                }
+            },
+            [PSCustomObject]@{
+                snapshotId = 'query-identity'
+                sourceRowOrdinal = 2
+                title = 'Query Ghost'
+                author = 'Fixture Author'
+                landingUrl = 'https://example.test/p?q='
+                manifest = $true
+                evidence = [PSCustomObject]@{
+                    url = 'https://example.test/p?q='
+                    robotsAllowed = $true
+                    termsAllowed = $true
+                    titleSpecificInitialNarLink = $false
+                }
+            }
+        )
+    })
+    $queryOutputRoot = Join-Path $outputRoot 'query-identity'
+    $queryResult = Invoke-Resolver -FixturePath $queryIdentityFixture -OutputPath $queryOutputRoot
+    Assert-Equal 0 $queryResult.ExitCode 'Query slash variants should be accepted as distinct metadata rows.'
+    $queryLedger = Get-Content -LiteralPath (Join-Path $queryOutputRoot 'ledger.json') -Raw | ConvertFrom-Json
+    Assert-Equal 'manifest-only|manifest-only' ((@($queryLedger.rows | ForEach-Object { $_.disposition })) -join '|') 'Query slash variants must not be duplicates.'
+    Assert-Equal 'https://example.test/p?q=/' $queryLedger.rows[0].evidenceUrls[0] 'Evidence URLs must preserve a query trailing slash.'
+    Assert-Equal 'https://example.test/p?q=' $queryLedger.rows[1].evidenceUrls[0] 'Evidence URLs must preserve an empty query value.'
+
+    $invalidEvidenceRow = $validRow.psobject.Copy()
+    $invalidEvidenceRow.evidence = 'not-an-object'
+    Assert-Rejected -Name 'invalid-evidence-object' -ExpectedMessage '(?i)evidence must be an object' -Fixture ([PSCustomObject]@{ rows = @($invalidEvidenceRow) })
+    foreach ($malformedEvidence in @(
+        @{ Name = 'robots'; Value = 'false'; Message = '(?i)robotsAllowed must be a boolean' },
+        @{ Name = 'terms'; Value = 0; Message = '(?i)termsAllowed must be a boolean' },
+        @{ Name = 'title-link'; Value = 'true'; Message = '(?i)titleSpecificInitialNarLink must be a boolean' }
+    )) {
+        $malformedEvidenceRow = $validRow.psobject.Copy()
+        $malformedEvidenceRow.evidence = $validRow.evidence.psobject.Copy()
+        $malformedEvidenceRow.evidence.$($malformedEvidence.Name -replace 'robots', 'robotsAllowed' -replace 'terms', 'termsAllowed' -replace 'title-link', 'titleSpecificInitialNarLink') = $malformedEvidence.Value
+        Assert-Rejected -Name "invalid-$($malformedEvidence.Name)-metadata" -ExpectedMessage $malformedEvidence.Message -Fixture ([PSCustomObject]@{ rows = @($malformedEvidenceRow) })
+    }
 
     $orderingRows = @(
         [PSCustomObject]@{

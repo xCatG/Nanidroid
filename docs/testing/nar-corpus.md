@@ -5,7 +5,7 @@
 Build the metadata-only ledger from the checked-in synthetic fixture with:
 
 ```powershell
-pwsh -NoProfile -File scripts/build-nar-corpus-metadata-ledger.ps1 `
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build-nar-corpus-metadata-ledger.ps1 `
   -FixturePath scripts/tests/fixtures/nar-corpus-metadata-resolver/phase-one-synthetic.json `
   -OutputRoot build/nar-corpus-metadata-ledger
 ```
