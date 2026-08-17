@@ -15,7 +15,7 @@
 - Do not download APKs, AABs, NARs, signing material, or corpus payloads.
 - Record Path A: the owner confirmed on 2026-08-17 that no APK built from `19da89d3f4d1faaaaaae3e000b8bc852f73c2c38` or later was released or distributed, because the signing key has not been recovered.
 - Current GitHub metadata is supporting evidence only; it cannot disprove deleted releases or private distribution without the owner attestation.
-- Preserve runtime preferences `lastrunghost` and `createcount_ghost*` in the inventory even though this PR performs no cleanup.
+- Preserve runtime preferences `lastrunghost`, `createcount_ghost*`, and `keylaunchtime` in `CATTAILSW_NANIDROID_PREFS.xml`, plus `enable_analytics` and `firstRun` in the co-resident default-preference file, even though this PR performs no cleanup.
 - Classify user-owned shared `/sdcard/nar` content as `FOREIGN_PRESERVE`; a name or prefix is never cleanup ownership.
 - The deterministic 23-NAR corpus and rolling corpus `#383` are not needed for this evidence-only pull request.
 - Use four-space Python indentation and the repository's existing Kotlin/Android conventions where referenced.
@@ -346,14 +346,22 @@ REQUIRED_RESOURCES = {
     "durable-operations",
     "workmanager-worker-fqcns",
     "workmanager-unique-work",
+    "workmanager-request-uuids",
     "downloadmanager-rows",
     "persisted-uri-grants",
     "local-import-staging",
     "install-attempt-staging",
+    "external-ghost-install-staging",
     "ghost-update-transaction",
     "runtime-last-ghost",
     "runtime-activation-counts",
+    "runtime-launch-time",
+    "default-preference-analytics",
+    "default-preference-first-run",
     "shared-nar-storage",
+    "backup-device-transfer-boundaries",
+    "durable-android-components",
+    "durable-pending-intents",
 }
 
 
@@ -429,28 +437,49 @@ Replace `writerEpochs` with the three effective `origin/master` epochs, not thei
 ]
 ```
 
-Verify each `introducedPaths` entry exists at that epoch with `git cat-file -e <commit>:<path>`.
+Bind each epoch ID to the full commit and exact `introducedPaths` set above.
+Verify every listed path is an `A` addition against that commit's only parent;
+presence at the commit is not sufficient.
 
 - [ ] **Step 5: Populate the persistent-resource inventory**
 
-Add one object for every required resource ID. Each object has `id`, `ownership`, `locations`, `formats`, and `cleanupPolicy`. Use these exact ownership/policy values:
+Add one object for every required resource ID. Each object has exactly `id`,
+`ownership`, `locations`, `formats`, and `cleanupPolicy`. The verifier's
+`REQUIRED_RESOURCES` mapping and the committed ledger hold the complete exact
+values; mutation tests bind every ID and field. The required IDs are:
 
-```json
-[
-  {"id":"nar-download-queue","ownership":"APP_OWNED_STRICT_DECODE","locations":["shared_prefs/nar-download-queue.xml#records-v1"],"formats":["v1","v2","v3","v4"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"durable-operations","ownership":"APP_OWNED_STRICT_DECODE","locations":["shared_prefs/durable_operations_v1.xml#records","shared_prefs/durable_operations_v1.xml#records_corruption_quarantine","shared_prefs/durable_operations_v1.xml#records_corruption_recovery_required"],"formats":["v1","v2","v3","v4","v5","v6"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"workmanager-worker-fqcns","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["com.cattailsw.nanidroid.install.InstallNarWorker","com.cattailsw.nanidroid.install.StageLocalNarWorker","com.cattailsw.nanidroid.durable.GhostUpdateWorker","com.cattailsw.nanidroid.durable.GhostUpdateRecoveryWorker"],"formats":[],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"workmanager-unique-work","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["install-nar-<itemId>","stage-local-nar-<itemId>","ghost-update-<rootDigest>","ghost-update-recovery-<rootDigest>"],"formats":["legacy-random-install-uuid","durableWorkManagerId-v1"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"downloadmanager-rows","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["external-files/Downloads/nar-downloads/<itemId>.nar"],"formats":["exact-row-id","binding-history"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"persisted-uri-grants","ownership":"PLATFORM_OWNED_EXACT_IDENTITY","locations":["queue-source-uri","queue-retained-uri","pendingPersistedGrantReleaseUri","pending-grant-release"],"formats":["read-grant"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"local-import-staging","ownership":"APP_OWNED_CANONICAL_PATH","locations":["filesDir/nar-local-imports"],"formats":["nar-local-<24hex>.nar"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"install-attempt-staging","ownership":"APP_OWNED_CANONICAL_PATH","locations":["cacheDir/nar-install-attempts","ghost/.nanidroid-install-staging"],"formats":["candidate-<32hex>","staged-<32hex>.nar"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"ghost-update-transaction","ownership":"APP_OWNED_JOURNAL_AND_CANONICAL_PATH","locations":[".nanidroid-update-*",".nanidroid-staging-*","journal.v1","journal.v1.tmp","candidate","backup"],"formats":["PREPARED","BACKED_UP","PUBLISHED","CLEANED","ROLLBACK_CLASSIFIED","NO_CHANGES_PENDING"],"cleanupPolicy":"No cleanup in audit PR"},
-  {"id":"runtime-last-ghost","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/lastrunghost"],"formats":[],"cleanupPolicy":"Never delete as workflow cleanup"},
-  {"id":"runtime-activation-counts","ownership":"APP_RUNTIME_STATE_RETAIN","locations":["shared_prefs/createcount_ghost*"],"formats":[],"cleanupPolicy":"Never delete as workflow cleanup"},
-  {"id":"shared-nar-storage","ownership":"FOREIGN_PRESERVE","locations":["/sdcard/nar"],"formats":["nanidroid*.tmp"],"cleanupPolicy":"Never infer ownership or delete from prefix"}
-]
+```text
+nar-download-queue
+durable-operations
+workmanager-worker-fqcns
+workmanager-unique-work
+workmanager-request-uuids
+downloadmanager-rows
+persisted-uri-grants
+local-import-staging
+install-attempt-staging
+external-ghost-install-staging
+ghost-update-transaction
+runtime-last-ghost
+runtime-activation-counts
+runtime-launch-time
+default-preference-analytics
+default-preference-first-run
+shared-nar-storage
+backup-device-transfer-boundaries
+durable-android-components
+durable-pending-intents
 ```
+
+The queue contract is lossy/fail-closed for unknown versions and malformed
+rows. Cache-attempt and external-ghost staging are separate topologies. Ghost
+update ownership requires its exact digests, journal, lock, candidate/backup
+topology, and private marker; ambiguous or writing residue is preserved. Work
+UUID history is recorded per worker kind, runtime/default preference containers
+are explicit, and backup/device-transfer plus Android component and persisted
+`PendingIntent` identities are part of the required inventory. Shared NAR
+temporary names use the actual `File.createTempFile("nanidroid", "tmp", ...)`
+shape, and a name or prefix never proves ownership.
 
 - [ ] **Step 6: Run the verifier tests**
 
