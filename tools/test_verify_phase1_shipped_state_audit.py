@@ -380,7 +380,71 @@ class Phase1ShippedStateAuditTest(unittest.TestCase):
     def test_rejects_path_a_with_post_writer_apk_artifact(self) -> None:
         data = self.ledger()
         data["distribution"]["github"]["postWriterApkArtifactCount"] = 1
-        self.assert_failure(data, "Path A requires zero post-writer GitHub APK artifacts")
+        self.assert_failure(
+            data,
+            "Path A GitHub postWriterApkArtifactCount must exactly match 0",
+        )
+
+    def test_rejects_mutated_path_a_github_observation_counts(self) -> None:
+        mutations = {
+            "releaseCount": (1, 0),
+            "tagCount": (1, 0),
+            "actionsArtifactCount": (191, 192),
+            "postWriterApkArtifactCount": (1, 0),
+            "postWriterReportOnlyArtifactCount": (1, 2),
+        }
+        for field, (value, expected) in mutations.items():
+            with self.subTest(field=field):
+                data = self.ledger()
+                data["distribution"]["github"][field] = value
+                self.assert_failure(
+                    data,
+                    f"Path A GitHub {field} must exactly match {expected}",
+                )
+
+    def test_rejects_json_booleans_for_path_a_zero_counts(self) -> None:
+        for field in ("releaseCount", "tagCount", "postWriterApkArtifactCount"):
+            with self.subTest(field=field):
+                data = self.ledger()
+                data["distribution"]["github"][field] = False
+                self.assert_failure(
+                    data,
+                    f"Path A GitHub {field} must exactly match 0",
+                )
+
+    def test_rejects_missing_path_a_github_observation_counts(self) -> None:
+        expected_counts = {
+            "releaseCount": 0,
+            "tagCount": 0,
+            "actionsArtifactCount": 192,
+            "postWriterApkArtifactCount": 0,
+            "postWriterReportOnlyArtifactCount": 2,
+        }
+        for field, expected in expected_counts.items():
+            with self.subTest(field=field):
+                data = self.ledger()
+                del data["distribution"]["github"][field]
+                self.assert_failure(
+                    data,
+                    f"Path A GitHub {field} must exactly match {expected}",
+                )
+
+    def test_rejects_float_path_a_github_observation_counts(self) -> None:
+        float_counts = {
+            "releaseCount": 0.0,
+            "tagCount": 0.0,
+            "actionsArtifactCount": 192.0,
+            "postWriterApkArtifactCount": 0.0,
+            "postWriterReportOnlyArtifactCount": 2.0,
+        }
+        for field, value in float_counts.items():
+            with self.subTest(field=field):
+                data = self.ledger()
+                data["distribution"]["github"][field] = value
+                self.assert_failure(
+                    data,
+                    f"Path A GitHub {field} must exactly match {int(value)}",
+                )
 
     def test_rejects_path_a_without_attestation_evidence_reference(self) -> None:
         data = self.ledger()

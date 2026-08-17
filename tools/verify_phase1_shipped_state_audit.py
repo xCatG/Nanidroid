@@ -32,6 +32,13 @@ REQUIRED_CHANNEL_IDS = {
     "drive-discord-direct-share",
     "other",
 }
+REQUIRED_PATH_A_GITHUB_COUNTS = {
+    "releaseCount": 0,
+    "tagCount": 0,
+    "actionsArtifactCount": 192,
+    "postWriterApkArtifactCount": 0,
+    "postWriterReportOnlyArtifactCount": 2,
+}
 REQUIRED_WRITER_EPOCHS = {
     "nar-queue-workmanager": {
         "commit": "19da89d3f4d1faaaaaae3e000b8bc852f73c2c38",
@@ -601,12 +608,12 @@ def validate_ledger(data: Any, repo_root: Path) -> list[str]:
             failures.append("Path A requires GitHub observation date")
         elif not is_iso_calendar_date(github_observed_at):
             failures.append("GitHub observation date must be an ISO calendar date")
-        if github.get("releaseCount") != 0:
-            failures.append("Path A requires zero GitHub releases")
-        if github.get("tagCount") != 0:
-            failures.append("Path A requires zero GitHub tags")
-        if github.get("postWriterApkArtifactCount") != 0:
-            failures.append("Path A requires zero post-writer GitHub APK artifacts")
+        for field, expected in REQUIRED_PATH_A_GITHUB_COUNTS.items():
+            actual = github.get(field)
+            if type(actual) is not int or actual != expected:
+                failures.append(
+                    f"Path A GitHub {field} must exactly match {expected}"
+                )
         if "owner-attestation-2026-08-17" not in rationale_ids:
             failures.append("Path A decision must reference owner attestation")
         owner_evidence = [
