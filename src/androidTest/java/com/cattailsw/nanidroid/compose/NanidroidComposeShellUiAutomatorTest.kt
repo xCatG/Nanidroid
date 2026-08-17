@@ -30,7 +30,6 @@ class NanidroidComposeShellUiAutomatorTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
@@ -73,7 +72,6 @@ class NanidroidComposeShellUiAutomatorTest {
                 toolbarVisible = false,
                 onListGhost = {},
                 onUpdate = {},
-                onHelp = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )

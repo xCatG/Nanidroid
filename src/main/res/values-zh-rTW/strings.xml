@@ -6,7 +6,6 @@
   <string name="dl_note">可以安裝%1$s</string>
   <string name="list_ghost_btn_text">偽人格列表</string>
   <string name="update_btn_text">更新</string>
-  <string name="help_btn_text">說明</string>
   <string name="more_ghosts_btn_text">取得更多偽人格</string>
   <string name="list_ghost_dlg_title">已安裝偽人格列表</string>
   <string name="no_readme_dlg_title">切換偽人格嗎？</string>
@@ -14,18 +13,9 @@
   <string name="switch_to_ghost_btn_text">切換到偽人格</string>
   <string name="new_ghost_installed_title">安裝了新的偽人格</string>
   <string name="close_btn_text">關閉</string>
-  <string name="not_implemented">此功能尚未完成</string>
-  <string name="not_implemeted_title">很抱歉</string>
-  <string name="menu_help">使用說明</string>
-  <string name="menu_about">關於</string>
-  <string name="menu_feedback">提供建議</string>
-  <string name="url_help_install">http://blog.cattail-sw.com/?p=197</string>
-  <string name="url_support_ops">http://blog.cattail-sw.com/?p=212</string>
-  <string name="about_title">關於Nanidroid</string>
   <string name="more_g_title">取得更多偽人格</string>
   <string name="more_g_enter_url_text">輸入網址</string>
   <string name="more_g_from_SD_text">從SD卡安裝</string>
-  <string name="more_g_ghost_town_text">Ghost Town 入口網站</string>
   <string name="err_invalid_url">無效的URL。 URL必須以 .nar 或 .zip 結束</string>
   <string name="err_https_nar_only">為了安全起見，Nanidroid 只能下載 HTTPS 的 .nar 或 .zip 連結。</string>
   <string name="err_nar_title">從SD卡安裝錯誤</string>
@@ -35,8 +25,6 @@
   <string name="dlg_sel_nar_install_text">安裝</string>
   <string name="btn_dl_text">下載</string>
 
-  <string name="help_install">如何安裝新的偽人格</string>
-  <string name="help_supported_ops">目前本體支援的功能</string>
   <string name="check_updates_btn_text">檢查更新</string>
   <string name="ghosts_btn_text">偽人格列表</string>
   <string name="more_btn_text">更多</string>
