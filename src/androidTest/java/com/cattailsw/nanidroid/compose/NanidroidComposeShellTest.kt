@@ -6,7 +6,6 @@ import android.os.SystemClock
 import android.view.WindowInsets
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
-import androidx.compose.material3.Button
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -14,7 +13,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.Text
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
@@ -131,7 +129,6 @@ class NanidroidComposeShellTest {
                 onListGhost = { selected = "list" },
                 onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
-                showDebugControls = false,
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
@@ -150,6 +147,7 @@ class NanidroidComposeShellTest {
         openOverflowMenu()
         assertNoNodeWithTag("preferences")
         assertNoNodeWithTag("help")
+        assertNoNodeWithTag("debug")
         composeRule.runOnIdle { loading.value = true }
         composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
     }
@@ -168,15 +166,12 @@ class NanidroidComposeShellTest {
                 onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
                 onArchiveQueue = { selected = "queue" },
-                showDebugControls = true,
-                onDebug = { selected = "debug" },
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
         }
 
         val listButtonCenter = composeRule.onNodeWithTag("list-ghost").fetchSemanticsNode().boundsInRoot.center
-        val debugButtonCenter = composeRule.onNodeWithTag("debug").fetchSemanticsNode().boundsInRoot.center
 
         composeRule.runOnIdle { loading.value = true }
         composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
@@ -185,11 +180,6 @@ class NanidroidComposeShellTest {
             click(listButtonCenter)
         }
         composeRule.waitForIdle()
-        composeRule.onRoot().performTouchInput {
-            click(debugButtonCenter)
-        }
-        composeRule.waitForIdle()
-
         assertEquals("", selected)
     }
 
@@ -205,8 +195,6 @@ class NanidroidComposeShellTest {
                 onListGhost = {},
                 onUpdate = {},
                 onReadme = {},
-                showDebugControls = false,
-                onDebug = {},
                 simpleDialog = NanidroidSimpleDialog.Notice(
                     title = android.R.string.dialog_alert_title,
                     message = android.R.string.ok,
@@ -551,7 +539,7 @@ class NanidroidComposeShellTest {
     }
 
     @Test
-    fun stalled_prompt_suppresses_later_lower_modals_until_attention_clears() {
+    fun stalled_prompt_suppresses_later_simple_dialog_until_attention_clears() {
         val records = mutableStateOf(
             listOf(stalledRecord("archive-1", OperationStatus.RUNNING)),
         )
@@ -567,7 +555,6 @@ class NanidroidComposeShellTest {
                 simpleDialog = dialog.value,
                 onDismissSimpleDialog = {},
                 stalledOperations = records.value,
-                transientOverlay = { Text("Debug tools", Modifier.testTag("test-debug-tools")) },
             )
         }
 
@@ -579,49 +566,9 @@ class NanidroidComposeShellTest {
         }
         composeRule.onNodeWithText("Archive download needs attention").assertIsDisplayed()
         assertNoNodeWithTag("notice-confirm", useUnmergedTree = true)
-        assertNoNodeWithTag("test-debug-tools", useUnmergedTree = true)
 
         composeRule.runOnIdle { records.value = emptyList() }
         composeRule.onNodeWithTag("notice-confirm").assertIsDisplayed()
-        composeRule.onNodeWithText("Debug tools").assertIsDisplayed()
-    }
-
-    @Test
-    fun stalled_prompt_restores_internal_transient_overlay_state_after_suppression() {
-        val records = mutableStateOf(emptyList<DurableOperationRecord>())
-        composeRule.setContent {
-            NanidroidComposeShell(
-                ghostStage = {},
-                loading = false,
-                progressMessage = "",
-                toolbarVisible = false,
-                onListGhost = {},
-                onUpdate = {},
-                simpleDialog = null,
-                onDismissSimpleDialog = {},
-                stalledOperations = records.value,
-                transientOverlay = {
-                    val internalCount = rememberSaveable { mutableStateOf(0) }
-                    Button(
-                        modifier = Modifier.testTag("test-transient-state"),
-                        onClick = { internalCount.value += 1 },
-                    ) {
-                        Text("Transient state ${internalCount.value}")
-                    }
-                },
-            )
-        }
-
-        composeRule.onNodeWithText("Transient state 0").performClick()
-        composeRule.onNodeWithText("Transient state 1").assertIsDisplayed()
-
-        composeRule.runOnIdle {
-            records.value = listOf(stalledRecord("archive-1", OperationStatus.RUNNING))
-        }
-        assertNoNodeWithTag("test-transient-state", useUnmergedTree = true)
-        composeRule.runOnIdle { records.value = emptyList() }
-
-        composeRule.onNodeWithText("Transient state 1").assertIsDisplayed()
     }
 
     @Test
@@ -649,9 +596,6 @@ class NanidroidComposeShellTest {
                         if (resolved) recoveryRequired.value = false
                     }
                 },
-                transientOverlay = {
-                    Text("Debug tools", Modifier.testTag("test-debug-tools"))
-                },
             )
         }
 
@@ -659,7 +603,6 @@ class NanidroidComposeShellTest {
         composeRule.onNodeWithText("Request stop").assertDoesNotExist()
         composeRule.onNodeWithText("Keep waiting").assertDoesNotExist()
         assertNoNodeWithTag("notice-confirm", useUnmergedTree = true)
-        assertNoNodeWithTag("test-debug-tools", useUnmergedTree = true)
 
         composeRule.onNodeWithTag("durable-store-recovery-confirm").performClick()
         composeRule.onNodeWithTag("durable-store-recovery-error").assertIsDisplayed()
@@ -668,7 +611,6 @@ class NanidroidComposeShellTest {
         composeRule.runOnIdle { resolutionSucceeds.value = true }
         composeRule.onNodeWithTag("durable-store-recovery-confirm").performClick()
         composeRule.onNodeWithTag("notice-confirm").assertIsDisplayed()
-        composeRule.onNodeWithText("Debug tools").assertIsDisplayed()
         composeRule.runOnIdle { assertEquals(2, resolutionAttempts) }
     }
 
@@ -717,8 +659,6 @@ class NanidroidComposeShellTest {
                 onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
                 onArchiveQueue = { selected = "queue" },
-                showDebugControls = false,
-                onDebug = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
@@ -751,7 +691,6 @@ class NanidroidComposeShellTest {
                 onListGhost = {},
                 onUpdate = {},
                 onReadme = {},
-                showDebugControls = false,
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
@@ -854,58 +793,6 @@ class NanidroidComposeShellTest {
         )
         assertOverflowDescription("More, 1 download needs attention")
         composeRule.onNodeWithTag("archive-queue-status", useUnmergedTree = true).assertIsDisplayed()
-    }
-
-    @Test
-    fun shell_routes_debug_callback_when_enabled_and_hides_debug_controls_when_disabled() {
-        var selected = ""
-        val debugEnabled = mutableStateOf(true)
-        composeRule.setContent {
-            NanidroidComposeShell(
-                ghostStage = {},
-                loading = false,
-                progressMessage = "Loading ghost",
-                toolbarVisible = true,
-                onListGhost = {},
-                onUpdate = {},
-                onReadme = {},
-                onDebug = { selected = "debug" },
-                showDebugControls = debugEnabled.value,
-                simpleDialog = null,
-                onDismissSimpleDialog = {},
-            )
-        }
-
-        composeRule.onNodeWithTag("debug").performClick()
-        composeRule.runOnIdle { assertEquals("debug", selected) }
-
-        composeRule.runOnIdle { debugEnabled.value = false }
-        composeRule.waitForIdle()
-        assertNoNodeWithTag("debug")
-    }
-
-    @Test
-    fun shell_keeps_old_debug_toolbar_tags_out_of_the_chrome() {
-        composeRule.setContent {
-            NanidroidComposeShell(
-                ghostStage = {},
-                loading = false,
-                progressMessage = "Loading ghost",
-                toolbarVisible = true,
-                onListGhost = {},
-                onUpdate = {},
-                onReadme = {},
-                showDebugControls = true,
-                simpleDialog = null,
-                onDismissSimpleDialog = {},
-            )
-        }
-
-        assertNoNodeWithTag("debug-next-surface", true)
-        assertNoNodeWithTag("debug-draw-cbox", true)
-        assertNoNodeWithTag("debug-dump-surfaces", true)
-        assertNoNodeWithTag("debug-run", true)
-        assertNoNodeWithTag("debug-nar", true)
     }
 
     @Test

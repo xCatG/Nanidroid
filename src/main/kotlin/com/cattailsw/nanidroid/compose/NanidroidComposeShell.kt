@@ -10,8 +10,6 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -35,12 +33,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import com.cattailsw.nanidroid.R
-import com.cattailsw.nanidroid.compose.debug.DebugAvailabilityPolicy
 import com.cattailsw.nanidroid.compose.durable.StalledOperationPrompt
 import com.cattailsw.nanidroid.compose.durable.DurableStoreRecoveryPrompt
 import com.cattailsw.nanidroid.install.NarDownload
@@ -68,15 +64,12 @@ internal fun NanidroidComposeShell(
     onReadme: () -> Unit = {},
     onArchiveQueue: () -> Unit = {},
     archiveDownloads: List<NarDownload> = emptyList(),
-    showDebugControls: Boolean = false,
-    onDebug: () -> Unit = {},
     simpleDialog: NanidroidSimpleDialog?,
     onDismissSimpleDialog: () -> Unit,
     stalledOperations: List<DurableOperationRecord> = emptyList(),
     onDurableAttentionAction: (OperationHandle, DurableAttentionAction) -> Unit = { _, _ -> },
     durableRecoveryRequired: Boolean = false,
     onResolveDurableRecovery: () -> Boolean = { false },
-    transientOverlay: @Composable () -> Unit = {},
     staticDurablePromptPreview: Boolean = false,
     wallpaper: Drawable? = null,
     modifier: Modifier = Modifier,
@@ -94,7 +87,6 @@ internal fun NanidroidComposeShell(
                 },
             color = Color.Transparent,
         ) {
-            val isDebuggable = DebugAvailabilityPolicy(isDebuggable = showDebugControls).showDebugIcon
             val lowerModalStateHolder = rememberSaveableStateHolder()
 
             Box(modifier = Modifier.fillMaxSize()) {
@@ -110,9 +102,7 @@ internal fun NanidroidComposeShell(
                                 onUpdate = onUpdate,
                                 onReadme = onReadme,
                                 onArchiveQueue = onArchiveQueue,
-                                isDebuggable = isDebuggable,
                                 archiveDownloads = archiveDownloads,
-                                onDebugOpen = onDebug,
                             )
                         }
                     },
@@ -139,9 +129,6 @@ internal fun NanidroidComposeShell(
                             archiveDownloads = archiveDownloads,
                         )
                     }
-                    lowerModalStateHolder.SaveableStateProvider("transient-overlay") {
-                        transientOverlay()
-                    }
                 }
                 if (!durableRecoveryRequired) {
                     StalledOperationPrompt(
@@ -165,12 +152,9 @@ private fun NanidroidToolbar(
     onUpdate: () -> Unit,
     onReadme: () -> Unit,
     onArchiveQueue: () -> Unit = {},
-    isDebuggable: Boolean,
     archiveDownloads: List<NarDownload> = emptyList(),
-    onDebugOpen: () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val debugButtonDescription = stringResource(R.string.debug_button_description)
     val archiveQueueStatus = archiveQueueStatus(archiveDownloads)
     val archiveQueueDescription = archiveQueueDescription(archiveQueueStatus)
     TopAppBar(
@@ -243,21 +227,6 @@ private fun NanidroidToolbar(
                     text = { Text(archiveQueueLabel(archiveDownloads)) },
                     modifier = Modifier.testTag("archive-queue"),
                 )
-            }
-            if (isDebuggable) {
-                IconButton(
-                    onClick = onDebugOpen,
-                    modifier = Modifier
-                        .testTag("debug")
-                        .semantics {
-                            contentDescription = debugButtonDescription
-                        },
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_bug_report_24),
-                        contentDescription = null,
-                    )
-                }
             }
         },
     )
@@ -348,8 +317,6 @@ private fun NanidroidToolbarPreview() {
             onUpdate = {},
             onReadme = {},
             onArchiveQueue = {},
-            isDebuggable = true,
-            onDebugOpen = {},
         )
     }
 }

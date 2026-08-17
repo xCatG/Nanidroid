@@ -58,7 +58,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 /** Compose-owned activity dialogs. State values are kept in the Activity bundle. */
 internal sealed interface NanidroidSimpleDialog {
     data class Notice(@param:StringRes val title: Int, @param:StringRes val message: Int, val onConfirm: (() -> Unit)? = null) : NanidroidSimpleDialog
-    data class DebugMessage(val message: String) : NanidroidSimpleDialog
     data class MoreGhost(val onEnterUrl: () -> Unit, val onInstallFromSdCard: () -> Unit) : NanidroidSimpleDialog
     data class UrlEntry(val value: String, val validationError: Boolean, val onValueChanged: (String) -> Unit, val onSubmit: (String) -> Boolean, val onInvalid: () -> Unit) : NanidroidSimpleDialog
     data class UserInput(
@@ -87,7 +86,6 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
     when (dialog) {
         null -> Unit
         is NanidroidSimpleDialog.Notice -> NoticeDialog(dialog, onDismiss)
-        is NanidroidSimpleDialog.DebugMessage -> DebugDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.MoreGhost -> MoreGhostDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.UrlEntry -> UrlEntryDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.UserInput -> UserInputDialog(dialog, onDismiss)
@@ -100,8 +98,6 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
 }
 
 @Composable private fun NoticeDialog(dialog: NanidroidSimpleDialog.Notice, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(dialog.title)) }, text = { Text(stringResource(dialog.message)) }, confirmButton = { TextButton(onClick = { onDismiss(); dialog.onConfirm?.invoke() }, modifier = Modifier.testTag("notice-confirm")) { Text(stringResource(android.R.string.ok)) } })
-@Composable private fun DebugDialog(dialog: NanidroidSimpleDialog.DebugMessage, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, text = { SelectionContainer { Column(modifier = Modifier.verticalScroll(rememberScrollState())) { Text(dialog.message) } } }, confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) } })
-
 @Composable private fun UrlEntryDialog(dialog: NanidroidSimpleDialog.UrlEntry, onDismiss: () -> Unit) {
     fun submit() { if (dialog.onSubmit(dialog.value)) onDismiss() else dialog.onInvalid() }
     AlertDialog(

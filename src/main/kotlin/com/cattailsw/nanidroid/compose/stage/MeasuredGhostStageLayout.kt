@@ -46,7 +46,6 @@ data class StageSurfaceSnapshot(
     val pointerTransform: SurfaceTransformPx get() = transform
     val overlayTransform: SurfaceTransformPx get() = transform
     val semanticsTransform: SurfaceTransformPx get() = transform
-    val debugTransform: SurfaceTransformPx get() = transform
 }
 
 data class StageMeasuredSnapshot(

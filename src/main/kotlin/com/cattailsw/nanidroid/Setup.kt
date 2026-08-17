@@ -11,7 +11,6 @@ object Setup {
     const val DLG_ERR = "errormsgdlg"
     const val DLG_NAR_PICK = "narpickdlg"
     const val DLG_MORE_G = "moreghostdlg"
-    const val DLG_DBG_MSG = "dlgdebugmessage"
     const val DLG_USR_INPUT = "dlguserinput"
     const val DLG_USR_SEL = "dlguserselection"
 }
