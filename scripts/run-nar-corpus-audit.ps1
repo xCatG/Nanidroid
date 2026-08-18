@@ -13,9 +13,6 @@ param(
     $ProductionDebugApkPath,
 
     [string]
-    $HarnessTestApkPath,
-
-    [string]
     $ProductionCommit,
 
     [string]
@@ -134,6 +131,10 @@ function Clear-RunArtifacts {
 
 function ThrowIf([string]$Message, [string]$Code = 'validation') {
     throw [System.Exception]::new("$Code`: $Message")
+}
+
+if (@($args | Where-Object { [string]$_ -ieq '-HarnessTestApkPath' }).Count -ne 0) {
+    ThrowIf 'HarnessTestApkPath is removed and not accepted; the verified harness builds its own androidTest APK.'
 }
 
 function Has-Property {
@@ -1916,17 +1917,36 @@ function Build-Apks {
 function Get-ApkInputMode {
     param(
         [string]$ProductionDebugApkPath,
-        [string]$HarnessTestApkPath,
         [string]$ProductionCommit,
         [string]$HarnessCommit
     )
-    $values = @($ProductionDebugApkPath, $HarnessTestApkPath, $ProductionCommit, $HarnessCommit)
+    $values = @($ProductionDebugApkPath, $ProductionCommit, $HarnessCommit)
     $suppliedCount = @($values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
     if ($suppliedCount -eq 0) { return 'build' }
-    if ($suppliedCount -ne 4) {
-        ThrowIf 'ProductionDebugApkPath, HarnessTestApkPath, ProductionCommit, and HarnessCommit must be supplied all four or omitted all four.'
+    if ($suppliedCount -ne 3) {
+        ThrowIf 'ProductionDebugApkPath, ProductionCommit, and HarnessCommit must be supplied all three or omitted all three.'
     }
     return 'external'
+}
+
+function Build-HarnessTestApk {
+    Ensure-ExecutableExists -Path (Join-Path $repoRoot '.\gradlew.bat') -Purpose 'Gradle wrapper'
+    Write-Host 'Building androidTest APK from the verified fixed-harness checkout.'
+    $gradleOutput = Invoke-HostCommand -FilePath '.\gradlew.bat' -Arguments @('assembleDebugAndroidTest', '--no-daemon') -TimeoutSeconds ($BuildTimeoutMinutes * 60) -WorkingDirectory $repoRoot
+    Write-Host $gradleOutput
+    $testApkPath = Resolve-SingleHarnessTestApk -OutputRoot (Join-Path $repoRoot 'build\outputs\apk\androidTest\debug')
+    return [pscustomobject]@{
+        TestApkPath = $testApkPath
+        TestApkSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $testApkPath).Hash.ToLowerInvariant()
+    }
+}
+
+function Resolve-SingleHarnessTestApk([string]$OutputRoot) {
+    $testApks = @(Get-ChildItem -LiteralPath $OutputRoot -Filter '*-debug-androidTest.apk' -Recurse -File -ErrorAction SilentlyContinue)
+    if ($testApks.Count -ne 1) {
+        ThrowIf "Expected exactly one fixed-harness *-debug-androidTest.apk under '$OutputRoot', found $($testApks.Count)."
+    }
+    return $testApks[0].FullName
 }
 
 function Get-HarnessInstrumentationSourcePath {
@@ -1969,9 +1989,25 @@ function Get-TrackedHarnessIdentity([string]$ExpectedCommit) {
     }
 }
 
+function Assert-ExternalApkInputIdentity([string]$Mode, [string]$ProductionCommit, [string]$HarnessCommit) {
+    if ($Mode -ne 'external') { return $null }
+    if ($ProductionCommit -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf "ProductionCommit must be a full lowercase 40-character commit SHA: '$ProductionCommit'"
+    }
+    if ($HarnessCommit -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf "HarnessCommit must be a full lowercase 40-character commit SHA: '$HarnessCommit'"
+    }
+    return Get-TrackedHarnessIdentity -ExpectedCommit $HarnessCommit
+}
+
 function Get-ApkInfo {
-    $mode = Get-ApkInputMode -ProductionDebugApkPath $ProductionDebugApkPath -HarnessTestApkPath $HarnessTestApkPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
-    $harnessIdentity = Get-TrackedHarnessIdentity -ExpectedCommit $(if ($mode -eq 'external') { $HarnessCommit } else { '' })
+    $mode = Get-ApkInputMode -ProductionDebugApkPath $ProductionDebugApkPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+    $harnessIdentity = if ($mode -eq 'external') {
+        Assert-ExternalApkInputIdentity -Mode $mode -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+    }
+    else {
+        Get-TrackedHarnessIdentity -ExpectedCommit ''
+    }
     if ($mode -eq 'build') {
         $built = Build-Apks
         return [pscustomobject]@{
@@ -1988,15 +2024,14 @@ function Get-ApkInfo {
         }
     }
 
-    if ($ProductionCommit -notmatch '^[0-9a-f]{40}$') { ThrowIf "ProductionCommit must be a full lowercase 40-character commit SHA: '$ProductionCommit'" }
     $resolvedDebugApk = (Resolve-Path -LiteralPath $ProductionDebugApkPath -ErrorAction Stop).Path
-    $resolvedTestApk = (Resolve-Path -LiteralPath $HarnessTestApkPath -ErrorAction Stop).Path
-    Write-Host 'Using separately built pristine production debug APK and fixed-harness androidTest APK.'
+    $builtTestApk = Build-HarnessTestApk
+    Write-Host 'Using the separately built pristine production debug APK with the androidTest APK built by this verified fixed harness.'
     return [pscustomobject]@{
         DebugApkPath = $resolvedDebugApk
-        TestApkPath = $resolvedTestApk
+        TestApkPath = $builtTestApk.TestApkPath
         DebugApkSha256 = (Get-FileHash -LiteralPath $resolvedDebugApk -Algorithm SHA256).Hash.ToLowerInvariant()
-        TestApkSha256 = (Get-FileHash -LiteralPath $resolvedTestApk -Algorithm SHA256).Hash.ToLowerInvariant()
+        TestApkSha256 = $builtTestApk.TestApkSha256
         ProductionCommit = $ProductionCommit
         HarnessCommit = $harnessIdentity.Commit
         HarnessTree = $harnessIdentity.Tree
@@ -2461,7 +2496,8 @@ if ($missingManifest.Count -gt 0 -or $unexpectedArchives.Count -gt 0) {
     ThrowIf 'Abort: archive set does not match manifest hashes.'
 }
 
-$apkInputMode = Get-ApkInputMode -ProductionDebugApkPath $ProductionDebugApkPath -HarnessTestApkPath $HarnessTestApkPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+$apkInputMode = Get-ApkInputMode -ProductionDebugApkPath $ProductionDebugApkPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+$null = Assert-ExternalApkInputIdentity -Mode $apkInputMode -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
 
 if ($DryRun) {
     Write-Host 'Dry-run preflight validation passed.'
@@ -2492,22 +2528,44 @@ if ($DryRun) {
         ThrowIf 'Dry-run fixed-harness cleanliness probe accepted an untracked overlay.'
     }
     Write-Host 'Dry-run fixed-harness untracked-overlay probe passed.'
-    if ((Get-ApkInputMode -ProductionDebugApkPath '' -HarnessTestApkPath '' -ProductionCommit '' -HarnessCommit '') -cne 'build') {
-        ThrowIf 'Dry-run APK identity probe did not select local build mode for four omitted inputs.'
+    $testApkSelectionRoot = Join-Path $hostRunTmpRoot 'test-apk-selection'
+    New-Item -ItemType Directory -Force -Path $testApkSelectionRoot | Out-Null
+    $onlyTestApk = Join-Path $testApkSelectionRoot 'only-debug-androidTest.apk'
+    Set-Content -LiteralPath $onlyTestApk -Value 'fixture' -Encoding utf8
+    if ((Resolve-SingleHarnessTestApk -OutputRoot $testApkSelectionRoot) -cne $onlyTestApk) {
+        ThrowIf 'Dry-run fixed-harness test APK selector did not return the sole emitted APK.'
     }
-    if ((Get-ApkInputMode -ProductionDebugApkPath 'base.apk' -HarnessTestApkPath 'harness.apk' -ProductionCommit ('1' * 40) -HarnessCommit ('2' * 40)) -cne 'external') {
-        ThrowIf 'Dry-run APK identity probe did not select external fixed-harness mode for four supplied inputs.'
+    Set-Content -LiteralPath (Join-Path $testApkSelectionRoot 'stale-debug-androidTest.apk') -Value 'stale' -Encoding utf8
+    $multipleTestApksRejected = $false
+    try { Resolve-SingleHarnessTestApk -OutputRoot $testApkSelectionRoot | Out-Null } catch { $multipleTestApksRejected = $_.Exception.Message -match 'exactly one' }
+    if (-not $multipleTestApksRejected) { ThrowIf 'Dry-run fixed-harness test APK selector accepted ambiguous output.' }
+    Write-Host 'Dry-run fixed-harness exact test APK selection probe passed.'
+    if ((Get-ApkInputMode -ProductionDebugApkPath '' -ProductionCommit '' -HarnessCommit '') -cne 'build') {
+        ThrowIf 'Dry-run APK identity probe did not select local build mode for three omitted inputs.'
+    }
+    if ((Get-ApkInputMode -ProductionDebugApkPath 'base.apk' -ProductionCommit ('1' * 40) -HarnessCommit ('2' * 40)) -cne 'external') {
+        ThrowIf 'Dry-run APK identity probe did not select external fixed-harness mode for three supplied inputs.'
     }
     $partialIdentityRejected = $false
     try {
-        Get-ApkInputMode -ProductionDebugApkPath 'base.apk' -HarnessTestApkPath '' -ProductionCommit ('1' * 40) -HarnessCommit ('2' * 40) | Out-Null
+        Get-ApkInputMode -ProductionDebugApkPath 'base.apk' -ProductionCommit ('1' * 40) -HarnessCommit '' | Out-Null
     }
     catch {
-        $partialIdentityRejected = $_.Exception.Message -match 'all four'
+        $partialIdentityRejected = $_.Exception.Message -match 'all three'
     }
     if (-not $partialIdentityRejected) {
         ThrowIf 'Dry-run APK identity probe accepted partial external identity inputs.'
     }
+    $invalidProductionCommitRejected = $false
+    try { Assert-ExternalApkInputIdentity -Mode 'external' -ProductionCommit 'short' -HarnessCommit ('2' * 40) } catch { $invalidProductionCommitRejected = $_.Exception.Message -match 'full lowercase 40-character' }
+    if (-not $invalidProductionCommitRejected) { ThrowIf 'Dry-run accepted an invalid production commit declaration.' }
+    $invalidHarnessCommitRejected = $false
+    try { Assert-ExternalApkInputIdentity -Mode 'external' -ProductionCommit ('1' * 40) -HarnessCommit 'short' } catch { $invalidHarnessCommitRejected = $_.Exception.Message -match 'HarnessCommit.*full lowercase 40-character' }
+    if (-not $invalidHarnessCommitRejected) { ThrowIf 'Dry-run accepted an invalid harness commit declaration.' }
+    $wrongHarnessCommitRejected = $false
+    try { Assert-ExternalApkInputIdentity -Mode 'external' -ProductionCommit ('1' * 40) -HarnessCommit ('f' * 40) } catch { $wrongHarnessCommitRejected = $_.Exception.Message -match 'does not match the checked-out' }
+    if (-not $wrongHarnessCommitRejected) { ThrowIf 'Dry-run accepted a harness commit that does not match the checkout.' }
+    Write-Host 'Dry-run external commit identity probes passed.'
     $currentPowerShellPath = Get-CurrentPowerShellExecutable
     $probeScriptBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$PSCommandPath))
     $probeRootsBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@($resolvedCorpusRoots) | ConvertTo-Json -Compress)))
@@ -2523,8 +2581,23 @@ exit `$LASTEXITCODE
         '-NoProfile', '-NoLogo', '-EncodedCommand', $misconfiguredExternalEncoded
     ) -TimeoutSeconds 30
     $misconfiguredExternalOutput = $misconfiguredExternalProbe.error + [Environment]::NewLine + $misconfiguredExternalProbe.output
-    if ($misconfiguredExternalProbe.exitCode -eq 0 -or $misconfiguredExternalOutput -notmatch '(?s)must be supplied.*all.*four') {
+    if ($misconfiguredExternalProbe.exitCode -eq 0 -or $misconfiguredExternalOutput -notmatch '(?s)must be supplied.*all.*three') {
         ThrowIf "Dry-run corpus-valid invocation accepted caller-supplied partial external identity inputs (exit $($misconfiguredExternalProbe.exitCode)): $misconfiguredExternalOutput"
+    }
+    $staleTestApkCommand = @"
+`$scriptPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeScriptBase64'))
+`$rootsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeRootsBase64'))
+`$roots = @(`$rootsJson | ConvertFrom-Json)
+& `$scriptPath -DryRun -HarnessTestApkPath 'stale-or-misattributed-androidTest.apk' -CorpusRoots `$roots
+exit `$LASTEXITCODE
+"@
+    $staleTestApkEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($staleTestApkCommand))
+    $staleTestApkProbe = Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments @(
+        '-NoProfile', '-NoLogo', '-EncodedCommand', $staleTestApkEncoded
+    ) -TimeoutSeconds 30
+    $staleTestApkOutput = $staleTestApkProbe.error + [Environment]::NewLine + $staleTestApkProbe.output
+    if ($staleTestApkProbe.exitCode -eq 0 -or $staleTestApkOutput -notmatch '(?is)HarnessTestApkPath.*(?:removed|not accepted|parameter)') {
+        ThrowIf "Dry-run accepted caller-supplied HarnessTestApkPath injection (exit $($staleTestApkProbe.exitCode)): $staleTestApkOutput"
     }
     Write-Host 'Dry-run fixed-harness APK identity probe passed.'
     foreach ($debuggablePropertyCase in @(

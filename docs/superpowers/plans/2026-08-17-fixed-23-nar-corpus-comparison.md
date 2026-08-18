@@ -167,7 +167,7 @@ Run the Task 1 Step 5 command. Expected: failure in the new external-identity pr
 
 - [ ] **Step 3: Implement external fixed-harness mode**
 
-Add `-ProductionDebugApkPath`, `-HarnessTestApkPath`, `-ProductionCommit`, and `-HarnessCommit`. Require all four or none, including in DryRun. In external mode do not build; resolve and hash both APKs, require `HarnessCommit` to equal `git rev-parse HEAD`, and reject tracked or untracked harness overlays. In legacy one-tree mode retain the current build for standalone audits but mark production and harness as the same current commit.
+Add `-ProductionDebugApkPath`, `-ProductionCommit`, and `-HarnessCommit`. Require all three or none, including in DryRun, and reject the removed external test-APK parameter. In external mode resolve and hash the pristine production APK, require `HarnessCommit` to equal `git rev-parse HEAD`, reject tracked or untracked harness overlays, and build `assembleDebugAndroidTest` from that verified checkout. In legacy one-tree mode retain the current combined build for standalone audits but mark production and harness as the same current commit.
 
 - [ ] **Step 4: Record auditable identity objects**
 
@@ -268,7 +268,7 @@ Add one fail-fast PowerShell sequence. First invoke `BaseBase` with an output re
 
 - [ ] **Step 2: Document clean-run ordering**
 
-Require pristine base and candidate debug APK builds, one committed fixed-harness test APK, clean base/base first, snapshot restore, then base/candidate with the same fixed runner/test APK, emulator/fingerprint, API, ABI, density, corpus, manifest, and ordering. Forbid dirty overlays, old probes, selective retries, and favorable random-output selection.
+Require pristine base and candidate debug APK builds, one committed fixed harness that builds its own byte-identical test APK for each invocation, clean base/base first, snapshot restore, then base/candidate with the same fixed runner/harness identity, emulator/fingerprint, API, ABI, density, corpus, manifest, and ordering. Forbid dirty overlays, caller-supplied test APKs, old probes, selective retries, and favorable random-output selection.
 
 - [ ] **Step 3: Separate rolling metadata and commit**
 

@@ -25,12 +25,13 @@ device copies in `finally` blocks.
   when it is not discoverable on `PATH`.
 - `-ManifestPath` (optional): manifest path.
   Default: `docs/testing/nar-corpus-manifest.json`.
-- `-ProductionDebugApkPath`, `-HarnessTestApkPath`, `-ProductionCommit`, and
-  `-HarnessCommit` (optional as one all-or-none group): run a separately built,
-  pristine production APK with the committed fixed-harness test APK. The runner
-  does not build in this mode. It requires `HarnessCommit` to be the checked-out
-  clean harness commit with no tracked or untracked overlays and records its Git tree plus the runner, instrumentation
-  source, and test APK hashes. Omit all four only for a standalone one-tree audit.
+- `-ProductionDebugApkPath`, `-ProductionCommit`, and `-HarnessCommit`
+  (optional as one all-or-none group): run a separately built, pristine
+  production APK with the fixed harness. The runner rejects any caller-supplied
+  test APK, verifies `HarnessCommit` is the checked-out clean harness commit with
+  no tracked or untracked overlays, builds `assembleDebugAndroidTest` itself, and
+  records the Git tree plus runner, instrumentation source, and resulting test
+  APK hashes. Omit all three only for a standalone one-tree audit.
 - `-PerArchiveTimeoutMinutes` (optional): hard timeout in minutes for each
   `am instrument` run. This is a host-side corpus safety bound, not the app's
   user-visible script-hang policy. Nanidroid does not cancel a running ghost
@@ -141,10 +142,11 @@ change archive membership, classification, or required-evidence policy.
 Prepare three retained evidence roots: two complete runs of the pristine base
 debug APK, then one complete run of the pristine candidate debug APK. Build the
 two production APKs in clean worktrees at their declared commits. Build the test
-APK once from the clean committed fixed-harness worktree, and invoke this runner
-from that same harness worktree for all three runs using the four external-mode
-arguments. Use the same freshly reset emulator, corpus files, manifest, API, ABI,
-density, and harness APK for every run. After each complete run, copy the entire
+APK from the clean committed fixed-harness worktree by invoking this runner there
+for all three runs using the three external-mode arguments; the runner builds the
+test APK from that verified checkout each time. Use the same freshly reset emulator,
+corpus files, manifest, API, ABI, density, and byte-identical resulting harness APK
+for every run. After each complete run, copy the entire
 `build/reports/nar-corpus` directory to its retained root. Do not retry individual
 archives or substitute rows/screenshots. If any run must be repeated, discard the
 three retained roots and repeat the complete base/base-first sequence.
@@ -157,7 +159,6 @@ APK path and its declared commit:
   -CorpusRoots '<exact-corpus-root-1>','<exact-corpus-root-2>' `
   -ProductionDebugApkPath '<pristine-production-debug.apk>' `
   -ProductionCommit '<production-commit>' `
-  -HarnessTestApkPath '<fixed-harness-androidTest.apk>' `
   -HarnessCommit '<fixed-harness-commit>'
 ```
 

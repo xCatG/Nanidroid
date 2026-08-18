@@ -115,21 +115,20 @@ behavioral equality.
 
 ## Reusable fixed harness execution
 
-The fixed runner accepts an explicit pristine production debug APK and an
-explicit fixed-harness androidTest APK instead of always building both from its
-own worktree. External-APK mode requires the production commit and harness
-commit declarations together with both APK paths. DryRun validates the actual
-caller-supplied group as well as its self-probes. The live runner verifies the
-harness commit against its own checkout with no tracked or untracked overlays,
-hashes the runner source and
+The fixed runner accepts an explicit pristine production debug APK but never an
+external androidTest APK. External-APK mode requires the production APK,
+production commit, and harness commit together. DryRun validates the actual
+caller-supplied group, rejects the removed test-APK parameter, and runs its
+self-probes. The live runner verifies the harness commit against its own checkout
+with no tracked or untracked overlays, builds `assembleDebugAndroidTest` from that
+checkout, hashes the runner source and
 `NarCorpusRuntimeTest.kt`, and records those values with the APK hashes.
 
 For base/base and base/candidate, build each production debug APK in its clean
-source checkout without overlay changes. Build the test APK once from the
-committed fixed harness, then drive all runs with the same committed fixed
-runner and that exact test APK. A dirty overlay, an old probe, a locally edited
-runner, or a different test APK is not comparable evidence and must fail the
-identity gate.
+source checkout without overlay changes. For each run, let the committed fixed
+harness build its own test APK, then require the recorded test APK hash to remain
+identical across all comparisons. A dirty overlay, an old probe, a locally edited
+runner, or a caller-injected test APK is not comparable evidence and must fail.
 
 ## Reviewed stochastic contract
 
