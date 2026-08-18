@@ -393,6 +393,36 @@ function Get-SentinelCheckNameDigest([object[]]$SentinelChecks, [string]$Side) {
     return Get-StringSha256 ($sortedNames -join "`n")
 }
 
+function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entry, [string]$Side, [string]$Label) {
+    $allow = if ($null -eq $Entry) { $null } else { $Entry.PSObject.Properties['allowNativeKawariCrash'] }
+    if ($null -eq $allow -or $allow.Value -ne $true) { return $false }
+
+    $nativeCrashProperty = $Row.PSObject.Properties['nativeCrash']
+    if ($null -eq $nativeCrashProperty) { return $false }
+    $nativeCrash = $nativeCrashProperty.Value
+    Assert-JsonKind $nativeCrash @('boolean') "$Side summary result '$Label'.nativeCrash" | Out-Null
+    if ($nativeCrash -ne $true) { return $false }
+    Assert-EqualString (Get-RequiredProperty $Row 'runtimeCheckpointPhase' "$Side summary result '$Label'") 'before-real-shiori' "$Side summary result '$Label'.runtimeCheckpointPhase"
+    Assert-EqualString (Get-RequiredProperty $Raw 'checkpointPhase' "$Side raw result '$Label'") 'before-real-shiori' "$Side raw result '$Label'.checkpointPhase"
+    Assert-EqualString (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") 'incompatible' "$Side summary result '$Label'.classification"
+    Assert-EqualString (Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'") 'incompatible' "$Side raw result '$Label'.classification"
+    Assert-EqualString (Get-RequiredProperty $Row 'status' "$Side summary result '$Label'") 'ok' "$Side summary result '$Label'.status"
+
+    $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
+    Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
+    Assert-EqualString (Get-RequiredProperty $probe 'method' "$Side raw result '$Label'.dialogueProbe") 'GET' "$Side raw result '$Label'.dialogueProbe.method"
+    Assert-EqualString (Get-RequiredProperty $probe 'eventId' "$Side raw result '$Label'.dialogueProbe") 'OnBoot' "$Side raw result '$Label'.dialogueProbe.eventId"
+    Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'pending-real-shiori' "$Side raw result '$Label'.dialogueProbe.outcome"
+    if ($null -ne (Get-RequiredProperty $probe 'status' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.status must be null at the native checkpoint" }
+    if ($null -ne (Get-RequiredProperty $probe 'failure' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.failure must be null at the native checkpoint" }
+    foreach ($snapshotName in @('observedPrivateSnapshot', 'observedTmpSnapshot')) {
+        $snapshot = Get-RequiredProperty $Row $snapshotName "$Side summary result '$Label'"
+        Assert-JsonKind $snapshot @('array') "$Side accepted native checkpoint '$Label'.$snapshotName" | Out-Null
+        if (@($snapshot).Count -ne 0) { throw "$Side accepted native checkpoint '$Label'.$snapshotName must be empty" }
+    }
+    return $true
+}
+
 function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtable]$EntriesByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
     $sentinels = Get-RequiredProperty $Summary 'sentinels' "$Side summary"
     $sentinelsPassed = Get-RequiredProperty $sentinels 'passed' "$Side sentinels"
@@ -441,14 +471,7 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtab
         Assert-JsonKind $raw.passed @('boolean') "$Side raw result '$label'.passed" | Out-Null
         if ($raw.passed -ne $true) { throw "$Side is not a successful run: raw result '$label' did not pass" }
         $rawCleanup = if ($null -eq $raw.PSObject.Properties['cleanup']) { $null } else { $raw.cleanup }
-        $acceptedNativeCheckpoint = (
-            $null -ne $EntriesByLabel[$label] -and
-            $EntriesByLabel[$label].PSObject.Properties['allowNativeKawariCrash'] -and $EntriesByLabel[$label].allowNativeKawariCrash -eq $true -and
-            $row.PSObject.Properties['nativeCrash'] -and $row.nativeCrash -eq $true -and
-            $row.PSObject.Properties['runtimeCheckpointPhase'] -and [string]$row.runtimeCheckpointPhase -ceq 'before-real-shiori' -and
-            $raw.PSObject.Properties['checkpointPhase'] -and [string]$raw.checkpointPhase -ceq 'before-real-shiori' -and
-            [string]$row.classification -ceq 'incompatible'
-        )
+        $acceptedNativeCheckpoint = Test-AcceptedNativeCheckpoint $row $raw $EntriesByLabel[$label] $Side $label
         if ($null -eq $rawCleanup) {
             if (-not $acceptedNativeCheckpoint) { throw "$Side raw result '$label' is missing cleanup outside the exact accepted native-crash checkpoint" }
         }
@@ -459,7 +482,7 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtab
     }
 }
 
-function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [hashtable]$RawByLabel, [string[]]$RawSourceMirrorLabels, [string]$Side) {
+function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [hashtable]$RawByLabel, [hashtable]$EntriesByLabel, [string[]]$RawSourceMirrorLabels, [string]$Side) {
     $runId = Get-RequiredProperty $Summary 'runId' "$Side summary"
     Assert-JsonKind $runId @('string') "$Side summary runId" | Out-Null
     if ([string]$runId -notmatch '^[0-9a-f]{32}$') {
@@ -491,7 +514,7 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
             throw "$Side raw result '$label'.narCorpusPath must use the same private data root as every raw result"
         }
 
-        $nativeCheckpoint = $row.PSObject.Properties['nativeCrash'] -and $row.nativeCrash -eq $true -and $row.PSObject.Properties['runtimeCheckpointPhase'] -and [string]$row.runtimeCheckpointPhase -ceq 'before-real-shiori'
+        $nativeCheckpoint = Test-AcceptedNativeCheckpoint $row $raw $EntriesByLabel[$label] $Side $label
         $expectedPrivateSnapshot = "$($narCorpusPathMatch.Groups['privateRoot'].Value)/cache/nar-corpus-host/$runId/$safeLabel"
         $observedPrivateSnapshot = Get-RequiredProperty $row 'observedPrivateSnapshot' "$Side summary result '$label'"
         if ($nativeCheckpoint) {
@@ -636,22 +659,14 @@ function Read-AndValidateRun {
         }
     }
     Assert-SuccessfulRun $summary $rawByLabel $entriesByLabel $ExpectedSentinelCheckCount $ExpectedSentinelCheckDigest $Side
-    $runIdentity = Assert-RunIdentityMirrors $summary $rowByLabel $rawByLabel $RawSourceMirrorLabels $Side
+    $runIdentity = Assert-RunIdentityMirrors $summary $rowByLabel $rawByLabel $entriesByLabel $RawSourceMirrorLabels $Side
     $evidenceFingerprint = Get-EvidenceFingerprint $resolvedRoot $ExpectedRawFiles $ExpectedScreenshotFiles
-    return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; RunIdentity = $runIdentity; EvidenceFingerprint = $evidenceFingerprint }
+    return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; Entries = $entriesByLabel; RunIdentity = $runIdentity; EvidenceFingerprint = $evidenceFingerprint }
 }
 
 function Get-ValidatedOnBootContext([object]$Raw, [string]$Side, [string]$Label) {
     $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
     Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
-    Assert-EqualString (Get-RequiredProperty $probe 'method' "$Side raw result '$Label'.dialogueProbe") 'GET' "$Side raw result '$Label'.dialogueProbe.method"
-    Assert-EqualString (Get-RequiredProperty $probe 'eventId' "$Side raw result '$Label'.dialogueProbe") 'OnBoot' "$Side raw result '$Label'.dialogueProbe.eventId"
-    $status = Get-RequiredProperty $probe 'status' "$Side raw result '$Label'.dialogueProbe"
-    Assert-JsonKind $status @('number') "$Side raw result '$Label'.dialogueProbe.status" | Out-Null
-    if ($status.Token -cne '200') { throw "$Side raw result '$Label'.dialogueProbe.status must be exact JSON number 200" }
-    Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'success' "$Side raw result '$Label'.dialogueProbe.outcome"
-    if ($null -ne (Get-RequiredProperty $probe 'failure' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.failure must be null" }
-
     $context = Get-RequiredProperty $probe 'onBootContext' "$Side raw result '$Label'.dialogueProbe"
     Assert-JsonKind $context @('object') "$Side raw result '$Label'.dialogueProbe.onBootContext" | Out-Null
     Assert-EqualString (Get-RequiredProperty $context 'profileState' "$Side raw result '$Label'.dialogueProbe.onBootContext") 'fresh' "$Side raw result '$Label'.dialogueProbe.onBootContext.profileState"
@@ -673,6 +688,18 @@ function Get-ValidatedOnBootContext([object]$Raw, [string]$Side, [string]$Label)
         throw "$Side raw result '$Label' OnBoot clock bracket crosses a predicate boundary"
     }
     return $before
+}
+
+function Assert-SuccessfulOnBootEnvelope([object]$Raw, [string]$Side, [string]$Label) {
+    $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
+    Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
+    Assert-EqualString (Get-RequiredProperty $probe 'method' "$Side raw result '$Label'.dialogueProbe") 'GET' "$Side raw result '$Label'.dialogueProbe.method"
+    Assert-EqualString (Get-RequiredProperty $probe 'eventId' "$Side raw result '$Label'.dialogueProbe") 'OnBoot' "$Side raw result '$Label'.dialogueProbe.eventId"
+    $status = Get-RequiredProperty $probe 'status' "$Side raw result '$Label'.dialogueProbe"
+    Assert-JsonKind $status @('number') "$Side raw result '$Label'.dialogueProbe.status" | Out-Null
+    if ($status.Token -cne '200') { throw "$Side raw result '$Label'.dialogueProbe.status must be exact JSON number 200" }
+    Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'success' "$Side raw result '$Label'.dialogueProbe.outcome"
+    if ($null -ne (Get-RequiredProperty $probe 'failure' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.failure must be null" }
 }
 
 function Test-EarthquakePredicate([string]$Predicate, [DateTimeOffset]$Clock) {
@@ -830,6 +857,7 @@ function Assert-StochasticValue {
     param([object]$Run, [object]$Rule, [string]$Side)
     $label = [string]$Rule.label
     $raw = $Run.Raw[$label]
+    Assert-SuccessfulOnBootEnvelope $raw $Side $label
     Assert-EqualString $raw.sha256 ([string]$Rule.archiveSha256) "$Side stochastic archive SHA for '$label'"
     $value = [string]$raw.dialogueProbe.value
     $valueHash = Get-StringSha256 $value
@@ -907,7 +935,8 @@ function ConvertTo-CanonicalRun {
         } -Context 'summary' -ExpectedMatchCount $expectedMatches
     }
     foreach ($row in @($summary.results)) {
-        if ($row.PSObject.Properties['nativeCrash'] -and $row.nativeCrash -eq $true -and $row.PSObject.Properties['runtimeCheckpointPhase'] -and [string]$row.runtimeCheckpointPhase -ceq 'before-real-shiori') { continue }
+        $label = [string]$row.label
+        if (Test-AcceptedNativeCheckpoint $row $Run.Raw[$label] $Run.Entries[$label] 'canonical' $label) { continue }
         foreach ($propertyName in @('observedPrivateSnapshot', 'observedTmpSnapshot')) {
             $value = Get-RequiredProperty $row $propertyName "summary result '$($row.label)'"
             $pathText = if ($propertyName -ceq 'observedPrivateSnapshot') { [string]$Contract.normalization.summaryObservedPrivateSnapshotPath } else { [string]$Contract.normalization.summaryObservedTmpSnapshotPath }

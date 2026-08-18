@@ -655,11 +655,13 @@ class NarCorpusRuntimeTest {
         assertThrows(IllegalArgumentException::class.java) {
             RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]\uD800\\e")
         }
-        listOf("\u0085", "\u200B", "\uFDD0", "\uFFFF").forEach { invisible ->
+        listOf("\u0085", "\u200B", "\uFE0F", "\u034F", "\uFDD0", "\uFFFF").forEach { invisible ->
             assertThrows(IllegalArgumentException::class.java) {
                 RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]${invisible}\\e")
             }
         }
+        assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]e\u0301\\e").terminal)
+        assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]é\\e").terminal)
     }
 
     @Test
@@ -690,6 +692,30 @@ class NarCorpusRuntimeTest {
         assertEquals(listOf("unload", "input", "install"), attempts)
         assertEquals(1, primary.suppressed.size)
         assertTrue(primary.suppressed.single().suppressed.isNotEmpty())
+    }
+
+    @Test
+    fun snakeYayaOwnershipReservationCharacterizationUsesSeparateNeverLoadedRoots() {
+        val args = InstrumentationRegistry.getArguments()
+        val keys = listOf(ARG_PATH, ARG_SHA256, ARG_LABEL_BASE64, ARG_LABEL)
+        assumeTrue(
+            "Snake ownership characterization is opt-in; no corpus arguments were supplied.",
+            keys.any { !args.getString(it).isNullOrBlank() },
+        )
+        val path = requiredArgument(args, ARG_PATH)
+        val expectedSha256 = requiredArgument(args, ARG_SHA256).lowercase(Locale.ROOT)
+        val label = requiredLabelArgument(args)
+        assumeTrue(
+            "Ownership characterization applies only to an exact older-Snake archive.",
+            isOlderSnakeStructuralArchive(label, expectedSha256),
+        )
+        val source = File(path)
+        validatePath(path, source)
+        assertEquals(expectedSha256, sha256(source))
+        val sourceParent = requireNotNull(source.parentFile)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+        runOlderSnakeOwnershipCharacterization(source, sourceParent, expectedSha256, context)
     }
 
     @Test
@@ -984,38 +1010,6 @@ class NarCorpusRuntimeTest {
                         loadGhostDesc(installed.installedPath),
                         context,
                     )
-                    if (isOlderSnakeStructuralArchive(label, expectedSha256)) {
-                        val firstWrapper = requireNotNull(shioriGhost)
-                        assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(shellName)).getStatusCode())
-                        var rejectedConstructionAttempts = 0
-                        trackedShioriConstructionHook = { rejectedConstructionAttempts++ }
-                        try {
-                            assertThrows(IllegalStateException::class.java) {
-                                loadTrackedShiori(
-                                    installed.installedPath,
-                                    installed.targetId ?: "corpus-${expectedSha256.take(16)}",
-                                    loadGhostDesc(installed.installedPath),
-                                    context,
-                                )
-                            }
-                        } finally {
-                            trackedShioriConstructionHook = null
-                        }
-                        assertEquals("The rejected second YAYA wrapper must not reach construction/nativeLoad", 0, rejectedConstructionAttempts)
-                        assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(shellName)).getStatusCode())
-                        unloadTrackedShiori(firstWrapper)
-                        shioriGhost = loadTrackedShiori(
-                            installed.installedPath,
-                            installed.targetId ?: "corpus-${expectedSha256.take(16)}",
-                            loadGhostDesc(installed.installedPath),
-                            context,
-                        )
-                        assertEquals(200, requireNotNull(shioriGhost).requestRaw(ShioriMethod.GET, "OnBoot", listOf(shellName)).getStatusCode())
-                        result.put("snakeYayaOwnershipGuard", JSONObject()
-                            .put("rejectedSecondConstructionAttempts", rejectedConstructionAttempts)
-                            .put("firstRequestSucceededAfterRejection", true)
-                            .put("replacementRequestSucceeded", true))
-                    }
                     val finalDialogue = probeShioriOnBoot(shioriGhost, shellName, label)
                     phase("shiori-probed")
                     result.put("dialogueProbe", finalDialogue)
@@ -1389,6 +1383,130 @@ class NarCorpusRuntimeTest {
                     { deleteOwnedRoot(installRoot, sourceParent) },
                 ),
                 residue = { inputRoot.exists() || installRoot.exists() },
+            )
+        }
+    }
+
+    private data class InstalledSnakeOwnershipRoot(
+        val inputRoot: File,
+        val installRoot: File,
+        val installedPath: String,
+        val targetId: String,
+    )
+
+    private fun installSnakeOwnershipRoot(
+        source: File,
+        sourceParent: File,
+        expectedSha256: String,
+        suffix: String,
+    ): InstalledSnakeOwnershipRoot {
+        val inputRoot = createOwnedRoot(sourceParent, "ownership-$suffix-input")
+        val installRoot = createOwnedRoot(sourceParent, "ownership-$suffix-install")
+        try {
+            val copiedArchive = File(inputRoot, ARCHIVE_FILE_NAME)
+            copyArchive(source, copiedArchive)
+            assertEquals(expectedSha256, sha256(copiedArchive))
+            val targetId = "ownership-$suffix-${expectedSha256.take(16)}"
+            val plan = NarInstallPlanValidator().validate(copiedArchive, installRoot, targetId)
+            assertTrue("Snake ownership install plan failed: ${plan.error} ${plan.detail}", plan.isSuccess())
+            val installResult = NarTransactionalInstaller.install(copiedArchive, installRoot, targetId, { false }) { _, _ -> }
+            val installed = installResult as? ArchiveInstallResult.Installed
+                ?: error("Snake ownership transactional install failed: $installResult")
+            return InstalledSnakeOwnershipRoot(
+                inputRoot = inputRoot,
+                installRoot = installRoot,
+                installedPath = installed.installedPath,
+                targetId = installed.targetId ?: targetId,
+            )
+        } catch (failure: Throwable) {
+            deleteOwnedRoot(inputRoot, sourceParent)
+            deleteOwnedRoot(installRoot, sourceParent)
+            throw failure
+        }
+    }
+
+    private fun runOlderSnakeOwnershipCharacterization(
+        source: File,
+        sourceParent: File,
+        expectedSha256: String,
+        context: Context,
+    ) {
+        val first = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "a")
+        val second = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "b")
+        var firstWrapper: TestShioriGhost? = null
+        var secondWrapper: TestShioriGhost? = null
+        var firstCleaned = false
+        var secondCleaned = false
+        var primaryFailure: Throwable? = null
+        try {
+            firstWrapper = loadTrackedShiori(first.installedPath, first.targetId, loadGhostDesc(first.installedPath), context)
+            assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(loadShellName(first.installedPath))).getStatusCode())
+            Log.i(LOG_TAG, "snake-yaya-ownership: A OnBoot succeeded")
+            var rejectedConstructionAttempts = 0
+            trackedShioriConstructionHook = { rejectedConstructionAttempts++ }
+            try {
+                assertThrows(IllegalStateException::class.java) {
+                    loadTrackedShiori(second.installedPath, second.targetId, loadGhostDesc(second.installedPath), context)
+                }
+            } finally {
+                trackedShioriConstructionHook = null
+            }
+            assertEquals("The rejected second YAYA wrapper must not reach construction/nativeLoad", 0, rejectedConstructionAttempts)
+            Log.i(LOG_TAG, "snake-yaya-ownership: B rejected before construction/nativeLoad attempts=$rejectedConstructionAttempts")
+            assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(loadShellName(first.installedPath))).getStatusCode())
+            Log.i(LOG_TAG, "snake-yaya-ownership: A remains usable after B rejection")
+            unloadTrackedShiori(firstWrapper)
+            firstWrapper = null
+            finishSnakeCanaryCleanup(
+                primaryFailure = null,
+                unload = null,
+                deleteRoots = listOf(
+                    { deleteOwnedRoot(first.inputRoot, sourceParent) },
+                    { deleteOwnedRoot(first.installRoot, sourceParent) },
+                ),
+                residue = { first.inputRoot.exists() || first.installRoot.exists() },
+            )
+            firstCleaned = true
+            Log.i(LOG_TAG, "snake-yaya-ownership: A unloaded and cleaned")
+
+            secondWrapper = loadTrackedShiori(second.installedPath, second.targetId, loadGhostDesc(second.installedPath), context)
+            assertEquals(200, secondWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(loadShellName(second.installedPath))).getStatusCode())
+            Log.i(LOG_TAG, "snake-yaya-ownership: B loaded and OnBoot succeeded after A cleanup")
+            unloadTrackedShiori(secondWrapper)
+            secondWrapper = null
+            finishSnakeCanaryCleanup(
+                primaryFailure = null,
+                unload = null,
+                deleteRoots = listOf(
+                    { deleteOwnedRoot(second.inputRoot, sourceParent) },
+                    { deleteOwnedRoot(second.installRoot, sourceParent) },
+                ),
+                residue = { second.inputRoot.exists() || second.installRoot.exists() },
+            )
+            secondCleaned = true
+            Log.i(LOG_TAG, "snake-yaya-ownership: B unloaded and cleaned")
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            finishSnakeCanaryCleanup(
+                primaryFailure = primaryFailure,
+                unload = firstWrapper?.let { wrapper -> { unloadTrackedShiori(wrapper) } }
+                    ?: secondWrapper?.let { wrapper -> { unloadTrackedShiori(wrapper) } },
+                deleteRoots = buildList {
+                    if (!firstCleaned) {
+                        add { deleteOwnedRoot(first.inputRoot, sourceParent) }
+                        add { deleteOwnedRoot(first.installRoot, sourceParent) }
+                    }
+                    if (!secondCleaned) {
+                        add { deleteOwnedRoot(second.inputRoot, sourceParent) }
+                        add { deleteOwnedRoot(second.installRoot, sourceParent) }
+                    }
+                },
+                residue = {
+                    (!firstCleaned && (first.inputRoot.exists() || first.installRoot.exists())) ||
+                        (!secondCleaned && (second.inputRoot.exists() || second.installRoot.exists()))
+                },
             )
         }
     }
@@ -2925,7 +3043,16 @@ private object RawSnakeSakuraScriptSafetyLexer {
     private fun validateVisibleScalar(codePoint: Int): Boolean {
         require(!Character.isISOControl(codePoint)) { "invalid control character" }
         require(Character.getType(codePoint) != Character.FORMAT.toInt()) { "invisible format character" }
+        require(!Character.isIdentifierIgnorable(codePoint)) { "default-ignorable character" }
         require(codePoint !in 0xFDD0..0xFDEF && (codePoint and 0xFFFF) !in setOf(0xFFFE, 0xFFFF)) { "Unicode noncharacter" }
+        if (Character.getType(codePoint) in setOf(
+                Character.NON_SPACING_MARK.toInt(),
+                Character.COMBINING_SPACING_MARK.toInt(),
+                Character.ENCLOSING_MARK.toInt(),
+            )
+        ) {
+            return false
+        }
         return !Character.isWhitespace(codePoint)
     }
 }

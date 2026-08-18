@@ -249,8 +249,9 @@ three exact older-Snake label/SHA pairs structural-only with
 canaries; and 23 screenshot hashes equal. For the three older Snake archives,
 the instrumentation creates canary A and B in separate never-loaded roots,
 unloads each wrapper before cleanup, requires their full canary objects to be
-equal, and only then loads the primary OnBoot wrapper in a third root. Their
-focused device characterization also keeps that process-global YAYA slot
+equal, and only then loads the primary OnBoot wrapper in a third root for one
+recorded OnBoot request and unload only. A separate focused device
+characterization (not a primary evidence session) keeps that process-global YAYA slot
 reserved before construction: a second attempted wrapper must be rejected
 before the native constructor/load boundary, the first request remains usable,
 and a replacement can load only after the first unload succeeds.

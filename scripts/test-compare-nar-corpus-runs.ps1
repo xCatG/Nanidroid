@@ -439,8 +439,8 @@ try {
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'base\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
-    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
+    Save-Json (Join-Path $fixtureRoot 'base\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
     foreach ($side in @('base', 'candidate')) {
         Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
             $row = Get-Row $s 'Big Red Button'
@@ -452,6 +452,58 @@ try {
         }
     }
     Assert-Pass 'accepted native Kawari checkpoint preserves cleanup-less raw evidence and validates host summary cleanup' (Invoke-Comparator (Get-ComparatorArguments))
+
+    # A context is structural runner evidence even when the actual OnBoot
+    # response is the supported non-success/not-supported-shiori envelope.
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Snake_Otacon_1.2.1b\result.json") { param($r)
+            $r.classification = 'partiallyCompatible'
+            $r.dialogueProbe.status = 200
+            $r.dialogueProbe.outcome = 'not-supported-shiori'
+            $r.dialogueProbe.failure = 'not-supported-shiori'
+            if ($side -ceq 'candidate') {
+                $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T02:00:00-07:00'
+                $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T02:00:01-07:00'
+            }
+        }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
+            $row = Get-Row $s 'Snake_Otacon_1.2.1b'
+            $row.classification = 'partiallyCompatible'
+        }
+    }
+    Assert-Pass 'non-success OnBoot envelope still validates and normalizes its clock context' (Invoke-Comparator (Get-ComparatorArguments))
+
+    # The native crash escape hatch is one exact predicate, never a loose
+    # combination of manifest, raw, and summary fields.
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Big-Red-Button\result.json") { param($r)
+            $r.PSObject.Properties.Remove('cleanup')
+            $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'
+        }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
+            $row = Get-Row $s 'Big Red Button'
+            $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue 'true'
+            $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori'
+            $row.classification = 'incompatible'
+            $row.observedPrivateSnapshot = @()
+            $row.observedTmpSnapshot = @()
+        }
+    }
+    Assert-Fail 'native checkpoint rejects a string nativeCrash flag' (Invoke-Comparator (Get-ComparatorArguments)) 'nativeCrash'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s)
+        $row = Get-Row $s 'Big Red Button'
+        $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
+        $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'after-real-shiori'
+        $row.classification = 'incompatible'
+        $row.observedPrivateSnapshot = @()
+        $row.observedTmpSnapshot = @()
+    }
+    Assert-Fail 'native checkpoint requires the exact raw summary checkpoint predicate' (Invoke-Comparator (Get-ComparatorArguments)) 'runtimeCheckpointPhase'
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
