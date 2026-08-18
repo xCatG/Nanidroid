@@ -122,6 +122,16 @@ unless their complete path is an explicitly normalized metadata leaf. Thus
 through `Decimal` or `Double`. The same strict writer preserves raw number tokens
 in prerequisite and result reports.
 
+Successful evidence also carries the complete reviewed sentinel-check namespace.
+The contract binds its default-run set to exactly 139 unique, nonblank names and
+`490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f`:
+ordinal-sort names, join with LF, encode UTF-8, then SHA-256. The comparator
+hard-binds both the count and digest rather than trusting editable contract
+values, requires the count's exact JSON numeric token `139` (not a decimal,
+exponent, boolean, or string), and validates every successful summary before
+canonical comparison. This default set excludes the runner's opt-in stage
+geometry sentinel, which is emitted only when that profile is requested.
+
 The runner records `production.commit`/`production.debugApkSha256` separately
 from `harness.commit`, `harness.runnerSha256`,
 `harness.instrumentationSourceSha256`, and `harness.testApkSha256`. The

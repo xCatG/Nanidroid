@@ -244,6 +244,10 @@ Require failures for a renamed raw directory, missing/duplicate label, extra raw
 - [ ] **Step 5: Write failing normalization cases**
 
 Require success when only declared run IDs, timestamps, durations, report roots, and run-owned paths differ. Require Yes Man's exact embedded run path to normalize, but reject a run ID in another dialogue value. Reject duration/path scalar-kind changes. Change adjacent `classification` and require failure at `classification`.
+Bind successful summaries to the reviewed default sentinel namespace using the
+contract's exact count and ordinal/LF/UTF-8 digest; test omitted, renamed,
+duplicate (including nonadjacent), case-distinct, blank, and non-string names,
+plus altered count/digest and noncanonical numeric count tokens.
 
 - [ ] **Step 6: Write failing stochastic and screenshot cases**
 

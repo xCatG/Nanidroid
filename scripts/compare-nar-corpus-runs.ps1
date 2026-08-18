@@ -369,13 +369,41 @@ function Assert-HarnessIdentity([object]$Summary, [string]$Side) {
     Assert-EqualString (Get-RequiredProperty $apks 'testSha256' "$Side legacy harness identity") $HarnessTestApkSha256 "$Side harness identity legacy test APK SHA"
 }
 
-function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [string]$Side) {
+function Get-SentinelCheckNameDigest([object[]]$SentinelChecks, [string]$Side) {
+    $names = [Collections.Generic.List[string]]::new()
+    $nameSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($check in $SentinelChecks) {
+        Assert-JsonKind $check @('object') "$Side sentinel check" | Out-Null
+        $name = Get-RequiredProperty $check 'name' "$Side sentinel check"
+        Assert-JsonKind $name @('string') "$Side sentinel check name" | Out-Null
+        $nameText = [string]$name
+        if ([string]::IsNullOrWhiteSpace($nameText)) {
+            throw "$Side sentinel check name must be nonblank"
+        }
+        if (-not $nameSet.Add($nameText)) {
+            throw "$Side sentinel check names must be unique"
+        }
+        $names.Add($nameText)
+    }
+    [string[]]$sortedNames = $names.ToArray()
+    [Array]::Sort($sortedNames, [StringComparer]::Ordinal)
+    return Get-StringSha256 ($sortedNames -join "`n")
+}
+
+function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
     $sentinels = Get-RequiredProperty $Summary 'sentinels' "$Side summary"
     $sentinelsPassed = Get-RequiredProperty $sentinels 'passed' "$Side sentinels"
     Assert-JsonKind $sentinelsPassed @('boolean') "$Side sentinels.passed" | Out-Null
     if ($sentinelsPassed -ne $true) { throw "$Side is not a successful run: sentinels.passed is not true" }
     $sentinelChecks = Get-RequiredProperty $sentinels 'checks' "$Side sentinels"
     Assert-JsonKind $sentinelChecks @('array') "$Side sentinels.checks" | Out-Null
+    if (@($sentinelChecks).Count -ne $ExpectedSentinelCheckCount) {
+        throw "$Side sentinel check count must be $ExpectedSentinelCheckCount, found $(@($sentinelChecks).Count)"
+    }
+    $sentinelCheckDigest = Get-SentinelCheckNameDigest @($sentinelChecks) $Side
+    if ($sentinelCheckDigest -cne $ExpectedSentinelCheckDigest) {
+        throw "$Side sentinel check digest does not match the reviewed exact name set"
+    }
     foreach ($check in @($sentinelChecks)) { Assert-JsonKind $check.passed @('boolean') "$Side sentinel check '$($check.name)'.passed" | Out-Null }
     $failedSentinels = @($sentinelChecks | Where-Object { $_.passed -ne $true })
     if ($failedSentinels.Count -ne 0) { throw "$Side is not a successful run: $($failedSentinels.Count) sentinel checks failed" }
@@ -473,6 +501,8 @@ function Read-AndValidateRun {
         [string[]]$ExpectedRawFiles,
         [string[]]$ExpectedScreenshotFiles,
         [string[]]$RawSourceMirrorLabels,
+        [int]$ExpectedSentinelCheckCount,
+        [string]$ExpectedSentinelCheckDigest,
         [string]$ExpectedManifestSha
     )
     $resolvedRoot = [IO.Path]::GetFullPath($Root)
@@ -521,7 +551,7 @@ function Read-AndValidateRun {
         $rawByLabel[$label] = $raw
         $rowByLabel[$label] = $row
     }
-    Assert-SuccessfulRun $summary $rawByLabel $Side
+    Assert-SuccessfulRun $summary $rawByLabel $ExpectedSentinelCheckCount $ExpectedSentinelCheckDigest $Side
     $runIdentity = Assert-RunIdentityMirrors $summary $rowByLabel $rawByLabel $RawSourceMirrorLabels $Side
     $evidenceFingerprint = Get-EvidenceFingerprint $resolvedRoot $ExpectedRawFiles $ExpectedScreenshotFiles
     return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; RunIdentity = $runIdentity; EvidenceFingerprint = $evidenceFingerprint }
@@ -664,8 +694,22 @@ function Assert-BaseBasePrerequisite([string]$Path, [string]$ManifestSha, [strin
 }
 
 try {
+    $reviewedSentinelCheckCount = 139
+    $reviewedSentinelCheckDigest = '490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f'
+    $reviewedSentinelCanonicalization = 'ordinal-sort names, join LF, UTF-8 SHA-256'
     $manifest = Read-JsonFile $ManifestPath 'corpus manifest'
     $contract = Read-JsonFile $ContractPath 'comparison contract'
+    $sentinelContract = Get-RequiredProperty $contract 'sentinelChecks' 'comparison contract'
+    Assert-JsonKind $sentinelContract @('object') 'comparison contract sentinelChecks' | Out-Null
+    $contractSentinelCount = Get-RequiredProperty $sentinelContract 'count' 'comparison contract sentinelChecks'
+    $contractSentinelDigest = Get-RequiredProperty $sentinelContract 'namesSha256' 'comparison contract sentinelChecks'
+    $contractSentinelCanonicalization = Get-RequiredProperty $sentinelContract 'canonicalization' 'comparison contract sentinelChecks'
+    Assert-JsonKind $contractSentinelCount @('number') 'comparison contract sentinel check count' | Out-Null
+    Assert-JsonKind $contractSentinelDigest @('string') 'comparison contract sentinel check digest' | Out-Null
+    Assert-JsonKind $contractSentinelCanonicalization @('string') 'comparison contract sentinel check canonicalization' | Out-Null
+    if ($contractSentinelCount.Token -cne [string]$reviewedSentinelCheckCount) { throw 'comparison contract sentinel check count does not match the reviewed exact set' }
+    Assert-EqualString $contractSentinelDigest $reviewedSentinelCheckDigest 'comparison contract sentinel check digest'
+    Assert-EqualString $contractSentinelCanonicalization $reviewedSentinelCanonicalization 'comparison contract sentinel check canonicalization'
     $entries = @($manifest.entries)
     if ($entries.Count -ne 23) { throw "manifest must contain exactly 23 entries, found $($entries.Count)" }
     $expectedLabels = @($entries | ForEach-Object { [string]$_.label })
@@ -760,11 +804,11 @@ try {
 
     $manifestSha = Get-Sha256 $ManifestPath
     $contractSha = Get-Sha256 $ContractPath
-    $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $manifestSha
+    $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
     if ($ComparisonKind -eq 'BaseCandidate') {
         Assert-BaseBasePrerequisite $BaseBaseReportPath $manifestSha $contractSha $base.Summary.device $base.EvidenceFingerprint
     }
-    $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $manifestSha
+    $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
 
     if ($base.EvidenceFingerprint -ceq $candidate.EvidenceFingerprint) {
         throw "$ComparisonKind comparison requires distinct base and candidate evidence fingerprints"

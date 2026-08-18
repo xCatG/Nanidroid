@@ -207,5 +207,9 @@ without a passing base/base report bound to the same base, harness, manifest,
 contract, and emulator identity. That proof includes an exact evidence
 fingerprint plus distinct, internally mirrored runner run IDs, and every comparison atomically replaces its output with either a
 passing report or a bounded structured failure report.
+For successful default-run summaries, the comparator also requires the reviewed
+139-name sentinel set. Its contract digest is calculated by ordinal-sorting the
+unique nonblank names, joining them with LF, and taking a UTF-8 SHA-256; a
+missing, renamed, duplicated, or malformed check cannot be normalized away.
 The comparator supports PowerShell 7.0 and preserves JSON scalar kinds with its
 own strict reader; it does not require the PowerShell 7.5 `-DateKind` option.

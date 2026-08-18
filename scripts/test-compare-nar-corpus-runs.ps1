@@ -34,6 +34,23 @@ $harnessTree = '4444444444444444444444444444444444444444'
 $runnerSha = 'c' * 64
 $instrumentationSha = 'd' * 64
 $testApkSha = 'e' * 64
+$reviewedSentinelNameCount = 139
+$reviewedSentinelNamesSha256 = '490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f'
+$runnerSentinelNamePattern = 'Add-Sentinel(?:Nested)?Check\s+-Accumulator\s+\$globalSentinels\s+-Name\s+''([^'']+)'''
+$sentinelFixtureNames = @(
+    [regex]::Matches((Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'scripts\run-nar-corpus-audit.ps1')), $runnerSentinelNamePattern) |
+        ForEach-Object { $_.Groups[1].Value } |
+        Where-Object { $_ -cne 'slice2-watchdog-expected-stage-geometry' }
+)
+$sentinelFixtureNameSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($name in $sentinelFixtureNames) { [void]$sentinelFixtureNameSet.Add($name) }
+[string[]]$sentinelFixtureSortedNames = @($sentinelFixtureNames)
+[Array]::Sort($sentinelFixtureSortedNames, [StringComparer]::Ordinal)
+$sentinelFixtureCanonical = $sentinelFixtureSortedNames -join "`n"
+$sentinelFixtureSha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($sentinelFixtureCanonical))).ToLowerInvariant()
+if ($sentinelFixtureNames.Count -ne $reviewedSentinelNameCount -or $sentinelFixtureNameSet.Count -ne $reviewedSentinelNameCount -or $sentinelFixtureSha256 -cne $reviewedSentinelNamesSha256) {
+    throw 'Synthetic fixture sentinel names do not match the reviewed default runner sentinel set.'
+}
 $twoElfBase = '\1\s[19]\n\n[half]\_w[18]\0\s[103]旅人さん…。\_w[36]\w8\n\n[half]\_w[18]\1\c謝りに来たの？\w8\_w[126]\n\n[half]\_w[18]\0\s[101]え…。\_w[54]\w8\nそ、\_w[36]そんな…私こそ、\_w[144]急に帰ったりして…\w8ごめんね。\_w[252]\w8\n怒ってないから…。\_w[162]\w8\nだけど、\_w[72]もうあんなエッチな事はしないでね…\w8\s[104]お願い。\_w[378]\e'
 $twoElfCandidate = '\1\s[19]\n\n[half]\_w[18]\0\s[103]あ…旅人さん…。\_w[72]\w8\nご、\_w[36]ごめんなさい！\w8\_w[126]\n逃げちゃったりして。\_w[180]\w8\n\n[half]\_w[18]\1\cソフィが謝る事じゃないわよ。\_w[252]\w8\n\n[half]\_w[18]\0\s[101]旅人さん…\w8もう、\_w[72]あんな事しないでね。\_w[180]\w8\n私、\_w[36]顔から火が出ちゃいそうなくらい、\_w[288]恥ずかしかったのよ。\_w[180]\w8\n\n[half]\_w[18]\1\n[half]\_w[18]\0\s[106]･\w2･\w2･\w2･\w2･\w2･\w2･\w2･\w2\s[100]はい、\_w[126]おしまい。\_w[90]\w8\n旅人さんは何も見なかった、\_w[162]ね？\w8\_w[36]\e'
 $dialogueValues = @{
@@ -77,6 +94,13 @@ function Write-Json([string]$Path, [object]$Value) {
 
 function Get-Json([string]$Path) {
     Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+}
+
+function Set-SentinelContractCountToken([string]$Path, [string]$Token) {
+    $text = Get-Content -Raw -LiteralPath $Path
+    $updated = $text -replace '"count": 139', ('"count": ' + $Token)
+    if ($updated -ceq $text) { throw 'Unable to replace the sentinel contract count token.' }
+    Set-Content -LiteralPath $Path -Value $updated -Encoding utf8
 }
 
 function New-ReportFixture {
@@ -158,6 +182,14 @@ function New-ReportFixture {
     }
 
     $twoElfValue = [string]$dialogueValues['2elf-2.46']
+    $sentinelChecks = @($sentinelFixtureNames | ForEach-Object {
+        if ($_ -ceq 'slice2-2elf-dialogue-value-nonblank') {
+            [pscustomobject]@{ name = $_; passed = $true; expected = 'nonblank'; observed = $twoElfValue }
+        }
+        else {
+            [pscustomobject]@{ name = $_; passed = $true; expected = 'fixture'; observed = 'fixture' }
+        }
+    })
     $summary = [pscustomobject][ordered]@{
         runId = $RunId
         manifest = 'nar-corpus-manifest.json'
@@ -177,10 +209,7 @@ function New-ReportFixture {
         cleanupVerification = 'verified'
         sentinels = [pscustomobject]@{
             passed = $true
-            checks = @(
-                [pscustomobject]@{ name = 'slice2-2elf-dialogue-value-nonblank'; passed = $true; expected = 'nonblank'; observed = $twoElfValue },
-                [pscustomobject]@{ name = 'fixture-all-results'; passed = $true; expected = 23; observed = 23 }
-            )
+            checks = $sentinelChecks
         }
     }
     Write-Json -Path (Join-Path $Root 'summary.json') -Value $summary
@@ -323,6 +352,61 @@ try {
     Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.sentinels.checks = $s.sentinels.checks[0] }
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks = $s.sentinels.checks[0] }
     Assert-Fail 'sentinel checks must remain a JSON array' (Invoke-Comparator (Get-ComparatorArguments)) 'checks.*array'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.sentinels.checks = @($s.sentinels.checks | Where-Object { $_.name -ceq 'slice2-2elf-dialogue-value-nonblank' }) }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks = @($s.sentinels.checks | Where-Object { $_.name -ceq 'slice2-2elf-dialogue-value-nonblank' }) }
+    Assert-Fail 'sentinel checks cannot be omitted from both successful summaries' (Invoke-Comparator (Get-ComparatorArguments)) 'sentinel.*count'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks[0].name = 'renamed-sentinel' }
+    Assert-Fail 'renamed sentinel check is rejected' (Invoke-Comparator (Get-ComparatorArguments)) 'sentinel.*digest'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks[1].name = $s.sentinels.checks[0].name }
+    Assert-Fail 'duplicate sentinel check name is rejected' (Invoke-Comparator (Get-ComparatorArguments)) 'sentinel.*name.*unique'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks[$s.sentinels.checks.Count - 1].name = $s.sentinels.checks[0].name }
+    Assert-Fail 'nonadjacent duplicate sentinel check name is rejected' (Invoke-Comparator (Get-ComparatorArguments)) 'sentinel.*name.*unique'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks[0].name = $s.sentinels.checks[1].name.ToUpperInvariant() }
+    Assert-Fail 'case-distinct sentinel name remains distinct before digest validation' (Invoke-Comparator (Get-ComparatorArguments)) 'sentinel.*digest'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks[0].name = ' ' }
+    Assert-Fail 'blank sentinel check name is rejected' (Invoke-Comparator (Get-ComparatorArguments)) 'sentinel.*name.*nonblank'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks[0].name = 1 }
+    Assert-Fail 'non-string sentinel check name is rejected' (Invoke-Comparator (Get-ComparatorArguments)) 'sentinel.*name.*string'
+
+    Reset-Fixtures
+    $sentinelContractPath = Join-Path $fixtureRoot 'sentinel-count-contract.json'
+    Copy-Item -LiteralPath $contractPath -Destination $sentinelContractPath
+    Save-Json $sentinelContractPath { param($c) $c.sentinelChecks.count = 1 }
+    $sentinelContractArguments = Get-ComparatorArguments
+    $sentinelContractArguments[($sentinelContractArguments.IndexOf('-ContractPath') + 1)] = $sentinelContractPath
+    Assert-Fail 'sentinel contract count mutation cannot bless a reduced set' (Invoke-Comparator $sentinelContractArguments) 'sentinel.*count'
+
+    foreach ($countTokenCase in @('139.0', '1.39e2', 'true', '"139"')) {
+        Reset-Fixtures
+        $sentinelContractPath = Join-Path $fixtureRoot ('sentinel-count-token-' + ($countTokenCase -replace '[^A-Za-z0-9]', '_') + '.json')
+        Copy-Item -LiteralPath $contractPath -Destination $sentinelContractPath
+        Set-SentinelContractCountToken -Path $sentinelContractPath -Token $countTokenCase
+        $sentinelContractArguments = Get-ComparatorArguments
+        $sentinelContractArguments[($sentinelContractArguments.IndexOf('-ContractPath') + 1)] = $sentinelContractPath
+        Assert-Fail "sentinel contract count token '$countTokenCase' is rejected" (Invoke-Comparator $sentinelContractArguments) 'sentinel.*count'
+    }
+
+    Reset-Fixtures
+    $sentinelContractPath = Join-Path $fixtureRoot 'sentinel-digest-contract.json'
+    Copy-Item -LiteralPath $contractPath -Destination $sentinelContractPath
+    Save-Json $sentinelContractPath { param($c) $c.sentinelChecks.namesSha256 = 'f' * 64 }
+    $sentinelContractArguments = Get-ComparatorArguments
+    $sentinelContractArguments[($sentinelContractArguments.IndexOf('-ContractPath') + 1)] = $sentinelContractPath
+    Assert-Fail 'sentinel contract digest mutation cannot bless a renamed set' (Invoke-Comparator $sentinelContractArguments) 'sentinel.*digest'
 
     Reset-Fixtures
     $staleSuccess = Invoke-Comparator (Get-ComparatorArguments)

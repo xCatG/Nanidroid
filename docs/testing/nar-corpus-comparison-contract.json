@@ -1,5 +1,10 @@
 {
   "schemaVersion": "1",
+  "sentinelChecks": {
+    "count": 139,
+    "namesSha256": "490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f",
+    "canonicalization": "ordinal-sort names, join LF, UTF-8 SHA-256"
+  },
   "normalization": {
     "summaryRunIdPaths": [
       "runId",
