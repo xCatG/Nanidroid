@@ -16,12 +16,36 @@ if (-not $resolvedFixtureRoot.Equals($expectedFixtureRoot, [StringComparison]::O
 
 $comparatorSource = Get-Content -LiteralPath $comparatorPath -Raw
 $hostTestSource = Get-Content -LiteralPath $PSCommandPath -Raw
+$runnerSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'run-nar-corpus-audit.ps1') -Raw
+$unsupportedPs70ApiPatterns = @(
+    [regex]::Escape('[Convert]::To' + 'HexString'),
+    [regex]::Escape('[Security.Cryptography.SHA256]::Hash' + 'Data')
+)
+function Test-ContainsUnsupportedPs70Api([string]$Source) {
+    foreach ($pattern in $unsupportedPs70ApiPatterns) {
+        if ($Source -match $pattern) { return $true }
+    }
+    return $false
+}
+$compatibilitySources = @($comparatorSource, $hostTestSource, $runnerSource)
+$containsUnsupportedPs70Api = @($compatibilitySources | Where-Object { Test-ContainsUnsupportedPs70Api $_ }).Count -gt 0
 if ($comparatorSource -match 'ConvertFrom-Json\s+-DateKind' -or $hostTestSource -match 'ConvertFrom-Json\s+-DateKind' -or
-    $comparatorSource -match '\[Convert\]::ToHexString' -or
+    $containsUnsupportedPs70Api -or
     $comparatorSource -notmatch '(?m)^#requires -Version 7\.0$' -or $comparatorSource -notmatch 'System\.Text\.Json\.JsonDocument') {
-    throw 'Comparator JSON parsing is not statically compatible with the documented PowerShell 7.0 floor.'
+    throw 'Corpus comparator host sources are not statically compatible with the documented PowerShell 7.0 floor.'
 }
 Write-Host 'PASS: PowerShell 7.0-compatible strict JSON parser contract'
+
+function Get-StringSha256([string]$Value) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $algorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($Value))
+        return ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -47,7 +71,7 @@ foreach ($name in $sentinelFixtureNames) { [void]$sentinelFixtureNameSet.Add($na
 [string[]]$sentinelFixtureSortedNames = @($sentinelFixtureNames)
 [Array]::Sort($sentinelFixtureSortedNames, [StringComparer]::Ordinal)
 $sentinelFixtureCanonical = $sentinelFixtureSortedNames -join "`n"
-$sentinelFixtureSha256 = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($sentinelFixtureCanonical))).ToLowerInvariant()
+$sentinelFixtureSha256 = Get-StringSha256 $sentinelFixtureCanonical
 if ($sentinelFixtureNames.Count -ne $reviewedSentinelNameCount -or $sentinelFixtureNameSet.Count -ne $reviewedSentinelNameCount -or $sentinelFixtureSha256 -cne $reviewedSentinelNamesSha256) {
     throw 'Synthetic fixture sentinel names do not match the reviewed default runner sentinel set.'
 }
