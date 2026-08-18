@@ -16,6 +16,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import androidx.compose.ui.unit.IntOffset
+import java.io.File
 import java.util.Hashtable
 import java.util.concurrent.TimeUnit
 
@@ -62,6 +63,70 @@ class SScriptRunnerBootDispatchTest {
             ),
             trace
         )
+    }
+
+    @Test
+    fun ordinaryReservedSwitchUnloadsBeforeConstructionAndAdvancesOneGeneration() {
+        val trace = mutableListOf<String?>()
+        var clockOwner = "initial"
+        LegacyPlatform.withTestSeams(
+            clock = { 0L },
+            delayedScheduler = { delayMillis, _ -> trace += "$clockOwner:clock:$delayMillis" },
+            delayedCancellation = {},
+        ) {
+            val coordinator = GhostSessionCoordinator()
+            val runner = SScriptRunner(null, coordinator).also(runners::add)
+            val initialRoot = File("ordinary-switch/initial").canonicalFile
+            val replacementRoot = File("ordinary-switch/replacement").canonicalFile
+            val initialConstruction = coordinator.beginConstruction("initial", initialRoot)
+            val initial = RecordingGhost(
+                "initial",
+                "Initial Ghost",
+                2,
+                trace,
+                ghostPath = initialRoot.path,
+                lifecycleTrace = trace,
+            )
+            val initialReservation = initialConstruction.bind(initial)
+
+            Assert.assertTrue(runner.attachReservedGhost(initialReservation))
+            runner.startClock()
+            runner.startClock()
+            runner.stopClock()
+            Assert.assertThrows(IllegalStateException::class.java) {
+                coordinator.beginConstruction("replacement", replacementRoot)
+            }
+
+            Assert.assertTrue(runner.unloadGhostForSwitchForTesting(initial))
+            val replacementConstruction = coordinator.beginConstruction("replacement", replacementRoot)
+            val replacement = RecordingGhost(
+                "replacement",
+                "Replacement Ghost",
+                2,
+                trace,
+                ghostPath = replacementRoot.path,
+                lifecycleTrace = trace,
+            )
+            val replacementReservation = replacementConstruction.bind(replacement)
+            Assert.assertEquals(initialReservation.generation + 1L, replacementReservation.generation)
+            Assert.assertTrue(runner.attachReservedGhost(replacementReservation))
+            clockOwner = "replacement"
+            runner.startClock()
+            runner.startClock()
+
+            Assert.assertEquals(
+                listOf(
+                    "initial:constructed",
+                    "initial:clock:1000",
+                    "initial:OnBoot:[master]",
+                    "initial:unload",
+                    "replacement:constructed",
+                    "replacement:OnGhostChanged:[Initial Ghost, null]",
+                    "replacement:clock:1000",
+                ),
+                trace,
+            )
+        }
     }
 
     @Test
@@ -511,10 +576,15 @@ class SScriptRunnerBootDispatchTest {
         createCount: Long,
         private val trace: MutableList<String?>,
         ghostPath: String = ghostId,
+        private val lifecycleTrace: MutableList<String?>? = null,
     ) : Ghost(ghostPath) {
         private val fakeGhostId = ghostId
         private val fakeGhostName = ghostName
         private val fakeCreateCount = createCount
+
+        init {
+            lifecycleTrace?.add("$ghostId:constructed")
+        }
 
         override fun getGhostId(): String = fakeGhostId
         override fun getGhostName(): String? = fakeGhostName
@@ -524,7 +594,9 @@ class SScriptRunnerBootDispatchTest {
 
         override fun incrementCreateCount() = Unit
 
-        override fun unload() = Unit
+        override fun unload() {
+            lifecycleTrace?.add("$fakeGhostId:unload")
+        }
 
         override fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse {
             trace += "$fakeGhostId:$event:${ref.contentToString()}"
