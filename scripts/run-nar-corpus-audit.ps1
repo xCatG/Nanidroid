@@ -1783,6 +1783,35 @@ function Get-RequiredEvidenceValues([object]$Result, [string[]]$RequiredEvidence
     return $collected
 }
 
+function Set-ValidatedDialogueOutcomeSummaryField {
+    param(
+        [Parameter(Mandatory)]
+        [object]
+        $SummaryRow,
+
+        [Parameter(Mandatory)]
+        [object]
+        $Result,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Label
+    )
+
+    $outcomeFound = $false
+    $outcome = Get-NestedPropertyValue -Object $Result -Path 'dialogueProbe.outcome' -Found ([ref]$outcomeFound)
+    if (-not $outcomeFound) {
+        ThrowIf "Result for $Label is missing required dialogueProbe.outcome."
+    }
+    if ($outcome -isnot [string]) {
+        ThrowIf "Result for $Label has non-string dialogueProbe.outcome."
+    }
+    if ([string]::IsNullOrWhiteSpace($outcome)) {
+        ThrowIf "Result for $Label has blank dialogueProbe.outcome."
+    }
+    $SummaryRow | Add-Member -NotePropertyName dialogueOutcome -NotePropertyValue $outcome -Force
+}
+
 function Resolve-ApkSigner {
     if ($ApkSignerPath) {
         $explicitSigner = Resolve-Path -Path $ApkSignerPath -ErrorAction SilentlyContinue
@@ -2210,7 +2239,6 @@ function Run-TestArchive {
     $nativeCrashAccepted = $false
     $nativeCrashEvidence = $null
     $hostCleanupEvidence = 'host cleanup not yet attempted'
-    $dialogueOutcomeFromResult = $null
     $runtimeCheckpointPhase = $null
     $postPrivateSnapshot = @()
     $postOutputSnapshot = @()
@@ -2417,7 +2445,6 @@ function Run-TestArchive {
             renderOutcome = $result.renderOutcome
             inputOutcome = $result.inputOutcome
             shioriOutcome = $result.shioriOutcome
-            dialogueOutcome = $dialogueOutcomeFromResult
             classification = $archiveResultClassification
             parserDiagnostics = $result.parserDiagnostics
             evidence = $result.evidence
@@ -2439,6 +2466,7 @@ function Run-TestArchive {
             error = $rawErr
             cleanup = if ((Has-Property -Object $result -Name 'cleanup') -and $null -ne $result.cleanup) { $result.cleanup } else { [pscustomobject]@{ remainingTestOwnedPaths = @() ; hostVerified = $false } }
         }
+        Set-ValidatedDialogueOutcomeSummaryField -SummaryRow $archiveResult -Result $result -Label $Label
     }
     finally {
         if (Test-AdbTransportAvailable -TransportTimedOut $script:adbTransportTimedOut) {
@@ -2502,6 +2530,66 @@ if ($HostOnlyOwnedProcessTest) {
         ThrowIf 'Host-only owned-process probe lost an immediate command result.'
     }
     Write-Host 'Host-only owned-process immediate-exit probe passed.'
+
+    $dialogueOutcomeProbeCases = @(
+        [pscustomobject]@{
+            label = 'supported dialogue result'
+            expectedOutcome = 'success'
+            deviceResult = [pscustomobject]@{
+                schemaVersion = '2'
+                passed = $true
+                classification = 'compatible'
+                dialogueProbe = [pscustomobject]@{
+                    method = 'GET'
+                    eventId = 'OnBoot'
+                    status = 200
+                    outcome = 'success'
+                    failure = $null
+                }
+            }
+        },
+        [pscustomobject]@{
+            label = 'Snake_Otacon_1.2.1b non-success dialogue result'
+            expectedOutcome = 'not-supported-shiori'
+            deviceResult = [pscustomobject]@{
+                schemaVersion = '2'
+                passed = $true
+                classification = 'partiallyCompatible'
+                dialogueProbe = [pscustomobject]@{
+                    method = 'GET'
+                    eventId = 'OnBoot'
+                    status = 200
+                    outcome = 'not-supported-shiori'
+                    failure = 'not-supported-shiori'
+                }
+            }
+        }
+    )
+    foreach ($probeCase in $dialogueOutcomeProbeCases) {
+        $summaryRow = [pscustomobject]@{ label = $probeCase.label }
+        Set-ValidatedDialogueOutcomeSummaryField -SummaryRow $summaryRow -Result $probeCase.deviceResult -Label $probeCase.label
+        if (-not (Has-Property -Object $summaryRow -Name 'dialogueOutcome') -or $summaryRow.dialogueOutcome -cne $probeCase.expectedOutcome) {
+            ThrowIf "Host-only dialogue outcome probe did not preserve '$($probeCase.expectedOutcome)' for $($probeCase.label)."
+        }
+    }
+    foreach ($invalidDialogueOutcomeCase in @(
+        [pscustomobject]@{ label = 'missing outcome'; deviceResult = [pscustomobject]@{ dialogueProbe = [pscustomobject]@{} } },
+        [pscustomobject]@{ label = 'boolean outcome'; deviceResult = [pscustomobject]@{ dialogueProbe = [pscustomobject]@{ outcome = $true } } },
+        [pscustomobject]@{ label = 'blank outcome'; deviceResult = [pscustomobject]@{ dialogueProbe = [pscustomobject]@{ outcome = ' ' } } }
+    )) {
+        $summaryRow = [pscustomobject]@{ label = $invalidDialogueOutcomeCase.label }
+        $rejected = $false
+        try {
+            Set-ValidatedDialogueOutcomeSummaryField -SummaryRow $summaryRow -Result $invalidDialogueOutcomeCase.deviceResult -Label $invalidDialogueOutcomeCase.label
+        }
+        catch {
+            $rejected = $_.Exception.Message -match 'dialogueProbe\.outcome'
+        }
+        if (-not $rejected -or (Has-Property -Object $summaryRow -Name 'dialogueOutcome')) {
+            ThrowIf "Host-only dialogue outcome probe accepted $($invalidDialogueOutcomeCase.label)."
+        }
+    }
+    Write-Host 'Host-only dialogue outcome summary mirror probe passed.'
     exit 0
 }
 

@@ -42,6 +42,13 @@ if ($comparatorSource -match 'ConvertFrom-Json\s+-DateKind' -or $hostTestSource 
 }
 Write-Host 'PASS: PowerShell 7.0-compatible strict JSON parser contract'
 
+$runnerDialogueOutcomeProbe = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'run-nar-corpus-audit.ps1') -HostOnlyOwnedProcessTest 2>&1
+$runnerDialogueOutcomeProbeText = $runnerDialogueOutcomeProbe -join [Environment]::NewLine
+if ($LASTEXITCODE -ne 0 -or $runnerDialogueOutcomeProbeText -notmatch 'Host-only dialogue outcome summary mirror probe passed') {
+    throw "Audit runner dialogue-outcome summary-mirror probe failed: $($runnerDialogueOutcomeProbe -join [Environment]::NewLine)"
+}
+Write-Host 'PASS: audit runner preserves validated dialogue outcomes in summary rows'
+
 function Get-StringSha256([string]$Value) {
     $algorithm = [Security.Cryptography.SHA256]::Create()
     try {
