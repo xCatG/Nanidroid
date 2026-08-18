@@ -113,8 +113,8 @@ function Assert-NarOptionalBooleanProperty {
         [Parameter(Mandatory)][string] $Location
     )
 
-    $value = Get-NarPropertyValue -Object $Object -Name $Name
-    if ($null -ne $value -and $value -isnot [bool]) {
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -ne $property -and ($null -eq $property.Value -or $property.Value -isnot [bool])) {
         throw "$Location.$Name must be a boolean when present."
     }
 }
@@ -155,7 +155,8 @@ function Assert-NarCorpusMetadataRows {
         if ($null -eq $evidence -or $evidence -is [string] -or $evidence -is [ValueType] -or $evidence -is [System.Collections.IEnumerable]) {
             throw 'evidence must be an object.'
         }
-        if ($null -ne $manifest -and $manifest -isnot [bool]) {
+        $manifestProperty = $row.PSObject.Properties['manifest']
+        if ($null -ne $manifestProperty -and ($null -eq $manifestProperty.Value -or $manifestProperty.Value -isnot [bool])) {
             throw 'manifest must be a boolean when present.'
         }
         foreach ($policyField in @(

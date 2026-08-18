@@ -195,6 +195,25 @@ try {
         $malformedEvidenceRow.evidence.$($malformedEvidence.Name -replace 'robots', 'robotsAllowed' -replace 'terms', 'termsAllowed' -replace 'title-link', 'titleSpecificInitialNarLink') = $malformedEvidence.Value
         Assert-Rejected -Name "invalid-$($malformedEvidence.Name)-metadata" -ExpectedMessage $malformedEvidence.Message -Fixture ([PSCustomObject]@{ rows = @($malformedEvidenceRow) })
     }
+    foreach ($nullBooleanField in @(
+        'manifest',
+        'robotsAllowed',
+        'termsAllowed',
+        'authorNoticeExcluded',
+        'personalUseOnly',
+        'accessBoundary',
+        'titleSpecificInitialNarLink'
+    )) {
+        $nullBooleanRow = $validRow.psobject.Copy()
+        $nullBooleanRow.evidence = $validRow.evidence.psobject.Copy()
+        if ($nullBooleanField -eq 'manifest') {
+            $nullBooleanRow.manifest = $null
+        }
+        else {
+            $nullBooleanRow.evidence | Add-Member -NotePropertyName $nullBooleanField -NotePropertyValue $null -Force
+        }
+        Assert-Rejected -Name "null-$nullBooleanField-metadata" -ExpectedMessage "(?i)$nullBooleanField must be a boolean" -Fixture ([PSCustomObject]@{ rows = @($nullBooleanRow) })
+    }
 
     $orderingRows = @(
         [PSCustomObject]@{
