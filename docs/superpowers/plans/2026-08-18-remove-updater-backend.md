@@ -99,14 +99,25 @@ Add only the missing red assertion for an ordinary cross-ghost switch through
 the production coordinator/runner seam. Do not create a second runtime or a
 test-only production injection API.
 
-Before any production edit, pin exact fixture hashes and capture the complete
-Satori -> YAYA -> Kawari -> Satori production-path sequence on base
-`15aae15ac13f8a47281bd18bc2319dc869ea789b` for both ABIs. Record every success,
-structured incompatibility, and already accepted verified Kawari crash outcome.
-Candidate acceptance is exact base equality/no regression plus the ownership
-assertions; it does not require turning an accepted base crash into success. If
-no base fixture can execute the sequence far enough to prove ownership/unload
-ordering, stop before production edits.
+Before production edits, pin base
+`15aae15ac13f8a47281bd18bc2319dc869ea789b` and capture every currently
+executable baseline lane. Record the host results, both-ABI compile evidence,
+API 37 x86_64 connected result, exact failure identities, assertion/exception
+diagnostics, relevant top source frames, corpus skip reason, APK hashes, and
+device fingerprint in
+`docs/superpowers/reports/2026-08-18-updater-backend-baseline.md`. The current
+external 23-NAR payloads and arm64 runtime device are unavailable, so this
+authorizes draft implementation and read-only review only, never merge.
+
+Before merge, recover the exact hash-pinned fixtures and an arm64 runtime. In a
+clean worktree at the pinned base, capture the complete Satori -> YAYA -> Kawari
+-> Satori production-path sequence on both ABIs, then repeat it on the unchanged
+candidate SHA with identical fixtures/devices. Record every success, structured
+incompatibility, and already accepted verified Kawari crash outcome. Candidate
+acceptance is exact base equality/no regression plus the ownership assertions;
+it does not require turning an accepted base crash into success. If the pinned
+base cannot prove ownership/unload ordering, stop the merge. Both-ABI
+compilation is useful host evidence but never runtime evidence.
 
 Extend generated/hygiene verification to require updater classes and executable
 symbols to be absent while archive workers, receivers, WorkManager, Hilt,
@@ -248,9 +259,17 @@ Host gates:
 Required runtime/device/corpus gates before merge:
 
 9. Connected lifecycle pause/clock/native-session, API 33 permission, archive
-   ingress/queue/durable prompt, and ordinary switch tests.
+   ingress/queue/durable prompt, and ordinary switch tests. On x86_64 the
+   candidate XML must have no new failures or additional skips relative to the
+   exact recorded base inventory (175 tests, 10 failures, one skipped external
+   corpus probe). Each retained red test must either turn green or preserve its
+   recorded exception/assertion message and relevant stack identity; a changed
+   failure signature is a regression even when the test name stays red. Removal
+   of updater-only tests must be reconciled by name, not hidden by comparing
+   aggregate counts alone.
 10. Exact deterministic 23-NAR manifest/hash and field-by-field production
-    runtime comparison on the supported clean emulator.
+    runtime back-to-back comparison between the pinned base and unchanged
+    candidate SHA on the same supported clean emulator and corpus roots.
 11. Repeat the pinned base real-engine production-path sequence Satori -> YAYA
     -> Kawari -> Satori on arm64-v8a and x86_64, proving candidate equality/no
     regression for successes, incompatibilities, and accepted verified crashes,
@@ -258,8 +277,9 @@ Required runtime/device/corpus gates before merge:
     generation, and single boot/clock dispatch.
 12. Rolling corpus may supplement but never replace the exact 23-NAR gate.
 
-If the required device/corpus infrastructure is unavailable, the branch may be
-implemented and reviewed but the PR remains unmerged.
+If the required arm64 device or exact corpus infrastructure is unavailable, the
+branch may be implemented and reviewed as a draft, but the PR remains unmerged
+and #382/#384 do not advance.
 
 ## Review and delivery
 
@@ -291,6 +311,8 @@ Stop if:
 - generic durable behavior is lost instead of swapping an updater fixture;
 - a v3 terminal payload or non-sentinel v6 terminal column is silently
   accepted, or a numeric retained-kind v3 retry generation stops decoding;
-- any 23-NAR classification/field changes or cross-engine sequence fails;
+- any 23-NAR classification/field changes, the candidate deviates from the
+  paired-base cross-engine outcome, or an ownership/unload/generation assertion
+  fails;
 - required device/corpus evidence cannot be executed before merge;
 - Path A historical evidence changes.
