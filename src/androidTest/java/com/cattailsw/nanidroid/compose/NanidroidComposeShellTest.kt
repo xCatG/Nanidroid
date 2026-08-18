@@ -87,7 +87,6 @@ class NanidroidComposeShellTest {
                     progressMessage = "",
                     toolbarVisible = false,
                     onListGhost = {},
-                    onUpdate = {},
                     simpleDialog = null,
                     onDismissSimpleDialog = {},
                 )
@@ -127,8 +126,8 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = { selected = "list" },
-                onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
+                onArchiveQueue = { selected = "archive-queue" },
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
@@ -139,11 +138,17 @@ class NanidroidComposeShellTest {
         composeRule.onNodeWithTag("list-ghost").performClick()
         composeRule.runOnIdle { assertEquals("list", selected) }
         openOverflowMenu()
-        composeRule.onNodeWithTag("update").performClick()
-        composeRule.runOnIdle { assertEquals("update", selected) }
-        openOverflowMenu()
+        assertNoNodeWithTag("update", useUnmergedTree = true)
+        listOf("Check updates", "更新を確認", "檢查更新").forEach { removedLabel ->
+            composeRule.onNodeWithText(removedLabel).assertDoesNotExist()
+        }
+        composeRule.onNodeWithTag("readme").assertIsDisplayed()
+        composeRule.onNodeWithTag("archive-queue").assertIsDisplayed()
         composeRule.onNodeWithTag("readme").performClick()
         composeRule.runOnIdle { assertEquals("readme", selected) }
+        openOverflowMenu()
+        composeRule.onNodeWithTag("archive-queue").performClick()
+        composeRule.runOnIdle { assertEquals("archive-queue", selected) }
         openOverflowMenu()
         assertNoNodeWithTag("preferences")
         assertNoNodeWithTag("help")
@@ -163,7 +168,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = { selected = "list" },
-                onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
                 onArchiveQueue = { selected = "queue" },
                 simpleDialog = null,
@@ -193,7 +197,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = {},
-                onUpdate = {},
                 onReadme = {},
                 simpleDialog = NanidroidSimpleDialog.Notice(
                     title = android.R.string.dialog_alert_title,
@@ -222,7 +225,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = NanidroidSimpleDialog.Notice(
                     title = android.R.string.dialog_alert_title,
                     message = android.R.string.ok,
@@ -255,7 +257,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = listOf(
@@ -292,7 +293,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = records.value,
@@ -344,7 +344,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = listOf(archive, update),
@@ -368,7 +367,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = listOf(
@@ -397,7 +395,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = listOf(
@@ -442,7 +439,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = records.value,
@@ -479,7 +475,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = records.value,
@@ -514,7 +509,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = records.value,
@@ -551,7 +545,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = dialog.value,
                 onDismissSimpleDialog = {},
                 stalledOperations = records.value,
@@ -583,7 +576,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = NanidroidSimpleDialog.Notice(
                     title = android.R.string.dialog_alert_title,
                     message = android.R.string.ok,
@@ -626,7 +618,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = false,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
                 stalledOperations = listOf(
@@ -656,7 +647,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = { selected = "list" },
-                onUpdate = { selected = "update" },
                 onReadme = { selected = "readme" },
                 onArchiveQueue = { selected = "queue" },
                 simpleDialog = null,
@@ -665,16 +655,16 @@ class NanidroidComposeShellTest {
         }
 
         composeRule.onNodeWithTag("appbar-overflow").performClick()
-        composeRule.onNodeWithTag("update").assertIsDisplayed()
-        val updateCenter = composeRule.onNodeWithTag("update").fetchSemanticsNode().boundsInRoot.center
+        composeRule.onNodeWithTag("readme").assertIsDisplayed()
+        val readmeCenter = composeRule.onNodeWithTag("readme").fetchSemanticsNode().boundsInRoot.center
 
         composeRule.runOnIdle { loading.value = true }
         composeRule.onNodeWithTag("loading-overlay").assertIsDisplayed()
 
         assertNoNodeWithTag("appbar-overflow", true)
-        assertNoNodeWithTag("update", true)
+        assertNoNodeWithTag("readme", true)
         assertNoNodeWithTag("list-ghost")
-        composeRule.onRoot().performTouchInput { click(updateCenter) }
+        composeRule.onRoot().performTouchInput { click(readmeCenter) }
         composeRule.waitForIdle()
         assertEquals("", selected)
     }
@@ -689,19 +679,18 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = {},
-                onUpdate = {},
                 onReadme = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )
         }
         composeRule.onNodeWithTag("appbar-overflow").performClick()
-        composeRule.onNodeWithTag("update").assertIsDisplayed()
+        composeRule.onNodeWithTag("readme").assertIsDisplayed()
 
         restoration.emulateSavedInstanceStateRestore()
 
         composeRule.onNodeWithTag("appbar-overflow").assertIsDisplayed()
-        assertNoNodeWithTag("update", useUnmergedTree = true)
+        assertNoNodeWithTag("readme", useUnmergedTree = true)
     }
 
     @Test
@@ -714,7 +703,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = {},
-                onUpdate = {},
                 onReadme = { selected = "readme" },
                 onArchiveQueue = { selected = "archive-queue" },
                 archiveDownloads = listOf(
@@ -746,7 +734,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "Loading ghost",
                 toolbarVisible = true,
                 onListGhost = {},
-                onUpdate = {},
                 archiveDownloads = downloads.value,
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
@@ -860,7 +847,6 @@ class NanidroidComposeShellTest {
                 progressMessage = "",
                 toolbarVisible = true,
                 onListGhost = { selectedGhost.value = "Fixture Ghost" },
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )

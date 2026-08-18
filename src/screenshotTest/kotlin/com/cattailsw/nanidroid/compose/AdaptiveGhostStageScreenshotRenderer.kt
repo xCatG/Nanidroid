@@ -131,7 +131,6 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
         progressMessage = "",
         toolbarVisible = true,
         onListGhost = {},
-        onUpdate = {},
         onReadme = {},
         onArchiveQueue = {},
         simpleDialog = null,

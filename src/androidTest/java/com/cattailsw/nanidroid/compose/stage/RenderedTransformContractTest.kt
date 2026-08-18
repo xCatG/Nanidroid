@@ -889,7 +889,6 @@ class RenderedTransformContractTest {
                 progressMessage = "",
                 toolbarVisible = toolbar.value,
                 onListGhost = {},
-                onUpdate = {},
                 simpleDialog = null,
                 onDismissSimpleDialog = {},
             )

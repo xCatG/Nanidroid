@@ -284,10 +284,6 @@ open class SScriptRunner internal constructor(
         }
         return true
     }
-    @Synchronized fun addMsgToQueue(inCol: Collection<String>) {
-        if (inCol.isNotEmpty()) runtimeModeGeneration++
-        msgQueue.addAll(inCol)
-    }
     @Synchronized fun addMsgToQueue(msgs: Array<String>) {
         if (msgs.isNotEmpty()) runtimeModeGeneration++
         msgs.forEach { msgQueue.add(it) }
@@ -1522,5 +1518,5 @@ open class SScriptRunner internal constructor(
             }
         }
     }
-    fun getStringValueFromShiori(id:String):String?=withCurrentGhost { it.getStringFromShiori(id) };fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
+    fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
 }

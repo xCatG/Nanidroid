@@ -60,7 +60,6 @@ internal fun NanidroidComposeShell(
     progressMessage: String,
     toolbarVisible: Boolean,
     onListGhost: () -> Unit,
-    onUpdate: () -> Unit,
     onReadme: () -> Unit = {},
     onArchiveQueue: () -> Unit = {},
     archiveDownloads: List<NarDownload> = emptyList(),
@@ -99,7 +98,6 @@ internal fun NanidroidComposeShell(
                         if (toolbarVisible && !loading) {
                             NanidroidToolbar(
                                 onListGhost = onListGhost,
-                                onUpdate = onUpdate,
                                 onReadme = onReadme,
                                 onArchiveQueue = onArchiveQueue,
                                 archiveDownloads = archiveDownloads,
@@ -149,7 +147,6 @@ internal fun NanidroidComposeShell(
 @Composable
 private fun NanidroidToolbar(
     onListGhost: () -> Unit,
-    onUpdate: () -> Unit,
     onReadme: () -> Unit,
     onArchiveQueue: () -> Unit = {},
     archiveDownloads: List<NarDownload> = emptyList(),
@@ -203,14 +200,6 @@ private fun NanidroidToolbar(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
             ) {
-                DropdownMenuItem(
-                    onClick = {
-                        showMenu = false
-                        onUpdate()
-                    },
-                    text = { Text(stringResource(R.string.check_updates_btn_text)) },
-                    modifier = Modifier.testTag("update"),
-                )
                 DropdownMenuItem(
                     onClick = {
                         showMenu = false
@@ -314,7 +303,6 @@ private fun NanidroidToolbarPreview() {
     MaterialTheme {
         NanidroidToolbar(
             onListGhost = {},
-            onUpdate = {},
             onReadme = {},
             onArchiveQueue = {},
         )

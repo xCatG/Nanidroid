@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="dl_complete">下載完成</string>
-  <string name="download_channel_name">Nanidroid 下載</string>
-  <string name="download_in_progress">正在下載封存檔</string>
   <string name="dl_note">可以安裝%1$s</string>
   <string name="list_ghost_btn_text">偽人格列表</string>
-  <string name="update_btn_text">更新</string>
   <string name="more_ghosts_btn_text">取得更多偽人格</string>
   <string name="list_ghost_dlg_title">已安裝偽人格列表</string>
   <string name="no_readme_dlg_title">切換偽人格嗎？</string>
@@ -25,7 +22,6 @@
   <string name="dlg_sel_nar_install_text">安裝</string>
   <string name="btn_dl_text">下載</string>
 
-  <string name="check_updates_btn_text">檢查更新</string>
   <string name="ghosts_btn_text">偽人格列表</string>
   <string name="more_btn_text">更多</string>
   <string name="readme_menu_text">Readme</string>

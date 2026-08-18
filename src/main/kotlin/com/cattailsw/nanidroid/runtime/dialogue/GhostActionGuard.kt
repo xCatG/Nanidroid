@@ -6,7 +6,6 @@ enum class GuardedAction {
     SWITCH_GHOST,
     MINIMIZE,
     EXIT,
-    UPDATE,
     IMPORT_INSTALL,
     UNINSTALL,
     KEEP_WAITING,
