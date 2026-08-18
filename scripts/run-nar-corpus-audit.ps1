@@ -401,6 +401,19 @@ function New-InvalidSnakeDialogueLifecycle {
     }
 }
 
+function Test-SnakeVisibleChoiceIds {
+    param(
+        [object]$Step,
+        [string[]]$ExpectedIds
+    )
+
+    $visibleIds = As-NonNullArray -Value (Get-NestedPropertyValue -Object $Step -Path 'choiceIds')
+    foreach ($expectedId in $ExpectedIds) {
+        if ($visibleIds -cnotcontains $expectedId) { return $false }
+    }
+    return $true
+}
+
 function Get-SnakeDialogueLifecycle {
     param([object[]]$Steps)
 
@@ -420,11 +433,22 @@ function Get-SnakeDialogueLifecycle {
     $firstChoice = Get-SnakeChoiceTransaction -Steps $items[1..($inputIndex - 1)]
     $nextChoice = Get-SnakeChoiceTransaction -Steps $items[($inputIndex + 1)..($items.Count - 1)]
     if ($null -eq $firstChoice -or $null -eq $nextChoice) { return New-InvalidSnakeDialogueLifecycle }
+    $input = $items[$inputIndex]
+    $nextPrimaryLabel = Get-NestedPropertyValue -Object $nextChoice.primary -Path 'references[0]'
+    if ($firstChoice.identifier -cne 'choicefirsthehim' -or
+        $nextChoice.identifier -cne 'titlenone' -or
+        [string]$nextPrimaryLabel -cne 'Nope' -or
+        -not (Test-SnakePlayableResponse -Step $input) -or
+        -not (Test-SnakeVisibleChoiceIds -Step $input -ExpectedIds @('titlenone')) -or
+        -not (Test-SnakePlayableResponse -Step $nextChoice.effective) -or
+        -not (Test-SnakeVisibleChoiceIds -Step $nextChoice.effective -ExpectedIds @('beginnerStart', 'beginnerEnd'))) {
+        return New-InvalidSnakeDialogueLifecycle
+    }
 
     [pscustomobject]@{
         valid = $true
         firstBoot = $firstBoot
-        input = $items[$inputIndex]
+        input = $input
         firstChoice = $firstChoice
         nextChoice = $nextChoice
     }
@@ -2744,18 +2768,18 @@ foreach ($arg in $ProbeArgs) {
     Write-Host 'Dry-run helper sentinel probes passed.'
 
     $dryRunSnakePrimaryOnly = @(
-        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200; hasExactValue = $true; references = @('0') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; hasExactValue = $true; references = @('First choice', 'choicefirsthehim') },
-        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200; hasExactValue = $true; references = @('Nanidroid', '') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; hasExactValue = $true; references = @('FAQ', 'faq') }
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; method = 'GET'; status = 200; hasExactValue = $true; references = @('0') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; hasExactValue = $true; references = @('First choice', 'choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnNameTeach'; method = 'GET'; status = 200; hasExactValue = $true; references = @('Nanidroid', ''); choiceIds = @('titlenone') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; hasExactValue = $true; references = @('Nope', 'titlenone'); choiceIds = @('beginnerStart', 'beginnerEnd') }
     )
     $dryRunSnakeChoiceFallback = @(
-        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200; references = @('0') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('First choice', 'choicefirsthehim') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; references = @('choicefirsthehim') },
-        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200; references = @('Nanidroid', '') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('FAQ', 'faq') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; hasExactValue = $true; references = @('faq') }
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; method = 'GET'; status = 200; references = @('0') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; references = @('First choice', 'choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; method = 'GET'; status = 200; references = @('choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnNameTeach'; method = 'GET'; status = 200; hasExactValue = $true; references = @('Nanidroid', ''); choiceIds = @('titlenone') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; references = @('Nope', 'titlenone') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; method = 'GET'; status = 200; hasExactValue = $true; references = @('titlenone'); choiceIds = @('beginnerStart', 'beginnerEnd') }
     )
     if (-not (Get-SnakeDialogueLifecycle -Steps $dryRunSnakePrimaryOnly).valid) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-only choice sequence.'
@@ -2763,13 +2787,29 @@ foreach ($arg in $ProbeArgs) {
     if (-not (Get-SnakeDialogueLifecycle -Steps $dryRunSnakeChoiceFallback).valid) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-plus-fallback choice sequence.'
     }
-    $dryRunUnplayableTerminalFaq = $dryRunSnakeChoiceFallback | ConvertTo-Json -Depth 8 | ConvertFrom-Json
-    if (-not (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalFaq[-1])) {
-        ThrowIf 'Dry-run Snake terminal FAQ fixture was not playable before its status mutation.'
+    $dryRunUnplayableTerminalTitle = $dryRunSnakeChoiceFallback | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    if (-not (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalTitle[-1])) {
+        ThrowIf 'Dry-run Snake terminal title fixture was not playable before its status mutation.'
     }
-    $dryRunUnplayableTerminalFaq[-1].status = 201
-    if (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalFaq[-1]) {
-        ThrowIf 'Dry-run Snake terminal FAQ sentinel accepted a non-200 fallback response.'
+    $dryRunUnplayableTerminalTitle[-1].status = 201
+    if (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalTitle[-1]) {
+        ThrowIf 'Dry-run Snake terminal title sentinel accepted a non-200 fallback response.'
+    }
+    $dryRunSnakeFaqSequence = $dryRunSnakePrimaryOnly | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $dryRunSnakeFaqSequence[-1].references = @('FAQ', 'faq')
+    $dryRunSnakeFaqSequence[-2].choiceIds = @('faq')
+    if ((Get-SnakeDialogueLifecycle -Steps $dryRunSnakeFaqSequence).valid) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel accepted the nonexistent FAQ transaction.'
+    }
+    $dryRunSnakeHiddenTitle = $dryRunSnakePrimaryOnly | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $dryRunSnakeHiddenTitle[-2].choiceIds = @()
+    if ((Get-SnakeDialogueLifecycle -Steps $dryRunSnakeHiddenTitle).valid) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel accepted a title choice hidden by OnNameTeach.'
+    }
+    $dryRunSnakeMissingBeginnerChoice = $dryRunSnakePrimaryOnly | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $dryRunSnakeMissingBeginnerChoice[-1].choiceIds = @('beginnerStart')
+    if ((Get-SnakeDialogueLifecycle -Steps $dryRunSnakeMissingBeginnerChoice).valid) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel accepted a title response missing beginnerEnd.'
     }
     foreach ($invalidSnakeSequence in @(
         @([pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200 }),
@@ -2818,10 +2858,10 @@ foreach ($arg in $ProbeArgs) {
             eventId = 'OnChoiceSelectEx'
             scope = 'dialogue'
             coordinates = $null
-            identifier = 'faq'
+            identifier = 'titlenone'
             button = $null
             source = 'choice'
-            references = @('FAQ', 'faq', $null, $null, $null, $null, $null)
+            references = @('Nope', 'titlenone', $null, $null, $null, $null, $null)
         }
     )
     Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $validPostInteractionEvidence -DialogueSteps $dryRunSnakePrimaryOnly
@@ -2846,10 +2886,10 @@ foreach ($arg in $ProbeArgs) {
             eventId = 'OnChoiceSelect'
             scope = 'dialogue'
             coordinates = $null
-            identifier = 'faq'
+            identifier = 'titlenone'
             button = $null
             source = 'choice'
-            references = @('faq', $null, $null, $null, $null, $null, $null)
+            references = @('titlenone', $null, $null, $null, $null, $null, $null)
         }
     )
     Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $dryRunSnakeChoiceFallbackEvidence -DialogueSteps $dryRunSnakeChoiceFallback
@@ -2932,18 +2972,24 @@ foreach ($arg in $ProbeArgs) {
             status = 200
             value = '\\![leave,passivemode]'
             tokenizerDiagnostics = @()
+            references = @('he/him', 'choicefirsthehim')
         },
         [pscustomobject]@{
             eventId = 'OnNameTeach'
             status = 200
+            hasExactValue = $true
             value = 'Name accepted'
             tokenizerDiagnostics = @()
+            choiceIds = @('titlenone')
         },
         [pscustomobject]@{
             eventId = 'OnChoiceSelectEx'
             status = 200
-            value = 'FAQ'
+            hasExactValue = $true
+            value = 'Beginner mode'
             tokenizerDiagnostics = @()
+            references = @('Nope', 'titlenone')
+            choiceIds = @('beginnerStart', 'beginnerEnd')
         }
     )
     $dryRunSnakeAggregateEvidence = & {
@@ -2952,18 +2998,18 @@ foreach ($arg in $ProbeArgs) {
         $lifecycle = Get-SnakeDialogueLifecycle -Steps $Steps
         $snakeOnFirstBootTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.firstBoot -Path 'tokenizerDiagnostics'
         $snakeFirstChoiceSelectTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.firstChoice.effective -Path 'tokenizerDiagnostics'
-        $snakeFaqTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.nextChoice.effective -Path 'tokenizerDiagnostics'
+        $snakeTitleTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.nextChoice.effective -Path 'tokenizerDiagnostics'
         [pscustomobject]@{
             valid = $lifecycle.valid
             firstBootTokenizerCount = @($snakeOnFirstBootTokenizerDiagnostics).Count
             firstChoiceTokenizerCount = @($snakeFirstChoiceSelectTokenizerDiagnostics).Count
-            faqTokenizerCount = @($snakeFaqTokenizerDiagnostics).Count
+            titleTokenizerCount = @($snakeTitleTokenizerDiagnostics).Count
         }
     } $dryRunSnakeAggregateSteps
     if (-not $dryRunSnakeAggregateEvidence.valid -or
         $dryRunSnakeAggregateEvidence.firstBootTokenizerCount -ne 0 -or
         $dryRunSnakeAggregateEvidence.firstChoiceTokenizerCount -ne 0 -or
-        $dryRunSnakeAggregateEvidence.faqTokenizerCount -ne 0) {
+        $dryRunSnakeAggregateEvidence.titleTokenizerCount -ne 0) {
         ThrowIf 'Dry-run Snake aggregate variable setup produced unexpected tokenizer counts.'
     }
     Write-Host 'Dry-run Snake aggregate strict-mode probe passed.'
@@ -3712,25 +3758,25 @@ try {
     $snakeFirstChoiceSelectStatusInt = 0
     $snakeFirstChoiceSelectStatus2xx = [int]::TryParse([string]$snakeFirstChoiceSelectStatus, [ref]$snakeFirstChoiceSelectStatusInt) -and $snakeFirstChoiceSelectStatusInt -ge 200 -and $snakeFirstChoiceSelectStatusInt -le 299
 
-    $snakeFaqStatus = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'status'
-    $snakeFaqOutcome = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'outcome'
-    $snakeFaqValue = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'value'
-    $snakeFaqFailure = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'failure'
-    $snakeFaqTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'tokenizerDiagnostics'
-    $snakeFaqMethod = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'method'
-    $snakeFaqRefs = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'references')
-    $snakeFaqRef0 = if ($snakeFaqRefs.Count -gt 0) { $snakeFaqRefs[0] } else { $null }
-    $snakeFaqIdentifier = $snakeLifecycle.nextChoice.identifier
-    $snakeFaqAnchorIds = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'anchorIds')
+    $snakeTitleStatus = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'status'
+    $snakeTitleOutcome = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'outcome'
+    $snakeTitleValue = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'value'
+    $snakeTitleFailure = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'failure'
+    $snakeTitleTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'tokenizerDiagnostics'
+    $snakeTitleMethod = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'method'
+    $snakeTitleRefs = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'references')
+    $snakeTitleRef0 = if ($snakeTitleRefs.Count -gt 0) { $snakeTitleRefs[0] } else { $null }
+    $snakeTitleIdentifier = $snakeLifecycle.nextChoice.identifier
+    $snakeTitleChoiceIds = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'choiceIds')
     $snakeFirstChoiceSelectTokenizerCount = if ($null -ne $snakeFirstChoiceSelectTokenizerDiagnostics) { @($snakeFirstChoiceSelectTokenizerDiagnostics).Count } else { $null }
     $snakeOnFirstBootTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeOnFirstBootTokenizerDiagnostics
-    $snakeFaqTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeFaqTokenizerDiagnostics
+    $snakeTitleTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeTitleTokenizerDiagnostics
     $snakeOnFirstBootValueText = if ($null -eq $snakeOnFirstBootValue) { '' } else { [string]$snakeOnFirstBootValue }
     $snakeOnFirstBootValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeOnFirstBootValueText)
     $snakeFirstChoiceSelectValueText = if ($null -eq $snakeFirstChoiceSelectValue) { '' } else { [string]$snakeFirstChoiceSelectValue }
     $snakeFirstChoiceSelectValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeFirstChoiceSelectValueText)
-    $snakeFaqValueText = if ($null -eq $snakeFaqValue) { '' } else { [string]$snakeFaqValue }
-    $snakeFaqValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeFaqValueText)
+    $snakeTitleValueText = if ($null -eq $snakeTitleValue) { '' } else { [string]$snakeTitleValue }
+    $snakeTitleValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeTitleValueText)
 
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-2elf-summary-row-count' -Passed ($twoElfSummaryRows.Count -eq 1) -Expected 1 -Observed $twoElfSummaryRows.Count -Detail 'Expected exactly one summary row for label 2elf-2.46.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-2elf-summary-result-path' -Passed (-not [string]::IsNullOrWhiteSpace($twoElfSummaryResultPath)) -Expected 'non-empty' -Observed $twoElfSummaryResultPath -Detail 'Expected summary row resultPath to be non-empty.'
@@ -3858,7 +3904,7 @@ try {
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-239-surface-0-or-9' -Passed $snakeSurfaceLine239FoundForSurface0Or9 -Expected $true -Observed $snakeSurfaceLine239FoundForSurface0Or9 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 239 for surface 0 or 9.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-285-surface-8' -Passed $snakeSurfaceLine285FoundForSurface8 -Expected $true -Observed $snakeSurfaceLine285FoundForSurface8 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 285 for surface 8.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-394-surface-19-or-40' -Passed $snakeSurfaceLine394FoundForSurface19Or40 -Expected $true -Observed $snakeSurfaceLine394FoundForSurface19Or40 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 394 for surface 19 or 40.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-choice-lifecycle' -Passed $snakeNoFallbackLifecycleValid -Expected 'OnFirstBoot, choice transaction, direct OnNameTeach, next choice transaction (without OnBoot)' -Observed ($snakeSequenceSteps | ForEach-Object { Get-NestedPropertyValue -Object $_ -Path 'eventId' }) -Detail 'Expected the real Snake run to parse primary-only or primary-plus-fallback choice transactions around direct OnNameTeach.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-choice-lifecycle' -Passed $snakeNoFallbackLifecycleValid -Expected 'OnFirstBoot, choicefirsthehim transaction, direct OnNameTeach exposing titlenone, titlenone transaction exposing beginnerStart/beginnerEnd (without OnBoot)' -Observed ($snakeSequenceSteps | ForEach-Object { Get-NestedPropertyValue -Object $_ -Path 'eventId' }) -Detail 'Expected the real Snake run to follow only the authored title lifecycle, with primary-only or primary-plus-fallback choice transactions.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-post-interaction-evidence' -Passed $snakePostInteractionEvidenceValid -Expected 'bounded choice/input event envelopes' -Observed $snakePostInteractionEvidence -Detail 'Expected normalized post-interaction SHIORI evidence with ghost identity, dispatch fields, and References 0 through 6.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-event-id' -Result $snakeStepOnFirstBoot -Path 'eventId' -Expected 'OnFirstBoot' -Detail 'Expected Snake and Otacon dialogue step 1 eventId OnFirstBoot.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-first-choice-primary-event-id' -Result $snakeLifecycle.firstChoice.primary -Path 'eventId' -Expected 'OnChoiceSelectEx' -Detail 'Expected the first choice transaction to retain its primary OnChoiceSelectEx envelope.'
@@ -3871,7 +3917,7 @@ try {
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-method' -Result $snakeStepOnFirstBoot -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon OnFirstBoot method GET.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-first-choice-id' -Passed (($snakeFirstChoiceSelectIdentifier -eq 'choicefirsthehim') -and ($snakeFirstChoiceSelectPassiveTransitions -contains $false) -and ($snakeFirstChoiceSelectStatus2xx -and $snakeFirstChoiceSelectOutcome -eq 'success' -and $snakeFirstChoiceSelectValueNonBlank -and $null -eq $snakeFirstChoiceSelectFailure -and $snakeFirstChoiceSelectTokenizerCount -eq 0) -and $snakeFirstChoiceSelectInputDispatchId -eq 'OnNameTeach' -and [string]::Equals([string]$snakeFirstChoiceSelectInputTimeout, '-1')) -Expected $true -Observed $snakeFirstChoiceSelectIdentifier -Detail 'Expected Snake and Otacon first choice transaction to target choicefirsthehim, transition passive=false, expose OnNameTeach timeout=-1, and be successful GET.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-first-choice-method' -Result $snakeStepFirstChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon first choice transaction method GET.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-next-choice-id' -Passed (($snakeFaqIdentifier -eq 'faq') -and (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect) -and $snakeFaqOutcome -eq 'success' -and $snakeFaqValueNonBlank -and $null -eq $snakeFaqFailure -and $snakeFaqTokenizerDiagnosticsExpected -and ($snakeFaqAnchorIds -contains 'whoSnake') -and ($snakeFaqAnchorIds -contains 'whoHal')) -Expected $true -Observed ([pscustomobject]@{ faqReference = ($snakeFaqIdentifier -eq 'faq'); playable = (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect); anchors = @($snakeFaqAnchorIds); tokenizerDiagnostics = @($snakeFaqTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeFaqTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon next choice transaction to target faq, return HTTP 200 with an exact Value header, include whoSnake/whoHal anchors, and have no tokenizer diagnostics beyond its known presentation markers.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-next-choice-id' -Passed (($snakeTitleIdentifier -eq 'titlenone') -and (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect) -and $snakeTitleOutcome -eq 'success' -and $snakeTitleValueNonBlank -and $null -eq $snakeTitleFailure -and $snakeTitleTokenizerDiagnosticsExpected -and ($snakeTitleChoiceIds -contains 'beginnerStart') -and ($snakeTitleChoiceIds -contains 'beginnerEnd')) -Expected $true -Observed ([pscustomobject]@{ titleReference = ($snakeTitleIdentifier -eq 'titlenone'); playable = (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect); beginnerChoices = @($snakeTitleChoiceIds); tokenizerDiagnostics = @($snakeTitleTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeTitleTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon next choice transaction to target the visible titlenone choice, return HTTP 200 with an exact Value header, expose beginnerStart/beginnerEnd, and have only known presentation diagnostics.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-next-choice-method' -Result $snakeStepSecondChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon next choice transaction method GET.'
 
     $runEnd = Get-Date

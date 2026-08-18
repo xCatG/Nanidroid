@@ -130,14 +130,21 @@ class NarCorpusRuntimeTest {
     fun snakeBootLifecycleDoesNotFallbackWhenOnFirstBootReturnsContent() {
         val requests = mutableListOf<Pair<String, List<String>>>()
 
-        snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
             requests += eventId to references
             JSONObject()
                 .put("eventId", eventId)
                 .put("status", 200)
                 .put("outcome", "success")
                 .put("value", "playable")
-                .put("choiceIds", JSONArray().put("faq"))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals(
@@ -145,9 +152,15 @@ class NarCorpusRuntimeTest {
                 "OnFirstBoot" to listOf("0"),
                 "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
                 "OnNameTeach" to listOf("Nanidroid", ""),
-                "OnChoiceSelectEx" to listOf("faq", "faq"),
+                "OnChoiceSelectEx" to listOf("Nope", "titlenone"),
             ),
             requests,
+        )
+        assertEquals(
+            setOf(SNAKE_BEGINNER_START_ID, SNAKE_BEGINNER_END_ID),
+            sequence.getJSONObject(3).getJSONArray("choiceIds").let { choiceIds ->
+                (0 until choiceIds.length()).map(choiceIds::getString).toSet()
+            },
         )
     }
 
@@ -217,7 +230,7 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleDoesNotProbeFaqWhenInputDoesNotExposeFaqChoice() {
+    fun snakeBootLifecycleDoesNotProbeTitleWhenInputDoesNotExposeAuthoredChoice() {
         val requests = mutableListOf<String>()
 
         snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
@@ -266,7 +279,14 @@ class NarCorpusRuntimeTest {
                 .put("status", if (primaryIsUnplayable) 204 else 200)
                 .put("outcome", "success")
                 .put("value", if (primaryIsUnplayable) "" else "playable")
-                .put("choiceIds", JSONArray().put("faq"))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals(
@@ -275,7 +295,7 @@ class NarCorpusRuntimeTest {
                 "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
                 "OnChoiceSelect" to listOf("choicefirsthehim"),
                 "OnNameTeach" to listOf("Nanidroid", ""),
-                "OnChoiceSelectEx" to listOf("faq", "faq"),
+                "OnChoiceSelectEx" to listOf("Nope", "titlenone"),
             ),
             requests,
         )
@@ -311,7 +331,14 @@ class NarCorpusRuntimeTest {
                 .put("outcome", if (failedPrimary) "error-status" else "success")
                 .put("value", "playable")
                 .put("hasExactValue", true)
-                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals("success", snakeOverallOutcome(sequence))
@@ -365,7 +392,7 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleStopsBeforeFaqWhenInputOnlyHasLowercaseValueHeader() {
+    fun snakeBootLifecycleStopsBeforeTitleWhenInputOnlyHasLowercaseValueHeader() {
         val requests = mutableListOf<String>()
 
         snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
@@ -381,7 +408,7 @@ class NarCorpusRuntimeTest {
                 )
                 .put(
                     "choiceIds",
-                    JSONArray().put(SNAKE_FAQ_ID),
+                    JSONArray().put(SNAKE_TITLE_NONE_ID),
                 )
         }
 
@@ -392,13 +419,35 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleRetainsAnUnplayableTerminalFaqResponse() {
+    fun snakeBootLifecycleRejectsTitleResponseMissingAnAuthoredBeginnerChoice() {
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        "OnChoiceSelectEx" -> JSONArray().put(SNAKE_BEGINNER_START_ID)
+                        else -> JSONArray()
+                    },
+                )
+        }
+
+        assertEquals("missing-authored-beginner-choices", snakeOverallOutcome(sequence))
+        assertTrue(sequence.getJSONObject(sequence.length() - 1).getString("failure").contains(SNAKE_BEGINNER_END_ID))
+    }
+
+    @Test
+    fun snakeBootLifecycleRetainsAnUnplayableTerminalTitleResponse() {
         val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
-            val isTerminalFaqChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
-                references.last() == SNAKE_FAQ_ID
+            val isTerminalTitleChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
+                references.last() == SNAKE_TITLE_NONE_ID
             val status = when {
-                eventId == "OnChoiceSelectEx" && isTerminalFaqChoice -> 204
-                isTerminalFaqChoice -> 201
+                eventId == "OnChoiceSelectEx" && isTerminalTitleChoice -> 204
+                isTerminalTitleChoice -> 201
                 else -> 200
             }
             JSONObject()
@@ -406,7 +455,14 @@ class NarCorpusRuntimeTest {
                 .put("status", status)
                 .put("outcome", "success")
                 .put("value", "playable")
-                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals(
@@ -1184,12 +1240,24 @@ class NarCorpusRuntimeTest {
             val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE, ""))
             sequence.put(input)
             val inputChoiceIds = input.optJSONArray("choiceIds")
-            val inputExposesFaq = inputChoiceIds?.let { choiceIds ->
-                (0 until choiceIds.length()).any { choiceIds.optString(it) == SNAKE_FAQ_ID }
+            val inputExposesTitleChoice = inputChoiceIds?.let { choiceIds ->
+                (0 until choiceIds.length()).any { choiceIds.optString(it) == SNAKE_TITLE_NONE_ID }
             } == true
             val inputHasExactValue = input.optBoolean("hasExactValue", input.optString("value").isNotEmpty())
-            if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesFaq) {
-                probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
+            if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesTitleChoice) {
+                probeChoice(SNAKE_TITLE_NONE_LABEL, SNAKE_TITLE_NONE_ID)?.let { titleResponse ->
+                    val visibleChoiceIds = titleResponse.optJSONArray("choiceIds")
+                    val missingBeginnerChoices = SNAKE_BEGINNER_CHOICE_IDS.filterNot { expectedId ->
+                        visibleChoiceIds?.let { choiceIds ->
+                            (0 until choiceIds.length()).any { choiceIds.optString(it) == expectedId }
+                        } == true
+                    }
+                    if (missingBeginnerChoices.isNotEmpty()) {
+                        titleResponse
+                            .put("outcome", "missing-authored-beginner-choices")
+                            .put("failure", "Missing authored beginner choices: ${missingBeginnerChoices.joinToString()}")
+                    }
+                }
             }
         }
         return sequence
@@ -2394,8 +2462,11 @@ class NarCorpusRuntimeTest {
         const val SNAKE_AND_OTACON_LABEL = "Snake and Otacon V1.3.2"
         const val SNAKE_CHOICE_FIRST_HE_HIM_ID = "choicefirsthehim"
         const val SNAKE_CHOICE_FIRST_HE_HIM_LABEL = "he/him"
-        const val SNAKE_FAQ_ID = "faq"
-        const val SNAKE_FAQ_LABEL = "faq"
+        const val SNAKE_TITLE_NONE_ID = "titlenone"
+        const val SNAKE_TITLE_NONE_LABEL = "Nope"
+        const val SNAKE_BEGINNER_START_ID = "beginnerStart"
+        const val SNAKE_BEGINNER_END_ID = "beginnerEnd"
+        val SNAKE_BEGINNER_CHOICE_IDS = setOf(SNAKE_BEGINNER_START_ID, SNAKE_BEGINNER_END_ID)
         const val SNAKE_NAME_TEACH_ID = "OnNameTeach"
         const val SNAKE_NAME_TEACH_VALUE = "Nanidroid"
         val SURFACE_SOURCE_FILE = Regex("(?i)^surfaces[^/\\\\]*\\.txt$")
