@@ -17,6 +17,7 @@ if (-not $resolvedFixtureRoot.Equals($expectedFixtureRoot, [StringComparison]::O
 $comparatorSource = Get-Content -LiteralPath $comparatorPath -Raw
 $hostTestSource = Get-Content -LiteralPath $PSCommandPath -Raw
 if ($comparatorSource -match 'ConvertFrom-Json\s+-DateKind' -or $hostTestSource -match 'ConvertFrom-Json\s+-DateKind' -or
+    $comparatorSource -match '\[Convert\]::ToHexString' -or
     $comparatorSource -notmatch '(?m)^#requires -Version 7\.0$' -or $comparatorSource -notmatch 'System\.Text\.Json\.JsonDocument') {
     throw 'Comparator JSON parsing is not statically compatible with the documented PowerShell 7.0 floor.'
 }

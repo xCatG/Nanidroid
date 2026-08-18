@@ -98,7 +98,7 @@ function Get-StringSha256([string]$Value) {
     $bytes = [Text.Encoding]::UTF8.GetBytes($Value)
     $algorithm = [Security.Cryptography.SHA256]::Create()
     try {
-        return ([Convert]::ToHexString($algorithm.ComputeHash($bytes))).ToLowerInvariant()
+        return ([BitConverter]::ToString($algorithm.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
     }
     finally {
         $algorithm.Dispose()
