@@ -212,6 +212,8 @@ resolve to distinct files before either is read or written, and `-OutputPath`
 must be fresh (nonexistent). Base/candidate reports are therefore write-once,
 which prevents a candidate result (including a failure report) from replacing
 its prerequisite through lexical, junction, symlink, or other filesystem alias.
+Freshness is enforced at the atomic write boundary, so it also covers a file
+that appears after argument validation but before the comparison report commit.
 `BaseBase` reports retain their atomic replacement behavior for an explicit
 rerun at the same output path.
 Each raw `narCorpusPath` must exactly match the runner-owned archive path

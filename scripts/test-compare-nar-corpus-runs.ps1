@@ -722,6 +722,18 @@ try {
     New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
     Assert-Pass 'base/candidate may use a distinct output path' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath $candidateOutput))
 
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    $preexistingOutput = Join-Path $fixtureRoot 'preexisting-base-candidate.json'
+    Assert-Pass 'base/base prerequisite for existing base/candidate output' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.evidence | Add-Member -NotePropertyName hidden -NotePropertyValue 'candidate-only' }
+    [IO.File]::WriteAllText($preexistingOutput, 'pre-existing-base-candidate-output', [Text.UTF8Encoding]::new($false))
+    $preexistingOutputSha = (Get-FileHash -LiteralPath $preexistingOutput -Algorithm SHA256).Hash
+    $preexistingOutputResult = Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath $preexistingOutput)
+    if ((Get-FileHash -LiteralPath $preexistingOutput -Algorithm SHA256).Hash -cne $preexistingOutputSha) { throw 'base/candidate pre-existing output was altered after a behavioral failure' }
+    Assert-Fail 'base/candidate behavioral failure preserves a pre-existing output' $preexistingOutputResult 'raw behavioral difference.*evidence.hidden'
+
     if ($IsWindows) {
         Reset-Fixtures
         $prerequisiteParent = Join-Path $fixtureRoot 'junction-prerequisite-parent'

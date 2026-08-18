@@ -162,13 +162,17 @@ function ConvertTo-StrictJsonText([object]$Value) {
     }
 }
 
-function Write-ComparisonReportAtomic([object]$Report, [string]$ResolvedOutputPath) {
+function Write-ComparisonReportAtomic([object]$Report, [string]$ResolvedOutputPath, [bool]$AllowOverwrite) {
     $outputDirectory = Split-Path -Parent $resolvedOutputPath
     if (-not (Test-Path -LiteralPath $outputDirectory)) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
     $temporaryPath = Join-Path $outputDirectory ('.' + [IO.Path]::GetFileName($resolvedOutputPath) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
     try {
         ConvertTo-StrictJsonText $Report | Set-Content -LiteralPath $temporaryPath -Encoding utf8
-        [IO.File]::Move($temporaryPath, $resolvedOutputPath, $true)
+        [IO.File]::Move($temporaryPath, $resolvedOutputPath, $AllowOverwrite)
+    }
+    catch [IO.IOException] {
+        if (-not $AllowOverwrite -and (Test-Path -LiteralPath $resolvedOutputPath)) { throw 'BaseCandidate OutputPath must be a fresh path' }
+        throw
     }
     finally {
         if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -LiteralPath $temporaryPath -Force }
@@ -703,15 +707,13 @@ function Assert-BaseBasePrerequisite([string]$Path, [string]$ManifestSha, [strin
 
 $resolvedOutputPath = [IO.Path]::GetFullPath($OutputPath)
 $resolvedBaseBaseReportPath = $null
+$allowOutputOverwrite = $ComparisonKind -eq 'BaseBase'
 if ($ComparisonKind -eq 'BaseCandidate') {
     if ([string]::IsNullOrWhiteSpace($BaseBaseReportPath)) { throw 'BaseCandidate comparison requires -BaseBaseReportPath' }
     $resolvedBaseBaseReportPath = [IO.Path]::GetFullPath($BaseBaseReportPath)
     $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     if ($resolvedBaseBaseReportPath.Equals($resolvedOutputPath, $pathComparison)) {
         throw 'BaseBaseReportPath and OutputPath must resolve to distinct files for BaseCandidate comparison'
-    }
-    if (Test-Path -LiteralPath $resolvedOutputPath) {
-        throw 'BaseCandidate OutputPath must be a fresh path'
     }
 }
 
@@ -886,7 +888,7 @@ try {
         screenshotsCompared = 23
         differences = @()
     }
-    Write-ComparisonReportAtomic $report $resolvedOutputPath
+    Write-ComparisonReportAtomic $report $resolvedOutputPath $allowOutputOverwrite
     Write-Host "NAR corpus $ComparisonKind comparison passed: 23 raw results and 23 screenshots matched."
 }
 catch {
@@ -921,7 +923,7 @@ catch {
             reason = $reason
         }
     }
-    try { Write-ComparisonReportAtomic $failureReport $resolvedOutputPath } catch { Write-Warning "Unable to write failure comparison report: $($_.Exception.Message)" }
+    try { Write-ComparisonReportAtomic $failureReport $resolvedOutputPath $allowOutputOverwrite } catch { Write-Warning "Unable to write failure comparison report: $($_.Exception.Message)" }
     Write-Error $reason
     exit 1
 }
