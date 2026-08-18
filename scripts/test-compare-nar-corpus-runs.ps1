@@ -62,6 +62,29 @@ function Get-StringSha256([string]$Value) {
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$compatibleGhostSuccessRules = [ordered]@{
+    '2elf-2.46' = @{ sha256 = 'a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; eventId = 'OnBoot' }
+    'tewire-sen' = @{ sha256 = '2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8'; eventId = 'OnBoot' }
+    'Yes Man-2.1.1' = @{ sha256 = 'aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8'; eventId = 'OnBoot' }
+    'Big Red Button' = @{ sha256 = '36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d'; eventId = 'OnBoot' }
+    'Earthquake Rescue Duo' = @{ sha256 = '06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; eventId = 'OnBoot' }
+    'LOBO' = @{ sha256 = 'f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; eventId = 'OnBoot' }
+    'Nanika Atsume 1.0.0' = @{ sha256 = '0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9'; eventId = 'OnBoot' }
+    'Nanika Atsume 1.0.1' = @{ sha256 = '9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c'; eventId = 'OnBoot' }
+    'Nanika Atsume silent_ALPHA' = @{ sha256 = 'be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17'; eventId = 'OnBoot' }
+    'Snake and Otacon V1.2.1' = @{ sha256 = 'a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f'; eventId = 'OnBoot' }
+    'Snake and Otacon V1.3.1' = @{ sha256 = 'a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219'; eventId = 'OnBoot' }
+    'Snake and Otacon V1.3.2' = @{ sha256 = '1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5'; eventId = 'OnFirstBoot' }
+    'Snake_Otacon_1.3.1b' = @{ sha256 = '04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59'; eventId = 'OnBoot' }
+    'Watchdog Bancho' = @{ sha256 = '8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca'; eventId = 'OnBoot' }
+}
+$installRejectedGhostRules = [ordered]@{
+    'Snake and Otacon V1.0.0' = '526b7721103031fb3f28b22fffc54b71fd0b1e279168934a06d8076e20a1cbcc'
+    'Snake and Otacon V1.0.1' = '6f44dd039c17093d3f91e47bb9c474e128eb34fa4bfeb5ef3148625bbd613764'
+    'Snake And Otacon V1.1.1' = '21253507c17e90073974229ddf8b0d39e36efcae968a27c2569fe5c46c201e4b'
+    'Snake_Otacon_1.1.1b' = 'ef1590f766964b1932020abf6e93aa229be12fbc6ba9238a4e5cda90939f4d70'
+}
+$partialGhostRule = @{ label = 'Snake_Otacon_1.2.1b'; sha256 = '4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45' }
 $baseCommit = '1111111111111111111111111111111111111111'
 $candidateCommit = '2222222222222222222222222222222222222222'
 $baseDebugSha = 'a' * 64
@@ -273,6 +296,29 @@ function New-ReportFixture {
                 }
             )
         }
+        elseif ($compatibleGhostSuccessRules.Contains($label)) {
+            $raw.dialogueProbe.eventId = $compatibleGhostSuccessRules[$label].eventId
+        }
+        elseif ($installRejectedGhostRules.Contains($label)) {
+            $raw.classification = 'incompatible'
+            $raw.dialogueProbe = [pscustomobject]@{
+                outcome = 'not-applicable:install-rejected'
+                value = $null
+                tokenizerDiagnostics = @()
+                method = $null
+                eventId = $null
+                status = $null
+                failure = $null
+            }
+        }
+        elseif ($label -ceq $partialGhostRule.label) {
+            $raw.classification = 'partiallyCompatible'
+            $raw.dialogueProbe.outcome = 'not-supported-shiori'
+            $raw.dialogueProbe.failure = $null
+        }
+        else {
+            throw "Fixture has no reviewed ghost envelope rule for '$label'."
+        }
         if ($label -in @('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b')) {
             $canaryValue = '\0\s[0]\1\s[10]First boot canary.\e'
             $raw | Add-Member -NotePropertyName snakeOnBootStructuralSafety -NotePropertyValue ([pscustomobject][ordered]@{
@@ -400,6 +446,7 @@ function Get-ComparatorArguments {
     param(
         [ValidateSet('BaseBase', 'BaseCandidate')][string]$Kind = 'BaseBase',
         [string]$Prerequisite,
+        [string]$ContractPath = $contractPath,
         [string]$ExpectedCandidateCommit = $baseCommit,
         [string]$ExpectedCandidateDebugSha = $baseDebugSha,
         [string]$OutputPath = (Join-Path $fixtureRoot 'comparison.json')
@@ -410,7 +457,7 @@ function Get-ComparatorArguments {
         '-BaseRoot', (Join-Path $fixtureRoot 'base'),
         '-CandidateRoot', (Join-Path $fixtureRoot 'candidate'),
         '-ManifestPath', $manifestPath,
-        '-ContractPath', $contractPath,
+        '-ContractPath', $ContractPath,
         '-BaseProductionCommit', $baseCommit,
         '-BaseDebugApkSha256', $baseDebugSha,
         '-CandidateProductionCommit', $ExpectedCandidateCommit,
@@ -466,6 +513,18 @@ try {
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
+    Assert-Pass 'all fourteen reviewed compatible ghost envelopes use their exact event map' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Assert-Pass 'reviewed partial and install-rejected ghost envelopes pass without a compatible claim' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    $missingGhostEnvelopeContractPath = Join-Path $fixtureRoot 'contract-missing-tewire-envelope.json'
+    Copy-Item -LiteralPath $contractPath -Destination $missingGhostEnvelopeContractPath
+    Save-Json $missingGhostEnvelopeContractPath { param($c) $c.ghostEnvelopeRules = @($c.ghostEnvelopeRules | Where-Object { $_.label -cne 'tewire-sen' }) }
+    Assert-Fail 'compatible ghost envelope contract cannot omit a reviewed label' (Invoke-Comparator (Get-ComparatorArguments -ContractPath $missingGhostEnvelopeContractPath)) 'ghost envelope rule set'
+
+    Reset-Fixtures
     foreach ($side in @('base', 'candidate')) {
         Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
             (Get-Row $s 'Big Red Button').PSObject.Properties.Remove('dialogueOutcome')
@@ -475,6 +534,51 @@ try {
 
     Reset-Fixtures
     Assert-Pass 'all four non-ghost rows use the explicit not-applicable dialogue envelope' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\tewire-sen\result.json") { param($r) $r.dialogueProbe.outcome = 'pending-real-shiori' }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'tewire-sen').dialogueOutcome = 'pending-real-shiori' }
+    }
+    Assert-Fail 'compatible ghost cannot claim pending-real-shiori dialogue outcome' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.outcome'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\tewire-sen\result.json") { param($r) $r.dialogueProbe.outcome = 'not-supported-shiori' }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'tewire-sen').dialogueOutcome = 'not-supported-shiori' }
+    }
+    Assert-Fail 'compatible ghost cannot claim not-supported-shiori dialogue outcome' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.outcome'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\tewire-sen\result.json") { param($r) $r.dialogueProbe.status = 500 }
+    }
+    Assert-Fail 'compatible ghost requires exact successful status' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.status'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\tewire-sen\result.json") { param($r) $r.dialogueProbe.method = 'POST' }
+    }
+    Assert-Fail 'compatible ghost requires GET method' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.method'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\tewire-sen\result.json") { param($r) $r.dialogueProbe.eventId = 'OnFirstBoot' }
+    }
+    Assert-Fail 'compatible ghost requires its exact manifest/SHA-bound event' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.eventId'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\tewire-sen\result.json") { param($r) $r.dialogueProbe.failure = 'not-supported-shiori' }
+    }
+    Assert-Fail 'compatible ghost requires null failure' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.failure'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\tewire-sen\result.json") { param($r) $r.classification = 'partiallyCompatible' }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'tewire-sen').classification = 'partiallyCompatible' }
+    }
+    Assert-Fail 'compatible ghost cannot downgrade its reviewed classification' (Invoke-Comparator (Get-ComparatorArguments)) 'classification'
 
     Reset-Fixtures
     foreach ($side in @('base', 'candidate')) {
@@ -543,7 +647,7 @@ try {
             $r.classification = 'partiallyCompatible'
             $r.dialogueProbe.status = 200
             $r.dialogueProbe.outcome = 'not-supported-shiori'
-            $r.dialogueProbe.failure = 'not-supported-shiori'
+            $r.dialogueProbe.failure = $null
             if ($side -ceq 'candidate') {
                 $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T02:00:00-07:00'
                 $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T02:00:01-07:00'

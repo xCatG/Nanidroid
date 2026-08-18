@@ -229,6 +229,52 @@ function Assert-JsonKind([object]$Value, [string[]]$AllowedKinds, [string]$Conte
     return $kind
 }
 
+function Assert-ExactJsonValue([object]$Actual, [object]$Expected, [string]$Context) {
+    $expectedKind = Get-ObjectKind $Expected
+    Assert-JsonKind $Actual @($expectedKind) $Context | Out-Null
+    if ($expectedKind -eq 'string') {
+        Assert-EqualString $Actual ([string]$Expected) $Context
+    }
+    elseif ($expectedKind -eq 'number') {
+        $actualToken = if ($Actual -is [NarCorpusExactJsonNumber]) { $Actual.Token } else { [string]$Actual }
+        $expectedToken = if ($Expected -is [NarCorpusExactJsonNumber]) { $Expected.Token } else { [string]$Expected }
+        if ($actualToken -cne $expectedToken) { throw "$Context mismatch: expected exact JSON number '$expectedToken', found '$actualToken'" }
+    }
+    elseif ($expectedKind -ne 'null') {
+        $difference = Find-FirstDifference $Actual $Expected $Context
+        if ($difference) { throw "$Context mismatch at $difference" }
+    }
+}
+
+function Get-GhostEnvelopeRuleKey([object]$Rule, [string]$Context) {
+    Assert-JsonKind $Rule @('object') $Context | Out-Null
+    $label = Get-RequiredProperty $Rule 'label' $Context
+    $archiveSha256 = Get-RequiredProperty $Rule 'archiveSha256' $Context
+    $classification = Get-RequiredProperty $Rule 'classification' $Context
+    $method = Get-RequiredProperty $Rule 'method' $Context
+    $eventId = Get-RequiredProperty $Rule 'eventId' $Context
+    $status = Get-RequiredProperty $Rule 'status' $Context
+    $outcome = Get-RequiredProperty $Rule 'outcome' $Context
+    $failure = Get-RequiredProperty $Rule 'failure' $Context
+    foreach ($field in @(
+        @{ name = 'label'; value = $label },
+        @{ name = 'archiveSha256'; value = $archiveSha256 },
+        @{ name = 'classification'; value = $classification },
+        @{ name = 'outcome'; value = $outcome }
+    )) {
+        Assert-JsonKind $field.value @('string') "$Context.$($field.name)" | Out-Null
+    }
+    Assert-JsonKind $method @('string', 'null') "$Context.method" | Out-Null
+    Assert-JsonKind $eventId @('string', 'null') "$Context.eventId" | Out-Null
+    Assert-JsonKind $status @('number', 'null') "$Context.status" | Out-Null
+    Assert-JsonKind $failure @('string', 'null') "$Context.failure" | Out-Null
+    $statusToken = if ($status -is [NarCorpusExactJsonNumber]) { $status.Token } elseif ($null -eq $status) { '<null>' } else { [string]$status }
+    $methodText = if ($null -eq $method) { '<null>' } else { [string]$method }
+    $eventText = if ($null -eq $eventId) { '<null>' } else { [string]$eventId }
+    $failureText = if ($null -eq $failure) { '<null>' } else { [string]$failure }
+    return "$label|$archiveSha256|$classification|$methodText|$eventText|$statusToken|$outcome|$failureText"
+}
+
 function Assert-NormalizationKind([object]$Contract, [string]$Scope, [string]$Path, [object]$Value) {
     $rules = @($Contract.normalization.expectedKinds | Where-Object { [string]$_.scope -ceq $Scope -and [string]$_.path -ceq $Path })
     if ($rules.Count -ne 1) { throw "comparison contract normalization kind rule is not unique for $Scope $Path" }
@@ -458,7 +504,34 @@ function Assert-NonGhostOutcomeEnvelope([object]$Row, [object]$Raw, [object]$Ent
     Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'not-applicable' "$Side raw result '$Label'.dialogueProbe.outcome"
 }
 
-function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtable]$EntriesByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
+function Assert-GhostEnvelope([object]$Row, [object]$Raw, [object]$Entry, [hashtable]$RulesByLabel, [string]$Side, [string]$Label) {
+    $expectedKind = Get-RequiredProperty $Entry 'expectedKind' "manifest entry '$Label'"
+    Assert-JsonKind $expectedKind @('string') "manifest entry '$Label'.expectedKind" | Out-Null
+    if ([string]$expectedKind -cne 'ghost') { return }
+
+    $observedKind = Get-RequiredProperty $Raw 'observedKind' "$Side raw result '$Label'"
+    Assert-JsonKind $observedKind @('string') "$Side raw result '$Label'.observedKind" | Out-Null
+    Assert-EqualString $observedKind 'ghost' "$Side raw result '$Label'.observedKind"
+
+    if (Test-AcceptedNativeCheckpoint $Row $Raw $Entry $Side $Label) { return }
+    $rule = $RulesByLabel[$Label]
+    if ($null -eq $rule) { throw "$Side ghost result '$Label' has no exact manifest/SHA-bound envelope rule" }
+
+    $rawClassification = Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'"
+    $summaryClassification = Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'"
+    Assert-JsonKind $rawClassification @('string') "$Side raw result '$Label'.classification" | Out-Null
+    Assert-JsonKind $summaryClassification @('string') "$Side summary result '$Label'.classification" | Out-Null
+    Assert-ExactJsonValue $rawClassification $rule.classification "$Side raw result '$Label'.classification"
+    Assert-ExactJsonValue $summaryClassification $rule.classification "$Side summary result '$Label'.classification"
+
+    $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
+    Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
+    foreach ($fieldName in @('method', 'eventId', 'status', 'outcome', 'failure')) {
+        Assert-ExactJsonValue (Get-RequiredProperty $probe $fieldName "$Side raw result '$Label'.dialogueProbe") $rule.$fieldName "$Side raw result '$Label'.dialogueProbe.$fieldName"
+    }
+}
+
+function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtable]$EntriesByLabel, [hashtable]$GhostEnvelopeRulesByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
     $sentinels = Get-RequiredProperty $Summary 'sentinels' "$Side summary"
     $sentinelsPassed = Get-RequiredProperty $sentinels 'passed' "$Side sentinels"
     Assert-JsonKind $sentinelsPassed @('boolean') "$Side sentinels.passed" | Out-Null
@@ -507,6 +580,7 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtab
         if ($raw.passed -ne $true) { throw "$Side is not a successful run: raw result '$label' did not pass" }
         Assert-DialogueOutcomeMirror $row $raw $Side $label
         Assert-NonGhostOutcomeEnvelope $row $raw $EntriesByLabel[$label] $Side $label
+        Assert-GhostEnvelope $row $raw $EntriesByLabel[$label] $GhostEnvelopeRulesByLabel $Side $label
         $rawCleanup = if ($null -eq $raw.PSObject.Properties['cleanup']) { $null } else { $raw.cleanup }
         $acceptedNativeCheckpoint = Test-AcceptedNativeCheckpoint $row $raw $EntriesByLabel[$label] $Side $label
         if ($null -eq $rawCleanup) {
@@ -628,6 +702,7 @@ function Read-AndValidateRun {
         [string[]]$ExpectedRawFiles,
         [string[]]$ExpectedScreenshotFiles,
         [string[]]$RawSourceMirrorLabels,
+        [hashtable]$GhostEnvelopeRulesByLabel,
         [int]$ExpectedSentinelCheckCount,
         [string]$ExpectedSentinelCheckDigest,
         [string]$ExpectedManifestSha
@@ -695,7 +770,7 @@ function Read-AndValidateRun {
             }
         }
     }
-    Assert-SuccessfulRun $summary $rawByLabel $entriesByLabel $ExpectedSentinelCheckCount $ExpectedSentinelCheckDigest $Side
+    Assert-SuccessfulRun $summary $rawByLabel $entriesByLabel $GhostEnvelopeRulesByLabel $ExpectedSentinelCheckCount $ExpectedSentinelCheckDigest $Side
     $runIdentity = Assert-RunIdentityMirrors $summary $rowByLabel $rawByLabel $entriesByLabel $RawSourceMirrorLabels $Side
     $evidenceFingerprint = Get-EvidenceFingerprint $resolvedRoot $ExpectedRawFiles $ExpectedScreenshotFiles
     return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; Entries = $entriesByLabel; RunIdentity = $runIdentity; EvidenceFingerprint = $evidenceFingerprint }
@@ -1149,6 +1224,41 @@ try {
     $expectedRawFiles = @($expectedSafeLabels | ForEach-Object { "$_/result.json" })
     $expectedScreenshotFiles = @($expectedSafeLabels | ForEach-Object { "$_.png" })
 
+    $reviewedGhostEnvelopeRuleKeys = @(
+        '2elf-2.46|a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0|compatible|GET|OnBoot|200|success|<null>',
+        'tewire-sen|2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8|compatible|GET|OnBoot|200|success|<null>',
+        'Yes Man-2.1.1|aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8|compatible|GET|OnBoot|200|success|<null>',
+        'Big Red Button|36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d|compatible|GET|OnBoot|200|success|<null>',
+        'Earthquake Rescue Duo|06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538|compatible|GET|OnBoot|200|success|<null>',
+        'LOBO|f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7|compatible|GET|OnBoot|200|success|<null>',
+        'Nanika Atsume 1.0.0|0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9|compatible|GET|OnBoot|200|success|<null>',
+        'Nanika Atsume 1.0.1|9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c|compatible|GET|OnBoot|200|success|<null>',
+        'Nanika Atsume silent_ALPHA|be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17|compatible|GET|OnBoot|200|success|<null>',
+        'Snake and Otacon V1.0.0|526b7721103031fb3f28b22fffc54b71fd0b1e279168934a06d8076e20a1cbcc|incompatible|<null>|<null>|<null>|not-applicable:install-rejected|<null>',
+        'Snake and Otacon V1.0.1|6f44dd039c17093d3f91e47bb9c474e128eb34fa4bfeb5ef3148625bbd613764|incompatible|<null>|<null>|<null>|not-applicable:install-rejected|<null>',
+        'Snake And Otacon V1.1.1|21253507c17e90073974229ddf8b0d39e36efcae968a27c2569fe5c46c201e4b|incompatible|<null>|<null>|<null>|not-applicable:install-rejected|<null>',
+        'Snake and Otacon V1.2.1|a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f|compatible|GET|OnBoot|200|success|<null>',
+        'Snake and Otacon V1.3.1|a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219|compatible|GET|OnBoot|200|success|<null>',
+        'Snake and Otacon V1.3.2|1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5|compatible|GET|OnFirstBoot|200|success|<null>',
+        'Snake_Otacon_1.1.1b|ef1590f766964b1932020abf6e93aa229be12fbc6ba9238a4e5cda90939f4d70|incompatible|<null>|<null>|<null>|not-applicable:install-rejected|<null>',
+        'Snake_Otacon_1.2.1b|4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45|partiallyCompatible|GET|OnBoot|200|not-supported-shiori|<null>',
+        'Snake_Otacon_1.3.1b|04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59|compatible|GET|OnBoot|200|success|<null>',
+        'Watchdog Bancho|8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca|compatible|GET|OnBoot|200|success|<null>'
+    )
+    $ghostEnvelopeRules = Get-RequiredProperty $contract 'ghostEnvelopeRules' 'comparison contract'
+    Assert-JsonKind $ghostEnvelopeRules @('array') 'comparison contract ghostEnvelopeRules' | Out-Null
+    $actualGhostEnvelopeRuleKeys = @($ghostEnvelopeRules | ForEach-Object { Get-GhostEnvelopeRuleKey $_ 'comparison contract ghost envelope rule' })
+    Assert-ExactSet $actualGhostEnvelopeRuleKeys $reviewedGhostEnvelopeRuleKeys 'comparison contract ghost envelope rule set'
+    $ghostEnvelopeRulesByLabel = @{}
+    foreach ($rule in $ghostEnvelopeRules) {
+        $label = [string]$rule.label
+        $entry = @($entries | Where-Object { [string]$_.label -ceq $label })
+        if ($entry.Count -ne 1) { throw "comparison contract ghost envelope rule '$label' has no unique manifest entry" }
+        Assert-EqualString (Get-RequiredProperty $entry[0] 'expectedKind' "manifest entry '$label'") 'ghost' "comparison contract ghost envelope expected kind for '$label'"
+        Assert-EqualString $rule.archiveSha256 ([string]$entry[0].sha256) "comparison contract ghost envelope archive SHA for '$label'"
+        $ghostEnvelopeRulesByLabel[$label] = $rule
+    }
+
     $stochasticLabels = @($contract.stochasticDialogueValues | ForEach-Object { [string]$_.label })
     $requiredStochasticLabels = @('2elf-2.46', 'Earthquake Rescue Duo', 'LOBO', 'Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b', 'Watchdog Bancho')
     Assert-ExactSet $stochasticLabels $requiredStochasticLabels 'comparison contract stochastic label set'
@@ -1296,11 +1406,11 @@ try {
 
     $manifestSha = Get-Sha256 $ManifestPath
     $contractSha = Get-Sha256 $ContractPath
-    $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
+    $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $ghostEnvelopeRulesByLabel $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
     if ($ComparisonKind -eq 'BaseCandidate') {
         Assert-BaseBasePrerequisite $resolvedBaseBaseReportPath $manifestSha $contractSha $base.Summary.device $base.EvidenceFingerprint
     }
-    $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
+    $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $ghostEnvelopeRulesByLabel $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
 
     if ($base.EvidenceFingerprint -ceq $candidate.EvidenceFingerprint) {
         throw "$ComparisonKind comparison requires distinct base and candidate evidence fingerprints"
