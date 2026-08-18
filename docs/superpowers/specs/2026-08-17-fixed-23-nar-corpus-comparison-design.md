@@ -92,6 +92,11 @@ The static contract enumerates every normalizable metadata path, category, and
 accepted original JSON kind. The only normalizable categories are run IDs,
 timestamps, durations, report roots, and run-owned paths. A value is normalized
 only when its JSON path, metadata category, and scalar kind are declared. The
+declared selector and every expected instance are mandatory in each evidence
+root: missing parents or leaves, zero/extra selector matches, and undeclared
+kind changes fail before normalization. A present `null` remains distinct from
+an absent property and is accepted only where the contract explicitly lists
+the `null` kind. The
 only dialogue value with run-ID normalization is `Yes Man-2.1.1`, and it must
 contain the exact declared private per-run archive path shape. Only that complete
 path occurrence is replaced; another bare run ID in the same value remains
@@ -189,7 +194,8 @@ Add a focused PowerShell host test script that constructs a complete synthetic
 - exact equality;
 - result-path and label-set mismatch;
 - a raw difference hidden from `summary.json`;
-- each enumerated normalization category and rejection of an undeclared field;
+- each enumerated normalization category, required-selector presence and
+  cardinality, declared nullable values, and rejection of an undeclared field;
 - a reviewed stochastic hash;
 - the two reviewed 2elf hashes across raw, required-evidence, and named-sentinel mirrors;
 - an unlisted value hash;

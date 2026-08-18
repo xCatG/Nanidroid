@@ -90,7 +90,12 @@ function New-ReportFixture {
             passed = $true
             classification = 'compatible'
             dialogueProbe = [pscustomobject]@{ outcome = 'success'; value = $value }
-            evidence = [pscustomobject]@{ stable = $true }
+            evidence = [pscustomobject]@{
+                stable = $true
+                sourceSyntax = [pscustomobject]@{ scanRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/source" }
+            }
+            sakura = [pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/sakura" }
+            kero = [pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/kero" }
             cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @(); hostVerified = $true }
         }
         foreach ($requiredName in @($entry.requiredEvidence)) {
@@ -120,8 +125,10 @@ function New-ReportFixture {
             requiredEvidencePayload = $payload
             resultPath = "/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/$safeLabel/result.json"
             screenshotPath = "/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/$safeLabel/screenshot.png"
+            crashLogPath = (Join-Path $Root "$safeLabel\crash-log.txt")
             status = 'ok'
             output = "Time: 1.0 run=$RunId"
+            error = ''
             cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @(); hostVerified = $true }
             postCleanupPrivateSnapshot = @()
             postCleanupOutputSnapshot = @()
@@ -330,6 +337,31 @@ try {
     Assert-Fail 'path JSON kind mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'resultPath.*kind'
 
     Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) foreach ($row in $s.results) { $row.PSObject.Properties.Remove('resultPath') } }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) foreach ($row in $s.results) { $row.PSObject.Properties.Remove('resultPath') } }
+    Assert-Fail 'normalization path missing from both summaries' (Invoke-Comparator (Get-ComparatorArguments)) 'normalization property is missing.*results\[0\]\.resultPath'
+    $missingBothReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
+    if ([string]$missingBothReport.failure.artifact -cne 'summary' -or [string]$missingBothReport.failure.label -cne '2elf-2.46' -or
+        [string]$missingBothReport.failure.path -cne 'results[0].resultPath') {
+        throw 'missing-both normalization failure did not report summary/label/path evidence.'
+    }
+    Write-Host 'PASS: missing-both normalization failure is structured'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[0].PSObject.Properties.Remove('resultPath') }
+    Assert-Fail 'normalization path missing from one summary' (Invoke-Comparator (Get-ComparatorArguments)) 'normalization property is missing.*results\[0\]\.resultPath'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\Yes-Man-2.1.1\result.json') { param($r) $r.dialogueProbe.PSObject.Properties.Remove('value') }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Yes-Man-2.1.1\result.json') { param($r) $r.dialogueProbe.PSObject.Properties.Remove('value') }
+    Assert-Fail 'label-scoped Yes Man normalization path missing from both raws' (Invoke-Comparator (Get-ComparatorArguments)) 'raw\[Yes Man-2\.1\.1\].*normalization property is missing.*dialogueProbe\.value'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.results[0].durationSeconds = $null }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[0].durationSeconds = $null }
+    Assert-Pass 'declared nullable normalization value remains present' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'base\tewire-sen\result.json') { param($r) $r.dialogueProbe.value = "behavior:$('1' * 32)" }
     Save-Json (Join-Path $fixtureRoot 'candidate\tewire-sen\result.json') { param($r) $r.dialogueProbe.value = "behavior:$('2' * 32)" }
     Assert-Fail 'non-Yes-Man run-id-bearing dialogue remains behavioral' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.value'
@@ -401,7 +433,7 @@ try {
     Write-Json $prerequisite $failedPrerequisite
     Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
 
-    Write-Host 'Comparator host tests passed: 39 cases.'
+    Write-Host 'Comparator host tests passed: 44 cases.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }

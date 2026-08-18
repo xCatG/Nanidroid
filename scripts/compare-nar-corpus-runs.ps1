@@ -290,35 +290,60 @@ function Set-PathPatternValue {
     param(
         [object]$Root,
         [string]$Pattern,
-        [scriptblock]$Transform
+        [scriptblock]$Transform,
+        [string]$Context = 'summary',
+        [int]$ExpectedMatchCount = 1
     )
     $segments = $Pattern.Split('.')
-    function Visit([object]$Node, [int]$Index) {
-        if ($null -eq $Node) { return }
+    $state = @{ MatchCount = 0 }
+    function Get-NodeContext([object]$Node) {
+        if ($Context -ceq 'summary' -and $null -ne $Node -and $null -ne $Node.PSObject.Properties['label']) {
+            return "summary result '$([string]$Node.label)'"
+        }
+        return $Context
+    }
+    function Visit([object]$Node, [int]$Index, [string]$ResolvedParentPath) {
+        if ($null -eq $Node) {
+            $missingPath = if ([string]::IsNullOrEmpty($ResolvedParentPath)) { $segments[$Index] } else { "$ResolvedParentPath.$($segments[$Index])" }
+            throw "$Context normalization parent is null at $missingPath"
+        }
         $segment = $segments[$Index]
         $arraySegment = $segment.EndsWith('[]')
         $propertyName = if ($arraySegment) { $segment.Substring(0, $segment.Length - 2) } else { $segment }
+        $propertyPath = if ([string]::IsNullOrEmpty($ResolvedParentPath)) { $propertyName } else { "$ResolvedParentPath.$propertyName" }
         $property = $Node.PSObject.Properties[$propertyName]
-        if ($null -eq $property) { return }
+        if ($null -eq $property) {
+            throw "$(Get-NodeContext $Node) normalization property is missing at $propertyPath"
+        }
+        if ($arraySegment -and (Get-ObjectKind $property.Value) -cne 'array') {
+            throw "$(Get-NodeContext $Node) normalization selector must be an array at $propertyPath"
+        }
         if ($Index -eq $segments.Count - 1) {
             if ($arraySegment) {
                 for ($itemIndex = 0; $itemIndex -lt @($property.Value).Count; $itemIndex++) {
                     $property.Value[$itemIndex] = & $Transform $property.Value[$itemIndex]
+                    $state.MatchCount++
                 }
             }
             else {
                 $property.Value = & $Transform $property.Value
+                $state.MatchCount++
             }
             return
         }
         if ($arraySegment) {
-            foreach ($item in @($property.Value)) { Visit $item ($Index + 1) }
+            for ($itemIndex = 0; $itemIndex -lt @($property.Value).Count; $itemIndex++) {
+                Visit $property.Value[$itemIndex] ($Index + 1) "$propertyPath[$itemIndex]"
+            }
         }
         else {
-            Visit $property.Value ($Index + 1)
+            Visit $property.Value ($Index + 1) $propertyPath
         }
     }
-    Visit $Root 0
+    Visit $Root 0 ''
+    if ($state.MatchCount -ne $ExpectedMatchCount) {
+        throw "$Context normalization selector resolved $($state.MatchCount) instances; expected $ExpectedMatchCount at $Pattern"
+    }
 }
 
 function Assert-ProductionIdentity([object]$Summary, [string]$Commit, [string]$DebugSha, [string]$Side) {
@@ -483,22 +508,26 @@ function ConvertTo-CanonicalRun {
 
     foreach ($path in @($Contract.normalization.summaryRunIdPaths)) {
         $pathText = [string]$path
-        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<RUN_ID:$kind>" }
+        $expectedMatches = if ($pathText.Contains('[]')) { $Run.Rows.Count } else { 1 }
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<RUN_ID:$kind>" } -Context 'summary' -ExpectedMatchCount $expectedMatches
     }
     foreach ($path in @($Contract.normalization.summaryTimestampPaths)) {
         $pathText = [string]$path
-        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<TIMESTAMP:$kind>" }
+        $expectedMatches = if ($pathText.Contains('[]')) { $Run.Rows.Count } else { 1 }
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<TIMESTAMP:$kind>" } -Context 'summary' -ExpectedMatchCount $expectedMatches
     }
     foreach ($path in @($Contract.normalization.summaryDurationPaths)) {
         $pathText = [string]$path
-        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<DURATION:$kind>" }
+        $expectedMatches = if ($pathText.Contains('[]')) { $Run.Rows.Count } else { 1 }
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<DURATION:$kind>" } -Context 'summary' -ExpectedMatchCount $expectedMatches
     }
     foreach ($path in @($Contract.normalization.summaryReportRootPaths)) {
         $pathText = [string]$path
-        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<REPORT_PATH:$kind>" }
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<REPORT_PATH:$kind>" } -Context 'summary'
     }
     foreach ($path in @($Contract.normalization.summaryRunOwnedStringPaths)) {
         $pathText = [string]$path
+        $expectedMatches = if ($pathText.Contains('[]')) { $Run.Rows.Count } else { 1 }
         Set-PathPatternValue $summary $pathText {
             param($value)
             $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value
@@ -506,18 +535,18 @@ function ConvertTo-CanonicalRun {
                 return ([string]$value -replace [regex]::Escape([string]$Run.Summary.runId), '<RUN_ID>' -replace 'Time:\s+[0-9]+(?:\.[0-9]+)?', 'Time: <DURATION>')
             }
             return "<RUN_OWNED_PATH:$kind>"
-        }
+        } -Context 'summary' -ExpectedMatchCount $expectedMatches
     }
 
     foreach ($identityPath in @('production.commit', 'production.debugApkSha256', 'harness.commit', 'harness.tree', 'harness.runnerSha256', 'harness.instrumentationSourceSha256', 'harness.testApkSha256', 'git.commit', 'apks.debugSha256', 'apks.testSha256')) {
-        Set-PathPatternValue $summary $identityPath { '<VALIDATED_IDENTITY>' }
+        Set-PathPatternValue $summary $identityPath { '<VALIDATED_IDENTITY>' } -Context 'summary'
     }
 
     foreach ($label in @($rawByLabel.Keys)) {
         $raw = $rawByLabel[$label]
         foreach ($path in @($Contract.normalization.rawRunOwnedStringPaths)) {
             $pathText = [string]$path
-            Set-PathPatternValue $raw $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'raw' $pathText $value; "<RUN_OWNED_PATH:$kind>" }
+            Set-PathPatternValue $raw $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'raw' $pathText $value; "<RUN_OWNED_PATH:$kind>" } -Context "raw[$label]"
         }
     }
 
@@ -534,7 +563,7 @@ function ConvertTo-CanonicalRun {
             }
             $normalizedShape = ([string]$rule.requiredShape).Replace('{runId}', "<RUN_ID:$kind>")
             return ([string]$value).Replace($requiredShape, $normalizedShape)
-        }
+        } -Context "raw[$label]"
     }
 
     foreach ($rule in @($Contract.stochasticDialogueValues)) {
