@@ -47,7 +47,7 @@ function Write-Json([string]$Path, [object]$Value) {
 }
 
 function Get-Json([string]$Path) {
-    Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -DateKind String
 }
 
 function New-ReportFixture {
@@ -64,7 +64,15 @@ function New-ReportFixture {
     foreach ($entry in $manifest.entries) {
         $label = [string]$entry.label
         $safeLabel = ConvertTo-SafeLabel $label
-        $value = if ($dialogueValues.ContainsKey($label)) { $dialogueValues[$label] } else { "stable:$label" }
+        $value = if ($dialogueValues.ContainsKey($label)) {
+            $dialogueValues[$label]
+        }
+        elseif ($label -ceq 'Yes Man-2.1.1') {
+            "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/Yes-Man-2.1.1/probe-install/file.nar"
+        }
+        else {
+            "stable:$label"
+        }
         $raw = [pscustomobject][ordered]@{
             schemaVersion = '1'
             label = $label
@@ -132,7 +140,10 @@ function New-ReportFixture {
         cleanupVerification = 'verified'
         sentinels = [pscustomobject]@{
             passed = $true
-            checks = @([pscustomobject]@{ name = 'slice2-2elf-dialogue-value-nonblank'; passed = $true; expected = 'nonblank'; observed = $twoElfValue })
+            checks = @(
+                [pscustomobject]@{ name = 'slice2-2elf-dialogue-value-nonblank'; passed = $true; expected = 'nonblank'; observed = $twoElfValue },
+                [pscustomobject]@{ name = 'fixture-all-results'; passed = $true; expected = 23; observed = 23 }
+            )
         }
     }
     Write-Json -Path (Join-Path $Root 'summary.json') -Value $summary
@@ -240,9 +251,27 @@ try {
     Assert-Fail 'identically failed runs' (Invoke-Comparator (Get-ComparatorArguments)) 'successful run'
 
     Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.unexpectedAbort = 0 }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.unexpectedAbort = 0 }
+    Assert-Fail 'success boolean must retain JSON kind' (Invoke-Comparator (Get-ComparatorArguments)) 'unexpectedAbort.*boolean'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.sentinels.checks = $s.sentinels.checks[0] }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.sentinels.checks = $s.sentinels.checks[0] }
+    Assert-Fail 'sentinel checks must remain a JSON array' (Invoke-Comparator (Get-ComparatorArguments)) 'checks.*array'
+
+    Reset-Fixtures
+    $staleSuccess = Invoke-Comparator (Get-ComparatorArguments)
+    if ($staleSuccess.ExitCode -ne 0) { throw "failed to seed stale success report: $($staleSuccess.Output)" }
     $hiddenRawPath = Join-Path $fixtureRoot 'candidate\LOBO\result.json'
     Save-Json $hiddenRawPath { param($r) $r.evidence | Add-Member -NotePropertyName hidden -NotePropertyValue 'candidate-only' }
     Assert-Fail 'hidden raw difference' (Invoke-Comparator (Get-ComparatorArguments)) 'evidence.hidden'
+    $failureReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
+    if ($failureReport.passed -ne $false -or [string]::IsNullOrWhiteSpace([string]$failureReport.failure.reason) -or
+        [string]::IsNullOrWhiteSpace([string]$failureReport.failure.artifact) -or [string]::IsNullOrWhiteSpace([string]$failureReport.failure.path)) {
+        throw 'raw-difference failure did not atomically replace output with bounded structured failure evidence.'
+    }
+    Write-Host 'PASS: structured failure report replaces stale output'
 
     Reset-Fixtures
     Move-Item -LiteralPath (Join-Path $fixtureRoot 'candidate\LOBO') -Destination (Join-Path $fixtureRoot 'candidate\LOBO-renamed')
@@ -255,6 +284,24 @@ try {
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/ffffffffffffffffffffffffffffffff/LOBO/nanidroid-corpus.nar' }
     Assert-Pass 'enumerated run metadata normalization' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[0].durationSeconds = '1' }
+    Assert-Fail 'duration JSON kind mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'durationSeconds.*kind'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[0].resultPath = $null }
+    Assert-Fail 'path JSON kind mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'resultPath.*kind'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\tewire-sen\result.json') { param($r) $r.dialogueProbe.value = "behavior:$('1' * 32)" }
+    Save-Json (Join-Path $fixtureRoot 'candidate\tewire-sen\result.json') { param($r) $r.dialogueProbe.value = "behavior:$('2' * 32)" }
+    Assert-Fail 'non-Yes-Man run-id-bearing dialogue remains behavioral' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.value'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\Yes-Man-2.1.1\result.json') { param($r) $r.dialogueProbe.value = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$('1' * 32)/Yes-Man-2.1.1/probe-install/file.nar" }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Yes-Man-2.1.1\result.json') { param($r) $r.dialogueProbe.value = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$('2' * 32)/Yes-Man-2.1.1/probe-install/file.nar" }
+    Assert-Pass 'scoped Yes Man run-owned dialogue path normalization' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
     $expandedContractPath = Join-Path $fixtureRoot 'expanded-contract.json'
@@ -299,6 +346,9 @@ try {
     New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
     Assert-Fail 'missing base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'BaseBaseReportPath'
     Assert-Pass 'bound base/candidate comparison' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha))
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.startedAt = '2026-08-17T00:03:00Z' }
+    Assert-Fail 'replaced base evidence rejects stale prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'evidence fingerprint'
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.startedAt = '2026-08-17T00:00:00Z' }
     $mismatchedPrerequisite = Get-Json $prerequisite
     $mismatchedPrerequisite.device.abi = 'arm64-v8a'
     Write-Json $prerequisite $mismatchedPrerequisite
@@ -310,7 +360,7 @@ try {
     Write-Json $prerequisite $failedPrerequisite
     Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
 
-    Write-Host 'Comparator host tests passed: 24 cases.'
+    Write-Host 'Comparator host tests passed: 32 cases.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }

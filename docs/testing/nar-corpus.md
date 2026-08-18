@@ -29,7 +29,7 @@ device copies in `finally` blocks.
   `-HarnessCommit` (optional as one all-or-none group): run a separately built,
   pristine production APK with the committed fixed-harness test APK. The runner
   does not build in this mode. It requires `HarnessCommit` to be the checked-out
-  clean harness commit and records its Git tree plus the runner, instrumentation
+  clean harness commit with no tracked or untracked overlays and records its Git tree plus the runner, instrumentation
   source, and test APK hashes. Omit all four only for a standalone one-tree audit.
 - `-PerArchiveTimeoutMinutes` (optional): hard timeout in minutes for each
   `am instrument` run. This is a host-side corpus safety bound, not the app's
@@ -199,4 +199,6 @@ The comparator independently requires both run summaries to be successful,
 then exhaustively compares `summary.json`, the exact 23 raw `result.json` files,
 and the exact 23 screenshot hashes. A base/candidate invocation cannot proceed
 without a passing base/base report bound to the same base, harness, manifest,
-contract, and emulator identity.
+contract, and emulator identity. That proof includes an exact evidence
+fingerprint, and every comparison atomically replaces its output with either a
+passing report or a bounded structured failure report.

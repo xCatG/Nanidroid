@@ -16,7 +16,7 @@
 - Do not change `docs/testing/nar-corpus-manifest.json` or its schema.
 - Keep the new contract separate from PR #394 rolling metadata.
 - Accept stochastic inequality only for the six exact labels and reviewed hashes in the spec.
-- Normalize only enumerated run IDs, timestamps, durations, report roots, and run-owned paths.
+- Normalize only enumerated run IDs, timestamps, durations, report roots, and run-owned paths after validating their declared JSON kinds. Scope the embedded dialogue run-ID path only to the exact Yes Man row and path shape.
 - Validate explicit base/candidate production commit/debug APK identities and one shared harness commit/runner/instrumentation/test APK identity before excluding those exact leaves from behavioral equality.
 - Do not add, modify, commit, download, or copy `.nar` payloads.
 - Do not run the full device corpus before focused host verification and review.
@@ -167,7 +167,7 @@ Run the Task 1 Step 5 command. Expected: failure in the new external-identity pr
 
 - [ ] **Step 3: Implement external fixed-harness mode**
 
-Add `-ProductionDebugApkPath`, `-HarnessTestApkPath`, `-ProductionCommit`, and `-HarnessCommit`. Require all four or none. In external mode do not build; resolve and hash both APKs, require `HarnessCommit` to equal `git rev-parse HEAD`, and reject a dirty harness checkout. In legacy one-tree mode retain the current build for standalone audits but mark production and harness as the same current commit.
+Add `-ProductionDebugApkPath`, `-HarnessTestApkPath`, `-ProductionCommit`, and `-HarnessCommit`. Require all four or none, including in DryRun. In external mode do not build; resolve and hash both APKs, require `HarnessCommit` to equal `git rev-parse HEAD`, and reject tracked or untracked harness overlays. In legacy one-tree mode retain the current build for standalone audits but mark production and harness as the same current commit.
 
 - [ ] **Step 4: Record auditable identity objects**
 
@@ -221,7 +221,7 @@ Require failures for a renamed raw directory, missing/duplicate label, extra raw
 
 - [ ] **Step 5: Write failing normalization cases**
 
-Require success when only declared run IDs, timestamps, durations, report roots, and run-owned paths differ. Change adjacent `classification` and require failure at `classification`.
+Require success when only declared run IDs, timestamps, durations, report roots, and run-owned paths differ. Require Yes Man's exact embedded run path to normalize, but reject a run ID in another dialogue value. Reject duration/path scalar-kind changes. Change adjacent `classification` and require failure at `classification`.
 
 - [ ] **Step 6: Write failing stochastic and screenshot cases**
 

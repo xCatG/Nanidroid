@@ -26,7 +26,7 @@ function Read-JsonFile([string]$Path, [string]$Description) {
         throw "$Description does not exist: $Path"
     }
     try {
-        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -DateKind String
     }
     catch {
         throw "$Description is not valid JSON: $Path ($($_.Exception.Message))"
@@ -37,7 +37,7 @@ function Get-RequiredProperty([object]$Object, [string]$Name, [string]$Context) 
     if ($null -eq $Object -or $null -eq $Object.PSObject.Properties[$Name]) {
         throw "$Context is missing required property '$Name'"
     }
-    return $Object.$Name
+    return ,$Object.$Name
 }
 
 function Assert-EqualString([object]$Actual, [string]$Expected, [string]$Context) {
@@ -67,6 +67,32 @@ function Get-StringSha256([string]$Value) {
     }
 }
 
+function Write-ComparisonReportAtomic([object]$Report) {
+    $resolvedOutputPath = [IO.Path]::GetFullPath($OutputPath)
+    $outputDirectory = Split-Path -Parent $resolvedOutputPath
+    if (-not (Test-Path -LiteralPath $outputDirectory)) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
+    $temporaryPath = Join-Path $outputDirectory ('.' + [IO.Path]::GetFileName($resolvedOutputPath) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $Report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $temporaryPath -Encoding utf8
+        [IO.File]::Move($temporaryPath, $resolvedOutputPath, $true)
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -LiteralPath $temporaryPath -Force }
+    }
+}
+
+function Get-EvidenceFingerprint([string]$Root, [string[]]$RawFiles, [string[]]$ScreenshotFiles) {
+    $items = [Collections.Generic.List[string]]::new()
+    $items.Add("summary.json`t$(Get-Sha256 (Join-Path $Root 'summary.json'))")
+    foreach ($relativePath in @($RawFiles | Sort-Object -CaseSensitive)) {
+        $items.Add("$relativePath`t$(Get-Sha256 (Join-Path $Root $relativePath))")
+    }
+    foreach ($relativePath in @($ScreenshotFiles | Sort-Object -CaseSensitive)) {
+        $items.Add("screenshots/$relativePath`t$(Get-Sha256 (Join-Path (Join-Path $Root 'screenshots') $relativePath))")
+    }
+    return Get-StringSha256 ($items -join "`n")
+}
+
 function Get-RelativeFileSet([string]$Root, [string]$Filter) {
     if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return @() }
     return @(
@@ -89,8 +115,25 @@ function Get-ObjectKind([object]$Value) {
     if ($Value -is [string]) { return 'string' }
     if ($Value -is [bool]) { return 'boolean' }
     if ($Value -is [System.Collections.IList]) { return 'array' }
+    if ($Value -is [byte] -or $Value -is [sbyte] -or $Value -is [short] -or $Value -is [ushort] -or
+        $Value -is [int] -or $Value -is [uint] -or $Value -is [long] -or $Value -is [ulong] -or
+        $Value -is [float] -or $Value -is [double] -or $Value -is [decimal]) { return 'number' }
     if ($Value -is [ValueType]) { return $Value.GetType().FullName }
     return 'object'
+}
+
+function Assert-JsonKind([object]$Value, [string[]]$AllowedKinds, [string]$Context) {
+    $kind = Get-ObjectKind $Value
+    if ($AllowedKinds -cnotcontains $kind) {
+        throw "$Context has JSON kind '$kind'; expected $($AllowedKinds -join ' or ')"
+    }
+    return $kind
+}
+
+function Assert-NormalizationKind([object]$Contract, [string]$Scope, [string]$Path, [object]$Value) {
+    $rules = @($Contract.normalization.expectedKinds | Where-Object { [string]$_.scope -ceq $Scope -and [string]$_.path -ceq $Path })
+    if ($rules.Count -ne 1) { throw "comparison contract normalization kind rule is not unique for $Scope $Path" }
+    return Assert-JsonKind $Value @($rules[0].kinds | ForEach-Object { [string]$_ }) "normalization path $Scope.$Path"
 }
 
 function Find-FirstDifference([object]$Left, [object]$Right, [string]$Path = '$') {
@@ -129,7 +172,7 @@ function Find-FirstDifference([object]$Left, [object]$Right, [string]$Path = '$'
 }
 
 function Copy-JsonObject([object]$Value) {
-    return $Value | ConvertTo-Json -Depth 100 | ConvertFrom-Json
+    return $Value | ConvertTo-Json -Depth 100 | ConvertFrom-Json -DateKind String
 }
 
 function Set-PathPatternValue {
@@ -192,27 +235,47 @@ function Assert-HarnessIdentity([object]$Summary, [string]$Side) {
 
 function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [string]$Side) {
     $sentinels = Get-RequiredProperty $Summary 'sentinels' "$Side summary"
-    if ((Get-RequiredProperty $sentinels 'passed' "$Side sentinels") -ne $true) { throw "$Side is not a successful run: sentinels.passed is not true" }
-    $failedSentinels = @((Get-RequiredProperty $sentinels 'checks' "$Side sentinels") | Where-Object { $_.passed -ne $true })
+    $sentinelsPassed = Get-RequiredProperty $sentinels 'passed' "$Side sentinels"
+    Assert-JsonKind $sentinelsPassed @('boolean') "$Side sentinels.passed" | Out-Null
+    if ($sentinelsPassed -ne $true) { throw "$Side is not a successful run: sentinels.passed is not true" }
+    $sentinelChecks = Get-RequiredProperty $sentinels 'checks' "$Side sentinels"
+    Assert-JsonKind $sentinelChecks @('array') "$Side sentinels.checks" | Out-Null
+    foreach ($check in @($sentinelChecks)) { Assert-JsonKind $check.passed @('boolean') "$Side sentinel check '$($check.name)'.passed" | Out-Null }
+    $failedSentinels = @($sentinelChecks | Where-Object { $_.passed -ne $true })
     if ($failedSentinels.Count -ne 0) { throw "$Side is not a successful run: $($failedSentinels.Count) sentinel checks failed" }
-    if (@((Get-RequiredProperty $Summary 'failures' "$Side summary")).Count -ne 0) { throw "$Side is not a successful run: failures is not empty" }
-    if ((Get-RequiredProperty $Summary 'unexpectedAbort' "$Side summary") -ne $false) { throw "$Side is not a successful run: unexpectedAbort" }
-    if ((Get-RequiredProperty $Summary 'abortedDueToTimeout' "$Side summary") -ne $false) { throw "$Side is not a successful run: abortedDueToTimeout" }
+    $failures = Get-RequiredProperty $Summary 'failures' "$Side summary"
+    Assert-JsonKind $failures @('array') "$Side failures" | Out-Null
+    if (@($failures).Count -ne 0) { throw "$Side is not a successful run: failures is not empty" }
+    $unexpectedAbort = Get-RequiredProperty $Summary 'unexpectedAbort' "$Side summary"
+    Assert-JsonKind $unexpectedAbort @('boolean') "$Side unexpectedAbort" | Out-Null
+    if ($unexpectedAbort -ne $false) { throw "$Side is not a successful run: unexpectedAbort" }
+    $abortedDueToTimeout = Get-RequiredProperty $Summary 'abortedDueToTimeout' "$Side summary"
+    Assert-JsonKind $abortedDueToTimeout @('boolean') "$Side abortedDueToTimeout" | Out-Null
+    if ($abortedDueToTimeout -ne $false) { throw "$Side is not a successful run: abortedDueToTimeout" }
     Assert-EqualString (Get-RequiredProperty $Summary 'cleanupVerification' "$Side summary") 'verified' "$Side successful run cleanupVerification"
 
     foreach ($row in @($Summary.results)) {
         $label = [string]$row.label
+        Assert-JsonKind $row.passed @('boolean') "$Side summary result '$label'.passed" | Out-Null
+        Assert-JsonKind $row.status @('string') "$Side summary result '$label'.status" | Out-Null
         if ($row.passed -ne $true -or [string]$row.status -cne 'ok') { throw "$Side is not a successful run: summary result '$label' did not pass with status ok" }
         $rowCleanup = Get-RequiredProperty $row 'cleanup' "$Side summary result '$label'"
+        Assert-JsonKind $rowCleanup.hostVerified @('boolean') "$Side summary result '$label'.cleanup.hostVerified" | Out-Null
+        Assert-JsonKind $rowCleanup.remainingTestOwnedPaths @('array') "$Side summary result '$label'.cleanup.remainingTestOwnedPaths" | Out-Null
         if ($rowCleanup.hostVerified -ne $true -or @($rowCleanup.remainingTestOwnedPaths).Count -ne 0) { throw "$Side is not a successful run: summary cleanup residue for '$label'" }
         foreach ($snapshotName in @('postCleanupPrivateSnapshot', 'postCleanupOutputSnapshot', 'postCleanupTmpSnapshot')) {
-            if (@((Get-RequiredProperty $row $snapshotName "$Side summary result '$label'")).Count -ne 0) {
+            $snapshot = Get-RequiredProperty $row $snapshotName "$Side summary result '$label'"
+            Assert-JsonKind $snapshot @('array') "$Side summary result '$label'.$snapshotName" | Out-Null
+            if (@($snapshot).Count -ne 0) {
                 throw "$Side is not a successful run: $snapshotName contains residue for '$label'"
             }
         }
         $raw = $RawByLabel[$label]
+        Assert-JsonKind $raw.passed @('boolean') "$Side raw result '$label'.passed" | Out-Null
         if ($raw.passed -ne $true) { throw "$Side is not a successful run: raw result '$label' did not pass" }
         $rawCleanup = Get-RequiredProperty $raw 'cleanup' "$Side raw result '$label'"
+        Assert-JsonKind $rawCleanup.hostVerified @('boolean') "$Side raw result '$label'.cleanup.hostVerified" | Out-Null
+        Assert-JsonKind $rawCleanup.remainingTestOwnedPaths @('array') "$Side raw result '$label'.cleanup.remainingTestOwnedPaths" | Out-Null
         if ($rawCleanup.hostVerified -ne $true -or @($rawCleanup.remainingTestOwnedPaths).Count -ne 0) { throw "$Side is not a successful run: raw cleanup residue for '$label'" }
     }
 }
@@ -236,7 +299,9 @@ function Read-AndValidateRun {
     Assert-ProductionIdentity $summary $ExpectedCommit $ExpectedDebugSha $Side
     Assert-HarnessIdentity $summary $Side
 
-    $rows = @($summary.results)
+    $summaryResults = Get-RequiredProperty $summary 'results' "$Side summary"
+    Assert-JsonKind $summaryResults @('array') "$Side summary.results" | Out-Null
+    $rows = @($summaryResults)
     $summaryLabels = @($rows | ForEach-Object { [string]$_.label })
     Assert-ExactSet $summaryLabels $ExpectedLabels "$Side summary label set"
     if (@($summaryLabels | Select-Object -Unique).Count -ne $ExpectedLabels.Count) { throw "$Side summary label set contains duplicates" }
@@ -256,6 +321,7 @@ function Read-AndValidateRun {
         Assert-EqualString $row.safeLabel $safeLabel "$Side summary safeLabel for '$label'"
         Assert-EqualString $row.sha256 ([string]$entry.sha256) "$Side summary archive SHA for '$label'"
         $requiredNames = @($entry.requiredEvidence | ForEach-Object { [string]$_ })
+        Assert-JsonKind $row.requiredEvidence @('array') "$Side requiredEvidence for '$label'" | Out-Null
         Assert-ExactSet @($row.requiredEvidence | ForEach-Object { [string]$_ }) $requiredNames "$Side required evidence name set for '$label'"
 
         $rawPath = Join-Path $resolvedRoot "$safeLabel\result.json"
@@ -273,7 +339,8 @@ function Read-AndValidateRun {
         $rowByLabel[$label] = $row
     }
     Assert-SuccessfulRun $summary $rawByLabel $Side
-    return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel }
+    $evidenceFingerprint = Get-EvidenceFingerprint $resolvedRoot $ExpectedRawFiles $ExpectedScreenshotFiles
+    return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; EvidenceFingerprint = $evidenceFingerprint }
 }
 
 function Assert-StochasticValue {
@@ -303,18 +370,31 @@ function ConvertTo-CanonicalRun {
     $rawByLabel = @{}
     foreach ($label in $Run.Raw.Keys) { $rawByLabel[$label] = Copy-JsonObject $Run.Raw[$label] }
 
-    foreach ($path in @($Contract.normalization.summaryRunIdPaths)) { Set-PathPatternValue $summary ([string]$path) { '<RUN_ID>' } }
-    foreach ($path in @($Contract.normalization.summaryTimestampPaths)) { Set-PathPatternValue $summary ([string]$path) { '<TIMESTAMP>' } }
-    foreach ($path in @($Contract.normalization.summaryDurationPaths)) { Set-PathPatternValue $summary ([string]$path) { '<DURATION>' } }
-    foreach ($path in @($Contract.normalization.summaryReportRootPaths)) { Set-PathPatternValue $summary ([string]$path) { '<REPORT_PATH>' } }
+    foreach ($path in @($Contract.normalization.summaryRunIdPaths)) {
+        $pathText = [string]$path
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<RUN_ID:$kind>" }
+    }
+    foreach ($path in @($Contract.normalization.summaryTimestampPaths)) {
+        $pathText = [string]$path
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<TIMESTAMP:$kind>" }
+    }
+    foreach ($path in @($Contract.normalization.summaryDurationPaths)) {
+        $pathText = [string]$path
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<DURATION:$kind>" }
+    }
+    foreach ($path in @($Contract.normalization.summaryReportRootPaths)) {
+        $pathText = [string]$path
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<REPORT_PATH:$kind>" }
+    }
     foreach ($path in @($Contract.normalization.summaryRunOwnedStringPaths)) {
         $pathText = [string]$path
         Set-PathPatternValue $summary $pathText {
             param($value)
+            $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value
             if ($pathText.EndsWith('.output') -or $pathText.EndsWith('.error')) {
                 return ([string]$value -replace [regex]::Escape([string]$Run.Summary.runId), '<RUN_ID>' -replace 'Time:\s+[0-9]+(?:\.[0-9]+)?', 'Time: <DURATION>')
             }
-            return '<RUN_OWNED_PATH>'
+            return "<RUN_OWNED_PATH:$kind>"
         }
     }
 
@@ -326,12 +406,22 @@ function ConvertTo-CanonicalRun {
         $raw = $rawByLabel[$label]
         foreach ($path in @($Contract.normalization.rawRunOwnedStringPaths)) {
             $pathText = [string]$path
-            if ($pathText -ceq 'dialogueProbe.value') {
-                Set-PathPatternValue $raw $pathText { param($value) ([string]$value).Replace([string]$Run.Summary.runId, '<RUN_ID>') }
+            Set-PathPatternValue $raw $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'raw' $pathText $value; "<RUN_OWNED_PATH:$kind>" }
+        }
+    }
+
+    foreach ($rule in @($Contract.normalization.scopedRunOwnedValues)) {
+        $label = [string]$rule.label
+        $pathText = [string]$rule.path
+        $raw = $rawByLabel[$label]
+        Set-PathPatternValue $raw $pathText {
+            param($value)
+            $kind = Assert-JsonKind $value @($rule.kinds | ForEach-Object { [string]$_ }) "scoped normalization path raw[$label].$pathText"
+            $requiredShape = ([string]$rule.requiredShape).Replace('{runId}', [string]$Run.Summary.runId)
+            if (-not ([string]$value).Contains($requiredShape, [StringComparison]::Ordinal)) {
+                throw "scoped normalization path raw[$label].$pathText does not match its declared run-owned shape"
             }
-            else {
-                Set-PathPatternValue $raw $pathText { '<RUN_OWNED_PATH>' }
-            }
+            return ([string]$value).Replace([string]$Run.Summary.runId, "<RUN_ID:$kind>")
         }
     }
 
@@ -351,12 +441,13 @@ function ConvertTo-CanonicalRun {
     return [pscustomobject]@{ Summary = $summary; Raw = $rawByLabel }
 }
 
-function Assert-BaseBasePrerequisite([string]$Path, [string]$ManifestSha, [string]$ContractSha, [object]$Device) {
+function Assert-BaseBasePrerequisite([string]$Path, [string]$ManifestSha, [string]$ContractSha, [object]$Device, [string]$BaseEvidenceFingerprint) {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'BaseCandidate comparison requires -BaseBaseReportPath' }
     $report = Read-JsonFile $Path 'base/base prerequisite report'
     if ($report.passed -ne $true -or [string]$report.comparisonKind -cne 'BaseBase') { throw 'base/base prerequisite report is not a successful BaseBase comparison' }
     Assert-EqualString $report.manifestSha256 $ManifestSha 'base/base prerequisite manifest SHA'
     Assert-EqualString $report.contractSha256 $ContractSha 'base/base prerequisite contract SHA'
+    Assert-EqualString (Get-RequiredProperty $report 'baseEvidenceFingerprint' 'base/base prerequisite report') $BaseEvidenceFingerprint 'base/base prerequisite base evidence fingerprint'
     foreach ($identityName in @('commit', 'debugApkSha256')) {
         $expected = if ($identityName -eq 'commit') { $BaseProductionCommit } else { $BaseDebugApkSha256 }
         Assert-EqualString $report.baseIdentity.$identityName $expected "base/base prerequisite base production identity $identityName"
@@ -397,12 +488,48 @@ try {
         summaryDurationPaths = @('durationSeconds', 'results[].durationSeconds')
         summaryReportRootPaths = @('git.manifestFile', 'apks.debugPath', 'apks.testPath')
         summaryRunOwnedStringPaths = @('results[].resultPath', 'results[].screenshotPath', 'results[].crashLogPath', 'results[].output', 'results[].error')
-        rawRunOwnedStringPaths = @('narCorpusPath', 'evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source', 'dialogueProbe.value')
+        rawRunOwnedStringPaths = @('narCorpusPath', 'evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source')
     }
     foreach ($normalizationName in $requiredNormalization.Keys) {
         $actualNormalization = Get-RequiredProperty $contract.normalization $normalizationName 'comparison contract normalization'
         Assert-ExactSet @($actualNormalization | ForEach-Object { [string]$_ }) $requiredNormalization[$normalizationName] "comparison contract normalization $normalizationName"
     }
+    $expectedKindRules = @(
+        'summary|runId|runId|string',
+        'summary|results[].runId|runId|string',
+        'summary|startedAt|timestamp|string',
+        'summary|finishedAt|timestamp|string',
+        'summary|results[].startedAt|timestamp|string',
+        'summary|results[].finishedAt|timestamp|string',
+        'summary|durationSeconds|duration|number',
+        'summary|results[].durationSeconds|duration|null,number',
+        'summary|git.manifestFile|reportPath|string',
+        'summary|apks.debugPath|reportPath|string',
+        'summary|apks.testPath|reportPath|string',
+        'summary|results[].resultPath|runOwnedPath|string',
+        'summary|results[].screenshotPath|runOwnedPath|string',
+        'summary|results[].crashLogPath|runOwnedPath|string',
+        'summary|results[].output|runOwnedText|string',
+        'summary|results[].error|runOwnedText|string',
+        'raw|narCorpusPath|runOwnedPath|string',
+        'raw|evidence.sourceSyntax.scanRoot|runOwnedPath|string',
+        'raw|sakura.source|runOwnedPath|string',
+        'raw|kero.source|runOwnedPath|string'
+    )
+    $actualKindRules = @($contract.normalization.expectedKinds | ForEach-Object {
+        $kinds = @($_.kinds | ForEach-Object { [string]$_ } | Sort-Object -CaseSensitive) -join ','
+        "$([string]$_.scope)|$([string]$_.path)|$([string]$_.category)|$kinds"
+    })
+    Assert-ExactSet $actualKindRules $expectedKindRules 'comparison contract normalization expected-kind rules'
+    $scopedRules = @($contract.normalization.scopedRunOwnedValues)
+    if ($scopedRules.Count -ne 1) { throw 'comparison contract must contain exactly one scoped run-owned value rule' }
+    $scopedRule = $scopedRules[0]
+    Assert-EqualString $scopedRule.scope 'raw' 'comparison contract scoped normalization scope'
+    Assert-EqualString $scopedRule.label 'Yes Man-2.1.1' 'comparison contract scoped normalization label'
+    Assert-EqualString $scopedRule.path 'dialogueProbe.value' 'comparison contract scoped normalization path'
+    Assert-EqualString $scopedRule.category 'runOwnedEmbeddedPath' 'comparison contract scoped normalization category'
+    Assert-ExactSet @($scopedRule.kinds | ForEach-Object { [string]$_ }) @('string') 'comparison contract scoped normalization kinds'
+    Assert-EqualString $scopedRule.requiredShape '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/{runId}/Yes-Man-2.1.1/' 'comparison contract scoped normalization shape'
     foreach ($rule in @($contract.stochasticDialogueValues)) {
         $label = [string]$rule.label
         Assert-EqualString $rule.jsonPath 'dialogueProbe.value' "comparison contract stochastic JSON path for '$label'"
@@ -421,7 +548,7 @@ try {
     $contractSha = Get-Sha256 $ContractPath
     $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $manifestSha
     if ($ComparisonKind -eq 'BaseCandidate') {
-        Assert-BaseBasePrerequisite $BaseBaseReportPath $manifestSha $contractSha $base.Summary.device
+        Assert-BaseBasePrerequisite $BaseBaseReportPath $manifestSha $contractSha $base.Summary.device $base.EvidenceFingerprint
     }
     $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $manifestSha
 
@@ -461,18 +588,42 @@ try {
         baseIdentity = [pscustomobject]@{ commit = $BaseProductionCommit; debugApkSha256 = $BaseDebugApkSha256 }
         candidateIdentity = [pscustomobject]@{ commit = $CandidateProductionCommit; debugApkSha256 = $CandidateDebugApkSha256 }
         harnessIdentity = [pscustomobject]@{ commit = $HarnessCommit; tree = $HarnessTree; runnerSha256 = $HarnessRunnerSha256; instrumentationSourceSha256 = $HarnessInstrumentationSourceSha256; testApkSha256 = $HarnessTestApkSha256 }
+        baseEvidenceFingerprint = $base.EvidenceFingerprint
+        candidateEvidenceFingerprint = $candidate.EvidenceFingerprint
         device = $base.Summary.device
         comparedLabels = 23
         rawResultsCompared = 23
         screenshotsCompared = 23
         differences = @()
     }
-    $outputDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($OutputPath))
-    if (-not (Test-Path -LiteralPath $outputDirectory)) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
-    $report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+    Write-ComparisonReportAtomic $report
     Write-Host "NAR corpus $ComparisonKind comparison passed: 23 raw results and 23 screenshots matched."
 }
 catch {
-    Write-Error $_.Exception.Message
+    $reason = [string]$_.Exception.Message
+    if ($reason.Length -gt 2000) { $reason = $reason.Substring(0, 2000) }
+    $artifact = if ($reason -match '(?i)raw|result\.json') { 'raw-result' }
+        elseif ($reason -match '(?i)screenshot') { 'screenshot' }
+        elseif ($reason -match '(?i)summary') { 'summary' }
+        elseif ($reason -match '(?i)prerequisite') { 'base-base-prerequisite' }
+        elseif ($reason -match '(?i)identity|APK SHA|commit') { 'identity' }
+        elseif ($reason -match '(?i)contract') { 'comparison-contract' }
+        elseif ($reason -match '(?i)manifest') { 'manifest' }
+        else { 'comparison' }
+    $label = if ($reason -match "'(?<label>[^']+)'") { [string]$Matches.label } else { '<none>' }
+    $failurePath = if ($reason -match '(?i)\bat (?<path>.+)$') { [string]$Matches.path } else { '<none>' }
+    $failureReport = [pscustomobject][ordered]@{
+        schemaVersion = '1'
+        passed = $false
+        comparisonKind = $ComparisonKind
+        failure = [pscustomobject][ordered]@{
+            artifact = $artifact
+            label = $label
+            path = $failurePath
+            reason = $reason
+        }
+    }
+    try { Write-ComparisonReportAtomic $failureReport } catch { Write-Warning "Unable to write failure comparison report: $($_.Exception.Message)" }
+    Write-Error $reason
     exit 1
 }

@@ -56,7 +56,9 @@ harness identity, manifest hash, comparison-contract hash, and device
 fingerprint/API/ABI/density against the current comparison. A missing, failed,
 or mismatched prerequisite exits before candidate comparison. `BaseBase`
 produces that prerequisite report and requires both production identities to
-be the same.
+be the same. It also records deterministic fingerprints of the exact summary,
+23 raw results, and 23 screenshots, and `BaseCandidate` requires its current
+base root to match the retained base fingerprint.
 
 For each root the comparator requires:
 
@@ -86,13 +88,14 @@ properties or turn numbers, booleans, and strings into interchangeable text.
 
 ## Normalization and identities
 
-The static contract enumerates all normalizable metadata paths. The only
-normalizable categories are run IDs, timestamps, durations, report roots, and
-run-owned paths. A value is normalized only when both its JSON path and its
-metadata category are declared. Run-owned path replacement is limited to
-known path-bearing leaves, including the Yes Man dialogue value that embeds its
-private per-run archive path. A change in an adjacent or undeclared leaf is a
-behavioral difference.
+The static contract enumerates every normalizable metadata path, category, and
+accepted original JSON kind. The only normalizable categories are run IDs,
+timestamps, durations, report roots, and run-owned paths. A value is normalized
+only when its JSON path, metadata category, and scalar kind are declared. The
+only dialogue value with run-ID normalization is `Yes Man-2.1.1`, and it must
+contain the exact declared private per-run archive path shape. A run ID embedded
+in any other dialogue value, a scalar-kind change, or a change in an adjacent or
+undeclared leaf is a behavioral difference.
 
 The runner records `production.commit`/`production.debugApkSha256` separately
 from `harness.commit`, `harness.runnerSha256`,
@@ -107,8 +110,10 @@ behavioral equality.
 The fixed runner accepts an explicit pristine production debug APK and an
 explicit fixed-harness androidTest APK instead of always building both from its
 own worktree. External-APK mode requires the production commit and harness
-commit declarations together with both APK paths. It verifies the harness
-commit against its own clean checkout, hashes the runner source and
+commit declarations together with both APK paths. DryRun validates the actual
+caller-supplied group as well as its self-probes. The live runner verifies the
+harness commit against its own checkout with no tracked or untracked overlays,
+hashes the runner source and
 `NarCorpusRuntimeTest.kt`, and records those values with the APK hashes.
 
 For base/base and base/candidate, build each production debug APK in its clean
@@ -189,7 +194,9 @@ Add a focused PowerShell host test script that constructs a complete synthetic
 
 The comparator writes a JSON report when requested and exits nonzero for every
 contract violation or behavioral difference. Failure records include artifact,
-label, JSON path, and reason without dumping long dialogue values.
+label, JSON path, and reason without dumping long dialogue values. Success and
+failure both atomically replace the requested output, so a later failure cannot
+leave a stale passing report behind.
 
 ## Reproducibility protocol
 

@@ -1929,6 +1929,20 @@ function Get-ApkInputMode {
     return 'external'
 }
 
+function Get-HarnessInstrumentationSourcePath {
+    return Join-Path $repoRoot 'src\androidTest\java\com\cattailsw\nanidroid\corpus\NarCorpusRuntimeTest.kt'
+}
+
+function Assert-CleanHarnessCheckout([string]$RepositoryRoot) {
+    $status = (& git -C $RepositoryRoot status --porcelain=v1 --untracked-files=all 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        ThrowIf "Unable to inspect the fixed harness checkout: $status"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($status)) {
+        ThrowIf "The fixed harness checkout is not clean; commit or remove every tracked/untracked overlay before producing evidence: $status"
+    }
+}
+
 function Get-TrackedHarnessIdentity([string]$ExpectedCommit) {
     $currentCommit = (& git rev-parse HEAD 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $currentCommit -notmatch '^[0-9a-f]{40}$') {
@@ -1937,19 +1951,13 @@ function Get-TrackedHarnessIdentity([string]$ExpectedCommit) {
     if (-not [string]::IsNullOrWhiteSpace($ExpectedCommit) -and $currentCommit -cne $ExpectedCommit) {
         ThrowIf "HarnessCommit '$ExpectedCommit' does not match the checked-out fixed harness commit '$currentCommit'."
     }
-    & git diff --quiet --exit-code
-    $unstagedExitCode = $LASTEXITCODE
-    & git diff --cached --quiet --exit-code
-    $stagedExitCode = $LASTEXITCODE
-    if ($unstagedExitCode -ne 0 -or $stagedExitCode -ne 0) {
-        ThrowIf 'The fixed harness checkout has tracked changes. Commit the exact harness before producing evidence.'
-    }
+    Assert-CleanHarnessCheckout -RepositoryRoot $repoRoot
     $tree = (& git rev-parse "$currentCommit`^{tree}" 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $tree -notmatch '^[0-9a-f]{40}$') {
         ThrowIf "Unable to resolve the fixed harness tree for '$currentCommit'."
     }
     $runnerPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
-    $instrumentationPath = Join-Path $repoRoot 'src\androidTest\java\com\cattailsw\nanidroid\NarCorpusRuntimeTest.kt'
+    $instrumentationPath = Get-HarnessInstrumentationSourcePath
     if (-not (Test-Path -LiteralPath $instrumentationPath -PathType Leaf)) {
         ThrowIf "Unable to locate fixed harness instrumentation source: $instrumentationPath"
     }
@@ -2453,11 +2461,37 @@ if ($missingManifest.Count -gt 0 -or $unexpectedArchives.Count -gt 0) {
     ThrowIf 'Abort: archive set does not match manifest hashes.'
 }
 
+$apkInputMode = Get-ApkInputMode -ProductionDebugApkPath $ProductionDebugApkPath -HarnessTestApkPath $HarnessTestApkPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+
 if ($DryRun) {
     Write-Host 'Dry-run preflight validation passed.'
     Write-Host "Manifest entries: $($manifest.entries.Count)"
     Write-Host "Corpus archives discovered: $($archives.Count)"
     Write-Host "Resolved roots: $(@($resolvedCorpusRoots).Count)"
+    $dryRunInstrumentationPath = Get-HarnessInstrumentationSourcePath
+    if (-not $dryRunInstrumentationPath.EndsWith('src\androidTest\java\com\cattailsw\nanidroid\corpus\NarCorpusRuntimeTest.kt', [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $dryRunInstrumentationPath -PathType Leaf)) {
+        ThrowIf "Dry-run harness identity resolver selected the wrong instrumentation source: $dryRunInstrumentationPath"
+    }
+    Write-Host 'Dry-run harness instrumentation identity resolver probe passed.'
+    $cleanlinessProbeRoot = Join-Path $hostRunTmpRoot 'cleanliness-probe-repo'
+    New-Item -ItemType Directory -Force -Path $cleanlinessProbeRoot | Out-Null
+    & git -C $cleanlinessProbeRoot init --quiet
+    Set-Content -LiteralPath (Join-Path $cleanlinessProbeRoot 'tracked.txt') -Value 'tracked' -Encoding utf8
+    & git -C $cleanlinessProbeRoot add tracked.txt
+    & git -C $cleanlinessProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m initial
+    Set-Content -LiteralPath (Join-Path $cleanlinessProbeRoot 'untracked-overlay.txt') -Value 'overlay' -Encoding utf8
+    $untrackedOverlayRejected = $false
+    try {
+        Assert-CleanHarnessCheckout -RepositoryRoot $cleanlinessProbeRoot
+    }
+    catch {
+        $untrackedOverlayRejected = $_.Exception.Message -match 'untracked-overlay.txt'
+    }
+    if (-not $untrackedOverlayRejected) {
+        ThrowIf 'Dry-run fixed-harness cleanliness probe accepted an untracked overlay.'
+    }
+    Write-Host 'Dry-run fixed-harness untracked-overlay probe passed.'
     if ((Get-ApkInputMode -ProductionDebugApkPath '' -HarnessTestApkPath '' -ProductionCommit '' -HarnessCommit '') -cne 'build') {
         ThrowIf 'Dry-run APK identity probe did not select local build mode for four omitted inputs.'
     }
@@ -2473,6 +2507,24 @@ if ($DryRun) {
     }
     if (-not $partialIdentityRejected) {
         ThrowIf 'Dry-run APK identity probe accepted partial external identity inputs.'
+    }
+    $currentPowerShellPath = Get-CurrentPowerShellExecutable
+    $probeScriptBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$PSCommandPath))
+    $probeRootsBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@($resolvedCorpusRoots) | ConvertTo-Json -Compress)))
+    $misconfiguredExternalCommand = @"
+`$scriptPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeScriptBase64'))
+`$rootsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeRootsBase64'))
+`$roots = @(`$rootsJson | ConvertFrom-Json)
+& `$scriptPath -DryRun -ProductionDebugApkPath 'intentionally-missing-base.apk' -CorpusRoots `$roots
+exit `$LASTEXITCODE
+"@
+    $misconfiguredExternalEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($misconfiguredExternalCommand))
+    $misconfiguredExternalProbe = Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments @(
+        '-NoProfile', '-NoLogo', '-EncodedCommand', $misconfiguredExternalEncoded
+    ) -TimeoutSeconds 30
+    $misconfiguredExternalOutput = $misconfiguredExternalProbe.error + [Environment]::NewLine + $misconfiguredExternalProbe.output
+    if ($misconfiguredExternalProbe.exitCode -eq 0 -or $misconfiguredExternalOutput -notmatch '(?s)must be supplied.*all.*four') {
+        ThrowIf "Dry-run corpus-valid invocation accepted caller-supplied partial external identity inputs (exit $($misconfiguredExternalProbe.exitCode)): $misconfiguredExternalOutput"
     }
     Write-Host 'Dry-run fixed-harness APK identity probe passed.'
     foreach ($debuggablePropertyCase in @(
@@ -2567,7 +2619,6 @@ if ($DryRun) {
         ThrowIf 'Dry-run missing log marker probe attributed prior-attempt diagnostics to the current attempt.'
     }
     Write-Host 'Dry-run non-destructive log marker probe passed.'
-    $currentPowerShellPath = Get-CurrentPowerShellExecutable
     $cmdPath = [Environment]::GetEnvironmentVariable('ComSpec')
     if ([string]::IsNullOrWhiteSpace($cmdPath)) {
         ThrowIf 'Dry-run timeout-tree probe cannot resolve cmd.exe.'

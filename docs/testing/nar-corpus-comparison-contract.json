@@ -31,8 +31,39 @@
       "narCorpusPath",
       "evidence.sourceSyntax.scanRoot",
       "sakura.source",
-      "kero.source",
-      "dialogueProbe.value"
+      "kero.source"
+    ],
+    "expectedKinds": [
+      { "scope": "summary", "path": "runId", "category": "runId", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].runId", "category": "runId", "kinds": ["string"] },
+      { "scope": "summary", "path": "startedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "finishedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].startedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].finishedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "durationSeconds", "category": "duration", "kinds": ["number"] },
+      { "scope": "summary", "path": "results[].durationSeconds", "category": "duration", "kinds": ["number", "null"] },
+      { "scope": "summary", "path": "git.manifestFile", "category": "reportPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "apks.debugPath", "category": "reportPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "apks.testPath", "category": "reportPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].resultPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].screenshotPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].crashLogPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].output", "category": "runOwnedText", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].error", "category": "runOwnedText", "kinds": ["string"] },
+      { "scope": "raw", "path": "narCorpusPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "raw", "path": "evidence.sourceSyntax.scanRoot", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "raw", "path": "sakura.source", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "raw", "path": "kero.source", "category": "runOwnedPath", "kinds": ["string"] }
+    ],
+    "scopedRunOwnedValues": [
+      {
+        "scope": "raw",
+        "label": "Yes Man-2.1.1",
+        "path": "dialogueProbe.value",
+        "category": "runOwnedEmbeddedPath",
+        "kinds": ["string"],
+        "requiredShape": "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/{runId}/Yes-Man-2.1.1/"
+      }
     ]
   },
   "stochasticDialogueValues": [
