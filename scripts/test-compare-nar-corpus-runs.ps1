@@ -283,6 +283,13 @@ try {
     Write-Host 'PASS: structured failure report replaces stale output'
 
     Reset-Fixtures
+    $basePrecisePath = Join-Path $fixtureRoot 'base\tewire-sen\result.json'
+    $candidatePrecisePath = Join-Path $fixtureRoot 'candidate\tewire-sen\result.json'
+    [IO.File]::WriteAllText($basePrecisePath, ([IO.File]::ReadAllText($basePrecisePath).Replace('"stable": true', '"stable": true, "precise": 0.1234567890123456789012345678901')), [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($candidatePrecisePath, ([IO.File]::ReadAllText($candidatePrecisePath).Replace('"stable": true', '"stable": true, "precise": 0.1234567890123456789012345678902')), [Text.UTF8Encoding]::new($false))
+    Assert-Fail 'adjacent high-precision JSON numbers remain distinct' (Invoke-Comparator (Get-ComparatorArguments)) 'evidence.precise'
+
+    Reset-Fixtures
     Move-Item -LiteralPath (Join-Path $fixtureRoot 'candidate\LOBO') -Destination (Join-Path $fixtureRoot 'candidate\LOBO-renamed')
     Assert-Fail 'raw result path mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'result.json set'
 
@@ -374,7 +381,7 @@ try {
     Write-Json $prerequisite $failedPrerequisite
     Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
 
-    Write-Host 'Comparator host tests passed: 34 cases.'
+    Write-Host 'Comparator host tests passed: 35 cases.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }

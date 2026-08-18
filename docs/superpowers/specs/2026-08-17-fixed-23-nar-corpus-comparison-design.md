@@ -99,6 +99,9 @@ behavioral. A run ID embedded in any other dialogue value, a scalar-kind change,
 or a change in an adjacent or undeclared leaf is a behavioral difference. The
 comparator uses its PowerShell-7.0-compatible strict JSON reader so ISO timestamp
 strings retain their original JSON kind without relying on newer `-DateKind`.
+JSON numbers that fit `Int64` or `Decimal` are compared losslessly by numeric
+value; larger or more precise tokens are retained and compared as exact number
+tokens instead of being rounded through `Double`.
 
 The runner records `production.commit`/`production.debugApkSha256` separately
 from `harness.commit`, `harness.runnerSha256`,

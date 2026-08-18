@@ -23,6 +23,14 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+class NarCorpusExactJsonNumber {
+    [string]$Token
+
+    NarCorpusExactJsonNumber([string]$Token) {
+        $this.Token = $Token
+    }
+}
+
 function ConvertFrom-StrictJsonElement([System.Text.Json.JsonElement]$Element) {
     switch ($Element.ValueKind) {
         ([System.Text.Json.JsonValueKind]::Object) {
@@ -40,11 +48,15 @@ function ConvertFrom-StrictJsonElement([System.Text.Json.JsonElement]$Element) {
         }
         ([System.Text.Json.JsonValueKind]::String) { return $Element.GetString() }
         ([System.Text.Json.JsonValueKind]::Number) {
+            $numberToken = $Element.GetRawText()
             [long]$integer = 0
             if ($Element.TryGetInt64([ref]$integer)) { return $integer }
-            [decimal]$decimalValue = 0
-            if ($Element.TryGetDecimal([ref]$decimalValue)) { return $decimalValue }
-            return $Element.GetDouble()
+            $mantissaDigits = (($numberToken -split '[eE]', 2)[0] -replace '[^0-9]', '').TrimStart('0')
+            if ($mantissaDigits.Length -le 28) {
+                [decimal]$decimalValue = 0
+                if ($Element.TryGetDecimal([ref]$decimalValue)) { return $decimalValue }
+            }
+            return [NarCorpusExactJsonNumber]::new($numberToken)
         }
         ([System.Text.Json.JsonValueKind]::True) { return $true }
         ([System.Text.Json.JsonValueKind]::False) { return $false }
@@ -150,6 +162,7 @@ function Assert-ExactSet([string[]]$Actual, [string[]]$Expected, [string]$Contex
 
 function Get-ObjectKind([object]$Value) {
     if ($null -eq $Value) { return 'null' }
+    if ($Value -is [NarCorpusExactJsonNumber]) { return 'number' }
     if ($Value -is [string]) { return 'string' }
     if ($Value -is [bool]) { return 'boolean' }
     if ($Value -is [System.Collections.IList]) { return 'array' }
@@ -179,6 +192,12 @@ function Find-FirstDifference([object]$Left, [object]$Right, [string]$Path = '$'
     $rightKind = Get-ObjectKind $Right
     if ($leftKind -cne $rightKind) { return "$Path type ($leftKind != $rightKind)" }
     if ($leftKind -eq 'null') { return $null }
+    if ($leftKind -eq 'number' -and ($Left -is [NarCorpusExactJsonNumber] -or $Right -is [NarCorpusExactJsonNumber])) {
+        $leftToken = if ($Left -is [NarCorpusExactJsonNumber]) { $Left.Token } else { ([IFormattable]$Left).ToString($null, [Globalization.CultureInfo]::InvariantCulture) }
+        $rightToken = if ($Right -is [NarCorpusExactJsonNumber]) { $Right.Token } else { ([IFormattable]$Right).ToString($null, [Globalization.CultureInfo]::InvariantCulture) }
+        if ($leftToken -cne $rightToken) { return $Path }
+        return $null
+    }
     if ($leftKind -eq 'array') {
         if ($Left.Count -ne $Right.Count) { return "$Path length ($($Left.Count) != $($Right.Count))" }
         for ($index = 0; $index -lt $Left.Count; $index++) {
@@ -210,7 +229,16 @@ function Find-FirstDifference([object]$Left, [object]$Right, [string]$Path = '$'
 }
 
 function Copy-JsonObject([object]$Value) {
-    return ConvertFrom-StrictJsonText ($Value | ConvertTo-Json -Depth 100)
+    if ($null -eq $Value -or $Value -is [string] -or $Value -is [ValueType]) { return $Value }
+    if ($Value -is [NarCorpusExactJsonNumber]) { return [NarCorpusExactJsonNumber]::new($Value.Token) }
+    if ($Value -is [System.Collections.IList]) {
+        $items = [Collections.Generic.List[object]]::new()
+        foreach ($item in $Value) { $items.Add((Copy-JsonObject $item)) }
+        return ,$items.ToArray()
+    }
+    $copy = [ordered]@{}
+    foreach ($property in $Value.PSObject.Properties) { $copy[$property.Name] = Copy-JsonObject $property.Value }
+    return [pscustomobject]$copy
 }
 
 function Set-PathPatternValue {
