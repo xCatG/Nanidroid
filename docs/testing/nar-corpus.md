@@ -205,11 +205,15 @@ then exhaustively compares `summary.json`, the exact 23 raw `result.json` files,
 and the exact 23 screenshot hashes. A base/candidate invocation cannot proceed
 without a passing base/base report bound to the same base, harness, manifest,
 contract, and emulator identity. That proof includes an exact evidence
-fingerprint plus distinct, internally mirrored runner run IDs, and every comparison atomically replaces its output with either a
-passing report or a bounded structured failure report.
+fingerprint plus distinct, internally mirrored runner run IDs, and every comparison atomically writes either a
+passing report or a bounded structured failure report to its output path.
 For `BaseCandidate`, the retained `-BaseBaseReportPath` and `-OutputPath` must
-resolve to distinct files before either is read or written; this prevents a
-candidate result (including a failure report) from replacing its prerequisite.
+resolve to distinct files before either is read or written, and `-OutputPath`
+must be fresh (nonexistent). Base/candidate reports are therefore write-once,
+which prevents a candidate result (including a failure report) from replacing
+its prerequisite through lexical, junction, symlink, or other filesystem alias.
+`BaseBase` reports retain their atomic replacement behavior for an explicit
+rerun at the same output path.
 Each raw `narCorpusPath` must exactly match the runner-owned archive path
 `/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/<32-lowercase-hex-run-id>/<safe-label>/nanidroid-corpus.nar`
 or the same exact suffix under the legacy `/data/data/com.cattailsw.nanidroid`

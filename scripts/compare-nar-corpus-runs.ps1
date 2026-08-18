@@ -464,7 +464,7 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
         $raw = $RawByLabel[$label]
         $narCorpusPath = Get-RequiredProperty $raw 'narCorpusPath' "$Side raw result '$label'"
         Assert-JsonKind $narCorpusPath @('string') "$Side raw result '$label'.narCorpusPath" | Out-Null
-        $narCorpusPathPattern = '^(?<privateRoot>/data/(?:user/0|data)/com\.cattailsw\.nanidroid)/cache/nar-corpus-host/' + [regex]::Escape([string]$runId) + '/' + [regex]::Escape($safeLabel) + '/nanidroid-corpus\.nar$'
+        $narCorpusPathPattern = '^(?<privateRoot>/data/(?:user/0|data)/com\.cattailsw\.nanidroid)/cache/nar-corpus-host/' + [regex]::Escape([string]$runId) + '/' + [regex]::Escape($safeLabel) + '/nanidroid-corpus\.nar\z'
         $narCorpusPathMatch = [regex]::Match([string]$narCorpusPath, $narCorpusPathPattern)
         if (-not $narCorpusPathMatch.Success) {
             throw "$Side raw result '$label'.narCorpusPath must match the exact runner path for the summary run identity"
@@ -709,6 +709,9 @@ if ($ComparisonKind -eq 'BaseCandidate') {
     $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     if ($resolvedBaseBaseReportPath.Equals($resolvedOutputPath, $pathComparison)) {
         throw 'BaseBaseReportPath and OutputPath must resolve to distinct files for BaseCandidate comparison'
+    }
+    if (Test-Path -LiteralPath $resolvedOutputPath) {
+        throw 'BaseCandidate OutputPath must be a fresh path'
     }
 }
 

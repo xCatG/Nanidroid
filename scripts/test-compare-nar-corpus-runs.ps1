@@ -521,6 +521,17 @@ try {
     Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/22222222222222222222222222222222/LOBO/nanidroid-corpus.nar' }
     Assert-Fail 'narCorpusPath private roots cannot vary within one run' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*same private data root'
 
+    foreach ($lineEndingCase in @(
+        @{ name = 'LF'; suffix = "`n" },
+        @{ name = 'CRLF'; suffix = "`r`n" }
+    )) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) {
+            Save-Json (Join-Path $fixtureRoot "$side\LOBO\result.json") { param($r) $r.narCorpusPath += $lineEndingCase.suffix }
+        }
+        Assert-Fail "narCorpusPath rejects a final $($lineEndingCase.name)" (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*exact runner path'
+    }
+
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.durationSeconds = '23' }
     Assert-Fail 'duration JSON kind mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'durationSeconds.*kind'
@@ -664,20 +675,20 @@ try {
     Assert-Pass 'base/base prerequisite report' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
     New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
     Assert-Fail 'missing base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'BaseBaseReportPath'
-    Assert-Pass 'bound base/candidate comparison' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha))
+    Assert-Pass 'bound base/candidate comparison' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath (Join-Path $fixtureRoot 'bound-base-candidate.json')))
     Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.startedAt = '2026-08-17T00:03:00Z' }
-    Assert-Fail 'replaced base evidence rejects stale prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'evidence fingerprint'
+    Assert-Fail 'replaced base evidence rejects stale prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath (Join-Path $fixtureRoot 'replaced-base-evidence.json'))) 'evidence fingerprint'
     Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.startedAt = '2026-08-17T00:00:00Z' }
     $mismatchedPrerequisite = Get-Json $prerequisite
     $mismatchedPrerequisite.device.abi = 'arm64-v8a'
     Write-Json $prerequisite $mismatchedPrerequisite
-    Assert-Fail 'mismatched base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite mismatch'
+    Assert-Fail 'mismatched base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath (Join-Path $fixtureRoot 'mismatched-prerequisite.json'))) 'prerequisite mismatch'
     $mismatchedPrerequisite.device.abi = 'x86_64'
     Write-Json $prerequisite $mismatchedPrerequisite
     $failedPrerequisite = Get-Json $prerequisite
     $failedPrerequisite.passed = $false
     Write-Json $prerequisite $failedPrerequisite
-    Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
+    Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath (Join-Path $fixtureRoot 'failed-prerequisite.json'))) 'prerequisite'
 
     Reset-Fixtures
     $defaultPrerequisite = Join-Path $fixtureRoot 'comparison.json'
@@ -710,6 +721,29 @@ try {
     Assert-Pass 'base/base prerequisite for distinct base/candidate output' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
     New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
     Assert-Pass 'base/candidate may use a distinct output path' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath $candidateOutput))
+
+    if ($IsWindows) {
+        Reset-Fixtures
+        $prerequisiteParent = Join-Path $fixtureRoot 'junction-prerequisite-parent'
+        New-Item -ItemType Directory -Force -Path $prerequisiteParent | Out-Null
+        $prerequisite = Join-Path $prerequisiteParent 'base-base.json'
+        Assert-Pass 'base/base prerequisite for junction output alias' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+        New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
+        $junctionPath = Join-Path $fixtureRoot 'junction-output-alias'
+        New-Item -ItemType Junction -Path $junctionPath -Target $prerequisiteParent | Out-Null
+        try {
+            $junctionPrerequisiteSha = (Get-FileHash -LiteralPath $prerequisite -Algorithm SHA256).Hash
+            $junctionCollisionResult = Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath (Join-Path $junctionPath 'base-base.json'))
+            if ((Get-FileHash -LiteralPath $prerequisite -Algorithm SHA256).Hash -cne $junctionPrerequisiteSha) { throw 'base/candidate junction output alias altered its prerequisite' }
+            Assert-Fail 'base/candidate junction output alias cannot overwrite its prerequisite' $junctionCollisionResult 'OutputPath.*fresh'
+        }
+        finally {
+            Remove-Item -LiteralPath $junctionPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    else {
+        Write-Host 'SKIP: junction output alias test requires Windows'
+    }
 
     Write-Host 'Comparator host tests passed.'
 }
