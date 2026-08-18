@@ -263,6 +263,11 @@ try {
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
+    Remove-Item -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $fixtureRoot 'base') -Destination (Join-Path $fixtureRoot 'candidate') -Recurse
+    Assert-Fail 'copied evidence root cannot satisfy base/base' (Invoke-Comparator (Get-ComparatorArguments)) 'distinct base and candidate evidence fingerprints'
+
+    Reset-Fixtures
     $wrongIdentity = Get-ComparatorArguments
     $wrongIdentity[($wrongIdentity.IndexOf('-BaseProductionCommit') + 1)] = $candidateCommit
     Assert-Fail 'wrong declared production identity' (Invoke-Comparator $wrongIdentity) 'base production identity'
@@ -460,6 +465,13 @@ try {
     Reset-Fixtures
     [IO.File]::AppendAllText((Join-Path $fixtureRoot 'candidate\screenshots\LOBO.png'), 'changed')
     Assert-Fail 'screenshot mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'screenshot'
+
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    Assert-Pass 'base/base prerequisite report' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    Remove-Item -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $fixtureRoot 'base') -Destination (Join-Path $fixtureRoot 'candidate') -Recurse
+    Assert-Fail 'copied evidence root cannot satisfy base/candidate' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite)) 'distinct base and candidate evidence fingerprints'
 
     Reset-Fixtures
     $prerequisite = Join-Path $fixtureRoot 'base-base.json'

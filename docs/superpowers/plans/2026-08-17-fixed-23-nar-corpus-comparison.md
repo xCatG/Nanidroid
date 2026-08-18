@@ -154,12 +154,16 @@ Run a PowerShell check that parses both JSON files, requires six rows, finds eac
 - Modify: `scripts/run-nar-corpus-audit.ps1`
 
 **Interfaces:**
-- Consumes: optional external production debug APK, fixed-harness test APK, production commit, and harness commit.
+- Consumes: optional verified production checkout, fixed-harness test APK, production commit, and harness commit.
 - Produces: separate `production` and `harness` summary objects with source/APK hashes.
 
 - [ ] **Step 1: Add failing DryRun argument-contract probes**
 
-Invoke the runner recursively with only one external APK, with no production commit, and with a wrong harness commit. Require each invocation to fail before corpus/device work. Add a valid fixture pair and exact current commit that reaches normal DryRun corpus validation.
+Invoke the runner recursively with an obsolete injected production APK, a partial
+production-checkout identity, a malformed/wrong production commit, and a wrong
+harness commit. Require each invocation to fail before corpus/device work. Add
+clean and dirty temporary checkout probes plus missing/ambiguous deterministic
+debug-APK selection probes.
 
 - [ ] **Step 2: Run exact-root DryRun to prove RED**
 
@@ -167,7 +171,15 @@ Run the Task 1 Step 5 command. Expected: failure in the new external-identity pr
 
 - [ ] **Step 3: Implement external fixed-harness mode**
 
-Add `-ProductionDebugApkPath`, `-ProductionCommit`, and `-HarnessCommit`. Require all three or none, including in DryRun, and reject the removed external test-APK parameter. In external mode resolve and hash the pristine production APK, require `HarnessCommit` to equal `git rev-parse HEAD`, reject tracked or untracked harness overlays, and build `assembleDebugAndroidTest` from that verified checkout. In legacy one-tree mode retain the current combined build for standalone audits but mark production and harness as the same current commit.
+Add `-ProductionCheckoutPath`, `-ProductionCommit`, and `-HarnessCommit`.
+Require all three or none, including in DryRun, and reject obsolete external
+production/test-APK parameters. In external mode require the full lowercase
+production commit to equal the clean production checkout `HEAD`, build
+`assembleDebug` there, require exactly one resulting `*-debug.apk`, hash it, then
+independently require `HarnessCommit` to equal the clean harness checkout `HEAD`
+and build `assembleDebugAndroidTest` there. In legacy one-tree mode retain the
+current combined build for standalone audits but mark production and harness as
+the same current commit.
 
 - [ ] **Step 4: Record auditable identity objects**
 
@@ -206,7 +218,12 @@ Create 23 rows from the real manifest. Write `<safeLabel>/result.json`, mirror e
 
 - [ ] **Step 2: Write failing exactness and identity cases**
 
-Require identical successful roots in `BaseBase` mode to pass. Require missing, wrong, and swapped base/candidate production declarations to fail. Require missing or different harness commit, runner hash, instrumentation hash, or test APK hash to fail. Mutate both roots to the same sentinel failure and require failure.
+Require independently collected successful roots in `BaseBase` mode to pass and
+reject byte-identical copied evidence roots in both `BaseBase` and
+`BaseCandidate` before canonical comparison. Require missing, wrong, and swapped
+base/candidate production declarations to fail. Require missing or different
+harness commit, runner hash, instrumentation hash, or test APK hash to fail.
+Mutate both roots to the same sentinel failure and require failure.
 
 - [ ] **Step 3: Write failing base/base prerequisite cases**
 

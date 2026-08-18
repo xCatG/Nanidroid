@@ -58,7 +58,9 @@ or mismatched prerequisite exits before candidate comparison. `BaseBase`
 produces that prerequisite report and requires both production identities to
 be the same. It also records deterministic fingerprints of the exact summary,
 23 raw results, and 23 screenshots, and `BaseCandidate` requires its current
-base root to match the retained base fingerprint.
+base root to match the retained base fingerprint. Both comparison kinds reject
+identical base and candidate evidence fingerprints before canonical comparison:
+copied evidence roots cannot substitute for independently collected runs.
 
 For each root the comparator requires:
 
@@ -123,20 +125,23 @@ behavioral equality.
 
 ## Reusable fixed harness execution
 
-The fixed runner accepts an explicit pristine production debug APK but never an
-external androidTest APK. External-APK mode requires the production APK,
-production commit, and harness commit together. DryRun validates the actual
-caller-supplied group, rejects the removed test-APK parameter, and runs its
-self-probes. The live runner verifies the harness commit against its own checkout
-with no tracked or untracked overlays, builds `assembleDebugAndroidTest` from that
-checkout, hashes the runner source and
+The fixed runner accepts an explicit pristine production checkout but never an
+external APK. External mode requires the production checkout path, production
+commit, and harness commit together. It validates lowercase full SHA syntax,
+the exact clean production `HEAD`, and exactly one `*-debug.apk` produced by
+`assembleDebug` in that checkout; it then hashes and records that APK. DryRun
+validates the actual caller-supplied group, rejects obsolete production-APK and
+test-APK injection, and runs its self-probes. The live runner separately verifies
+the harness commit against its own checkout with no tracked or untracked overlays,
+builds `assembleDebugAndroidTest` from that checkout, hashes the runner source and
 `NarCorpusRuntimeTest.kt`, and records those values with the APK hashes.
 
 For base/base and base/candidate, build each production debug APK in its clean
 source checkout without overlay changes. For each run, let the committed fixed
 harness build its own test APK, then require the recorded test APK hash to remain
 identical across all comparisons. A dirty overlay, an old probe, a locally edited
-runner, or a caller-injected test APK is not comparable evidence and must fail.
+runner, an obsolete injected production APK, or a caller-injected test APK is not
+comparable evidence and must fail.
 
 ## Reviewed stochastic contract
 

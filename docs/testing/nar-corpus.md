@@ -25,13 +25,15 @@ device copies in `finally` blocks.
   when it is not discoverable on `PATH`.
 - `-ManifestPath` (optional): manifest path.
   Default: `docs/testing/nar-corpus-manifest.json`.
-- `-ProductionDebugApkPath`, `-ProductionCommit`, and `-HarnessCommit`
-  (optional as one all-or-none group): run a separately built, pristine
-  production APK with the fixed harness. The runner rejects any caller-supplied
-  test APK, verifies `HarnessCommit` is the checked-out clean harness commit with
-  no tracked or untracked overlays, builds `assembleDebugAndroidTest` itself, and
-  records the Git tree plus runner, instrumentation source, and resulting test
-  APK hashes. Omit all three only for a standalone one-tree audit.
+- `-ProductionCheckoutPath`, `-ProductionCommit`, and `-HarnessCommit`
+  (optional as one all-or-none group): run a debug APK built from a separately
+  verified production checkout with the fixed harness. The runner requires full
+  lowercase SHA syntax, exact clean production `HEAD`, exactly one
+  `*-debug.apk` produced by `assembleDebug`, and rejects caller-supplied
+  production/test APKs. It independently verifies `HarnessCommit` is the
+  checked-out clean harness commit, builds `assembleDebugAndroidTest` there, and
+  records both APK hashes plus the harness tree and source hashes. Omit all three
+  only for a standalone one-tree audit.
 - `-PerArchiveTimeoutMinutes` (optional): hard timeout in minutes for each
   `am instrument` run. This is a host-side corpus safety bound, not the app's
   user-visible script-hang policy. Nanidroid does not cancel a running ghost
@@ -152,12 +154,12 @@ archives or substitute rows/screenshots. If any run must be repeated, discard th
 three retained roots and repeat the complete base/base-first sequence.
 
 Each of the three full runs uses this shape, changing only the pristine production
-APK path and its declared commit:
+checkout and its declared commit:
 
 ```powershell
 & .\scripts\run-nar-corpus-audit.ps1 -DeviceSerial '<emulator-serial>' `
   -CorpusRoots '<exact-corpus-root-1>','<exact-corpus-root-2>' `
-  -ProductionDebugApkPath '<pristine-production-debug.apk>' `
+  -ProductionCheckoutPath '<pristine-production-checkout>' `
   -ProductionCommit '<production-commit>' `
   -HarnessCommit '<fixed-harness-commit>'
 ```

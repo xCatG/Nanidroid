@@ -718,6 +718,10 @@ try {
     }
     $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $manifestSha
 
+    if ($base.EvidenceFingerprint -ceq $candidate.EvidenceFingerprint) {
+        throw "$ComparisonKind comparison requires distinct base and candidate evidence fingerprints"
+    }
+
     if ($ComparisonKind -eq 'BaseBase') {
         if ($BaseProductionCommit -cne $CandidateProductionCommit -or $BaseDebugApkSha256 -cne $CandidateDebugApkSha256) {
             throw 'BaseBase comparison requires identical base and candidate production identities'
