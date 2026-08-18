@@ -63,20 +63,20 @@ function Get-StringSha256([string]$Value) {
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $compatibleGhostSuccessRules = [ordered]@{
-    '2elf-2.46' = @{ sha256 = 'a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; eventId = 'OnBoot' }
-    'tewire-sen' = @{ sha256 = '2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8'; eventId = 'OnBoot' }
-    'Yes Man-2.1.1' = @{ sha256 = 'aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8'; eventId = 'OnBoot' }
-    'Big Red Button' = @{ sha256 = '36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d'; eventId = 'OnBoot' }
-    'Earthquake Rescue Duo' = @{ sha256 = '06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; eventId = 'OnBoot' }
-    'LOBO' = @{ sha256 = 'f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; eventId = 'OnBoot' }
-    'Nanika Atsume 1.0.0' = @{ sha256 = '0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9'; eventId = 'OnBoot' }
-    'Nanika Atsume 1.0.1' = @{ sha256 = '9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c'; eventId = 'OnBoot' }
-    'Nanika Atsume silent_ALPHA' = @{ sha256 = 'be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17'; eventId = 'OnBoot' }
-    'Snake and Otacon V1.2.1' = @{ sha256 = 'a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f'; eventId = 'OnBoot' }
-    'Snake and Otacon V1.3.1' = @{ sha256 = 'a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219'; eventId = 'OnBoot' }
-    'Snake and Otacon V1.3.2' = @{ sha256 = '1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5'; eventId = 'OnFirstBoot' }
-    'Snake_Otacon_1.3.1b' = @{ sha256 = '04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59'; eventId = 'OnBoot' }
-    'Watchdog Bancho' = @{ sha256 = '8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca'; eventId = 'OnBoot' }
+    '2elf-2.46' = @{ sha256 = 'a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:24' }
+    'tewire-sen' = @{ sha256 = '2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:6' }
+    'Yes Man-2.1.1' = @{ sha256 = 'aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:3' }
+    'Big Red Button' = @{ sha256 = '36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d'; eventId = 'OnBoot'; inputOutcome = 'no-named-collisions' }
+    'Earthquake Rescue Duo' = @{ sha256 = '06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:4' }
+    'LOBO' = @{ sha256 = 'f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; eventId = 'OnBoot'; inputOutcome = 'no-named-collisions' }
+    'Nanika Atsume 1.0.0' = @{ sha256 = '0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:7' }
+    'Nanika Atsume 1.0.1' = @{ sha256 = '9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:7' }
+    'Nanika Atsume silent_ALPHA' = @{ sha256 = 'be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:7' }
+    'Snake and Otacon V1.2.1' = @{ sha256 = 'a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:5' }
+    'Snake and Otacon V1.3.1' = @{ sha256 = 'a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:5' }
+    'Snake and Otacon V1.3.2' = @{ sha256 = '1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5'; eventId = 'OnFirstBoot'; inputOutcome = 'named-collisions-routed:5' }
+    'Snake_Otacon_1.3.1b' = @{ sha256 = '04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:5' }
+    'Watchdog Bancho' = @{ sha256 = '8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:12' }
 }
 $installRejectedGhostRules = [ordered]@{
     'Snake and Otacon V1.0.0' = '526b7721103031fb3f28b22fffc54b71fd0b1e279168934a06d8076e20a1cbcc'
@@ -278,14 +278,15 @@ function New-ReportFixture {
             }
             cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @(); hostVerified = $true }
         }
+        foreach ($lifecycle in @{
+            installOutcome = 'installed'; ghostLoadOutcome = 'loaded'; renderOutcome = 'production-stage-rendered';
+            inputOutcome = 'no-named-collisions'; shioriOutcome = 'success'; checkpointPhase = 'complete'
+        }.GetEnumerator()) { $raw | Add-Member -NotePropertyName $lifecycle.Key -NotePropertyValue $lifecycle.Value }
         if ([string]$entry.expectedKind -cne 'ghost') {
             $raw.classification = 'unsupported'
             $raw.dialogueProbe = [pscustomobject]@{ outcome = 'not-applicable' }
-            $raw | Add-Member -NotePropertyName installOutcome -NotePropertyValue "unsupported:$([string]$entry.expectedKind)"
-            $raw | Add-Member -NotePropertyName ghostLoadOutcome -NotePropertyValue 'not-applicable'
-            $raw | Add-Member -NotePropertyName renderOutcome -NotePropertyValue 'not-applicable'
-            $raw | Add-Member -NotePropertyName inputOutcome -NotePropertyValue 'not-applicable'
-            $raw | Add-Member -NotePropertyName shioriOutcome -NotePropertyValue 'not-applicable'
+            $raw.installOutcome = "unsupported:$([string]$entry.expectedKind)"
+            $raw.ghostLoadOutcome = 'not-applicable'; $raw.renderOutcome = 'not-applicable'; $raw.inputOutcome = 'not-applicable'; $raw.shioriOutcome = 'not-applicable'; $raw.checkpointPhase = 'not-run'
             $raw | Add-Member -NotePropertyName surfaceCount -NotePropertyValue 0
             $raw | Add-Member -NotePropertyName parserDiagnostics -NotePropertyValue @(
                 [pscustomobject]@{
@@ -298,6 +299,7 @@ function New-ReportFixture {
         }
         elseif ($compatibleGhostSuccessRules.Contains($label)) {
             $raw.dialogueProbe.eventId = $compatibleGhostSuccessRules[$label].eventId
+            $raw.inputOutcome = $compatibleGhostSuccessRules[$label].inputOutcome
         }
         elseif ($installRejectedGhostRules.Contains($label)) {
             $raw.classification = 'incompatible'
@@ -310,11 +312,13 @@ function New-ReportFixture {
                 status = $null
                 failure = $null
             }
+            $raw.installOutcome = 'invalid-path'; $raw.ghostLoadOutcome = 'not-applicable:install-rejected'; $raw.renderOutcome = 'not-applicable:install-rejected'; $raw.inputOutcome = 'not-applicable:install-rejected'; $raw.shioriOutcome = 'not-applicable:install-rejected'; $raw.checkpointPhase = 'not-run'
         }
         elseif ($label -ceq $partialGhostRule.label) {
             $raw.classification = 'partiallyCompatible'
             $raw.dialogueProbe.outcome = 'not-supported-shiori'
             $raw.dialogueProbe.failure = $null
+            $raw.inputOutcome = 'named-collisions-routed:4'; $raw.shioriOutcome = 'not-supported-shiori'
         }
         else {
             throw "Fixture has no reviewed ghost envelope rule for '$label'."
@@ -372,6 +376,12 @@ function New-ReportFixture {
             startedAt = $StartedAt
             finishedAt = $StartedAt
             classification = $raw.classification
+            installOutcome = $raw.installOutcome
+            ghostLoadOutcome = $raw.ghostLoadOutcome
+            renderOutcome = $raw.renderOutcome
+            inputOutcome = $raw.inputOutcome
+            shioriOutcome = $raw.shioriOutcome
+            runtimeCheckpointPhase = $raw.checkpointPhase
             requiredEvidence = @($entry.requiredEvidence)
             requiredEvidencePayload = $payload
             resultPath = "/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/$safeLabel/result.json"
@@ -624,20 +634,62 @@ try {
     Assert-Fail 'non-ghost shiori outcome cannot be forged as success' (Invoke-Comparator (Get-ComparatorArguments)) 'shioriOutcome'
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'base\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
-    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
+    Save-Json (Join-Path $fixtureRoot 'base\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori'; $r.ghostLoadOutcome = 'surface-loaded'; $r.shioriOutcome = 'pending-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori'; $r.ghostLoadOutcome = 'surface-loaded'; $r.shioriOutcome = 'pending-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
     foreach ($side in @('base', 'candidate')) {
         Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
             $row = Get-Row $s 'Big Red Button'
             $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
-            $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori'
+            $row.runtimeCheckpointPhase = 'before-real-shiori'
             $row.classification = 'incompatible'
+            $row.ghostLoadOutcome = 'surface-loaded'
+            $row.shioriOutcome = 'pending-real-shiori'
             $row.dialogueOutcome = 'pending-real-shiori'
             $row.observedPrivateSnapshot = @()
             $row.observedTmpSnapshot = @()
         }
     }
     Assert-Pass 'accepted native Kawari checkpoint preserves cleanup-less raw evidence and validates host summary cleanup' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\LOBO\result.json") { param($r)
+            $r.PSObject.Properties.Remove('cleanup')
+            $r.checkpointPhase = 'before-real-shiori'
+            $r.ghostLoadOutcome = 'surface-loaded'
+            $r.shioriOutcome = 'pending-real-shiori'
+            $r.classification = 'incompatible'
+            $r.dialogueProbe.outcome = 'pending-real-shiori'
+            $r.dialogueProbe.status = $null
+        }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
+            $row = Get-Row $s 'LOBO'
+            $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
+            $row.runtimeCheckpointPhase = 'before-real-shiori'
+            $row.classification = 'incompatible'
+            $row.ghostLoadOutcome = 'surface-loaded'
+            $row.shioriOutcome = 'pending-real-shiori'
+            $row.dialogueOutcome = 'pending-real-shiori'
+            $row.observedPrivateSnapshot = @()
+            $row.observedTmpSnapshot = @()
+        }
+    }
+    Assert-Pass 'accepted native LOBO checkpoint skips only stochastic content validation' (Invoke-Comparator (Get-ComparatorArguments))
+
+    # A matching pair must still be rejected when it claims an impossible
+    # compatible-ghost lifecycle: canonical equality alone is not evidence.
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Yes-Man-2.1.1\result.json") { param($r)
+            $r.installOutcome = 'forged-installed'
+        }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
+            $row = Get-Row $s 'Yes Man-2.1.1'
+            $row.installOutcome = 'forged-installed'
+            $row.requiredEvidencePayload.installOutcome = 'forged-installed'
+        }
+    }
+    Assert-Fail 'exact ghost lifecycle rejects matching forged install outcome' (Invoke-Comparator (Get-ComparatorArguments)) 'installOutcome'
 
     # A context is structural runner evidence even when the actual OnBoot
     # response is the supported non-success/not-supported-shiori envelope.
@@ -667,12 +719,12 @@ try {
     foreach ($side in @('base', 'candidate')) {
         Save-Json (Join-Path $fixtureRoot "$side\Big-Red-Button\result.json") { param($r)
             $r.PSObject.Properties.Remove('cleanup')
-            $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'
+            $r.checkpointPhase = 'before-real-shiori'
         }
         Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
             $row = Get-Row $s 'Big Red Button'
             $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue 'true'
-            $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori'
+            $row.runtimeCheckpointPhase = 'before-real-shiori'
             $row.classification = 'incompatible'
             $row.observedPrivateSnapshot = @()
             $row.observedTmpSnapshot = @()
@@ -681,11 +733,11 @@ try {
     Assert-Fail 'native checkpoint rejects a string nativeCrash flag' (Invoke-Comparator (Get-ComparatorArguments)) 'nativeCrash'
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori' }
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s)
         $row = Get-Row $s 'Big Red Button'
         $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
-        $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'after-real-shiori'
+        $row.runtimeCheckpointPhase = 'after-real-shiori'
         $row.classification = 'incompatible'
         $row.observedPrivateSnapshot = @()
         $row.observedTmpSnapshot = @()
@@ -693,8 +745,8 @@ try {
     Assert-Fail 'native checkpoint requires the exact raw summary checkpoint predicate' (Invoke-Comparator (Get-ComparatorArguments)) 'runtimeCheckpointPhase'
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
-    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $row = Get-Row $s 'Big Red Button'; $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true; $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori'; $row.classification = 'incompatible'; $row.cleanup.remainingTestOwnedPaths = @('residue') }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $row = Get-Row $s 'Big Red Button'; $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true; $row.runtimeCheckpointPhase = 'before-real-shiori'; $row.classification = 'incompatible'; $row.cleanup.remainingTestOwnedPaths = @('residue') }
     Assert-Fail 'accepted native Kawari checkpoint still requires exact host cleanup evidence' (Invoke-Comparator (Get-ComparatorArguments)) 'summary cleanup residue'
     Reset-Fixtures
     Assert-Pass 'fresh baseline report after native checkpoint coverage' (Invoke-Comparator (Get-ComparatorArguments))

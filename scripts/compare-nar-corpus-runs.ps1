@@ -256,6 +256,10 @@ function Get-GhostEnvelopeRuleKey([object]$Rule, [string]$Context) {
     $status = Get-RequiredProperty $Rule 'status' $Context
     $outcome = Get-RequiredProperty $Rule 'outcome' $Context
     $failure = Get-RequiredProperty $Rule 'failure' $Context
+    foreach ($name in @('installOutcome', 'ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome', 'checkpointPhase')) {
+        $value = Get-RequiredProperty $Rule $name $Context
+        Assert-JsonKind $value @('string') "$Context.$name" | Out-Null
+    }
     foreach ($field in @(
         @{ name = 'label'; value = $label },
         @{ name = 'archiveSha256'; value = $archiveSha256 },
@@ -272,7 +276,9 @@ function Get-GhostEnvelopeRuleKey([object]$Rule, [string]$Context) {
     $methodText = if ($null -eq $method) { '<null>' } else { [string]$method }
     $eventText = if ($null -eq $eventId) { '<null>' } else { [string]$eventId }
     $failureText = if ($null -eq $failure) { '<null>' } else { [string]$failure }
-    return "$label|$archiveSha256|$classification|$methodText|$eventText|$statusToken|$outcome|$failureText"
+    $lifecycleFields = @('installOutcome', 'ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome', 'checkpointPhase')
+    $lifecycleText = @($lifecycleFields | ForEach-Object { [string](Get-RequiredProperty $Rule $_ $Context) }) -join '|'
+    return "$label|$archiveSha256|$classification|$methodText|$eventText|$statusToken|$outcome|$failureText|$lifecycleText"
 }
 
 function Assert-NormalizationKind([object]$Contract, [string]$Scope, [string]$Path, [object]$Value) {
@@ -448,11 +454,32 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
     $nativeCrash = $nativeCrashProperty.Value
     Assert-JsonKind $nativeCrash @('boolean') "$Side summary result '$Label'.nativeCrash" | Out-Null
     if ($nativeCrash -ne $true) { return $false }
+    $rule = $script:NarCorpusGhostEnvelopeRulesByLabel[$Label]
+    if ($null -eq $rule) { throw "$Side accepted native checkpoint '$Label' has no exact manifest/SHA-bound lifecycle rule" }
+    Assert-ExactJsonValue $rule.classification 'compatible' "$Side accepted native checkpoint '$Label' reviewed classification"
+    if ($null -ne $Raw.PSObject.Properties['cleanup']) { throw "$Side accepted native checkpoint '$Label' must preserve the cleanup-less raw checkpoint" }
     Assert-EqualString (Get-RequiredProperty $Row 'runtimeCheckpointPhase' "$Side summary result '$Label'") 'before-real-shiori' "$Side summary result '$Label'.runtimeCheckpointPhase"
     Assert-EqualString (Get-RequiredProperty $Raw 'checkpointPhase' "$Side raw result '$Label'") 'before-real-shiori' "$Side raw result '$Label'.checkpointPhase"
     Assert-EqualString (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") 'incompatible' "$Side summary result '$Label'.classification"
     Assert-EqualString (Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'") 'incompatible' "$Side raw result '$Label'.classification"
     Assert-EqualString (Get-RequiredProperty $Row 'status' "$Side summary result '$Label'") 'ok' "$Side summary result '$Label'.status"
+
+    $expectedCheckpointLifecycle = [ordered]@{
+        installOutcome = [string]$rule.installOutcome
+        ghostLoadOutcome = 'surface-loaded'
+        renderOutcome = [string]$rule.renderOutcome
+        inputOutcome = [string]$rule.inputOutcome
+        shioriOutcome = 'pending-real-shiori'
+        checkpointPhase = 'before-real-shiori'
+    }
+    foreach ($fieldName in @('installOutcome', 'ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome')) {
+        $rawValue = Get-RequiredProperty $Raw $fieldName "$Side raw result '$Label'"
+        $summaryValue = Get-RequiredProperty $Row $fieldName "$Side summary result '$Label'"
+        Assert-ExactJsonValue $rawValue $expectedCheckpointLifecycle[$fieldName] "$Side accepted native checkpoint '$Label'.$fieldName"
+        Assert-ExactJsonValue $summaryValue $rawValue "$Side accepted native checkpoint '$Label' summary $fieldName raw mirror"
+    }
+    Assert-ExactJsonValue (Get-RequiredProperty $Raw 'checkpointPhase' "$Side raw result '$Label'") $expectedCheckpointLifecycle.checkpointPhase "$Side accepted native checkpoint '$Label'.checkpointPhase"
+    Assert-ExactJsonValue (Get-RequiredProperty $Row 'runtimeCheckpointPhase' "$Side summary result '$Label'") $expectedCheckpointLifecycle.checkpointPhase "$Side accepted native checkpoint '$Label'.runtimeCheckpointPhase"
 
     $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
     Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
@@ -529,6 +556,16 @@ function Assert-GhostEnvelope([object]$Row, [object]$Raw, [object]$Entry, [hasht
     foreach ($fieldName in @('method', 'eventId', 'status', 'outcome', 'failure')) {
         Assert-ExactJsonValue (Get-RequiredProperty $probe $fieldName "$Side raw result '$Label'.dialogueProbe") $rule.$fieldName "$Side raw result '$Label'.dialogueProbe.$fieldName"
     }
+    foreach ($fieldName in @('installOutcome', 'ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome')) {
+        $rawValue = Get-RequiredProperty $Raw $fieldName "$Side raw result '$Label'"
+        $summaryValue = Get-RequiredProperty $Row $fieldName "$Side summary result '$Label'"
+        Assert-ExactJsonValue $rawValue $rule.$fieldName "$Side raw result '$Label'.$fieldName"
+        Assert-ExactJsonValue $summaryValue $rawValue "$Side summary result '$Label'.$fieldName raw mirror"
+    }
+    $rawCheckpointPhase = Get-RequiredProperty $Raw 'checkpointPhase' "$Side raw result '$Label'"
+    $summaryCheckpointPhase = Get-RequiredProperty $Row 'runtimeCheckpointPhase' "$Side summary result '$Label'"
+    Assert-ExactJsonValue $rawCheckpointPhase $rule.checkpointPhase "$Side raw result '$Label'.checkpointPhase"
+    Assert-ExactJsonValue $summaryCheckpointPhase $rawCheckpointPhase "$Side summary result '$Label'.runtimeCheckpointPhase raw mirror"
 }
 
 function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtable]$EntriesByLabel, [hashtable]$GhostEnvelopeRulesByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
@@ -1245,6 +1282,32 @@ try {
         'Snake_Otacon_1.3.1b|04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59|compatible|GET|OnBoot|200|success|<null>',
         'Watchdog Bancho|8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca|compatible|GET|OnBoot|200|success|<null>'
     )
+    $reviewedGhostLifecycleByLabel = @{
+        '2elf-2.46' = 'installed|loaded|production-stage-rendered|named-collisions-routed:24|success|complete'
+        'tewire-sen' = 'installed|loaded|production-stage-rendered|named-collisions-routed:6|success|complete'
+        'Yes Man-2.1.1' = 'installed|loaded|production-stage-rendered|named-collisions-routed:3|success|complete'
+        'Big Red Button' = 'installed|loaded|production-stage-rendered|no-named-collisions|success|complete'
+        'Earthquake Rescue Duo' = 'installed|loaded|production-stage-rendered|named-collisions-routed:4|success|complete'
+        'LOBO' = 'installed|loaded|production-stage-rendered|no-named-collisions|success|complete'
+        'Nanika Atsume 1.0.0' = 'installed|loaded|production-stage-rendered|named-collisions-routed:7|success|complete'
+        'Nanika Atsume 1.0.1' = 'installed|loaded|production-stage-rendered|named-collisions-routed:7|success|complete'
+        'Nanika Atsume silent_ALPHA' = 'installed|loaded|production-stage-rendered|named-collisions-routed:7|success|complete'
+        'Snake and Otacon V1.0.0' = 'invalid-path|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-run'
+        'Snake and Otacon V1.0.1' = 'invalid-path|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-run'
+        'Snake And Otacon V1.1.1' = 'invalid-path|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-run'
+        'Snake and Otacon V1.2.1' = 'installed|loaded|production-stage-rendered|named-collisions-routed:5|success|complete'
+        'Snake and Otacon V1.3.1' = 'installed|loaded|production-stage-rendered|named-collisions-routed:5|success|complete'
+        'Snake and Otacon V1.3.2' = 'installed|loaded|production-stage-rendered|named-collisions-routed:5|success|complete'
+        'Snake_Otacon_1.1.1b' = 'invalid-path|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-applicable:install-rejected|not-run'
+        'Snake_Otacon_1.2.1b' = 'installed|loaded|production-stage-rendered|named-collisions-routed:4|not-supported-shiori|complete'
+        'Snake_Otacon_1.3.1b' = 'installed|loaded|production-stage-rendered|named-collisions-routed:5|success|complete'
+        'Watchdog Bancho' = 'installed|loaded|production-stage-rendered|named-collisions-routed:12|success|complete'
+    }
+    $reviewedGhostEnvelopeRuleKeys = @($reviewedGhostEnvelopeRuleKeys | ForEach-Object {
+        $label = ($_ -split '\|', 2)[0]
+        if (-not $reviewedGhostLifecycleByLabel.ContainsKey($label)) { throw "reviewed ghost lifecycle has no rule for '$label'" }
+        "$_|$($reviewedGhostLifecycleByLabel[$label])"
+    })
     $ghostEnvelopeRules = Get-RequiredProperty $contract 'ghostEnvelopeRules' 'comparison contract'
     Assert-JsonKind $ghostEnvelopeRules @('array') 'comparison contract ghostEnvelopeRules' | Out-Null
     $actualGhostEnvelopeRuleKeys = @($ghostEnvelopeRules | ForEach-Object { Get-GhostEnvelopeRuleKey $_ 'comparison contract ghost envelope rule' })
@@ -1258,6 +1321,7 @@ try {
         Assert-EqualString $rule.archiveSha256 ([string]$entry[0].sha256) "comparison contract ghost envelope archive SHA for '$label'"
         $ghostEnvelopeRulesByLabel[$label] = $rule
     }
+    $script:NarCorpusGhostEnvelopeRulesByLabel = $ghostEnvelopeRulesByLabel
 
     $stochasticLabels = @($contract.stochasticDialogueValues | ForEach-Object { [string]$_.label })
     $requiredStochasticLabels = @('2elf-2.46', 'Earthquake Rescue Duo', 'LOBO', 'Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b', 'Watchdog Bancho')
@@ -1431,8 +1495,13 @@ try {
     $deviceDifference = Find-FirstDifference $base.Summary.device $candidate.Summary.device 'device'
     if ($deviceDifference) { throw "device mismatch at $deviceDifference" }
     foreach ($rule in @($contract.stochasticDialogueValues)) {
-        Assert-StochasticValue $base $rule 'base'
-        Assert-StochasticValue $candidate $rule 'candidate'
+        $label = [string]$rule.label
+        if (-not (Test-AcceptedNativeCheckpoint $base.Rows[$label] $base.Raw[$label] $base.Entries[$label] 'base' $label)) {
+            Assert-StochasticValue $base $rule 'base'
+        }
+        if (-not (Test-AcceptedNativeCheckpoint $candidate.Rows[$label] $candidate.Raw[$label] $candidate.Entries[$label] 'candidate' $label)) {
+            Assert-StochasticValue $candidate $rule 'candidate'
+        }
     }
 
     $canonicalBase = ConvertTo-CanonicalRun $base $contract
