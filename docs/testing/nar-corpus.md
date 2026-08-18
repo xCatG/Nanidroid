@@ -1,6 +1,6 @@
 # NAR corpus runtime audit
 
-`run-nar-corpus-audit.ps1` executes a deterministic, manifest-driven compatibility
+`run-nar-corpus-audit.ps1` executes a manifest-driven compatibility
 run. For each archive, the script installs/builds target and test APKs once, copies
 the archive into one per-run private staging path, invokes
 `com.cattailsw.nanidroid.corpus.NarCorpusRuntimeTest` with:
@@ -106,7 +106,7 @@ base and candidate production APKs were exercised by an identical probe.
   These checks cover result count, zero failures, cleanup, parser provenance,
   authored collision geometry and routing, dialogue sequences, optical bounds,
   asymmetric Sakura/Kero surfaces, and intentionally unsupported package kinds.
-- Persists fixed metadata in `summary.json`/`summary.md`, including:
+- Persists run metadata in schema-versioned (`"2"`) `summary.json`/`summary.md`, including:
   - git commit
   - separate production commit/debug APK identity
   - fixed harness commit/tree, runner source, instrumentation source, and test APK identity
@@ -140,7 +140,8 @@ cleanup is reported as unverified for that run.
 The comparison contract is
 `docs/testing/nar-corpus-comparison-contract.json`. It is intentionally separate
 from both `nar-corpus-manifest.json` and the rolling PR #394 metadata ledger. The
-contract allows only the six reviewed `dialogueProbe.value` hash sets; it does not
+contract binds reviewed stochastic dialogue rules to exact archive SHA-256 entries,
+source provenance, and (where required) paired tokenizer diagnostics; it does not
 change archive membership, classification, or required-evidence policy.
 
 Prepare three retained evidence roots: two complete runs of the pristine base
@@ -200,7 +201,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Base/base prerequisite failed; candidate compa
 if ($LASTEXITCODE -ne 0) { throw 'Base/candidate corpus comparison failed.' }
 ```
 
-The comparator independently requires both run summaries to be successful,
+The comparator independently requires schema version `"2"` on the contract,
+both summaries, all 23 raw results, and any prerequisite/comparison report. It
+requires both run summaries to be successful,
 then exhaustively compares `summary.json`, the exact 23 raw `result.json` files,
 and the exact 23 screenshot hashes. A base/candidate invocation cannot proceed
 without a passing base/base report bound to the same base, harness, manifest,
@@ -224,8 +227,39 @@ suffixes, traversal segments, wrong labels or filenames are rejected, and all
 23 rows in one run must use the same private-data-root variant. This rule is
 intentionally limited to `narCorpusPath`; source mirror fields retain their
 separate wrapper/path rules.
+For schema `"2"`, the host validates and normalizes the exact runner-owned
+summary shapes for all 23 `observedPrivateSnapshot` and `observedTmpSnapshot`
+values and the manifest/SHA-bound 15 `evidence.sourceSyntax.scanRoot` values.
+Only `scanRoot` has a raw result mirror; private and tmp snapshots are summary
+evidence and are never fabricated into device JSON. The runner keeps pulled
+device `result.json` bytes unchanged: host cleanup facts live in summary rows.
+OnBoot stochastic checks bind device-local before/after clock brackets and
+fresh-profile context, failing closed if a predicate boundary is crossed. No
+unused seed argument is emitted or treated as a determinism claim.
+The comparison report and its base/base prerequisite hard-bind the content
+partition: 23 raw envelopes structurally validated; 16 dialogue literals
+equal; four independently archive-bound stochastic dialogue contracts (2elf,
+Watchdog, Earthquake, and LOBO) validated without being called literal-equal;
+three exact older-Snake label/SHA pairs structural-only with
+`contentCompared:false`; three exact fresh-instance `GET OnFirstBoot`
+canaries; and 23 screenshot hashes equal. For the three older Snake archives,
+the instrumentation creates canary A and B in separate never-loaded roots,
+unloads each wrapper before cleanup, requires their full canary objects to be
+equal, and only then loads the primary OnBoot wrapper in a third root. Their
+OnBoot text is accepted only by the test-only full-consuming raw SakuraScript
+safety lexer: the archive-bound surface union is exactly
+`{0,1,2,4,5,8,9,10,13,14,15,17,18,19,30,32,35}`, the only formatting tokens
+are case-sensitive `\f[italic,true]` and `\f[italic,false]`, and the terminal
+is exact `\e` or physical EOF. The source fixtures bind the italic true/false
+and EOF `zzz...` branches for each exact older-Snake SHA. This is not a claim
+of general KIS/YAYA evaluation or equality of stochastic prose.
+Accordingly, an otherwise structurally valid older-Snake prose substitution,
+including one that happens to resemble another older-Snake archive's output,
+is an explicit known miss. The exact `OnFirstBoot` canary proves only its
+separate fresh request/response path; it does not prove the provenance of the
+primary `OnBoot` prose.
 For successful default-run summaries, the comparator also requires the reviewed
-139-name sentinel set. Its contract digest is calculated by ordinal-sorting the
+143-name sentinel set. Its contract digest is calculated by ordinal-sorting the
 unique nonblank names, joining them with LF, and taking a UTF-8 SHA-256; a
 missing, renamed, duplicated, or malformed check cannot be normalized away.
 The comparator supports PowerShell 7.0 and preserves JSON scalar kinds with its

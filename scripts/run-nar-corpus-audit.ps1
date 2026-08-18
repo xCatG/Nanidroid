@@ -71,7 +71,6 @@ $screenshotRoot = Join-Path $reportRoot 'screenshots'
 $hostTmpRoot = Join-Path $reportRoot '.tmp'
 $runId = [guid]::NewGuid().ToString('N')
 $hostRunTmpRoot = Join-Path $hostTmpRoot $runId
-$fixedSeed = '20260804T000000Z'
 $constantFileName = 'nanidroid-corpus.nar'
 $tmpRoot = '/data/local/tmp/nanidroid-corpus'
 $tmpRunRoot = "$tmpRoot/$runId"
@@ -2246,7 +2245,6 @@ function Run-TestArchive {
             '-e','narCorpusPath',$PrivateArchivePath,
             '-e','narCorpusSha256',$ArchiveSha,
             '-e','narCorpusLabelBase64',([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Label))),
-            '-e','narCorpusSeed',$fixedSeed,
             '-e','disableNetwork','true',
             $instrumentationRunner
         )
@@ -2470,53 +2468,22 @@ function Run-TestArchive {
     if ($null -eq $archiveResult) {
         ThrowIf "Archive $Label completed without a structured result."
     }
-    if (-not (Has-Property -Object $result -Name 'cleanup') -or $null -eq $result.cleanup) {
-        $result | Add-Member -NotePropertyName cleanup -NotePropertyValue ([pscustomobject]@{}) -Force
-    }
-    if ($nativeCrashAccepted) {
-        $result | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori' -Force
-        $result | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'host-classified-native-crash' -Force
-        $result | Add-Member -NotePropertyName classification -NotePropertyValue 'incompatible' -Force
-        $result | Add-Member -NotePropertyName passed -NotePropertyValue $true -Force
-        $result | Add-Member -NotePropertyName shioriOutcome -NotePropertyValue 'native-crash:libkawari8' -Force
-        $result | Add-Member -NotePropertyName nativeCrashEvidence -NotePropertyValue $nativeCrashEvidence -Force
-        $result | Add-Member -NotePropertyName crashEvidence -NotePropertyValue $crashEvidence -Force
-        $result | Add-Member -NotePropertyName crashLogPath -NotePropertyValue $crashLogLocal -Force
-        if (-not (Has-Property -Object $result -Name 'dialogueProbe') -or $null -eq $result.dialogueProbe) {
-            $result | Add-Member -NotePropertyName dialogueProbe -NotePropertyValue ([pscustomobject]@{}) -Force
-        }
-        $result.dialogueProbe | Add-Member -NotePropertyName outcome -NotePropertyValue 'native-crash:libkawari8' -Force
-        $result.cleanup | Add-Member -NotePropertyName remainingTestOwnedPaths -NotePropertyValue @() -Force
-    }
-    else {
-        if (-not (Has-Property -Object $result -Name 'nativeCrashEvidence')) {
-            $result | Add-Member -NotePropertyName nativeCrashEvidence -NotePropertyValue $nativeCrashEvidence -Force
-        }
-        else {
-            $result.nativeCrashEvidence = $nativeCrashEvidence
-        }
-    }
-    $result | Add-Member -NotePropertyName hostCleanupEvidence -NotePropertyValue $hostCleanupEvidence -Force
-    $result.cleanup | Add-Member -NotePropertyName hostVerified -NotePropertyValue $true -Force
-    Set-CanonicalArchiveCleanup -ArchiveResult $archiveResult -Result $result
-    $dialogueOutcomeFromResult = if (
-        $result.dialogueProbe -and
-        (Has-Property -Object $result.dialogueProbe -Name 'outcome')
-    ) {
-        $result.dialogueProbe.outcome
-    } else {
-        $null
-    }
-
-    $archiveResult.shioriOutcome = $result.shioriOutcome
-    $archiveResult.dialogueOutcome = $dialogueOutcomeFromResult
-    $archiveResult.classification = $archiveResultClassification
-    $archiveResult.runtimeCheckpointPhase = $runtimeCheckpointPhase
-
-    $enrichedResultJson = ConvertTo-NarCorpusJson -Value $result
-    Set-Content -Path $resultJsonLocal -Value $enrichedResultJson -Encoding UTF8
+    # `result.json` is device evidence.  Host cleanup and crash classification
+    # belong only in summary rows; never reserialize or enrich the pulled bytes.
+    $remainingRawPaths = if ((Has-Property -Object $result -Name 'cleanup') -and $null -ne $result.cleanup -and (Has-Property -Object $result.cleanup -Name 'remainingTestOwnedPaths')) { @($result.cleanup.remainingTestOwnedPaths) } else { @() }
+    $archiveResult | Add-Member -NotePropertyName cleanup -NotePropertyValue ([pscustomobject]@{
+        remainingTestOwnedPaths = $remainingRawPaths
+        hostVerified = $true
+    }) -Force
     if (-not $archiveResult.hostCleanupEvidence -or $archiveResult.hostCleanupEvidence -eq 'host cleanup not yet attempted') {
         $archiveResult | Add-Member -NotePropertyName hostCleanupEvidence -NotePropertyValue $hostCleanupEvidence -Force
+    }
+    # These are device-emitted comparison evidence.  Mirror them verbatim into
+    # the host summary; do not mutate or reserialize result.json itself.
+    foreach ($snakeEvidenceName in @('snakeOnBootStructuralSafety', 'snakeFirstBootCanary')) {
+        if (Has-Property -Object $result -Name $snakeEvidenceName) {
+            $archiveResult | Add-Member -NotePropertyName $snakeEvidenceName -NotePropertyValue $result.$snakeEvidenceName
+        }
     }
     $archiveResult | Add-Member -NotePropertyName postCleanupPrivateSnapshot -NotePropertyValue $postPrivateSnapshot
     $archiveResult | Add-Member -NotePropertyName postCleanupOutputSnapshot -NotePropertyValue $postOutputSnapshot
@@ -4371,9 +4338,30 @@ try {
         }
     }
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'result-rows' -Passed ($invalidResultRows.Count -eq 0) -Expected 0 -Observed $invalidResultRows.Count -Detail "Rows failing host cleanup/status constraints: $($invalidResultRows -join ', ')"
+    $olderSnakeStructuralLabels = @('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b')
+    $snakeStructuralRows = @($results | Where-Object {
+        $_.label -in $olderSnakeStructuralLabels -and
+        (Has-Property -Object $_ -Name 'snakeOnBootStructuralSafety') -and
+        $_.snakeOnBootStructuralSafety.accepted -eq $true -and
+        $_.snakeOnBootStructuralSafety.contentCompared -eq $false
+    })
+    $snakeCanaryRows = @($results | Where-Object {
+        $_.label -in $olderSnakeStructuralLabels -and
+        (Has-Property -Object $_ -Name 'snakeFirstBootCanary') -and
+        $_.snakeFirstBootCanary.freshInstance -eq $true -and
+        $_.snakeFirstBootCanary.independentInstanceCount -eq 2
+    })
+    $screenshotHashRows = @($results | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_.screenshotPath) -and (Test-Path -LiteralPath $_.screenshotPath -PathType Leaf)
+    })
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-raw-envelope-count' -Passed ($results.Count -eq 23) -Expected 23 -Observed $results.Count -Detail 'Expected one successful raw envelope for every fixed manifest entry.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-snake-structural-only-count' -Passed ($snakeStructuralRows.Count -eq 3) -Expected 3 -Observed $snakeStructuralRows.Count -Detail 'Expected exactly three SHA-bound older Snake structural-only witnesses.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-snake-canary-count' -Passed ($snakeCanaryRows.Count -eq 3) -Expected 3 -Observed $snakeCanaryRows.Count -Detail 'Expected exactly three independently repeatable fresh-instance Snake canaries.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-screenshot-hash-count' -Passed ($screenshotHashRows.Count -eq 23) -Expected 23 -Observed $screenshotHashRows.Count -Detail 'Expected one exact screenshot artifact for every fixed manifest entry.'
     $failedSentinelChecks = @($globalSentinels.checks | Where-Object { -not $_.passed }).Count
 
     $summary = [pscustomobject]@{
+        schemaVersion = '2'
         runId = $runId
         manifest = $manifestEntryName
         manifestSha256 = $manifestSha
@@ -4404,7 +4392,6 @@ try {
             density = [int]$deviceDensity
         }
         host = @{
-            fixedSeed = $fixedSeed
             networkDisabled = $true
             runAs = $true
             timeoutMinutes = $PerArchiveTimeoutMinutes
@@ -4441,7 +4428,6 @@ try {
 - Run ID: $runId
 - Device: $DeviceSerial ($deviceFingerprint)
 - Android API: $deviceApi, ABI: $deviceAbi, density: $deviceDensity
-- Fixed seed: $fixedSeed
 - APKs:
   - debug sha256: $($apkInfo.DebugApkSha256)
   - test sha256: $($apkInfo.TestApkSha256)

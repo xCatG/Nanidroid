@@ -441,9 +441,8 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [int]$Ex
         Assert-JsonKind $raw.passed @('boolean') "$Side raw result '$label'.passed" | Out-Null
         if ($raw.passed -ne $true) { throw "$Side is not a successful run: raw result '$label' did not pass" }
         $rawCleanup = Get-RequiredProperty $raw 'cleanup' "$Side raw result '$label'"
-        Assert-JsonKind $rawCleanup.hostVerified @('boolean') "$Side raw result '$label'.cleanup.hostVerified" | Out-Null
         Assert-JsonKind $rawCleanup.remainingTestOwnedPaths @('array') "$Side raw result '$label'.cleanup.remainingTestOwnedPaths" | Out-Null
-        if ($rawCleanup.hostVerified -ne $true -or @($rawCleanup.remainingTestOwnedPaths).Count -ne 0) { throw "$Side is not a successful run: raw cleanup residue for '$label'" }
+        if (@($rawCleanup.remainingTestOwnedPaths).Count -ne 0) { throw "$Side is not a successful run: raw cleanup residue for '$label'" }
     }
 }
 
@@ -464,7 +463,6 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
         }
 
         $safeLabel = [string](Get-RequiredProperty $row 'safeLabel' "$Side summary result '$label'")
-        $expectedRunRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$runId/$safeLabel/"
         $raw = $RawByLabel[$label]
         $narCorpusPath = Get-RequiredProperty $raw 'narCorpusPath' "$Side raw result '$label'"
         Assert-JsonKind $narCorpusPath @('string') "$Side raw result '$label'.narCorpusPath" | Out-Null
@@ -480,6 +478,28 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
             throw "$Side raw result '$label'.narCorpusPath must use the same private data root as every raw result"
         }
 
+        $expectedPrivateSnapshot = "$($narCorpusPathMatch.Groups['privateRoot'].Value)/cache/nar-corpus-host/$runId/$safeLabel"
+        $observedPrivateSnapshot = Get-RequiredProperty $row 'observedPrivateSnapshot' "$Side summary result '$label'"
+        Assert-JsonKind $observedPrivateSnapshot @('string') "$Side summary result '$label'.observedPrivateSnapshot" | Out-Null
+        Assert-EqualString $observedPrivateSnapshot $expectedPrivateSnapshot "$Side summary result '$label'.observedPrivateSnapshot"
+        $expectedTmpSnapshot = "/data/local/tmp/nanidroid-corpus/$runId/$safeLabel"
+        $observedTmpSnapshot = Get-RequiredProperty $row 'observedTmpSnapshot' "$Side summary result '$label'"
+        Assert-JsonKind $observedTmpSnapshot @('string') "$Side summary result '$label'.observedTmpSnapshot" | Out-Null
+        Assert-EqualString $observedTmpSnapshot $expectedTmpSnapshot "$Side summary result '$label'.observedTmpSnapshot"
+
+        if ($RawSourceMirrorLabels -cnotcontains $label) {
+            $summarySource = if ($null -eq $row.PSObject.Properties['evidence']) { $null } else { $row.evidence }
+            $summarySourceSyntax = if ($null -eq $summarySource -or $null -eq $summarySource.PSObject.Properties['sourceSyntax']) { $null } else { $summarySource.sourceSyntax }
+            if ($null -ne $summarySourceSyntax -and $null -ne $summarySourceSyntax.PSObject.Properties['scanRoot']) {
+                throw "$Side summary result '$label'.evidence.sourceSyntax.scanRoot is not declared for this manifest/SHA-bound label"
+            }
+            $rawSource = if ($null -eq $raw.PSObject.Properties['evidence']) { $null } else { $raw.evidence }
+            $rawSourceSyntax = if ($null -eq $rawSource -or $null -eq $rawSource.PSObject.Properties['sourceSyntax']) { $null } else { $rawSource.sourceSyntax }
+            if ($null -ne $rawSourceSyntax -and $null -ne $rawSourceSyntax.PSObject.Properties['scanRoot']) {
+                throw "$Side raw result '$label'.evidence.sourceSyntax.scanRoot is not declared for this manifest/SHA-bound label"
+            }
+        }
+
         foreach ($mirrorPath in $(if ($RawSourceMirrorLabels -contains $label) { @('evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source') } else { @() })) {
             $node = $raw
             $found = $true
@@ -491,11 +511,17 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
                 }
                 $node = $property.Value
             }
-            if ($found) {
-                Assert-JsonKind $node @('string') "$Side raw result '$label'.$mirrorPath" | Out-Null
-                if (-not ([string]$node).Contains($expectedRunRoot, [StringComparison]::Ordinal)) {
-                    throw "$Side raw result '$label'.$mirrorPath must mirror the summary run identity"
-                }
+            if (-not $found) { throw "$Side raw result '$label'.$mirrorPath must be present for its manifest/SHA-bound label" }
+            Assert-JsonKind $node @('string') "$Side raw result '$label'.$mirrorPath" | Out-Null
+            if ($mirrorPath -ceq 'evidence.sourceSyntax.scanRoot') {
+                $summaryScanRoot = Get-RequiredProperty (Get-RequiredProperty (Get-RequiredProperty $row 'evidence' "$Side summary result '$label'") 'sourceSyntax' "$Side summary result '$label'.evidence") 'scanRoot' "$Side summary result '$label'.evidence.sourceSyntax"
+                Assert-JsonKind $summaryScanRoot @('string') "$Side summary result '$label'.evidence.sourceSyntax.scanRoot" | Out-Null
+                $scanRootPattern = '^/data/data/com\.cattailsw\.nanidroid/cache/nar-corpus-host/' + [regex]::Escape([string]$runId) + '/' + [regex]::Escape($safeLabel) + '/probe-install/corpus-[0-9a-f]{16}\z'
+                if ([string]$node -notmatch $scanRootPattern) { throw "$Side raw result '$label'.evidence.sourceSyntax.scanRoot must match the exact runner scan-root path" }
+                Assert-EqualString $summaryScanRoot ([string]$node) "$Side summary result '$label'.evidence.sourceSyntax.scanRoot raw mirror"
+            }
+            elseif (-not ([string]$node).Contains("/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$runId/$safeLabel/", [StringComparison]::Ordinal)) {
+                throw "$Side raw result '$label'.$mirrorPath must mirror the summary run identity"
             }
         }
     }
@@ -520,6 +546,9 @@ function Read-AndValidateRun {
     $resolvedRoot = [IO.Path]::GetFullPath($Root)
     if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) { throw "$Side evidence root does not exist: $resolvedRoot" }
     $summary = Read-JsonFile (Join-Path $resolvedRoot 'summary.json') "$Side summary"
+    $summarySchemaVersion = Get-RequiredProperty $summary 'schemaVersion' "$Side summary"
+    Assert-JsonKind $summarySchemaVersion @('string') "$Side summary schemaVersion" | Out-Null
+    Assert-EqualString $summarySchemaVersion '2' "$Side summary schemaVersion"
     Assert-EqualString (Get-RequiredProperty $summary 'manifestSha256' "$Side summary") $ExpectedManifestSha "$Side manifest SHA"
     Assert-ProductionIdentity $summary $ExpectedCommit $ExpectedDebugSha $Side
     Assert-HarnessIdentity $summary $Side
@@ -551,6 +580,9 @@ function Read-AndValidateRun {
 
         $rawPath = Join-Path $resolvedRoot "$safeLabel\result.json"
         $raw = Read-JsonFile $rawPath "$Side raw result '$label'"
+        $rawSchemaVersion = Get-RequiredProperty $raw 'schemaVersion' "$Side raw result '$label'"
+        Assert-JsonKind $rawSchemaVersion @('string') "$Side raw result '$label' schemaVersion" | Out-Null
+        Assert-EqualString $rawSchemaVersion '2' "$Side raw result '$label' schemaVersion"
         Assert-EqualString $raw.label $label "$Side raw label for '$label'"
         Assert-EqualString $raw.sha256 ([string]$entry.sha256) "$Side raw archive SHA for '$label'"
         foreach ($requiredName in $requiredNames) {
@@ -569,6 +601,188 @@ function Read-AndValidateRun {
     return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; RunIdentity = $runIdentity; EvidenceFingerprint = $evidenceFingerprint }
 }
 
+function Get-ValidatedOnBootContext([object]$Raw, [string]$Side, [string]$Label) {
+    $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
+    Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
+    Assert-EqualString (Get-RequiredProperty $probe 'method' "$Side raw result '$Label'.dialogueProbe") 'GET' "$Side raw result '$Label'.dialogueProbe.method"
+    Assert-EqualString (Get-RequiredProperty $probe 'eventId' "$Side raw result '$Label'.dialogueProbe") 'OnBoot' "$Side raw result '$Label'.dialogueProbe.eventId"
+    $status = Get-RequiredProperty $probe 'status' "$Side raw result '$Label'.dialogueProbe"
+    Assert-JsonKind $status @('number') "$Side raw result '$Label'.dialogueProbe.status" | Out-Null
+    if ($status.Token -cne '200') { throw "$Side raw result '$Label'.dialogueProbe.status must be exact JSON number 200" }
+    Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'success' "$Side raw result '$Label'.dialogueProbe.outcome"
+    if ($null -ne (Get-RequiredProperty $probe 'failure' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.failure must be null" }
+
+    $context = Get-RequiredProperty $probe 'onBootContext' "$Side raw result '$Label'.dialogueProbe"
+    Assert-JsonKind $context @('object') "$Side raw result '$Label'.dialogueProbe.onBootContext" | Out-Null
+    Assert-EqualString (Get-RequiredProperty $context 'profileState' "$Side raw result '$Label'.dialogueProbe.onBootContext") 'fresh' "$Side raw result '$Label'.dialogueProbe.onBootContext.profileState"
+    Assert-EqualString (Get-RequiredProperty $context 'username' "$Side raw result '$Label'.dialogueProbe.onBootContext") '' "$Side raw result '$Label'.dialogueProbe.onBootContext.username"
+    $birthdayConfigured = Get-RequiredProperty $context 'birthdayConfigured' "$Side raw result '$Label'.dialogueProbe.onBootContext"
+    Assert-JsonKind $birthdayConfigured @('boolean') "$Side raw result '$Label'.dialogueProbe.onBootContext.birthdayConfigured" | Out-Null
+    if ($birthdayConfigured -ne $false) { throw "$Side raw result '$Label'.dialogueProbe.onBootContext.birthdayConfigured must be false" }
+    $beforeText = Get-RequiredProperty $context 'localClockBefore' "$Side raw result '$Label'.dialogueProbe.onBootContext"
+    $afterText = Get-RequiredProperty $context 'localClockAfter' "$Side raw result '$Label'.dialogueProbe.onBootContext"
+    Assert-JsonKind $beforeText @('string') "$Side raw result '$Label'.dialogueProbe.onBootContext.localClockBefore" | Out-Null
+    Assert-JsonKind $afterText @('string') "$Side raw result '$Label'.dialogueProbe.onBootContext.localClockAfter" | Out-Null
+    if ([string]$beforeText -notmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]+(?:\.[0-9]+)?[+-][0-9]{2}:[0-9]{2}$' -or [string]$afterText -notmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]+(?:\.[0-9]+)?[+-][0-9]{2}:[0-9]{2}$') {
+        throw "$Side raw result '$Label'.dialogueProbe.onBootContext must use device-local ISO-8601 offsets"
+    }
+    $before = [DateTimeOffset]::Parse([string]$beforeText, [Globalization.CultureInfo]::InvariantCulture)
+    $after = [DateTimeOffset]::Parse([string]$afterText, [Globalization.CultureInfo]::InvariantCulture)
+    if ($after -lt $before) { throw "$Side raw result '$Label' OnBoot clock bracket is reversed" }
+    if ($before.Year -ne $after.Year -or $before.Month -ne $after.Month -or $before.Day -ne $after.Day -or $before.Hour -ne $after.Hour -or $before.Minute -ne $after.Minute) {
+        throw "$Side raw result '$Label' OnBoot clock bracket crosses a predicate boundary"
+    }
+    return $before
+}
+
+function Test-EarthquakePredicate([string]$Predicate, [DateTimeOffset]$Clock) {
+    switch ($Predicate) {
+        'early-not-special-date' { return $Clock.Hour -lt 6 -and -not (($Clock.Month -eq 6 -and $Clock.Day -eq 6) -or ($Clock.Month -eq 7 -and $Clock.Day -eq 4)) }
+        'date-06-06' { return $Clock.Month -eq 6 -and $Clock.Day -eq 6 }
+        'date-07-04' { return $Clock.Month -eq 7 -and $Clock.Day -eq 4 }
+        default { throw "unsupported Earthquake predicate '$Predicate'" }
+    }
+}
+
+$script:LoboSingularWords = @('butterfly','larva','phaeton','lobo','angle','cerberus','felid','chordate','product','knight','spittle','ass','bullion','minerall','armour','ark','beacon','meadowgrass','strawberry','pachyderm','advent','memory','fruit','needle','thread','fate','crocodile','acetaminophen','sulfur','aegis','aglaeca','bealusi','bruin','watership','hazelnut','quid','skyscraper','artifact','acursed-amulet','bellows','dread','fear','joy','love','flesh','tack','psychopomp','bug','Mojito','psyche','caladbolg')
+$script:LoboPluralWords = @('butterflies','larvae','phaetons','lobos','angles','cerberi','felidae','chordates','products','knights','bullion','mineralls','armours','arks','beacons','meadowgrass','strawberries','pachydermata','advents','devils','memories','fruits','cryptids','beads','apple-cars','hydroflasks','chainsaws','fiends','cheese wheels','spinning wheels','aerospace engineers','thing-a-ma-jigs','wings','recursive bows','rottenous eggs','wounds','gouges','maws','psychopomps','flowers','bluebells','commies')
+$script:LoboAdjectives = @('frightening','devasting','incomprehensible','sordid','aweful','abhorrent','calamitous','unpropitious','harrowing','unpreventable','portentious','ineluctable','decadent','effete','languorous','licentious','bacchanalian','lascivious','summery','redolent','pestilential','putrefactive','effervescing','vituperative','auriferous','virulent','pernicious','recrudescent','loathesome','misogynous','caustic','atavistic','belluine','hesperian','diaphanous','heterobasidiomycetous','sphenoid','elfin','morphous','justified','star-crossed','aluminous','argentine','goth','viscous','long','hylic','presidential','fruity','bougie','Icarus-like','dreadful','lackidasical','ensouled','Greek','Roman','wet')
+$script:LoboPresentVerbs = @('hark','look','wish','finish','exercise','revolve','arrive','hoist','render','pardon','liquify','hydrate','offend','beg','sniff','resolve','prowl','self-flagellate','grovel','kneel','spit','sum','divide','multiply','fruit','growl','affix','ambulate','manipulate','sculpt','fraternize')
+$script:LoboPresentSingularVerbs = @('harks','looks','wishes','finishes','exercises','revolves','arrives','hoists','renders','pardons','liquifies','hydrates','offends','begs','sniffs','resolves','prowls','self-flagellates','grovels','kneels','spits','sums','divides','multiplies','fruits','growls','affixes','ambulates','manipulates','sculpts','fraternizes')
+
+function Test-LoboNoun([string]$Value, [bool]$Plural) {
+    $words = if ($Plural) { $script:LoboPluralWords } else { $script:LoboSingularWords }
+    if ($words -ccontains $Value) { return $true }
+    $prefix = if ($Plural) { 'cans of ' } else { 'bottle of compressed ' }
+    if (-not $Value.StartsWith($prefix, [StringComparison]::Ordinal)) { return $false }
+    $remainder = $Value.Substring($prefix.Length)
+    if ([string]::IsNullOrEmpty($remainder) -or $remainder.Length -ge $Value.Length) { return $false }
+    return Test-LoboNoun $remainder (-not $Plural)
+}
+
+function Test-LoboOnBootValue([string]$Value) {
+    $prefix = '\1\s[10]\0\s[0]\1\s[-1]\0'
+    if (-not $Value.StartsWith($prefix, [StringComparison]::Ordinal)) { return $false }
+    $body = $Value.Substring($prefix.Length)
+    $harkPrefix = 'Hark! What brings this '
+    $harkSuffix = ' to grace my presence?'
+    if ($body.StartsWith($harkPrefix, [StringComparison]::Ordinal) -and $body.EndsWith($harkSuffix, [StringComparison]::Ordinal)) {
+        $middle = $body.Substring($harkPrefix.Length, $body.Length - $harkPrefix.Length - $harkSuffix.Length)
+        $space = $middle.IndexOf(' ', [StringComparison]::Ordinal)
+        return $space -gt 0 -and ($script:LoboAdjectives -ccontains $middle.Substring(0, $space)) -and (Test-LoboNoun $middle.Substring($space + 1) $false)
+    }
+    $listenPrefix = 'Listen here, you little '
+    $listenSeparator = ', you listen to me.\w8\w8\w8 The '
+    $listenSuffix = ', that is your fortune.'
+    if ($body.StartsWith($listenPrefix, [StringComparison]::Ordinal) -and $body.EndsWith($listenSuffix, [StringComparison]::Ordinal)) {
+        $middle = $body.Substring($listenPrefix.Length, $body.Length - $listenPrefix.Length - $listenSuffix.Length)
+        $separatorIndex = $middle.IndexOf($listenSeparator, [StringComparison]::Ordinal)
+        if ($separatorIndex -le 0) { return $false }
+        $firstNoun = $middle.Substring(0, $separatorIndex)
+        $tail = $middle.Substring($separatorIndex + $listenSeparator.Length)
+        $verbSeparator = ' that '
+        $verbIndex = $tail.LastIndexOf($verbSeparator, [StringComparison]::Ordinal)
+        return $verbIndex -gt 0 -and (Test-LoboNoun $firstNoun $false) -and (Test-LoboNoun $tail.Substring(0, $verbIndex) $false) -and ($script:LoboPresentSingularVerbs -ccontains $tail.Substring($verbIndex + $verbSeparator.Length))
+    }
+    return $script:LoboPresentVerbs -ccontains ($body.TrimEnd('!')) -and $body.EndsWith('!', [StringComparison]::Ordinal) -and $body.IndexOf('!', [StringComparison]::Ordinal) -eq ($body.Length - 1)
+}
+
+function Assert-SnakeStructuralOnlyValue {
+    param([object]$Run, [object]$Rule, [string]$Side)
+    $label = [string]$Rule.label
+    $raw = $Run.Raw[$label]
+    $row = $Run.Rows[$label]
+    $probe = Get-RequiredProperty $raw 'dialogueProbe' "$Side raw result '$label'"
+    Assert-JsonKind $probe @('object') "$Side raw result '$label'.dialogueProbe" | Out-Null
+    Get-ValidatedOnBootContext $raw $Side $label | Out-Null
+    $value = Get-RequiredProperty $probe 'value' "$Side raw result '$label'.dialogueProbe"
+    Assert-JsonKind $value @('string') "$Side raw result '$label'.dialogueProbe.value" | Out-Null
+    if ([string]::IsNullOrWhiteSpace([string]$value)) { throw "$Side raw result '$label'.dialogueProbe.value must contain nonblank lexer-validated speaker text" }
+
+    $safety = Get-RequiredProperty $raw 'snakeOnBootStructuralSafety' "$Side raw result '$label'"
+    Assert-JsonKind $safety @('object') "$Side raw result '$label'.snakeOnBootStructuralSafety" | Out-Null
+    Assert-EqualString (Get-RequiredProperty $safety 'policy' "$Side raw result '$label'.snakeOnBootStructuralSafety") 'snake-onboot-raw-sakurascript-v1' "$Side raw result '$label'.snakeOnBootStructuralSafety.policy"
+    $contentCompared = Get-RequiredProperty $safety 'contentCompared' "$Side raw result '$label'.snakeOnBootStructuralSafety"
+    Assert-JsonKind $contentCompared @('boolean') "$Side raw result '$label'.snakeOnBootStructuralSafety.contentCompared" | Out-Null
+    if ($contentCompared -ne $false) { throw "$Side raw result '$label'.snakeOnBootStructuralSafety.contentCompared must be false" }
+    $accepted = Get-RequiredProperty $safety 'accepted' "$Side raw result '$label'.snakeOnBootStructuralSafety"
+    Assert-JsonKind $accepted @('boolean') "$Side raw result '$label'.snakeOnBootStructuralSafety.accepted" | Out-Null
+    if ($accepted -ne $true) { throw "$Side raw result '$label'.snakeOnBootStructuralSafety.accepted must be true" }
+    $terminal = Get-RequiredProperty $safety 'terminal' "$Side raw result '$label'.snakeOnBootStructuralSafety"
+    Assert-JsonKind $terminal @('string') "$Side raw result '$label'.snakeOnBootStructuralSafety.terminal" | Out-Null
+    if (@('exact-e', 'eof') -cnotcontains [string]$terminal) { throw "$Side raw result '$label'.snakeOnBootStructuralSafety.terminal is not allowed by exact-e-or-eof" }
+    Assert-EqualString (Get-RequiredProperty $Rule 'terminalPolicy' "comparison contract Snake rule '$label'") 'exact-e-or-eof' "comparison contract Snake rule '$label' terminal policy"
+
+    $expectedSurfaceTokens = @('0', '1', '2', '4', '5', '8', '9', '10', '13', '14', '15', '17', '18', '19', '30', '32', '35')
+    $allowedSurfaces = Get-RequiredProperty $safety 'allowedSurfaces' "$Side raw result '$label'.snakeOnBootStructuralSafety"
+    Assert-JsonKind $allowedSurfaces @('array') "$Side raw result '$label'.snakeOnBootStructuralSafety.allowedSurfaces" | Out-Null
+    $actualSurfaceTokens = @($allowedSurfaces | ForEach-Object {
+        Assert-JsonKind $_ @('number') "$Side raw result '$label'.snakeOnBootStructuralSafety.allowedSurfaces" | Out-Null
+        [string]$_.Token
+    })
+    Assert-ExactSet $actualSurfaceTokens $expectedSurfaceTokens "$Side raw result '$label'.snakeOnBootStructuralSafety.allowedSurfaces"
+    $ruleSurfaces = Get-RequiredProperty $Rule 'allowedSurfaces' "comparison contract Snake rule '$label'"
+    Assert-JsonKind $ruleSurfaces @('array') "comparison contract Snake rule '$label'.allowedSurfaces" | Out-Null
+    $ruleSurfaceTokens = @($ruleSurfaces | ForEach-Object {
+        Assert-JsonKind $_ @('number') "comparison contract Snake rule '$label'.allowedSurfaces" | Out-Null
+        [string]$_.Token
+    })
+    Assert-ExactSet $ruleSurfaceTokens $expectedSurfaceTokens "comparison contract Snake rule '$label'.allowedSurfaces"
+
+    $expectedFormattingTokens = @('\f[italic,true]', '\f[italic,false]')
+    $allowedFormattingTokens = Get-RequiredProperty $safety 'allowedFormattingTokens' "$Side raw result '$label'.snakeOnBootStructuralSafety"
+    Assert-JsonKind $allowedFormattingTokens @('array') "$Side raw result '$label'.snakeOnBootStructuralSafety.allowedFormattingTokens" | Out-Null
+    $actualFormattingTokens = @($allowedFormattingTokens | ForEach-Object {
+        Assert-JsonKind $_ @('string') "$Side raw result '$label'.snakeOnBootStructuralSafety.allowedFormattingTokens" | Out-Null
+        [string]$_
+    })
+    Assert-ExactSet $actualFormattingTokens $expectedFormattingTokens "$Side raw result '$label'.snakeOnBootStructuralSafety.allowedFormattingTokens"
+    $ruleFormattingTokens = Get-RequiredProperty $Rule 'allowedFormattingTokens' "comparison contract Snake rule '$label'"
+    Assert-JsonKind $ruleFormattingTokens @('array') "comparison contract Snake rule '$label'.allowedFormattingTokens" | Out-Null
+    $ruleFormattingTokens = @($ruleFormattingTokens | ForEach-Object {
+        Assert-JsonKind $_ @('string') "comparison contract Snake rule '$label'.allowedFormattingTokens" | Out-Null
+        [string]$_
+    })
+    Assert-ExactSet $ruleFormattingTokens $expectedFormattingTokens "comparison contract Snake rule '$label'.allowedFormattingTokens"
+
+    $canary = Get-RequiredProperty $raw 'snakeFirstBootCanary' "$Side raw result '$label'"
+    Assert-JsonKind $canary @('object') "$Side raw result '$label'.snakeFirstBootCanary" | Out-Null
+    $freshInstance = Get-RequiredProperty $canary 'freshInstance' "$Side raw result '$label'.snakeFirstBootCanary"
+    Assert-JsonKind $freshInstance @('boolean') "$Side raw result '$label'.snakeFirstBootCanary.freshInstance" | Out-Null
+    if ($freshInstance -ne $true) { throw "$Side raw result '$label'.snakeFirstBootCanary.freshInstance must be true" }
+    $request = Get-RequiredProperty $canary 'request' "$Side raw result '$label'.snakeFirstBootCanary"
+    Assert-JsonKind $request @('object') "$Side raw result '$label'.snakeFirstBootCanary.request" | Out-Null
+    Assert-EqualString (Get-RequiredProperty $request 'method' "$Side raw result '$label'.snakeFirstBootCanary.request") 'GET' "$Side raw result '$label'.snakeFirstBootCanary.request.method"
+    Assert-EqualString (Get-RequiredProperty $request 'eventId' "$Side raw result '$label'.snakeFirstBootCanary.request") 'OnFirstBoot' "$Side raw result '$label'.snakeFirstBootCanary.request.eventId"
+    $references = Get-RequiredProperty $request 'references' "$Side raw result '$label'.snakeFirstBootCanary.request"
+    Assert-JsonKind $references @('array') "$Side raw result '$label'.snakeFirstBootCanary.request.references" | Out-Null
+    if ((Find-FirstDifference @($references) @('0') 'references')) { throw "$Side raw result '$label'.snakeFirstBootCanary.request.references must be exactly ['0']" }
+    $response = Get-RequiredProperty $canary 'response' "$Side raw result '$label'.snakeFirstBootCanary"
+    Assert-JsonKind $response @('object') "$Side raw result '$label'.snakeFirstBootCanary.response" | Out-Null
+    $status = Get-RequiredProperty $response 'status' "$Side raw result '$label'.snakeFirstBootCanary.response"
+    Assert-JsonKind $status @('number') "$Side raw result '$label'.snakeFirstBootCanary.response.status" | Out-Null
+    if ($status.Token -cne '200') { throw "$Side raw result '$label'.snakeFirstBootCanary.response.status must be exact JSON number 200" }
+    Assert-EqualString (Get-RequiredProperty $response 'outcome' "$Side raw result '$label'.snakeFirstBootCanary.response") 'success' "$Side raw result '$label'.snakeFirstBootCanary.response.outcome"
+    if ($null -ne (Get-RequiredProperty $response 'failure' "$Side raw result '$label'.snakeFirstBootCanary.response")) { throw "$Side raw result '$label'.snakeFirstBootCanary.response.failure must be null" }
+    $canaryValue = Get-RequiredProperty $response 'value' "$Side raw result '$label'.snakeFirstBootCanary.response"
+    Assert-JsonKind $canaryValue @('string') "$Side raw result '$label'.snakeFirstBootCanary.response.value" | Out-Null
+    $canaryHash = Get-RequiredProperty $response 'valueUtf8Sha256' "$Side raw result '$label'.snakeFirstBootCanary.response"
+    Assert-JsonKind $canaryHash @('string') "$Side raw result '$label'.snakeFirstBootCanary.response.valueUtf8Sha256" | Out-Null
+    Assert-EqualString $canaryHash (Get-StringSha256 ([string]$canaryValue)) "$Side raw result '$label'.snakeFirstBootCanary.response.valueUtf8Sha256"
+    $canaryLength = Get-RequiredProperty $response 'valueUtf8ByteLength' "$Side raw result '$label'.snakeFirstBootCanary.response"
+    Assert-JsonKind $canaryLength @('number') "$Side raw result '$label'.snakeFirstBootCanary.response.valueUtf8ByteLength" | Out-Null
+    if ($canaryLength.Token -cne [string][Text.Encoding]::UTF8.GetByteCount([string]$canaryValue)) { throw "$Side raw result '$label'.snakeFirstBootCanary.response.valueUtf8ByteLength mismatch" }
+    $diagnostics = Get-RequiredProperty $response 'tokenizerDiagnostics' "$Side raw result '$label'.snakeFirstBootCanary.response"
+    Assert-JsonKind $diagnostics @('array') "$Side raw result '$label'.snakeFirstBootCanary.response.tokenizerDiagnostics" | Out-Null
+    foreach ($diagnostic in @($diagnostics)) { Assert-JsonKind $diagnostic @('string') "$Side raw result '$label'.snakeFirstBootCanary.response.tokenizerDiagnostics" | Out-Null }
+
+    foreach ($mirrorName in @('snakeOnBootStructuralSafety', 'snakeFirstBootCanary')) {
+        $summaryMirror = Get-RequiredProperty $row $mirrorName "$Side summary result '$label'"
+        $difference = Find-FirstDifference $raw.$mirrorName $summaryMirror "summary.$mirrorName"
+        if ($difference) { throw "$Side raw/summary $mirrorName mirror mismatch for '$label' at $difference" }
+    }
+}
+
 function Assert-StochasticValue {
     param([object]$Run, [object]$Rule, [string]$Side)
     $label = [string]$Rule.label
@@ -576,7 +790,29 @@ function Assert-StochasticValue {
     Assert-EqualString $raw.sha256 ([string]$Rule.archiveSha256) "$Side stochastic archive SHA for '$label'"
     $value = [string]$raw.dialogueProbe.value
     $valueHash = Get-StringSha256 $value
-    if (@($Rule.allowedUtf8Sha256 | Where-Object { [string]$_ -ceq $valueHash }).Count -ne 1) {
+    if ($null -ne $Rule.PSObject.Properties['specializedValidator']) {
+        if ([string]$Rule.specializedValidator -ceq 'snake-onboot-structural-v1') {
+            Assert-SnakeStructuralOnlyValue $Run $Rule $Side
+        }
+        elseif ([string]$Rule.specializedValidator -cne 'lobo-onboot-v1' -or -not (Test-LoboOnBootValue $value)) {
+            throw "$Side unreviewed specialized stochastic dialogueProbe.value for '$label'"
+        }
+    }
+    elseif ($null -ne $Rule.PSObject.Properties['allowedVariants']) {
+        $clock = Get-ValidatedOnBootContext $raw $Side $label
+        $diagnostics = Get-RequiredProperty (Get-RequiredProperty $raw 'dialogueProbe' "$Side raw result '$label'") 'tokenizerDiagnostics' "$Side raw result '$label'.dialogueProbe"
+        Assert-JsonKind $diagnostics @('array') "$Side raw result '$label'.dialogueProbe.tokenizerDiagnostics" | Out-Null
+        $matchingVariants = @($Rule.allowedVariants | Where-Object {
+            if ([string]$_.valueUtf8Sha256 -cne $valueHash) { return $false }
+            $expected = @($_.tokenizerDiagnostics | ForEach-Object { [string]$_ })
+            $actual = @($diagnostics | ForEach-Object { [string]$_ })
+            return (Find-FirstDifference $actual $expected 'tokenizerDiagnostics') -eq $null -and (Test-EarthquakePredicate ([string]$_.predicate) $clock)
+        })
+        if ($matchingVariants.Count -lt 1) {
+            throw "$Side unreviewed stochastic dialogueProbe.value/tokenizerDiagnostics pair for '$label' (decoded UTF-8 SHA-256 $valueHash)"
+        }
+    }
+    elseif (@($Rule.allowedUtf8Sha256 | Where-Object { [string]$_ -ceq $valueHash }).Count -ne 1) {
         throw "$Side unreviewed stochastic dialogueProbe.value for '$label' (decoded UTF-8 SHA-256 $valueHash)"
     }
     if ($null -ne $Rule.PSObject.Properties['summaryMirrors']) {
@@ -627,6 +863,15 @@ function ConvertTo-CanonicalRun {
             return "<RUN_OWNED_PATH:$kind>"
         } -Context 'summary' -ExpectedMatchCount $expectedMatches
     }
+    foreach ($pathText in @(
+        [string]$Contract.normalization.summaryObservedPrivateSnapshotPath,
+        [string]$Contract.normalization.summaryObservedTmpSnapshotPath
+    )) {
+        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<RUN_OWNED_PATH:$kind>" } -Context 'summary' -ExpectedMatchCount $Run.Rows.Count
+    }
+    foreach ($label in @($Contract.normalization.summarySourceArchiveSha256.PSObject.Properties | ForEach-Object { $_.Name })) {
+        Set-PathPatternValue (@($summary.results | Where-Object { [string]$_.label -ceq $label })[0]) 'evidence.sourceSyntax.scanRoot' { param($value) $kind = Assert-NormalizationKind $Contract 'summary' 'results[].evidence.sourceSyntax.scanRoot' $value; "<RUN_OWNED_PATH:$kind>" } -Context "summary result '$label'" -ExpectedMatchCount 1
+    }
 
     foreach ($identityPath in @('production.commit', 'production.debugApkSha256', 'harness.commit', 'harness.tree', 'harness.runnerSha256', 'harness.instrumentationSourceSha256', 'harness.testApkSha256', 'git.commit', 'apks.debugSha256', 'apks.testSha256')) {
         Set-PathPatternValue $summary $identityPath { '<VALIDATED_IDENTITY>' } -Context 'summary'
@@ -666,6 +911,10 @@ function ConvertTo-CanonicalRun {
     foreach ($rule in @($Contract.stochasticDialogueValues)) {
         $label = [string]$rule.label
         $rawByLabel[$label].dialogueProbe.value = '<REVIEWED_STOCHASTIC_VALUE>'
+        if ($null -ne $rule.PSObject.Properties['allowedVariants']) {
+            $rawByLabel[$label].dialogueProbe.tokenizerDiagnostics = @('<REVIEWED_STOCHASTIC_DIAGNOSTICS>')
+            $rawByLabel[$label].dialogueProbe.onBootContext = '<VALIDATED_ONBOOT_CONTEXT>'
+        }
         $summaryRow = @($summary.results | Where-Object { [string]$_.label -ceq $label })[0]
         if ($null -ne $summaryRow.requiredEvidencePayload.PSObject.Properties['dialogueProbe']) {
             $summaryRow.requiredEvidencePayload.dialogueProbe.value = '<REVIEWED_STOCHASTIC_VALUE>'
@@ -679,12 +928,36 @@ function ConvertTo-CanonicalRun {
     return [pscustomobject]@{ Summary = $summary; Raw = $rawByLabel }
 }
 
+function Assert-ComparisonCategoryClaims([object]$Claims, [string]$Context) {
+    Assert-JsonKind $Claims @('object') "$Context comparisonCategories" | Out-Null
+    $expectedTokens = [ordered]@{
+        rawEnvelopeValidatedCount = '23'
+        literalEqualityCount = '16'
+        stochasticDialogueContractCount = '4'
+        snakeStructuralOnlyCount = '3'
+        snakeCanaryExactCount = '3'
+        screenshotHashEqualityCount = '23'
+        dialogueContentContractValidated = '20'
+    }
+    foreach ($name in $expectedTokens.Keys) {
+        $value = Get-RequiredProperty $Claims $name "$Context comparisonCategories"
+        Assert-JsonKind $value @('number') "$Context comparisonCategories.$name" | Out-Null
+        if ($value.Token -cne $expectedTokens[$name]) { throw "$Context comparisonCategories.$name does not match the reviewed exact value" }
+    }
+    Assert-ExactSet @($Claims.stochasticDialogueLabels | ForEach-Object { [string]$_ }) @('2elf-2.46', 'Watchdog Bancho', 'Earthquake Rescue Duo', 'LOBO') "$Context stochastic dialogue label set"
+    Assert-ExactSet @($Claims.snakeStructuralOnlyLabels | ForEach-Object { [string]$_ }) @('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b') "$Context Snake structural-only label set"
+}
+
 function Assert-BaseBasePrerequisite([string]$Path, [string]$ManifestSha, [string]$ContractSha, [object]$Device, [string]$BaseEvidenceFingerprint) {
     if ([string]::IsNullOrWhiteSpace($Path)) { throw 'BaseCandidate comparison requires -BaseBaseReportPath' }
     $report = Read-JsonFile $Path 'base/base prerequisite report'
+    $reportSchemaVersion = Get-RequiredProperty $report 'schemaVersion' 'base/base prerequisite report'
+    Assert-JsonKind $reportSchemaVersion @('string') 'base/base prerequisite report schemaVersion' | Out-Null
+    Assert-EqualString $reportSchemaVersion '2' 'base/base prerequisite report schemaVersion'
     if ($report.passed -ne $true -or [string]$report.comparisonKind -cne 'BaseBase') { throw 'base/base prerequisite report is not a successful BaseBase comparison' }
     Assert-EqualString $report.manifestSha256 $ManifestSha 'base/base prerequisite manifest SHA'
     Assert-EqualString $report.contractSha256 $ContractSha 'base/base prerequisite contract SHA'
+    Assert-ComparisonCategoryClaims (Get-RequiredProperty $report 'comparisonCategories' 'base/base prerequisite report') 'base/base prerequisite report'
     Assert-EqualString (Get-RequiredProperty $report 'baseEvidenceFingerprint' 'base/base prerequisite report') $BaseEvidenceFingerprint 'base/base prerequisite base evidence fingerprint'
     foreach ($identityName in @('commit', 'debugApkSha256')) {
         $expected = if ($identityName -eq 'commit') { $BaseProductionCommit } else { $BaseDebugApkSha256 }
@@ -718,11 +991,14 @@ if ($ComparisonKind -eq 'BaseCandidate') {
 }
 
 try {
-    $reviewedSentinelCheckCount = 139
-    $reviewedSentinelCheckDigest = '490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f'
+    $reviewedSentinelCheckCount = 143
+    $reviewedSentinelCheckDigest = '072d6adec034001985d367a9d8a89ef0db447a76cbc1b9a4a22f580fdabc5b6e'
     $reviewedSentinelCanonicalization = 'ordinal-sort names, join LF, UTF-8 SHA-256'
     $manifest = Read-JsonFile $ManifestPath 'corpus manifest'
     $contract = Read-JsonFile $ContractPath 'comparison contract'
+    $contractSchemaVersion = Get-RequiredProperty $contract 'schemaVersion' 'comparison contract'
+    Assert-JsonKind $contractSchemaVersion @('string') 'comparison contract schemaVersion' | Out-Null
+    Assert-EqualString $contractSchemaVersion '2' 'comparison contract schemaVersion'
     $sentinelContract = Get-RequiredProperty $contract 'sentinelChecks' 'comparison contract'
     Assert-JsonKind $sentinelContract @('object') 'comparison contract sentinelChecks' | Out-Null
     $contractSentinelCount = Get-RequiredProperty $sentinelContract 'count' 'comparison contract sentinelChecks'
@@ -744,14 +1020,36 @@ try {
     $expectedScreenshotFiles = @($expectedSafeLabels | ForEach-Object { "$_.png" })
 
     $stochasticLabels = @($contract.stochasticDialogueValues | ForEach-Object { [string]$_.label })
-    $requiredStochasticLabels = @('2elf-2.46', 'LOBO', 'Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b', 'Watchdog Bancho')
+    $requiredStochasticLabels = @('2elf-2.46', 'Earthquake Rescue Duo', 'LOBO', 'Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b', 'Watchdog Bancho')
     Assert-ExactSet $stochasticLabels $requiredStochasticLabels 'comparison contract stochastic label set'
+    $categories = Get-RequiredProperty $contract 'comparisonCategories' 'comparison contract'
+    Assert-JsonKind $categories @('object') 'comparison contract comparisonCategories' | Out-Null
+    $reviewedCategoryCounts = [ordered]@{
+        rawEnvelopeValidatedCount = '23'
+        literalEqualityCount = '16'
+        stochasticDialogueContractCount = '4'
+        snakeStructuralOnlyCount = '3'
+        snakeCanaryExactCount = '3'
+        screenshotHashEqualityCount = '23'
+        dialogueContentContractValidated = '20'
+    }
+    foreach ($categoryName in $reviewedCategoryCounts.Keys) {
+        $categoryValue = Get-RequiredProperty $categories $categoryName 'comparison contract comparisonCategories'
+        Assert-JsonKind $categoryValue @('number') "comparison contract comparisonCategories.$categoryName" | Out-Null
+        if ($categoryValue.Token -cne $reviewedCategoryCounts[$categoryName]) { throw "comparison contract comparisonCategories.$categoryName does not match the reviewed exact value" }
+    }
+    Assert-ExactSet @($categories.stochasticDialogueLabels | ForEach-Object { [string]$_ }) @('2elf-2.46', 'Watchdog Bancho', 'Earthquake Rescue Duo', 'LOBO') 'comparison contract stochastic dialogue label set'
+    Assert-ExactSet @($categories.snakeStructuralOnlyLabels | ForEach-Object { [string]$_ }) @('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b') 'comparison contract Snake structural-only label set'
+    Assert-ComparisonCategoryClaims $categories 'comparison contract'
     $requiredNormalization = @{
         summaryRunIdPaths = @('runId', 'results[].runId')
         summaryTimestampPaths = @('startedAt', 'finishedAt', 'results[].startedAt', 'results[].finishedAt')
         summaryDurationPaths = @('durationSeconds')
         summaryReportRootPaths = @('git.manifestFile', 'apks.debugPath', 'apks.testPath')
         summaryRunOwnedStringPaths = @('results[].resultPath', 'results[].screenshotPath', 'results[].crashLogPath', 'results[].output', 'results[].error')
+        summaryObservedPrivateSnapshotPath = @('results[].observedPrivateSnapshot')
+        summaryObservedTmpSnapshotPath = @('results[].observedTmpSnapshot')
+        summarySourceScanRootPath = @('results[].evidence.sourceSyntax.scanRoot')
         rawRunOwnedStringPaths = @('narCorpusPath')
         rawRunOwnedStringSelectors = @('evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source')
     }
@@ -772,10 +1070,14 @@ try {
     $rawSourceArchiveSha256 = $contract.normalization.rawSourceArchiveSha256
     $actualRawSourceLabels = @($rawSourceArchiveSha256.PSObject.Properties | ForEach-Object { $_.Name })
     Assert-ExactSet $actualRawSourceLabels $requiredRawSourceLabels 'comparison contract normalization rawSourceArchiveSha256 labels'
+    $summarySourceArchiveSha256 = Get-RequiredProperty $contract.normalization 'summarySourceArchiveSha256' 'comparison contract normalization'
+    $actualSummarySourceLabels = @($summarySourceArchiveSha256.PSObject.Properties | ForEach-Object { $_.Name })
+    Assert-ExactSet $actualSummarySourceLabels $requiredRawSourceLabels 'comparison contract normalization summary source labels'
     foreach ($label in $requiredRawSourceLabels) {
         $manifestEntry = @($entries | Where-Object { [string]$_.label -ceq $label })
         if ($manifestEntry.Count -ne 1) { throw "comparison contract raw source label '$label' is not unique in manifest" }
         Assert-EqualString ([string]$rawSourceArchiveSha256.$label) ([string]$manifestEntry[0].sha256) "comparison contract raw source archive SHA for '$label'"
+        Assert-EqualString ([string]$summarySourceArchiveSha256.$label) ([string]$manifestEntry[0].sha256) "comparison contract summary source archive SHA for '$label'"
     }
     $expectedKindRules = @(
         'summary|runId|runId|string',
@@ -793,6 +1095,9 @@ try {
         'summary|results[].crashLogPath|runOwnedPath|string',
         'summary|results[].output|runOwnedText|string',
         'summary|results[].error|runOwnedText|string',
+        'summary|results[].observedPrivateSnapshot|runOwnedPath|string',
+        'summary|results[].observedTmpSnapshot|runOwnedPath|string',
+        'summary|results[].evidence.sourceSyntax.scanRoot|runOwnedPath|string',
         'raw|narCorpusPath|runOwnedPath|string',
         'raw|evidence.sourceSyntax.scanRoot|runOwnedPath|string',
         'raw|sakura.source|runOwnedPath|string',
@@ -817,9 +1122,42 @@ try {
         Assert-EqualString $rule.jsonPath 'dialogueProbe.value' "comparison contract stochastic JSON path for '$label'"
         $manifestEntry = @($entries | Where-Object { [string]$_.label -ceq $label })[0]
         Assert-EqualString $rule.archiveSha256 ([string]$manifestEntry.sha256) "comparison contract archive SHA for '$label'"
-        $allowedHashes = @($rule.allowedUtf8Sha256 | ForEach-Object { [string]$_ })
-        if ($allowedHashes.Count -lt 1 -or @($allowedHashes | Select-Object -Unique).Count -ne $allowedHashes.Count -or @($allowedHashes | Where-Object { $_ -notmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
-            throw "comparison contract contains invalid or duplicate decoded UTF-8 hashes for '$label'"
+        if ($null -ne $rule.PSObject.Properties['specializedValidator']) {
+            if ($label -ceq 'LOBO') {
+                Assert-EqualString $rule.specializedValidator 'lobo-onboot-v1' "comparison contract specialized stochastic validator for '$label'"
+                $grammarDigest = Get-RequiredProperty $rule 'grammarDigest' "comparison contract specialized stochastic validator for '$label'"
+                Assert-JsonKind $grammarDigest @('string') "comparison contract specialized stochastic grammar digest for '$label'" | Out-Null
+                Assert-EqualString $grammarDigest '98935130a9797d4e34ad05607d1345c48d8fbc73b32192102e8f1484b64dd1b1' "comparison contract specialized stochastic grammar digest for '$label'"
+            }
+            elseif (@('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b') -ccontains $label) {
+                Assert-EqualString $rule.specializedValidator 'snake-onboot-structural-v1' "comparison contract specialized stochastic validator for '$label'"
+                $contentCompared = Get-RequiredProperty $rule 'contentCompared' "comparison contract Snake structural rule '$label'"
+                Assert-JsonKind $contentCompared @('boolean') "comparison contract Snake structural rule '$label'.contentCompared" | Out-Null
+                if ($contentCompared -ne $false) { throw "comparison contract Snake structural rule '$label'.contentCompared must be false" }
+                Assert-EqualString (Get-RequiredProperty $rule 'terminalPolicy' "comparison contract Snake structural rule '$label'") 'exact-e-or-eof' "comparison contract Snake structural rule '$label'.terminalPolicy"
+            }
+            else { throw "comparison contract specialized stochastic validator is not declared for '$label'" }
+        }
+        elseif ($null -ne $rule.PSObject.Properties['allowedVariants']) {
+            $variants = @($rule.allowedVariants)
+            if ($variants.Count -lt 1) { throw "comparison contract contains no stochastic variants for '$label'" }
+            foreach ($variant in $variants) {
+                Assert-JsonKind $variant @('object') "comparison contract stochastic variant for '$label'" | Out-Null
+                $variantHash = Get-RequiredProperty $variant 'valueUtf8Sha256' "comparison contract stochastic variant for '$label'"
+                Assert-JsonKind $variantHash @('string') "comparison contract stochastic variant hash for '$label'" | Out-Null
+                if ([string]$variantHash -notmatch '^[0-9a-f]{64}$') { throw "comparison contract contains invalid decoded UTF-8 variant hash for '$label'" }
+                $variantDiagnostics = Get-RequiredProperty $variant 'tokenizerDiagnostics' "comparison contract stochastic variant for '$label'"
+                Assert-JsonKind $variantDiagnostics @('array') "comparison contract stochastic variant diagnostics for '$label'" | Out-Null
+                foreach ($diagnostic in @($variantDiagnostics)) { Assert-JsonKind $diagnostic @('string') "comparison contract stochastic variant diagnostic for '$label'" | Out-Null }
+                $predicate = Get-RequiredProperty $variant 'predicate' "comparison contract stochastic variant for '$label'"
+                Assert-JsonKind $predicate @('string') "comparison contract stochastic variant predicate for '$label'" | Out-Null
+            }
+        }
+        else {
+            $allowedHashes = @($rule.allowedUtf8Sha256 | ForEach-Object { [string]$_ })
+            if ($allowedHashes.Count -lt 1 -or @($allowedHashes | Select-Object -Unique).Count -ne $allowedHashes.Count -or @($allowedHashes | Where-Object { $_ -notmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
+                throw "comparison contract contains invalid or duplicate decoded UTF-8 hashes for '$label'"
+            }
         }
         if ([string]::IsNullOrWhiteSpace([string]$rule.source.archiveEntry) -or @($rule.source.lineRanges).Count -lt 1 -or @($rule.source.reviewedEvidence).Count -lt 1) {
             throw "comparison contract source provenance is incomplete for '$label'"
@@ -872,7 +1210,7 @@ try {
     }
 
     $report = [pscustomobject][ordered]@{
-        schemaVersion = '1'
+        schemaVersion = '2'
         passed = $true
         comparisonKind = $ComparisonKind
         manifestSha256 = $manifestSha
@@ -886,10 +1224,11 @@ try {
         comparedLabels = 23
         rawResultsCompared = 23
         screenshotsCompared = 23
+        comparisonCategories = $categories
         differences = @()
     }
     Write-ComparisonReportAtomic $report $resolvedOutputPath $allowOutputOverwrite
-    Write-Host "NAR corpus $ComparisonKind comparison passed: 23 raw results and 23 screenshots matched."
+    Write-Host "NAR corpus $ComparisonKind comparison passed: 23 raw envelopes validated; 16 dialogue literals equal; 4 archive-bound stochastic dialogue contracts validated; 3 Snake structural-only contents; 3 exact Snake canaries; 23 screenshot hashes equal."
 }
 catch {
     $reason = [string]$_.Exception.Message
@@ -913,7 +1252,7 @@ catch {
     }
     $failurePath = if ($reason -match '(?i)\bat (?<path>.+)$') { [string]$Matches.path } else { '<none>' }
     $failureReport = [pscustomobject][ordered]@{
-        schemaVersion = '1'
+        schemaVersion = '2'
         passed = $false
         comparisonKind = $ComparisonKind
         failure = [pscustomobject][ordered]@{

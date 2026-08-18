@@ -7,10 +7,16 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $comparatorPath = Join-Path $PSScriptRoot 'compare-nar-corpus-runs.ps1'
 $manifestPath = Join-Path $repoRoot 'docs\testing\nar-corpus-manifest.json'
 $contractPath = Join-Path $repoRoot 'docs\testing\nar-corpus-comparison-contract.json'
-$fixtureRoot = Join-Path $repoRoot 'build\reports\nar-corpus-comparator-tests'
-$expectedFixtureRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'build\reports\nar-corpus-comparator-tests'))
+$fixtureLeaf = "nar-corpus-comparator-tests-$PID-$([guid]::NewGuid().ToString('N'))"
+$fixtureParent = [IO.Path]::GetFullPath((Join-Path $repoRoot 'build\reports'))
+$fixtureRoot = Join-Path $fixtureParent $fixtureLeaf
+$expectedFixtureRoot = [IO.Path]::GetFullPath((Join-Path $fixtureParent $fixtureLeaf))
 $resolvedFixtureRoot = [IO.Path]::GetFullPath($fixtureRoot)
-if (-not $resolvedFixtureRoot.Equals($expectedFixtureRoot, [StringComparison]::OrdinalIgnoreCase)) {
+if (
+    -not $resolvedFixtureRoot.Equals($expectedFixtureRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    -not $resolvedFixtureRoot.StartsWith($fixtureParent + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+    -not ([IO.Path]::GetFileName($resolvedFixtureRoot).StartsWith("nar-corpus-comparator-tests-$PID-", [StringComparison]::Ordinal))
+) {
     throw "Unsafe comparator fixture root: $resolvedFixtureRoot"
 }
 
@@ -58,8 +64,8 @@ $harnessTree = '4444444444444444444444444444444444444444'
 $runnerSha = 'c' * 64
 $instrumentationSha = 'd' * 64
 $testApkSha = 'e' * 64
-$reviewedSentinelNameCount = 139
-$reviewedSentinelNamesSha256 = '490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f'
+$reviewedSentinelNameCount = 143
+$reviewedSentinelNamesSha256 = '072d6adec034001985d367a9d8a89ef0db447a76cbc1b9a4a22f580fdabc5b6e'
 $runnerSentinelNamePattern = 'Add-Sentinel(?:Nested)?Check\s+-Accumulator\s+\$globalSentinels\s+-Name\s+''([^'']+)'''
 $sentinelFixtureNames = @(
     [regex]::Matches((Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'scripts\run-nar-corpus-audit.ps1')), $runnerSentinelNamePattern) |
@@ -100,6 +106,7 @@ $twoElfBase = '\1\s[19]\n\n[half]\_w[18]\0\s[103]旅人さん…。\_w[36]\w8\n\
 $twoElfCandidate = '\1\s[19]\n\n[half]\_w[18]\0\s[103]あ…旅人さん…。\_w[72]\w8\nご、\_w[36]ごめんなさい！\w8\_w[126]\n逃げちゃったりして。\_w[180]\w8\n\n[half]\_w[18]\1\cソフィが謝る事じゃないわよ。\_w[252]\w8\n\n[half]\_w[18]\0\s[101]旅人さん…\w8もう、\_w[72]あんな事しないでね。\_w[180]\w8\n私、\_w[36]顔から火が出ちゃいそうなくらい、\_w[288]恥ずかしかったのよ。\_w[180]\w8\n\n[half]\_w[18]\1\n[half]\_w[18]\0\s[106]･\w2･\w2･\w2･\w2･\w2･\w2･\w2･\w2\s[100]はい、\_w[126]おしまい。\_w[90]\w8\n旅人さんは何も見なかった、\_w[162]ね？\w8\_w[36]\e'
 $dialogueValues = @{
     '2elf-2.46' = $twoElfBase
+    'Earthquake Rescue Duo' = '\0\s[0]\1\s[10]\0\s[0]ヾ(•ω•`)o\w8\1\s[10]Haha, seems like Mantle is happy to see you!\e'
     'LOBO' = '\1\s[10]\0\s[0]\1\s[-1]\0Listen here, you little bruin, you listen to me.\w8\w8\w8 The bealusi that pardons, that is your fortune.'
     'Snake and Otacon V1.2.1' = '\0\s[0]\1\s[10]\0\s[5]Miss me?\e'
     'Snake and Otacon V1.3.1' = "\0\s[0]\1\s[10]\0\s[0]Evening. Getting pretty late now. Don't strain yourself, .\1\w8\s[10]Yeah, don't overwork yourself!\e"
@@ -143,7 +150,7 @@ function Get-Json([string]$Path) {
 
 function Set-SentinelContractCountToken([string]$Path, [string]$Token) {
     $text = Get-Content -Raw -LiteralPath $Path
-    $updated = $text -replace '"count": 139', ('"count": ' + $Token)
+    $updated = $text -replace '"count": 143', ('"count": ' + $Token)
     if ($updated -ceq $text) { throw 'Unable to replace the sentinel contract count token.' }
     Set-Content -LiteralPath $Path -Value $updated -Encoding utf8
 }
@@ -172,20 +179,60 @@ function New-ReportFixture {
             "stable:$label"
         }
         $raw = [pscustomobject][ordered]@{
-            schemaVersion = '1'
+            schemaVersion = '2'
             label = $label
             sha256 = [string]$entry.sha256
             narCorpusPath = "/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/nanidroid-corpus.nar"
             passed = $true
             classification = 'compatible'
-            dialogueProbe = [pscustomobject]@{ outcome = 'success'; value = $value }
+            dialogueProbe = [pscustomobject]@{
+                outcome = 'success'
+                value = $value
+                tokenizerDiagnostics = @()
+                method = 'GET'
+                eventId = 'OnBoot'
+                status = 200
+                failure = $null
+                onBootContext = [pscustomobject]@{
+                    profileState = 'fresh'
+                    username = ''
+                    birthdayConfigured = $false
+                    localClockBefore = '2026-08-18T01:00:00-07:00'
+                    localClockAfter = '2026-08-18T01:00:01-07:00'
+                }
+            }
             evidence = [pscustomobject]@{
                 stable = $true
             }
             cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @(); hostVerified = $true }
         }
+        if ($label -in @('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b')) {
+            $canaryValue = '\0\s[0]\1\s[10]First boot canary.\e'
+            $raw | Add-Member -NotePropertyName snakeOnBootStructuralSafety -NotePropertyValue ([pscustomobject][ordered]@{
+                policy = 'snake-onboot-raw-sakurascript-v1'
+                contentCompared = $false
+                accepted = $true
+                terminal = 'exact-e'
+                allowedSurfaces = @(0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35)
+                allowedFormattingTokens = @('\f[italic,true]', '\f[italic,false]')
+            })
+            $raw | Add-Member -NotePropertyName snakeFirstBootCanary -NotePropertyValue ([pscustomobject][ordered]@{
+                freshInstance = $true
+                request = [pscustomobject][ordered]@{ method = 'GET'; eventId = 'OnFirstBoot'; references = @('0') }
+                response = [pscustomobject][ordered]@{
+                    status = 200
+                    outcome = 'success'
+                    failure = $null
+                    value = $canaryValue
+                    valueUtf8Sha256 = Get-StringSha256 $canaryValue
+                    valueUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($canaryValue)
+                    tokenizerDiagnostics = @()
+                }
+            })
+        }
+        $scanRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/probe-install/corpus-$(([string]$entry.sha256).Substring(0, 16))"
         if ($rawSourceLabels -contains $label) {
-            $raw.evidence | Add-Member -NotePropertyName sourceSyntax -NotePropertyValue ([pscustomobject]@{ scanRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/source" })
+            $raw.evidence | Add-Member -NotePropertyName sourceSyntax -NotePropertyValue ([pscustomobject]@{ scanRoot = $scanRoot })
             $raw | Add-Member -NotePropertyName sakura -NotePropertyValue ([pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/sakura" })
             $raw | Add-Member -NotePropertyName kero -NotePropertyValue ([pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/kero" })
         }
@@ -202,7 +249,7 @@ function New-ReportFixture {
         New-Item -ItemType Directory -Force -Path $resultDir | Out-Null
         Write-Json -Path (Join-Path $resultDir 'result.json') -Value $raw
         [IO.File]::WriteAllBytes((Join-Path $Root "screenshots\$safeLabel.png"), [Text.Encoding]::UTF8.GetBytes("screenshot:$label"))
-        $rows.Add([pscustomobject][ordered]@{
+        $row = [pscustomobject][ordered]@{
             label = $label
             safeLabel = $safeLabel
             sha256 = [string]$entry.sha256
@@ -223,7 +270,19 @@ function New-ReportFixture {
             postCleanupPrivateSnapshot = @()
             postCleanupOutputSnapshot = @()
             postCleanupTmpSnapshot = @()
-        })
+            observedPrivateSnapshot = "/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel"
+            observedTmpSnapshot = "/data/local/tmp/nanidroid-corpus/$RunId/$safeLabel"
+        }
+        if ($rawSourceLabels -contains $label) {
+            $row | Add-Member -NotePropertyName evidence -NotePropertyValue ([pscustomobject]@{
+                sourceSyntax = [pscustomobject]@{ scanRoot = $scanRoot }
+            })
+        }
+        if ($null -ne $raw.PSObject.Properties['snakeOnBootStructuralSafety']) {
+            $row | Add-Member -NotePropertyName snakeOnBootStructuralSafety -NotePropertyValue $raw.snakeOnBootStructuralSafety
+            $row | Add-Member -NotePropertyName snakeFirstBootCanary -NotePropertyValue $raw.snakeFirstBootCanary
+        }
+        $rows.Add($row)
     }
 
     $twoElfValue = [string]$dialogueValues['2elf-2.46']
@@ -236,6 +295,7 @@ function New-ReportFixture {
         }
     })
     $summary = [pscustomobject][ordered]@{
+        schemaVersion = '2'
         runId = $RunId
         manifest = 'nar-corpus-manifest.json'
         manifestSha256 = $manifestSha
@@ -335,6 +395,95 @@ function Get-Row([object]$Summary, [string]$Label) {
 try {
     Reset-Fixtures
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
+    $baselineReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
+    if (
+        $baselineReport.comparisonCategories.literalEqualityCount -ne 16 -or
+        $baselineReport.comparisonCategories.stochasticDialogueContractCount -ne 4 -or
+        $baselineReport.comparisonCategories.snakeStructuralOnlyCount -ne 3 -or
+        $baselineReport.comparisonCategories.snakeCanaryExactCount -ne 3 -or
+        $baselineReport.comparisonCategories.rawEnvelopeValidatedCount -ne 23 -or
+        $baselineReport.comparisonCategories.screenshotHashEqualityCount -ne 23
+    ) { throw 'comparison report did not bind the reviewed dialogue/raw/screenshot category counts.' }
+    Write-Host 'PASS: comparison report binds reviewed category counts'
+
+    # This is deliberately RED until the schema-2 comparator binds the three
+    # older Snake structural witnesses and their exact raw/summary canaries.
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.PSObject.Properties.Remove('snakeOnBootStructuralSafety') }
+    Assert-Fail 'older Snake results require a structural safety witness before literal normalization' (Invoke-Comparator (Get-ComparatorArguments)) 'snakeOnBootStructuralSafety'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Snake and Otacon V1.2.1').snakeOnBootStructuralSafety.accepted = $false }
+    Assert-Fail 'older Snake summary safety witness must exactly mirror raw evidence' (Invoke-Comparator (Get-ComparatorArguments)) 'raw/summary snakeOnBootStructuralSafety mirror mismatch'
+
+    Reset-Fixtures
+    $snakeCanaryValue = '\0\s[0]\1\s[10]Changed canary.\e'
+    Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.snakeFirstBootCanary.response.value = $snakeCanaryValue; $r.snakeFirstBootCanary.response.valueUtf8Sha256 = Get-StringSha256 $snakeCanaryValue; $r.snakeFirstBootCanary.response.valueUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($snakeCanaryValue) }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $row = Get-Row $s 'Snake and Otacon V1.2.1'; $row.snakeFirstBootCanary.response.value = $snakeCanaryValue; $row.snakeFirstBootCanary.response.valueUtf8Sha256 = Get-StringSha256 $snakeCanaryValue; $row.snakeFirstBootCanary.response.valueUtf8ByteLength = [Text.Encoding]::UTF8.GetByteCount($snakeCanaryValue) }
+    Assert-Fail 'older Snake first-boot canary remains exactly compared' (Invoke-Comparator (Get-ComparatorArguments)) 'snakeFirstBootCanary.response.value'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.dialogueProbe.value = '\0\s[0]A different but instrumented-safe literal.\e' }
+    Assert-Pass 'older Snake literal is structural-only after its safety witness validates' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    $earthquakeDatePrefix = '\0\s[0]\1\s[10]'
+    Save-Json (Join-Path $fixtureRoot 'candidate\2elf-2.46\result.json') { param($r) $r.dialogueProbe.value = $twoElfCandidate }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $row = Get-Row $s '2elf-2.46'; $row.requiredEvidencePayload.dialogueProbe.value = $twoElfCandidate; ($s.sentinels.checks | Where-Object name -CEQ 'slice2-2elf-dialogue-value-nonblank').observed = $twoElfCandidate }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.value = $loboReviewedAlternative }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Watchdog-Bancho\result.json') { param($r) $r.dialogueProbe.value = "\1\s[10]\0\s[0]\0\s[0]Yo, boss! What's the haps?" }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') { param($r) $r.dialogueProbe.value = $earthquakeDatePrefix; $r.dialogueProbe.onBootContext.localClockBefore = '2026-06-06T01:00:00-07:00'; $r.dialogueProbe.onBootContext.localClockAfter = '2026-06-06T01:00:01-07:00' }
+    Assert-Pass 'all four independently validated stochastic contracts permit different allowed candidate values' (Invoke-Comparator (Get-ComparatorArguments))
+    $stochasticReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
+    if ($stochasticReport.comparisonCategories.literalEqualityCount -ne 16) { throw 'different allowed stochastic values must not increase literalEqualityCount above 16.' }
+    Write-Host 'PASS: four stochastic contracts retain literalEqualityCount 16'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.schemaVersion = '1' }
+    Assert-Fail 'schema 2 rejects a legacy summary schema version' (Invoke-Comparator (Get-ComparatorArguments)) 'schemaVersion.*expected.*2'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.schemaVersion = 2 }
+    Assert-Fail 'schema 2 requires an exact string rather than a numeric lookalike' (Invoke-Comparator (Get-ComparatorArguments)) "schemaVersion has JSON kind 'number'"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\LOBO\result.json') { param($r) $r.schemaVersion = '1' }
+    Assert-Fail 'schema 2 rejects a legacy raw result schema version' (Invoke-Comparator (Get-ComparatorArguments)) "raw result 'LOBO'.*schemaVersion.*expected.*2"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.results | ForEach-Object { $_.PSObject.Properties.Remove('observedPrivateSnapshot') } }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results | ForEach-Object { $_.PSObject.Properties.Remove('observedPrivateSnapshot') } }
+    Assert-Fail 'all 23 summary private snapshots are required before normalization' (Invoke-Comparator (Get-ComparatorArguments)) 'observedPrivateSnapshot'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) (Get-Row $s 'LOBO').evidence.sourceSyntax.PSObject.Properties.Remove('scanRoot') }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'LOBO').evidence.sourceSyntax.PSObject.Properties.Remove('scanRoot') }
+    Assert-Fail 'all 15 summary source scan roots are required before normalization' (Invoke-Comparator (Get-ComparatorArguments)) 'scanRoot'
+
+    Reset-Fixtures
+    Get-ChildItem -LiteralPath (Join-Path $fixtureRoot 'base') -Recurse -Filter result.json | ForEach-Object { Save-Json $_.FullName { param($r) $r.cleanup.PSObject.Properties.Remove('hostVerified') } }
+    Get-ChildItem -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Filter result.json | ForEach-Object { Save-Json $_.FullName { param($r) $r.cleanup.PSObject.Properties.Remove('hostVerified') } }
+    Assert-Pass 'device raw evidence does not require host-only cleanup enrichment' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T06:00:00-07:00' }
+    Assert-Fail 'Earthquake rejects an OnBoot clock bracket that crosses a predicate boundary' (Invoke-Comparator (Get-ComparatorArguments)) 'clock bracket.*boundary'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T01:03:00-07:00'; $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T01:03:01-07:00' }
+    Assert-Pass 'Earthquake normalizes a separately valid same-predicate OnBoot clock bracket' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    $loboAuthored = '\1\s[10]\0\s[0]\1\s[-1]\0Hark! What brings this goth love to grace my presence?'
+    Save-Json (Join-Path $fixtureRoot 'base\LOBO\result.json') { param($r) $r.dialogueProbe.value = $loboAuthored }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.value = $loboAuthored }
+    Assert-Pass 'LOBO accepts a fully consumed source-authored OnBoot template' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    $loboUnreviewed = '\1\s[10]\0\s[0]\1\s[-1]\0Hark! What brings this goth arbitrary substitution to grace my presence?'
+    Save-Json (Join-Path $fixtureRoot 'base\LOBO\result.json') { param($r) $r.dialogueProbe.value = $loboUnreviewed }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.value = $loboUnreviewed }
+    Assert-Fail 'LOBO rejects an unlisted template substitution' (Invoke-Comparator (Get-ComparatorArguments)) 'specialized stochastic'
 
     Reset-Fixtures
     Remove-Item -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Force
@@ -435,7 +584,7 @@ try {
     $sentinelContractArguments[($sentinelContractArguments.IndexOf('-ContractPath') + 1)] = $sentinelContractPath
     Assert-Fail 'sentinel contract count mutation cannot bless a reduced set' (Invoke-Comparator $sentinelContractArguments) 'sentinel.*count'
 
-    foreach ($countTokenCase in @('139.0', '1.39e2', 'true', '"139"')) {
+    foreach ($countTokenCase in @('143.0', '1.43e2', 'true', '"143"')) {
         Reset-Fixtures
         $sentinelContractPath = Join-Path $fixtureRoot ('sentinel-count-token-' + ($countTokenCase -replace '[^A-Za-z0-9]', '_') + '.json')
         Copy-Item -LiteralPath $contractPath -Destination $sentinelContractPath
@@ -563,11 +712,11 @@ try {
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'base\LOBO\result.json') { param($r) $r.evidence.sourceSyntax.PSObject.Properties.Remove('scanRoot') }
     Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.evidence.sourceSyntax.PSObject.Properties.Remove('scanRoot') }
-    Assert-Fail 'declared raw source normalization path missing from both raws' (Invoke-Comparator (Get-ComparatorArguments)) 'raw\[LOBO\].*normalization property is missing.*evidence\.sourceSyntax\.scanRoot'
+    Assert-Fail 'declared raw source normalization path missing from both raws' (Invoke-Comparator (Get-ComparatorArguments)) "raw result 'LOBO'.evidence.sourceSyntax.scanRoot must be present"
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Haiidrate\result.json') { param($r) $r.evidence | Add-Member -NotePropertyName sourceSyntax -NotePropertyValue ([pscustomobject]@{ scanRoot = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/candidate/Haiidrate/source' }); $r | Add-Member -NotePropertyName sakura -NotePropertyValue ([pscustomobject]@{ source = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/candidate/Haiidrate/sakura' }); $r | Add-Member -NotePropertyName kero -NotePropertyValue ([pscustomobject]@{ source = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/candidate/Haiidrate/kero' }) }
-    Assert-Fail 'undeclared raw source selectors remain behavioral' (Invoke-Comparator (Get-ComparatorArguments)) 'raw\[Haiidrate\]\.(kero|sakura|evidence\.sourceSyntax)'
+    Assert-Fail 'undeclared raw source selectors remain behavioral' (Invoke-Comparator (Get-ComparatorArguments)) "raw result 'Haiidrate'.evidence.sourceSyntax.scanRoot is not declared"
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'base\tewire-sen\result.json') { param($r) $r.dialogueProbe.value = "behavior:$('1' * 32)" }
@@ -634,7 +783,28 @@ try {
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.dialogueProbe.value = $snakeLateReviewedAlternative }
-    Assert-Fail 'cross-archive stochastic value' (Invoke-Comparator (Get-ComparatorArguments)) 'unreviewed stochastic'
+    Assert-Pass 'structural-only Snake permits inert cross-archive prose without claiming literal equality' (Invoke-Comparator (Get-ComparatorArguments))
+    $crossArchiveSnakeReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
+    $crossArchiveSnakeBase = Get-Json (Join-Path $fixtureRoot 'base\Snake-and-Otacon-V1.2.1\result.json')
+    $crossArchiveSnakeCandidate = Get-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json')
+    if (
+        $crossArchiveSnakeReport.comparisonCategories.literalEqualityCount -ne 16 -or
+        $crossArchiveSnakeReport.comparisonCategories.snakeStructuralOnlyCount -ne 3 -or
+        $crossArchiveSnakeReport.comparisonCategories.snakeCanaryExactCount -ne 3 -or
+        $crossArchiveSnakeReport.comparisonCategories.rawEnvelopeValidatedCount -ne 23 -or
+        @($crossArchiveSnakeReport.comparisonCategories.snakeStructuralOnlyLabels) -notcontains 'Snake and Otacon V1.2.1' -or
+        $crossArchiveSnakeCandidate.snakeOnBootStructuralSafety.contentCompared -ne $false -or
+        (($crossArchiveSnakeBase.snakeFirstBootCanary | ConvertTo-Json -Depth 20) -cne ($crossArchiveSnakeCandidate.snakeFirstBootCanary | ConvertTo-Json -Depth 20))
+    ) { throw 'cross-archive structural-only Snake coverage lost its reviewed report partition.' }
+    Write-Host 'PASS: cross-archive structural-only Snake preserves the reviewed report partition'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.dialogueProbe.method = 'POST' }
+    Assert-Fail 'structural-only Snake still requires the exact GET OnBoot invariant' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.method'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.snakeOnBootStructuralSafety.allowedSurfaces = @(0) }
+    Assert-Fail 'structural-only Snake binds the complete reviewed surface union' (Invoke-Comparator (Get-ComparatorArguments)) 'allowedSurfaces'
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Watchdog-Bancho\result.json') { param($r) $r.sha256 = 'f' * 64 }

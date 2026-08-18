@@ -1,8 +1,8 @@
 {
-  "schemaVersion": "1",
+  "schemaVersion": "2",
   "sentinelChecks": {
-    "count": 139,
-    "namesSha256": "490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f",
+    "count": 143,
+    "namesSha256": "072d6adec034001985d367a9d8a89ef0db447a76cbc1b9a4a22f580fdabc5b6e",
     "canonicalization": "ordinal-sort names, join LF, UTF-8 SHA-256"
   },
   "normalization": {
@@ -31,6 +31,9 @@
       "results[].output",
       "results[].error"
     ],
+    "summaryObservedPrivateSnapshotPath": "results[].observedPrivateSnapshot",
+    "summaryObservedTmpSnapshotPath": "results[].observedTmpSnapshot",
+    "summarySourceScanRootPath": "results[].evidence.sourceSyntax.scanRoot",
     "rawRunOwnedStringPaths": [
       "narCorpusPath"
     ],
@@ -40,6 +43,23 @@
       "kero.source"
     ],
     "rawSourceArchiveSha256": {
+      "2elf-2.46": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "Big Red Button": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
+      "Earthquake Rescue Duo": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "LOBO": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "Nanika Atsume 1.0.0": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9",
+      "Nanika Atsume 1.0.1": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c",
+      "Nanika Atsume silent_ALPHA": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17",
+      "Snake and Otacon V1.2.1": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "Snake and Otacon V1.3.1": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "Snake and Otacon V1.3.2": "1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5",
+      "Snake_Otacon_1.2.1b": "4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45",
+      "Snake_Otacon_1.3.1b": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "tewire-sen": "2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8",
+      "Watchdog Bancho": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "Yes Man-2.1.1": "aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8"
+    },
+    "summarySourceArchiveSha256": {
       "2elf-2.46": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
       "Big Red Button": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
       "Earthquake Rescue Duo": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
@@ -72,6 +92,9 @@
       { "scope": "summary", "path": "results[].crashLogPath", "category": "runOwnedPath", "kinds": ["string"] },
       { "scope": "summary", "path": "results[].output", "category": "runOwnedText", "kinds": ["string"] },
       { "scope": "summary", "path": "results[].error", "category": "runOwnedText", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].observedPrivateSnapshot", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].observedTmpSnapshot", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].evidence.sourceSyntax.scanRoot", "category": "runOwnedPath", "kinds": ["string"] },
       { "scope": "raw", "path": "narCorpusPath", "category": "runOwnedPath", "kinds": ["string"] },
       { "scope": "raw", "path": "evidence.sourceSyntax.scanRoot", "category": "runOwnedPath", "kinds": ["string"] },
       { "scope": "raw", "path": "sakura.source", "category": "runOwnedPath", "kinds": ["string"] },
@@ -112,11 +135,8 @@
       "label": "LOBO",
       "archiveSha256": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
       "jsonPath": "dialogueProbe.value",
-      "allowedUtf8Sha256": [
-        "fa5db680dbf0afece5a61cfb5464bbb69112ed78aff7a972655983de16754b57",
-        "cf75298961469c0a4e8c8ff4825382b6fe4948fd334c1179d6b5d3d02ff7916e",
-        "1f61cce5010088f493883d3c2efe6d5831dfcdba7d1e14192c8f29dca3054685"
-      ],
+      "specializedValidator": "lobo-onboot-v1",
+      "grammarDigest": "98935130a9797d4e34ad05607d1345c48d8fbc73b32192102e8f1484b64dd1b1",
       "source": {
         "archiveEntry": "ghost/master/dict/dict-event.kis",
         "lineRanges": ["222"],
@@ -128,48 +148,65 @@
       }
     },
     {
+      "label": "Earthquake Rescue Duo",
+      "archiveSha256": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "jsonPath": "dialogueProbe.value",
+      "allowedVariants": [
+        { "valueUtf8Sha256": "42f216325f9097b96c363eab4487e39aeaad3cd0a3636844d5b0b7169d529f41", "tokenizerDiagnostics": [], "predicate": "early-not-special-date" },
+        { "valueUtf8Sha256": "98bb8892bf78daf8c7916618ed6bbd67fb8b0f3382a8c1509213032be6c7e3ea", "tokenizerDiagnostics": [], "predicate": "early-not-special-date" },
+        { "valueUtf8Sha256": "53160d1df44cb47ea1d5ba85d53f2c8d4d5f117193df5c4919eee34af2890f5a", "tokenizerDiagnostics": ["unsupported-command:8"], "predicate": "early-not-special-date" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-06-06" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-07-04" }
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/dic/duo_bootend.dic",
+        "lineRanges": ["181-202", "215-221"],
+        "reviewedEvidence": ["production tokenizer characterization", "authoritative ed03d5ef BaseBase"]
+      }
+    },
+    {
       "label": "Snake and Otacon V1.2.1",
       "archiveSha256": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
       "jsonPath": "dialogueProbe.value",
-      "allowedUtf8Sha256": [
-        "2c1beab312330df48ae066342f3a167efcecc710490948e00d93ca003e1337a1",
-        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07",
-        "6897d875db1f67d428c3801f9deb251aeac32f265eac82a2f4bc9cc458f070ea"
-      ],
+      "specializedValidator": "snake-onboot-structural-v1",
+      "contentCompared": false,
+      "terminalPolicy": "exact-e-or-eof",
+      "allowedSurfaces": [0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35],
+      "allowedFormattingTokens": ["\\f[italic,true]", "\\f[italic,false]"],
       "source": {
         "archiveEntry": "ghost/master/Sn_bootend.dic",
-        "lineRanges": ["238", "265", "282", "392", "396"],
-        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+        "lineRanges": ["304", "306"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate", "italic true/false and EOF zzz lexer fixture"]
       }
     },
     {
       "label": "Snake and Otacon V1.3.1",
       "archiveSha256": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
       "jsonPath": "dialogueProbe.value",
-      "allowedUtf8Sha256": [
-        "2be87f6181f60deb1018ffccade7ab3cc5ad81fc9fee9608d18447c653923a56",
-        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07",
-        "8121582116b1f4a245c8e37f5f39899212dbe25fe5914c6e49a8456fe9c90038"
-      ],
+      "specializedValidator": "snake-onboot-structural-v1",
+      "contentCompared": false,
+      "terminalPolicy": "exact-e-or-eof",
+      "allowedSurfaces": [0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35],
+      "allowedFormattingTokens": ["\\f[italic,true]", "\\f[italic,false]"],
       "source": {
         "archiveEntry": "ghost/master/Sn_bootend.dic",
-        "lineRanges": ["250", "277", "294", "404", "406"],
-        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+        "lineRanges": ["316", "318"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate", "italic true/false and EOF zzz lexer fixture"]
       }
     },
     {
       "label": "Snake_Otacon_1.3.1b",
       "archiveSha256": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
       "jsonPath": "dialogueProbe.value",
-      "allowedUtf8Sha256": [
-        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07",
-        "bc73531970d16a24ebce414288fb811b835c8a482242fca3631db537f1cca8e1",
-        "8121582116b1f4a245c8e37f5f39899212dbe25fe5914c6e49a8456fe9c90038"
-      ],
+      "specializedValidator": "snake-onboot-structural-v1",
+      "contentCompared": false,
+      "terminalPolicy": "exact-e-or-eof",
+      "allowedSurfaces": [0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35],
+      "allowedFormattingTokens": ["\\f[italic,true]", "\\f[italic,false]"],
       "source": {
         "archiveEntry": "ghost/master/Sn_bootend.dic",
-        "lineRanges": ["247", "274", "291", "401", "403"],
-        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+        "lineRanges": ["313", "315"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate", "italic true/false and EOF zzz lexer fixture"]
       }
     },
     {
@@ -186,5 +223,25 @@
         "reviewedEvidence": ["pr393 base", "pr393 candidate"]
       }
     }
-  ]
+  ],
+  "comparisonCategories": {
+    "rawEnvelopeValidatedCount": 23,
+    "literalEqualityCount": 16,
+    "stochasticDialogueContractCount": 4,
+    "stochasticDialogueLabels": [
+      "2elf-2.46",
+      "Watchdog Bancho",
+      "Earthquake Rescue Duo",
+      "LOBO"
+    ],
+    "snakeStructuralOnlyCount": 3,
+    "snakeStructuralOnlyLabels": [
+      "Snake and Otacon V1.2.1",
+      "Snake and Otacon V1.3.1",
+      "Snake_Otacon_1.3.1b"
+    ],
+    "snakeCanaryExactCount": 3,
+    "screenshotHashEqualityCount": 23,
+    "dialogueContentContractValidated": 20
+  }
 }
