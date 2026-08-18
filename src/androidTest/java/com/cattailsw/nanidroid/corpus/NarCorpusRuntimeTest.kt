@@ -820,6 +820,26 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun nonGhostProbeEmitsExplicitDialogueOutcome() {
+        val result = baseResult(
+            label = "Haiidrate",
+            sourcePath = "/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/test/Haiidrate/nanidroid-corpus.nar",
+            sha256 = "a".repeat(64),
+            archiveBytes = 1,
+        )
+
+        recordUnsupportedNonGhostResult(result, "shell")
+
+        assertEquals("unsupported", result.getString("classification"))
+        assertEquals("unsupported:shell", result.getString("installOutcome"))
+        assertEquals("not-applicable", result.getString("shioriOutcome"))
+        assertEquals(
+            "not-applicable",
+            result.getJSONObject("dialogueProbe").getString("outcome"),
+        )
+    }
+
+    @Test
     fun probesArchive() {
         phase("start")
         composeRule.setContent { probeContent.Content() }
@@ -898,14 +918,7 @@ class NarCorpusRuntimeTest {
                     NarInstallError.UNSUPPORTED_TYPE,
                     plan.error,
                 )
-                result.put("classification", "unsupported")
-                result.put("installOutcome", "unsupported:$observedKind")
-                result.put("ghostLoadOutcome", "not-applicable")
-                result.put("renderOutcome", "not-applicable")
-                result.put("inputOutcome", "not-applicable")
-                result.put("shioriOutcome", "not-applicable")
-                result.put("surfaceCount", 0)
-                result.put("passed", true)
+                recordUnsupportedNonGhostResult(result, observedKind)
             } else {
                 if (!plan.isSuccess() && plan.error == NarInstallError.INVALID_PATH) {
                     result.put("installPlanError", plan.error.name)
@@ -1174,6 +1187,18 @@ class NarCorpusRuntimeTest {
         .put("dialogueProbe", JSONObject())
         .put("checkpointPhase", "not-run")
         .put("evidence", JSONObject())
+
+    private fun recordUnsupportedNonGhostResult(result: JSONObject, observedKind: String) {
+        result.put("classification", "unsupported")
+        result.put("installOutcome", "unsupported:$observedKind")
+        result.put("ghostLoadOutcome", "not-applicable")
+        result.put("renderOutcome", "not-applicable")
+        result.put("inputOutcome", "not-applicable")
+        result.put("shioriOutcome", "not-applicable")
+        result.put("dialogueProbe", JSONObject().put("outcome", "not-applicable"))
+        result.put("surfaceCount", 0)
+        result.put("passed", true)
+    }
 
     private fun recordProbeFailure(result: JSONObject, error: Throwable) {
         result.put("passed", false)

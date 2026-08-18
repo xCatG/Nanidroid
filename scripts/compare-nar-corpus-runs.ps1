@@ -423,6 +423,41 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
     return $true
 }
 
+function Assert-DialogueOutcomeMirror([object]$Row, [object]$Raw, [string]$Side, [string]$Label) {
+    $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
+    Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
+    $rawOutcome = Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe"
+    Assert-JsonKind $rawOutcome @('string') "$Side raw result '$Label'.dialogueProbe.outcome" | Out-Null
+    if ([string]::IsNullOrWhiteSpace([string]$rawOutcome)) {
+        throw "$Side raw result '$Label'.dialogueProbe.outcome must be nonblank"
+    }
+
+    $summaryOutcome = Get-RequiredProperty $Row 'dialogueOutcome' "$Side summary result '$Label'"
+    Assert-JsonKind $summaryOutcome @('string') "$Side summary result '$Label'.dialogueOutcome" | Out-Null
+    if ([string]::IsNullOrWhiteSpace([string]$summaryOutcome)) {
+        throw "$Side summary result '$Label'.dialogueOutcome must be nonblank"
+    }
+    Assert-EqualString $summaryOutcome $rawOutcome "$Side summary result '$Label'.dialogueOutcome raw mirror"
+}
+
+function Assert-NonGhostOutcomeEnvelope([object]$Row, [object]$Raw, [object]$Entry, [string]$Side, [string]$Label) {
+    $expectedKind = [string]$Entry.expectedKind
+    if ($expectedKind -ceq 'ghost') { return }
+
+    Assert-EqualString (Get-RequiredProperty $Raw 'observedKind' "$Side raw result '$Label'") $expectedKind "$Side raw result '$Label'.observedKind"
+    Assert-EqualString (Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'") 'unsupported' "$Side raw result '$Label'.classification"
+    Assert-EqualString (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") 'unsupported' "$Side summary result '$Label'.classification"
+    Assert-EqualString (Get-RequiredProperty $Raw 'installOutcome' "$Side raw result '$Label'") "unsupported:$expectedKind" "$Side raw result '$Label'.installOutcome"
+    foreach ($outcomeName in @('ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome')) {
+        Assert-EqualString (Get-RequiredProperty $Raw $outcomeName "$Side raw result '$Label'") 'not-applicable' "$Side raw result '$Label'.$outcomeName"
+    }
+    $surfaceCount = Get-RequiredProperty $Raw 'surfaceCount' "$Side raw result '$Label'"
+    Assert-JsonKind $surfaceCount @('number') "$Side raw result '$Label'.surfaceCount" | Out-Null
+    if ($surfaceCount.Token -cne '0') { throw "$Side raw result '$Label'.surfaceCount must be exact JSON number 0" }
+    $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
+    Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'not-applicable' "$Side raw result '$Label'.dialogueProbe.outcome"
+}
+
 function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtable]$EntriesByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
     $sentinels = Get-RequiredProperty $Summary 'sentinels' "$Side summary"
     $sentinelsPassed = Get-RequiredProperty $sentinels 'passed' "$Side sentinels"
@@ -470,6 +505,8 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtab
         $raw = $RawByLabel[$label]
         Assert-JsonKind $raw.passed @('boolean') "$Side raw result '$label'.passed" | Out-Null
         if ($raw.passed -ne $true) { throw "$Side is not a successful run: raw result '$label' did not pass" }
+        Assert-DialogueOutcomeMirror $row $raw $Side $label
+        Assert-NonGhostOutcomeEnvelope $row $raw $EntriesByLabel[$label] $Side $label
         $rawCleanup = if ($null -eq $raw.PSObject.Properties['cleanup']) { $null } else { $raw.cleanup }
         $acceptedNativeCheckpoint = Test-AcceptedNativeCheckpoint $row $raw $EntriesByLabel[$label] $Side $label
         if ($null -eq $rawCleanup) {

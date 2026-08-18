@@ -2563,6 +2563,22 @@ if ($HostOnlyOwnedProcessTest) {
                     failure = 'not-supported-shiori'
                 }
             }
+        },
+        [pscustomobject]@{
+            label = 'Haiidrate non-ghost dialogue result'
+            expectedOutcome = 'not-applicable'
+            deviceResult = [pscustomobject]@{
+                schemaVersion = '2'
+                observedKind = 'shell'
+                passed = $true
+                classification = 'unsupported'
+                installOutcome = 'unsupported:shell'
+                ghostLoadOutcome = 'not-applicable'
+                renderOutcome = 'not-applicable'
+                inputOutcome = 'not-applicable'
+                shioriOutcome = 'not-applicable'
+                dialogueProbe = [pscustomobject]@{ outcome = 'not-applicable' }
+            }
         }
     )
     foreach ($probeCase in $dialogueOutcomeProbeCases) {

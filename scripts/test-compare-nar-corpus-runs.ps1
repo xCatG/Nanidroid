@@ -230,6 +230,7 @@ function New-ReportFixture {
             schemaVersion = '2'
             label = $label
             sha256 = [string]$entry.sha256
+            observedKind = [string]$entry.expectedKind
             narCorpusPath = "/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/nanidroid-corpus.nar"
             passed = $true
             classification = 'compatible'
@@ -253,6 +254,24 @@ function New-ReportFixture {
                 stable = $true
             }
             cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @(); hostVerified = $true }
+        }
+        if ([string]$entry.expectedKind -cne 'ghost') {
+            $raw.classification = 'unsupported'
+            $raw.dialogueProbe = [pscustomobject]@{ outcome = 'not-applicable' }
+            $raw | Add-Member -NotePropertyName installOutcome -NotePropertyValue "unsupported:$([string]$entry.expectedKind)"
+            $raw | Add-Member -NotePropertyName ghostLoadOutcome -NotePropertyValue 'not-applicable'
+            $raw | Add-Member -NotePropertyName renderOutcome -NotePropertyValue 'not-applicable'
+            $raw | Add-Member -NotePropertyName inputOutcome -NotePropertyValue 'not-applicable'
+            $raw | Add-Member -NotePropertyName shioriOutcome -NotePropertyValue 'not-applicable'
+            $raw | Add-Member -NotePropertyName surfaceCount -NotePropertyValue 0
+            $raw | Add-Member -NotePropertyName parserDiagnostics -NotePropertyValue @(
+                [pscustomobject]@{
+                    observedKind = [string]$entry.expectedKind
+                    planSuccess = $false
+                    error = 'UNSUPPORTED_TYPE'
+                    detail = [string]$entry.expectedKind
+                }
+            )
         }
         if ($label -in @('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b')) {
             $canaryValue = '\0\s[0]\1\s[10]First boot canary.\e'
@@ -306,13 +325,14 @@ function New-ReportFixture {
             passed = $true
             startedAt = $StartedAt
             finishedAt = $StartedAt
-            classification = 'compatible'
+            classification = $raw.classification
             requiredEvidence = @($entry.requiredEvidence)
             requiredEvidencePayload = $payload
             resultPath = "/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/$safeLabel/result.json"
             screenshotPath = "/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/$safeLabel/screenshot.png"
             crashLogPath = (Join-Path $Root "$safeLabel\crash-log.txt")
             status = 'ok'
+            dialogueOutcome = $raw.dialogueProbe.outcome
             output = "Time: 1.0 run=$RunId"
             error = ''
             cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @(); hostVerified = $true }
@@ -446,6 +466,60 @@ try {
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
+            (Get-Row $s 'Big Red Button').PSObject.Properties.Remove('dialogueOutcome')
+        }
+    }
+    Assert-Fail 'summary dialogue outcome mirror is required' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueOutcome'
+
+    Reset-Fixtures
+    Assert-Pass 'all four non-ghost rows use the explicit not-applicable dialogue envelope' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Big-Red-Button\result.json") { param($r) $r.dialogueProbe.PSObject.Properties.Remove('outcome') }
+    }
+    Assert-Fail 'raw dialogue outcome is required' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.*outcome'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Big-Red-Button\result.json") { param($r) $r.dialogueProbe.outcome = ' ' }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Big Red Button').dialogueOutcome = ' ' }
+    }
+    Assert-Fail 'blank raw dialogue outcome is rejected' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.outcome'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Big-Red-Button\result.json") { param($r) $r.dialogueProbe.outcome = $true }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Big Red Button').dialogueOutcome = $true }
+    }
+    Assert-Fail 'boolean raw dialogue outcome is rejected' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.outcome'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Big Red Button').dialogueOutcome = $true }
+    }
+    Assert-Fail 'summary dialogue outcome must be a string' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueOutcome'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Big Red Button').dialogueOutcome = 'not-supported-shiori' }
+    Assert-Fail 'summary dialogue outcome must exactly mirror raw evidence' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueOutcome raw mirror'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Haiidrate\result.json") { param($r) $r.dialogueProbe.outcome = 'success' }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Haiidrate').dialogueOutcome = 'success' }
+    }
+    Assert-Fail 'non-ghost dialogue outcome cannot be forged as success' (Invoke-Comparator (Get-ComparatorArguments)) 'not-applicable'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Haiidrate\result.json") { param($r) $r.shioriOutcome = 'success' }
+    }
+    Assert-Fail 'non-ghost shiori outcome cannot be forged as success' (Invoke-Comparator (Get-ComparatorArguments)) 'shioriOutcome'
+
+    Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'base\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
     Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
     foreach ($side in @('base', 'candidate')) {
@@ -454,6 +528,7 @@ try {
             $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
             $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori'
             $row.classification = 'incompatible'
+            $row.dialogueOutcome = 'pending-real-shiori'
             $row.observedPrivateSnapshot = @()
             $row.observedTmpSnapshot = @()
         }
@@ -477,6 +552,7 @@ try {
         Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
             $row = Get-Row $s 'Snake_Otacon_1.2.1b'
             $row.classification = 'partiallyCompatible'
+            $row.dialogueOutcome = 'not-supported-shiori'
         }
     }
     Assert-Pass 'non-success OnBoot envelope still validates and normalizes its clock context' (Invoke-Comparator (Get-ComparatorArguments))
