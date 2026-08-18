@@ -75,6 +75,27 @@ $sentinelFixtureSha256 = Get-StringSha256 $sentinelFixtureCanonical
 if ($sentinelFixtureNames.Count -ne $reviewedSentinelNameCount -or $sentinelFixtureNameSet.Count -ne $reviewedSentinelNameCount -or $sentinelFixtureSha256 -cne $reviewedSentinelNamesSha256) {
     throw 'Synthetic fixture sentinel names do not match the reviewed default runner sentinel set.'
 }
+$preservedEvidenceRoot = Join-Path $repoRoot 'build\reports\nar-corpus'
+$preservedSummaryPath = Join-Path $preservedEvidenceRoot 'summary.json'
+if (Test-Path -LiteralPath $preservedSummaryPath -PathType Leaf) {
+    $preservedSummary = Get-Content -LiteralPath $preservedSummaryPath -Raw | ConvertFrom-Json
+    if (@($preservedSummary.results).Count -ne 23 -or [string]$preservedSummary.runId -notmatch '^[0-9a-f]{32}$') {
+        throw 'Preserved successful corpus summary does not have the reviewed 23-row runner shape.'
+    }
+    foreach ($row in @($preservedSummary.results)) {
+        $safeLabel = [string]$row.safeLabel
+        $rawPath = Join-Path $preservedEvidenceRoot "$safeLabel\result.json"
+        $raw = Get-Content -LiteralPath $rawPath -Raw | ConvertFrom-Json
+        $expectedPathPattern = '^/data/(?:user/0|data)/com\.cattailsw\.nanidroid/cache/nar-corpus-host/' + [regex]::Escape([string]$preservedSummary.runId) + '/' + [regex]::Escape($safeLabel) + '/nanidroid-corpus\.nar$'
+        if ([string]$raw.narCorpusPath -notmatch $expectedPathPattern) {
+            throw "Preserved raw result '$($row.label)' narCorpusPath is not the exact runner shape."
+        }
+    }
+    Write-Host 'PASS: preserved successful corpus narCorpusPath shape'
+}
+else {
+    Write-Host 'SKIP: preserved successful corpus evidence root is unavailable'
+}
 $twoElfBase = '\1\s[19]\n\n[half]\_w[18]\0\s[103]旅人さん…。\_w[36]\w8\n\n[half]\_w[18]\1\c謝りに来たの？\w8\_w[126]\n\n[half]\_w[18]\0\s[101]え…。\_w[54]\w8\nそ、\_w[36]そんな…私こそ、\_w[144]急に帰ったりして…\w8ごめんね。\_w[252]\w8\n怒ってないから…。\_w[162]\w8\nだけど、\_w[72]もうあんなエッチな事はしないでね…\w8\s[104]お願い。\_w[378]\e'
 $twoElfCandidate = '\1\s[19]\n\n[half]\_w[18]\0\s[103]あ…旅人さん…。\_w[72]\w8\nご、\_w[36]ごめんなさい！\w8\_w[126]\n逃げちゃったりして。\_w[180]\w8\n\n[half]\_w[18]\1\cソフィが謝る事じゃないわよ。\_w[252]\w8\n\n[half]\_w[18]\0\s[101]旅人さん…\w8もう、\_w[72]あんな事しないでね。\_w[180]\w8\n私、\_w[36]顔から火が出ちゃいそうなくらい、\_w[288]恥ずかしかったのよ。\_w[180]\w8\n\n[half]\_w[18]\1\n[half]\_w[18]\0\s[106]･\w2･\w2･\w2･\w2･\w2･\w2･\w2･\w2\s[100]はい、\_w[126]おしまい。\_w[90]\w8\n旅人さんは何も見なかった、\_w[162]ね？\w8\_w[36]\e'
 $dialogueValues = @{
@@ -154,7 +175,7 @@ function New-ReportFixture {
             schemaVersion = '1'
             label = $label
             sha256 = [string]$entry.sha256
-            narCorpusPath = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/nanidroid-corpus.nar"
+            narCorpusPath = "/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/nanidroid-corpus.nar"
             passed = $true
             classification = 'compatible'
             dialogueProbe = [pscustomobject]@{ outcome = 'success'; value = $value }
@@ -477,6 +498,30 @@ try {
     Assert-Fail 'raw run metadata must mirror the declared run identity' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*run identity'
 
     Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/prefix/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/22222222222222222222222222222222/LOBO/nanidroid-corpus.nar' }
+    Assert-Fail 'narCorpusPath prefix cannot surround a valid runner path' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*exact runner path'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/22222222222222222222222222222222/LOBO/nanidroid-corpus.nar/suffix' }
+    Assert-Fail 'narCorpusPath suffix cannot follow the runner filename' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*exact runner path'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/22222222222222222222222222222222/LOBO/not-nanidroid-corpus.nar' }
+    Assert-Fail 'narCorpusPath requires the exact runner filename' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*exact runner path'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/22222222222222222222222222222222/Haiidrate/nanidroid-corpus.nar' }
+    Assert-Fail 'narCorpusPath requires its row safe label' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*exact runner path'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/22222222222222222222222222222222/LOBO/../LOBO/nanidroid-corpus.nar' }
+    Assert-Fail 'narCorpusPath rejects traversal segments' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*exact runner path'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/22222222222222222222222222222222/LOBO/nanidroid-corpus.nar' }
+    Assert-Fail 'narCorpusPath private roots cannot vary within one run' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*same private data root'
+
+    Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.durationSeconds = '23' }
     Assert-Fail 'duration JSON kind mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'durationSeconds.*kind'
 
@@ -633,6 +678,38 @@ try {
     $failedPrerequisite.passed = $false
     Write-Json $prerequisite $failedPrerequisite
     Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
+
+    Reset-Fixtures
+    $defaultPrerequisite = Join-Path $fixtureRoot 'comparison.json'
+    Assert-Pass 'base/base prerequisite at default output path' (Invoke-Comparator (Get-ComparatorArguments))
+    New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
+    $defaultPrerequisiteSha = (Get-FileHash -LiteralPath $defaultPrerequisite -Algorithm SHA256).Hash
+    $defaultCollisionResult = Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $defaultPrerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)
+    if ((Get-FileHash -LiteralPath $defaultPrerequisite -Algorithm SHA256).Hash -cne $defaultPrerequisiteSha) { throw 'base/candidate default output collision altered its prerequisite' }
+    Assert-Fail 'base/candidate default output cannot overwrite its prerequisite' $defaultCollisionResult 'BaseBaseReportPath.*OutputPath.*distinct'
+
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    Assert-Pass 'base/base prerequisite for explicit output collision' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
+    Assert-Fail 'base/candidate explicit output cannot overwrite its prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath $prerequisite)) 'BaseBaseReportPath.*OutputPath.*distinct'
+
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    Assert-Pass 'base/base prerequisite for relative output collision' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
+    $relativePrerequisiteAlias = [IO.Path]::GetRelativePath((Get-Location).Path, $prerequisite)
+    $relativePrerequisiteSha = (Get-FileHash -LiteralPath $prerequisite -Algorithm SHA256).Hash
+    $relativeAliasCollisionResult = Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath $relativePrerequisiteAlias)
+    if ((Get-FileHash -LiteralPath $prerequisite -Algorithm SHA256).Hash -cne $relativePrerequisiteSha) { throw 'base/candidate relative output collision altered its prerequisite' }
+    Assert-Fail 'base/candidate relative output alias cannot overwrite its prerequisite' $relativeAliasCollisionResult 'BaseBaseReportPath.*OutputPath.*distinct'
+
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    $candidateOutput = Join-Path $fixtureRoot 'base-candidate.json'
+    Assert-Pass 'base/base prerequisite for distinct base/candidate output' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
+    Assert-Pass 'base/candidate may use a distinct output path' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha -OutputPath $candidateOutput))
 
     Write-Host 'Comparator host tests passed.'
 }

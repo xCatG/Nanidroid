@@ -162,8 +162,7 @@ function ConvertTo-StrictJsonText([object]$Value) {
     }
 }
 
-function Write-ComparisonReportAtomic([object]$Report) {
-    $resolvedOutputPath = [IO.Path]::GetFullPath($OutputPath)
+function Write-ComparisonReportAtomic([object]$Report, [string]$ResolvedOutputPath) {
     $outputDirectory = Split-Path -Parent $resolvedOutputPath
     if (-not (Test-Path -LiteralPath $outputDirectory)) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
     $temporaryPath = Join-Path $outputDirectory ('.' + [IO.Path]::GetFileName($resolvedOutputPath) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
@@ -451,6 +450,7 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
         throw "$Side summary runId is not the runner-emitted 32-character lowercase run identity"
     }
 
+    $privateDataRoot = $null
     foreach ($label in @($RowsByLabel.Keys | Sort-Object -CaseSensitive)) {
         $row = $RowsByLabel[$label]
         $rowRunId = Get-RequiredProperty $row 'runId' "$Side summary result '$label'"
@@ -464,8 +464,16 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
         $raw = $RawByLabel[$label]
         $narCorpusPath = Get-RequiredProperty $raw 'narCorpusPath' "$Side raw result '$label'"
         Assert-JsonKind $narCorpusPath @('string') "$Side raw result '$label'.narCorpusPath" | Out-Null
-        if (-not ([string]$narCorpusPath).Contains($expectedRunRoot, [StringComparison]::Ordinal)) {
-            throw "$Side raw result '$label'.narCorpusPath must mirror the summary run identity"
+        $narCorpusPathPattern = '^(?<privateRoot>/data/(?:user/0|data)/com\.cattailsw\.nanidroid)/cache/nar-corpus-host/' + [regex]::Escape([string]$runId) + '/' + [regex]::Escape($safeLabel) + '/nanidroid-corpus\.nar$'
+        $narCorpusPathMatch = [regex]::Match([string]$narCorpusPath, $narCorpusPathPattern)
+        if (-not $narCorpusPathMatch.Success) {
+            throw "$Side raw result '$label'.narCorpusPath must match the exact runner path for the summary run identity"
+        }
+        if ($null -eq $privateDataRoot) {
+            $privateDataRoot = $narCorpusPathMatch.Groups['privateRoot'].Value
+        }
+        elseif ($privateDataRoot -cne $narCorpusPathMatch.Groups['privateRoot'].Value) {
+            throw "$Side raw result '$label'.narCorpusPath must use the same private data root as every raw result"
         }
 
         foreach ($mirrorPath in $(if ($RawSourceMirrorLabels -contains $label) { @('evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source') } else { @() })) {
@@ -693,6 +701,17 @@ function Assert-BaseBasePrerequisite([string]$Path, [string]$ManifestSha, [strin
     if ($deviceDifference) { throw "base/base prerequisite mismatch at $deviceDifference" }
 }
 
+$resolvedOutputPath = [IO.Path]::GetFullPath($OutputPath)
+$resolvedBaseBaseReportPath = $null
+if ($ComparisonKind -eq 'BaseCandidate') {
+    if ([string]::IsNullOrWhiteSpace($BaseBaseReportPath)) { throw 'BaseCandidate comparison requires -BaseBaseReportPath' }
+    $resolvedBaseBaseReportPath = [IO.Path]::GetFullPath($BaseBaseReportPath)
+    $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if ($resolvedBaseBaseReportPath.Equals($resolvedOutputPath, $pathComparison)) {
+        throw 'BaseBaseReportPath and OutputPath must resolve to distinct files for BaseCandidate comparison'
+    }
+}
+
 try {
     $reviewedSentinelCheckCount = 139
     $reviewedSentinelCheckDigest = '490ef9ecb8d52e7c1ca704fa8bd9dc4194b39d064065040585ff203befb3a74f'
@@ -806,7 +825,7 @@ try {
     $contractSha = Get-Sha256 $ContractPath
     $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
     if ($ComparisonKind -eq 'BaseCandidate') {
-        Assert-BaseBasePrerequisite $BaseBaseReportPath $manifestSha $contractSha $base.Summary.device $base.EvidenceFingerprint
+        Assert-BaseBasePrerequisite $resolvedBaseBaseReportPath $manifestSha $contractSha $base.Summary.device $base.EvidenceFingerprint
     }
     $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $reviewedSentinelCheckCount $reviewedSentinelCheckDigest $manifestSha
 
@@ -864,7 +883,7 @@ try {
         screenshotsCompared = 23
         differences = @()
     }
-    Write-ComparisonReportAtomic $report
+    Write-ComparisonReportAtomic $report $resolvedOutputPath
     Write-Host "NAR corpus $ComparisonKind comparison passed: 23 raw results and 23 screenshots matched."
 }
 catch {
@@ -899,7 +918,7 @@ catch {
             reason = $reason
         }
     }
-    try { Write-ComparisonReportAtomic $failureReport } catch { Write-Warning "Unable to write failure comparison report: $($_.Exception.Message)" }
+    try { Write-ComparisonReportAtomic $failureReport $resolvedOutputPath } catch { Write-Warning "Unable to write failure comparison report: $($_.Exception.Message)" }
     Write-Error $reason
     exit 1
 }

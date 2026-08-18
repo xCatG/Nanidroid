@@ -207,6 +207,17 @@ without a passing base/base report bound to the same base, harness, manifest,
 contract, and emulator identity. That proof includes an exact evidence
 fingerprint plus distinct, internally mirrored runner run IDs, and every comparison atomically replaces its output with either a
 passing report or a bounded structured failure report.
+For `BaseCandidate`, the retained `-BaseBaseReportPath` and `-OutputPath` must
+resolve to distinct files before either is read or written; this prevents a
+candidate result (including a failure report) from replacing its prerequisite.
+Each raw `narCorpusPath` must exactly match the runner-owned archive path
+`/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/<32-lowercase-hex-run-id>/<safe-label>/nanidroid-corpus.nar`
+or the same exact suffix under the legacy `/data/data/com.cattailsw.nanidroid`
+root. Prefixes,
+suffixes, traversal segments, wrong labels or filenames are rejected, and all
+23 rows in one run must use the same private-data-root variant. This rule is
+intentionally limited to `narCorpusPath`; source mirror fields retain their
+separate wrapper/path rules.
 For successful default-run summaries, the comparator also requires the reviewed
 139-name sentinel set. Its contract digest is calculated by ordinal-sorting the
 unique nonblank names, joining them with LF, and taking a UTF-8 SHA-256; a
