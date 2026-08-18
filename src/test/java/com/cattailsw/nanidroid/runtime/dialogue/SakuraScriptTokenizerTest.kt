@@ -8,6 +8,47 @@ import org.junit.Test
 /** Synthetic, ASCII-compatible grammar fixtures for structured SakuraScript. */
 class SakuraScriptTokenizerTest {
     @Test
+    fun reviewedSnakeItalicTogglesAreInvisibleFormattingWithoutDiagnosticsOrInteractions() {
+        val diagnostics = mutableListOf<String>()
+
+        val tokenization = SakuraScriptTokenizer.tokenizeWithInteractions(
+            "\\0\\f[italic,true]A\\f[italic,false]B\\e",
+            diagnostics::add,
+        )
+
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(DialogueSegment.Text("AB")),
+                ),
+            ),
+            tokenization.contents,
+        )
+        assertEquals(emptyList<SakuraScriptInteraction>(), tokenization.interactions)
+        assertEquals(emptyList<String>(), diagnostics)
+    }
+
+    @Test
+    fun earthquakeOnBootAuthoredAlternativesHaveTheReviewedTokenizerDiagnostics() {
+        val datePrefix = "\\0\\s[0]\\1\\s[10]"
+        val earlyMorning = listOf(
+            datePrefix + "\\0\\s[0]ヾ(•ω•`)o\\w8\\1\\s[10]Haha, seems like Mantle is happy to see you!\\e" to emptyList<String>(),
+            datePrefix + "\\0\\s[0]You called?\\1\\s[10]Yes, what is it?\\e" to emptyList<String>(),
+            datePrefix + "\\0\\s[0]Boy, it sure is early.\\8w\\1\\s[10]I know, right?\\e" to listOf("unsupported-command:8"),
+        )
+
+        // June 6 and July 4 intentionally share the authored prefix-only branch.
+        listOf(datePrefix to emptyList<String>())
+            .plus(earlyMorning)
+            .forEach { (value, expectedDiagnostics) ->
+                val diagnostics = mutableListOf<String>()
+                tokenize(value, diagnostics)
+                assertEquals(expectedDiagnostics, diagnostics)
+            }
+    }
+
+    @Test
     fun choicesKeepSpeakerOwnershipQuotedEmptyAndDoubledQuoteReferences() {
         assertEquals(
             listOf(

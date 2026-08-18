@@ -82,6 +82,7 @@ import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
+import java.time.OffsetDateTime
 import java.util.Base64
 import java.util.Locale
 import kotlin.math.ceil
@@ -94,6 +95,7 @@ class NarCorpusRuntimeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
     private val probeContent = NarCorpusProbeContent()
+    private val liveShioriWrappers = SingleLiveWrapperGuard<TestShioriGhost>()
 
     @Test
     fun boundedReadKeepsOnlyTheLimitAndOverflowSentinel() {
@@ -562,6 +564,110 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun rawSnakeSafetyLexerConsumesACompleteInertOnBootMessage() {
+        val result = RawSnakeSakuraScriptSafetyLexer.validate(
+            "\\0\\s[0]Hello, Snake.\\1\\w8\\s[10]Acknowledged.\\e",
+        )
+
+        assertTrue(result.accepted)
+        assertEquals("exact-e", result.terminal)
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerAcceptsOnlyTheReviewedItalicTokensAndSurfaceUnion() {
+        val surfaces = listOf(0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35)
+        val value = buildString {
+            append("\\0")
+            surfaces.forEach { surface -> append("\\s[$surface]A") }
+            append("\\f[italic,true]B\\f[italic,false]C\\e")
+        }
+
+        assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate(value).terminal)
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerRejectsEveryNonReviewedItalicFormAndActiveCommandAfterItalic() {
+        val nonReviewedForms = listOf(
+            "\\f",
+            "\\f[italic]",
+            "\\f[italic,true,extra]",
+            "\\f[italic, true]",
+            "\\f[italic,false ]",
+            "\\f[Italic,true]",
+            "\\f[italic,TRUE]",
+            "\\f[italic,true",
+            "\\f[bold,true]",
+            "\\f[color,red]",
+            "\\f[size,12]",
+            "\\f[name,Snake]",
+            "\\f[height,12]",
+            "\\f[strike,true]",
+            "\\f[sup,true]",
+        )
+
+        nonReviewedForms.forEach { form ->
+            assertThrows(IllegalStateException::class.java) {
+                RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]A${form}B\\e")
+            }
+        }
+        assertThrows(IllegalStateException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]A\\f[italic,true]\\![raise,OnBoot]B\\e")
+        }
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerHasSourceLineFixturesForAllReviewedOlderSnakeArchives() {
+        olderSnakeLexerSourceFixtures.forEach { fixture ->
+            assertTrue(fixture.italicTrueLine > 0)
+            assertTrue(fixture.italicFalseLine > fixture.italicTrueLine)
+            assertTrue(fixture.eofZzzLine > 0)
+            assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate(fixture.italicToggleValue).terminal)
+            assertEquals("eof", RawSnakeSakuraScriptSafetyLexer.validate(fixture.eofZzzValue).terminal)
+        }
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerRejectsUnknownSideEffectAndTrailingCommands() {
+        assertThrows(IllegalStateException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]Hello\\![raise,OnBoot]\\e")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]Hello\\e\\1after")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[999]Hello\\e")
+        }
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerAcceptsOnlyTerminalEOrPhysicalEofAfterSpeakerText() {
+        assertEquals("eof", RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]Hello").terminal)
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]   \\e")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("text before speaker\\e")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]\uD800\\e")
+        }
+    }
+
+    @Test
+    fun singleLiveWrapperGuardRejectsAStaleWrapperBeforeTheNextLoad() {
+        val guard = SingleLiveWrapperGuard<String>()
+        guard.acquire("canary-a")
+
+        assertThrows(IllegalStateException::class.java) { guard.acquire("canary-b") }
+        guard.release("canary-a")
+        guard.acquire("primary")
+        guard.release("primary")
+    }
+
+    @Test
     fun probesArchive() {
         phase("start")
         composeRule.setContent { probeContent.Content() }
@@ -693,6 +799,28 @@ class NarCorpusRuntimeTest {
                         "Ghost install plan failed: ${plan.error} ${plan.detail}",
                         plan.isSuccess(),
                     )
+                    if (isOlderSnakeStructuralArchive(label, expectedSha256)) {
+                        val canaryA = collectSnakeFirstBootCanary(
+                            source = source,
+                            sourceParent = sourceParent,
+                            expectedSha256 = expectedSha256,
+                            context = context,
+                            suffix = "a",
+                        )
+                        val canaryB = collectSnakeFirstBootCanary(
+                            source = source,
+                            sourceParent = sourceParent,
+                            expectedSha256 = expectedSha256,
+                            context = context,
+                            suffix = "b",
+                        )
+                        assertEquals(
+                            "Independent fresh Snake OnFirstBoot canaries must be exactly equal for $label",
+                            canaryA.toString(),
+                            canaryB.toString(),
+                        )
+                        result.put("snakeFirstBootCanary", canaryA)
+                    }
                     val latestProgress = linkedMapOf<String, Long>()
                     val install = NarTransactionalInstaller.install(
                         copiedArchive,
@@ -825,7 +953,7 @@ class NarCorpusRuntimeTest {
                     setCheckpoint(result, "before-real-shiori")
                     writeArtifacts(context, safeLabel, result)
                     phase("before-real-shiori")
-                    shioriGhost = loadShiori(
+                    shioriGhost = loadTrackedShiori(
                         installed.installedPath,
                         installed.targetId ?: "corpus-${expectedSha256.take(16)}",
                         loadGhostDesc(installed.installedPath),
@@ -834,6 +962,9 @@ class NarCorpusRuntimeTest {
                     val finalDialogue = probeShioriOnBoot(shioriGhost, shellName, label)
                     phase("shiori-probed")
                     result.put("dialogueProbe", finalDialogue)
+                    if (isOlderSnakeStructuralArchive(label, expectedSha256)) {
+                        result.put("snakeOnBootStructuralSafety", snakeOnBootStructuralSafety(finalDialogue))
+                    }
                     val shioriOutcome = finalDialogue.optString("outcome", "probe-failure")
                     result.put("shioriOutcome", shioriOutcome)
                     result.put("ghostLoadOutcome", "loaded")
@@ -853,7 +984,7 @@ class NarCorpusRuntimeTest {
                 composeRule.runOnIdle { probeContent.showStage(null) }
                 composeRule.waitForIdle()
             }
-            runCatching { shioriGhost?.unload() }
+            runCatching { shioriGhost?.let(::unloadTrackedShiori) }
                 .exceptionOrNull()
                 ?.let { result.put("unloadError", it.stackTraceToString()) }
             deleteOwnedRoot(inputRoot, sourceParent)
@@ -874,7 +1005,7 @@ class NarCorpusRuntimeTest {
     }
 
     private fun baseResult(label: String, sourcePath: String, sha256: String, archiveBytes: Long) = JSONObject()
-        .put("schemaVersion", 1)
+        .put("schemaVersion", "2")
         .put("label", label)
         .put("sha256", sha256)
         .put("archiveBytes", archiveBytes)
@@ -1110,6 +1241,111 @@ class NarCorpusRuntimeTest {
         context: Context?,
     ): TestShioriGhost = TestShioriGhost("$installedPath/ghost/master/", ghostIdentity, ghostDesc, context)
 
+    private fun loadTrackedShiori(
+        installedPath: String,
+        ghostIdentity: String,
+        ghostDesc: Map<String, String>,
+        context: Context?,
+    ): TestShioriGhost {
+        val wrapper = loadShiori(installedPath, ghostIdentity, ghostDesc, context)
+        liveShioriWrappers.acquire(wrapper)
+        return wrapper
+    }
+
+    private fun unloadTrackedShiori(wrapper: TestShioriGhost) {
+        try {
+            wrapper.unload()
+        } finally {
+            liveShioriWrappers.release(wrapper)
+        }
+    }
+
+    private fun collectSnakeFirstBootCanary(
+        source: File,
+        sourceParent: File,
+        expectedSha256: String,
+        context: Context,
+        suffix: String,
+    ): JSONObject {
+        val inputRoot = createOwnedRoot(sourceParent, "probe-canary-$suffix-input")
+        val installRoot = createOwnedRoot(sourceParent, "probe-canary-$suffix-install")
+        var wrapper: TestShioriGhost? = null
+        try {
+            val copiedArchive = File(inputRoot, ARCHIVE_FILE_NAME)
+            copyArchive(source, copiedArchive)
+            assertEquals(expectedSha256, sha256(copiedArchive))
+            val targetId = "canary-$suffix-${expectedSha256.take(16)}"
+            val plan = NarInstallPlanValidator().validate(copiedArchive, installRoot, targetId)
+            assertTrue("Snake canary install plan failed: ${plan.error} ${plan.detail}", plan.isSuccess())
+            val installResult = NarTransactionalInstaller.install(copiedArchive, installRoot, targetId, { false }) { _, _ -> }
+            val installed = installResult
+                as? ArchiveInstallResult.Installed
+                ?: error("Snake canary transactional install failed: $installResult")
+            wrapper = loadTrackedShiori(
+                installed.installedPath,
+                installed.targetId ?: targetId,
+                loadGhostDesc(installed.installedPath),
+                context,
+            )
+            val response = wrapper.requestRaw(ShioriMethod.GET, "OnFirstBoot", listOf("0"))
+            val value = exactProbeValue(response)
+            val diagnostics = mutableListOf<String>()
+            SakuraScriptTokenizer.tokenize(value, diagnostics::add)
+            if (wrapper.isShioriNotSupported()) error("Snake canary SHIORI is not supported")
+            if (response.getStatusCode() != 200) error("Snake canary expected HTTP 200, found ${response.getStatusCode()}")
+            if (response.getKey("Value").isNullOrEmpty()) error("Snake canary requires an exact nonblank Value header")
+            return JSONObject()
+                .put("freshInstance", true)
+                .put("independentInstanceCount", 2)
+                .put(
+                    "request",
+                    JSONObject()
+                        .put("method", ShioriMethod.GET.name)
+                        .put("eventId", "OnFirstBoot")
+                        .put("references", JSONArray().put("0")),
+                )
+                .put(
+                    "response",
+                    JSONObject()
+                        .put("status", response.getStatusCode())
+                        .put("outcome", "success")
+                        .put("failure", JSONObject.NULL)
+                        .put("value", value)
+                        .put("valueUtf8Sha256", sha256Utf8(value))
+                        .put("valueUtf8ByteLength", value.toByteArray(StandardCharsets.UTF_8).size)
+                        .put("tokenizerDiagnostics", JSONArray().apply { diagnostics.forEach(::put) }),
+                )
+        } finally {
+            wrapper?.let {
+                try {
+                    unloadTrackedShiori(it)
+                } finally {
+                    wrapper = null
+                }
+            }
+            deleteOwnedRoot(inputRoot, sourceParent)
+            deleteOwnedRoot(installRoot, sourceParent)
+            check(!inputRoot.exists() && !installRoot.exists()) { "Snake canary cleanup left owned paths behind" }
+        }
+    }
+
+    private fun snakeOnBootStructuralSafety(dialogue: JSONObject): JSONObject {
+        val value = dialogue.opt("value") as? String ?: error("Snake structural OnBoot probe has no string value")
+        val lexer = RawSnakeSakuraScriptSafetyLexer.validate(value)
+        return JSONObject()
+            .put("policy", "snake-onboot-raw-sakurascript-v1")
+            .put("contentCompared", false)
+            .put("accepted", lexer.accepted)
+            .put("terminal", lexer.terminal)
+            .put("allowedSurfaces", JSONArray().apply {
+                listOf(0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35).forEach(::put)
+            })
+            .put("allowedFormattingTokens", JSONArray().put("\\f[italic,true]").put("\\f[italic,false]"))
+    }
+
+    private fun isOlderSnakeStructuralArchive(label: String, sha256: String): Boolean =
+        OLDER_SNAKE_ARCHIVES[label] == sha256
+
     private fun setCheckpoint(result: JSONObject, phase: String) {
         result.put("checkpointPhase", phase)
     }
@@ -1289,7 +1525,11 @@ class NarCorpusRuntimeTest {
             .put("tokenizerDiagnostics", JSONArray())
             .put("failure", JSONObject.NULL)
         return try {
+            // The host comparison uses this adjacent device-local bracket to reject
+            // source predicates that change while the authored OnBoot request runs.
+            val localClockBefore = OffsetDateTime.now()
             val response = shiori.requestRaw(method, eventId, references)
+            val localClockAfter = OffsetDateTime.now()
             val value = exactProbeValue(response)
             val segments = SakuraScriptTokenizer.tokenize(value, diagnostics::add)
                 .flatMap(DialogueContent::segments)
@@ -1329,6 +1569,15 @@ class NarCorpusRuntimeTest {
                 .put("observedInputId", observedInputId ?: JSONObject.NULL)
                 .put("passiveTransitions", passiveTransitions)
                 .put("tokenizerDiagnostics", JSONArray().apply { diagnostics.forEach(this::put) })
+                .put(
+                    "onBootContext",
+                    JSONObject()
+                        .put("profileState", "fresh")
+                        .put("username", "")
+                        .put("birthdayConfigured", false)
+                        .put("localClockBefore", localClockBefore.toString())
+                        .put("localClockAfter", localClockAfter.toString()),
+                )
         } catch (error: LinkageError) {
             probe.put("outcome", "native-linkage-error")
                 .put("failure", error.stackTraceToString())
@@ -2410,6 +2659,10 @@ class NarCorpusRuntimeTest {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
+    private fun sha256Utf8(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(StandardCharsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+
     private fun deleteOwnedRoot(root: File, expectedParent: File) {
         if (!root.exists()) return
         val owned = root.canonicalFile.toPath()
@@ -2460,6 +2713,34 @@ class NarCorpusRuntimeTest {
         const val MAX_SHIORI_RESPONSE_VALUE_CHARS = 4096
         const val MAX_PROVENANCE_SOURCE_CHARS = 256
         const val SNAKE_AND_OTACON_LABEL = "Snake and Otacon V1.3.2"
+        val OLDER_SNAKE_ARCHIVES = mapOf(
+            "Snake and Otacon V1.2.1" to "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+            "Snake and Otacon V1.3.1" to "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+            "Snake_Otacon_1.3.1b" to "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+        )
+        val olderSnakeLexerSourceFixtures = listOf(
+            OlderSnakeLexerSourceFixture(
+                archiveSha256 = "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+                archiveEntry = "ghost/master/Sn_bootend.dic",
+                italicTrueLine = 304,
+                italicFalseLine = 306,
+                eofZzzLine = 304,
+            ),
+            OlderSnakeLexerSourceFixture(
+                archiveSha256 = "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+                archiveEntry = "ghost/master/Sn_bootend.dic",
+                italicTrueLine = 316,
+                italicFalseLine = 318,
+                eofZzzLine = 316,
+            ),
+            OlderSnakeLexerSourceFixture(
+                archiveSha256 = "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+                archiveEntry = "ghost/master/Sn_bootend.dic",
+                italicTrueLine = 313,
+                italicFalseLine = 315,
+                eofZzzLine = 313,
+            ),
+        )
         const val SNAKE_CHOICE_FIRST_HE_HIM_ID = "choicefirsthehim"
         const val SNAKE_CHOICE_FIRST_HE_HIM_LABEL = "he/him"
         const val SNAKE_TITLE_NONE_ID = "titlenone"
@@ -2475,6 +2756,120 @@ class NarCorpusRuntimeTest {
         val INSTALL_ENTRY = Regex("(?i)(^|.*/)install\\.txt$")
         val TYPE_LINE = Regex("(?im)^\\s*type\\s*,\\s*([^\\r\\n]+)")
         const val LOG_TAG = "NarCorpusProbe"
+    }
+
+    private data class OlderSnakeLexerSourceFixture(
+        val archiveSha256: String,
+        val archiveEntry: String,
+        val italicTrueLine: Int,
+        val italicFalseLine: Int,
+        val eofZzzLine: Int,
+    ) {
+        val italicToggleValue = "\\1\\s[10]\\f[italic,true]Yawn...\\f[italic,false] still awake.\\e"
+        val eofZzzValue = "\\1\\s[32]\\w8\\f[italic,true]zzz...\\0\\s[8]Still asleep, Otacon?"
+    }
+}
+
+/**
+ * Deliberately test-only: this is a conservative safety recognizer for the
+ * older Snake OnBoot response, not a replacement for the production tokenizer
+ * or a general SakuraScript evaluator.
+ */
+private object RawSnakeSakuraScriptSafetyLexer {
+    data class Result(
+        val accepted: Boolean,
+        val terminal: String,
+    )
+
+    private val allowedSurfaces = setOf(0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35)
+
+    fun validate(value: String): Result {
+        var index = 0
+        var currentSpeaker: Int? = null
+        var hasSpeakerText = false
+        while (index < value.length) {
+            val character = value[index]
+            if (character.isHighSurrogate() || character.isLowSurrogate()) {
+                requireValidSurrogatePair(value, index)
+                if (!character.isHighSurrogate()) error("unpaired low surrogate")
+                index += 2
+                if (currentSpeaker != null) hasSpeakerText = true
+                continue
+            }
+            if (character == '\\') {
+                require(index + 1 < value.length) { "truncated SakuraScript command" }
+                when (val command = value[index + 1]) {
+                    '0', '1' -> {
+                        currentSpeaker = command.digitToInt()
+                        index += 2
+                    }
+                    'e' -> {
+                        require(index + 2 == value.length) { "data after terminal \\e" }
+                        require(hasSpeakerText) { "no nonblank speaker text" }
+                        return Result(accepted = true, terminal = "exact-e")
+                    }
+                    'w' -> {
+                        index += 2
+                        val start = index
+                        while (index < value.length && value[index].isDigit()) index++
+                        require(index > start) { "truncated wait command" }
+                    }
+                    's' -> {
+                        require(index + 2 < value.length && value[index + 2] == '[') { "malformed surface command" }
+                        val close = value.indexOf(']', index + 3)
+                        require(close > index + 3) { "truncated surface command" }
+                        val surfaceText = value.substring(index + 3, close)
+                        require(surfaceText.all(Char::isDigit)) { "surface must be a nonnegative decimal" }
+                        require(surfaceText.toInt() in allowedSurfaces) { "unreviewed surface" }
+                        index = close + 1
+                    }
+                    'f' -> when {
+                        value.startsWith("\\f[italic,true]", index) -> index += "\\f[italic,true]".length
+                        value.startsWith("\\f[italic,false]", index) -> index += "\\f[italic,false]".length
+                        else -> error("unreviewed formatting SakuraScript command")
+                    }
+                    'n' -> {
+                        index += 2
+                        if (index < value.length && value[index] == '[') {
+                            val close = value.indexOf(']', index + 1)
+                            require(close > index + 1 && value.substring(index + 1, close) == "half") { "unreviewed newline modifier" }
+                            index = close + 1
+                        }
+                    }
+                    else -> error("unknown or side-effect SakuraScript command \\$command")
+                }
+                continue
+            }
+            require(character.code !in 0..8 && character.code !in 11..31 && character.code != 127) { "invalid control character" }
+            if (!character.isWhitespace()) {
+                require(currentSpeaker != null) { "text outside a speaker scope" }
+                hasSpeakerText = true
+            }
+            index++
+        }
+        require(hasSpeakerText) { "no nonblank speaker text" }
+        return Result(accepted = true, terminal = "eof")
+    }
+
+    private fun requireValidSurrogatePair(value: String, index: Int) {
+        val first = value[index]
+        require(first.isHighSurrogate() && index + 1 < value.length && value[index + 1].isLowSurrogate()) {
+            "invalid Unicode surrogate sequence"
+        }
+    }
+}
+
+private class SingleLiveWrapperGuard<T : Any> {
+    private var live: T? = null
+
+    fun acquire(wrapper: T) {
+        check(live == null) { "A TestShioriGhost/YAYA wrapper is still live" }
+        live = wrapper
+    }
+
+    fun release(wrapper: T) {
+        check(live === wrapper) { "Attempted to release a wrapper that is not live" }
+        live = null
     }
 }
 
