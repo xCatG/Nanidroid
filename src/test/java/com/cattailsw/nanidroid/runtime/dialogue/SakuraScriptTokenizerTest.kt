@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -33,18 +35,19 @@ class SakuraScriptTokenizerTest {
     fun earthquakeOnBootAuthoredAlternativesHaveTheReviewedTokenizerDiagnostics() {
         val datePrefix = "\\0\\s[0]\\1\\s[10]"
         val earlyMorning = listOf(
-            datePrefix + "\\0\\s[0]ヾ(•ω•`)o\\w8\\1\\s[10]Haha, seems like Mantle is happy to see you!\\e" to emptyList<String>(),
-            datePrefix + "\\0\\s[0]You called?\\1\\s[10]Yes, what is it?\\e" to emptyList<String>(),
-            datePrefix + "\\0\\s[0]Boy, it sure is early.\\8w\\1\\s[10]I know, right?\\e" to listOf("unsupported-command:8"),
+            Triple(datePrefix + "\\0\\s[0]ヾ(•ω•`)o\\w8\\1\\s[10]Haha, seems like Mantle is happy to see you!\\e", emptyList<String>(), "42f216325f9097b96c363eab4487e39aeaad3cd0a3636844d5b0b7169d529f41"),
+            Triple(datePrefix + "\\1\\s[10]You called? What's up ?\\w8\\0\\s[0] *^___^*\\e", emptyList<String>(), "98bb8892bf78daf8c7916618ed6bbd67fb8b0f3382a8c1509213032be6c7e3ea"),
+            Triple(datePrefix + "\\1\\s[10]Boy, it sure is early! Comes in the job description, eh?\\w8\\0\\s[0](=￣ω￣=)\\w8.\\w8.\\8w.\\e", listOf("unsupported-command:8"), "53160d1df44cb47ea1d5ba85d53f2c8d4d5f117193df5c4919eee34af2890f5a"),
         )
 
         // June 6 and July 4 intentionally share the authored prefix-only branch.
-        listOf(datePrefix to emptyList<String>())
+        listOf(Triple(datePrefix, emptyList<String>(), "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe"))
             .plus(earlyMorning)
-            .forEach { (value, expectedDiagnostics) ->
+            .forEach { (value, expectedDiagnostics, expectedSha256) ->
                 val diagnostics = mutableListOf<String>()
                 tokenize(value, diagnostics)
                 assertEquals(expectedDiagnostics, diagnostics)
+                assertEquals(expectedSha256, MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) })
             }
     }
 

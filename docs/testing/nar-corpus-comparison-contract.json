@@ -92,8 +92,8 @@
       { "scope": "summary", "path": "results[].crashLogPath", "category": "runOwnedPath", "kinds": ["string"] },
       { "scope": "summary", "path": "results[].output", "category": "runOwnedText", "kinds": ["string"] },
       { "scope": "summary", "path": "results[].error", "category": "runOwnedText", "kinds": ["string"] },
-      { "scope": "summary", "path": "results[].observedPrivateSnapshot", "category": "runOwnedPath", "kinds": ["string"] },
-      { "scope": "summary", "path": "results[].observedTmpSnapshot", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].observedPrivateSnapshot", "category": "runOwnedPath", "kinds": ["string", "array"] },
+      { "scope": "summary", "path": "results[].observedTmpSnapshot", "category": "runOwnedPath", "kinds": ["string", "array"] },
       { "scope": "summary", "path": "results[].evidence.sourceSyntax.scanRoot", "category": "runOwnedPath", "kinds": ["string"] },
       { "scope": "raw", "path": "narCorpusPath", "category": "runOwnedPath", "kinds": ["string"] },
       { "scope": "raw", "path": "evidence.sourceSyntax.scanRoot", "category": "runOwnedPath", "kinds": ["string"] },
@@ -159,7 +159,7 @@
         { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-07-04" }
       ],
       "source": {
-        "archiveEntry": "ghost/master/dic/duo_bootend.dic",
+        "archiveEntry": "ghost/master/duo_bootend.dic",
         "lineRanges": ["181-202", "215-221"],
         "reviewedEvidence": ["production tokenizer characterization", "authoritative ed03d5ef BaseBase"]
       }

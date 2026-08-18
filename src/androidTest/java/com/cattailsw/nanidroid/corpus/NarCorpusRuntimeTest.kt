@@ -95,7 +95,8 @@ class NarCorpusRuntimeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
     private val probeContent = NarCorpusProbeContent()
-    private val liveShioriWrappers = SingleLiveWrapperGuard<TestShioriGhost>()
+    private val liveShioriWrappers = SingleLiveWrapperGuard()
+    private var trackedShioriConstructionHook: (() -> Unit)? = null
 
     @Test
     fun boundedReadKeepsOnlyTheLimitAndOverflowSentinel() {
@@ -654,17 +655,41 @@ class NarCorpusRuntimeTest {
         assertThrows(IllegalArgumentException::class.java) {
             RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]\uD800\\e")
         }
+        listOf("\u0085", "\u200B", "\uFDD0", "\uFFFF").forEach { invisible ->
+            assertThrows(IllegalArgumentException::class.java) {
+                RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]${invisible}\\e")
+            }
+        }
     }
 
     @Test
     fun singleLiveWrapperGuardRejectsAStaleWrapperBeforeTheNextLoad() {
-        val guard = SingleLiveWrapperGuard<String>()
-        guard.acquire("canary-a")
+        val guard = SingleLiveWrapperGuard()
+        val first = guard.reserve()
 
-        assertThrows(IllegalStateException::class.java) { guard.acquire("canary-b") }
-        guard.release("canary-a")
-        guard.acquire("primary")
-        guard.release("primary")
+        assertThrows(IllegalStateException::class.java) { guard.reserve() }
+        first.release()
+        guard.reserve().release()
+    }
+
+    @Test
+    fun snakeCanaryCleanupAttemptsUnloadAndEveryRootDeleteWhilePreservingTheFirstFailure() {
+        val attempts = mutableListOf<String>()
+        val primary = IllegalStateException("primary")
+
+        finishSnakeCanaryCleanup(
+            primaryFailure = primary,
+            unload = { attempts += "unload"; throw IllegalStateException("unload") },
+            deleteRoots = listOf(
+                { attempts += "input"; throw IllegalStateException("input") },
+                { attempts += "install" },
+            ),
+            residue = { true },
+        )
+
+        assertEquals(listOf("unload", "input", "install"), attempts)
+        assertEquals(1, primary.suppressed.size)
+        assertTrue(primary.suppressed.single().suppressed.isNotEmpty())
     }
 
     @Test
@@ -959,6 +984,38 @@ class NarCorpusRuntimeTest {
                         loadGhostDesc(installed.installedPath),
                         context,
                     )
+                    if (isOlderSnakeStructuralArchive(label, expectedSha256)) {
+                        val firstWrapper = requireNotNull(shioriGhost)
+                        assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(shellName)).getStatusCode())
+                        var rejectedConstructionAttempts = 0
+                        trackedShioriConstructionHook = { rejectedConstructionAttempts++ }
+                        try {
+                            assertThrows(IllegalStateException::class.java) {
+                                loadTrackedShiori(
+                                    installed.installedPath,
+                                    installed.targetId ?: "corpus-${expectedSha256.take(16)}",
+                                    loadGhostDesc(installed.installedPath),
+                                    context,
+                                )
+                            }
+                        } finally {
+                            trackedShioriConstructionHook = null
+                        }
+                        assertEquals("The rejected second YAYA wrapper must not reach construction/nativeLoad", 0, rejectedConstructionAttempts)
+                        assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(shellName)).getStatusCode())
+                        unloadTrackedShiori(firstWrapper)
+                        shioriGhost = loadTrackedShiori(
+                            installed.installedPath,
+                            installed.targetId ?: "corpus-${expectedSha256.take(16)}",
+                            loadGhostDesc(installed.installedPath),
+                            context,
+                        )
+                        assertEquals(200, requireNotNull(shioriGhost).requestRaw(ShioriMethod.GET, "OnBoot", listOf(shellName)).getStatusCode())
+                        result.put("snakeYayaOwnershipGuard", JSONObject()
+                            .put("rejectedSecondConstructionAttempts", rejectedConstructionAttempts)
+                            .put("firstRequestSucceededAfterRejection", true)
+                            .put("replacementRequestSucceeded", true))
+                    }
                     val finalDialogue = probeShioriOnBoot(shioriGhost, shellName, label)
                     phase("shiori-probed")
                     result.put("dialogueProbe", finalDialogue)
@@ -1247,17 +1304,19 @@ class NarCorpusRuntimeTest {
         ghostDesc: Map<String, String>,
         context: Context?,
     ): TestShioriGhost {
-        val wrapper = loadShiori(installedPath, ghostIdentity, ghostDesc, context)
-        liveShioriWrappers.acquire(wrapper)
-        return wrapper
+        val reservation = liveShioriWrappers.reserve()
+        return try {
+            trackedShioriConstructionHook?.invoke()
+            loadShiori(installedPath, ghostIdentity, ghostDesc, context)
+        } catch (failure: Throwable) {
+            reservation.release()
+            throw failure
+        }
     }
 
     private fun unloadTrackedShiori(wrapper: TestShioriGhost) {
-        try {
-            wrapper.unload()
-        } finally {
-            liveShioriWrappers.release(wrapper)
-        }
+        wrapper.unload()
+        liveShioriWrappers.release()
     }
 
     private fun collectSnakeFirstBootCanary(
@@ -1270,6 +1329,7 @@ class NarCorpusRuntimeTest {
         val inputRoot = createOwnedRoot(sourceParent, "probe-canary-$suffix-input")
         val installRoot = createOwnedRoot(sourceParent, "probe-canary-$suffix-install")
         var wrapper: TestShioriGhost? = null
+        var primaryFailure: Throwable? = null
         try {
             val copiedArchive = File(inputRoot, ARCHIVE_FILE_NAME)
             copyArchive(source, copiedArchive)
@@ -1315,17 +1375,21 @@ class NarCorpusRuntimeTest {
                         .put("valueUtf8ByteLength", value.toByteArray(StandardCharsets.UTF_8).size)
                         .put("tokenizerDiagnostics", JSONArray().apply { diagnostics.forEach(::put) }),
                 )
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
         } finally {
-            wrapper?.let {
-                try {
-                    unloadTrackedShiori(it)
-                } finally {
-                    wrapper = null
-                }
-            }
-            deleteOwnedRoot(inputRoot, sourceParent)
-            deleteOwnedRoot(installRoot, sourceParent)
-            check(!inputRoot.exists() && !installRoot.exists()) { "Snake canary cleanup left owned paths behind" }
+            val tracked = wrapper
+            wrapper = null
+            finishSnakeCanaryCleanup(
+                primaryFailure = primaryFailure,
+                unload = tracked?.let { { unloadTrackedShiori(it) } },
+                deleteRoots = listOf(
+                    { deleteOwnedRoot(inputRoot, sourceParent) },
+                    { deleteOwnedRoot(installRoot, sourceParent) },
+                ),
+                residue = { inputRoot.exists() || installRoot.exists() },
+            )
         }
     }
 
@@ -2786,14 +2850,15 @@ private object RawSnakeSakuraScriptSafetyLexer {
     fun validate(value: String): Result {
         var index = 0
         var currentSpeaker: Int? = null
-        var hasSpeakerText = false
+        var hasVisibleSpeakerText = false
         while (index < value.length) {
             val character = value[index]
             if (character.isHighSurrogate() || character.isLowSurrogate()) {
                 requireValidSurrogatePair(value, index)
                 if (!character.isHighSurrogate()) error("unpaired low surrogate")
+                val codePoint = Character.codePointAt(value, index)
                 index += 2
-                if (currentSpeaker != null) hasSpeakerText = true
+                if (currentSpeaker != null && validateVisibleScalar(codePoint)) hasVisibleSpeakerText = true
                 continue
             }
             if (character == '\\') {
@@ -2805,7 +2870,7 @@ private object RawSnakeSakuraScriptSafetyLexer {
                     }
                     'e' -> {
                         require(index + 2 == value.length) { "data after terminal \\e" }
-                        require(hasSpeakerText) { "no nonblank speaker text" }
+                        require(hasVisibleSpeakerText) { "no printable visible speaker text" }
                         return Result(accepted = true, terminal = "exact-e")
                     }
                     'w' -> {
@@ -2840,14 +2905,13 @@ private object RawSnakeSakuraScriptSafetyLexer {
                 }
                 continue
             }
-            require(character.code !in 0..8 && character.code !in 11..31 && character.code != 127) { "invalid control character" }
-            if (!character.isWhitespace()) {
+            if (validateVisibleScalar(character.code)) {
                 require(currentSpeaker != null) { "text outside a speaker scope" }
-                hasSpeakerText = true
+                hasVisibleSpeakerText = true
             }
             index++
         }
-        require(hasSpeakerText) { "no nonblank speaker text" }
+        require(hasVisibleSpeakerText) { "no printable visible speaker text" }
         return Result(accepted = true, terminal = "eof")
     }
 
@@ -2857,20 +2921,60 @@ private object RawSnakeSakuraScriptSafetyLexer {
             "invalid Unicode surrogate sequence"
         }
     }
+
+    private fun validateVisibleScalar(codePoint: Int): Boolean {
+        require(!Character.isISOControl(codePoint)) { "invalid control character" }
+        require(Character.getType(codePoint) != Character.FORMAT.toInt()) { "invisible format character" }
+        require(codePoint !in 0xFDD0..0xFDEF && (codePoint and 0xFFFF) !in setOf(0xFFFE, 0xFFFF)) { "Unicode noncharacter" }
+        return !Character.isWhitespace(codePoint)
+    }
 }
 
-private class SingleLiveWrapperGuard<T : Any> {
-    private var live: T? = null
+private class SingleLiveWrapperGuard {
+    private var reserved = false
 
-    fun acquire(wrapper: T) {
-        check(live == null) { "A TestShioriGhost/YAYA wrapper is still live" }
-        live = wrapper
+    fun reserve(): Reservation {
+        check(!reserved) { "A TestShioriGhost/YAYA wrapper is still live" }
+        reserved = true
+        return Reservation(this)
     }
 
-    fun release(wrapper: T) {
-        check(live === wrapper) { "Attempted to release a wrapper that is not live" }
-        live = null
+    fun release() {
+        check(reserved) { "Attempted to release a wrapper that is not live" }
+        reserved = false
     }
+
+    class Reservation internal constructor(private val guard: SingleLiveWrapperGuard) {
+        private var active = true
+        fun release() {
+            check(active) { "Attempted to release an inactive wrapper reservation" }
+            active = false
+            guard.release()
+        }
+    }
+}
+
+private fun finishSnakeCanaryCleanup(
+    primaryFailure: Throwable?,
+    unload: (() -> Unit)?,
+    deleteRoots: List<() -> Unit>,
+    residue: () -> Boolean,
+) {
+    var cleanupFailure: Throwable? = null
+    fun attempt(action: () -> Unit) {
+        try {
+            action()
+        } catch (failure: Throwable) {
+            if (cleanupFailure == null) cleanupFailure = failure else cleanupFailure!!.addSuppressed(failure)
+        }
+    }
+    unload?.let(::attempt)
+    deleteRoots.forEach(::attempt)
+    if (residue()) {
+        val failure = IllegalStateException("Snake canary cleanup left owned paths behind")
+        if (cleanupFailure == null) cleanupFailure = failure else cleanupFailure!!.addSuppressed(failure)
+    }
+    cleanupFailure?.let { cleanup -> primaryFailure?.addSuppressed(cleanup) ?: throw cleanup }
 }
 
 private fun readBoundedBytes(input: InputStream, maxBytes: Int): ByteArray {

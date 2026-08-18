@@ -233,6 +233,10 @@ values and the manifest/SHA-bound 15 `evidence.sourceSyntax.scanRoot` values.
 Only `scanRoot` has a raw result mirror; private and tmp snapshots are summary
 evidence and are never fabricated into device JSON. The runner keeps pulled
 device `result.json` bytes unchanged: host cleanup facts live in summary rows.
+For an exact manifest-authorized Kawari crash at the `before-real-shiori`
+checkpoint, the raw device record may therefore have no `cleanup` member; its
+summary row must instead carry verified empty host cleanup and empty array
+snapshots. No other row may use that exception.
 OnBoot stochastic checks bind device-local before/after clock brackets and
 fresh-profile context, failing closed if a predicate boundary is crossed. No
 unused seed argument is emitted or treated as a determinism claim.
@@ -246,12 +250,18 @@ canaries; and 23 screenshot hashes equal. For the three older Snake archives,
 the instrumentation creates canary A and B in separate never-loaded roots,
 unloads each wrapper before cleanup, requires their full canary objects to be
 equal, and only then loads the primary OnBoot wrapper in a third root. Their
+focused device characterization also keeps that process-global YAYA slot
+reserved before construction: a second attempted wrapper must be rejected
+before the native constructor/load boundary, the first request remains usable,
+and a replacement can load only after the first unload succeeds.
+Their
 OnBoot text is accepted only by the test-only full-consuming raw SakuraScript
 safety lexer: the archive-bound surface union is exactly
 `{0,1,2,4,5,8,9,10,13,14,15,17,18,19,30,32,35}`, the only formatting tokens
 are case-sensitive `\f[italic,true]` and `\f[italic,false]`, and the terminal
-is exact `\e` or physical EOF. The source fixtures bind the italic true/false
-and EOF `zzz...` branches for each exact older-Snake SHA. This is not a claim
+is exact `\e` or physical EOF. Kotlin fixtures exercise the lexer semantics;
+archive-member provenance for italic true/false and EOF `zzz...` branches is
+verified by the recovered-corpus host audit for each exact older-Snake SHA. This is not a claim
 of general KIS/YAYA evaluation or equality of stochastic prose.
 Accordingly, an otherwise structurally valid older-Snake prose substitution,
 including one that happens to resemble another older-Snake archive's output,

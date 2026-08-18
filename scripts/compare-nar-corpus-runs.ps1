@@ -393,7 +393,7 @@ function Get-SentinelCheckNameDigest([object[]]$SentinelChecks, [string]$Side) {
     return Get-StringSha256 ($sortedNames -join "`n")
 }
 
-function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
+function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtable]$EntriesByLabel, [int]$ExpectedSentinelCheckCount, [string]$ExpectedSentinelCheckDigest, [string]$Side) {
     $sentinels = Get-RequiredProperty $Summary 'sentinels' "$Side summary"
     $sentinelsPassed = Get-RequiredProperty $sentinels 'passed' "$Side sentinels"
     Assert-JsonKind $sentinelsPassed @('boolean') "$Side sentinels.passed" | Out-Null
@@ -440,9 +440,22 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [int]$Ex
         $raw = $RawByLabel[$label]
         Assert-JsonKind $raw.passed @('boolean') "$Side raw result '$label'.passed" | Out-Null
         if ($raw.passed -ne $true) { throw "$Side is not a successful run: raw result '$label' did not pass" }
-        $rawCleanup = Get-RequiredProperty $raw 'cleanup' "$Side raw result '$label'"
-        Assert-JsonKind $rawCleanup.remainingTestOwnedPaths @('array') "$Side raw result '$label'.cleanup.remainingTestOwnedPaths" | Out-Null
-        if (@($rawCleanup.remainingTestOwnedPaths).Count -ne 0) { throw "$Side is not a successful run: raw cleanup residue for '$label'" }
+        $rawCleanup = if ($null -eq $raw.PSObject.Properties['cleanup']) { $null } else { $raw.cleanup }
+        $acceptedNativeCheckpoint = (
+            $null -ne $EntriesByLabel[$label] -and
+            $EntriesByLabel[$label].PSObject.Properties['allowNativeKawariCrash'] -and $EntriesByLabel[$label].allowNativeKawariCrash -eq $true -and
+            $row.PSObject.Properties['nativeCrash'] -and $row.nativeCrash -eq $true -and
+            $row.PSObject.Properties['runtimeCheckpointPhase'] -and [string]$row.runtimeCheckpointPhase -ceq 'before-real-shiori' -and
+            $raw.PSObject.Properties['checkpointPhase'] -and [string]$raw.checkpointPhase -ceq 'before-real-shiori' -and
+            [string]$row.classification -ceq 'incompatible'
+        )
+        if ($null -eq $rawCleanup) {
+            if (-not $acceptedNativeCheckpoint) { throw "$Side raw result '$label' is missing cleanup outside the exact accepted native-crash checkpoint" }
+        }
+        else {
+            Assert-JsonKind $rawCleanup.remainingTestOwnedPaths @('array') "$Side raw result '$label'.cleanup.remainingTestOwnedPaths" | Out-Null
+            if (@($rawCleanup.remainingTestOwnedPaths).Count -ne 0) { throw "$Side is not a successful run: raw cleanup residue for '$label'" }
+        }
     }
 }
 
@@ -478,14 +491,25 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
             throw "$Side raw result '$label'.narCorpusPath must use the same private data root as every raw result"
         }
 
+        $nativeCheckpoint = $row.PSObject.Properties['nativeCrash'] -and $row.nativeCrash -eq $true -and $row.PSObject.Properties['runtimeCheckpointPhase'] -and [string]$row.runtimeCheckpointPhase -ceq 'before-real-shiori'
         $expectedPrivateSnapshot = "$($narCorpusPathMatch.Groups['privateRoot'].Value)/cache/nar-corpus-host/$runId/$safeLabel"
         $observedPrivateSnapshot = Get-RequiredProperty $row 'observedPrivateSnapshot' "$Side summary result '$label'"
-        Assert-JsonKind $observedPrivateSnapshot @('string') "$Side summary result '$label'.observedPrivateSnapshot" | Out-Null
-        Assert-EqualString $observedPrivateSnapshot $expectedPrivateSnapshot "$Side summary result '$label'.observedPrivateSnapshot"
+        if ($nativeCheckpoint) {
+            Assert-JsonKind $observedPrivateSnapshot @('array') "$Side accepted native checkpoint '$label'.observedPrivateSnapshot" | Out-Null
+            if (@($observedPrivateSnapshot).Count -ne 0) { throw "$Side accepted native checkpoint '$label'.observedPrivateSnapshot must be empty" }
+        } else {
+            Assert-JsonKind $observedPrivateSnapshot @('string') "$Side summary result '$label'.observedPrivateSnapshot" | Out-Null
+            Assert-EqualString $observedPrivateSnapshot $expectedPrivateSnapshot "$Side summary result '$label'.observedPrivateSnapshot"
+        }
         $expectedTmpSnapshot = "/data/local/tmp/nanidroid-corpus/$runId/$safeLabel"
         $observedTmpSnapshot = Get-RequiredProperty $row 'observedTmpSnapshot' "$Side summary result '$label'"
-        Assert-JsonKind $observedTmpSnapshot @('string') "$Side summary result '$label'.observedTmpSnapshot" | Out-Null
-        Assert-EqualString $observedTmpSnapshot $expectedTmpSnapshot "$Side summary result '$label'.observedTmpSnapshot"
+        if ($nativeCheckpoint) {
+            Assert-JsonKind $observedTmpSnapshot @('array') "$Side accepted native checkpoint '$label'.observedTmpSnapshot" | Out-Null
+            if (@($observedTmpSnapshot).Count -ne 0) { throw "$Side accepted native checkpoint '$label'.observedTmpSnapshot must be empty" }
+        } else {
+            Assert-JsonKind $observedTmpSnapshot @('string') "$Side summary result '$label'.observedTmpSnapshot" | Out-Null
+            Assert-EqualString $observedTmpSnapshot $expectedTmpSnapshot "$Side summary result '$label'.observedTmpSnapshot"
+        }
 
         if ($RawSourceMirrorLabels -cnotcontains $label) {
             $summarySource = if ($null -eq $row.PSObject.Properties['evidence']) { $null } else { $row.evidence }
@@ -516,12 +540,17 @@ function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [h
             if ($mirrorPath -ceq 'evidence.sourceSyntax.scanRoot') {
                 $summaryScanRoot = Get-RequiredProperty (Get-RequiredProperty (Get-RequiredProperty $row 'evidence' "$Side summary result '$label'") 'sourceSyntax' "$Side summary result '$label'.evidence") 'scanRoot' "$Side summary result '$label'.evidence.sourceSyntax"
                 Assert-JsonKind $summaryScanRoot @('string') "$Side summary result '$label'.evidence.sourceSyntax.scanRoot" | Out-Null
-                $scanRootPattern = '^/data/data/com\.cattailsw\.nanidroid/cache/nar-corpus-host/' + [regex]::Escape([string]$runId) + '/' + [regex]::Escape($safeLabel) + '/probe-install/corpus-[0-9a-f]{16}\z'
+                $expectedArchivePrefix = ([string]$row.sha256).Substring(0, 16)
+                $scanRootPattern = '^/data/data/com\.cattailsw\.nanidroid/cache/nar-corpus-host/' + [regex]::Escape([string]$runId) + '/' + [regex]::Escape($safeLabel) + '/probe-install/corpus-' + [regex]::Escape($expectedArchivePrefix) + '\z'
                 if ([string]$node -notmatch $scanRootPattern) { throw "$Side raw result '$label'.evidence.sourceSyntax.scanRoot must match the exact runner scan-root path" }
                 Assert-EqualString $summaryScanRoot ([string]$node) "$Side summary result '$label'.evidence.sourceSyntax.scanRoot raw mirror"
             }
-            elseif (-not ([string]$node).Contains("/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$runId/$safeLabel/", [StringComparison]::Ordinal)) {
-                throw "$Side raw result '$label'.$mirrorPath must mirror the summary run identity"
+            else {
+                $surfaceName = if ($mirrorPath -ceq 'sakura.source') { 'surface(?:0|0000)' } else { 'surface(?:10|0010)' }
+                $expectedSourcePattern = '^' + [regex]::Escape([string]$raw.evidence.sourceSyntax.scanRoot) + '/shell/master/' + $surfaceName + '\.png\z'
+                if ([string]$node -notmatch $expectedSourcePattern) {
+                    throw "$Side raw result '$label'.$mirrorPath must be an exact Sakura/Kero source descendant of its validated scan root"
+                }
             }
         }
     }
@@ -568,6 +597,7 @@ function Read-AndValidateRun {
 
     $rawByLabel = @{}
     $rowByLabel = @{}
+    $entriesByLabel = @{}
     foreach ($entry in $Entries) {
         $label = [string]$entry.label
         $safeLabel = ConvertTo-SafeLabel $label
@@ -594,8 +624,18 @@ function Read-AndValidateRun {
         }
         $rawByLabel[$label] = $raw
         $rowByLabel[$label] = $row
+        $entriesByLabel[$label] = $entry
+        if ($null -ne $raw.PSObject.Properties['dialogueProbe'] -and $null -ne $raw.dialogueProbe.PSObject.Properties['onBootContext']) {
+            Get-ValidatedOnBootContext $raw $Side $label | Out-Null
+            foreach ($mirror in @($row.PSObject.Properties['dialogueProbe'], $row.requiredEvidencePayload.PSObject.Properties['dialogueProbe'])) {
+                if ($null -ne $mirror) {
+                    $difference = Find-FirstDifference $raw.dialogueProbe.onBootContext $mirror.Value.onBootContext 'dialogueProbe.onBootContext'
+                    if ($difference) { throw "$Side raw/summary OnBoot context mirror mismatch for '$label' at $difference" }
+                }
+            }
+        }
     }
-    Assert-SuccessfulRun $summary $rawByLabel $ExpectedSentinelCheckCount $ExpectedSentinelCheckDigest $Side
+    Assert-SuccessfulRun $summary $rawByLabel $entriesByLabel $ExpectedSentinelCheckCount $ExpectedSentinelCheckDigest $Side
     $runIdentity = Assert-RunIdentityMirrors $summary $rowByLabel $rawByLabel $RawSourceMirrorLabels $Side
     $evidenceFingerprint = Get-EvidenceFingerprint $resolvedRoot $ExpectedRawFiles $ExpectedScreenshotFiles
     return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; RunIdentity = $runIdentity; EvidenceFingerprint = $evidenceFingerprint }
@@ -750,6 +790,9 @@ function Assert-SnakeStructuralOnlyValue {
     $freshInstance = Get-RequiredProperty $canary 'freshInstance' "$Side raw result '$label'.snakeFirstBootCanary"
     Assert-JsonKind $freshInstance @('boolean') "$Side raw result '$label'.snakeFirstBootCanary.freshInstance" | Out-Null
     if ($freshInstance -ne $true) { throw "$Side raw result '$label'.snakeFirstBootCanary.freshInstance must be true" }
+    $independentInstanceCount = Get-RequiredProperty $canary 'independentInstanceCount' "$Side raw result '$label'.snakeFirstBootCanary"
+    Assert-JsonKind $independentInstanceCount @('number') "$Side raw result '$label'.snakeFirstBootCanary.independentInstanceCount" | Out-Null
+    if ($independentInstanceCount.Token -cne '2') { throw "$Side raw result '$label'.snakeFirstBootCanary.independentInstanceCount must be exact JSON number 2" }
     $request = Get-RequiredProperty $canary 'request' "$Side raw result '$label'.snakeFirstBootCanary"
     Assert-JsonKind $request @('object') "$Side raw result '$label'.snakeFirstBootCanary.request" | Out-Null
     Assert-EqualString (Get-RequiredProperty $request 'method' "$Side raw result '$label'.snakeFirstBootCanary.request") 'GET' "$Side raw result '$label'.snakeFirstBootCanary.request.method"
@@ -863,11 +906,14 @@ function ConvertTo-CanonicalRun {
             return "<RUN_OWNED_PATH:$kind>"
         } -Context 'summary' -ExpectedMatchCount $expectedMatches
     }
-    foreach ($pathText in @(
-        [string]$Contract.normalization.summaryObservedPrivateSnapshotPath,
-        [string]$Contract.normalization.summaryObservedTmpSnapshotPath
-    )) {
-        Set-PathPatternValue $summary $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value; "<RUN_OWNED_PATH:$kind>" } -Context 'summary' -ExpectedMatchCount $Run.Rows.Count
+    foreach ($row in @($summary.results)) {
+        if ($row.PSObject.Properties['nativeCrash'] -and $row.nativeCrash -eq $true -and $row.PSObject.Properties['runtimeCheckpointPhase'] -and [string]$row.runtimeCheckpointPhase -ceq 'before-real-shiori') { continue }
+        foreach ($propertyName in @('observedPrivateSnapshot', 'observedTmpSnapshot')) {
+            $value = Get-RequiredProperty $row $propertyName "summary result '$($row.label)'"
+            $pathText = if ($propertyName -ceq 'observedPrivateSnapshot') { [string]$Contract.normalization.summaryObservedPrivateSnapshotPath } else { [string]$Contract.normalization.summaryObservedTmpSnapshotPath }
+            $kind = Assert-NormalizationKind $Contract 'summary' $pathText $value
+            $row.$propertyName = "<RUN_OWNED_PATH:$kind>"
+        }
     }
     foreach ($label in @($Contract.normalization.summarySourceArchiveSha256.PSObject.Properties | ForEach-Object { $_.Name })) {
         Set-PathPatternValue (@($summary.results | Where-Object { [string]$_.label -ceq $label })[0]) 'evidence.sourceSyntax.scanRoot' { param($value) $kind = Assert-NormalizationKind $Contract 'summary' 'results[].evidence.sourceSyntax.scanRoot' $value; "<RUN_OWNED_PATH:$kind>" } -Context "summary result '$label'" -ExpectedMatchCount 1
@@ -882,6 +928,9 @@ function ConvertTo-CanonicalRun {
         foreach ($path in @($Contract.normalization.rawRunOwnedStringPaths)) {
             $pathText = [string]$path
             Set-PathPatternValue $raw $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'raw' $pathText $value; "<RUN_OWNED_PATH:$kind>" } -Context "raw[$label]"
+        }
+        if ($null -ne $raw.dialogueProbe -and $null -ne $raw.dialogueProbe.PSObject.Properties['onBootContext']) {
+            $raw.dialogueProbe.onBootContext = '<VALIDATED_ONBOOT_CONTEXT>'
         }
     }
 
@@ -918,11 +967,26 @@ function ConvertTo-CanonicalRun {
         $summaryRow = @($summary.results | Where-Object { [string]$_.label -ceq $label })[0]
         if ($null -ne $summaryRow.requiredEvidencePayload.PSObject.Properties['dialogueProbe']) {
             $summaryRow.requiredEvidencePayload.dialogueProbe.value = '<REVIEWED_STOCHASTIC_VALUE>'
+            if ($null -ne $summaryRow.requiredEvidencePayload.dialogueProbe.PSObject.Properties['onBootContext']) {
+                $summaryRow.requiredEvidencePayload.dialogueProbe.onBootContext = '<VALIDATED_ONBOOT_CONTEXT>'
+            }
         }
         if ($null -ne $rule.PSObject.Properties['summaryMirrors']) {
             $mirror = $rule.summaryMirrors
             $check = @($summary.sentinels.checks | Where-Object { [string]$_.name -ceq [string]$mirror.sentinelName })[0]
             $check.([string]$mirror.sentinelProperty) = '<REVIEWED_STOCHASTIC_VALUE>'
+        }
+        if ($null -ne $rule.PSObject.Properties['specializedValidator'] -and [string]$rule.specializedValidator -ceq 'snake-onboot-structural-v1') {
+            $rawByLabel[$label].snakeOnBootStructuralSafety.terminal = '<VALIDATED_SNAKE_TERMINAL>'
+            $summaryRow.snakeOnBootStructuralSafety.terminal = '<VALIDATED_SNAKE_TERMINAL>'
+        }
+    }
+    foreach ($summaryRow in @($summary.results)) {
+        if ($null -ne $summaryRow.PSObject.Properties['dialogueProbe'] -and $null -ne $summaryRow.dialogueProbe.PSObject.Properties['onBootContext']) {
+            $summaryRow.dialogueProbe.onBootContext = '<VALIDATED_ONBOOT_CONTEXT>'
+        }
+        if ($null -ne $summaryRow.requiredEvidencePayload.PSObject.Properties['dialogueProbe'] -and $null -ne $summaryRow.requiredEvidencePayload.dialogueProbe.PSObject.Properties['onBootContext']) {
+            $summaryRow.requiredEvidencePayload.dialogueProbe.onBootContext = '<VALIDATED_ONBOOT_CONTEXT>'
         }
     }
     return [pscustomobject]@{ Summary = $summary; Raw = $rawByLabel }
@@ -1095,8 +1159,8 @@ try {
         'summary|results[].crashLogPath|runOwnedPath|string',
         'summary|results[].output|runOwnedText|string',
         'summary|results[].error|runOwnedText|string',
-        'summary|results[].observedPrivateSnapshot|runOwnedPath|string',
-        'summary|results[].observedTmpSnapshot|runOwnedPath|string',
+        'summary|results[].observedPrivateSnapshot|runOwnedPath|array,string',
+        'summary|results[].observedTmpSnapshot|runOwnedPath|array,string',
         'summary|results[].evidence.sourceSyntax.scanRoot|runOwnedPath|string',
         'raw|narCorpusPath|runOwnedPath|string',
         'raw|evidence.sourceSyntax.scanRoot|runOwnedPath|string',

@@ -96,11 +96,52 @@ if (Test-Path -LiteralPath $preservedSummaryPath -PathType Leaf) {
         if ([string]$raw.narCorpusPath -notmatch $expectedPathPattern) {
             throw "Preserved raw result '$($row.label)' narCorpusPath is not the exact runner shape."
         }
+        if ($null -ne $raw.evidence.PSObject.Properties['sourceSyntax']) {
+            $scanRoot = [string]$raw.evidence.sourceSyntax.scanRoot
+            $archivePrefix = ([string]$row.sha256).Substring(0, 16)
+            $expectedScanRoot = '^/data/data/com\.cattailsw\.nanidroid/cache/nar-corpus-host/' + [regex]::Escape([string]$preservedSummary.runId) + '/' + [regex]::Escape($safeLabel) + '/probe-install/corpus-' + [regex]::Escape($archivePrefix) + '$'
+            if ($scanRoot -notmatch $expectedScanRoot -or [string]$raw.sakura.source -notmatch ('^' + [regex]::Escape($scanRoot) + '/shell/master/surface(?:0|0000)\.png$') -or [string]$raw.kero.source -notmatch ('^' + [regex]::Escape($scanRoot) + '/shell/master/surface(?:10|0010)\.png$')) {
+                throw "Preserved raw result '$($row.label)' source paths are not exact archive-bound scan-root descendants."
+            }
+        }
     }
     Write-Host 'PASS: preserved successful corpus narCorpusPath shape'
 }
 else {
     Write-Host 'SKIP: preserved successful corpus evidence root is unavailable'
+}
+$recoveredCorpusRoot = 'C:\Users\yenchi\.codex\worktrees\27f9\Nanidroid\build\reports\pr393-corpus'
+if (Test-Path -LiteralPath $recoveredCorpusRoot -PathType Container) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [Text.Encoding]::RegisterProvider([Text.CodePagesEncodingProvider]::Instance)
+    $olderSnakeProvenance = @{
+        'a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f' = @{ italic = 304; toggle = 306 }
+        'a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219' = @{ italic = 316; toggle = 318 }
+        '04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59' = @{ italic = 313; toggle = 315 }
+    }
+    $foundOlderSnake = @{}
+    foreach ($archive in @(Get-ChildItem -LiteralPath $recoveredCorpusRoot -Recurse -Filter '*.nar')) {
+        $archiveSha = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if (-not $olderSnakeProvenance.ContainsKey($archiveSha)) { continue }
+        $zip = [IO.Compression.ZipFile]::OpenRead($archive.FullName)
+        try {
+            $member = @($zip.Entries | Where-Object { ($_.FullName -replace '\\', '/') -ceq 'ghost/master/Sn_bootend.dic' })
+            if ($member.Count -ne 1) { throw "Recovered older-Snake archive $archiveSha lacks exactly one CP932 Sn_bootend.dic member." }
+            $reader = [IO.StreamReader]::new($member[0].Open(), [Text.Encoding]::GetEncoding(932), $true)
+            try { $lines = @($reader.ReadToEnd() -split "`r?`n") } finally { $reader.Dispose() }
+            $rule = $olderSnakeProvenance[$archiveSha]
+            if ($lines[$rule.italic - 1] -notmatch [regex]::Escape('\f[italic,true]zzz...') -or $lines[$rule.toggle - 1] -notmatch [regex]::Escape('\f[italic,true]') -or $lines[$rule.toggle - 1] -notmatch [regex]::Escape('\f[italic,false]')) {
+                throw "Recovered older-Snake CP932 source lines do not prove reviewed italic/EOF lexer tokens for $archiveSha."
+            }
+            $foundOlderSnake[$archiveSha] = $true
+        }
+        finally { $zip.Dispose() }
+    }
+    if ($foundOlderSnake.Count -ne 3) { throw 'Recovered corpus did not authenticate all three exact older-Snake source archives.' }
+    Write-Host 'PASS: recovered CP932 older-Snake source provenance binds italic and EOF branches'
+}
+else {
+    Write-Host 'SKIP: recovered corpus source archive root is unavailable'
 }
 $twoElfBase = '\1\s[19]\n\n[half]\_w[18]\0\s[103]旅人さん…。\_w[36]\w8\n\n[half]\_w[18]\1\c謝りに来たの？\w8\_w[126]\n\n[half]\_w[18]\0\s[101]え…。\_w[54]\w8\nそ、\_w[36]そんな…私こそ、\_w[144]急に帰ったりして…\w8ごめんね。\_w[252]\w8\n怒ってないから…。\_w[162]\w8\nだけど、\_w[72]もうあんなエッチな事はしないでね…\w8\s[104]お願い。\_w[378]\e'
 $twoElfCandidate = '\1\s[19]\n\n[half]\_w[18]\0\s[103]あ…旅人さん…。\_w[72]\w8\nご、\_w[36]ごめんなさい！\w8\_w[126]\n逃げちゃったりして。\_w[180]\w8\n\n[half]\_w[18]\1\cソフィが謝る事じゃないわよ。\_w[252]\w8\n\n[half]\_w[18]\0\s[101]旅人さん…\w8もう、\_w[72]あんな事しないでね。\_w[180]\w8\n私、\_w[36]顔から火が出ちゃいそうなくらい、\_w[288]恥ずかしかったのよ。\_w[180]\w8\n\n[half]\_w[18]\1\n[half]\_w[18]\0\s[106]･\w2･\w2･\w2･\w2･\w2･\w2･\w2･\w2\s[100]はい、\_w[126]おしまい。\_w[90]\w8\n旅人さんは何も見なかった、\_w[162]ね？\w8\_w[36]\e'
@@ -218,6 +259,7 @@ function New-ReportFixture {
             })
             $raw | Add-Member -NotePropertyName snakeFirstBootCanary -NotePropertyValue ([pscustomobject][ordered]@{
                 freshInstance = $true
+                independentInstanceCount = 2
                 request = [pscustomobject][ordered]@{ method = 'GET'; eventId = 'OnFirstBoot'; references = @('0') }
                 response = [pscustomobject][ordered]@{
                     status = 200
@@ -233,8 +275,8 @@ function New-ReportFixture {
         $scanRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/probe-install/corpus-$(([string]$entry.sha256).Substring(0, 16))"
         if ($rawSourceLabels -contains $label) {
             $raw.evidence | Add-Member -NotePropertyName sourceSyntax -NotePropertyValue ([pscustomobject]@{ scanRoot = $scanRoot })
-            $raw | Add-Member -NotePropertyName sakura -NotePropertyValue ([pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/sakura" })
-            $raw | Add-Member -NotePropertyName kero -NotePropertyValue ([pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/kero" })
+            $raw | Add-Member -NotePropertyName sakura -NotePropertyValue ([pscustomobject]@{ source = "$scanRoot/shell/master/surface0.png" })
+            $raw | Add-Member -NotePropertyName kero -NotePropertyValue ([pscustomobject]@{ source = "$scanRoot/shell/master/surface10.png" })
         }
         foreach ($requiredName in @($entry.requiredEvidence)) {
             if ($null -eq $raw.PSObject.Properties[[string]$requiredName]) {
@@ -395,6 +437,28 @@ function Get-Row([object]$Summary, [string]$Label) {
 try {
     Reset-Fixtures
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
+            $row = Get-Row $s 'Big Red Button'
+            $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
+            $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori'
+            $row.classification = 'incompatible'
+            $row.observedPrivateSnapshot = @()
+            $row.observedTmpSnapshot = @()
+        }
+    }
+    Assert-Pass 'accepted native Kawari checkpoint preserves cleanup-less raw evidence and validates host summary cleanup' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'before-real-shiori' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $row = Get-Row $s 'Big Red Button'; $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true; $row | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori'; $row.classification = 'incompatible'; $row.cleanup.remainingTestOwnedPaths = @('residue') }
+    Assert-Fail 'accepted native Kawari checkpoint still requires exact host cleanup evidence' (Invoke-Comparator (Get-ComparatorArguments)) 'summary cleanup residue'
+    Reset-Fixtures
+    Assert-Pass 'fresh baseline report after native checkpoint coverage' (Invoke-Comparator (Get-ComparatorArguments))
     $baselineReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
     if (
         $baselineReport.comparisonCategories.literalEqualityCount -ne 16 -or
@@ -797,6 +861,41 @@ try {
         (($crossArchiveSnakeBase.snakeFirstBootCanary | ConvertTo-Json -Depth 20) -cne ($crossArchiveSnakeCandidate.snakeFirstBootCanary | ConvertTo-Json -Depth 20))
     ) { throw 'cross-archive structural-only Snake coverage lost its reviewed report partition.' }
     Write-Host 'PASS: cross-archive structural-only Snake preserves the reviewed report partition'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.snakeOnBootStructuralSafety.terminal = 'eof' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Snake and Otacon V1.2.1').snakeOnBootStructuralSafety.terminal = 'eof' }
+    Assert-Pass 'validated older-Snake exact-e and EOF terminal witnesses normalize together' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T01:01:00-07:00'; $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T01:01:01-07:00' }
+    Assert-Pass 'distinct valid legacy OnBoot clocks normalize after validation' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\2elf-2.46\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T01:02:00-07:00'; $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T01:02:01-07:00' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $probe = (Get-Row $s '2elf-2.46').requiredEvidencePayload.dialogueProbe; $probe.onBootContext.localClockBefore = '2026-08-18T01:02:00-07:00'; $probe.onBootContext.localClockAfter = '2026-08-18T01:02:01-07:00' }
+    Assert-Pass 'distinct valid 2elf raw and required-evidence OnBoot context mirrors normalize together' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.snakeFirstBootCanary.PSObject.Properties.Remove('independentInstanceCount') }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Snake and Otacon V1.2.1').snakeFirstBootCanary.PSObject.Properties.Remove('independentInstanceCount') }
+    Assert-Fail 'Snake canary requires independent instance count' (Invoke-Comparator (Get-ComparatorArguments)) 'independentInstanceCount'
+
+    foreach ($invalidCanaryCount in @('2', 1)) {
+        Reset-Fixtures
+        Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.snakeFirstBootCanary.independentInstanceCount = $invalidCanaryCount }
+        Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Snake and Otacon V1.2.1').snakeFirstBootCanary.independentInstanceCount = $invalidCanaryCount }
+        Assert-Fail "Snake canary rejects invalid independent instance count '$invalidCanaryCount'" (Invoke-Comparator (Get-ComparatorArguments)) 'independentInstanceCount'
+    }
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.evidence.sourceSyntax.scanRoot = $r.evidence.sourceSyntax.scanRoot -replace 'corpus-[0-9a-f]{16}', 'corpus-ffffffffffffffff' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'LOBO').evidence.sourceSyntax.scanRoot = (Get-Row $s 'LOBO').evidence.sourceSyntax.scanRoot -replace 'corpus-[0-9a-f]{16}', 'corpus-ffffffffffffffff' }
+    Assert-Fail 'source scan root binds the exact archive SHA prefix' (Invoke-Comparator (Get-ComparatorArguments)) 'scan-root path'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.sakura.source = "$($r.evidence.sourceSyntax.scanRoot)/shell/master/surface0.png/neighbor" }
+    Assert-Fail 'source syntax descendants cannot escape their exact scan-root shape' (Invoke-Comparator (Get-ComparatorArguments)) 'exact Sakura/Kero source descendant'
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.dialogueProbe.method = 'POST' }
