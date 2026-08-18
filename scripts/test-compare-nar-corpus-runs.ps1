@@ -268,6 +268,20 @@ try {
     Assert-Fail 'copied evidence root cannot satisfy base/base' (Invoke-Comparator (Get-ComparatorArguments)) 'distinct base and candidate evidence fingerprints'
 
     Reset-Fixtures
+    Remove-Item -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $fixtureRoot 'base') -Destination (Join-Path $fixtureRoot 'candidate') -Recurse
+    Add-Content -LiteralPath (Join-Path $fixtureRoot 'candidate\summary.json') -Value ''
+    Assert-Fail 'whitespace-modified copied evidence cannot satisfy base/base' (Invoke-Comparator (Get-ComparatorArguments)) 'distinct base and candidate run identities'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[0].runId = ('3' * 32) }
+    Assert-Fail 'summary row run identity must mirror the run identity' (Invoke-Comparator (Get-ComparatorArguments)) 'summary result.*runId.*run identity'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Haiidrate\result.json') { param($raw) $raw.narCorpusPath = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/33333333333333333333333333333333/Haiidrate/nanidroid-corpus.nar' }
+    Assert-Fail 'raw run-owned path must mirror the run identity' (Invoke-Comparator (Get-ComparatorArguments)) 'raw result.*narCorpusPath.*run identity'
+
+    Reset-Fixtures
     $wrongIdentity = Get-ComparatorArguments
     $wrongIdentity[($wrongIdentity.IndexOf('-BaseProductionCommit') + 1)] = $candidateCommit
     Assert-Fail 'wrong declared production identity' (Invoke-Comparator $wrongIdentity) 'base production identity'
@@ -352,7 +366,7 @@ try {
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/ffffffffffffffffffffffffffffffff/LOBO/nanidroid-corpus.nar' }
-    Assert-Pass 'enumerated run metadata normalization' (Invoke-Comparator (Get-ComparatorArguments))
+    Assert-Fail 'raw run metadata must mirror the declared run identity' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath.*run identity'
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.durationSeconds = '23' }
@@ -472,6 +486,14 @@ try {
     Remove-Item -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $fixtureRoot 'base') -Destination (Join-Path $fixtureRoot 'candidate') -Recurse
     Assert-Fail 'copied evidence root cannot satisfy base/candidate' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite)) 'distinct base and candidate evidence fingerprints'
+
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    Assert-Pass 'base/base prerequisite report' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    Remove-Item -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $fixtureRoot 'base') -Destination (Join-Path $fixtureRoot 'candidate') -Recurse
+    Add-Content -LiteralPath (Join-Path $fixtureRoot 'candidate\summary.json') -Value ''
+    Assert-Fail 'whitespace-modified copied evidence cannot satisfy base/candidate' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite)) 'distinct base and candidate run identities'
 
     Reset-Fixtures
     $prerequisite = Join-Path $fixtureRoot 'base-base.json'

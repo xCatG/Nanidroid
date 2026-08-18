@@ -416,6 +416,52 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [string]
     }
 }
 
+function Assert-RunIdentityMirrors([object]$Summary, [hashtable]$RowsByLabel, [hashtable]$RawByLabel, [string[]]$RawSourceMirrorLabels, [string]$Side) {
+    $runId = Get-RequiredProperty $Summary 'runId' "$Side summary"
+    Assert-JsonKind $runId @('string') "$Side summary runId" | Out-Null
+    if ([string]$runId -notmatch '^[0-9a-f]{32}$') {
+        throw "$Side summary runId is not the runner-emitted 32-character lowercase run identity"
+    }
+
+    foreach ($label in @($RowsByLabel.Keys | Sort-Object -CaseSensitive)) {
+        $row = $RowsByLabel[$label]
+        $rowRunId = Get-RequiredProperty $row 'runId' "$Side summary result '$label'"
+        Assert-JsonKind $rowRunId @('string') "$Side summary result '$label'.runId" | Out-Null
+        if ([string]$rowRunId -cne [string]$runId) {
+            throw "$Side summary result '$label'.runId must mirror the summary run identity"
+        }
+
+        $safeLabel = [string](Get-RequiredProperty $row 'safeLabel' "$Side summary result '$label'")
+        $expectedRunRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$runId/$safeLabel/"
+        $raw = $RawByLabel[$label]
+        $narCorpusPath = Get-RequiredProperty $raw 'narCorpusPath' "$Side raw result '$label'"
+        Assert-JsonKind $narCorpusPath @('string') "$Side raw result '$label'.narCorpusPath" | Out-Null
+        if (-not ([string]$narCorpusPath).Contains($expectedRunRoot, [StringComparison]::Ordinal)) {
+            throw "$Side raw result '$label'.narCorpusPath must mirror the summary run identity"
+        }
+
+        foreach ($mirrorPath in $(if ($RawSourceMirrorLabels -contains $label) { @('evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source') } else { @() })) {
+            $node = $raw
+            $found = $true
+            foreach ($segment in $mirrorPath.Split('.')) {
+                $property = if ($null -eq $node) { $null } else { $node.PSObject.Properties[$segment] }
+                if ($null -eq $property) {
+                    $found = $false
+                    break
+                }
+                $node = $property.Value
+            }
+            if ($found) {
+                Assert-JsonKind $node @('string') "$Side raw result '$label'.$mirrorPath" | Out-Null
+                if (-not ([string]$node).Contains($expectedRunRoot, [StringComparison]::Ordinal)) {
+                    throw "$Side raw result '$label'.$mirrorPath must mirror the summary run identity"
+                }
+            }
+        }
+    }
+    return [string]$runId
+}
+
 function Read-AndValidateRun {
     param(
         [string]$Root,
@@ -426,6 +472,7 @@ function Read-AndValidateRun {
         [string[]]$ExpectedLabels,
         [string[]]$ExpectedRawFiles,
         [string[]]$ExpectedScreenshotFiles,
+        [string[]]$RawSourceMirrorLabels,
         [string]$ExpectedManifestSha
     )
     $resolvedRoot = [IO.Path]::GetFullPath($Root)
@@ -475,8 +522,9 @@ function Read-AndValidateRun {
         $rowByLabel[$label] = $row
     }
     Assert-SuccessfulRun $summary $rawByLabel $Side
+    $runIdentity = Assert-RunIdentityMirrors $summary $rowByLabel $rawByLabel $RawSourceMirrorLabels $Side
     $evidenceFingerprint = Get-EvidenceFingerprint $resolvedRoot $ExpectedRawFiles $ExpectedScreenshotFiles
-    return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; EvidenceFingerprint = $evidenceFingerprint }
+    return [pscustomobject]@{ Root = $resolvedRoot; Summary = $summary; Rows = $rowByLabel; Raw = $rawByLabel; RunIdentity = $runIdentity; EvidenceFingerprint = $evidenceFingerprint }
 }
 
 function Assert-StochasticValue {
@@ -712,14 +760,17 @@ try {
 
     $manifestSha = Get-Sha256 $ManifestPath
     $contractSha = Get-Sha256 $ContractPath
-    $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $manifestSha
+    $base = Read-AndValidateRun $BaseRoot 'base' $BaseProductionCommit $BaseDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $manifestSha
     if ($ComparisonKind -eq 'BaseCandidate') {
         Assert-BaseBasePrerequisite $BaseBaseReportPath $manifestSha $contractSha $base.Summary.device $base.EvidenceFingerprint
     }
-    $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $manifestSha
+    $candidate = Read-AndValidateRun $CandidateRoot 'candidate' $CandidateProductionCommit $CandidateDebugApkSha256 $entries $expectedLabels $expectedRawFiles $expectedScreenshotFiles $actualRawSourceLabels $manifestSha
 
     if ($base.EvidenceFingerprint -ceq $candidate.EvidenceFingerprint) {
         throw "$ComparisonKind comparison requires distinct base and candidate evidence fingerprints"
+    }
+    if ($base.RunIdentity -ceq $candidate.RunIdentity) {
+        throw "$ComparisonKind comparison requires distinct base and candidate run identities"
     }
 
     if ($ComparisonKind -eq 'BaseBase') {

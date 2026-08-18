@@ -60,7 +60,12 @@ be the same. It also records deterministic fingerprints of the exact summary,
 23 raw results, and 23 screenshots, and `BaseCandidate` requires its current
 base root to match the retained base fingerprint. Both comparison kinds reject
 identical base and candidate evidence fingerprints before canonical comparison:
-copied evidence roots cannot substitute for independently collected runs.
+copied evidence roots cannot substitute for independently collected runs. They
+also require distinct runner-emitted run identities: the lowercase 32-character
+`summary.runId` must equal every `results[].runId` and every declared raw
+private run-path mirror for that root, and the two roots' validated identities
+must differ. Thus formatting-only edits cannot disguise reused evidence, while
+separate deterministic runs retain their distinct IDs.
 
 For each root the comparator requires:
 
@@ -129,7 +134,11 @@ The fixed runner accepts an explicit pristine production checkout but never an
 external APK. External mode requires the production checkout path, production
 commit, and harness commit together. It validates lowercase full SHA syntax,
 the exact clean production `HEAD`, and exactly one `*-debug.apk` produced by
-`assembleDebug` in that checkout; it then hashes and records that APK. DryRun
+`assembleDebug` in that checkout. After both production and harness builds it
+re-reads the relevant identity and requires it to equal the pre-build identity
+(production root/commit; harness commit/tree/runner/instrumentation hashes)
+before hashing and recording either APK. Ignored Gradle outputs remain allowed;
+tracked or untracked source/check-out changes do not. DryRun
 validates the actual caller-supplied group, rejects obsolete production-APK and
 test-APK injection, and runs its self-probes. The live runner separately verifies
 the harness commit against its own checkout with no tracked or untracked overlays,

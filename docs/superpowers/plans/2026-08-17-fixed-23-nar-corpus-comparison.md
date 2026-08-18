@@ -179,7 +179,9 @@ production commit to equal the clean production checkout `HEAD`, build
 independently require `HarnessCommit` to equal the clean harness checkout `HEAD`
 and build `assembleDebugAndroidTest` there. In legacy one-tree mode retain the
 current combined build for standalone audits but mark production and harness as
-the same current commit.
+the same current commit. Re-read the production and harness identities after
+their builds, require exact equality with pre-build identity, and only then hash
+the selected APKs; ignored Gradle outputs remain permitted.
 
 - [ ] **Step 4: Record auditable identity objects**
 
@@ -220,7 +222,10 @@ Create 23 rows from the real manifest. Write `<safeLabel>/result.json`, mirror e
 
 Require independently collected successful roots in `BaseBase` mode to pass and
 reject byte-identical copied evidence roots in both `BaseBase` and
-`BaseCandidate` before canonical comparison. Require missing, wrong, and swapped
+`BaseCandidate` before canonical comparison, including a copied root whose JSON
+differs only by whitespace. Require the runner's top-level run ID, all result-row
+mirrors, and declared raw run-owned-path mirrors to agree within each root, then
+require distinct run IDs across roots. Require missing, wrong, and swapped
 base/candidate production declarations to fail. Require missing or different
 harness commit, runner hash, instrumentation hash, or test APK hash to fail.
 Mutate both roots to the same sentinel failure and require failure.

@@ -32,8 +32,10 @@ device copies in `finally` blocks.
   `*-debug.apk` produced by `assembleDebug`, and rejects caller-supplied
   production/test APKs. It independently verifies `HarnessCommit` is the
   checked-out clean harness commit, builds `assembleDebugAndroidTest` there, and
-  records both APK hashes plus the harness tree and source hashes. Omit all three
-  only for a standalone one-tree audit.
+  then revalidates production and harness identities before recording both APK
+  hashes plus the harness tree and source hashes. Ignored Gradle outputs are
+  allowed, but any tracked or untracked checkout/source change after either build
+  rejects the run. Omit all three only for a standalone one-tree audit.
 - `-PerArchiveTimeoutMinutes` (optional): hard timeout in minutes for each
   `am instrument` run. This is a host-side corpus safety bound, not the app's
   user-visible script-hang policy. Nanidroid does not cancel a running ghost
@@ -203,7 +205,7 @@ then exhaustively compares `summary.json`, the exact 23 raw `result.json` files,
 and the exact 23 screenshot hashes. A base/candidate invocation cannot proceed
 without a passing base/base report bound to the same base, harness, manifest,
 contract, and emulator identity. That proof includes an exact evidence
-fingerprint, and every comparison atomically replaces its output with either a
+fingerprint plus distinct, internally mirrored runner run IDs, and every comparison atomically replaces its output with either a
 passing report or a bounded structured failure report.
 The comparator supports PowerShell 7.0 and preserves JSON scalar kinds with its
 own strict reader; it does not require the PowerShell 7.5 `-DateKind` option.

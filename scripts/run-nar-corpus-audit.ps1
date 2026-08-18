@@ -1912,8 +1912,6 @@ function Build-Apks {
     return [pscustomobject]@{
         DebugApkPath = $debugApkPath
         TestApkPath = $testApkPath
-        DebugApkSha256 = (Get-FileHash -Algorithm SHA256 -Path $debugApkPath).Hash.ToLowerInvariant()
-        TestApkSha256 = (Get-FileHash -Algorithm SHA256 -Path $testApkPath).Hash.ToLowerInvariant()
     }
 }
 
@@ -1940,7 +1938,6 @@ function Build-HarnessTestApk {
     $testApkPath = Resolve-SingleHarnessTestApk -OutputRoot (Join-Path $repoRoot 'build\outputs\apk\androidTest\debug')
     return [pscustomobject]@{
         TestApkPath = $testApkPath
-        TestApkSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $testApkPath).Hash.ToLowerInvariant()
     }
 }
 
@@ -1999,6 +1996,14 @@ function Get-VerifiedProductionCheckoutIdentity([string]$ProductionCheckoutPath,
     return [pscustomobject]@{ Root = $resolvedRoot; Commit = $currentCommit }
 }
 
+function Assert-ProductionIdentityUnchanged([object]$Before, [object]$After) {
+    foreach ($name in @('Root', 'Commit')) {
+        if ([string]$Before.$name -cne [string]$After.$name) {
+            ThrowIf "Verified production identity changed after build at $name."
+        }
+    }
+}
+
 function Build-VerifiedProductionDebugApk([string]$ProductionCheckoutRoot) {
     $gradleWrapper = Join-Path $ProductionCheckoutRoot '.\gradlew.bat'
     Ensure-ExecutableExists -Path $gradleWrapper -Purpose 'verified production Gradle wrapper'
@@ -2008,33 +2013,45 @@ function Build-VerifiedProductionDebugApk([string]$ProductionCheckoutRoot) {
     $debugApkPath = Resolve-SingleProductionDebugApk -OutputRoot (Join-Path $ProductionCheckoutRoot 'build\outputs\apk\debug')
     return [pscustomobject]@{
         DebugApkPath = $debugApkPath
-        DebugApkSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $debugApkPath).Hash.ToLowerInvariant()
     }
 }
 
-function Get-TrackedHarnessIdentity([string]$ExpectedCommit) {
-    $currentCommit = (& git rev-parse HEAD 2>&1 | Out-String).Trim()
+function Get-VerifiedHarnessIdentity([string]$RepositoryRoot, [string]$ExpectedCommit, [string]$RunnerPath, [string]$InstrumentationPath) {
+    $resolvedRoot = (Resolve-Path -LiteralPath $RepositoryRoot -ErrorAction Stop).Path
+    $currentCommit = (& git -C $resolvedRoot rev-parse HEAD 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $currentCommit -notmatch '^[0-9a-f]{40}$') {
         ThrowIf 'Unable to resolve the fixed harness commit.'
     }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedCommit) -and $currentCommit -cne $ExpectedCommit) {
         ThrowIf "HarnessCommit '$ExpectedCommit' does not match the checked-out fixed harness commit '$currentCommit'."
     }
-    Assert-CleanHarnessCheckout -RepositoryRoot $repoRoot
-    $tree = (& git rev-parse "$currentCommit`^{tree}" 2>&1 | Out-String).Trim()
+    Assert-CleanHarnessCheckout -RepositoryRoot $resolvedRoot
+    $tree = (& git -C $resolvedRoot rev-parse "$currentCommit`^{tree}" 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $tree -notmatch '^[0-9a-f]{40}$') {
         ThrowIf "Unable to resolve the fixed harness tree for '$currentCommit'."
     }
-    $runnerPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
-    $instrumentationPath = Get-HarnessInstrumentationSourcePath
-    if (-not (Test-Path -LiteralPath $instrumentationPath -PathType Leaf)) {
-        ThrowIf "Unable to locate fixed harness instrumentation source: $instrumentationPath"
+    $resolvedRunnerPath = (Resolve-Path -LiteralPath $RunnerPath -ErrorAction Stop).Path
+    $resolvedInstrumentationPath = (Resolve-Path -LiteralPath $InstrumentationPath -ErrorAction Stop).Path
+    if (-not (Test-Path -LiteralPath $resolvedInstrumentationPath -PathType Leaf)) {
+        ThrowIf "Unable to locate fixed harness instrumentation source: $resolvedInstrumentationPath"
     }
     return [pscustomobject]@{
         Commit = $currentCommit
         Tree = $tree
-        RunnerSha256 = (Get-FileHash -LiteralPath $runnerPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        InstrumentationSourceSha256 = (Get-FileHash -LiteralPath $instrumentationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        RunnerSha256 = (Get-FileHash -LiteralPath $resolvedRunnerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        InstrumentationSourceSha256 = (Get-FileHash -LiteralPath $resolvedInstrumentationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+
+function Get-TrackedHarnessIdentity([string]$ExpectedCommit) {
+    return Get-VerifiedHarnessIdentity -RepositoryRoot $repoRoot -ExpectedCommit $ExpectedCommit -RunnerPath $PSCommandPath -InstrumentationPath (Get-HarnessInstrumentationSourcePath)
+}
+
+function Assert-HarnessIdentityUnchanged([object]$Before, [object]$After) {
+    foreach ($name in @('Commit', 'Tree', 'RunnerSha256', 'InstrumentationSourceSha256')) {
+        if ([string]$Before.$name -cne [string]$After.$name) {
+            ThrowIf "Verified fixed-harness identity changed after build at $name."
+        }
     }
 }
 
@@ -2060,33 +2077,39 @@ function Get-ApkInfo {
     $harnessIdentity = $externalIdentity.Harness
     if ($mode -eq 'build') {
         $built = Build-Apks
+        $postBuildHarnessIdentity = Get-TrackedHarnessIdentity -ExpectedCommit $harnessIdentity.Commit
+        Assert-HarnessIdentityUnchanged -Before $harnessIdentity -After $postBuildHarnessIdentity
         return [pscustomobject]@{
             DebugApkPath = $built.DebugApkPath
             TestApkPath = $built.TestApkPath
-            DebugApkSha256 = $built.DebugApkSha256
-            TestApkSha256 = $built.TestApkSha256
-            ProductionCommit = $harnessIdentity.Commit
-            HarnessCommit = $harnessIdentity.Commit
-            HarnessTree = $harnessIdentity.Tree
-            HarnessRunnerSha256 = $harnessIdentity.RunnerSha256
-            HarnessInstrumentationSourceSha256 = $harnessIdentity.InstrumentationSourceSha256
+            DebugApkSha256 = (Get-FileHash -LiteralPath $built.DebugApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            TestApkSha256 = (Get-FileHash -LiteralPath $built.TestApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            ProductionCommit = $postBuildHarnessIdentity.Commit
+            HarnessCommit = $postBuildHarnessIdentity.Commit
+            HarnessTree = $postBuildHarnessIdentity.Tree
+            HarnessRunnerSha256 = $postBuildHarnessIdentity.RunnerSha256
+            HarnessInstrumentationSourceSha256 = $postBuildHarnessIdentity.InstrumentationSourceSha256
             InputMode = $mode
         }
     }
 
     $builtProductionApk = Build-VerifiedProductionDebugApk -ProductionCheckoutRoot $externalIdentity.Production.Root
     $builtTestApk = Build-HarnessTestApk
+    $postBuildProductionIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $externalIdentity.Production.Root -ExpectedCommit $externalIdentity.Production.Commit
+    Assert-ProductionIdentityUnchanged -Before $externalIdentity.Production -After $postBuildProductionIdentity
+    $postBuildHarnessIdentity = Get-TrackedHarnessIdentity -ExpectedCommit $harnessIdentity.Commit
+    Assert-HarnessIdentityUnchanged -Before $harnessIdentity -After $postBuildHarnessIdentity
     Write-Host 'Using the debug APK built by the separately verified production checkout with the androidTest APK built by this verified fixed harness.'
     return [pscustomobject]@{
         DebugApkPath = $builtProductionApk.DebugApkPath
         TestApkPath = $builtTestApk.TestApkPath
-        DebugApkSha256 = $builtProductionApk.DebugApkSha256
-        TestApkSha256 = $builtTestApk.TestApkSha256
-        ProductionCommit = $externalIdentity.Production.Commit
-        HarnessCommit = $harnessIdentity.Commit
-        HarnessTree = $harnessIdentity.Tree
-        HarnessRunnerSha256 = $harnessIdentity.RunnerSha256
-        HarnessInstrumentationSourceSha256 = $harnessIdentity.InstrumentationSourceSha256
+        DebugApkSha256 = (Get-FileHash -LiteralPath $builtProductionApk.DebugApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        TestApkSha256 = (Get-FileHash -LiteralPath $builtTestApk.TestApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        ProductionCommit = $postBuildProductionIdentity.Commit
+        HarnessCommit = $postBuildHarnessIdentity.Commit
+        HarnessTree = $postBuildHarnessIdentity.Tree
+        HarnessRunnerSha256 = $postBuildHarnessIdentity.RunnerSha256
+        HarnessInstrumentationSourceSha256 = $postBuildHarnessIdentity.InstrumentationSourceSha256
         InputMode = $mode
     }
 }
@@ -2594,7 +2617,9 @@ if ($DryRun) {
     New-Item -ItemType Directory -Force -Path $productionProbeRoot | Out-Null
     & git -C $productionProbeRoot init --quiet
     Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'tracked' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot '.gitignore') -Value 'build/' -Encoding utf8
     & git -C $productionProbeRoot add tracked.txt
+    & git -C $productionProbeRoot add .gitignore
     & git -C $productionProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m initial
     $productionProbeCommit = (& git -C $productionProbeRoot rev-parse HEAD 2>&1 | Out-String).Trim()
     $productionIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit
@@ -2611,6 +2636,53 @@ if ($DryRun) {
     $dirtyProductionCheckoutRejected = $false
     try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit | Out-Null } catch { $dirtyProductionCheckoutRejected = $_.Exception.Message -match 'untracked-overlay.txt' }
     if (-not $dirtyProductionCheckoutRejected) { ThrowIf 'Dry-run production checkout identity resolver accepted an untracked overlay.' }
+    Remove-Item -LiteralPath (Join-Path $productionProbeRoot 'untracked-overlay.txt') -Force
+    $productionPreBuildIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit
+    $ignoredProductionBuildOutput = Join-Path $productionProbeRoot 'build\outputs\apk\debug\fixture-debug.apk'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ignoredProductionBuildOutput) | Out-Null
+    Set-Content -LiteralPath $ignoredProductionBuildOutput -Value 'ignored Gradle output' -Encoding utf8
+    $productionPostBuildIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit
+    Assert-ProductionIdentityUnchanged -Before $productionPreBuildIdentity -After $productionPostBuildIdentity
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'dirty after build' -Encoding utf8
+    $postBuildProductionDirtyRejected = $false
+    try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit | Out-Null } catch { $postBuildProductionDirtyRejected = $_.Exception.Message -match 'not clean' }
+    if (-not $postBuildProductionDirtyRejected) { ThrowIf 'Dry-run production identity revalidation accepted a tracked post-build change.' }
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'tracked' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'committed after build' -Encoding utf8
+    & git -C $productionProbeRoot add tracked.txt
+    & git -C $productionProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m post-build
+    $postBuildProductionCommitRejected = $false
+    try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit | Out-Null } catch { $postBuildProductionCommitRejected = $_.Exception.Message -match 'does not match.*checked-out' }
+    if (-not $postBuildProductionCommitRejected) { ThrowIf 'Dry-run production identity revalidation accepted a post-build commit change.' }
+
+    $harnessProbeRoot = Join-Path $hostRunTmpRoot 'harness-checkout-probe'
+    $harnessProbeRunner = Join-Path $harnessProbeRoot 'run-nar-corpus-audit.ps1'
+    $harnessProbeInstrumentation = Join-Path $harnessProbeRoot 'NarCorpusRuntimeTest.kt'
+    New-Item -ItemType Directory -Force -Path $harnessProbeRoot | Out-Null
+    & git -C $harnessProbeRoot init --quiet
+    Set-Content -LiteralPath $harnessProbeRunner -Value 'runner source' -Encoding utf8
+    Set-Content -LiteralPath $harnessProbeInstrumentation -Value 'instrumentation source' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $harnessProbeRoot '.gitignore') -Value 'build/' -Encoding utf8
+    & git -C $harnessProbeRoot add run-nar-corpus-audit.ps1 NarCorpusRuntimeTest.kt .gitignore
+    & git -C $harnessProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m initial
+    $harnessProbeCommit = (& git -C $harnessProbeRoot rev-parse HEAD 2>&1 | Out-String).Trim()
+    $harnessPreBuildIdentity = Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation
+    $ignoredHarnessBuildOutput = Join-Path $harnessProbeRoot 'build\outputs\apk\androidTest\debug\fixture-debug-androidTest.apk'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ignoredHarnessBuildOutput) | Out-Null
+    Set-Content -LiteralPath $ignoredHarnessBuildOutput -Value 'ignored Gradle output' -Encoding utf8
+    $harnessPostBuildIdentity = Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation
+    Assert-HarnessIdentityUnchanged -Before $harnessPreBuildIdentity -After $harnessPostBuildIdentity
+    Set-Content -LiteralPath $harnessProbeRunner -Value 'dirty runner source' -Encoding utf8
+    $postBuildHarnessSourceRejected = $false
+    try { Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation | Out-Null } catch { $postBuildHarnessSourceRejected = $_.Exception.Message -match 'not clean' }
+    if (-not $postBuildHarnessSourceRejected) { ThrowIf 'Dry-run harness identity revalidation accepted a post-build runner source change.' }
+    Set-Content -LiteralPath $harnessProbeRunner -Value 'runner source' -Encoding utf8
+    Set-Content -LiteralPath $harnessProbeInstrumentation -Value 'committed instrumentation source' -Encoding utf8
+    & git -C $harnessProbeRoot add NarCorpusRuntimeTest.kt
+    & git -C $harnessProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m post-build
+    $postBuildHarnessCommitRejected = $false
+    try { Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation | Out-Null } catch { $postBuildHarnessCommitRejected = $_.Exception.Message -match 'does not match.*checked-out' }
+    if (-not $postBuildHarnessCommitRejected) { ThrowIf 'Dry-run harness identity revalidation accepted a post-build commit change.' }
     Write-Host 'Dry-run verified production checkout identity probes passed.'
     $productionApkSelectionRoot = Join-Path $hostRunTmpRoot 'production-apk-selection'
     New-Item -ItemType Directory -Force -Path $productionApkSelectionRoot | Out-Null
