@@ -56,7 +56,9 @@ harness identity, manifest hash, comparison-contract hash, and device
 fingerprint/API/ABI/density against the current comparison. A missing, failed,
 or mismatched prerequisite exits before candidate comparison. `BaseBase`
 produces that prerequisite report and requires both production identities to
-be the same. It also records deterministic fingerprints of the exact summary,
+be the same; `BaseCandidate` requires the commit-and-debug-APK-SHA tuple to
+differ (a different commit may legitimately reproduce the same APK bytes). It
+also records deterministic fingerprints of the exact summary,
 23 raw results, and 23 screenshots, and `BaseCandidate` requires its current
 base root to match the retained base fingerprint. Both comparison kinds reject
 identical base and candidate evidence fingerprints before canonical comparison:

@@ -498,6 +498,17 @@ try {
     Reset-Fixtures
     $prerequisite = Join-Path $fixtureRoot 'base-base.json'
     Assert-Pass 'base/base prerequisite report' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    Assert-Fail 'base/candidate requires a distinct production identity tuple' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite)) 'BaseCandidate comparison requires distinct base and candidate production identities'
+
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    Assert-Pass 'base/base prerequisite report' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
+    New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('5' * 32) -ProductionCommit $candidateCommit -DebugSha $baseDebugSha -StartedAt '2026-08-17T00:02:00Z'
+    Assert-Pass 'candidate may reuse a debug APK from a distinct commit' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $baseDebugSha))
+
+    Reset-Fixtures
+    $prerequisite = Join-Path $fixtureRoot 'base-base.json'
+    Assert-Pass 'base/base prerequisite report' (Invoke-Comparator (Get-ComparatorArguments -OutputPath $prerequisite))
     New-ReportFixture -Root (Join-Path $fixtureRoot 'candidate') -RunId ('4' * 32) -ProductionCommit $candidateCommit -DebugSha $candidateDebugSha -StartedAt '2026-08-17T00:02:00Z'
     Assert-Fail 'missing base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'BaseBaseReportPath'
     Assert-Pass 'bound base/candidate comparison' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha))

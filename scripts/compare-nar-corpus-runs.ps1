@@ -778,6 +778,9 @@ try {
             throw 'BaseBase comparison requires identical base and candidate production identities'
         }
     }
+    elseif ($BaseProductionCommit -ceq $CandidateProductionCommit -and $BaseDebugApkSha256 -ceq $CandidateDebugApkSha256) {
+        throw 'BaseCandidate comparison requires distinct base and candidate production identities'
+    }
 
     $deviceDifference = Find-FirstDifference $base.Summary.device $candidate.Summary.device 'device'
     if ($deviceDifference) { throw "device mismatch at $deviceDifference" }
