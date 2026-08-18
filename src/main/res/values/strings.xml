@@ -65,7 +65,7 @@
   <string name="unsupported_shiori">\\0\\s0Sorry, this Ghost is using a SHIORI that is not yet supported by Nanidroid!\\e</string>
   <string name="unsupported_shiori_ongchanging">\\0\\s0Changing Ghost to %1$s\\e</string>
   <string name="unsupported_shiori_onclose">\\0\\s0Thank you for using Nanidroid!\\e</string>
-  <string name="err_no_ghost_available">No ghost is currently available. An interrupted update may still be recovering. Try reopening Nanidroid.</string>
+  <string name="err_no_ghost_available">No ghost is currently available. Install a ghost archive to continue.</string>
   <string name="toggle_stage_chrome_action">Show or hide controls</string>
   <string name="sakura_character_description">Sakura character</string>
   <string name="kero_character_description">Kero character</string>
@@ -81,20 +81,18 @@
   <string name="durable_operation_remote_nar">Archive download</string>
   <string name="durable_operation_local_nar">Archive copy</string>
   <string name="durable_operation_nar_install">Archive install</string>
-  <string name="durable_operation_ghost_update">Ghost update</string>
   <string name="durable_action_keep_waiting">Keep waiting</string>
   <string name="durable_action_stop">Request stop</string>
   <string name="durable_action_retry_stop">Retry stop request</string>
   <string name="durable_phase_downloading">Downloading archive…</string>
   <string name="durable_phase_copying">Copying archive…</string>
   <string name="durable_phase_installing">Installing archive…</string>
-  <string name="durable_phase_updating">Updating ghost…</string>
   <string name="durable_phase_stopping">Stopping…</string>
   <string name="durable_diagnostics_label">Diagnostics</string>
   <string name="durable_diagnostic_cancel_dispatch_failed">Nanidroid could not send the stop request. You can retry it.</string>
   <string name="durable_diagnostic_stopping_delayed">The stop request has not finished after 30 seconds.</string>
   <string name="durable_store_recovery_title">Operation recovery needs attention</string>
-  <string name="durable_store_recovery_message">Nanidroid couldn’t read its saved download, install, and update status. New operations are paused. Work already handed to Android may still be running. Discard the unreadable history to resume. Nanidroid will not stop work automatically.</string>
+  <string name="durable_store_recovery_message">Nanidroid couldn’t read its saved download and install status. New operations are paused. Work already handed to Android may still be running. Discard the unreadable history to resume. Nanidroid will not stop work automatically.</string>
   <string name="durable_store_recovery_confirm">Discard unreadable history and resume</string>
   <string name="durable_store_recovery_failed">Nanidroid couldn’t finish recovery. Operations remain paused. Try again.</string>
 </resources>

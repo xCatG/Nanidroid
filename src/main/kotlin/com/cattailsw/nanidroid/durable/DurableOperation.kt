@@ -14,18 +14,11 @@ sealed interface ExternalJobBinding {
     data class WorkManager(val uuid: String) : ExternalJobBinding
 }
 
-enum class OperationKind { REMOTE_NAR, LOCAL_NAR, NAR_INSTALL, GHOST_UPDATE }
+enum class OperationKind { REMOTE_NAR, LOCAL_NAR, NAR_INSTALL }
 
 enum class OperationStatus { RUNNING, CANCEL_REQUESTED, COMPLETED, FAILED, CANCELLED }
 
 data class OperationProgress(val phase: String, val completed: Long)
-
-data class GhostUpdateTerminalEvent(
-    val ghostId: String,
-    val canonicalRoot: String,
-    val name: String,
-    val references: List<String>,
-)
 
 data class DurableOperationRecord(
     val id: OperationId,
@@ -37,7 +30,6 @@ data class DurableOperationRecord(
     val showStallPrompt: Boolean,
     val diagnostics: String? = null,
     val externalJobHistory: Set<ExternalJobBinding> = emptySet(),
-    val pendingGhostUpdateEvent: GhostUpdateTerminalEvent? = null,
     val attentionRetryGeneration: Long = 0L,
     val attentionKeepWaitingGeneration: Long = 0L,
     val progressGeneration: Long = 0L,
@@ -85,5 +77,4 @@ internal fun durableWorkManagerId(
 private val WORK_MANAGER_OPERATION_KINDS = setOf(
     OperationKind.LOCAL_NAR,
     OperationKind.NAR_INSTALL,
-    OperationKind.GHOST_UPDATE,
 )

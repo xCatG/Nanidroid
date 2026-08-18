@@ -25,7 +25,7 @@ class SharedDurableOperationSupervisorTest {
         val record = DurableOperationRecord(
             id = OperationId("resolved"),
             attemptId = AttemptId(1),
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
             externalJob = null,
             progress = OperationProgress("Queued", 0),
             status = OperationStatus.RUNNING,
@@ -73,7 +73,7 @@ class SharedDurableOperationSupervisorTest {
         val record = DurableOperationRecord(
             id = OperationId("supervisor-1"),
             attemptId = AttemptId(1),
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
             externalJob = null,
             progress = OperationProgress("Queued", 0),
             status = OperationStatus.RUNNING,
@@ -108,7 +108,7 @@ class SharedDurableOperationSupervisorTest {
 
         cancellation.cancel(
             handle,
-            OperationKind.GHOST_UPDATE,
+            OperationKind.NAR_INSTALL,
             ExternalJobBinding.WorkManager(id.toString()),
         )
 
@@ -168,7 +168,7 @@ class SharedDurableOperationSupervisorTest {
         ) {
             cancellation.cancel(
                 OperationHandle(OperationId("ghost-update-not-valid"), AttemptId(1)),
-                OperationKind.GHOST_UPDATE,
+                OperationKind.NAR_INSTALL,
                 ExternalJobBinding.WorkManager("not-a-valid-uuid"),
             )
         }

@@ -113,7 +113,6 @@ class DurableOperationSupervisor(
                 ?: return@mutate false
             if (
                 !previous.status.isTerminal() ||
-                previous.pendingGhostUpdateEvent != null ||
                 !previous.kind.canRetryAs(kind) && !(
                     allowRemoteNarReacquisition &&
                         previous.kind == OperationKind.NAR_INSTALL &&
@@ -200,7 +199,6 @@ class DurableOperationSupervisor(
         replacementBinding: ExternalJobBinding,
     ): Boolean = mutate {
         val current = activeRecord(handle) ?: return@mutate false
-        if (current.pendingGhostUpdateEvent != null) return@mutate false
         if (current.externalJob != expectedBinding) return@mutate false
         if (expectedBinding == replacementBinding) return@mutate true
         if (replacementBinding in current.externalJobHistory) return@mutate false
@@ -615,94 +613,7 @@ class DurableOperationSupervisor(
         true
     }
 
-    /** Atomically terminalizes an exact ghost-update attempt and retains its terminal payload. */
-    fun finishWithTerminalEvent(
-        handle: OperationHandle,
-        binding: ExternalJobBinding.WorkManager,
-        status: OperationStatus,
-        event: GhostUpdateTerminalEvent,
-        diagnostics: String? = null,
-    ): Boolean = mutate {
-        require(status.isTerminal()) { "finish requires a terminal status" }
-        val current = exactRecord(handle) ?: return@mutate false
-        if (current.kind != OperationKind.GHOST_UPDATE || current.externalJob != binding) return@mutate false
-        if (current.status.isTerminal()) {
-            return@mutate current.status == status && current.pendingGhostUpdateEvent == event
-        }
-        if (!store.compareAndSet(
-                current,
-                current.copy(
-                    status = status,
-                    showStallPrompt = false,
-                    diagnostics = diagnostics,
-                    pendingGhostUpdateEvent = event,
-                ),
-            )
-        ) return@mutate false
-        lastProgressAt.remove(handle)
-        cancellationIssued.removeAll { it.handle == handle }
-        true
-    }
-
-    fun deferTerminalEvent(
-        handle: OperationHandle,
-        binding: ExternalJobBinding.WorkManager,
-        event: GhostUpdateTerminalEvent,
-    ): Boolean = mutate {
-        val current = exactRecord(handle) ?: return@mutate false
-        if (current.kind != OperationKind.GHOST_UPDATE || current.externalJob != binding) return@mutate false
-        store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = event))
-    }
-
-    fun clearTerminalEvent(
-        handle: OperationHandle,
-        binding: ExternalJobBinding.WorkManager,
-        event: GhostUpdateTerminalEvent,
-    ): Boolean = mutate {
-        val current = exactRecord(handle) ?: return@mutate false
-        if (
-            current.kind != OperationKind.GHOST_UPDATE ||
-            current.externalJob != binding ||
-            current.pendingGhostUpdateEvent != event
-        ) return@mutate false
-        store.compareAndSet(current, current.copy(pendingGhostUpdateEvent = null))
-    }
-
-    /**
-     * Claims an exact terminal-event payload before dispatching it without the operation lock.
-     * A later reconciliation clears only the same exact attempt and payload, so an intervening
-     * retry remains intact.
-     */
-    internal fun deliverTerminalEvent(
-        handle: OperationHandle,
-        binding: ExternalJobBinding.WorkManager,
-        event: GhostUpdateTerminalEvent,
-        dispatch: (GhostUpdateTerminalEvent) -> Boolean,
-    ): Boolean {
-        val claimed = synchronized(operationLock) {
-            val current = exactRecord(handle)
-            current != null &&
-                current.kind == OperationKind.GHOST_UPDATE &&
-                current.externalJob == binding &&
-                current.pendingGhostUpdateEvent == event
-        }
-        if (!claimed || !dispatch(event)) return false
-        // A failed durable clear is retried after process restart, but never re-dispatches here.
-        try {
-            clearTerminalEvent(handle, binding, event)
-        } catch (_: Exception) {
-            // The terminal callback has already succeeded; preserve the retained payload for retry.
-        }
-        return true
-    }
-
-    /**
-     * Runs [block] while holding the operation transition lock as the outermost lock.
-     *
-     * Terminal delivery ([deliverTerminalEvent]) only holds this lock while claiming or
-     * reconciling its payload; the synchronous SHIORI callback runs after it is released. This
-     * keeps attention actions responsive when ghost code stalls.
-     */
+    /** Runs [block] while holding the operation transition lock as the outermost lock. */
     internal fun <T> withOperationLock(block: () -> T): T = synchronized(operationLock, block)
 
     fun snapshot(): List<DurableOperationRecord> = attentionSnapshot().records
@@ -1086,7 +997,6 @@ class DurableOperationSupervisor(
         val WORK_MANAGER_KINDS = setOf(
             OperationKind.LOCAL_NAR,
             OperationKind.NAR_INSTALL,
-            OperationKind.GHOST_UPDATE,
         )
     }
 

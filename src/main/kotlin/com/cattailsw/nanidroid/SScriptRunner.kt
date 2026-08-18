@@ -7,8 +7,6 @@ import android.os.Message
 import android.os.SystemClock
 import android.util.Log
 import com.cattailsw.nanidroid.di.MonotonicClock
-import com.cattailsw.nanidroid.durable.GhostUpdateWorker
-import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
@@ -25,7 +23,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
 import java.io.File
-import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.IdentityHashMap
 import java.util.UUID
@@ -33,20 +30,6 @@ import java.util.UUID
 internal interface SScriptPlaybackScheduler {
     fun schedule(delayMillis: Long, action: () -> Unit)
     fun cancelPending()
-}
-
-internal fun interface SScriptLifecycleDispatcher {
-    fun dispatch(action: () -> Unit)
-}
-
-internal class MainLooperSScriptLifecycleDispatcher(
-    private val handlerFactory: (Looper) -> Handler = { Handler(it) },
-) : SScriptLifecycleDispatcher {
-    private val handler by lazy { handlerFactory(Looper.getMainLooper()) }
-
-    override fun dispatch(action: () -> Unit) {
-        handler.post(action)
-    }
 }
 
 internal data class SScriptPlaybackHooks(
@@ -84,7 +67,6 @@ open class SScriptRunner internal constructor(
     private val monotonicClock: MonotonicClock = MonotonicClock { SystemClock.elapsedRealtime() },
     private val playbackSchedulerFactory: () -> SScriptPlaybackScheduler = { HandlerSScriptPlaybackScheduler() },
     private val playbackHooks: SScriptPlaybackHooks = SScriptPlaybackHooks(),
-    private val lifecycleDispatcher: SScriptLifecycleDispatcher = MainLooperSScriptLifecycleDispatcher(),
 ) : Runnable {
     constructor(ctx: Context?) : this(ctx, productionSessionCoordinator)
     interface StatusCallback { fun stop(); fun canExit(); fun ghostSwitchScriptComplete() }
@@ -107,28 +89,6 @@ open class SScriptRunner internal constructor(
             productionSessionCoordinator.reserveLoadedGhostForTesting(ghost)
         internal fun reuseActiveGhost(ghostId: String, ghostRoot: File): ReservedGhost? =
             productionSessionCoordinator.reuseActive(ghostId, ghostRoot)
-        internal fun <T> withProductionGhostMutation(
-            ghostId: String,
-            ghostRoot: File,
-            onFailure: (Throwable) -> T,
-            action: () -> T,
-        ): T {
-            val runner = self
-            val mutation = {
-                productionSessionCoordinator.withMutation(
-                    ghostId,
-                    ghostRoot,
-                    onStopped = { onFailure(IOException("ghost mutation was interrupted")) },
-                    onFailure = onFailure,
-                    onActiveSessionInvalidated = { runner?.invalidateForSessionUnload(it) },
-                    onActiveSessionReloaded = { ghost, reloaded ->
-                        runner?.notifyGhostUpdateSurfaceRebind(ghost, reloaded)
-                    },
-                    action = action,
-                )
-            }
-            return runner?.withInvalidationCompletions(mutation) ?: mutation()
-        }
         internal fun resetInstanceForTesting() = synchronized(this) {
             productionSessionCoordinator.clearForTesting()
             self = null
@@ -158,10 +118,8 @@ open class SScriptRunner internal constructor(
     }
 
     private var presentationRenderer: GhostPresentationRenderer? = null
-    private var ghostUpdateSurfaceRebindObserver: ((Ghost, Boolean) -> Unit)? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
     private var g: Ghost? = null
-    private val mCtx = ctx?.applicationContext
     private var ucb: UICallback? = null; private var cb: StatusCallback? = null
     private var noWaitMode = false
     private var playback = PlaybackState()
@@ -182,7 +140,6 @@ open class SScriptRunner internal constructor(
     private var passive = false
     private var runtimeModeGeneration: Long = 0L
     private val playbackScheduler = lazy(playbackSchedulerFactory)
-    private val invalidationCompletions = ThreadLocal<MutableList<() -> Unit>?>()
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
     private data class DialogueClearResult(
@@ -199,9 +156,6 @@ open class SScriptRunner internal constructor(
     fun setPresentationRenderer(renderer: GhostPresentationRenderer?) = synchronized(this) {
         presentationRenderer = renderer
         if (renderer != null) currentPresentationFrame?.let(renderer::render)
-    }
-    internal fun setGhostUpdateSurfaceRebindObserver(observer: ((Ghost, Boolean) -> Unit)?) = synchronized(this) {
-        ghostUpdateSurfaceRebindObserver = observer
     }
     fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean =
         dispatchSurfaceInteractionWithDiagnostics(effect).accepted
@@ -265,10 +219,7 @@ open class SScriptRunner internal constructor(
         } else sessionCoordinator.attach(reservation, outgoing, assign)
         if (!assigned) return false
         clearedDialogueState?.let(::publishDialogueState)
-        if (reservation?.reusedActive == true) {
-            newGhost?.let(::deliverPendingTerminalEvent)
-            return true
-        }
+        if (reservation?.reusedActive == true) return true
         try {
             newGhost?.recordActivation()
         } catch (error: RuntimeException) {
@@ -280,7 +231,6 @@ open class SScriptRunner internal constructor(
                 doShioriEvent("OnFirstBoot", arrayOf("0"))
             }
             bootDispatchState.markBootDispatched()
-            deliverPendingTerminalEvent(newGhost)
         }
         return true
     }
@@ -348,23 +298,6 @@ open class SScriptRunner internal constructor(
             schedulePlayback(RUN, state.waitTime, state)
         }
     }
-    private fun deliverPendingTerminalEvent(attachedGhost: Ghost) {
-        mCtx?.let { context ->
-            GhostUpdateWorker.deliverPendingTerminalEventAsync(
-                SharedDurableOperationSupervisor.get(context),
-                attachedGhost.getGhostId(),
-                File(attachedGhost.getGhostPath()),
-            ) { event ->
-                doShioriEventForGhost(
-                    event.ghostId,
-                    File(event.canonicalRoot),
-                    event.name,
-                    event.references.toTypedArray(),
-                )
-            }
-        }
-    }
-
     fun startClock() {
         LegacyPlatform.debug(TAG, "startClock called")
         val start = bootDispatchState.startClock()
@@ -377,7 +310,6 @@ open class SScriptRunner internal constructor(
         } else if (start.dispatchBoot) {
             doBoot()
             bootDispatchState.markBootDispatched()
-            synchronized(this) { g }?.let(::deliverPendingTerminalEvent)
         }
         restore = false
     }
@@ -981,98 +913,6 @@ open class SScriptRunner internal constructor(
             true
         } ?: false
     }
-    @Suppress("UNCHECKED_CAST")
-    internal fun doShioriEventForGhost(
-        expectedGhostId: String,
-        expectedGhostRoot: File,
-        evt: String,
-        ref: Array<out String?>?,
-    ): Boolean = withCurrentGhost { target ->
-        if (
-            target.getGhostId() != expectedGhostId ||
-            File(target.getGhostPath()).canonicalFile != expectedGhostRoot.canonicalFile
-        ) return@withCurrentGhost false
-        val response = target.doShioriEvent(evt, ref as Array<String>?)
-        parseShioriResponseAndInsert(response)
-        true
-    } ?: false
-
-    internal fun doShioriEventForGhost(
-        expectedGhostId: String,
-        evt: String,
-        ref: Array<out String?>?,
-    ): Boolean {
-        val root = synchronized(this) { g?.let { File(it.getGhostPath()) } } ?: return false
-        return doShioriEventForGhost(expectedGhostId, root, evt, ref)
-    }
-
-    internal fun <T> withGhostUpdateQuiesced(ghostId: String, action: () -> T): T {
-        val expected = synchronized(this) { g?.takeIf { it.getGhostId() == ghostId } }
-            ?: return action()
-        return sessionCoordinator.withGhostGate(expected) { action() }
-    }
-
-    internal fun <T> withGhostUpdateCommitQuiesced(
-        ghostId: String,
-        ghostRoot: java.io.File,
-        onFailure: (Throwable) -> T = { throw it },
-        shouldStop: () -> Boolean = { false },
-        onStopped: () -> T = { onFailure(IOException("ghost update stopped while awaiting attachment")) },
-        action: () -> T,
-    ): T {
-        return withInvalidationCompletions {
-            sessionCoordinator.withMutation(
-                ghostId,
-                ghostRoot,
-                shouldStop,
-                onStopped,
-                onFailure,
-                onActiveSessionInvalidated = ::invalidateForSessionUnload,
-                onActiveSessionReloaded = ::notifyGhostUpdateSurfaceRebind,
-                action = action,
-            )
-        }
-    }
-
-    private fun notifyGhostUpdateSurfaceRebind(ghost: Ghost, reloaded: Boolean) {
-        val observer = synchronized(this) { ghostUpdateSurfaceRebindObserver } ?: return
-        try {
-            observer(ghost, reloaded)
-        } catch (error: RuntimeException) {
-            LegacyPlatform.debug(TAG, "ghost update surface rebind observer failed: ${error.message}")
-        }
-    }
-
-    /** Removes state that cannot survive a true unload/reload of the live SHIORI session. */
-    private fun invalidateForSessionUnload(target: Ghost) {
-        val cleared = synchronized(this) {
-            if (g !== target) null else clearDialogueStateLocked(completeLifecycle = true)
-        } ?: return
-        publishDialogueState(cleared.state)
-        val completion = cleared.lifecycleCompletion ?: return
-        val pending = checkNotNull(invalidationCompletions.get()) {
-            "session invalidation must defer callbacks until the coordinator gate is released"
-        }
-        pending += completion
-    }
-
-    private fun <T> withInvalidationCompletions(action: () -> T): T {
-        val parent = invalidationCompletions.get()
-        val completions = mutableListOf<() -> Unit>()
-        invalidationCompletions.set(completions)
-        try {
-            return action()
-        } finally {
-            if (parent == null) {
-                invalidationCompletions.remove()
-                completions.forEach(lifecycleDispatcher::dispatch)
-            } else {
-                invalidationCompletions.set(parent)
-                parent.addAll(completions)
-            }
-        }
-    }
-
     private fun <T> withCurrentGhost(action: (Ghost) -> T): T? =
         withCurrentGhostGate { target, live -> if (live) action(target) else null }
 

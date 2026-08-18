@@ -100,17 +100,19 @@ internal object DurableOperationPresentation {
         OperationKind.REMOTE_NAR -> R.string.durable_operation_remote_nar
         OperationKind.LOCAL_NAR -> R.string.durable_operation_local_nar
         OperationKind.NAR_INSTALL -> R.string.durable_operation_nar_install
-        OperationKind.GHOST_UPDATE -> R.string.durable_operation_ghost_update
     }
 
     @StringRes
-    fun phaseResource(record: DurableOperationRecord) = when {
-        record.status == OperationStatus.CANCEL_REQUESTED -> R.string.durable_phase_stopping
-        record.kind == OperationKind.REMOTE_NAR -> R.string.durable_phase_downloading
-        record.kind == OperationKind.LOCAL_NAR -> R.string.durable_phase_copying
-        record.kind == OperationKind.NAR_INSTALL -> R.string.durable_phase_installing
-        else -> R.string.durable_phase_updating
-    }
+    fun phaseResource(record: DurableOperationRecord) =
+        if (record.status == OperationStatus.CANCEL_REQUESTED) {
+            R.string.durable_phase_stopping
+        } else {
+            when (record.kind) {
+                OperationKind.REMOTE_NAR -> R.string.durable_phase_downloading
+                OperationKind.LOCAL_NAR -> R.string.durable_phase_copying
+                OperationKind.NAR_INSTALL -> R.string.durable_phase_installing
+            }
+        }
 
     @StringRes
     fun actionLabelResource(action: DurableAttentionAction) = when (action) {

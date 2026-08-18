@@ -287,7 +287,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 append('\t').append(record.status.name)
                 append('\t').append(if (record.showStallPrompt) "1" else "0")
                 append('\t').append(encoded(record.diagnostics))
-                append('\t').append(encodedTerminalEvent(record.pendingGhostUpdateEvent))
+                append("\t-")
                 append('\t').append(record.attentionRetryGeneration)
                 append('\t').append(record.progressGeneration)
                 append('\t').append(record.attentionKeepWaitingGeneration)
@@ -361,6 +361,7 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 else -> throw IllegalArgumentException()
             }
             val history = decodedHistory(fields[5]) ?: throw IllegalArgumentException()
+            if (hasTerminalEvent && fields[11] != "-") throw IllegalArgumentException()
             DurableOperationRecord(
                 id = OperationId(id),
                 attemptId = AttemptId(fields[1].toLong()),
@@ -378,7 +379,6 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 },
                 diagnostics = decodedDiagnostics(fields[10]),
                 externalJobHistory = history,
-                pendingGhostUpdateEvent = if (hasTerminalEvent) decodedTerminalEvent(fields[11]) else null,
                 attentionRetryGeneration = if (hasRetryGeneration) fields[11 + if (hasTerminalEvent) 1 else 0].toLong() else 0L,
                 progressGeneration = if (hasProgressGeneration) fields[12 + if (hasTerminalEvent) 1 else 0].toLong() else 0L,
                 attentionKeepWaitingGeneration = if (hasKeepWaitingGeneration) fields[13 + if (hasTerminalEvent) 1 else 0].toLong() else 0L,
@@ -392,13 +392,13 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
             if (fields.size != 12) {
                 throw DurableOperationStoreCorruptionException("malformed durable operation row")
             }
-            // Version v3 existed on both branches with different final fields. A numeric field
-            // is master's retry generation; any other valid payload is this branch's terminal event.
-            return if (fields[11].toLongOrNull() != null) {
-                decodeRecord(line, hasTerminalEvent = false, hasRetryGeneration = true, hasProgressGeneration = false, hasKeepWaitingGeneration = false)
-            } else {
-                decodeRecord(line, hasTerminalEvent = true, hasRetryGeneration = false, hasProgressGeneration = false, hasKeepWaitingGeneration = false)
-            }
+            return decodeRecord(
+                line,
+                hasTerminalEvent = false,
+                hasRetryGeneration = true,
+                hasProgressGeneration = false,
+                hasKeepWaitingGeneration = false,
+            )
         }
 
         fun decodeLegacyRecord(line: String): DurableOperationRecord = try {
@@ -456,18 +456,6 @@ class SharedPreferencesDurableOperationStore internal constructor(private val st
                 }
             }.sorted()
             return encoded(canonical.joinToString(","))
-        }
-
-        fun encodedTerminalEvent(event: GhostUpdateTerminalEvent?): String = event?.let {
-            (listOf(it.ghostId, it.canonicalRoot, it.name) + it.references)
-                .joinToString(",") { value -> encoded(value) }
-        } ?: "-"
-
-        fun decodedTerminalEvent(value: String): GhostUpdateTerminalEvent? {
-            if (value == "-") return null
-            val fields = value.split(',').map { field -> decoded(field) ?: throw IllegalArgumentException() }
-            if (fields.size < 3 || fields.take(3).any(String::isEmpty)) throw IllegalArgumentException()
-            return GhostUpdateTerminalEvent(fields[0], fields[1], fields[2], fields.drop(3))
         }
 
         fun decodedHistory(value: String): Set<ExternalJobBinding>? {

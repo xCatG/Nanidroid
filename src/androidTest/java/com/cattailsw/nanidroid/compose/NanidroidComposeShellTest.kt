@@ -263,7 +263,7 @@ class NanidroidComposeShellTest {
                     stalledRecord(
                         id = "update-1",
                         status = OperationStatus.CANCEL_REQUESTED,
-                        kind = OperationKind.GHOST_UPDATE,
+                        kind = OperationKind.NAR_INSTALL,
                         diagnostics = CANCELLATION_FAILURE_DIAGNOSTIC_PREFIX,
                     ),
                 ),
@@ -283,7 +283,7 @@ class NanidroidComposeShellTest {
         val update = stalledRecord(
             "update-1",
             OperationStatus.RUNNING,
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
         )
         val records = mutableStateOf(listOf(archive, update))
         composeRule.setContent {
@@ -320,13 +320,13 @@ class NanidroidComposeShellTest {
         composeRule.onNodeWithText("Archive download needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Request stop").performClick()
 
-        composeRule.onNodeWithText("Ghost update needs attention").assertIsDisplayed()
+        composeRule.onNodeWithText("Archive install needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Archive download — Stopping…").assertIsDisplayed()
         composeRule.onNodeWithText("Request stop").performClick()
 
         composeRule.onNodeWithText("Archive download needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Retry stop request").assertIsDisplayed()
-        composeRule.onNodeWithText("Ghost update — Stopping…").assertIsDisplayed()
+        composeRule.onNodeWithText("Archive install — Stopping…").assertIsDisplayed()
     }
 
     @Test
@@ -335,7 +335,7 @@ class NanidroidComposeShellTest {
         val update = stalledRecord(
             "update-1",
             OperationStatus.RUNNING,
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
         )
         composeRule.setContent {
             NanidroidComposeShell(
@@ -354,7 +354,7 @@ class NanidroidComposeShellTest {
 
         composeRule.onNodeWithText("Archive download needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Request stop").assertIsDisplayed()
-        composeRule.onNodeWithText("Ghost update needs attention").assertDoesNotExist()
+        composeRule.onNodeWithText("Archive install needs attention").assertDoesNotExist()
         composeRule.onNodeWithText("Archive download — Stopping…").assertDoesNotExist()
     }
 
@@ -374,7 +374,7 @@ class NanidroidComposeShellTest {
                     stalledRecord(
                         "update-1",
                         OperationStatus.RUNNING,
-                        kind = OperationKind.GHOST_UPDATE,
+                        kind = OperationKind.NAR_INSTALL,
                     ),
                 ),
             )
@@ -383,7 +383,7 @@ class NanidroidComposeShellTest {
         composeRule.onNodeWithText("Keep waiting").performClick()
 
         composeRule.onNodeWithText("Archive download needs attention").assertIsDisplayed()
-        composeRule.onNodeWithText("Ghost update needs attention").assertDoesNotExist()
+        composeRule.onNodeWithText("Archive install needs attention").assertDoesNotExist()
     }
 
     @Test
@@ -406,7 +406,7 @@ class NanidroidComposeShellTest {
                     stalledRecord(
                         "update-1",
                         OperationStatus.RUNNING,
-                        kind = OperationKind.GHOST_UPDATE,
+                        kind = OperationKind.NAR_INSTALL,
                     ),
                 ),
             )
@@ -416,7 +416,7 @@ class NanidroidComposeShellTest {
 
         composeRule.onNodeWithText("Archive download needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Retry stop request").assertIsDisplayed()
-        composeRule.onNodeWithText("Ghost update needs attention").assertDoesNotExist()
+        composeRule.onNodeWithText("Archive install needs attention").assertDoesNotExist()
     }
 
     @Test
@@ -429,7 +429,7 @@ class NanidroidComposeShellTest {
         val update = stalledRecord(
             "update-1",
             OperationStatus.RUNNING,
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
         )
         val records = mutableStateOf(listOf(archive, update))
         composeRule.setContent {
@@ -455,7 +455,7 @@ class NanidroidComposeShellTest {
 
         composeRule.onNodeWithText("Retry stop request").performClick()
 
-        composeRule.onNodeWithText("Ghost update needs attention").assertIsDisplayed()
+        composeRule.onNodeWithText("Archive install needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Archive download — Stopping…").assertIsDisplayed()
     }
 
@@ -465,7 +465,7 @@ class NanidroidComposeShellTest {
         val update = stalledRecord(
             "update-1",
             OperationStatus.RUNNING,
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
         )
         val records = mutableStateOf(listOf(archive, update))
         composeRule.setContent {
@@ -489,7 +489,7 @@ class NanidroidComposeShellTest {
             )
         }
 
-        composeRule.onNodeWithText("Ghost update needs attention").assertIsDisplayed()
+        composeRule.onNodeWithText("Archive install needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Archive download — Stopping…").assertIsDisplayed()
     }
 
@@ -499,7 +499,7 @@ class NanidroidComposeShellTest {
         val update = stalledRecord(
             "update-1",
             OperationStatus.RUNNING,
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
         )
         val records = mutableStateOf(listOf(archive, update))
         composeRule.setContent {
@@ -528,7 +528,7 @@ class NanidroidComposeShellTest {
 
         composeRule.runOnIdle { records.value = listOf(update) }
 
-        composeRule.onNodeWithText("Ghost update needs attention").assertIsDisplayed()
+        composeRule.onNodeWithText("Archive install needs attention").assertIsDisplayed()
         composeRule.onNodeWithText("Archive download — Stopping…").assertDoesNotExist()
     }
 
@@ -1328,5 +1328,4 @@ class NanidroidComposeShellTest {
         showStallPrompt = true,
         diagnostics = diagnostics,
     )
-
 }
