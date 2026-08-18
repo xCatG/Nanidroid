@@ -454,10 +454,74 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
     $nativeCrash = $nativeCrashProperty.Value
     Assert-JsonKind $nativeCrash @('boolean') "$Side summary result '$Label'.nativeCrash" | Out-Null
     if ($nativeCrash -ne $true) { return $false }
+
+    $checkpointRawProperties = @(
+        'schemaVersion', 'label', 'sha256', 'archiveBytes', 'narCorpusPath', 'passed',
+        'classification', 'installOutcome', 'ghostLoadOutcome', 'renderOutcome',
+        'inputOutcome', 'shioriOutcome', 'surfaceCount', 'namedCollisionProbes',
+        'dialogueProbe', 'checkpointPhase', 'evidence', 'observedKind',
+        'parserDiagnostics', 'installProgress', 'installedTargetId', 'surfaceKeys',
+        'sakura', 'kero'
+    )
+    Assert-ExactSet @($Raw.PSObject.Properties | ForEach-Object { [string]$_.Name }) $checkpointRawProperties "$Side accepted native checkpoint '$Label' raw property set"
+
     $rule = $script:NarCorpusGhostEnvelopeRulesByLabel[$Label]
     if ($null -eq $rule) { throw "$Side accepted native checkpoint '$Label' has no exact manifest/SHA-bound lifecycle rule" }
+    Assert-EqualString (Get-RequiredProperty $Entry 'label' "manifest entry '$Label'") $Label "$Side accepted native checkpoint '$Label' manifest label"
+    Assert-EqualString (Get-RequiredProperty $Entry 'expectedKind' "manifest entry '$Label'") 'ghost' "$Side accepted native checkpoint '$Label' manifest kind"
+    $manifestSha = Get-RequiredProperty $Entry 'sha256' "manifest entry '$Label'"
+    Assert-JsonKind $manifestSha @('string') "$Side accepted native checkpoint '$Label' manifest SHA" | Out-Null
+    Assert-EqualString (Get-RequiredProperty $rule 'archiveSha256' "$Side accepted native checkpoint '$Label' lifecycle rule") ([string]$manifestSha) "$Side accepted native checkpoint '$Label' lifecycle-rule archive SHA"
     Assert-ExactJsonValue $rule.classification 'compatible' "$Side accepted native checkpoint '$Label' reviewed classification"
-    if ($null -ne $Raw.PSObject.Properties['cleanup']) { throw "$Side accepted native checkpoint '$Label' must preserve the cleanup-less raw checkpoint" }
+    Assert-EqualString (Get-RequiredProperty $Raw 'schemaVersion' "$Side raw result '$Label'") '2' "$Side accepted native checkpoint '$Label'.schemaVersion"
+    Assert-EqualString (Get-RequiredProperty $Raw 'label' "$Side raw result '$Label'") $Label "$Side accepted native checkpoint '$Label'.label"
+    Assert-EqualString (Get-RequiredProperty $Raw 'sha256' "$Side raw result '$Label'") ([string]$manifestSha) "$Side accepted native checkpoint '$Label'.sha256"
+    Assert-EqualString (Get-RequiredProperty $Row 'label' "$Side summary result '$Label'") $Label "$Side accepted native checkpoint '$Label' summary label"
+    Assert-EqualString (Get-RequiredProperty $Row 'sha256' "$Side summary result '$Label'") ([string]$manifestSha) "$Side accepted native checkpoint '$Label' summary SHA"
+
+    $archiveBytes = Get-RequiredProperty $Raw 'archiveBytes' "$Side raw result '$Label'"
+    Assert-JsonKind $archiveBytes @('number') "$Side accepted native checkpoint '$Label'.archiveBytes" | Out-Null
+    if ($archiveBytes.Token -notmatch '^[1-9][0-9]*$') { throw "$Side accepted native checkpoint '$Label'.archiveBytes must be a positive exact JSON integer" }
+    Assert-ExactJsonValue (Get-RequiredProperty $Row 'archiveBytes' "$Side summary result '$Label'") $archiveBytes "$Side accepted native checkpoint '$Label' summary archiveBytes raw mirror"
+
+    $runId = Get-RequiredProperty $Row 'runId' "$Side summary result '$Label'"
+    Assert-JsonKind $runId @('string') "$Side accepted native checkpoint '$Label' summary runId" | Out-Null
+    if ([string]$runId -notmatch '^[0-9a-f]{32}$') { throw "$Side accepted native checkpoint '$Label' summary runId is not exact" }
+    $safeLabel = ConvertTo-SafeLabel $Label
+    Assert-EqualString (Get-RequiredProperty $Row 'safeLabel' "$Side summary result '$Label'") $safeLabel "$Side accepted native checkpoint '$Label' summary safeLabel"
+    $narCorpusPath = Get-RequiredProperty $Raw 'narCorpusPath' "$Side raw result '$Label'"
+    Assert-JsonKind $narCorpusPath @('string') "$Side accepted native checkpoint '$Label'.narCorpusPath" | Out-Null
+    $expectedPath = '^/data/(?:user/0|data)/com\.cattailsw\.nanidroid/cache/nar-corpus-host/' + [regex]::Escape([string]$runId) + '/' + [regex]::Escape($safeLabel) + '/nanidroid-corpus\.nar\z'
+    if ([string]$narCorpusPath -notmatch $expectedPath) { throw "$Side accepted native checkpoint '$Label'.narCorpusPath must match its exact run-owned source path" }
+
+    foreach ($typedField in @(
+        @{ name = 'namedCollisionProbes'; kind = 'array' },
+        @{ name = 'evidence'; kind = 'object' },
+        @{ name = 'parserDiagnostics'; kind = 'array' },
+        @{ name = 'installProgress'; kind = 'array' },
+        @{ name = 'surfaceKeys'; kind = 'array' },
+        @{ name = 'sakura'; kind = 'object' },
+        @{ name = 'kero'; kind = 'object' }
+    )) {
+        Assert-JsonKind (Get-RequiredProperty $Raw $typedField.name "$Side raw result '$Label'") @($typedField.kind) "$Side accepted native checkpoint '$Label'.$($typedField.name)" | Out-Null
+    }
+    $surfaceCount = Get-RequiredProperty $Raw 'surfaceCount' "$Side raw result '$Label'"
+    Assert-JsonKind $surfaceCount @('number') "$Side accepted native checkpoint '$Label'.surfaceCount" | Out-Null
+    if ($surfaceCount.Token -notmatch '^[1-9][0-9]*$') { throw "$Side accepted native checkpoint '$Label'.surfaceCount must be a positive exact JSON integer" }
+
+    foreach ($mirrorName in @('parserDiagnostics', 'evidence')) {
+        $difference = Find-FirstDifference (Get-RequiredProperty $Raw $mirrorName "$Side raw result '$Label'") (Get-RequiredProperty $Row $mirrorName "$Side summary result '$Label'") "$mirrorName raw mirror"
+        if ($difference) { throw "$Side accepted native checkpoint '$Label' summary $mirrorName raw mirror mismatch at $difference" }
+    }
+
+    $nativeCrashEvidence = Get-RequiredProperty $Row 'nativeCrashEvidence' "$Side summary result '$Label'"
+    Assert-EqualString $nativeCrashEvidence "Accepted native crash marker for ${Label}: target process+SIGSEGV+libkawari8" "$Side accepted native checkpoint '$Label' summary nativeCrashEvidence"
+    $crashEvidence = Get-RequiredProperty $Row 'crashEvidence' "$Side summary result '$Label'"
+    Assert-JsonKind $crashEvidence @('string') "$Side accepted native checkpoint '$Label' summary crashEvidence" | Out-Null
+    foreach ($marker in @('com\.cattailsw\.nanidroid', 'SIGSEGV', 'libkawari8\.so')) {
+        if ([string]$crashEvidence -notmatch $marker) { throw "$Side accepted native checkpoint '$Label' summary crashEvidence is missing '$marker'" }
+    }
+
     Assert-EqualString (Get-RequiredProperty $Row 'runtimeCheckpointPhase' "$Side summary result '$Label'") 'before-real-shiori' "$Side summary result '$Label'.runtimeCheckpointPhase"
     Assert-EqualString (Get-RequiredProperty $Raw 'checkpointPhase' "$Side raw result '$Label'") 'before-real-shiori' "$Side raw result '$Label'.checkpointPhase"
     Assert-EqualString (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") 'incompatible' "$Side summary result '$Label'.classification"
@@ -483,12 +547,35 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
 
     $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
     Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
+    Assert-ExactSet @($probe.PSObject.Properties | ForEach-Object { [string]$_.Name }) @('outcome', 'module', 'status', 'value', 'observedAnchorId', 'observedInputId', 'passiveTransitions', 'method', 'eventId', 'references', 'tokenizerDiagnostics', 'failure') "$Side accepted native checkpoint '$Label'.dialogueProbe property set"
+    Assert-EqualString (Get-RequiredProperty $Raw 'observedKind' "$Side raw result '$Label'") 'ghost' "$Side accepted native checkpoint '$Label'.observedKind"
+    $checkpointPassed = Get-RequiredProperty $Raw 'passed' "$Side raw result '$Label'"; Assert-JsonKind $checkpointPassed @('boolean') "$Side accepted native checkpoint '$Label'.passed" | Out-Null; if ($checkpointPassed -ne $true) { throw "$Side accepted native checkpoint '$Label'.passed must be true" }
+    Assert-ExactJsonValue (Get-RequiredProperty $Row 'passed' "$Side summary result '$Label'") $checkpointPassed "$Side accepted native checkpoint '$Label' summary passed raw mirror"
+    $checkpointArchivePrefix = ([string]$Raw.sha256).Substring(0, 16)
+    Assert-EqualString (Get-RequiredProperty $Raw 'installedTargetId' "$Side raw result '$Label'") ("corpus-" + $checkpointArchivePrefix) "$Side accepted native checkpoint '$Label'.installedTargetId"
     Assert-EqualString (Get-RequiredProperty $probe 'method' "$Side raw result '$Label'.dialogueProbe") 'GET' "$Side raw result '$Label'.dialogueProbe.method"
     Assert-EqualString (Get-RequiredProperty $probe 'eventId' "$Side raw result '$Label'.dialogueProbe") 'OnBoot' "$Side raw result '$Label'.dialogueProbe.eventId"
+    $references = Get-RequiredProperty $probe 'references' "$Side raw result '$Label'.dialogueProbe"; Assert-JsonKind $references @('array') "$Side raw result '$Label'.dialogueProbe.references" | Out-Null
+    $expectedShellName = @{ 'Big Red Button' = 'Functional'; 'LOBO' = 'Master'; 'Nanika Atsume 1.0.0' = 'Nanika Atsume'; 'Nanika Atsume 1.0.1' = 'Nanika Atsume'; 'Nanika Atsume silent_ALPHA' = 'Nanika Atsume'; 'Watchdog Bancho' = 'master' }[$Label]
+    if ($null -eq $expectedShellName -or @($references).Count -ne 1) { throw "$Side accepted native checkpoint '$Label'.references must contain exactly its reviewed shell name" }
+    Assert-EqualString $references[0] $expectedShellName "$Side accepted native checkpoint '$Label'.dialogueProbe.references[0]"
     Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'pending-real-shiori' "$Side raw result '$Label'.dialogueProbe.outcome"
     if ($null -ne (Get-RequiredProperty $probe 'status' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.status must be null at the native checkpoint" }
     if ($null -ne (Get-RequiredProperty $probe 'failure' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.failure must be null at the native checkpoint" }
-    foreach ($snapshotName in @('observedPrivateSnapshot', 'observedTmpSnapshot')) {
+    if ($null -ne (Get-RequiredProperty $probe 'value' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.value must be null before the real SHIORI request" }
+    foreach ($nullField in @('module', 'observedAnchorId', 'observedInputId')) {
+        if ($null -ne (Get-RequiredProperty $probe $nullField "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.$nullField must be null before the real SHIORI request" }
+    }
+    $passiveTransitions = Get-RequiredProperty $probe 'passiveTransitions' "$Side raw result '$Label'.dialogueProbe"
+    Assert-JsonKind $passiveTransitions @('array') "$Side raw result '$Label'.dialogueProbe.passiveTransitions" | Out-Null
+    if (@($passiveTransitions).Count -ne 0) { throw "$Side raw result '$Label'.dialogueProbe.passiveTransitions must be empty before the real SHIORI request" }
+    $diagnostics = Get-RequiredProperty $probe 'tokenizerDiagnostics' "$Side raw result '$Label'.dialogueProbe"
+    Assert-JsonKind $diagnostics @('array') "$Side raw result '$Label'.dialogueProbe.tokenizerDiagnostics" | Out-Null
+    if (@($diagnostics).Count -ne 0) { throw "$Side raw result '$Label'.dialogueProbe.tokenizerDiagnostics must be empty before the real SHIORI request" }
+    foreach ($postRequestField in @('onBootContext', 'sequence', 'postInteractionEvidence')) {
+        if ($null -ne $probe.PSObject.Properties[$postRequestField]) { throw "$Side raw result '$Label'.dialogueProbe.$postRequestField must be absent before the real SHIORI request" }
+    }
+    foreach ($snapshotName in @('observedPrivateSnapshot', 'observedOutputSnapshot', 'observedTmpSnapshot')) {
         $snapshot = Get-RequiredProperty $Row $snapshotName "$Side summary result '$Label'"
         Assert-JsonKind $snapshot @('array') "$Side accepted native checkpoint '$Label'.$snapshotName" | Out-Null
         if (@($snapshot).Count -ne 0) { throw "$Side accepted native checkpoint '$Label'.$snapshotName must be empty" }
@@ -1085,7 +1172,7 @@ function ConvertTo-CanonicalRun {
     }
     foreach ($row in @($summary.results)) {
         $label = [string]$row.label
-        if (Test-AcceptedNativeCheckpoint $row $Run.Raw[$label] $Run.Entries[$label] 'canonical' $label) { continue }
+        if (Test-AcceptedNativeCheckpoint $Run.Rows[$label] $Run.Raw[$label] $Run.Entries[$label] 'canonical' $label) { continue }
         foreach ($propertyName in @('observedPrivateSnapshot', 'observedTmpSnapshot')) {
             $value = Get-RequiredProperty $row $propertyName "summary result '$($row.label)'"
             $pathText = if ($propertyName -ceq 'observedPrivateSnapshot') { [string]$Contract.normalization.summaryObservedPrivateSnapshotPath } else { [string]$Contract.normalization.summaryObservedTmpSnapshotPath }

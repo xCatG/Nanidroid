@@ -518,6 +518,77 @@ function Get-Row([object]$Summary, [string]$Label) {
     @($Summary.results | Where-Object label -CEQ $Label)[0]
 }
 
+function Set-AcceptedNativeCheckpointFixture([string]$Side, [string]$Label, [string]$ShellName) {
+    $safeLabel = ConvertTo-SafeLabel $Label
+    $rawPath = Join-Path $fixtureRoot "$Side\$safeLabel\result.json"
+    $raw = Get-Json $rawPath
+    $checkpoint = [pscustomobject][ordered]@{
+        schemaVersion = '2'
+        label = $Label
+        sha256 = [string]$raw.sha256
+        archiveBytes = 4096
+        narCorpusPath = [string]$raw.narCorpusPath
+        passed = $true
+        classification = 'incompatible'
+        installOutcome = 'installed'
+        ghostLoadOutcome = 'surface-loaded'
+        renderOutcome = 'production-stage-rendered'
+        inputOutcome = [string]$compatibleGhostSuccessRules[$Label].inputOutcome
+        shioriOutcome = 'pending-real-shiori'
+        surfaceCount = 2
+        namedCollisionProbes = @()
+        dialogueProbe = [pscustomobject][ordered]@{
+            outcome = 'pending-real-shiori'
+            module = $null
+            status = $null
+            value = $null
+            observedAnchorId = $null
+            observedInputId = $null
+            passiveTransitions = @()
+            method = 'GET'
+            eventId = 'OnBoot'
+            references = @($ShellName)
+            tokenizerDiagnostics = @()
+            failure = $null
+        }
+        checkpointPhase = 'before-real-shiori'
+        evidence = $raw.evidence
+        observedKind = 'ghost'
+        parserDiagnostics = @([pscustomobject]@{ observedKind = 'ghost'; planSuccess = $true; error = $null; detail = 'fixture' })
+        installProgress = @([pscustomobject]@{ phase = 'extract'; completed = 4096 })
+        installedTargetId = "corpus-$(([string]$raw.sha256).Substring(0, 16))"
+        surfaceKeys = @('0', '10')
+        sakura = $raw.sakura
+        kero = $raw.kero
+    }
+    Write-Json -Path $rawPath -Value $checkpoint
+
+    Save-Json (Join-Path $fixtureRoot "$Side\summary.json") { param($summary)
+        $row = Get-Row $summary $Label
+        $row.passed = $true
+        $row | Add-Member -NotePropertyName archiveBytes -NotePropertyValue $checkpoint.archiveBytes -Force
+        $row.classification = $checkpoint.classification
+        foreach ($field in @('installOutcome', 'ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome')) {
+            $row.$field = $checkpoint.$field
+        }
+        $row.runtimeCheckpointPhase = $checkpoint.checkpointPhase
+        $row.dialogueOutcome = $checkpoint.dialogueProbe.outcome
+        $row | Add-Member -NotePropertyName parserDiagnostics -NotePropertyValue $checkpoint.parserDiagnostics -Force
+        $row | Add-Member -NotePropertyName evidence -NotePropertyValue $checkpoint.evidence -Force
+        $payload = [pscustomobject][ordered]@{}
+        foreach ($requiredName in @($row.requiredEvidence)) {
+            $payload | Add-Member -NotePropertyName ([string]$requiredName) -NotePropertyValue $checkpoint.([string]$requiredName)
+        }
+        $row.requiredEvidencePayload = $payload
+        $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true -Force
+        $row | Add-Member -NotePropertyName nativeCrashEvidence -NotePropertyValue "Accepted native crash marker for ${Label}: target process+SIGSEGV+libkawari8" -Force
+        $row | Add-Member -NotePropertyName crashEvidence -NotePropertyValue 'com.cattailsw.nanidroid SIGSEGV libkawari8.so' -Force
+        $row.observedPrivateSnapshot = @()
+        $row | Add-Member -NotePropertyName observedOutputSnapshot -NotePropertyValue @() -Force
+        $row.observedTmpSnapshot = @()
+    }
+}
+
 try {
     Reset-Fixtures
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
@@ -634,47 +705,112 @@ try {
     Assert-Fail 'non-ghost shiori outcome cannot be forged as success' (Invoke-Comparator (Get-ComparatorArguments)) 'shioriOutcome'
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'base\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori'; $r.ghostLoadOutcome = 'surface-loaded'; $r.shioriOutcome = 'pending-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
-    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori'; $r.ghostLoadOutcome = 'surface-loaded'; $r.shioriOutcome = 'pending-real-shiori'; $r.classification = 'incompatible'; $r.dialogueProbe.outcome = 'pending-real-shiori'; $r.dialogueProbe.status = $null }
-    foreach ($side in @('base', 'candidate')) {
-        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
-            $row = Get-Row $s 'Big Red Button'
-            $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
-            $row.runtimeCheckpointPhase = 'before-real-shiori'
-            $row.classification = 'incompatible'
-            $row.ghostLoadOutcome = 'surface-loaded'
-            $row.shioriOutcome = 'pending-real-shiori'
-            $row.dialogueOutcome = 'pending-real-shiori'
-            $row.observedPrivateSnapshot = @()
-            $row.observedTmpSnapshot = @()
-        }
-    }
-    Assert-Pass 'accepted native Kawari checkpoint preserves cleanup-less raw evidence and validates host summary cleanup' (Invoke-Comparator (Get-ComparatorArguments))
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'Big Red Button' 'Functional' }
+    Assert-Pass 'accepted native Kawari checkpoint preserves the exact producer envelope and host cleanup evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
-    foreach ($side in @('base', 'candidate')) {
-        Save-Json (Join-Path $fixtureRoot "$side\LOBO\result.json") { param($r)
-            $r.PSObject.Properties.Remove('cleanup')
-            $r.checkpointPhase = 'before-real-shiori'
-            $r.ghostLoadOutcome = 'surface-loaded'
-            $r.shioriOutcome = 'pending-real-shiori'
-            $r.classification = 'incompatible'
-            $r.dialogueProbe.outcome = 'pending-real-shiori'
-            $r.dialogueProbe.status = $null
-        }
-        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s)
-            $row = Get-Row $s 'LOBO'
-            $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
-            $row.runtimeCheckpointPhase = 'before-real-shiori'
-            $row.classification = 'incompatible'
-            $row.ghostLoadOutcome = 'surface-loaded'
-            $row.shioriOutcome = 'pending-real-shiori'
-            $row.dialogueOutcome = 'pending-real-shiori'
-            $row.observedPrivateSnapshot = @()
-            $row.observedTmpSnapshot = @()
-        }
-    }
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
     Assert-Pass 'accepted native LOBO checkpoint skips only stochastic content validation' (Invoke-Comparator (Get-ComparatorArguments))
+
+    foreach ($field in @('value', 'module', 'observedAnchorId', 'observedInputId')) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+        Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.$field = 'post-request residue' }
+        Assert-Fail "accepted native LOBO checkpoint rejects non-null $field" (Invoke-Comparator (Get-ComparatorArguments)) $field
+    }
+
+    foreach ($field in @('passiveTransitions', 'tokenizerDiagnostics')) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+        Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.$field = @('post-request residue') }
+        Assert-Fail "accepted native LOBO checkpoint rejects nonempty $field" (Invoke-Comparator (Get-ComparatorArguments)) $field
+    }
+
+    foreach ($postRequestResidue in @(
+        @{ name = 'onBootContext'; value = [pscustomobject]@{ profileState = 'fresh'; username = ''; birthdayConfigured = $false; localClockBefore = '2026-08-18T01:00:00-07:00'; localClockAfter = '2026-08-18T01:00:01-07:00' } },
+        @{ name = 'sequence'; value = @([pscustomobject]@{ eventId = 'OnBoot' }) },
+        @{ name = 'postInteractionEvidence'; value = @([pscustomobject]@{ eventId = 'OnChoiceSelect' }) }
+    )) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+        Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe | Add-Member -NotePropertyName $postRequestResidue.name -NotePropertyValue $postRequestResidue.value }
+        Assert-Fail "accepted native LOBO checkpoint rejects post-request $($postRequestResidue.name)" (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe property set'
+    }
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.PSObject.Properties.Remove('module') }
+    Assert-Fail 'accepted native checkpoint rejects a missing dialogue key' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe property set'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe | Add-Member -NotePropertyName futureResult -NotePropertyValue $true }
+    Assert-Fail 'accepted native checkpoint rejects an extra dialogue key' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe property set'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.PSObject.Properties.Remove('method'); $r.dialogueProbe | Add-Member -NotePropertyName requestMethod -NotePropertyValue 'GET' }
+    Assert-Fail 'accepted native checkpoint rejects a renamed dialogue key' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe property set'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.references = @('Functional') }
+    Assert-Fail 'accepted native checkpoint requires the label-bound shell reference' (Invoke-Comparator (Get-ComparatorArguments)) 'references\[0\]'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.installedTargetId = 'corpus-forged' }
+    Assert-Fail 'accepted native checkpoint requires the archive-bound installed target' (Invoke-Comparator (Get-ComparatorArguments)) 'installedTargetId'
+
+    foreach ($field in @('cleanup', 'error', 'unloadError')) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+        Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r | Add-Member -NotePropertyName $field -NotePropertyValue 'forbidden' }
+        Assert-Fail "accepted native checkpoint rejects forbidden top-level $field" (Invoke-Comparator (Get-ComparatorArguments)) "raw property set|cleanup-less|$field.*absent"
+    }
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    foreach ($side in @('base', 'candidate')) { Save-Json (Join-Path $fixtureRoot "$side\LOBO\result.json") { param($r) $r.PSObject.Properties.Remove('parserDiagnostics') } }
+    Assert-Fail 'accepted native checkpoint rejects a missing producer property' (Invoke-Comparator (Get-ComparatorArguments)) 'raw property set'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    foreach ($side in @('base', 'candidate')) { Save-Json (Join-Path $fixtureRoot "$side\LOBO\result.json") { param($r) $r | Add-Member -NotePropertyName completedAt -NotePropertyValue 'after-request' } }
+    Assert-Fail 'accepted native checkpoint rejects an extra producer property' (Invoke-Comparator (Get-ComparatorArguments)) 'raw property set'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.narCorpusPath = '/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/forged/LOBO/nanidroid-corpus.nar' }
+    Assert-Fail 'accepted native checkpoint requires the exact run-owned source path' (Invoke-Comparator (Get-ComparatorArguments)) 'narCorpusPath'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    foreach ($side in @('base', 'candidate')) { Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'LOBO').archiveBytes = 4097 } }
+    Assert-Fail 'accepted native checkpoint requires the summary archive-byte mirror' (Invoke-Comparator (Get-ComparatorArguments)) 'archiveBytes raw mirror'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    foreach ($side in @('base', 'candidate')) { Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'LOBO').parserDiagnostics = @() } }
+    Assert-Fail 'accepted native checkpoint requires the summary parser-diagnostics mirror' (Invoke-Comparator (Get-ComparatorArguments)) 'parserDiagnostics raw mirror'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    foreach ($side in @('base', 'candidate')) { Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'LOBO').nativeCrashEvidence = 'accepted by assertion only' } }
+    Assert-Fail 'accepted native checkpoint requires exact native crash evidence' (Invoke-Comparator (Get-ComparatorArguments)) 'nativeCrashEvidence'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'LOBO').nativeCrash = $false }
+    Assert-Fail 'a pre-request raw checkpoint is not accepted without a native crash' (Invoke-Comparator (Get-ComparatorArguments)) 'classification'
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\LOBO\result.json") { param($r) $r.classification = 'compatible'; $r.ghostLoadOutcome = 'loaded'; $r.shioriOutcome = 'success'; $r.checkpointPhase = 'complete'; $r.dialogueProbe.outcome = 'success'; $r.dialogueProbe.status = 200; $r.dialogueProbe.value = 'completed dialogue' }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) $row = Get-Row $s 'LOBO'; $row.classification = 'compatible'; $row.ghostLoadOutcome = 'loaded'; $row.shioriOutcome = 'success'; $row.runtimeCheckpointPhase = 'complete'; $row.dialogueOutcome = 'success' }
+    }
+    Assert-Fail 'a completed success result cannot be laundered as a cleanup-less native checkpoint' (Invoke-Comparator (Get-ComparatorArguments)) 'accepted native checkpoint.*classification|runtimeCheckpointPhase|missing cleanup'
 
     # A matching pair must still be rejected when it claims an impossible
     # compatible-ghost lifecycle: canonical equality alone is not evidence.
@@ -733,20 +869,16 @@ try {
     Assert-Fail 'native checkpoint rejects a string nativeCrash flag' (Invoke-Comparator (Get-ComparatorArguments)) 'nativeCrash'
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori' }
+    Set-AcceptedNativeCheckpointFixture 'candidate' 'Big Red Button' 'Functional'
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s)
         $row = Get-Row $s 'Big Red Button'
-        $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true
         $row.runtimeCheckpointPhase = 'after-real-shiori'
-        $row.classification = 'incompatible'
-        $row.observedPrivateSnapshot = @()
-        $row.observedTmpSnapshot = @()
     }
     Assert-Fail 'native checkpoint requires the exact raw summary checkpoint predicate' (Invoke-Comparator (Get-ComparatorArguments)) 'runtimeCheckpointPhase'
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\Big-Red-Button\result.json') { param($r) $r.PSObject.Properties.Remove('cleanup'); $r.checkpointPhase = 'before-real-shiori' }
-    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $row = Get-Row $s 'Big Red Button'; $row | Add-Member -NotePropertyName nativeCrash -NotePropertyValue $true; $row.runtimeCheckpointPhase = 'before-real-shiori'; $row.classification = 'incompatible'; $row.cleanup.remainingTestOwnedPaths = @('residue') }
+    Set-AcceptedNativeCheckpointFixture 'candidate' 'Big Red Button' 'Functional'
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Big Red Button').cleanup.remainingTestOwnedPaths = @('residue') }
     Assert-Fail 'accepted native Kawari checkpoint still requires exact host cleanup evidence' (Invoke-Comparator (Get-ComparatorArguments)) 'summary cleanup residue'
     Reset-Fixtures
     Assert-Pass 'fresh baseline report after native checkpoint coverage' (Invoke-Comparator (Get-ComparatorArguments))
