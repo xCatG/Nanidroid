@@ -646,7 +646,7 @@ class DurableOperationAttentionCoordinatorTest {
         scheduler.runPending()
         repairSupervisor.start(
             handle,
-            OperationKind.GHOST_UPDATE,
+            OperationKind.NAR_INSTALL,
             "Updating ghost",
             0L,
             malformedBinding,

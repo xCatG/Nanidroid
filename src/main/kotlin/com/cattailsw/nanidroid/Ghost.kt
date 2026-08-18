@@ -86,21 +86,6 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
         }
     }
 
-    internal open fun reloadAfterGhostUpdate() {
-        error = false
-        shiori = null
-        eventCapabilities = PointerEventCapabilities()
-        mgr = SurfaceManager(ghostDirName)
-        loadGhostInfo()
-        if (shiori == null) throw IllegalStateException("ghost reload did not establish a SHIORI session")
-    }
-
-    internal open fun deactivateAfterGhostUpdateReloadFailure() {
-        error = true
-        shiori = null
-        eventCapabilities = PointerEventCapabilities()
-    }
-
     open fun getGhostId(): String = ghostDirName
     fun getGhostDirName(): String = ghostDirName
     fun getGhostPath(): String = rootPath

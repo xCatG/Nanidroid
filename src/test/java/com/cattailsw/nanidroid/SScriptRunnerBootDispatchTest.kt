@@ -1,12 +1,5 @@
 package com.cattailsw.nanidroid
 
-import android.os.Handler
-import android.os.Looper
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
-import io.mockk.verify
 import org.junit.After
 import org.junit.Assert
 import org.junit.Rule
@@ -21,23 +14,10 @@ import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
-import com.cattailsw.nanidroid.durable.AttemptId
-import com.cattailsw.nanidroid.durable.DurableOperationSupervisor
-import com.cattailsw.nanidroid.durable.ExternalJobBinding
-import com.cattailsw.nanidroid.durable.GhostUpdateTerminalEvent
-import com.cattailsw.nanidroid.durable.GhostUpdateRepository
-import com.cattailsw.nanidroid.durable.OperationHandle
-import com.cattailsw.nanidroid.durable.OperationId
-import com.cattailsw.nanidroid.durable.OperationKind
-import com.cattailsw.nanidroid.durable.OperationStatus
-import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
-import com.cattailsw.nanidroid.durable.SharedPreferencesDurableOperationStore
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import androidx.compose.ui.unit.IntOffset
 import java.util.Hashtable
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 /** Characterizes boot delivery across runner clock and ghost lifecycles.  */
 class SScriptRunnerBootDispatchTest {
@@ -54,7 +34,6 @@ class SScriptRunnerBootDispatchTest {
         for (runner in runners) {
             runner.stopClock()
         }
-        SharedDurableOperationSupervisor.resetForTesting()
     }
 
     @Test
@@ -94,88 +73,6 @@ class SScriptRunnerBootDispatchTest {
         runner.startClock()
 
         Assert.assertEquals(mutableListOf<String?>("recreated:OnBoot:[master]"), trace)
-    }
-
-    @Test
-    fun retainedTerminalEventFollowsBootWhenItsGhostIsColdAttached() {
-        val trace = mutableListOf<String?>()
-        val root = java.io.File("build/cold-attached-terminal").canonicalFile
-        val binding = ExternalJobBinding.WorkManager("00000000-0000-0000-0000-000000000183")
-        val event = GhostUpdateTerminalEvent(
-            ghostId = "recreated",
-            canonicalRoot = root.path,
-            name = "OnUpdateComplete",
-            references = listOf("changed", "ghost/master.txt"),
-        )
-        val supervisor = DurableOperationSupervisor(
-            SharedPreferencesDurableOperationStore(SharedPreferencesDurableOperationStore.MemoryStorage()),
-            MonotonicClock { 0L },
-            { _, _, _ -> },
-        )
-        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1L))
-        Assert.assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
-        Assert.assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
-        SharedDurableOperationSupervisor.replaceForTesting(supervisor)
-        val runner = SScriptRunner(mockk(relaxed = true), GhostSessionCoordinator())
-        runners += runner
-
-        runner.setGhost(RecordingGhost("recreated", "Recreated Ghost", 2, trace, root.path))
-        runner.startClock()
-        awaitTrace(trace, 2)
-
-        Assert.assertEquals(
-            listOf(
-                "recreated:OnBoot:[master]",
-                "recreated:OnUpdateComplete:[changed, ghost/master.txt]",
-            ),
-            trace,
-        )
-    }
-
-    @Test
-    fun retainedTerminalEventFollowsGhostChangedWhenItsGhostReplacesTheActiveSession() {
-        val trace = mutableListOf<String?>()
-        val root = java.io.File("build/replacement-terminal").canonicalFile
-        val binding = ExternalJobBinding.WorkManager("00000000-0000-0000-0000-000000000184")
-        val event = GhostUpdateTerminalEvent(
-            ghostId = root.name,
-            canonicalRoot = root.path,
-            name = "OnUpdateComplete",
-            references = listOf("changed", "ghost/master.txt"),
-        )
-        val supervisor = DurableOperationSupervisor(
-            SharedPreferencesDurableOperationStore(SharedPreferencesDurableOperationStore.MemoryStorage()),
-            MonotonicClock { 0L },
-            { _, _, _ -> },
-        )
-        val handle = OperationHandle(GhostUpdateRepository.canonicalOperationIdFor(root), AttemptId(1L))
-        Assert.assertTrue(supervisor.start(handle, OperationKind.GHOST_UPDATE, "Updating", 0, binding))
-        Assert.assertTrue(supervisor.finishWithTerminalEvent(handle, binding, OperationStatus.COMPLETED, event))
-        SharedDurableOperationSupervisor.replaceForTesting(supervisor)
-        val runner = SScriptRunner(mockk(relaxed = true), GhostSessionCoordinator())
-        runners += runner
-        val initial = RecordingGhost("initial", "Initial Ghost", 2, trace)
-
-        runner.setGhost(initial)
-        runner.startClock()
-        runner.unloadGhostForSwitchForTesting(initial)
-        Assert.assertTrue(
-            runner.attachReservedGhost(
-                runner.reserveGhostForAttachmentForTesting(
-                    RecordingGhost(root.name, "Replacement Ghost", 2, trace, root.path),
-                ),
-            ),
-        )
-        awaitTrace(trace, 3)
-
-        Assert.assertEquals(
-            listOf(
-                "initial:OnBoot:[master]",
-                "${root.name}:OnGhostChanged:[Initial Ghost, null]",
-                "${root.name}:OnUpdateComplete:[changed, ghost/master.txt]",
-            ),
-            trace,
-        )
     }
 
     @Test
@@ -506,103 +403,6 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
-    fun updateReloadInvalidatesPassiveDialogueAndStaleActionsFromTheOldSession() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hshown\\q[Old,old]\\![enter,passivemode]\\e"))
-        runner.run()
-        val oldAction = runner.dialogueStateSnapshot().pendingChoices.single()
-
-        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
-        runner.activateChoice(oldAction)
-
-        Assert.assertFalse(runner.runtimeModeSnapshot().passive)
-        Assert.assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
-        Assert.assertTrue(runner.dialogueStateSnapshot().pendingChoices.isEmpty())
-        Assert.assertTrue(ghost.eventRequests.isEmpty())
-    }
-
-    @Test
-    fun updateReloadWhileInputIsPausedLetsTheReloadedSessionPlayTimerTalk() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
-        runner.setNoWaitMode(true)
-        var shownInputId: String? = null
-        runner.setUICallback(object : SScriptRunner.UICallback {
-            override fun showUserInputBox(id: String) {
-                shownInputId = id
-            }
-
-            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
-        })
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf()).apply {
-            rawResponses += talk("\\hnew session timer talk\\e")
-        }
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9old tail\\e"))
-        runner.run()
-        val pending = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
-        val staleDialog = DialogueDialogBinding { runner }.userInput("answer", pending.generation)
-        Assert.assertEquals("answer", shownInputId)
-
-        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
-        staleDialog.onSubmit("answer", "stale")
-        staleDialog.onCancel()
-        runner.dispatchClockTickForTesting()
-
-        Assert.assertEquals(1, ghost.unloadCount)
-        Assert.assertEquals(1, ghost.reloadCount)
-        Assert.assertTrue(ghost.eventRequests.isEmpty())
-        Assert.assertEquals(
-            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("new session timer talk")))),
-            runner.dialogueStateSnapshot().contents,
-        )
-        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
-    }
-
-    @Test
-    fun updateReloadRejectsQueuedPlaybackCallbacksFromTheInvalidatedSession() {
-        val scheduler = RecordingPlaybackScheduler()
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackSchedulerFactory = { scheduler },
-        )
-        var inputShown = false
-        val frames = mutableListOf<GhostPresentationFrame>()
-        runner.setUICallback(object : SScriptRunner.UICallback {
-            override fun showUserInputBox(id: String) {
-                inputShown = true
-            }
-
-            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
-        })
-        runner.setPresentationRendererForTesting(frames::add)
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf()).apply {
-            rawResponses += talk("\\hnew session talk\\e")
-        }
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9old tail\\e"))
-        runner.run()
-        val stalePlaybackCallback = scheduler.captureNext()
-        scheduler.runUntil { inputShown }
-        Assert.assertEquals(0, scheduler.pendingCount)
-
-        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
-        frames.clear()
-        runner.dispatchClockTickForTesting()
-
-        stalePlaybackCallback()
-        Assert.assertTrue(frames.isEmpty())
-        scheduler.runPending()
-        Assert.assertTrue(frames.any { it.sakura.text.contains("new session talk") })
-        Assert.assertTrue(frames.none { it.sakura.text.contains("old tail") })
-        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
-    }
-
-    @Test
     fun ordinaryInputPauseAndResumeKeepsTheCurrentScriptPlayable() {
         val scheduler = RecordingPlaybackScheduler()
         val runner = SScriptRunner(
@@ -638,428 +438,6 @@ class SScriptRunnerBootDispatchTest {
 
         Assert.assertTrue(frames.any { it.sakura.text.contains("resumed tail") })
         Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
-    }
-
-    @Test
-    fun claimedStopFromInvalidatedPlaybackCannotCancelReloadedTalk() {
-        val scheduler = RecordingPlaybackScheduler()
-        val claimed = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackSchedulerFactory = { scheduler },
-            playbackHooks = SScriptPlaybackHooks(
-                afterStopClaimed = {
-                    claimed.countDown()
-                    Assert.assertTrue(release.await(5, TimeUnit.SECONDS))
-                },
-            ),
-        )
-        val frames = mutableListOf<GhostPresentationFrame>()
-        runner.setPresentationRendererForTesting(frames::add)
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\e"))
-        runner.run()
-        scheduler.runNext()
-        scheduler.runNext()
-
-        val oldStop = Thread(scheduler::runNext)
-        oldStop.start()
-        Assert.assertTrue(claimed.await(5, TimeUnit.SECONDS))
-        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
-        frames.clear()
-        runner.addMsgToQueue(arrayOf("\\hnew session talk\\e"))
-        runner.run()
-        Assert.assertEquals(1, scheduler.pendingCount)
-
-        release.countDown()
-        oldStop.join(5_000L)
-        Assert.assertFalse(oldStop.isAlive)
-        Assert.assertEquals(1, scheduler.pendingCount)
-        scheduler.runPending()
-
-        Assert.assertTrue(frames.any { it.sakura.text.contains("new session talk") })
-        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
-    }
-
-    @Test
-    fun claimedRunFromInvalidatedPlaybackCannotAdvanceReloadedTalk() {
-        val scheduler = RecordingPlaybackScheduler()
-        val claimed = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackSchedulerFactory = { scheduler },
-            playbackHooks = SScriptPlaybackHooks(
-                afterRunClaimed = {
-                    claimed.countDown()
-                    Assert.assertTrue(release.await(5, TimeUnit.SECONDS))
-                },
-            ),
-        )
-        val frames = mutableListOf<GhostPresentationFrame>()
-        runner.setPresentationRendererForTesting(frames::add)
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hold session talk\\e"))
-        runner.run()
-
-        val oldRun = Thread(scheduler::runNext)
-        oldRun.start()
-        Assert.assertTrue(claimed.await(5, TimeUnit.SECONDS))
-        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
-        frames.clear()
-        runner.addMsgToQueue(arrayOf("\\hnew session talk\\e"))
-        runner.run()
-        Assert.assertEquals(1, scheduler.pendingCount)
-
-        release.countDown()
-        oldRun.join(5_000L)
-        Assert.assertFalse(oldRun.isAlive)
-        Assert.assertTrue(frames.isEmpty())
-        Assert.assertEquals(1, scheduler.pendingCount)
-        scheduler.runPending()
-
-        Assert.assertTrue(frames.any { it.sakura.text.contains("new session talk") })
-        Assert.assertTrue(frames.none { it.sakura.text.contains("old session talk") })
-        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
-    }
-
-    @Test
-    fun invalidatedRunPreparationCannotScheduleIntoReloadedPlayback() {
-        val scheduler = RecordingPlaybackScheduler()
-        val prepared = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val firstPreparation = AtomicBoolean(true)
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackSchedulerFactory = { scheduler },
-            playbackHooks = SScriptPlaybackHooks(
-                afterRunPrepared = {
-                    if (firstPreparation.compareAndSet(true, false)) {
-                        prepared.countDown()
-                        Assert.assertTrue(release.await(5, TimeUnit.SECONDS))
-                    }
-                },
-            ),
-        )
-        val frames = mutableListOf<GhostPresentationFrame>()
-        runner.setPresentationRendererForTesting(frames::add)
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hold prepared talk\\e"))
-
-        val oldRun = Thread(runner::run)
-        oldRun.start()
-        Assert.assertTrue(prepared.await(5, TimeUnit.SECONDS))
-        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) { Unit }
-        runner.addMsgToQueue(arrayOf("\\hnew session talk\\e"))
-        runner.run()
-        Assert.assertEquals(1, scheduler.pendingCount)
-
-        release.countDown()
-        oldRun.join(5_000L)
-        Assert.assertFalse(oldRun.isAlive)
-        Assert.assertEquals(1, scheduler.pendingCount)
-        scheduler.runPending()
-
-        Assert.assertTrue(frames.any { it.sakura.text.contains("new session talk") })
-        Assert.assertTrue(frames.none { it.sakura.text.contains("old prepared talk") })
-        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
-    }
-
-    @Test
-    fun capturedSurfaceChangeFromInvalidatedPlaybackDoesNotReachReloadedShiori() {
-        lateinit var runner: SScriptRunner
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackHooks = SScriptPlaybackHooks(
-                afterSurfaceChangeCaptured = {
-                    runner.withGhostUpdateCommitQuiesced(
-                        ghost.getGhostId(),
-                        java.io.File(ghost.getGhostPath()),
-                    ) { Unit }
-                },
-            ),
-        )
-        runner.setNoWaitMode(true)
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\h\\s[42]\\e"))
-
-        runner.run()
-
-        Assert.assertTrue(ghost.eventRequests.none { it.startsWith("OnSurfaceChange:") })
-        Assert.assertEquals(1, ghost.reloadCount)
-    }
-
-    @Test
-    fun capturedInputPromptFromInvalidatedPlaybackIsNotPublished() {
-        lateinit var runner: SScriptRunner
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackHooks = SScriptPlaybackHooks(
-                afterInputEffectCaptured = {
-                    runner.withGhostUpdateCommitQuiesced(
-                        ghost.getGhostId(),
-                        java.io.File(ghost.getGhostPath()),
-                    ) { Unit }
-                },
-            ),
-        )
-        var prompts = 0
-        runner.setNoWaitMode(true)
-        runner.setUICallback(object : SScriptRunner.UICallback {
-            override fun showUserInputBox(id: String) {
-                prompts++
-            }
-
-            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
-        })
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\h\\![open,inputbox,answer]\\e"))
-
-        runner.run()
-
-        Assert.assertEquals(0, prompts)
-        Assert.assertEquals(1, ghost.reloadCount)
-    }
-
-    @Test
-    fun capturedSelectionFromInvalidatedPlaybackIsNotPublished() {
-        lateinit var runner: SScriptRunner
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackHooks = SScriptPlaybackHooks(
-                afterSelectionEffectCaptured = {
-                    runner.withGhostUpdateCommitQuiesced(
-                        ghost.getGhostId(),
-                        java.io.File(ghost.getGhostPath()),
-                    ) { Unit }
-                },
-            ),
-        )
-        var selections = 0
-        runner.setNoWaitMode(true)
-        runner.setUICallback(object : SScriptRunner.UICallback {
-            override fun showUserInputBox(id: String) = Unit
-
-            override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
-                selections++
-            }
-        })
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\h\\q[One,id1]\\e"))
-
-        runner.run()
-
-        Assert.assertEquals(0, selections)
-        Assert.assertEquals(1, ghost.reloadCount)
-    }
-
-    @Test
-    fun capturedFrameFromInvalidatedPlaybackIsNotRendered() {
-        lateinit var runner: SScriptRunner
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackHooks = SScriptPlaybackHooks(
-                afterPresentationEffectCaptured = {
-                    runner.withGhostUpdateCommitQuiesced(
-                        ghost.getGhostId(),
-                        java.io.File(ghost.getGhostPath()),
-                    ) { Unit }
-                },
-            ),
-        )
-        val frames = mutableListOf<GhostPresentationFrame>()
-        runner.setNoWaitMode(true)
-        runner.setPresentationRendererForTesting(frames::add)
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hold session frame\\e"))
-
-        runner.run()
-
-        Assert.assertTrue(frames.isEmpty())
-        Assert.assertEquals(1, ghost.reloadCount)
-    }
-
-    @Test
-    fun updateInvalidationCompletesPendingGhostChangeOutsideTheMutationGate() {
-        val lifecycleDispatcher = RecordingLifecycleDispatcher()
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            lifecycleDispatcher = lifecycleDispatcher,
-        )
-        runner.setNoWaitMode(true)
-        runner.setUICallback(IgnoreUiCallback)
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        val eventEntered = CountDownLatch(1)
-        val releaseEvent = CountDownLatch(1)
-        ghost.eventRequestHook = { event ->
-            if (event == "OnGhostChanging") {
-                eventEntered.countDown()
-                releaseEvent.await(5, TimeUnit.SECONDS)
-            }
-        }
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9old tail\\e"))
-        runner.run()
-        val transition = RecordingLifecycleCallback(runner, ghost)
-        runner.setCallback(transition)
-        val transitionRequest = Thread {
-            runner.doGhostChanging("Next", "manual", "/next")
-        }.apply { start() }
-        Assert.assertTrue(eventEntered.await(5, TimeUnit.SECONDS))
-        val mutationAttempted = CountDownLatch(1)
-        val mutationActionEntered = CountDownLatch(1)
-        val callbackSeenInsideMutation = AtomicBoolean(false)
-        val lifecycleScheduledInsideMutation = AtomicBoolean(false)
-        val mutation = Thread {
-            mutationAttempted.countDown()
-            runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) {
-                callbackSeenInsideMutation.set(transition.events.isNotEmpty())
-                lifecycleScheduledInsideMutation.set(lifecycleDispatcher.pendingCount != 0)
-                mutationActionEntered.countDown()
-            }
-        }.apply { start() }
-        Assert.assertTrue(mutationAttempted.await(5, TimeUnit.SECONDS))
-        Assert.assertFalse(mutationActionEntered.await(100, TimeUnit.MILLISECONDS))
-
-        releaseEvent.countDown()
-        transitionRequest.join(5_000L)
-        mutation.join(5_000L)
-
-        Assert.assertFalse(transitionRequest.isAlive)
-        Assert.assertFalse(mutation.isAlive)
-        Assert.assertTrue(mutationActionEntered.await(0, TimeUnit.MILLISECONDS))
-        Assert.assertFalse(callbackSeenInsideMutation.get())
-        Assert.assertFalse(lifecycleScheduledInsideMutation.get())
-        Assert.assertTrue(transition.events.isEmpty())
-        Assert.assertEquals(1, lifecycleDispatcher.pendingCount)
-        Assert.assertEquals(listOf(mutation), lifecycleDispatcher.dispatchThreads)
-        val laterPlayback = RecordingLifecycleCallback(runner, ghost)
-        runner.setCallback(laterPlayback)
-        runner.addMsgToQueue(arrayOf("\\hnew session talk\\e"))
-        runner.run()
-        Assert.assertEquals(listOf("stop"), laterPlayback.events)
-        lifecycleDispatcher.runPending()
-        Assert.assertEquals(listOf("stop", "handoff"), transition.events)
-        Assert.assertEquals(listOf(true), transition.coordinatorWasAvailable)
-        Assert.assertTrue(transition.callbackThreads.all { it === Thread.currentThread() })
-        Assert.assertTrue(transition.callbackThreads.none { it === mutation })
-        lifecycleDispatcher.runPending()
-        Assert.assertEquals(listOf("stop", "handoff"), transition.events)
-    }
-
-    @Test
-    fun updateInvalidationCompletesPendingExitOutsideTheMutationGate() {
-        val lifecycleDispatcher = RecordingLifecycleDispatcher()
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            lifecycleDispatcher = lifecycleDispatcher,
-        )
-        runner.setNoWaitMode(true)
-        runner.setUICallback(IgnoreUiCallback)
-        val ghost = RawRecordingGhost("update", "Update", 2, mutableListOf())
-        val eventEntered = CountDownLatch(1)
-        val releaseEvent = CountDownLatch(1)
-        ghost.eventRequestHook = { event ->
-            if (event == "OnClose") {
-                eventEntered.countDown()
-                releaseEvent.await(5, TimeUnit.SECONDS)
-            }
-        }
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9old tail\\e"))
-        runner.run()
-        val transition = RecordingLifecycleCallback(runner, ghost)
-        runner.setCallback(transition)
-        val transitionRequest = Thread(runner::doExit).apply { start() }
-        Assert.assertTrue(eventEntered.await(5, TimeUnit.SECONDS))
-        val mutationAttempted = CountDownLatch(1)
-        val mutationActionEntered = CountDownLatch(1)
-        val callbackSeenInsideMutation = AtomicBoolean(false)
-        val lifecycleScheduledInsideMutation = AtomicBoolean(false)
-        val mutation = Thread {
-            mutationAttempted.countDown()
-            runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) {
-                callbackSeenInsideMutation.set(transition.events.isNotEmpty())
-                lifecycleScheduledInsideMutation.set(lifecycleDispatcher.pendingCount != 0)
-                mutationActionEntered.countDown()
-            }
-        }.apply { start() }
-        Assert.assertTrue(mutationAttempted.await(5, TimeUnit.SECONDS))
-        Assert.assertFalse(mutationActionEntered.await(100, TimeUnit.MILLISECONDS))
-
-        releaseEvent.countDown()
-        transitionRequest.join(5_000L)
-        mutation.join(5_000L)
-
-        Assert.assertFalse(transitionRequest.isAlive)
-        Assert.assertFalse(mutation.isAlive)
-        Assert.assertTrue(mutationActionEntered.await(0, TimeUnit.MILLISECONDS))
-        Assert.assertFalse(callbackSeenInsideMutation.get())
-        Assert.assertFalse(lifecycleScheduledInsideMutation.get())
-        Assert.assertTrue(transition.events.isEmpty())
-        Assert.assertEquals(1, lifecycleDispatcher.pendingCount)
-        Assert.assertEquals(listOf(mutation), lifecycleDispatcher.dispatchThreads)
-        val laterPlayback = RecordingLifecycleCallback(runner, ghost)
-        runner.setCallback(laterPlayback)
-        runner.addMsgToQueue(arrayOf("\\hnew session talk\\e"))
-        runner.run()
-        Assert.assertEquals(listOf("stop"), laterPlayback.events)
-        lifecycleDispatcher.runPending()
-        Assert.assertEquals(listOf("stop", "exit"), transition.events)
-        Assert.assertEquals(listOf(true), transition.coordinatorWasAvailable)
-        Assert.assertTrue(transition.callbackThreads.all { it === Thread.currentThread() })
-        Assert.assertTrue(transition.callbackThreads.none { it === mutation })
-        lifecycleDispatcher.runPending()
-        Assert.assertEquals(listOf("stop", "exit"), transition.events)
-    }
-
-    @Test
-    fun productionLifecycleDispatcherPostsThroughTheMainLooper() {
-        mockkStatic(Looper::class)
-        try {
-            val mainLooper = mockk<Looper>()
-            val handler = mockk<Handler>()
-            var selectedLooper: Looper? = null
-            every { Looper.getMainLooper() } returns mainLooper
-            every { handler.post(any()) } returns true
-            val dispatcher = MainLooperSScriptLifecycleDispatcher { looper ->
-                selectedLooper = looper
-                handler
-            }
-
-            dispatcher.dispatch { Unit }
-
-            Assert.assertSame(mainLooper, selectedLooper)
-            verify(exactly = 1) { handler.post(any()) }
-        } finally {
-            unmockkStatic(Looper::class)
-        }
     }
 
     private fun runner(): com.cattailsw.nanidroid.SScriptRunner {
@@ -1127,67 +505,13 @@ class SScriptRunnerBootDispatchTest {
         }
     }
 
-    private class RecordingLifecycleDispatcher : SScriptLifecycleDispatcher {
-        private val pending = ArrayDeque<() -> Unit>()
-        val dispatchThreads = mutableListOf<Thread>()
-        val pendingCount: Int get() = synchronized(this) { pending.size }
-
-        override fun dispatch(action: () -> Unit) = synchronized(this) {
-            dispatchThreads += Thread.currentThread()
-            pending.addLast(action)
-        }
-
-        fun runPending() {
-            while (true) {
-                val action = synchronized(this) { pending.removeFirstOrNull() } ?: return
-                action()
-            }
-        }
-    }
-
-    private object IgnoreUiCallback : SScriptRunner.UICallback {
-        override fun showUserInputBox(id: String) = Unit
-        override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
-    }
-
-    private class RecordingLifecycleCallback(
-        private val runner: SScriptRunner,
-        private val ghost: RawRecordingGhost,
-    ) : SScriptRunner.StatusCallback {
-        val events = mutableListOf<String>()
-        val coordinatorWasAvailable = mutableListOf<Boolean>()
-        val callbackThreads = mutableListOf<Thread>()
-
-        override fun stop() {
-            callbackThreads += Thread.currentThread()
-            events += "stop"
-            val acquired = CountDownLatch(1)
-            Thread {
-                runner.withGhostUpdateQuiesced(ghost.getGhostId()) { acquired.countDown() }
-            }.start()
-            coordinatorWasAvailable += acquired.await(5, TimeUnit.SECONDS)
-        }
-
-        override fun canExit() {
-            callbackThreads += Thread.currentThread()
-            events += "exit"
-        }
-
-        override fun ghostSwitchScriptComplete() {
-            callbackThreads += Thread.currentThread()
-            events += "handoff"
-        }
-    }
-
     private open class RecordingGhost(
         ghostId: String,
         ghostName: String?,
         createCount: Long,
         private val trace: MutableList<String?>,
         ghostPath: String = ghostId,
-    ) : com.cattailsw.nanidroid.Ghost(
-        ghostPath
-    ) {
+    ) : Ghost(ghostPath) {
         private val fakeGhostId = ghostId
         private val fakeGhostName = ghostName
         private val fakeCreateCount = createCount
@@ -1196,24 +520,15 @@ class SScriptRunnerBootDispatchTest {
         override fun getGhostName(): String? = fakeGhostName
         override fun getCreateCount(): Long = fakeCreateCount
 
-        override fun loadGhostInfo() {
-            // The fake owns all metadata needed by this lifecycle trace.
-        }
+        override fun loadGhostInfo() = Unit
 
-        override fun incrementCreateCount() {
-            // Creation counts are fixed test fixtures, not persisted state.
-        }
+        override fun incrementCreateCount() = Unit
 
-        override fun unload() {
-            // Test fake has no native SHIORI session.
-        }
+        override fun unload() = Unit
 
-        public override fun doShioriEvent(
-            event: String,
-            ref: Array<String>?
-        ): com.cattailsw.nanidroid.ShioriResponse {
-            trace.add(fakeGhostId + ":" + event + ":" + ref.contentToString())
-            return com.cattailsw.nanidroid.ShioriResponse("SHIORI/3.0 204 No Content")
+        override fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse {
+            trace += "$fakeGhostId:$event:${ref.contentToString()}"
+            return ShioriResponse("SHIORI/3.0 204 No Content")
         }
     }
 
@@ -1246,15 +561,5 @@ class SScriptRunnerBootDispatchTest {
             return ShioriResponse("SHIORI/3.0 204 No Content")
         }
 
-        var unloadCount = 0
-        var reloadCount = 0
-
-        override fun unload() {
-            unloadCount++
-        }
-
-        internal override fun reloadAfterGhostUpdate() {
-            reloadCount++
-        }
     }
 }

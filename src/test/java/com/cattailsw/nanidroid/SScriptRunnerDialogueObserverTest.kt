@@ -90,34 +90,6 @@ class SScriptRunnerDialogueObserverTest {
     }
 
     @Test
-    fun invalidatingActiveSessionPublishesEmptyDialogueBeforeMutationActionRuns() {
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            MonotonicClock { 10_000L },
-        )
-        runner.setNoWaitMode(true)
-        val ghost = RecordingGhost(NoTalkShiori(), "session")
-        runner.setGhost(ghost)
-        val observed = mutableListOf<DialogueRuntimeState>()
-        runner.setDialogueStateObserver(observed::add)
-        runner.addMsgToQueue(arrayOf("\\hOld dialogue\\q[Old choice,old-choice]\\e"))
-        runner.run()
-        val before = observed.last()
-
-        runner.withGhostUpdateCommitQuiesced(ghost.getGhostId(), java.io.File(ghost.getGhostPath())) {
-            val cleared = observed.last()
-            assertTrue(cleared.revision > before.revision)
-            assertTrue(cleared.contents.isEmpty())
-            assertTrue(cleared.pendingChoices.isEmpty())
-            assertEquals(null, cleared.pendingInput)
-        }
-
-        assertFalse(observed.last().contents.isNotEmpty())
-        assertEquals(observed.last(), runner.dialogueStateSnapshot())
-    }
-
-    @Test
     fun legacyChoiceCallbackSkipsHiddenScopeChoicesBeforeLaterChoiceIsRevealed() {
         val runner = SScriptRunner(
             null,

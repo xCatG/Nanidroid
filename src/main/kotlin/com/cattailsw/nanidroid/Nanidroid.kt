@@ -381,13 +381,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
         runner!!.setPresentationRenderer(composeStage.renderer)
         runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
-        runner!!.setGhostUpdateSurfaceRebindObserver { updatedGhost, reloaded ->
-            runOnUiThread {
-                if (currentGhost === updatedGhost) {
-                    composeStage.setSurfaceManager(updatedGhost.mgr.takeIf { reloaded }, updatedGhost.getGhostId())
-                }
-            }
-        }
         // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
         val attached = runner!!.attachReservedGhost(reservation)
