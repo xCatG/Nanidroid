@@ -97,6 +97,7 @@ class NarCorpusRuntimeTest {
     private val probeContent = NarCorpusProbeContent()
     private val liveShioriWrappers = SingleLiveWrapperGuard()
     private var trackedShioriConstructionHook: (() -> Unit)? = null
+    private var snakeOwnershipSetupHook: ((String, File, File) -> Unit)? = null
 
     @Test
     fun boundedReadKeepsOnlyTheLimitAndOverflowSentinel() {
@@ -716,6 +717,54 @@ class NarCorpusRuntimeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
 
         runOlderSnakeOwnershipCharacterization(source, sourceParent, expectedSha256, context)
+    }
+
+    @Test
+    fun snakeYayaOwnershipBSetupFailureCleansEveryCreatedRootPair() {
+        val args = InstrumentationRegistry.getArguments()
+        val keys = listOf(ARG_PATH, ARG_SHA256, ARG_LABEL_BASE64, ARG_LABEL)
+        assumeTrue(
+            "Snake ownership setup cleanup is opt-in; no corpus arguments were supplied.",
+            keys.any { !args.getString(it).isNullOrBlank() },
+        )
+        val path = requiredArgument(args, ARG_PATH)
+        val expectedSha256 = requiredArgument(args, ARG_SHA256).lowercase(Locale.ROOT)
+        val label = requiredLabelArgument(args)
+        assumeTrue(
+            "Ownership setup cleanup applies only to an exact older-Snake archive.",
+            isOlderSnakeStructuralArchive(label, expectedSha256),
+        )
+        val source = File(path)
+        validatePath(path, source)
+        assertEquals(expectedSha256, sha256(source))
+        val sourceParent = requireNotNull(source.parentFile)
+        val createdRoots = mutableListOf<File>()
+
+        snakeOwnershipSetupHook = { suffix, inputRoot, installRoot ->
+            createdRoots += inputRoot
+            createdRoots += installRoot
+            if (suffix == "b") {
+                throw IllegalStateException("injected B setup failure")
+            }
+        }
+        try {
+            val failure = assertThrows(IllegalStateException::class.java) {
+                runOlderSnakeOwnershipCharacterization(
+                    source,
+                    sourceParent,
+                    expectedSha256,
+                    InstrumentationRegistry.getInstrumentation().targetContext,
+                )
+            }
+            assertEquals("injected B setup failure", failure.message)
+        } finally {
+            snakeOwnershipSetupHook = null
+        }
+
+        assertEquals("A and B must each contribute an input and install root", 4, createdRoots.size)
+        createdRoots.forEach { root ->
+            assertFalse("Setup failure left ownership root behind: $root", root.exists())
+        }
     }
 
     @Test
@@ -1403,6 +1452,7 @@ class NarCorpusRuntimeTest {
         val inputRoot = createOwnedRoot(sourceParent, "ownership-$suffix-input")
         val installRoot = createOwnedRoot(sourceParent, "ownership-$suffix-install")
         try {
+            snakeOwnershipSetupHook?.invoke(suffix, inputRoot, installRoot)
             val copiedArchive = File(inputRoot, ARCHIVE_FILE_NAME)
             copyArchive(source, copiedArchive)
             assertEquals(expectedSha256, sha256(copiedArchive))
@@ -1419,8 +1469,15 @@ class NarCorpusRuntimeTest {
                 targetId = installed.targetId ?: targetId,
             )
         } catch (failure: Throwable) {
-            deleteOwnedRoot(inputRoot, sourceParent)
-            deleteOwnedRoot(installRoot, sourceParent)
+            finishSnakeCanaryCleanup(
+                primaryFailure = failure,
+                unload = null,
+                deleteRoots = listOf(
+                    { deleteOwnedRoot(inputRoot, sourceParent) },
+                    { deleteOwnedRoot(installRoot, sourceParent) },
+                ),
+                residue = { inputRoot.exists() || installRoot.exists() },
+            )
             throw failure
         }
     }
@@ -1431,14 +1488,18 @@ class NarCorpusRuntimeTest {
         expectedSha256: String,
         context: Context,
     ) {
-        val first = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "a")
-        val second = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "b")
+        var firstInstall: InstalledSnakeOwnershipRoot? = null
+        var secondInstall: InstalledSnakeOwnershipRoot? = null
         var firstWrapper: TestShioriGhost? = null
         var secondWrapper: TestShioriGhost? = null
         var firstCleaned = false
         var secondCleaned = false
         var primaryFailure: Throwable? = null
         try {
+            firstInstall = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "a")
+            secondInstall = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "b")
+            val first = requireNotNull(firstInstall)
+            val second = requireNotNull(secondInstall)
             firstWrapper = loadTrackedShiori(first.installedPath, first.targetId, loadGhostDesc(first.installedPath), context)
             assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(loadShellName(first.installedPath))).getStatusCode())
             Log.i(LOG_TAG, "snake-yaya-ownership: A OnBoot succeeded")
@@ -1495,17 +1556,21 @@ class NarCorpusRuntimeTest {
                     ?: secondWrapper?.let { wrapper -> { unloadTrackedShiori(wrapper) } },
                 deleteRoots = buildList {
                     if (!firstCleaned) {
-                        add { deleteOwnedRoot(first.inputRoot, sourceParent) }
-                        add { deleteOwnedRoot(first.installRoot, sourceParent) }
+                        firstInstall?.let { first ->
+                            add { deleteOwnedRoot(first.inputRoot, sourceParent) }
+                            add { deleteOwnedRoot(first.installRoot, sourceParent) }
+                        }
                     }
                     if (!secondCleaned) {
-                        add { deleteOwnedRoot(second.inputRoot, sourceParent) }
-                        add { deleteOwnedRoot(second.installRoot, sourceParent) }
+                        secondInstall?.let { second ->
+                            add { deleteOwnedRoot(second.inputRoot, sourceParent) }
+                            add { deleteOwnedRoot(second.installRoot, sourceParent) }
+                        }
                     }
                 },
                 residue = {
-                    (!firstCleaned && (first.inputRoot.exists() || first.installRoot.exists())) ||
-                        (!secondCleaned && (second.inputRoot.exists() || second.installRoot.exists()))
+                    (!firstCleaned && (firstInstall?.let { it.inputRoot.exists() || it.installRoot.exists() } ?: false)) ||
+                        (!secondCleaned && (secondInstall?.let { it.inputRoot.exists() || it.installRoot.exists() } ?: false))
                 },
             )
         }
