@@ -1,0 +1,99 @@
+{
+  "rows": [
+    {
+      "snapshotId": "synthetic-phase-one",
+      "sourceRowOrdinal": 1,
+      "title": "Observed Link Ghost",
+      "author": "Fixture Author",
+      "updatedAt": "2026-08-01T00:00:00Z",
+      "landingUrl": "https://example.test/observed-link",
+      "manifest": true,
+      "evidence": {
+        "url": "https://example.test/observed-link",
+        "observedAt": "2026-08-02T00:00:00Z",
+        "httpMethod": "GET",
+        "httpStatus": 200,
+        "redirectChain": [],
+        "robotsAllowed": true,
+        "termsAllowed": true,
+        "titleSpecificInitialNarLink": true
+      }
+    },
+    {
+      "snapshotId": "synthetic-phase-one",
+      "sourceRowOrdinal": 2,
+      "title": "Manifest Only Ghost",
+      "author": "Fixture Author",
+      "updatedAt": "2026-08-01T00:00:00Z",
+      "landingUrl": "https://example.test/manifest-only",
+      "manifest": true,
+      "evidence": {
+        "url": "https://example.test/manifest-only",
+        "observedAt": "2026-08-02T00:00:00Z",
+        "httpMethod": "GET",
+        "httpStatus": 200,
+        "redirectChain": [],
+        "robotsAllowed": true,
+        "termsAllowed": true,
+        "titleSpecificInitialNarLink": false
+      }
+    },
+    {
+      "snapshotId": "synthetic-phase-one",
+      "sourceRowOrdinal": 3,
+      "title": "Unavailable Ghost",
+      "author": "Fixture Author",
+      "updatedAt": "2026-08-01T00:00:00Z",
+      "landingUrl": "https://example.test/unavailable",
+      "manifest": false,
+      "evidence": {
+        "url": "https://example.test/unavailable",
+        "observedAt": "2026-08-02T00:00:00Z",
+        "httpMethod": "GET",
+        "httpStatus": 404,
+        "redirectChain": [],
+        "robotsAllowed": true,
+        "termsAllowed": true,
+        "titleSpecificInitialNarLink": false
+      }
+    },
+    {
+      "snapshotId": "synthetic-phase-one",
+      "sourceRowOrdinal": 4,
+      "title": "Excluded Link Ghost",
+      "author": "Fixture Author",
+      "updatedAt": "2026-08-01T00:00:00Z",
+      "landingUrl": "https://example.test/excluded",
+      "manifest": true,
+      "evidence": {
+        "url": "https://example.test/excluded",
+        "observedAt": "2026-08-02T00:00:00Z",
+        "httpMethod": "GET",
+        "httpStatus": 200,
+        "redirectChain": [],
+        "robotsAllowed": false,
+        "termsAllowed": true,
+        "titleSpecificInitialNarLink": true
+      }
+    },
+    {
+      "snapshotId": "synthetic-phase-one",
+      "sourceRowOrdinal": 5,
+      "title": "Observed Link Ghost",
+      "author": "Fixture Author",
+      "updatedAt": "2026-08-03T00:00:00Z",
+      "landingUrl": "https://example.test/observed-link",
+      "manifest": true,
+      "evidence": {
+        "url": "https://example.test/observed-link",
+        "observedAt": "2026-08-04T00:00:00Z",
+        "httpMethod": "GET",
+        "httpStatus": 200,
+        "redirectChain": [],
+        "robotsAllowed": true,
+        "termsAllowed": true,
+        "titleSpecificInitialNarLink": true
+      }
+    }
+  ]
+}
