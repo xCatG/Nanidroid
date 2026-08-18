@@ -9,6 +9,18 @@ param(
     [string]
     $ManifestPath = 'docs/testing/nar-corpus-manifest.json',
 
+    [string]
+    $ProductionDebugApkPath,
+
+    [string]
+    $HarnessTestApkPath,
+
+    [string]
+    $ProductionCommit,
+
+    [string]
+    $HarnessCommit,
+
     [int]
     $PerArchiveTimeoutMinutes = 5,
 
@@ -1901,6 +1913,91 @@ function Build-Apks {
     }
 }
 
+function Get-ApkInputMode {
+    param(
+        [string]$ProductionDebugApkPath,
+        [string]$HarnessTestApkPath,
+        [string]$ProductionCommit,
+        [string]$HarnessCommit
+    )
+    $values = @($ProductionDebugApkPath, $HarnessTestApkPath, $ProductionCommit, $HarnessCommit)
+    $suppliedCount = @($values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+    if ($suppliedCount -eq 0) { return 'build' }
+    if ($suppliedCount -ne 4) {
+        ThrowIf 'ProductionDebugApkPath, HarnessTestApkPath, ProductionCommit, and HarnessCommit must be supplied all four or omitted all four.'
+    }
+    return 'external'
+}
+
+function Get-TrackedHarnessIdentity([string]$ExpectedCommit) {
+    $currentCommit = (& git rev-parse HEAD 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentCommit -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf 'Unable to resolve the fixed harness commit.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedCommit) -and $currentCommit -cne $ExpectedCommit) {
+        ThrowIf "HarnessCommit '$ExpectedCommit' does not match the checked-out fixed harness commit '$currentCommit'."
+    }
+    & git diff --quiet --exit-code
+    $unstagedExitCode = $LASTEXITCODE
+    & git diff --cached --quiet --exit-code
+    $stagedExitCode = $LASTEXITCODE
+    if ($unstagedExitCode -ne 0 -or $stagedExitCode -ne 0) {
+        ThrowIf 'The fixed harness checkout has tracked changes. Commit the exact harness before producing evidence.'
+    }
+    $tree = (& git rev-parse "$currentCommit`^{tree}" 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $tree -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf "Unable to resolve the fixed harness tree for '$currentCommit'."
+    }
+    $runnerPath = (Resolve-Path -LiteralPath $PSCommandPath).Path
+    $instrumentationPath = Join-Path $repoRoot 'src\androidTest\java\com\cattailsw\nanidroid\NarCorpusRuntimeTest.kt'
+    if (-not (Test-Path -LiteralPath $instrumentationPath -PathType Leaf)) {
+        ThrowIf "Unable to locate fixed harness instrumentation source: $instrumentationPath"
+    }
+    return [pscustomobject]@{
+        Commit = $currentCommit
+        Tree = $tree
+        RunnerSha256 = (Get-FileHash -LiteralPath $runnerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        InstrumentationSourceSha256 = (Get-FileHash -LiteralPath $instrumentationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+
+function Get-ApkInfo {
+    $mode = Get-ApkInputMode -ProductionDebugApkPath $ProductionDebugApkPath -HarnessTestApkPath $HarnessTestApkPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+    $harnessIdentity = Get-TrackedHarnessIdentity -ExpectedCommit $(if ($mode -eq 'external') { $HarnessCommit } else { '' })
+    if ($mode -eq 'build') {
+        $built = Build-Apks
+        return [pscustomobject]@{
+            DebugApkPath = $built.DebugApkPath
+            TestApkPath = $built.TestApkPath
+            DebugApkSha256 = $built.DebugApkSha256
+            TestApkSha256 = $built.TestApkSha256
+            ProductionCommit = $harnessIdentity.Commit
+            HarnessCommit = $harnessIdentity.Commit
+            HarnessTree = $harnessIdentity.Tree
+            HarnessRunnerSha256 = $harnessIdentity.RunnerSha256
+            HarnessInstrumentationSourceSha256 = $harnessIdentity.InstrumentationSourceSha256
+            InputMode = $mode
+        }
+    }
+
+    if ($ProductionCommit -notmatch '^[0-9a-f]{40}$') { ThrowIf "ProductionCommit must be a full lowercase 40-character commit SHA: '$ProductionCommit'" }
+    $resolvedDebugApk = (Resolve-Path -LiteralPath $ProductionDebugApkPath -ErrorAction Stop).Path
+    $resolvedTestApk = (Resolve-Path -LiteralPath $HarnessTestApkPath -ErrorAction Stop).Path
+    Write-Host 'Using separately built pristine production debug APK and fixed-harness androidTest APK.'
+    return [pscustomobject]@{
+        DebugApkPath = $resolvedDebugApk
+        TestApkPath = $resolvedTestApk
+        DebugApkSha256 = (Get-FileHash -LiteralPath $resolvedDebugApk -Algorithm SHA256).Hash.ToLowerInvariant()
+        TestApkSha256 = (Get-FileHash -LiteralPath $resolvedTestApk -Algorithm SHA256).Hash.ToLowerInvariant()
+        ProductionCommit = $ProductionCommit
+        HarnessCommit = $harnessIdentity.Commit
+        HarnessTree = $harnessIdentity.Tree
+        HarnessRunnerSha256 = $harnessIdentity.RunnerSha256
+        HarnessInstrumentationSourceSha256 = $harnessIdentity.InstrumentationSourceSha256
+        InputMode = $mode
+    }
+}
+
 function Verify-RunAs {
     $runAs = Invoke-Adb -Arguments @('shell', 'run-as', $targetPackage, 'id') -TimeoutSeconds 20 -AllowFailure
     if ($runAs.exitCode -ne 0) {
@@ -2361,6 +2458,23 @@ if ($DryRun) {
     Write-Host "Manifest entries: $($manifest.entries.Count)"
     Write-Host "Corpus archives discovered: $($archives.Count)"
     Write-Host "Resolved roots: $(@($resolvedCorpusRoots).Count)"
+    if ((Get-ApkInputMode -ProductionDebugApkPath '' -HarnessTestApkPath '' -ProductionCommit '' -HarnessCommit '') -cne 'build') {
+        ThrowIf 'Dry-run APK identity probe did not select local build mode for four omitted inputs.'
+    }
+    if ((Get-ApkInputMode -ProductionDebugApkPath 'base.apk' -HarnessTestApkPath 'harness.apk' -ProductionCommit ('1' * 40) -HarnessCommit ('2' * 40)) -cne 'external') {
+        ThrowIf 'Dry-run APK identity probe did not select external fixed-harness mode for four supplied inputs.'
+    }
+    $partialIdentityRejected = $false
+    try {
+        Get-ApkInputMode -ProductionDebugApkPath 'base.apk' -HarnessTestApkPath '' -ProductionCommit ('1' * 40) -HarnessCommit ('2' * 40) | Out-Null
+    }
+    catch {
+        $partialIdentityRejected = $_.Exception.Message -match 'all four'
+    }
+    if (-not $partialIdentityRejected) {
+        ThrowIf 'Dry-run APK identity probe accepted partial external identity inputs.'
+    }
+    Write-Host 'Dry-run fixed-harness APK identity probe passed.'
     foreach ($debuggablePropertyCase in @(
         @{ value = '1'; expected = $true },
         @{ value = '0'; expected = $false }
@@ -3167,7 +3281,7 @@ try {
     Check-DeviceGate
     $preflightPhase = 'preexisting-state'
     Validate-NoPreexistingDeviceState
-    $apkInfo = Build-Apks
+    $apkInfo = Get-ApkInfo
 
     $apksigner = Resolve-ApkSigner
     Verify-DebugSignature -ApkPath $apkInfo.DebugApkPath -Label 'debug' -ApkSignerPath $apksigner | Out-Null
@@ -3984,9 +4098,20 @@ try {
         finishedAt = $runEnd.ToUniversalTime().ToString('o')
         durationSeconds = $runSeconds
         git = @{
-            commit = (git rev-parse HEAD).Trim()
+            commit = $apkInfo.HarnessCommit
             manifestFile = (Resolve-Path (Join-Path $repoRoot $ManifestPath)).Path
             manifestBytes = (Get-Item (Join-Path $repoRoot $ManifestPath)).Length
+        }
+        production = @{
+            commit = $apkInfo.ProductionCommit
+            debugApkSha256 = $apkInfo.DebugApkSha256
+        }
+        harness = @{
+            commit = $apkInfo.HarnessCommit
+            tree = $apkInfo.HarnessTree
+            runnerSha256 = $apkInfo.HarnessRunnerSha256
+            instrumentationSourceSha256 = $apkInfo.HarnessInstrumentationSourceSha256
+            testApkSha256 = $apkInfo.TestApkSha256
         }
         device = @{
             serial = $DeviceSerial
@@ -4002,6 +4127,7 @@ try {
             timeoutMinutes = $PerArchiveTimeoutMinutes
         }
         apks = @{
+            inputMode = $apkInfo.InputMode
             debugPath = $apkInfo.DebugApkPath
             debugSha256 = $apkInfo.DebugApkSha256
             testPath = $apkInfo.TestApkPath

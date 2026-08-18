@@ -43,8 +43,8 @@ It accepts `-ComparisonKind BaseBase|BaseCandidate`, base and candidate report
 roots, the unchanged 23-NAR manifest, the
 new comparison contract, explicit base/candidate production identities
 (commit SHA and debug APK SHA-256), and one shared fixed-harness identity
-(harness commit, runner source SHA-256, instrumentation source SHA-256, and test
-APK SHA-256). Each evidence root must match its declared production identity
+(harness commit and tree, runner source SHA-256, instrumentation source SHA-256,
+and test APK SHA-256). Each evidence root must match its declared production identity
 and the same declared harness identity before behavioral comparison. Missing,
 wrong, or swapped declarations fail. The validated identities remain visible
 in the comparison report but are not behavioral-equality leaves.

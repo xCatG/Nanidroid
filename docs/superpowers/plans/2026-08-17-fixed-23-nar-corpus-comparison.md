@@ -177,6 +177,7 @@ Write:
 production = @{ commit = $ProductionCommit; debugApkSha256 = $apkInfo.DebugApkSha256 }
 harness = @{
     commit = $HarnessCommit
+    tree = (git rev-parse "$HarnessCommit`^{tree}").Trim()
     runnerSha256 = (Get-FileHash $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
     instrumentationSourceSha256 = (Get-FileHash $instrumentationSource -Algorithm SHA256).Hash.ToLowerInvariant()
     testApkSha256 = $apkInfo.TestApkSha256
@@ -196,7 +197,7 @@ Run exact-root DryRun, then commit the runner change with `git commit -m "test: 
 - Create: `scripts/test-compare-nar-corpus-runs.ps1`
 
 **Interfaces:**
-- Consumes: comparison kind, base/candidate roots, manifest, contract, two production identity pairs, one shared four-field harness identity, required successful base/base report in base/candidate mode, optional output path.
+- Consumes: comparison kind, base/candidate roots, manifest, contract, two production identity pairs, one shared five-field harness identity, required successful base/base report in base/candidate mode, optional output path.
 - Produces: exit 0 plus `{ passed, identities, comparedLabels, rawResultsCompared, screenshotsCompared, differences }`, or nonzero with bounded diagnostics.
 
 - [ ] **Step 1: Build complete synthetic fixtures**
