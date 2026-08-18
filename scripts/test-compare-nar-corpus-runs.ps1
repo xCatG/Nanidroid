@@ -14,6 +14,14 @@ if (-not $resolvedFixtureRoot.Equals($expectedFixtureRoot, [StringComparison]::O
     throw "Unsafe comparator fixture root: $resolvedFixtureRoot"
 }
 
+$comparatorSource = Get-Content -LiteralPath $comparatorPath -Raw
+$hostTestSource = Get-Content -LiteralPath $PSCommandPath -Raw
+if ($comparatorSource -match 'ConvertFrom-Json\s+-DateKind' -or $hostTestSource -match 'ConvertFrom-Json\s+-DateKind' -or
+    $comparatorSource -notmatch '(?m)^#requires -Version 7\.0$' -or $comparatorSource -notmatch 'System\.Text\.Json\.JsonDocument') {
+    throw 'Comparator JSON parsing is not statically compatible with the documented PowerShell 7.0 floor.'
+}
+Write-Host 'PASS: PowerShell 7.0-compatible strict JSON parser contract'
+
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $baseCommit = '1111111111111111111111111111111111111111'
@@ -47,7 +55,7 @@ function Write-Json([string]$Path, [object]$Value) {
 }
 
 function Get-Json([string]$Path) {
-    Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -DateKind String
+    Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
 }
 
 function New-ReportFixture {
@@ -304,6 +312,11 @@ try {
     Assert-Pass 'scoped Yes Man run-owned dialogue path normalization' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'base\Yes-Man-2.1.1\result.json') { param($r) $r.dialogueProbe.value += "|behavior:$('1' * 32)" }
+    Save-Json (Join-Path $fixtureRoot 'candidate\Yes-Man-2.1.1\result.json') { param($r) $r.dialogueProbe.value += "|behavior:$('2' * 32)" }
+    Assert-Fail 'Yes Man bare run ID outside declared path remains behavioral' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe.value'
+
+    Reset-Fixtures
     $expandedContractPath = Join-Path $fixtureRoot 'expanded-contract.json'
     Copy-Item -LiteralPath $contractPath -Destination $expandedContractPath
     Save-Json $expandedContractPath { param($c) $c.normalization.rawRunOwnedStringPaths += 'classification' }
@@ -360,7 +373,7 @@ try {
     Write-Json $prerequisite $failedPrerequisite
     Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
 
-    Write-Host 'Comparator host tests passed: 32 cases.'
+    Write-Host 'Comparator host tests passed: 34 cases.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }

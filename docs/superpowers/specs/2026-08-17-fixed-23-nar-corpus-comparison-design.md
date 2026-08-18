@@ -93,9 +93,12 @@ accepted original JSON kind. The only normalizable categories are run IDs,
 timestamps, durations, report roots, and run-owned paths. A value is normalized
 only when its JSON path, metadata category, and scalar kind are declared. The
 only dialogue value with run-ID normalization is `Yes Man-2.1.1`, and it must
-contain the exact declared private per-run archive path shape. A run ID embedded
-in any other dialogue value, a scalar-kind change, or a change in an adjacent or
-undeclared leaf is a behavioral difference.
+contain the exact declared private per-run archive path shape. Only that complete
+path occurrence is replaced; another bare run ID in the same value remains
+behavioral. A run ID embedded in any other dialogue value, a scalar-kind change,
+or a change in an adjacent or undeclared leaf is a behavioral difference. The
+comparator uses its PowerShell-7.0-compatible strict JSON reader so ISO timestamp
+strings retain their original JSON kind without relying on newer `-DateKind`.
 
 The runner records `production.commit`/`production.debugApkSha256` separately
 from `harness.commit`, `harness.runnerSha256`,

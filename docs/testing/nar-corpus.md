@@ -202,3 +202,5 @@ without a passing base/base report bound to the same base, harness, manifest,
 contract, and emulator identity. That proof includes an exact evidence
 fingerprint, and every comparison atomically replaces its output with either a
 passing report or a bounded structured failure report.
+The comparator supports PowerShell 7.0 and preserves JSON scalar kinds with its
+own strict reader; it does not require the PowerShell 7.5 `-DateKind` option.

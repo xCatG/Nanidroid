@@ -1,3 +1,5 @@
+#requires -Version 7.0
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidateSet('BaseBase', 'BaseCandidate')][string]$ComparisonKind,
@@ -21,12 +23,48 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function ConvertFrom-StrictJsonElement([System.Text.Json.JsonElement]$Element) {
+    switch ($Element.ValueKind) {
+        ([System.Text.Json.JsonValueKind]::Object) {
+            $properties = [ordered]@{}
+            foreach ($property in $Element.EnumerateObject()) {
+                if ($properties.Contains($property.Name)) { throw "duplicate JSON property '$($property.Name)'" }
+                $properties[$property.Name] = ConvertFrom-StrictJsonElement $property.Value
+            }
+            return [pscustomobject]$properties
+        }
+        ([System.Text.Json.JsonValueKind]::Array) {
+            $items = [Collections.Generic.List[object]]::new()
+            foreach ($item in $Element.EnumerateArray()) { $items.Add((ConvertFrom-StrictJsonElement $item)) }
+            return ,$items.ToArray()
+        }
+        ([System.Text.Json.JsonValueKind]::String) { return $Element.GetString() }
+        ([System.Text.Json.JsonValueKind]::Number) {
+            [long]$integer = 0
+            if ($Element.TryGetInt64([ref]$integer)) { return $integer }
+            [decimal]$decimalValue = 0
+            if ($Element.TryGetDecimal([ref]$decimalValue)) { return $decimalValue }
+            return $Element.GetDouble()
+        }
+        ([System.Text.Json.JsonValueKind]::True) { return $true }
+        ([System.Text.Json.JsonValueKind]::False) { return $false }
+        ([System.Text.Json.JsonValueKind]::Null) { return $null }
+        default { throw "unsupported JSON value kind '$($Element.ValueKind)'" }
+    }
+}
+
+function ConvertFrom-StrictJsonText([string]$Text) {
+    $document = [System.Text.Json.JsonDocument]::Parse($Text)
+    try { return ConvertFrom-StrictJsonElement $document.RootElement }
+    finally { $document.Dispose() }
+}
+
 function Read-JsonFile([string]$Path, [string]$Description) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "$Description does not exist: $Path"
     }
     try {
-        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -DateKind String
+        return ConvertFrom-StrictJsonText (Get-Content -LiteralPath $Path -Raw)
     }
     catch {
         throw "$Description is not valid JSON: $Path ($($_.Exception.Message))"
@@ -172,7 +210,7 @@ function Find-FirstDifference([object]$Left, [object]$Right, [string]$Path = '$'
 }
 
 function Copy-JsonObject([object]$Value) {
-    return $Value | ConvertTo-Json -Depth 100 | ConvertFrom-Json -DateKind String
+    return ConvertFrom-StrictJsonText ($Value | ConvertTo-Json -Depth 100)
 }
 
 function Set-PathPatternValue {
@@ -421,7 +459,8 @@ function ConvertTo-CanonicalRun {
             if (-not ([string]$value).Contains($requiredShape, [StringComparison]::Ordinal)) {
                 throw "scoped normalization path raw[$label].$pathText does not match its declared run-owned shape"
             }
-            return ([string]$value).Replace([string]$Run.Summary.runId, "<RUN_ID:$kind>")
+            $normalizedShape = ([string]$rule.requiredShape).Replace('{runId}', "<RUN_ID:$kind>")
+            return ([string]$value).Replace($requiredShape, $normalizedShape)
         }
     }
 
