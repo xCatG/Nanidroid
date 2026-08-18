@@ -12,8 +12,7 @@
       "results[].finishedAt"
     ],
     "summaryDurationPaths": [
-      "durationSeconds",
-      "results[].durationSeconds"
+      "durationSeconds"
     ],
     "summaryReportRootPaths": [
       "git.manifestFile",
@@ -28,11 +27,30 @@
       "results[].error"
     ],
     "rawRunOwnedStringPaths": [
-      "narCorpusPath",
+      "narCorpusPath"
+    ],
+    "rawRunOwnedStringSelectors": [
       "evidence.sourceSyntax.scanRoot",
       "sakura.source",
       "kero.source"
     ],
+    "rawSourceArchiveSha256": {
+      "2elf-2.46": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "Big Red Button": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
+      "Earthquake Rescue Duo": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "LOBO": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "Nanika Atsume 1.0.0": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9",
+      "Nanika Atsume 1.0.1": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c",
+      "Nanika Atsume silent_ALPHA": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17",
+      "Snake and Otacon V1.2.1": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "Snake and Otacon V1.3.1": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "Snake and Otacon V1.3.2": "1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5",
+      "Snake_Otacon_1.2.1b": "4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45",
+      "Snake_Otacon_1.3.1b": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "tewire-sen": "2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8",
+      "Watchdog Bancho": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "Yes Man-2.1.1": "aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8"
+    },
     "expectedKinds": [
       { "scope": "summary", "path": "runId", "category": "runId", "kinds": ["string"] },
       { "scope": "summary", "path": "results[].runId", "category": "runId", "kinds": ["string"] },
@@ -41,7 +59,6 @@
       { "scope": "summary", "path": "results[].startedAt", "category": "timestamp", "kinds": ["string"] },
       { "scope": "summary", "path": "results[].finishedAt", "category": "timestamp", "kinds": ["string"] },
       { "scope": "summary", "path": "durationSeconds", "category": "duration", "kinds": ["number"] },
-      { "scope": "summary", "path": "results[].durationSeconds", "category": "duration", "kinds": ["number", "null"] },
       { "scope": "summary", "path": "git.manifestFile", "category": "reportPath", "kinds": ["string"] },
       { "scope": "summary", "path": "apks.debugPath", "category": "reportPath", "kinds": ["string"] },
       { "scope": "summary", "path": "apks.testPath", "category": "reportPath", "kinds": ["string"] },
@@ -92,13 +109,15 @@
       "jsonPath": "dialogueProbe.value",
       "allowedUtf8Sha256": [
         "fa5db680dbf0afece5a61cfb5464bbb69112ed78aff7a972655983de16754b57",
-        "cf75298961469c0a4e8c8ff4825382b6fe4948fd334c1179d6b5d3d02ff7916e"
+        "cf75298961469c0a4e8c8ff4825382b6fe4948fd334c1179d6b5d3d02ff7916e",
+        "1f61cce5010088f493883d3c2efe6d5831dfcdba7d1e14192c8f29dca3054685"
       ],
       "source": {
-        "archiveEntry": "ghost/master/ghost-bootend.kis",
-        "lineRanges": ["50-52"],
+        "archiveEntry": "ghost/master/dict/dict-event.kis",
+        "lineRanges": ["222"],
         "additionalArchiveEntries": [
-          { "archiveEntry": "ghost/master/ghost-aitalk.kis", "lineRanges": ["6-11", "29-35"] }
+          { "archiveEntry": "ghost/master/ghost-bootend.kis", "lineRanges": ["51"] },
+          { "archiveEntry": "ghost/master/ghost-aitalk.kis", "lineRanges": ["11", "9", "34"] }
         ],
         "reviewedEvidence": ["pr393 base", "pr393 candidate"]
       }
@@ -109,11 +128,12 @@
       "jsonPath": "dialogueProbe.value",
       "allowedUtf8Sha256": [
         "2c1beab312330df48ae066342f3a167efcecc710490948e00d93ca003e1337a1",
-        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07"
+        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07",
+        "6897d875db1f67d428c3801f9deb251aeac32f265eac82a2f4bc9cc458f070ea"
       ],
       "source": {
         "archiveEntry": "ghost/master/Sn_bootend.dic",
-        "lineRanges": ["386-390"],
+        "lineRanges": ["238", "265", "282", "392", "396"],
         "reviewedEvidence": ["pr393 base", "pr393 candidate"]
       }
     },
@@ -123,11 +143,12 @@
       "jsonPath": "dialogueProbe.value",
       "allowedUtf8Sha256": [
         "2be87f6181f60deb1018ffccade7ab3cc5ad81fc9fee9608d18447c653923a56",
-        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07"
+        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07",
+        "8121582116b1f4a245c8e37f5f39899212dbe25fe5914c6e49a8456fe9c90038"
       ],
       "source": {
         "archiveEntry": "ghost/master/Sn_bootend.dic",
-        "lineRanges": ["398-402"],
+        "lineRanges": ["250", "277", "294", "404", "406"],
         "reviewedEvidence": ["pr393 base", "pr393 candidate"]
       }
     },
@@ -137,11 +158,12 @@
       "jsonPath": "dialogueProbe.value",
       "allowedUtf8Sha256": [
         "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07",
-        "bc73531970d16a24ebce414288fb811b835c8a482242fca3631db537f1cca8e1"
+        "bc73531970d16a24ebce414288fb811b835c8a482242fca3631db537f1cca8e1",
+        "8121582116b1f4a245c8e37f5f39899212dbe25fe5914c6e49a8456fe9c90038"
       ],
       "source": {
         "archiveEntry": "ghost/master/Sn_bootend.dic",
-        "lineRanges": ["395-399"],
+        "lineRanges": ["247", "274", "291", "401", "403"],
         "reviewedEvidence": ["pr393 base", "pr393 candidate"]
       }
     },

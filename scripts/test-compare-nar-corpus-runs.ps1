@@ -44,6 +44,26 @@ $dialogueValues = @{
     'Snake_Otacon_1.3.1b' = "\0\s[0]\1\s[10]\1\s[10]Have you considered going to bed soon, ? It's getting kind of late...\e"
     'Watchdog Bancho' = '\1\s[10]\0\s[0]\0\s[0]Hey, long time no see!'
 }
+$loboReviewedAlternative = '\1\s[10]\0\s[0]\1\s[-1]\0Listen here, you little caladbolg, you listen to me.\w8\w8\w8 The sulfur that spits, that is your fortune.'
+$snakeV121ReviewedAlternative = '\0\s[0]\1\s[10]\0\s[4]\1\s[13]Yikes. That last mission left you in pretty bad shape, Snake.\1\s[18]Is there any more I can do?\0\s[4]You''ve already done all you can.\1\s[14]\n\n[half]Alright. If you need anything.\n\n Er. Morning, . Or evening, I guess? Mh..\e'
+$snakeLateReviewedAlternative = '\0\s[0]\1\s[10]\0\s[0]Your time of night, huh, Otacon?\1\w8\s[10]No kidding, this is when I get my best work done!\e'
+$rawSourceLabels = @(
+    '2elf-2.46',
+    'Big Red Button',
+    'Earthquake Rescue Duo',
+    'LOBO',
+    'Nanika Atsume 1.0.0',
+    'Nanika Atsume 1.0.1',
+    'Nanika Atsume silent_ALPHA',
+    'Snake and Otacon V1.2.1',
+    'Snake and Otacon V1.3.1',
+    'Snake and Otacon V1.3.2',
+    'Snake_Otacon_1.2.1b',
+    'Snake_Otacon_1.3.1b',
+    'tewire-sen',
+    'Watchdog Bancho',
+    'Yes Man-2.1.1'
+)
 
 function ConvertTo-SafeLabel([string]$Label) {
     $safe = ($Label -replace '[^A-Za-z0-9._-]', '-').Trim('-')
@@ -92,11 +112,13 @@ function New-ReportFixture {
             dialogueProbe = [pscustomobject]@{ outcome = 'success'; value = $value }
             evidence = [pscustomobject]@{
                 stable = $true
-                sourceSyntax = [pscustomobject]@{ scanRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/source" }
             }
-            sakura = [pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/sakura" }
-            kero = [pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/kero" }
             cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @(); hostVerified = $true }
+        }
+        if ($rawSourceLabels -contains $label) {
+            $raw.evidence | Add-Member -NotePropertyName sourceSyntax -NotePropertyValue ([pscustomobject]@{ scanRoot = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/source" })
+            $raw | Add-Member -NotePropertyName sakura -NotePropertyValue ([pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/sakura" })
+            $raw | Add-Member -NotePropertyName kero -NotePropertyValue ([pscustomobject]@{ source = "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/$RunId/$safeLabel/kero" })
         }
         foreach ($requiredName in @($entry.requiredEvidence)) {
             if ($null -eq $raw.PSObject.Properties[[string]$requiredName]) {
@@ -119,7 +141,6 @@ function New-ReportFixture {
             passed = $true
             startedAt = $StartedAt
             finishedAt = $StartedAt
-            durationSeconds = 1
             classification = 'compatible'
             requiredEvidence = @($entry.requiredEvidence)
             requiredEvidencePayload = $payload
@@ -181,7 +202,7 @@ function Get-ComparatorArguments {
         [string]$OutputPath = (Join-Path $fixtureRoot 'comparison.json')
     )
     $arguments = @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $comparatorPath,
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $comparatorPath,
         '-ComparisonKind', $Kind,
         '-BaseRoot', (Join-Path $fixtureRoot 'base'),
         '-CandidateRoot', (Join-Path $fixtureRoot 'candidate'),
@@ -329,7 +350,7 @@ try {
     Assert-Pass 'enumerated run metadata normalization' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[0].durationSeconds = '1' }
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.durationSeconds = '23' }
     Assert-Fail 'duration JSON kind mismatch' (Invoke-Comparator (Get-ComparatorArguments)) 'durationSeconds.*kind'
 
     Reset-Fixtures
@@ -357,9 +378,13 @@ try {
     Assert-Fail 'label-scoped Yes Man normalization path missing from both raws' (Invoke-Comparator (Get-ComparatorArguments)) 'raw\[Yes Man-2\.1\.1\].*normalization property is missing.*dialogueProbe\.value'
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'base\summary.json') { param($s) $s.results[0].durationSeconds = $null }
-    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[0].durationSeconds = $null }
-    Assert-Pass 'declared nullable normalization value remains present' (Invoke-Comparator (Get-ComparatorArguments))
+    Save-Json (Join-Path $fixtureRoot 'base\LOBO\result.json') { param($r) $r.evidence.sourceSyntax.PSObject.Properties.Remove('scanRoot') }
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.evidence.sourceSyntax.PSObject.Properties.Remove('scanRoot') }
+    Assert-Fail 'declared raw source normalization path missing from both raws' (Invoke-Comparator (Get-ComparatorArguments)) 'raw\[LOBO\].*normalization property is missing.*evidence\.sourceSyntax\.scanRoot'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Haiidrate\result.json') { param($r) $r.evidence | Add-Member -NotePropertyName sourceSyntax -NotePropertyValue ([pscustomobject]@{ scanRoot = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/candidate/Haiidrate/source' }); $r | Add-Member -NotePropertyName sakura -NotePropertyValue ([pscustomobject]@{ source = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/candidate/Haiidrate/sakura' }); $r | Add-Member -NotePropertyName kero -NotePropertyValue ([pscustomobject]@{ source = '/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/candidate/Haiidrate/kero' }) }
+    Assert-Fail 'undeclared raw source selectors remain behavioral' (Invoke-Comparator (Get-ComparatorArguments)) 'raw\[Haiidrate\]\.(kero|sakura|evidence\.sourceSyntax)'
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'base\tewire-sen\result.json') { param($r) $r.dialogueProbe.value = "behavior:$('1' * 32)" }
@@ -385,12 +410,31 @@ try {
     Assert-Fail 'unexpected normalization contract expansion' (Invoke-Comparator $expandedContractArguments) 'normalization rawRunOwnedStringPaths'
 
     Reset-Fixtures
+    $expandedContractPath = Join-Path $fixtureRoot 'expanded-source-selector-contract.json'
+    Copy-Item -LiteralPath $contractPath -Destination $expandedContractPath
+    Save-Json $expandedContractPath { param($c) $c.normalization.rawSourceArchiveSha256 | Add-Member -NotePropertyName Haiidrate -NotePropertyValue ('f' * 64) }
+    $expandedContractArguments = Get-ComparatorArguments
+    $expandedContractArguments[($expandedContractArguments.IndexOf('-ContractPath') + 1)] = $expandedContractPath
+    Assert-Fail 'unexpected raw source selector label expansion' (Invoke-Comparator $expandedContractArguments) 'normalization rawSourceArchiveSha256 labels'
+
+    Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.classification = 'partiallyCompatible' }
     Assert-Fail 'undeclared neighboring field change' (Invoke-Comparator (Get-ComparatorArguments)) 'classification'
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Watchdog-Bancho\result.json') { param($r) $r.dialogueProbe.value = "\1\s[10]\0\s[0]\0\s[0]Yo, boss! What's the haps?" }
     Assert-Pass 'reviewed Watchdog stochastic value' (Invoke-Comparator (Get-ComparatorArguments))
+
+    foreach ($reviewedAlternative in @(
+        @{ name = 'reviewed LOBO stochastic alternative'; safeLabel = 'LOBO'; value = $loboReviewedAlternative },
+        @{ name = 'reviewed Snake V1.2.1 stochastic alternative'; safeLabel = 'Snake-and-Otacon-V1.2.1'; value = $snakeV121ReviewedAlternative },
+        @{ name = 'reviewed Snake V1.3.1 stochastic alternative'; safeLabel = 'Snake-and-Otacon-V1.3.1'; value = $snakeLateReviewedAlternative },
+        @{ name = 'reviewed Snake 1.3.1b stochastic alternative'; safeLabel = 'Snake_Otacon_1.3.1b'; value = $snakeLateReviewedAlternative }
+    )) {
+        Reset-Fixtures
+        Save-Json (Join-Path $fixtureRoot "candidate\$($reviewedAlternative.safeLabel)\result.json") { param($r) $r.dialogueProbe.value = $reviewedAlternative.value }
+        Assert-Pass $reviewedAlternative.name (Invoke-Comparator (Get-ComparatorArguments))
+    }
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\2elf-2.46\result.json') { param($r) $r.dialogueProbe.value = $twoElfCandidate }
@@ -404,6 +448,10 @@ try {
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Watchdog-Bancho\result.json') { param($r) $r.dialogueProbe.value = 'unreviewed stochastic output' }
     Assert-Fail 'unlisted stochastic value' (Invoke-Comparator (Get-ComparatorArguments)) 'unreviewed stochastic'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Snake-and-Otacon-V1.2.1\result.json') { param($r) $r.dialogueProbe.value = $snakeLateReviewedAlternative }
+    Assert-Fail 'cross-archive stochastic value' (Invoke-Comparator (Get-ComparatorArguments)) 'unreviewed stochastic'
 
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Watchdog-Bancho\result.json') { param($r) $r.sha256 = 'f' * 64 }
@@ -433,7 +481,7 @@ try {
     Write-Json $prerequisite $failedPrerequisite
     Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
 
-    Write-Host 'Comparator host tests passed: 44 cases.'
+    Write-Host 'Comparator host tests passed.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }

@@ -97,6 +97,9 @@ root: missing parents or leaves, zero/extra selector matches, and undeclared
 kind changes fail before normalization. A present `null` remains distinct from
 an absent property and is accepted only where the contract explicitly lists
 the `null` kind. The
+source-syntax and Sakura/Kero source paths are required only for a static
+15-label contract map whose labels are bound to the manifest archive SHA-256;
+they are never inferred from a report's present properties. The
 only dialogue value with run-ID normalization is `Yes Man-2.1.1`, and it must
 contain the exact declared private per-run archive path shape. Only that complete
 path occurrence is replaced; another bare run ID in the same value remains
@@ -163,15 +166,25 @@ base/candidate evidence:
 | Snake_Otacon_1.3.1b | `b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07` | `bc73531970d16a24ebce414288fb811b835c8a482242fca3631db537f1cca8e1` |
 | Watchdog Bancho | `169a2b0b07526e9892419399a4fde6e4c3608c11ffe35b5ac59bf20a9a2609c1` | `bcdb3aeec739afa5e74dac507c8cc8ad21661a06ba2b81d81b707f3df844da2e` |
 
+Independent archive-source review additionally permits these exact decoded-string
+UTF-8 hashes, bound to the same exact archive SHA-256 entries: LOBO
+`1f61cce5010088f493883d3c2efe6d5831dfcdba7d1e14192c8f29dca3054685`, Snake
+V1.2.1 `6897d875db1f67d428c3801f9deb251aeac32f265eac82a2f4bc9cc458f070ea`,
+and Snake V1.3.1 and Snake 1.3.1b
+`8121582116b1f4a245c8e37f5f39899212dbe25fe5914c6e49a8456fe9c90038`. The
+observed rows retain `status=200`, `outcome=success`, `method=GET`,
+`event=OnBoot`, `failure=null`, and an empty tokenizer; no invariant is relaxed.
+
 Provenance identifies the source entry and exact lines that expose the
 alternate response(s):
 
 - 2elf: `ghost/master/dic_1templ.txt` lines 3900-3920;
-- LOBO: `ghost/master/ghost-bootend.kis` lines 50-52 and word pools in
-  `ghost/master/ghost-aitalk.kis` lines 6-11 and 29-35;
-- Snake V1.2.1: `ghost/master/Sn_bootend.dic` lines 386-390;
-- Snake V1.3.1: `ghost/master/Sn_bootend.dic` lines 398-402;
-- Snake 1.3.1b: `ghost/master/Sn_bootend.dic` lines 395-399;
+- LOBO: `ghost/master/dict/dict-event.kis` line 222,
+  `ghost/master/ghost-bootend.kis` line 51, and
+  `ghost/master/ghost-aitalk.kis` lines 11, 9, and 34;
+- Snake V1.2.1: `ghost/master/Sn_bootend.dic` lines 238, 265, 282, 392, and 396;
+- Snake V1.3.1: `ghost/master/Sn_bootend.dic` lines 250, 277, 294, 404, and 406;
+- Snake 1.3.1b: `ghost/master/Sn_bootend.dic` lines 247, 274, 291, 401, and 403;
 - Watchdog: `ghost/master/ghost-bootend.kis` lines 44-45.
 
 The contract does not claim to enumerate every theoretically reachable random

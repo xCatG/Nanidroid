@@ -252,8 +252,8 @@ function Find-FirstDifference([object]$Left, [object]$Right, [string]$Path = '$'
         return $null
     }
     if ($leftKind -eq 'object') {
-        $leftNames = @($Left.PSObject.Properties.Name | Sort-Object -CaseSensitive)
-        $rightNames = @($Right.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+        $leftNames = @($Left.PSObject.Properties | ForEach-Object { [string]$_.Name } | Sort-Object -CaseSensitive)
+        $rightNames = @($Right.PSObject.Properties | ForEach-Object { [string]$_.Name } | Sort-Object -CaseSensitive)
         $missingOnRight = @($leftNames | Where-Object { $rightNames -cnotcontains $_ })
         if ($missingOnRight.Count -ne 0) { return "$Path.$($missingOnRight[0]) (missing on candidate)" }
         $missingOnLeft = @($rightNames | Where-Object { $leftNames -cnotcontains $_ })
@@ -550,6 +550,13 @@ function ConvertTo-CanonicalRun {
         }
     }
 
+    foreach ($path in @($Contract.normalization.rawRunOwnedStringSelectors)) {
+        $pathText = [string]$path
+        foreach ($label in @($Contract.normalization.rawSourceArchiveSha256.PSObject.Properties | ForEach-Object { $_.Name })) {
+            Set-PathPatternValue $rawByLabel[$label] $pathText { param($value) $kind = Assert-NormalizationKind $Contract 'raw' $pathText $value; "<RUN_OWNED_PATH:$kind>" } -Context "raw[$label]" -ExpectedMatchCount 1
+        }
+    }
+
     foreach ($rule in @($Contract.normalization.scopedRunOwnedValues)) {
         $label = [string]$rule.label
         $pathText = [string]$rule.path
@@ -626,14 +633,33 @@ try {
     $requiredNormalization = @{
         summaryRunIdPaths = @('runId', 'results[].runId')
         summaryTimestampPaths = @('startedAt', 'finishedAt', 'results[].startedAt', 'results[].finishedAt')
-        summaryDurationPaths = @('durationSeconds', 'results[].durationSeconds')
+        summaryDurationPaths = @('durationSeconds')
         summaryReportRootPaths = @('git.manifestFile', 'apks.debugPath', 'apks.testPath')
         summaryRunOwnedStringPaths = @('results[].resultPath', 'results[].screenshotPath', 'results[].crashLogPath', 'results[].output', 'results[].error')
-        rawRunOwnedStringPaths = @('narCorpusPath', 'evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source')
+        rawRunOwnedStringPaths = @('narCorpusPath')
+        rawRunOwnedStringSelectors = @('evidence.sourceSyntax.scanRoot', 'sakura.source', 'kero.source')
     }
     foreach ($normalizationName in $requiredNormalization.Keys) {
         $actualNormalization = Get-RequiredProperty $contract.normalization $normalizationName 'comparison contract normalization'
         Assert-ExactSet @($actualNormalization | ForEach-Object { [string]$_ }) $requiredNormalization[$normalizationName] "comparison contract normalization $normalizationName"
+    }
+    $requiredRawSourceLabels = @(
+        '2elf-2.46', 'Big Red Button', 'Earthquake Rescue Duo', 'LOBO',
+        'Nanika Atsume 1.0.0', 'Nanika Atsume 1.0.1', 'Nanika Atsume silent_ALPHA',
+        'Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake and Otacon V1.3.2',
+        'Snake_Otacon_1.2.1b', 'Snake_Otacon_1.3.1b', 'tewire-sen', 'Watchdog Bancho',
+        'Yes Man-2.1.1'
+    )
+    if ($null -eq $contract.normalization.PSObject.Properties['rawSourceArchiveSha256']) {
+        throw "comparison contract normalization is missing required property 'rawSourceArchiveSha256'"
+    }
+    $rawSourceArchiveSha256 = $contract.normalization.rawSourceArchiveSha256
+    $actualRawSourceLabels = @($rawSourceArchiveSha256.PSObject.Properties | ForEach-Object { $_.Name })
+    Assert-ExactSet $actualRawSourceLabels $requiredRawSourceLabels 'comparison contract normalization rawSourceArchiveSha256 labels'
+    foreach ($label in $requiredRawSourceLabels) {
+        $manifestEntry = @($entries | Where-Object { [string]$_.label -ceq $label })
+        if ($manifestEntry.Count -ne 1) { throw "comparison contract raw source label '$label' is not unique in manifest" }
+        Assert-EqualString ([string]$rawSourceArchiveSha256.$label) ([string]$manifestEntry[0].sha256) "comparison contract raw source archive SHA for '$label'"
     }
     $expectedKindRules = @(
         'summary|runId|runId|string',
@@ -643,7 +669,6 @@ try {
         'summary|results[].startedAt|timestamp|string',
         'summary|results[].finishedAt|timestamp|string',
         'summary|durationSeconds|duration|number',
-        'summary|results[].durationSeconds|duration|null,number',
         'summary|git.manifestFile|reportPath|string',
         'summary|apks.debugPath|reportPath|string',
         'summary|apks.testPath|reportPath|string',
