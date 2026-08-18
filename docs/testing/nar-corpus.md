@@ -25,6 +25,12 @@ device copies in `finally` blocks.
   when it is not discoverable on `PATH`.
 - `-ManifestPath` (optional): manifest path.
   Default: `docs/testing/nar-corpus-manifest.json`.
+- `-ProductionDebugApkPath`, `-HarnessTestApkPath`, `-ProductionCommit`, and
+  `-HarnessCommit` (optional as one all-or-none group): run a separately built,
+  pristine production APK with the committed fixed-harness test APK. The runner
+  does not build in this mode. It requires `HarnessCommit` to be the checked-out
+  clean harness commit and records its Git tree plus the runner, instrumentation
+  source, and test APK hashes. Omit all four only for a standalone one-tree audit.
 - `-PerArchiveTimeoutMinutes` (optional): hard timeout in minutes for each
   `am instrument` run. This is a host-side corpus safety bound, not the app's
   user-visible script-hang policy. Nanidroid does not cancel a running ghost
@@ -55,6 +61,10 @@ The script requires:
 - clear free storage on `/data`
 - successful `run-as com.cattailsw.nanidroid`
 - build/install once per run
+
+For comparison evidence, use external fixed-harness mode. A locally built
+one-tree run is useful for standalone diagnosis, but it cannot prove that pristine
+base and candidate production APKs were exercised by an identical probe.
 
 ## Output
 
@@ -93,7 +103,8 @@ The script requires:
   asymmetric Sakura/Kero surfaces, and intentionally unsupported package kinds.
 - Persists fixed metadata in `summary.json`/`summary.md`, including:
   - git commit
-  - APK hashes
+  - separate production commit/debug APK identity
+  - fixed harness commit/tree, runner source, instrumentation source, and test APK identity
   - manifest hash
   - manifest fingerprint/rows
   - device fingerprint/API/ABI/density
@@ -118,3 +129,74 @@ markers all agree and the row permits `incompatible`; every other native crash f
 the run. If any ADB process exceeds its host deadline, the runner records the partial
 result and stops issuing device commands because the transport is no longer trusted;
 cleanup is reported as unverified for that run.
+
+## Fixed-23 reproducibility comparison
+
+The comparison contract is
+`docs/testing/nar-corpus-comparison-contract.json`. It is intentionally separate
+from both `nar-corpus-manifest.json` and the rolling PR #394 metadata ledger. The
+contract allows only the six reviewed `dialogueProbe.value` hash sets; it does not
+change archive membership, classification, or required-evidence policy.
+
+Prepare three retained evidence roots: two complete runs of the pristine base
+debug APK, then one complete run of the pristine candidate debug APK. Build the
+two production APKs in clean worktrees at their declared commits. Build the test
+APK once from the clean committed fixed-harness worktree, and invoke this runner
+from that same harness worktree for all three runs using the four external-mode
+arguments. Use the same freshly reset emulator, corpus files, manifest, API, ABI,
+density, and harness APK for every run. After each complete run, copy the entire
+`build/reports/nar-corpus` directory to its retained root. Do not retry individual
+archives or substitute rows/screenshots. If any run must be repeated, discard the
+three retained roots and repeat the complete base/base-first sequence.
+
+Each of the three full runs uses this shape, changing only the pristine production
+APK path and its declared commit:
+
+```powershell
+& .\scripts\run-nar-corpus-audit.ps1 -DeviceSerial '<emulator-serial>' `
+  -CorpusRoots '<exact-corpus-root-1>','<exact-corpus-root-2>' `
+  -ProductionDebugApkPath '<pristine-production-debug.apk>' `
+  -ProductionCommit '<production-commit>' `
+  -HarnessTestApkPath '<fixed-harness-androidTest.apk>' `
+  -HarnessCommit '<fixed-harness-commit>'
+```
+
+After recording the expected identities from those builds, compare in this
+fail-fast order (values below are explicit placeholders):
+
+```powershell
+$common = @(
+  '-ManifestPath', 'docs/testing/nar-corpus-manifest.json',
+  '-ContractPath', 'docs/testing/nar-corpus-comparison-contract.json',
+  '-BaseProductionCommit', '<base-commit>',
+  '-BaseDebugApkSha256', '<base-debug-apk-sha256>',
+  '-HarnessCommit', '<fixed-harness-commit>',
+  '-HarnessTree', '<fixed-harness-tree>',
+  '-HarnessRunnerSha256', '<runner-source-sha256>',
+  '-HarnessInstrumentationSourceSha256', '<instrumentation-source-sha256>',
+  '-HarnessTestApkSha256', '<test-apk-sha256>'
+)
+
+& pwsh -NoProfile -File scripts/compare-nar-corpus-runs.ps1 @common `
+  -ComparisonKind BaseBase `
+  -BaseRoot '<retained-base-run-1>' -CandidateRoot '<retained-base-run-2>' `
+  -CandidateProductionCommit '<base-commit>' `
+  -CandidateDebugApkSha256 '<base-debug-apk-sha256>' `
+  -OutputPath '<retained-base-base-comparison.json>'
+if ($LASTEXITCODE -ne 0) { throw 'Base/base prerequisite failed; candidate comparison is forbidden.' }
+
+& pwsh -NoProfile -File scripts/compare-nar-corpus-runs.ps1 @common `
+  -ComparisonKind BaseCandidate `
+  -BaseRoot '<retained-base-run-1>' -CandidateRoot '<retained-candidate-run>' `
+  -CandidateProductionCommit '<candidate-commit>' `
+  -CandidateDebugApkSha256 '<candidate-debug-apk-sha256>' `
+  -BaseBaseReportPath '<retained-base-base-comparison.json>' `
+  -OutputPath '<retained-base-candidate-comparison.json>'
+if ($LASTEXITCODE -ne 0) { throw 'Base/candidate corpus comparison failed.' }
+```
+
+The comparator independently requires both run summaries to be successful,
+then exhaustively compares `summary.json`, the exact 23 raw `result.json` files,
+and the exact 23 screenshot hashes. A base/candidate invocation cannot proceed
+without a passing base/base report bound to the same base, harness, manifest,
+contract, and emulator identity.

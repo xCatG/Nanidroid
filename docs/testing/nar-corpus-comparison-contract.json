@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "1",
+  "normalization": {
+    "summaryRunIdPaths": [
+      "runId",
+      "results[].runId"
+    ],
+    "summaryTimestampPaths": [
+      "startedAt",
+      "finishedAt",
+      "results[].startedAt",
+      "results[].finishedAt"
+    ],
+    "summaryDurationPaths": [
+      "durationSeconds",
+      "results[].durationSeconds"
+    ],
+    "summaryReportRootPaths": [
+      "git.manifestFile",
+      "apks.debugPath",
+      "apks.testPath"
+    ],
+    "summaryRunOwnedStringPaths": [
+      "results[].resultPath",
+      "results[].screenshotPath",
+      "results[].crashLogPath",
+      "results[].output",
+      "results[].error"
+    ],
+    "rawRunOwnedStringPaths": [
+      "narCorpusPath",
+      "evidence.sourceSyntax.scanRoot",
+      "sakura.source",
+      "kero.source",
+      "dialogueProbe.value"
+    ]
+  },
+  "stochasticDialogueValues": [
+    {
+      "label": "2elf-2.46",
+      "archiveSha256": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "981a53a2d44016b31a690ec4e018409aedff65e14eb942fef50994a0f7c41fb9",
+        "04595b642bef25a3a20d13f22114bcbd7ab5cd895bfdb2fc1743ad4a5d81885b"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/dic_1templ.txt",
+        "lineRanges": ["3900-3920"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      },
+      "summaryMirrors": {
+        "requiredEvidence": true,
+        "sentinelName": "slice2-2elf-dialogue-value-nonblank",
+        "sentinelProperty": "observed"
+      }
+    },
+    {
+      "label": "LOBO",
+      "archiveSha256": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "fa5db680dbf0afece5a61cfb5464bbb69112ed78aff7a972655983de16754b57",
+        "cf75298961469c0a4e8c8ff4825382b6fe4948fd334c1179d6b5d3d02ff7916e"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/ghost-bootend.kis",
+        "lineRanges": ["50-52"],
+        "additionalArchiveEntries": [
+          { "archiveEntry": "ghost/master/ghost-aitalk.kis", "lineRanges": ["6-11", "29-35"] }
+        ],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      }
+    },
+    {
+      "label": "Snake and Otacon V1.2.1",
+      "archiveSha256": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "2c1beab312330df48ae066342f3a167efcecc710490948e00d93ca003e1337a1",
+        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/Sn_bootend.dic",
+        "lineRanges": ["386-390"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      }
+    },
+    {
+      "label": "Snake and Otacon V1.3.1",
+      "archiveSha256": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "2be87f6181f60deb1018ffccade7ab3cc5ad81fc9fee9608d18447c653923a56",
+        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/Sn_bootend.dic",
+        "lineRanges": ["398-402"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      }
+    },
+    {
+      "label": "Snake_Otacon_1.3.1b",
+      "archiveSha256": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "b06b55ab592d277b0d925dcded34927937871b9c267ca1ce34fe75e88d933d07",
+        "bc73531970d16a24ebce414288fb811b835c8a482242fca3631db537f1cca8e1"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/Sn_bootend.dic",
+        "lineRanges": ["395-399"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      }
+    },
+    {
+      "label": "Watchdog Bancho",
+      "archiveSha256": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "169a2b0b07526e9892419399a4fde6e4c3608c11ffe35b5ac59bf20a9a2609c1",
+        "bcdb3aeec739afa5e74dac507c8cc8ad21661a06ba2b81d81b707f3df844da2e"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/ghost-bootend.kis",
+        "lineRanges": ["44-45"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      }
+    }
+  ]
+}
