@@ -610,7 +610,15 @@ catch {
         elseif ($reason -match '(?i)contract') { 'comparison-contract' }
         elseif ($reason -match '(?i)manifest') { 'manifest' }
         else { 'comparison' }
-    $label = if ($reason -match "'(?<label>[^']+)'") { [string]$Matches.label } else { '<none>' }
+    $label = if ($reason -match "'(?<label>[^'\r\n]{1,200})'") {
+        [string]$Matches.label
+    }
+    elseif ($reason -match 'raw\[(?<label>[^\]\r\n]{1,200})\]') {
+        [string]$Matches.label
+    }
+    else {
+        '<none>'
+    }
     $failurePath = if ($reason -match '(?i)\bat (?<path>.+)$') { [string]$Matches.path } else { '<none>' }
     $failureReport = [pscustomobject][ordered]@{
         schemaVersion = '1'

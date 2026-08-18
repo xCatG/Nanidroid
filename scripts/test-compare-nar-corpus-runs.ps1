@@ -267,7 +267,7 @@ try {
     Save-Json $hiddenRawPath { param($r) $r.evidence | Add-Member -NotePropertyName hidden -NotePropertyValue 'candidate-only' }
     Assert-Fail 'hidden raw difference' (Invoke-Comparator (Get-ComparatorArguments)) 'evidence.hidden'
     $failureReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
-    if ($failureReport.passed -ne $false -or [string]::IsNullOrWhiteSpace([string]$failureReport.failure.reason) -or
+    if ($failureReport.passed -ne $false -or [string]$failureReport.failure.label -cne 'LOBO' -or [string]::IsNullOrWhiteSpace([string]$failureReport.failure.reason) -or
         [string]::IsNullOrWhiteSpace([string]$failureReport.failure.artifact) -or [string]::IsNullOrWhiteSpace([string]$failureReport.failure.path)) {
         throw 'raw-difference failure did not atomically replace output with bounded structured failure evidence.'
     }
