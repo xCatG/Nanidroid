@@ -47,17 +47,7 @@ function ConvertFrom-StrictJsonElement([System.Text.Json.JsonElement]$Element) {
             return ,$items.ToArray()
         }
         ([System.Text.Json.JsonValueKind]::String) { return $Element.GetString() }
-        ([System.Text.Json.JsonValueKind]::Number) {
-            $numberToken = $Element.GetRawText()
-            [long]$integer = 0
-            if ($Element.TryGetInt64([ref]$integer)) { return $integer }
-            $mantissaDigits = (($numberToken -split '[eE]', 2)[0] -replace '[^0-9]', '').TrimStart('0')
-            if ($mantissaDigits.Length -le 28) {
-                [decimal]$decimalValue = 0
-                if ($Element.TryGetDecimal([ref]$decimalValue)) { return $decimalValue }
-            }
-            return [NarCorpusExactJsonNumber]::new($numberToken)
-        }
+        ([System.Text.Json.JsonValueKind]::Number) { return [NarCorpusExactJsonNumber]::new($Element.GetRawText()) }
         ([System.Text.Json.JsonValueKind]::True) { return $true }
         ([System.Text.Json.JsonValueKind]::False) { return $false }
         ([System.Text.Json.JsonValueKind]::Null) { return $null }
@@ -117,13 +107,68 @@ function Get-StringSha256([string]$Value) {
     }
 }
 
+function Write-StrictJsonValue([System.Text.Json.Utf8JsonWriter]$Writer, [object]$Value) {
+    if ($null -eq $Value) { $Writer.WriteNullValue(); return }
+    if ($Value -is [NarCorpusExactJsonNumber]) {
+        $numberDocument = [System.Text.Json.JsonDocument]::Parse($Value.Token)
+        try { $numberDocument.RootElement.WriteTo($Writer) } finally { $numberDocument.Dispose() }
+        return
+    }
+    if ($Value -is [string]) { $Writer.WriteStringValue([string]$Value); return }
+    if ($Value -is [bool]) { $Writer.WriteBooleanValue([bool]$Value); return }
+    if ($Value -is [byte] -or $Value -is [sbyte] -or $Value -is [short] -or $Value -is [ushort] -or
+        $Value -is [int] -or $Value -is [uint] -or $Value -is [long] -or $Value -is [ulong] -or
+        $Value -is [float] -or $Value -is [double] -or $Value -is [decimal]) {
+        $numberText = ([IFormattable]$Value).ToString($null, [Globalization.CultureInfo]::InvariantCulture)
+        $numberDocument = [System.Text.Json.JsonDocument]::Parse($numberText)
+        try { $numberDocument.RootElement.WriteTo($Writer) } finally { $numberDocument.Dispose() }
+        return
+    }
+    if ($Value -is [System.Collections.IList]) {
+        $Writer.WriteStartArray()
+        foreach ($item in $Value) { Write-StrictJsonValue $Writer $item }
+        $Writer.WriteEndArray()
+        return
+    }
+    $Writer.WriteStartObject()
+    if ($Value -is [Collections.IDictionary]) {
+        foreach ($key in $Value.Keys) {
+            $Writer.WritePropertyName([string]$key)
+            Write-StrictJsonValue $Writer $Value[$key]
+        }
+    }
+    else {
+        foreach ($property in $Value.PSObject.Properties) {
+            $Writer.WritePropertyName($property.Name)
+            Write-StrictJsonValue $Writer $property.Value
+        }
+    }
+    $Writer.WriteEndObject()
+}
+
+function ConvertTo-StrictJsonText([object]$Value) {
+    $stream = [IO.MemoryStream]::new()
+    $options = [System.Text.Json.JsonWriterOptions]::new()
+    $options.Indented = $true
+    $writer = [System.Text.Json.Utf8JsonWriter]::new($stream, $options)
+    try {
+        Write-StrictJsonValue $writer $Value
+        $writer.Flush()
+        return [Text.Encoding]::UTF8.GetString($stream.ToArray())
+    }
+    finally {
+        $writer.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Write-ComparisonReportAtomic([object]$Report) {
     $resolvedOutputPath = [IO.Path]::GetFullPath($OutputPath)
     $outputDirectory = Split-Path -Parent $resolvedOutputPath
     if (-not (Test-Path -LiteralPath $outputDirectory)) { New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null }
     $temporaryPath = Join-Path $outputDirectory ('.' + [IO.Path]::GetFileName($resolvedOutputPath) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
     try {
-        $Report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $temporaryPath -Encoding utf8
+        ConvertTo-StrictJsonText $Report | Set-Content -LiteralPath $temporaryPath -Encoding utf8
         [IO.File]::Move($temporaryPath, $resolvedOutputPath, $true)
     }
     finally {
@@ -192,7 +237,7 @@ function Find-FirstDifference([object]$Left, [object]$Right, [string]$Path = '$'
     $rightKind = Get-ObjectKind $Right
     if ($leftKind -cne $rightKind) { return "$Path type ($leftKind != $rightKind)" }
     if ($leftKind -eq 'null') { return $null }
-    if ($leftKind -eq 'number' -and ($Left -is [NarCorpusExactJsonNumber] -or $Right -is [NarCorpusExactJsonNumber])) {
+    if ($leftKind -eq 'number') {
         $leftToken = if ($Left -is [NarCorpusExactJsonNumber]) { $Left.Token } else { ([IFormattable]$Left).ToString($null, [Globalization.CultureInfo]::InvariantCulture) }
         $rightToken = if ($Right -is [NarCorpusExactJsonNumber]) { $Right.Token } else { ([IFormattable]$Right).ToString($null, [Globalization.CultureInfo]::InvariantCulture) }
         if ($leftToken -cne $rightToken) { return $Path }

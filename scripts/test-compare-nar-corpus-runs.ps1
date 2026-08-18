@@ -218,6 +218,14 @@ function Save-Json([string]$Path, [scriptblock]$Mutation) {
     Write-Json -Path $Path -Value $value
 }
 
+function Add-RawNumberEvidence([string]$Path, [string]$Token) {
+    if ($Token -notmatch '^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$') { throw "Unsafe JSON number token: $Token" }
+    $text = [IO.File]::ReadAllText($Path)
+    $updated = $text.Replace('"stable": true', "`"stable`": true, `"precise`": $Token")
+    if ($updated -ceq $text) { throw "Stable evidence marker missing from $Path" }
+    [IO.File]::WriteAllText($Path, $updated, [Text.UTF8Encoding]::new($false))
+}
+
 function Get-Row([object]$Summary, [string]$Label) {
     @($Summary.results | Where-Object label -CEQ $Label)[0]
 }
@@ -285,9 +293,21 @@ try {
     Reset-Fixtures
     $basePrecisePath = Join-Path $fixtureRoot 'base\tewire-sen\result.json'
     $candidatePrecisePath = Join-Path $fixtureRoot 'candidate\tewire-sen\result.json'
-    [IO.File]::WriteAllText($basePrecisePath, ([IO.File]::ReadAllText($basePrecisePath).Replace('"stable": true', '"stable": true, "precise": 0.1234567890123456789012345678901')), [Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText($candidatePrecisePath, ([IO.File]::ReadAllText($candidatePrecisePath).Replace('"stable": true', '"stable": true, "precise": 0.1234567890123456789012345678902')), [Text.UTF8Encoding]::new($false))
+    Add-RawNumberEvidence $basePrecisePath '0.1234567890123456789012345678901'
+    Add-RawNumberEvidence $candidatePrecisePath '0.1234567890123456789012345678902'
     Assert-Fail 'adjacent high-precision JSON numbers remain distinct' (Invoke-Comparator (Get-ComparatorArguments)) 'evidence.precise'
+
+    foreach ($numericPolicyCase in @(
+        @{ name = 'tiny exponent JSON numbers remain distinct'; base = '1e-29'; candidate = '2e-29' },
+        @{ name = 'negative high-precision JSON numbers remain distinct'; base = '-0.1234567890123456789012345678901'; candidate = '-0.1234567890123456789012345678902' },
+        @{ name = 'numeric exponent spelling is lexical'; base = '1e2'; candidate = '100' },
+        @{ name = 'integer and decimal number spelling is lexical'; base = '1'; candidate = '1.0' }
+    )) {
+        Reset-Fixtures
+        Add-RawNumberEvidence (Join-Path $fixtureRoot 'base\tewire-sen\result.json') $numericPolicyCase.base
+        Add-RawNumberEvidence (Join-Path $fixtureRoot 'candidate\tewire-sen\result.json') $numericPolicyCase.candidate
+        Assert-Fail $numericPolicyCase.name (Invoke-Comparator (Get-ComparatorArguments)) 'evidence.precise'
+    }
 
     Reset-Fixtures
     Move-Item -LiteralPath (Join-Path $fixtureRoot 'candidate\LOBO') -Destination (Join-Path $fixtureRoot 'candidate\LOBO-renamed')
@@ -381,7 +401,7 @@ try {
     Write-Json $prerequisite $failedPrerequisite
     Assert-Fail 'failed base/base prerequisite' (Invoke-Comparator (Get-ComparatorArguments -Kind BaseCandidate -Prerequisite $prerequisite -ExpectedCandidateCommit $candidateCommit -ExpectedCandidateDebugSha $candidateDebugSha)) 'prerequisite'
 
-    Write-Host 'Comparator host tests passed: 35 cases.'
+    Write-Host 'Comparator host tests passed: 39 cases.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
