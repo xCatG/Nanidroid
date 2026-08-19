@@ -534,6 +534,7 @@ function Get-ComparatorArguments {
     param(
         [ValidateSet('BaseBase', 'BaseCandidate')][string]$Kind = 'BaseBase',
         [string]$Prerequisite,
+        [string]$SelectedManifestPath = $manifestPath,
         [string]$ContractPath = $contractPath,
         [string]$ExpectedCandidateCommit = $baseCommit,
         [string]$ExpectedCandidateDebugSha = $baseDebugSha,
@@ -544,7 +545,7 @@ function Get-ComparatorArguments {
         '-ComparisonKind', $Kind,
         '-BaseRoot', (Join-Path $fixtureRoot 'base'),
         '-CandidateRoot', (Join-Path $fixtureRoot 'candidate'),
-        '-ManifestPath', $manifestPath,
+        '-ManifestPath', $SelectedManifestPath,
         '-ContractPath', $ContractPath,
         '-BaseProductionCommit', $baseCommit,
         '-BaseDebugApkSha256', $baseDebugSha,
@@ -972,6 +973,49 @@ try {
     Reset-Fixtures
     foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
     Assert-Pass 'accepted native LOBO checkpoint skips only stochastic content validation' (Invoke-Comparator (Get-ComparatorArguments))
+
+    foreach ($checkpointManifestKindMutation in @(
+        @{ name = 'native-crash allow flag'; field = 'allowNativeKawariCrash'; mutation = { param($entry) $entry.allowNativeKawariCrash = @($true) } },
+        @{ name = 'manifest label'; field = 'manifest label'; mutation = { param($entry) $entry.label = @('LOBO') } }
+    )) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }
+        $checkpointManifestPath = Join-Path $fixtureRoot ("checkpoint-manifest-$($checkpointManifestKindMutation.name -replace '[^A-Za-z0-9]', '-').json")
+        Copy-Item -LiteralPath $manifestPath -Destination $checkpointManifestPath
+        Save-Json $checkpointManifestPath {
+            param($m)
+            $entry = @($m.entries | Where-Object { [string]$_.label -ceq 'LOBO' })[0]
+            & $checkpointManifestKindMutation.mutation $entry
+        }
+        $checkpointManifestSha = (Get-FileHash -LiteralPath $checkpointManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        foreach ($side in @('base', 'candidate')) {
+            Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) $s.manifestSha256 = $checkpointManifestSha }
+        }
+        Assert-Fail "accepted native checkpoint rejects singleton-array $($checkpointManifestKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $checkpointManifestPath)) "$($checkpointManifestKindMutation.field).*has JSON kind 'array'"
+    }
+
+    foreach ($checkpointScalarKindMutation in @(
+        @{ name = 'summary native crash evidence'; field = 'nativeCrashEvidence'; mutation = { param($raw, $row) $row.nativeCrashEvidence = @([string]$row.nativeCrashEvidence) } },
+        @{ name = 'installed target ID'; field = 'installedTargetId'; mutation = { param($raw, $row) $raw.installedTargetId = @([string]$raw.installedTargetId) } },
+        @{ name = 'dialogue method'; field = 'dialogueProbe.method'; mutation = { param($raw, $row) $raw.dialogueProbe.method = @([string]$raw.dialogueProbe.method) } },
+        @{ name = 'dialogue event ID'; field = 'dialogueProbe.eventId'; mutation = { param($raw, $row) $raw.dialogueProbe.eventId = @([string]$raw.dialogueProbe.eventId) } },
+        @{ name = 'dialogue reference member'; field = 'dialogueProbe.references\[0\]'; mutation = { param($raw, $row) $raw.dialogueProbe.references = @(, @([string]$raw.dialogueProbe.references[0])) } },
+        @{ name = 'observed kind'; field = 'observedKind'; mutation = { param($raw, $row) $raw.observedKind = @([string]$raw.observedKind) } },
+        @{ name = 'classification mirror'; field = 'classification'; mutation = { param($raw, $row) $raw.classification = @([string]$raw.classification); $row.classification = @([string]$row.classification) } }
+    )) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) {
+            Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master'
+            $rawPath = Join-Path $fixtureRoot "$side\LOBO\result.json"
+            $summaryPath = Join-Path $fixtureRoot "$side\summary.json"
+            $raw = Get-Json $rawPath
+            $summary = Get-Json $summaryPath
+            & $checkpointScalarKindMutation.mutation $raw (Get-Row $summary 'LOBO')
+            Write-Json -Path $rawPath -Value $raw
+            Write-Json -Path $summaryPath -Value $summary
+        }
+        Assert-Fail "accepted native checkpoint rejects singleton-array $($checkpointScalarKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments)) "$($checkpointScalarKindMutation.field).*has JSON kind 'array'"
+    }
 
     foreach ($field in @('value', 'module', 'observedAnchorId', 'observedInputId')) {
         Reset-Fixtures

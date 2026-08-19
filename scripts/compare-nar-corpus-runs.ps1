@@ -462,7 +462,9 @@ function Get-SentinelCheckNameDigest([object[]]$SentinelChecks, [string]$Side) {
 
 function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entry, [string]$Side, [string]$Label) {
     $allow = if ($null -eq $Entry) { $null } else { $Entry.PSObject.Properties['allowNativeKawariCrash'] }
-    if ($null -eq $allow -or $allow.Value -ne $true) { return $false }
+    if ($null -eq $allow) { return $false }
+    Assert-JsonKind $allow.Value @('boolean') "$Side manifest entry '$Label'.allowNativeKawariCrash" | Out-Null
+    if ($allow.Value -ne $true) { return $false }
 
     $nativeCrashProperty = $Row.PSObject.Properties['nativeCrash']
     if ($null -eq $nativeCrashProperty) { return $false }
@@ -482,7 +484,8 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
 
     $rule = $script:NarCorpusGhostEnvelopeRulesByLabel[$Label]
     if ($null -eq $rule) { throw "$Side accepted native checkpoint '$Label' has no exact manifest/SHA-bound lifecycle rule" }
-    Assert-EqualString (Get-RequiredProperty $Entry 'label' "manifest entry '$Label'") $Label "$Side accepted native checkpoint '$Label' manifest label"
+    $manifestLabel = Get-ExactJsonString (Get-RequiredProperty $Entry 'label' "manifest entry '$Label'") "$Side accepted native checkpoint '$Label' manifest label"
+    Assert-EqualString $manifestLabel $Label "$Side accepted native checkpoint '$Label' manifest label"
     Assert-EqualString (Get-RequiredProperty $Entry 'expectedKind' "manifest entry '$Label'") 'ghost' "$Side accepted native checkpoint '$Label' manifest kind"
     $manifestSha = Get-RequiredProperty $Entry 'sha256' "manifest entry '$Label'"
     Assert-JsonKind $manifestSha @('string') "$Side accepted native checkpoint '$Label' manifest SHA" | Out-Null
@@ -529,7 +532,7 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
         if ($difference) { throw "$Side accepted native checkpoint '$Label' summary $mirrorName raw mirror mismatch at $difference" }
     }
 
-    $nativeCrashEvidence = Get-RequiredProperty $Row 'nativeCrashEvidence' "$Side summary result '$Label'"
+    $nativeCrashEvidence = Get-ExactJsonString (Get-RequiredProperty $Row 'nativeCrashEvidence' "$Side summary result '$Label'") "$Side accepted native checkpoint '$Label' summary nativeCrashEvidence"
     Assert-EqualString $nativeCrashEvidence "Accepted native crash marker for ${Label}: target process+SIGSEGV+libkawari8" "$Side accepted native checkpoint '$Label' summary nativeCrashEvidence"
     $crashEvidence = Get-RequiredProperty $Row 'crashEvidence' "$Side summary result '$Label'"
     Assert-JsonKind $crashEvidence @('string') "$Side accepted native checkpoint '$Label' summary crashEvidence" | Out-Null
@@ -539,8 +542,10 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
 
     Assert-EqualString (Get-RequiredProperty $Row 'runtimeCheckpointPhase' "$Side summary result '$Label'") 'before-real-shiori' "$Side summary result '$Label'.runtimeCheckpointPhase"
     Assert-EqualString (Get-RequiredProperty $Raw 'checkpointPhase' "$Side raw result '$Label'") 'before-real-shiori' "$Side raw result '$Label'.checkpointPhase"
-    Assert-EqualString (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") 'incompatible' "$Side summary result '$Label'.classification"
-    Assert-EqualString (Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'") 'incompatible' "$Side raw result '$Label'.classification"
+    $summaryClassification = Get-ExactJsonString (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") "$Side summary result '$Label'.classification"
+    Assert-EqualString $summaryClassification 'incompatible' "$Side summary result '$Label'.classification"
+    $rawClassification = Get-ExactJsonString (Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'") "$Side raw result '$Label'.classification"
+    Assert-EqualString $rawClassification 'incompatible' "$Side raw result '$Label'.classification"
     Assert-EqualString (Get-RequiredProperty $Row 'status' "$Side summary result '$Label'") 'ok' "$Side summary result '$Label'.status"
 
     $expectedCheckpointLifecycle = [ordered]@{
@@ -563,17 +568,22 @@ function Test-AcceptedNativeCheckpoint([object]$Row, [object]$Raw, [object]$Entr
     $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
     Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
     Assert-ExactSet @($probe.PSObject.Properties | ForEach-Object { [string]$_.Name }) @('outcome', 'module', 'status', 'value', 'observedAnchorId', 'observedInputId', 'passiveTransitions', 'method', 'eventId', 'references', 'tokenizerDiagnostics', 'failure') "$Side accepted native checkpoint '$Label'.dialogueProbe property set"
-    Assert-EqualString (Get-RequiredProperty $Raw 'observedKind' "$Side raw result '$Label'") 'ghost' "$Side accepted native checkpoint '$Label'.observedKind"
+    $observedKind = Get-ExactJsonString (Get-RequiredProperty $Raw 'observedKind' "$Side raw result '$Label'") "$Side accepted native checkpoint '$Label'.observedKind"
+    Assert-EqualString $observedKind 'ghost' "$Side accepted native checkpoint '$Label'.observedKind"
     $checkpointPassed = Get-RequiredProperty $Raw 'passed' "$Side raw result '$Label'"; Assert-JsonKind $checkpointPassed @('boolean') "$Side accepted native checkpoint '$Label'.passed" | Out-Null; if ($checkpointPassed -ne $true) { throw "$Side accepted native checkpoint '$Label'.passed must be true" }
     Assert-ExactJsonValue (Get-RequiredProperty $Row 'passed' "$Side summary result '$Label'") $checkpointPassed "$Side accepted native checkpoint '$Label' summary passed raw mirror"
     $checkpointArchivePrefix = ([string]$Raw.sha256).Substring(0, 16)
-    Assert-EqualString (Get-RequiredProperty $Raw 'installedTargetId' "$Side raw result '$Label'") ("corpus-" + $checkpointArchivePrefix) "$Side accepted native checkpoint '$Label'.installedTargetId"
-    Assert-EqualString (Get-RequiredProperty $probe 'method' "$Side raw result '$Label'.dialogueProbe") 'GET' "$Side raw result '$Label'.dialogueProbe.method"
-    Assert-EqualString (Get-RequiredProperty $probe 'eventId' "$Side raw result '$Label'.dialogueProbe") 'OnBoot' "$Side raw result '$Label'.dialogueProbe.eventId"
+    $installedTargetId = Get-ExactJsonString (Get-RequiredProperty $Raw 'installedTargetId' "$Side raw result '$Label'") "$Side accepted native checkpoint '$Label'.installedTargetId"
+    Assert-EqualString $installedTargetId ("corpus-" + $checkpointArchivePrefix) "$Side accepted native checkpoint '$Label'.installedTargetId"
+    $method = Get-ExactJsonString (Get-RequiredProperty $probe 'method' "$Side raw result '$Label'.dialogueProbe") "$Side raw result '$Label'.dialogueProbe.method"
+    Assert-EqualString $method 'GET' "$Side raw result '$Label'.dialogueProbe.method"
+    $eventId = Get-ExactJsonString (Get-RequiredProperty $probe 'eventId' "$Side raw result '$Label'.dialogueProbe") "$Side raw result '$Label'.dialogueProbe.eventId"
+    Assert-EqualString $eventId 'OnBoot' "$Side raw result '$Label'.dialogueProbe.eventId"
     $references = Get-RequiredProperty $probe 'references' "$Side raw result '$Label'.dialogueProbe"; Assert-JsonKind $references @('array') "$Side raw result '$Label'.dialogueProbe.references" | Out-Null
     $expectedShellName = @{ 'Big Red Button' = 'Functional'; 'LOBO' = 'Master'; 'Nanika Atsume 1.0.0' = 'Nanika Atsume'; 'Nanika Atsume 1.0.1' = 'Nanika Atsume'; 'Nanika Atsume silent_ALPHA' = 'Nanika Atsume'; 'Watchdog Bancho' = 'master' }[$Label]
     if ($null -eq $expectedShellName -or @($references).Count -ne 1) { throw "$Side accepted native checkpoint '$Label'.references must contain exactly its reviewed shell name" }
-    Assert-EqualString $references[0] $expectedShellName "$Side accepted native checkpoint '$Label'.dialogueProbe.references[0]"
+    $shellReference = Get-ExactJsonString $references[0] "$Side accepted native checkpoint '$Label'.dialogueProbe.references[0]"
+    Assert-EqualString $shellReference $expectedShellName "$Side accepted native checkpoint '$Label'.dialogueProbe.references[0]"
     Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'pending-real-shiori' "$Side raw result '$Label'.dialogueProbe.outcome"
     if ($null -ne (Get-RequiredProperty $probe 'status' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.status must be null at the native checkpoint" }
     if ($null -ne (Get-RequiredProperty $probe 'failure' "$Side raw result '$Label'.dialogueProbe")) { throw "$Side raw result '$Label'.dialogueProbe.failure must be null at the native checkpoint" }
