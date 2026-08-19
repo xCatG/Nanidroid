@@ -172,17 +172,33 @@
       "label": "Earthquake Rescue Duo",
       "archiveSha256": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
       "jsonPath": "dialogueProbe.value",
+      "variantCatalogueSha256": "8952519feb5d2cdf0c637c292b03eaefeb3ab0c3afc093e14f165a37b6802e16",
       "allowedVariants": [
-        { "valueUtf8Sha256": "42f216325f9097b96c363eab4487e39aeaad3cd0a3636844d5b0b7169d529f41", "tokenizerDiagnostics": [], "predicate": "early-not-special-date" },
-        { "valueUtf8Sha256": "98bb8892bf78daf8c7916618ed6bbd67fb8b0f3382a8c1509213032be6c7e3ea", "tokenizerDiagnostics": [], "predicate": "early-not-special-date" },
-        { "valueUtf8Sha256": "53160d1df44cb47ea1d5ba85d53f2c8d4d5f117193df5c4919eee34af2890f5a", "tokenizerDiagnostics": ["unsupported-command:8"], "predicate": "early-not-special-date" },
         { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-06-06" },
-        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-07-04" }
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-07-04" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "hour-00-04-not-special-date" },
+        { "valueUtf8Sha256": "42f216325f9097b96c363eab4487e39aeaad3cd0a3636844d5b0b7169d529f41", "tokenizerDiagnostics": [], "predicate": "hour-05-08-not-special-date" },
+        { "valueUtf8Sha256": "98bb8892bf78daf8c7916618ed6bbd67fb8b0f3382a8c1509213032be6c7e3ea", "tokenizerDiagnostics": [], "predicate": "hour-05-08-not-special-date" },
+        { "valueUtf8Sha256": "53160d1df44cb47ea1d5ba85d53f2c8d4d5f117193df5c4919eee34af2890f5a", "tokenizerDiagnostics": ["unsupported-command:8"], "predicate": "hour-05-08-not-special-date" },
+        { "valueUtf8Sha256": "4d0323efee6567ba3ad00f1592d1a8a0be7ed4e7fda342716a90c235f16c2ccc", "tokenizerDiagnostics": [], "predicate": "hour-09-11-not-special-date" },
+        { "valueUtf8Sha256": "7603a0d37144c53d365e136bed7812c984a290c52512f0755786276799ad2432", "tokenizerDiagnostics": [], "predicate": "hour-09-11-not-special-date" },
+        { "valueUtf8Sha256": "cb3a32f1e00f62f87acea8f9b9e39e9fe384bdb2cf4dc28e3cbd8c1777c0e09f", "tokenizerDiagnostics": [], "predicate": "hour-12-14-not-special-date" },
+        { "valueUtf8Sha256": "34e6319406c393117d60cd0150ab82d23c098a41ea368773642d7503818a2826", "tokenizerDiagnostics": [], "predicate": "hour-12-14-not-special-date" },
+        { "valueUtf8Sha256": "8b224aac942863d28fe519e2640292f4f0a8aa841b602ba6aa9a4b1dadd17f29", "tokenizerDiagnostics": [], "predicate": "hour-15-17-not-special-date" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "hour-18-20-not-special-date" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "hour-21-23-not-special-date" }
       ],
       "source": {
         "archiveEntry": "ghost/master/duo_bootend.dic",
-        "lineRanges": ["181-202", "215-221"],
-        "reviewedEvidence": ["production tokenizer characterization", "authoritative ed03d5ef BaseBase"]
+        "lineRanges": ["136-159", "174-203", "210-260"],
+        "rawEntrySha256": "e34da6717a0bc20145b9ca7d535c886550331eb09910af5e02d5a6cd06523892",
+        "bomStrippedSha256": "1fe69ccc4e2587c848fa0668291cbebc50eb82994fb1be822b086310b9a884b9",
+        "lfSlices": [
+          { "lineRange": "136-159", "sha256": "49f89d04829adf5d1d62d7064e35d9f596388fd46b021a0483276a8346747413" },
+          { "lineRange": "174-203", "sha256": "80ae6c266ef6fadd37dcb3269ac88053124426f0ca6051d47754863e8622ce73" },
+          { "lineRange": "210-260", "sha256": "156f587427813264b7f5eff075163e3ffe001028932266b372e1a82bf0dc16a5" }
+        ],
+        "reviewedEvidence": ["production tokenizer characterization", "authoritative ed03d5ef BaseBase", "exact 06db71e7 NAR source audit"]
       }
     },
     {

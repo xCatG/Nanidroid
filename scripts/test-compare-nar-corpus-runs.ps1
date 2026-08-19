@@ -60,6 +60,17 @@ function Get-StringSha256([string]$Value) {
     }
 }
 
+function Get-BytesSha256([byte[]]$Value) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $algorithm.ComputeHash($Value)
+        return ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $compatibleGhostSuccessRules = [ordered]@{
@@ -150,8 +161,45 @@ if (Test-Path -LiteralPath $recoveredCorpusRoot -PathType Container) {
         '04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59' = @{ italic = 313; toggle = 315 }
     }
     $foundOlderSnake = @{}
+    $foundEarthquake = $false
     foreach ($archive in @(Get-ChildItem -LiteralPath $recoveredCorpusRoot -Recurse -Filter '*.nar')) {
         $archiveSha = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($archiveSha -ceq '06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538') {
+            $earthquakeZip = [IO.Compression.ZipFile]::OpenRead($archive.FullName)
+            try {
+                $earthquakeMember = @($earthquakeZip.Entries | Where-Object { ($_.FullName -replace '\\', '/') -ceq 'ghost/master/duo_bootend.dic' })
+                if ($earthquakeMember.Count -ne 1) { throw 'Recovered Earthquake archive lacks exactly one duo_bootend.dic member.' }
+                $stream = $earthquakeMember[0].Open()
+                try {
+                    $memory = [IO.MemoryStream]::new()
+                    try { $stream.CopyTo($memory); [byte[]]$rawEntryBytes = $memory.ToArray() } finally { $memory.Dispose() }
+                }
+                finally { $stream.Dispose() }
+                if ((Get-BytesSha256 $rawEntryBytes) -cne 'e34da6717a0bc20145b9ca7d535c886550331eb09910af5e02d5a6cd06523892') {
+                    throw 'Recovered Earthquake raw source entry hash mismatch.'
+                }
+                if ($rawEntryBytes.Count -lt 3 -or $rawEntryBytes[0] -ne 0xEF -or $rawEntryBytes[1] -ne 0xBB -or $rawEntryBytes[2] -ne 0xBF) {
+                    throw 'Recovered Earthquake source entry lacks its reviewed UTF-8 BOM.'
+                }
+                [byte[]]$bomStrippedBytes = @($rawEntryBytes[3..($rawEntryBytes.Count - 1)])
+                if ((Get-BytesSha256 $bomStrippedBytes) -cne '1fe69ccc4e2587c848fa0668291cbebc50eb82994fb1be822b086310b9a884b9') {
+                    throw 'Recovered Earthquake BOM-stripped source hash mismatch.'
+                }
+                $earthquakeLines = @([Text.Encoding]::UTF8.GetString($bomStrippedBytes) -split "`r?`n")
+                foreach ($slice in @(
+                    @{ first = 136; last = 159; sha256 = '49f89d04829adf5d1d62d7064e35d9f596388fd46b021a0483276a8346747413' },
+                    @{ first = 174; last = 203; sha256 = '80ae6c266ef6fadd37dcb3269ac88053124426f0ca6051d47754863e8622ce73' },
+                    @{ first = 210; last = 260; sha256 = '156f587427813264b7f5eff075163e3ffe001028932266b372e1a82bf0dc16a5' }
+                )) {
+                    $sliceText = $earthquakeLines[($slice.first - 1)..($slice.last - 1)] -join "`n"
+                    if ((Get-StringSha256 $sliceText) -cne $slice.sha256) {
+                        throw "Recovered Earthquake LF slice $($slice.first)-$($slice.last) hash mismatch."
+                    }
+                }
+                $foundEarthquake = $true
+            }
+            finally { $earthquakeZip.Dispose() }
+        }
         if (-not $olderSnakeProvenance.ContainsKey($archiveSha)) { continue }
         $zip = [IO.Compression.ZipFile]::OpenRead($archive.FullName)
         try {
@@ -167,6 +215,8 @@ if (Test-Path -LiteralPath $recoveredCorpusRoot -PathType Container) {
         }
         finally { $zip.Dispose() }
     }
+    if (-not $foundEarthquake) { throw 'Recovered corpus did not authenticate the exact Earthquake source archive.' }
+    Write-Host 'PASS: recovered UTF-8 Earthquake source provenance binds time/date branches'
     if ($foundOlderSnake.Count -ne 3) { throw 'Recovered corpus did not authenticate all three exact older-Snake source archives.' }
     Write-Host 'PASS: recovered CP932 older-Snake source provenance binds italic and EOF branches'
 }
@@ -183,6 +233,33 @@ $dialogueValues = @{
     'Snake and Otacon V1.3.1' = "\0\s[0]\1\s[10]\0\s[0]Evening. Getting pretty late now. Don't strain yourself, .\1\w8\s[10]Yeah, don't overwork yourself!\e"
     'Snake_Otacon_1.3.1b' = "\0\s[0]\1\s[10]\1\s[10]Have you considered going to bed soon, ? It's getting kind of late...\e"
     'Watchdog Bancho' = '\1\s[10]\0\s[0]\0\s[0]Hey, long time no see!'
+}
+$earthquakeValues = [ordered]@{
+    prefix = '\0\s[0]\1\s[10]'
+    earlyFirst = '\0\s[0]\1\s[10]\0\s[0]ヾ(•ω•`)o\w8\1\s[10]Haha, seems like Mantle is happy to see you!\e'
+    earlySecond = "\0\s[0]\1\s[10]\1\s[10]You called? What's up ?\w8\0\s[0] *^___^*\e"
+    earlyThird = '\0\s[0]\1\s[10]\1\s[10]Boy, it sure is early! Comes in the job description, eh?\w8\0\s[0](=￣ω￣=)\w8.\w8.\8w.\e'
+    morningFirst = "\0\s[0]\1\s[10]\0\s[0](｡･∀･)ﾉﾞ\1\s[10]'Morning, !\e"
+    morningSecond = "\0\s[0]\1\s[10]\1\s[10]Back on duty! Hey, ... How's life?\w8\0\s[0]o(*^▽^*)┛\e"
+    lunchFirst = '\0\s[0]\1\s[10]\0\s[0]This is a lunch boot dialogue.\1\s[10]Sure is.\e'
+    lunchSecond = "\0\s[0]\1\s[10]\1\s[10]Feeling hungry yet?\0\s[0]（︶^︶）\1\s[10]\n\n[half]Don't worry, we'll go out somewhere to eat sometime soon, Mantle!\e"
+    afternoon = "\0\s[0]\1\s[10]\1\s[10]Oh hey ! Mantle and I were just talking about you! Speak of the devil...\w8\0\s[0](゜▽゜*)♪\e"
+}
+$earthquakeExpectedHashes = [ordered]@{
+    prefix = '3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe'
+    earlyFirst = '42f216325f9097b96c363eab4487e39aeaad3cd0a3636844d5b0b7169d529f41'
+    earlySecond = '98bb8892bf78daf8c7916618ed6bbd67fb8b0f3382a8c1509213032be6c7e3ea'
+    earlyThird = '53160d1df44cb47ea1d5ba85d53f2c8d4d5f117193df5c4919eee34af2890f5a'
+    morningFirst = '4d0323efee6567ba3ad00f1592d1a8a0be7ed4e7fda342716a90c235f16c2ccc'
+    morningSecond = '7603a0d37144c53d365e136bed7812c984a290c52512f0755786276799ad2432'
+    lunchFirst = 'cb3a32f1e00f62f87acea8f9b9e39e9fe384bdb2cf4dc28e3cbd8c1777c0e09f'
+    lunchSecond = '34e6319406c393117d60cd0150ab82d23c098a41ea368773642d7503818a2826'
+    afternoon = '8b224aac942863d28fe519e2640292f4f0a8aa841b602ba6aa9a4b1dadd17f29'
+}
+foreach ($earthquakeValueName in $earthquakeValues.Keys) {
+    if ((Get-StringSha256 $earthquakeValues[$earthquakeValueName]) -cne $earthquakeExpectedHashes[$earthquakeValueName]) {
+        throw "Earthquake source-authenticated value hash mismatch for '$earthquakeValueName'."
+    }
 }
 $loboReviewedAlternative = '\1\s[10]\0\s[0]\1\s[-1]\0Listen here, you little caladbolg, you listen to me.\w8\w8\w8 The sulfur that spits, that is your fortune.'
 $snakeV121ReviewedAlternative = '\0\s[0]\1\s[10]\0\s[4]\1\s[13]Yikes. That last mission left you in pretty bad shape, Snake.\1\s[18]Is there any more I can do?\0\s[4]You''ve already done all you can.\1\s[14]\n\n[half]Alright. If you need anything.\n\n Er. Morning, . Or evening, I guess? Mh..\e'
@@ -249,6 +326,7 @@ function New-ReportFixture {
         else {
             "stable:$label"
         }
+        $onBootHour = if ($label -ceq 'Earthquake Rescue Duo') { '05' } else { '01' }
         $raw = [pscustomobject][ordered]@{
             schemaVersion = '2'
             label = $label
@@ -269,8 +347,8 @@ function New-ReportFixture {
                     profileState = 'fresh'
                     username = ''
                     birthdayConfigured = $false
-                    localClockBefore = '2026-08-18T01:00:00-07:00'
-                    localClockAfter = '2026-08-18T01:00:01-07:00'
+                    localClockBefore = "2026-08-18T${onBootHour}:00:00-07:00"
+                    localClockAfter = "2026-08-18T${onBootHour}:00:01-07:00"
                 }
             }
             evidence = [pscustomobject]@{
@@ -504,6 +582,23 @@ function Save-Json([string]$Path, [scriptblock]$Mutation) {
     $value = Get-Json $Path
     & $Mutation $value
     Write-Json -Path $Path -Value $value
+}
+
+function Set-EarthquakeFixture {
+    param(
+        [string]$Side,
+        [string]$DialogueValue,
+        [string[]]$Diagnostics,
+        [string]$Before,
+        [string]$After
+    )
+    $path = Join-Path $fixtureRoot "$Side\Earthquake-Rescue-Duo\result.json"
+    $raw = Get-Json $path
+    $raw.dialogueProbe.value = $DialogueValue
+    $raw.dialogueProbe.tokenizerDiagnostics = @($Diagnostics)
+    $raw.dialogueProbe.onBootContext.localClockBefore = $Before
+    $raw.dialogueProbe.onBootContext.localClockAfter = $After
+    Write-Json -Path $path -Value $raw
 }
 
 function Add-RawNumberEvidence([string]$Path, [string]$Token) {
@@ -880,6 +975,16 @@ try {
     Set-AcceptedNativeCheckpointFixture 'candidate' 'Big Red Button' 'Functional'
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Big Red Button').cleanup.remainingTestOwnedPaths = @('residue') }
     Assert-Fail 'accepted native Kawari checkpoint still requires exact host cleanup evidence' (Invoke-Comparator (Get-ComparatorArguments)) 'summary cleanup residue'
+
+    foreach ($invalidCleanupCase in @(
+        [pscustomobject]@{ name = 'null'; value = $null; kind = 'null' },
+        [pscustomobject]@{ name = 'scalar'; value = 'not-an-array'; kind = 'string' }
+    )) {
+        Reset-Fixtures
+        Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'LOBO').cleanup.remainingTestOwnedPaths = $invalidCleanupCase.value }
+        Assert-Fail "summary cleanup rejects $($invalidCleanupCase.name) remainingTestOwnedPaths" (Invoke-Comparator (Get-ComparatorArguments)) "remainingTestOwnedPaths has JSON kind '$($invalidCleanupCase.kind)'"
+    }
+
     Reset-Fixtures
     Assert-Pass 'fresh baseline report after native checkpoint coverage' (Invoke-Comparator (Get-ComparatorArguments))
     $baselineReport = Get-Json (Join-Path $fixtureRoot 'comparison.json')
@@ -914,7 +1019,7 @@ try {
     Assert-Pass 'older Snake literal is structural-only after its safety witness validates' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
-    $earthquakeDatePrefix = '\0\s[0]\1\s[10]'
+    $earthquakeDatePrefix = $earthquakeValues.prefix
     Save-Json (Join-Path $fixtureRoot 'candidate\2elf-2.46\result.json') { param($r) $r.dialogueProbe.value = $twoElfCandidate }
     Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $row = Get-Row $s '2elf-2.46'; $row.requiredEvidencePayload.dialogueProbe.value = $twoElfCandidate; ($s.sentinels.checks | Where-Object name -CEQ 'slice2-2elf-dialogue-value-nonblank').observed = $twoElfCandidate }
     Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.value = $loboReviewedAlternative }
@@ -952,13 +1057,96 @@ try {
     Get-ChildItem -LiteralPath (Join-Path $fixtureRoot 'candidate') -Recurse -Filter result.json | ForEach-Object { Save-Json $_.FullName { param($r) $r.cleanup.PSObject.Properties.Remove('hostVerified') } }
     Assert-Pass 'device raw evidence does not require host-only cleanup enrichment' (Invoke-Comparator (Get-ComparatorArguments))
 
-    Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T06:00:00-07:00' }
-    Assert-Fail 'Earthquake rejects an OnBoot clock bracket that crosses a predicate boundary' (Invoke-Comparator (Get-ComparatorArguments)) 'clock bracket.*boundary'
+    $earthquakeBoundaryCases = @(
+        @{ name = 'ordinary 00 boundary'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-08-18T00:00:00-07:00'; after = '2026-08-18T00:00:01-07:00' },
+        @{ name = 'ordinary 04 boundary'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-08-18T04:59:58-07:00'; after = '2026-08-18T04:59:59-07:00' },
+        @{ name = 'ordinary 05 first early variant'; value = $earthquakeValues.earlyFirst; diagnostics = @(); before = '2026-08-18T05:00:00-07:00'; after = '2026-08-18T05:00:01-07:00' },
+        @{ name = 'ordinary 06 second early variant'; value = $earthquakeValues.earlySecond; diagnostics = @(); before = '2026-08-18T06:00:00-07:00'; after = '2026-08-18T06:00:01-07:00' },
+        @{ name = 'ordinary 08 third early variant'; value = $earthquakeValues.earlyThird; diagnostics = @('unsupported-command:8'); before = '2026-08-18T08:59:58-07:00'; after = '2026-08-18T08:59:59-07:00' },
+        @{ name = 'ordinary 09 first morning variant'; value = $earthquakeValues.morningFirst; diagnostics = @(); before = '2026-08-18T09:00:00-07:00'; after = '2026-08-18T09:00:01-07:00' },
+        @{ name = 'ordinary 11 second morning variant'; value = $earthquakeValues.morningSecond; diagnostics = @(); before = '2026-08-18T11:59:58-07:00'; after = '2026-08-18T11:59:59-07:00' },
+        @{ name = 'ordinary 12 first lunch variant'; value = $earthquakeValues.lunchFirst; diagnostics = @(); before = '2026-08-18T12:00:00-07:00'; after = '2026-08-18T12:00:01-07:00' },
+        @{ name = 'ordinary 14 second lunch variant'; value = $earthquakeValues.lunchSecond; diagnostics = @(); before = '2026-08-18T14:59:58-07:00'; after = '2026-08-18T14:59:59-07:00' },
+        @{ name = 'ordinary 15 afternoon boundary'; value = $earthquakeValues.afternoon; diagnostics = @(); before = '2026-08-18T15:00:00-07:00'; after = '2026-08-18T15:00:01-07:00' },
+        @{ name = 'ordinary 17 afternoon boundary'; value = $earthquakeValues.afternoon; diagnostics = @(); before = '2026-08-18T17:59:58-07:00'; after = '2026-08-18T17:59:59-07:00' },
+        @{ name = 'ordinary 18 prefix boundary'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-08-18T18:00:00-07:00'; after = '2026-08-18T18:00:01-07:00' },
+        @{ name = 'ordinary 20 prefix boundary'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-08-18T20:59:58-07:00'; after = '2026-08-18T20:59:59-07:00' },
+        @{ name = 'ordinary 21 prefix boundary'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-08-18T21:00:00-07:00'; after = '2026-08-18T21:00:01-07:00' },
+        @{ name = 'ordinary 23 prefix boundary'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-08-18T23:59:58-07:00'; after = '2026-08-18T23:59:59-07:00' },
+        @{ name = 'June 6 overrides lunch'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-06-06T12:00:00-07:00'; after = '2026-06-06T12:00:01-07:00' },
+        @{ name = 'July 4 overrides early morning'; value = $earthquakeValues.prefix; diagnostics = @(); before = '2026-07-04T08:00:00-07:00'; after = '2026-07-04T08:00:01-07:00' }
+    )
+    foreach ($case in $earthquakeBoundaryCases) {
+        Reset-Fixtures
+        Set-EarthquakeFixture -Side 'candidate' -DialogueValue $case.value -Diagnostics $case.diagnostics -Before $case.before -After $case.after
+        Assert-Pass "Earthquake accepts $($case.name)" (Invoke-Comparator (Get-ComparatorArguments))
+    }
+
+    foreach ($invalidEarthquakeCase in @(
+        @{ name = 'an early value in the morning bucket'; value = $earthquakeValues.earlyFirst; diagnostics = @(); before = '2026-08-18T09:00:00-07:00'; after = '2026-08-18T09:00:01-07:00' },
+        @{ name = 'an early value on June 6'; value = $earthquakeValues.earlyFirst; diagnostics = @(); before = '2026-06-06T05:00:00-07:00'; after = '2026-06-06T05:00:01-07:00' },
+        @{ name = 'a morning value on July 4'; value = $earthquakeValues.morningFirst; diagnostics = @(); before = '2026-07-04T09:00:00-07:00'; after = '2026-07-04T09:00:01-07:00' },
+        @{ name = 'a normal lunch value on June 6'; value = $earthquakeValues.lunchFirst; diagnostics = @(); before = '2026-06-06T12:00:00-07:00'; after = '2026-06-06T12:00:01-07:00' },
+        @{ name = 'an afternoon value on July 4'; value = $earthquakeValues.afternoon; diagnostics = @(); before = '2026-07-04T15:00:00-07:00'; after = '2026-07-04T15:00:01-07:00' },
+        @{ name = 'missing diagnostics for the third early value'; value = $earthquakeValues.earlyThird; diagnostics = @(); before = '2026-08-18T05:00:00-07:00'; after = '2026-08-18T05:00:01-07:00' },
+        @{ name = 'forged diagnostics for the first early value'; value = $earthquakeValues.earlyFirst; diagnostics = @('unsupported-command:8'); before = '2026-08-18T05:00:00-07:00'; after = '2026-08-18T05:00:01-07:00' }
+    )) {
+        Reset-Fixtures
+        Set-EarthquakeFixture -Side 'candidate' -DialogueValue $invalidEarthquakeCase.value -Diagnostics $invalidEarthquakeCase.diagnostics -Before $invalidEarthquakeCase.before -After $invalidEarthquakeCase.after
+        Assert-Fail "Earthquake rejects $($invalidEarthquakeCase.name)" (Invoke-Comparator (Get-ComparatorArguments)) 'unreviewed stochastic dialogueProbe.value/tokenizerDiagnostics pair'
+    }
+
+    foreach ($crossingCase in @(
+        @{ name = 'hour bucket'; before = '2026-08-18T08:59:59-07:00'; after = '2026-08-18T09:00:00-07:00' },
+        @{ name = 'ordinary-to-special date'; before = '2026-06-05T23:59:59-07:00'; after = '2026-06-06T00:00:00-07:00' }
+    )) {
+        Reset-Fixtures
+        Set-EarthquakeFixture -Side 'candidate' -DialogueValue $earthquakeValues.prefix -Diagnostics @() -Before $crossingCase.before -After $crossingCase.after
+        Assert-Fail "Earthquake rejects a clock bracket crossing the $($crossingCase.name) boundary" (Invoke-Comparator (Get-ComparatorArguments)) 'clock bracket.*boundary'
+    }
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T01:03:00-07:00'; $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T01:03:01-07:00' }
-    Assert-Pass 'Earthquake normalizes a separately valid same-predicate OnBoot clock bracket' (Invoke-Comparator (Get-ComparatorArguments))
+    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') { param($r) $r.dialogueProbe.onBootContext.username = 'User' }
+    Assert-Fail 'Earthquake rejects a nonempty fresh-profile username' (Invoke-Comparator (Get-ComparatorArguments)) 'onBootContext.username'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') { param($r) $r.dialogueProbe.onBootContext.birthdayConfigured = $true }
+    Assert-Fail 'Earthquake rejects a configured birthday wildcard' (Invoke-Comparator (Get-ComparatorArguments)) 'birthdayConfigured must be false'
+
+    foreach ($contractMutation in @(
+        @{ name = 'variant hash'; pattern = 'Earthquake.*catalogue'; mutation = { param($r) $r.allowedVariants[0].valueUtf8Sha256 = 'f' * 64 } },
+        @{ name = 'variant diagnostics'; pattern = 'Earthquake.*catalogue'; mutation = { param($r) $r.allowedVariants[0].tokenizerDiagnostics = @('forged') } },
+        @{ name = 'empty variant diagnostic collision'; pattern = 'Earthquake.*catalogue'; mutation = { param($r) $r.allowedVariants[0].tokenizerDiagnostics = @('') } },
+        @{ name = 'variant predicate'; pattern = 'Earthquake.*catalogue'; mutation = { param($r) $r.allowedVariants[0].predicate = 'early-not-special-date' } },
+        @{ name = 'variant catalogue digest'; pattern = 'variantCatalogueSha256'; mutation = { param($r) $r.variantCatalogueSha256 = 'f' * 64 } },
+        @{ name = 'generic hash-list validator bypass'; pattern = 'Earthquake.*catalogue'; mutation = { param($r) $r | Add-Member -NotePropertyName allowedUtf8Sha256 -NotePropertyValue @($earthquakeExpectedHashes.earlyFirst); $r.PSObject.Properties.Remove('allowedVariants'); $r.PSObject.Properties.Remove('variantCatalogueSha256') } },
+        @{ name = 'source entry hash'; pattern = 'rawEntrySha256'; mutation = { param($r) $r.source.rawEntrySha256 = 'f' * 64 } },
+        @{ name = 'source BOM-stripped hash'; pattern = 'bomStrippedSha256'; mutation = { param($r) $r.source.bomStrippedSha256 = 'f' * 64 } },
+        @{ name = 'source LF slice hash'; pattern = 'lfSlices'; mutation = { param($r) $r.source.lfSlices[0].sha256 = 'f' * 64 } },
+        @{ name = 'source archive entry'; pattern = 'archiveEntry'; mutation = { param($r) $r.source.archiveEntry = 'ghost/master/forged.dic' } },
+        @{ name = 'source line range'; pattern = 'lineRanges'; mutation = { param($r) $r.source.lineRanges[0] = '1' } },
+        @{ name = 'source reviewed evidence'; pattern = 'reviewedEvidence'; mutation = { param($r) $r.source.reviewedEvidence = @('forged review') } }
+    )) {
+        Reset-Fixtures
+        $mutatedContractPath = Join-Path $fixtureRoot ("earthquake-$($contractMutation.name -replace '[^A-Za-z0-9]', '-').json")
+        Copy-Item -LiteralPath $contractPath -Destination $mutatedContractPath
+        Save-Json $mutatedContractPath {
+            param($contract)
+            $rule = @($contract.stochasticDialogueValues | Where-Object label -CEQ 'Earthquake Rescue Duo')[0]
+            & $contractMutation.mutation $rule
+        }
+        Assert-Fail "Earthquake rejects a mutated $($contractMutation.name) contract" (Invoke-Comparator (Get-ComparatorArguments -ContractPath $mutatedContractPath)) $contractMutation.pattern
+    }
+
+    Reset-Fixtures
+    $reorderedEarthquakeContractPath = Join-Path $fixtureRoot 'earthquake-reordered-catalogue.json'
+    Copy-Item -LiteralPath $contractPath -Destination $reorderedEarthquakeContractPath
+    Save-Json $reorderedEarthquakeContractPath {
+        param($contract)
+        $rule = @($contract.stochasticDialogueValues | Where-Object label -CEQ 'Earthquake Rescue Duo')[0]
+        [Array]::Reverse($rule.allowedVariants)
+    }
+    Assert-Pass 'Earthquake catalogue digest is independent of variant order' (Invoke-Comparator (Get-ComparatorArguments -ContractPath $reorderedEarthquakeContractPath))
 
     Reset-Fixtures
     $loboAuthored = '\1\s[10]\0\s[0]\1\s[-1]\0Hark! What brings this goth love to grace my presence?'

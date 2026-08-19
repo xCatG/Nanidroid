@@ -656,6 +656,32 @@ function Set-CanonicalArchiveCleanup {
     $ArchiveResult | Add-Member -NotePropertyName cleanup -NotePropertyValue $Result.cleanup -Force
 }
 
+function New-HostVerifiedArchiveCleanup {
+    param(
+        [Parameter(Mandatory)]
+        [object]
+        $Result
+    )
+
+    [object[]]$remainingRawPaths = @()
+    if ((Has-Property -Object $Result -Name 'cleanup') -and $null -ne $Result.cleanup) {
+        if (-not (Has-Property -Object $Result.cleanup -Name 'remainingTestOwnedPaths') -or
+            $null -eq $Result.cleanup.remainingTestOwnedPaths -or
+            $Result.cleanup.remainingTestOwnedPaths -isnot [array]) {
+            ThrowIf 'Device cleanup.remainingTestOwnedPaths must be a JSON array when cleanup is present.'
+        }
+        [object[]]$remainingRawPaths = @($Result.cleanup.remainingTestOwnedPaths)
+    }
+    return [pscustomobject]@{
+        remainingTestOwnedPaths = $remainingRawPaths
+        hostVerified = $true
+    }
+}
+
+function Test-ExactEmptyArray([object]$Value, [bool]$Found) {
+    return $Found -and $null -ne $Value -and $Value -is [array] -and @($Value).Count -eq 0
+}
+
 function ConvertTo-NarCorpusJson {
     param(
         [object]$Value
@@ -1572,6 +1598,57 @@ function Assert-SafeLabel([string]$SafeLabel) {
     if ($SafeLabel -match '(^\.+$)' -or $SafeLabel -match '[\\/]') {
         ThrowIf "Unsafe SafeLabel detected '$SafeLabel'."
     }
+}
+
+function Get-ValidatedHostScreenshotHash {
+    param(
+        [Parameter(Mandatory)]
+        [object]
+        $ResultRow,
+
+        [Parameter(Mandatory)]
+        [string]
+        $HostScreenshotRoot
+    )
+
+    $labelFound = $false
+    $safeLabelFound = $false
+    $screenshotPathFound = $false
+    $label = Get-NestedPropertyValue -Object $ResultRow -Path 'label' -Found ([ref]$labelFound)
+    $safeLabel = Get-NestedPropertyValue -Object $ResultRow -Path 'safeLabel' -Found ([ref]$safeLabelFound)
+    $deviceScreenshotPath = Get-NestedPropertyValue -Object $ResultRow -Path 'screenshotPath' -Found ([ref]$screenshotPathFound)
+    if (-not $labelFound -or [string]::IsNullOrWhiteSpace([string]$label)) {
+        ThrowIf 'Screenshot sentinel row is missing its reviewed label.'
+    }
+    if (-not $safeLabelFound -or [string]::IsNullOrWhiteSpace([string]$safeLabel)) {
+        ThrowIf "Screenshot sentinel row '$label' is missing SafeLabel."
+    }
+    Assert-SafeLabel -SafeLabel ([string]$safeLabel)
+    if ([string]$safeLabel -notmatch '^[A-Za-z0-9._-]+$' -or [string]$safeLabel -cne (Sanitize-Label -Label ([string]$label))) {
+        ThrowIf "Screenshot sentinel row '$label' has an unreviewed SafeLabel '$safeLabel'."
+    }
+    if (-not $screenshotPathFound -or [string]::IsNullOrWhiteSpace([string]$deviceScreenshotPath)) {
+        return $null
+    }
+    $expectedDevicePath = "/sdcard/Android/data/$targetPackage/files/nar-corpus/$safeLabel/screenshot.png"
+    if ([string]$deviceScreenshotPath -cne $expectedDevicePath) {
+        ThrowIf "Screenshot sentinel row '$label' does not preserve its exact device screenshot path."
+    }
+
+    $resolvedRoot = [IO.Path]::GetFullPath($HostScreenshotRoot).TrimEnd('\', '/')
+    $hostScreenshotPath = [IO.Path]::GetFullPath((Join-Path $resolvedRoot "$safeLabel.png"))
+    $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not (Split-Path -Parent $hostScreenshotPath).Equals($resolvedRoot, $pathComparison) -or
+        -not (Split-Path -Leaf $hostScreenshotPath).Equals("$safeLabel.png", [StringComparison]::Ordinal)) {
+        ThrowIf "Screenshot sentinel row '$label' escaped the pulled host screenshot root."
+    }
+    if (-not (Test-Path -LiteralPath $hostScreenshotPath -PathType Leaf)) {
+        return $null
+    }
+    if ((Get-Item -LiteralPath $hostScreenshotPath).Length -le 0) {
+        return $null
+    }
+    return (Get-FileHash -LiteralPath $hostScreenshotPath -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 function Clear-LocalArchiveArtifacts {
@@ -2498,11 +2575,7 @@ function Run-TestArchive {
     }
     # `result.json` is device evidence.  Host cleanup and crash classification
     # belong only in summary rows; never reserialize or enrich the pulled bytes.
-    $remainingRawPaths = if ((Has-Property -Object $result -Name 'cleanup') -and $null -ne $result.cleanup -and (Has-Property -Object $result.cleanup -Name 'remainingTestOwnedPaths')) { @($result.cleanup.remainingTestOwnedPaths) } else { @() }
-    $archiveResult | Add-Member -NotePropertyName cleanup -NotePropertyValue ([pscustomobject]@{
-        remainingTestOwnedPaths = $remainingRawPaths
-        hostVerified = $true
-    }) -Force
+    $archiveResult | Add-Member -NotePropertyName cleanup -NotePropertyValue (New-HostVerifiedArchiveCleanup -Result $result) -Force
     if (-not $archiveResult.hostCleanupEvidence -or $archiveResult.hostCleanupEvidence -eq 'host cleanup not yet attempted') {
         $archiveResult | Add-Member -NotePropertyName hostCleanupEvidence -NotePropertyValue $hostCleanupEvidence -Force
     }
@@ -2606,6 +2679,71 @@ if ($HostOnlyOwnedProcessTest) {
         }
     }
     Write-Host 'Host-only dialogue outcome summary mirror probe passed.'
+
+    $screenshotProbeRoot = Join-Path $hostRunTmpRoot 'screenshot-sentinel-probe'
+    New-Item -ItemType Directory -Force -Path $screenshotProbeRoot | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $screenshotProbeRoot 'LOBO.png'), [Text.Encoding]::UTF8.GetBytes('host screenshot fixture'))
+    $deviceScreenshotPath = '/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/LOBO/screenshot.png'
+    $screenshotRow = [pscustomobject]@{
+        label = 'LOBO'
+        safeLabel = 'LOBO'
+        screenshotPath = $deviceScreenshotPath
+    }
+    $hostScreenshotHash = Get-ValidatedHostScreenshotHash -ResultRow $screenshotRow -HostScreenshotRoot $screenshotProbeRoot
+    if ([string]$hostScreenshotHash -notmatch '^[0-9a-f]{64}$' -or $screenshotRow.screenshotPath -cne $deviceScreenshotPath) {
+        ThrowIf 'Host-only screenshot sentinel probe did not hash the pulled host PNG while preserving the device summary path.'
+    }
+    $missingScreenshotRow = [pscustomobject]@{
+        label = 'Big Red Button'
+        safeLabel = 'Big-Red-Button'
+        screenshotPath = '/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/Big-Red-Button/screenshot.png'
+    }
+    if ($null -ne (Get-ValidatedHostScreenshotHash -ResultRow $missingScreenshotRow -HostScreenshotRoot $screenshotProbeRoot)) {
+        ThrowIf 'Host-only screenshot sentinel probe counted a missing pulled host PNG.'
+    }
+    foreach ($unsafeScreenshotRow in @(
+        [pscustomobject]@{ label = 'LOBO'; safeLabel = '..\escape'; screenshotPath = '/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/../escape/screenshot.png' },
+        [pscustomobject]@{ label = 'LOBO'; safeLabel = 'LOBO'; screenshotPath = '/tmp/LOBO.png' }
+    )) {
+        $rejected = $false
+        try {
+            Get-ValidatedHostScreenshotHash -ResultRow $unsafeScreenshotRow -HostScreenshotRoot $screenshotProbeRoot | Out-Null
+        }
+        catch {
+            $rejected = $_.Exception.Message -match 'screenshot|SafeLabel'
+        }
+        if (-not $rejected) {
+            ThrowIf 'Host-only screenshot sentinel probe accepted an escaping safeLabel or forged device screenshot path.'
+        }
+    }
+    Write-Host 'Host-only screenshot sentinel host-path probes passed.'
+
+    $emptyCleanupResult = [pscustomobject]@{ cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @() } }
+    $hostVerifiedCleanup = New-HostVerifiedArchiveCleanup -Result $emptyCleanupResult
+    $cleanupJson = ConvertTo-NarCorpusJson -Value ([pscustomobject]@{ cleanup = $hostVerifiedCleanup })
+    $cleanupDocument = [Text.Json.JsonDocument]::Parse($cleanupJson)
+    try {
+        $remainingPathsJson = $cleanupDocument.RootElement.GetProperty('cleanup').GetProperty('remainingTestOwnedPaths')
+        if ($remainingPathsJson.ValueKind -ne [Text.Json.JsonValueKind]::Array -or $remainingPathsJson.GetArrayLength() -ne 0 -or -not $hostVerifiedCleanup.hostVerified) {
+            ThrowIf 'Host-only cleanup serialization probe did not preserve an exact empty JSON array.'
+        }
+    }
+    finally {
+        $cleanupDocument.Dispose()
+    }
+    if (-not (Test-ExactEmptyArray -Value $hostVerifiedCleanup.remainingTestOwnedPaths -Found $true)) {
+        ThrowIf 'Host-only cleanup sentinel probe rejected an exact empty array.'
+    }
+    foreach ($invalidCleanupCase in @(
+        [pscustomobject]@{ value = $null },
+        [pscustomobject]@{ value = 'not-an-array' },
+        [pscustomobject]@{ value = [object[]]@('residue') }
+    )) {
+        if (Test-ExactEmptyArray -Value $invalidCleanupCase.value -Found $true) {
+            ThrowIf 'Host-only cleanup sentinel probe accepted null, a scalar, or a nonempty array.'
+        }
+    }
+    Write-Host 'Host-only cleanup array serialization and kind probes passed.'
     exit 0
 }
 
@@ -4416,7 +4554,7 @@ try {
         $temp = Get-NestedPropertyValue -Object $result -Path 'postCleanupTmpSnapshot' -Found ([ref]$foundPostTmp)
         if ($foundPostTmp -and $null -ne $temp) { $temp | ForEach-Object { $postCleanupTmp.Add($_) | Out-Null } }
         $remainingPaths = Get-NestedPropertyValue -Object $result -Path 'cleanup.remainingTestOwnedPaths' -Found ([ref]$foundCleanupPaths)
-        if ($null -eq $remainingPaths) { $remainingPaths = @() }
+        $remainingPathsValid = Test-ExactEmptyArray -Value $remainingPaths -Found $foundCleanupPaths
 
         $hostVerified = Get-NestedPropertyValue -Object $result -Path 'cleanup.hostVerified' -Found ([ref]$foundHostVerified)
         $statusValue = Get-NestedPropertyValue -Object $result -Path 'status' -Found ([ref]$foundStatus)
@@ -4434,7 +4572,7 @@ try {
             $postCleanupPrivate.Count -ne 0 -or
             $postCleanupOutput.Count -ne 0 -or
             $postCleanupTmp.Count -ne 0 -or
-            -not (Compare-NumericWithTolerance -Expected 0 -Actual $remainingPaths.Count -Tolerance 0) -or
+            -not $remainingPathsValid -or
             -not $hostVerified -or
             -not ([bool]$passedValue)
         ) {
@@ -4455,8 +4593,11 @@ try {
         $_.snakeFirstBootCanary.freshInstance -eq $true -and
         $_.snakeFirstBootCanary.independentInstanceCount -eq 2
     })
-    $screenshotHashRows = @($results | Where-Object {
-        -not [string]::IsNullOrWhiteSpace([string]$_.screenshotPath) -and (Test-Path -LiteralPath $_.screenshotPath -PathType Leaf)
+    $screenshotHashRows = @($results | ForEach-Object {
+        $hostScreenshotHash = Get-ValidatedHostScreenshotHash -ResultRow $_ -HostScreenshotRoot $screenshotRoot
+        if ([string]$hostScreenshotHash -match '^[0-9a-f]{64}$') {
+            [pscustomobject]@{ label = [string]$_.label; sha256 = [string]$hostScreenshotHash }
+        }
     })
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-raw-envelope-count' -Passed ($results.Count -eq 23) -Expected 23 -Observed $results.Count -Detail 'Expected one successful raw envelope for every fixed manifest entry.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-snake-structural-only-count' -Passed ($snakeStructuralRows.Count -eq 3) -Expected 3 -Observed $snakeStructuralRows.Count -Detail 'Expected exactly three SHA-bound older Snake structural-only witnesses.'

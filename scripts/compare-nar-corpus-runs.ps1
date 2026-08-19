@@ -939,12 +939,86 @@ function Assert-SuccessfulOnBootEnvelope([object]$Raw, [string]$Side, [string]$L
 }
 
 function Test-EarthquakePredicate([string]$Predicate, [DateTimeOffset]$Clock) {
+    $isSpecialDate = ($Clock.Month -eq 6 -and $Clock.Day -eq 6) -or ($Clock.Month -eq 7 -and $Clock.Day -eq 4)
     switch ($Predicate) {
-        'early-not-special-date' { return $Clock.Hour -lt 6 -and -not (($Clock.Month -eq 6 -and $Clock.Day -eq 6) -or ($Clock.Month -eq 7 -and $Clock.Day -eq 4)) }
         'date-06-06' { return $Clock.Month -eq 6 -and $Clock.Day -eq 6 }
         'date-07-04' { return $Clock.Month -eq 7 -and $Clock.Day -eq 4 }
+        'hour-00-04-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 0 -and $Clock.Hour -le 4 }
+        'hour-05-08-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 5 -and $Clock.Hour -le 8 }
+        'hour-09-11-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 9 -and $Clock.Hour -le 11 }
+        'hour-12-14-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 12 -and $Clock.Hour -le 14 }
+        'hour-15-17-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 15 -and $Clock.Hour -le 17 }
+        'hour-18-20-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 18 -and $Clock.Hour -le 20 }
+        'hour-21-23-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 21 -and $Clock.Hour -le 23 }
         default { throw "unsupported Earthquake predicate '$Predicate'" }
     }
+}
+
+function Assert-EarthquakeContract([object]$Rule) {
+    $context = 'comparison contract Earthquake stochastic catalogue'
+    Assert-ExactSet @($Rule.PSObject.Properties | ForEach-Object { [string]$_.Name }) @(
+        'label', 'archiveSha256', 'jsonPath', 'variantCatalogueSha256', 'allowedVariants', 'source'
+    ) "$context property set"
+    Assert-EqualString (Get-RequiredProperty $Rule 'archiveSha256' $context) '06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538' "$context archiveSha256"
+    Assert-EqualString (Get-RequiredProperty $Rule 'jsonPath' $context) 'dialogueProbe.value' "$context jsonPath"
+
+    $expectedCatalogueSha256 = '8952519feb5d2cdf0c637c292b03eaefeb3ab0c3afc093e14f165a37b6802e16'
+    $declaredCatalogueSha256 = Get-RequiredProperty $Rule 'variantCatalogueSha256' $context
+    Assert-JsonKind $declaredCatalogueSha256 @('string') "$context variantCatalogueSha256" | Out-Null
+    Assert-EqualString $declaredCatalogueSha256 $expectedCatalogueSha256 "$context variantCatalogueSha256"
+    $tuples = @($Rule.allowedVariants | ForEach-Object {
+        Assert-ExactSet @($_.PSObject.Properties | ForEach-Object { [string]$_.Name }) @(
+            'valueUtf8Sha256', 'tokenizerDiagnostics', 'predicate'
+        ) "$context variant property set"
+        $diagnostics = @($_.tokenizerDiagnostics | ForEach-Object { [string]$_ })
+        if ($diagnostics.Count -gt 1 -or ($diagnostics.Count -eq 1 -and $diagnostics[0] -cne 'unsupported-command:8')) {
+            throw "$context has unreviewed tokenizerDiagnostics"
+        }
+        '{0}|{1}|{2}' -f ([string]$_.predicate), ([string]$_.valueUtf8Sha256), ($diagnostics -join ',')
+    })
+    if ($tuples.Count -ne 13) { throw "$context must contain exactly 13 predicate/value/diagnostic tuples" }
+    [Array]::Sort($tuples, [StringComparer]::Ordinal)
+    $computedCatalogueSha256 = Get-StringSha256 ($tuples -join "`n")
+    if ($computedCatalogueSha256 -cne $expectedCatalogueSha256) {
+        throw "$context digest mismatch (observed $computedCatalogueSha256)"
+    }
+
+    $source = Get-RequiredProperty $Rule 'source' $context
+    Assert-JsonKind $source @('object') "$context source" | Out-Null
+    Assert-ExactSet @($source.PSObject.Properties | ForEach-Object { [string]$_.Name }) @(
+        'archiveEntry', 'lineRanges', 'rawEntrySha256', 'bomStrippedSha256', 'lfSlices', 'reviewedEvidence'
+    ) "$context source property set"
+    Assert-EqualString (Get-RequiredProperty $source 'archiveEntry' "$context source") 'ghost/master/duo_bootend.dic' "$context source archiveEntry"
+    Assert-EqualString (Get-RequiredProperty $source 'rawEntrySha256' "$context source") 'e34da6717a0bc20145b9ca7d535c886550331eb09910af5e02d5a6cd06523892' "$context source rawEntrySha256"
+    Assert-EqualString (Get-RequiredProperty $source 'bomStrippedSha256' "$context source") '1fe69ccc4e2587c848fa0668291cbebc50eb82994fb1be822b086310b9a884b9' "$context source bomStrippedSha256"
+    $lineRanges = Get-RequiredProperty $source 'lineRanges' "$context source"
+    Assert-JsonKind $lineRanges @('array') "$context source lineRanges" | Out-Null
+    $lineRangeDifference = Find-FirstDifference @($lineRanges | ForEach-Object { [string]$_ }) @('136-159', '174-203', '210-260') 'lineRanges'
+    if ($lineRangeDifference) { throw "$context source lineRanges mismatch at $lineRangeDifference" }
+
+    $expectedSlices = @(
+        '136-159|49f89d04829adf5d1d62d7064e35d9f596388fd46b021a0483276a8346747413',
+        '174-203|80ae6c266ef6fadd37dcb3269ac88053124426f0ca6051d47754863e8622ce73',
+        '210-260|156f587427813264b7f5eff075163e3ffe001028932266b372e1a82bf0dc16a5'
+    )
+    $lfSlices = Get-RequiredProperty $source 'lfSlices' "$context source"
+    Assert-JsonKind $lfSlices @('array') "$context source lfSlices" | Out-Null
+    $actualSlices = @($lfSlices | ForEach-Object {
+        Assert-JsonKind $_ @('object') "$context source lfSlices entry" | Out-Null
+        Assert-ExactSet @($_.PSObject.Properties | ForEach-Object { [string]$_.Name }) @('lineRange', 'sha256') "$context source lfSlices entry property set"
+        '{0}|{1}' -f ([string](Get-RequiredProperty $_ 'lineRange' "$context source lfSlices entry")), ([string](Get-RequiredProperty $_ 'sha256' "$context source lfSlices entry"))
+    })
+    $sliceDifference = Find-FirstDifference $actualSlices $expectedSlices 'lfSlices'
+    if ($sliceDifference) { throw "$context source lfSlices mismatch at $sliceDifference" }
+
+    $reviewedEvidence = Get-RequiredProperty $source 'reviewedEvidence' "$context source"
+    Assert-JsonKind $reviewedEvidence @('array') "$context source reviewedEvidence" | Out-Null
+    $reviewDifference = Find-FirstDifference @($reviewedEvidence | ForEach-Object { [string]$_ }) @(
+        'production tokenizer characterization',
+        'authoritative ed03d5ef BaseBase',
+        'exact 06db71e7 NAR source audit'
+    ) 'reviewedEvidence'
+    if ($reviewDifference) { throw "$context source reviewedEvidence mismatch at $reviewDifference" }
 }
 
 $script:LoboSingularWords = @('butterfly','larva','phaeton','lobo','angle','cerberus','felid','chordate','product','knight','spittle','ass','bullion','minerall','armour','ark','beacon','meadowgrass','strawberry','pachyderm','advent','memory','fruit','needle','thread','fate','crocodile','acetaminophen','sulfur','aegis','aglaeca','bealusi','bruin','watership','hazelnut','quid','skyscraper','artifact','acursed-amulet','bellows','dread','fear','joy','love','flesh','tack','psychopomp','bug','Mojito','psyche','caladbolg')
@@ -1513,6 +1587,7 @@ try {
         Assert-EqualString $rule.jsonPath 'dialogueProbe.value' "comparison contract stochastic JSON path for '$label'"
         $manifestEntry = @($entries | Where-Object { [string]$_.label -ceq $label })[0]
         Assert-EqualString $rule.archiveSha256 ([string]$manifestEntry.sha256) "comparison contract archive SHA for '$label'"
+        if ($label -ceq 'Earthquake Rescue Duo') { Assert-EarthquakeContract $rule }
         if ($null -ne $rule.PSObject.Properties['specializedValidator']) {
             if ($label -ceq 'LOBO') {
                 Assert-EqualString $rule.specializedValidator 'lobo-onboot-v1' "comparison contract specialized stochastic validator for '$label'"
