@@ -688,6 +688,27 @@ try {
     Reset-Fixtures
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
+    foreach ($earthquakeContractKindMutation in @(
+        @{ name = 'label'; field = 'label'; mutation = { param($r) $r.label = @('Earthquake Rescue Duo') } },
+        @{ name = 'archive SHA'; field = 'archiveSha256'; mutation = { param($r) $r.archiveSha256 = @('06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538') } },
+        @{ name = 'JSON path'; field = 'jsonPath'; mutation = { param($r) $r.jsonPath = @('dialogueProbe.value') } },
+        @{ name = 'variant predicate'; field = 'predicate'; mutation = { param($r) $r.allowedVariants[0].predicate = @('date-06-06') } },
+        @{ name = 'source raw hash'; field = 'rawEntrySha256'; mutation = { param($r) $r.source.rawEntrySha256 = @('e34da6717a0bc20145b9ca7d535c886550331eb09910af5e02d5a6cd06523892') } },
+        @{ name = 'source line-range member'; field = 'lineRanges'; mutation = { param($r) $r.source.lineRanges[0] = @('136-159') } },
+        @{ name = 'source LF-slice hash'; field = 'lfSlices'; mutation = { param($r) $r.source.lfSlices[0].sha256 = @('49f89d04829adf5d1d62d7064e35d9f596388fd46b021a0483276a8346747413') } },
+        @{ name = 'source reviewed-evidence member'; field = 'reviewedEvidence'; mutation = { param($r) $r.source.reviewedEvidence[0] = @('production tokenizer characterization') } }
+    )) {
+        Reset-Fixtures
+        $kindContractPath = Join-Path $fixtureRoot ("earthquake-kind-$($earthquakeContractKindMutation.name -replace '[^A-Za-z0-9]', '-').json")
+        Copy-Item -LiteralPath $contractPath -Destination $kindContractPath
+        Save-Json $kindContractPath {
+            param($contract)
+            $rule = @($contract.stochasticDialogueValues | Where-Object { [string]$_.label -ceq 'Earthquake Rescue Duo' })[0]
+            & $earthquakeContractKindMutation.mutation $rule
+        }
+        Assert-Fail "Earthquake contract rejects one-element array $($earthquakeContractKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments -ContractPath $kindContractPath)) "$($earthquakeContractKindMutation.field).*has JSON kind 'array'"
+    }
+
     Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\Watchdog-Bancho\result.json') { param($r) $r.dialogueProbe.value = @($dialogueValues['Watchdog Bancho']) }
     Assert-Fail 'stochastic dialogue value rejects a one-element JSON array lookalike' (Invoke-Comparator (Get-ComparatorArguments)) "dialogueProbe.value has JSON kind 'array'"

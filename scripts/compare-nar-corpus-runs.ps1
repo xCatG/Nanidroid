@@ -961,27 +961,41 @@ function Test-EarthquakePredicate([string]$Predicate, [DateTimeOffset]$Clock) {
     }
 }
 
+function Get-ExactJsonString([object]$Value, [string]$Context) {
+    Assert-JsonKind $Value @('string') $Context | Out-Null
+    return [string]$Value
+}
+
 function Assert-EarthquakeContract([object]$Rule) {
     $context = 'comparison contract Earthquake stochastic catalogue'
     Assert-ExactSet @($Rule.PSObject.Properties | ForEach-Object { [string]$_.Name }) @(
         'label', 'archiveSha256', 'jsonPath', 'variantCatalogueSha256', 'allowedVariants', 'source'
     ) "$context property set"
-    Assert-EqualString (Get-RequiredProperty $Rule 'archiveSha256' $context) '06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538' "$context archiveSha256"
-    Assert-EqualString (Get-RequiredProperty $Rule 'jsonPath' $context) 'dialogueProbe.value' "$context jsonPath"
+    $ruleLabel = Get-ExactJsonString (Get-RequiredProperty $Rule 'label' $context) "$context label"
+    Assert-EqualString $ruleLabel 'Earthquake Rescue Duo' "$context label"
+    $archiveSha256 = Get-ExactJsonString (Get-RequiredProperty $Rule 'archiveSha256' $context) "$context archiveSha256"
+    Assert-EqualString $archiveSha256 '06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538' "$context archiveSha256"
+    $jsonPath = Get-ExactJsonString (Get-RequiredProperty $Rule 'jsonPath' $context) "$context jsonPath"
+    Assert-EqualString $jsonPath 'dialogueProbe.value' "$context jsonPath"
 
     $expectedCatalogueSha256 = '8952519feb5d2cdf0c637c292b03eaefeb3ab0c3afc093e14f165a37b6802e16'
-    $declaredCatalogueSha256 = Get-RequiredProperty $Rule 'variantCatalogueSha256' $context
-    Assert-JsonKind $declaredCatalogueSha256 @('string') "$context variantCatalogueSha256" | Out-Null
+    $declaredCatalogueSha256 = Get-ExactJsonString (Get-RequiredProperty $Rule 'variantCatalogueSha256' $context) "$context variantCatalogueSha256"
     Assert-EqualString $declaredCatalogueSha256 $expectedCatalogueSha256 "$context variantCatalogueSha256"
-    $tuples = @($Rule.allowedVariants | ForEach-Object {
+    $allowedVariants = Get-RequiredProperty $Rule 'allowedVariants' $context
+    Assert-JsonKind $allowedVariants @('array') "$context allowedVariants" | Out-Null
+    $tuples = @($allowedVariants | ForEach-Object {
         Assert-ExactSet @($_.PSObject.Properties | ForEach-Object { [string]$_.Name }) @(
             'valueUtf8Sha256', 'tokenizerDiagnostics', 'predicate'
         ) "$context variant property set"
-        $diagnostics = @($_.tokenizerDiagnostics | ForEach-Object { [string]$_ })
+        $variantHash = Get-ExactJsonString (Get-RequiredProperty $_ 'valueUtf8Sha256' "$context variant") "$context variant valueUtf8Sha256"
+        $variantDiagnostics = Get-RequiredProperty $_ 'tokenizerDiagnostics' "$context variant"
+        Assert-JsonKind $variantDiagnostics @('array') "$context variant tokenizerDiagnostics" | Out-Null
+        $diagnostics = @($variantDiagnostics | ForEach-Object { Get-ExactJsonString $_ "$context variant tokenizerDiagnostics member" })
         if ($diagnostics.Count -gt 1 -or ($diagnostics.Count -eq 1 -and $diagnostics[0] -cne 'unsupported-command:8')) {
             throw "$context has unreviewed tokenizerDiagnostics"
         }
-        '{0}|{1}|{2}' -f ([string]$_.predicate), ([string]$_.valueUtf8Sha256), ($diagnostics -join ',')
+        $predicate = Get-ExactJsonString (Get-RequiredProperty $_ 'predicate' "$context variant") "$context variant predicate"
+        '{0}|{1}|{2}' -f $predicate, $variantHash, ($diagnostics -join ',')
     })
     if ($tuples.Count -ne 13) { throw "$context must contain exactly 13 predicate/value/diagnostic tuples" }
     [Array]::Sort($tuples, [StringComparer]::Ordinal)
@@ -995,12 +1009,16 @@ function Assert-EarthquakeContract([object]$Rule) {
     Assert-ExactSet @($source.PSObject.Properties | ForEach-Object { [string]$_.Name }) @(
         'archiveEntry', 'lineRanges', 'rawEntrySha256', 'bomStrippedSha256', 'lfSlices', 'reviewedEvidence'
     ) "$context source property set"
-    Assert-EqualString (Get-RequiredProperty $source 'archiveEntry' "$context source") 'ghost/master/duo_bootend.dic' "$context source archiveEntry"
-    Assert-EqualString (Get-RequiredProperty $source 'rawEntrySha256' "$context source") 'e34da6717a0bc20145b9ca7d535c886550331eb09910af5e02d5a6cd06523892' "$context source rawEntrySha256"
-    Assert-EqualString (Get-RequiredProperty $source 'bomStrippedSha256' "$context source") '1fe69ccc4e2587c848fa0668291cbebc50eb82994fb1be822b086310b9a884b9' "$context source bomStrippedSha256"
+    $archiveEntry = Get-ExactJsonString (Get-RequiredProperty $source 'archiveEntry' "$context source") "$context source archiveEntry"
+    Assert-EqualString $archiveEntry 'ghost/master/duo_bootend.dic' "$context source archiveEntry"
+    $rawEntrySha256 = Get-ExactJsonString (Get-RequiredProperty $source 'rawEntrySha256' "$context source") "$context source rawEntrySha256"
+    Assert-EqualString $rawEntrySha256 'e34da6717a0bc20145b9ca7d535c886550331eb09910af5e02d5a6cd06523892' "$context source rawEntrySha256"
+    $bomStrippedSha256 = Get-ExactJsonString (Get-RequiredProperty $source 'bomStrippedSha256' "$context source") "$context source bomStrippedSha256"
+    Assert-EqualString $bomStrippedSha256 '1fe69ccc4e2587c848fa0668291cbebc50eb82994fb1be822b086310b9a884b9' "$context source bomStrippedSha256"
     $lineRanges = Get-RequiredProperty $source 'lineRanges' "$context source"
     Assert-JsonKind $lineRanges @('array') "$context source lineRanges" | Out-Null
-    $lineRangeDifference = Find-FirstDifference @($lineRanges | ForEach-Object { [string]$_ }) @('136-159', '174-203', '210-260') 'lineRanges'
+    $lineRangeValues = @($lineRanges | ForEach-Object { Get-ExactJsonString $_ "$context source lineRanges member" })
+    $lineRangeDifference = Find-FirstDifference $lineRangeValues @('136-159', '174-203', '210-260') 'lineRanges'
     if ($lineRangeDifference) { throw "$context source lineRanges mismatch at $lineRangeDifference" }
 
     $expectedSlices = @(
@@ -1013,14 +1031,17 @@ function Assert-EarthquakeContract([object]$Rule) {
     $actualSlices = @($lfSlices | ForEach-Object {
         Assert-JsonKind $_ @('object') "$context source lfSlices entry" | Out-Null
         Assert-ExactSet @($_.PSObject.Properties | ForEach-Object { [string]$_.Name }) @('lineRange', 'sha256') "$context source lfSlices entry property set"
-        '{0}|{1}' -f ([string](Get-RequiredProperty $_ 'lineRange' "$context source lfSlices entry")), ([string](Get-RequiredProperty $_ 'sha256' "$context source lfSlices entry"))
+        $sliceLineRange = Get-ExactJsonString (Get-RequiredProperty $_ 'lineRange' "$context source lfSlices entry") "$context source lfSlices lineRange"
+        $sliceSha256 = Get-ExactJsonString (Get-RequiredProperty $_ 'sha256' "$context source lfSlices entry") "$context source lfSlices sha256"
+        '{0}|{1}' -f $sliceLineRange, $sliceSha256
     })
     $sliceDifference = Find-FirstDifference $actualSlices $expectedSlices 'lfSlices'
     if ($sliceDifference) { throw "$context source lfSlices mismatch at $sliceDifference" }
 
     $reviewedEvidence = Get-RequiredProperty $source 'reviewedEvidence' "$context source"
     Assert-JsonKind $reviewedEvidence @('array') "$context source reviewedEvidence" | Out-Null
-    $reviewDifference = Find-FirstDifference @($reviewedEvidence | ForEach-Object { [string]$_ }) @(
+    $reviewedEvidenceValues = @($reviewedEvidence | ForEach-Object { Get-ExactJsonString $_ "$context source reviewedEvidence member" })
+    $reviewDifference = Find-FirstDifference $reviewedEvidenceValues @(
         'production tokenizer characterization',
         'authoritative ed03d5ef BaseBase',
         'exact 06db71e7 NAR source audit'
