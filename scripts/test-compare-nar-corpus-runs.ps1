@@ -689,6 +689,47 @@ try {
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Watchdog-Bancho\result.json') { param($r) $r.dialogueProbe.value = @($dialogueValues['Watchdog Bancho']) }
+    Assert-Fail 'stochastic dialogue value rejects a one-element JSON array lookalike' (Invoke-Comparator (Get-ComparatorArguments)) "dialogueProbe.value has JSON kind 'array'"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') {
+        param($s)
+        ($s.sentinels.checks | Where-Object name -CEQ 'slice2-2elf-dialogue-value-nonblank').observed = @($dialogueValues['2elf-2.46'])
+    }
+    Assert-Fail 'stochastic sentinel mirror rejects a one-element JSON array lookalike' (Invoke-Comparator (Get-ComparatorArguments)) "required evidence mirror sentinel.*has JSON kind 'array'"
+
+    foreach ($contextMutation in @(
+        @{ name = 'profileState array'; pattern = "profileState has JSON kind 'array'"; mutation = { param($c) $c.profileState = @('fresh') } },
+        @{ name = 'username array'; pattern = "username has JSON kind 'array'"; mutation = { param($c) $c.username = @('') } },
+        @{ name = 'username empty array'; pattern = "username has JSON kind 'array'"; mutation = { param($c) $c.username = @() } },
+        @{ name = 'birthday string'; pattern = 'birthdayConfigured has JSON kind'; mutation = { param($c) $c.birthdayConfigured = 'false' } },
+        @{ name = 'before-clock array'; pattern = 'localClockBefore has JSON kind'; mutation = { param($c) $c.localClockBefore = @('2026-08-18T05:00:00-07:00') } },
+        @{ name = 'after-clock number'; pattern = 'localClockAfter has JSON kind'; mutation = { param($c) $c.localClockAfter = 1 } },
+        @{ name = 'missing property'; pattern = 'onBootContext property set'; mutation = { param($c) $c.PSObject.Properties.Remove('username') } },
+        @{ name = 'extra property'; pattern = 'onBootContext property set'; mutation = { param($c) $c | Add-Member -NotePropertyName forged -NotePropertyValue 'ignored' } }
+    )) {
+        Reset-Fixtures
+        Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') {
+            param($r)
+            & $contextMutation.mutation $r.dialogueProbe.onBootContext
+        }
+        Assert-Fail "OnBoot context rejects $($contextMutation.name)" (Invoke-Comparator (Get-ComparatorArguments)) $contextMutation.pattern
+    }
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Earthquake-Rescue-Duo\result.json') {
+        param($r)
+        $r.dialogueProbe.value = $earthquakeValues.earlyThird
+        $r.dialogueProbe.tokenizerDiagnostics = @(, @('unsupported-command:8'))
+    }
+    Assert-Fail 'Earthquake tokenizer diagnostics reject a nested JSON array lookalike' (Invoke-Comparator (Get-ComparatorArguments)) "tokenizerDiagnostics.*has JSON kind 'array'"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.tokenizerDiagnostics = @(, @('unsupported-command:8')) }
+    Assert-Fail 'specialized stochastic tokenizer diagnostics reject nested JSON arrays' (Invoke-Comparator (Get-ComparatorArguments)) "tokenizerDiagnostics.*has JSON kind 'array'"
+
+    Reset-Fixtures
     Assert-Pass 'all fourteen reviewed compatible ghost envelopes use their exact event map' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures

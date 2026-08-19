@@ -905,8 +905,15 @@ function Get-ValidatedOnBootContext([object]$Raw, [string]$Side, [string]$Label)
     Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
     $context = Get-RequiredProperty $probe 'onBootContext' "$Side raw result '$Label'.dialogueProbe"
     Assert-JsonKind $context @('object') "$Side raw result '$Label'.dialogueProbe.onBootContext" | Out-Null
-    Assert-EqualString (Get-RequiredProperty $context 'profileState' "$Side raw result '$Label'.dialogueProbe.onBootContext") 'fresh' "$Side raw result '$Label'.dialogueProbe.onBootContext.profileState"
-    Assert-EqualString (Get-RequiredProperty $context 'username' "$Side raw result '$Label'.dialogueProbe.onBootContext") '' "$Side raw result '$Label'.dialogueProbe.onBootContext.username"
+    Assert-ExactSet @($context.PSObject.Properties | ForEach-Object { [string]$_.Name }) @(
+        'profileState', 'username', 'birthdayConfigured', 'localClockBefore', 'localClockAfter'
+    ) "$Side raw result '$Label'.dialogueProbe.onBootContext property set"
+    $profileState = Get-RequiredProperty $context 'profileState' "$Side raw result '$Label'.dialogueProbe.onBootContext"
+    Assert-JsonKind $profileState @('string') "$Side raw result '$Label'.dialogueProbe.onBootContext.profileState" | Out-Null
+    Assert-EqualString $profileState 'fresh' "$Side raw result '$Label'.dialogueProbe.onBootContext.profileState"
+    $username = Get-RequiredProperty $context 'username' "$Side raw result '$Label'.dialogueProbe.onBootContext"
+    Assert-JsonKind $username @('string') "$Side raw result '$Label'.dialogueProbe.onBootContext.username" | Out-Null
+    Assert-EqualString $username '' "$Side raw result '$Label'.dialogueProbe.onBootContext.username"
     $birthdayConfigured = Get-RequiredProperty $context 'birthdayConfigured' "$Side raw result '$Label'.dialogueProbe.onBootContext"
     Assert-JsonKind $birthdayConfigured @('boolean') "$Side raw result '$Label'.dialogueProbe.onBootContext.birthdayConfigured" | Out-Null
     if ($birthdayConfigured -ne $false) { throw "$Side raw result '$Label'.dialogueProbe.onBootContext.birthdayConfigured must be false" }
@@ -1169,8 +1176,17 @@ function Assert-StochasticValue {
     $raw = $Run.Raw[$label]
     Assert-SuccessfulOnBootEnvelope $raw $Side $label
     Assert-EqualString $raw.sha256 ([string]$Rule.archiveSha256) "$Side stochastic archive SHA for '$label'"
-    $value = [string]$raw.dialogueProbe.value
+    $probe = Get-RequiredProperty $raw 'dialogueProbe' "$Side raw result '$label'"
+    Assert-JsonKind $probe @('object') "$Side raw result '$label'.dialogueProbe" | Out-Null
+    $valueNode = Get-RequiredProperty $probe 'value' "$Side raw result '$label'.dialogueProbe"
+    Assert-JsonKind $valueNode @('string') "$Side raw result '$label'.dialogueProbe.value" | Out-Null
+    $value = [string]$valueNode
     $valueHash = Get-StringSha256 $value
+    $diagnostics = Get-RequiredProperty $probe 'tokenizerDiagnostics' "$Side raw result '$label'.dialogueProbe"
+    Assert-JsonKind $diagnostics @('array') "$Side raw result '$label'.dialogueProbe.tokenizerDiagnostics" | Out-Null
+    foreach ($diagnostic in @($diagnostics)) {
+        Assert-JsonKind $diagnostic @('string') "$Side raw result '$label'.dialogueProbe.tokenizerDiagnostics member" | Out-Null
+    }
     if ($null -ne $Rule.PSObject.Properties['specializedValidator']) {
         if ([string]$Rule.specializedValidator -ceq 'snake-onboot-structural-v1') {
             Assert-SnakeStructuralOnlyValue $Run $Rule $Side
@@ -1181,8 +1197,6 @@ function Assert-StochasticValue {
     }
     elseif ($null -ne $Rule.PSObject.Properties['allowedVariants']) {
         $clock = Get-ValidatedOnBootContext $raw $Side $label
-        $diagnostics = Get-RequiredProperty (Get-RequiredProperty $raw 'dialogueProbe' "$Side raw result '$label'") 'tokenizerDiagnostics' "$Side raw result '$label'.dialogueProbe"
-        Assert-JsonKind $diagnostics @('array') "$Side raw result '$label'.dialogueProbe.tokenizerDiagnostics" | Out-Null
         $matchingVariants = @($Rule.allowedVariants | Where-Object {
             if ([string]$_.valueUtf8Sha256 -cne $valueHash) { return $false }
             $expected = @($_.tokenizerDiagnostics | ForEach-Object { [string]$_ })
@@ -1197,12 +1211,16 @@ function Assert-StochasticValue {
         throw "$Side unreviewed stochastic dialogueProbe.value for '$label' (decoded UTF-8 SHA-256 $valueHash)"
     }
     if ($null -ne $Rule.PSObject.Properties['summaryMirrors']) {
-        $rowValue = [string]$Run.Rows[$label].requiredEvidencePayload.dialogueProbe.value
+        $rowValueNode = Get-RequiredProperty $Run.Rows[$label].requiredEvidencePayload.dialogueProbe 'value' "$Side required evidence mirror for stochastic '$label'"
+        Assert-JsonKind $rowValueNode @('string') "$Side required evidence mirror dialogueProbe.value for stochastic '$label'" | Out-Null
+        $rowValue = [string]$rowValueNode
         if ($rowValue -cne $value) { throw "$Side required evidence mirror mismatch for stochastic '$label'" }
         $mirror = $Rule.summaryMirrors
         $checks = @($Run.Summary.sentinels.checks | Where-Object { [string]$_.name -ceq [string]$mirror.sentinelName })
         if ($checks.Count -ne 1) { throw "$Side required evidence mirror sentinel '$($mirror.sentinelName)' was not unique" }
-        $sentinelValue = [string]$checks[0].([string]$mirror.sentinelProperty)
+        $sentinelValueNode = Get-RequiredProperty $checks[0] ([string]$mirror.sentinelProperty) "$Side required evidence mirror sentinel '$($mirror.sentinelName)'"
+        Assert-JsonKind $sentinelValueNode @('string') "$Side required evidence mirror sentinel '$($mirror.sentinelName)' value" | Out-Null
+        $sentinelValue = [string]$sentinelValueNode
         if ($sentinelValue -cne $value) { throw "$Side required evidence mirror sentinel mismatch for stochastic '$label'" }
     }
 }
