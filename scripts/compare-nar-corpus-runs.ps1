@@ -246,6 +246,11 @@ function Assert-ExactJsonValue([object]$Actual, [object]$Expected, [string]$Cont
     }
 }
 
+function Get-ExactJsonString([object]$Value, [string]$Context) {
+    Assert-JsonKind $Value @('string') $Context | Out-Null
+    return [string]$Value
+}
+
 function Get-GhostEnvelopeRuleKey([object]$Rule, [string]$Context) {
     Assert-JsonKind $Rule @('object') $Context | Out-Null
     $label = Get-RequiredProperty $Rule 'label' $Context
@@ -403,25 +408,35 @@ function Set-PathPatternValue {
 
 function Assert-ProductionIdentity([object]$Summary, [string]$Commit, [string]$DebugSha, [string]$Side) {
     $production = Get-RequiredProperty $Summary 'production' "$Side summary"
-    Assert-EqualString (Get-RequiredProperty $production 'commit' "$Side production identity") $Commit "$Side production identity commit"
-    Assert-EqualString (Get-RequiredProperty $production 'debugApkSha256' "$Side production identity") $DebugSha "$Side production identity debug APK SHA"
+    $productionCommit = Get-ExactJsonString (Get-RequiredProperty $production 'commit' "$Side production identity") "$Side production identity commit"
+    Assert-EqualString $productionCommit $Commit "$Side production identity commit"
+    $productionDebugSha = Get-ExactJsonString (Get-RequiredProperty $production 'debugApkSha256' "$Side production identity") "$Side production identity debug APK SHA"
+    Assert-EqualString $productionDebugSha $DebugSha "$Side production identity debug APK SHA"
 
     $apks = Get-RequiredProperty $Summary 'apks' "$Side summary"
-    Assert-EqualString (Get-RequiredProperty $apks 'debugSha256' "$Side APK identity") $DebugSha "$Side production identity legacy debug APK SHA"
+    $legacyDebugSha = Get-ExactJsonString (Get-RequiredProperty $apks 'debugSha256' "$Side APK identity") "$Side production identity legacy debug APK SHA"
+    Assert-EqualString $legacyDebugSha $DebugSha "$Side production identity legacy debug APK SHA"
 }
 
 function Assert-HarnessIdentity([object]$Summary, [string]$Side) {
     $harness = Get-RequiredProperty $Summary 'harness' "$Side summary"
-    Assert-EqualString (Get-RequiredProperty $harness 'commit' "$Side harness identity") $HarnessCommit "$Side harness identity commit"
-    Assert-EqualString (Get-RequiredProperty $harness 'tree' "$Side harness identity") $HarnessTree "$Side harness identity tree"
-    Assert-EqualString (Get-RequiredProperty $harness 'runnerSha256' "$Side harness identity") $HarnessRunnerSha256 "$Side harness identity runner SHA"
-    Assert-EqualString (Get-RequiredProperty $harness 'instrumentationSourceSha256' "$Side harness identity") $HarnessInstrumentationSourceSha256 "$Side harness identity instrumentation source SHA"
-    Assert-EqualString (Get-RequiredProperty $harness 'testApkSha256' "$Side harness identity") $HarnessTestApkSha256 "$Side harness identity test APK SHA"
+    foreach ($field in @(
+        @{ name = 'commit'; expected = $HarnessCommit; context = 'commit' },
+        @{ name = 'tree'; expected = $HarnessTree; context = 'tree' },
+        @{ name = 'runnerSha256'; expected = $HarnessRunnerSha256; context = 'runner SHA' },
+        @{ name = 'instrumentationSourceSha256'; expected = $HarnessInstrumentationSourceSha256; context = 'instrumentation source SHA' },
+        @{ name = 'testApkSha256'; expected = $HarnessTestApkSha256; context = 'test APK SHA' }
+    )) {
+        $value = Get-ExactJsonString (Get-RequiredProperty $harness $field.name "$Side harness identity") "$Side harness identity $($field.context)"
+        Assert-EqualString $value $field.expected "$Side harness identity $($field.context)"
+    }
 
     $git = Get-RequiredProperty $Summary 'git' "$Side summary"
-    Assert-EqualString (Get-RequiredProperty $git 'commit' "$Side legacy harness identity") $HarnessCommit "$Side harness identity legacy git commit"
+    $legacyCommit = Get-ExactJsonString (Get-RequiredProperty $git 'commit' "$Side legacy harness identity") "$Side legacy harness identity commit"
+    Assert-EqualString $legacyCommit $HarnessCommit "$Side harness identity legacy git commit"
     $apks = Get-RequiredProperty $Summary 'apks' "$Side summary"
-    Assert-EqualString (Get-RequiredProperty $apks 'testSha256' "$Side legacy harness identity") $HarnessTestApkSha256 "$Side harness identity legacy test APK SHA"
+    $legacyTestSha = Get-ExactJsonString (Get-RequiredProperty $apks 'testSha256' "$Side legacy harness identity") "$Side legacy test APK SHA"
+    Assert-EqualString $legacyTestSha $HarnessTestApkSha256 "$Side harness identity legacy test APK SHA"
 }
 
 function Get-SentinelCheckNameDigest([object[]]$SentinelChecks, [string]$Side) {
@@ -601,21 +616,34 @@ function Assert-DialogueOutcomeMirror([object]$Row, [object]$Raw, [string]$Side,
 }
 
 function Assert-NonGhostOutcomeEnvelope([object]$Row, [object]$Raw, [object]$Entry, [string]$Side, [string]$Label) {
-    $expectedKind = [string]$Entry.expectedKind
+    $expectedKind = Get-ExactJsonString (Get-RequiredProperty $Entry 'expectedKind' "manifest entry '$Label'") "manifest entry '$Label'.expectedKind"
     if ($expectedKind -ceq 'ghost') { return }
 
-    Assert-EqualString (Get-RequiredProperty $Raw 'observedKind' "$Side raw result '$Label'") $expectedKind "$Side raw result '$Label'.observedKind"
-    Assert-EqualString (Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'") 'unsupported' "$Side raw result '$Label'.classification"
-    Assert-EqualString (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") 'unsupported' "$Side summary result '$Label'.classification"
-    Assert-EqualString (Get-RequiredProperty $Raw 'installOutcome' "$Side raw result '$Label'") "unsupported:$expectedKind" "$Side raw result '$Label'.installOutcome"
-    foreach ($outcomeName in @('ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome')) {
-        Assert-EqualString (Get-RequiredProperty $Raw $outcomeName "$Side raw result '$Label'") 'not-applicable' "$Side raw result '$Label'.$outcomeName"
+    Assert-ExactJsonValue (Get-RequiredProperty $Raw 'observedKind' "$Side raw result '$Label'") $expectedKind "$Side raw result '$Label'.observedKind"
+    $rawClassification = Get-RequiredProperty $Raw 'classification' "$Side raw result '$Label'"
+    Assert-ExactJsonValue $rawClassification 'unsupported' "$Side raw result '$Label'.classification"
+    Assert-ExactJsonValue (Get-RequiredProperty $Row 'classification' "$Side summary result '$Label'") $rawClassification "$Side summary result '$Label'.classification raw mirror"
+    foreach ($lifecycle in @(
+        @{ name = 'installOutcome'; expected = "unsupported:$expectedKind" },
+        @{ name = 'ghostLoadOutcome'; expected = 'not-applicable' },
+        @{ name = 'renderOutcome'; expected = 'not-applicable' },
+        @{ name = 'inputOutcome'; expected = 'not-applicable' },
+        @{ name = 'shioriOutcome'; expected = 'not-applicable' }
+    )) {
+        $rawValue = Get-RequiredProperty $Raw $lifecycle.name "$Side raw result '$Label'"
+        Assert-ExactJsonValue $rawValue $lifecycle.expected "$Side raw result '$Label'.$($lifecycle.name)"
+        Assert-ExactJsonValue (Get-RequiredProperty $Row $lifecycle.name "$Side summary result '$Label'") $rawValue "$Side summary result '$Label'.$($lifecycle.name) raw mirror"
     }
+    $rawCheckpointPhase = Get-RequiredProperty $Raw 'checkpointPhase' "$Side raw result '$Label'"
+    Assert-ExactJsonValue $rawCheckpointPhase 'not-run' "$Side raw result '$Label'.checkpointPhase"
+    Assert-ExactJsonValue (Get-RequiredProperty $Row 'runtimeCheckpointPhase' "$Side summary result '$Label'") $rawCheckpointPhase "$Side summary result '$Label'.runtimeCheckpointPhase raw mirror"
     $surfaceCount = Get-RequiredProperty $Raw 'surfaceCount' "$Side raw result '$Label'"
     Assert-JsonKind $surfaceCount @('number') "$Side raw result '$Label'.surfaceCount" | Out-Null
     if ($surfaceCount.Token -cne '0') { throw "$Side raw result '$Label'.surfaceCount must be exact JSON number 0" }
     $probe = Get-RequiredProperty $Raw 'dialogueProbe' "$Side raw result '$Label'"
-    Assert-EqualString (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'not-applicable' "$Side raw result '$Label'.dialogueProbe.outcome"
+    Assert-JsonKind $probe @('object') "$Side raw result '$Label'.dialogueProbe" | Out-Null
+    Assert-ExactSet @($probe.PSObject.Properties | ForEach-Object { [string]$_.Name }) @('outcome') "$Side raw result '$Label'.dialogueProbe property set"
+    Assert-ExactJsonValue (Get-RequiredProperty $probe 'outcome' "$Side raw result '$Label'.dialogueProbe") 'not-applicable' "$Side raw result '$Label'.dialogueProbe.outcome"
 }
 
 function Assert-GhostEnvelope([object]$Row, [object]$Raw, [object]$Entry, [hashtable]$RulesByLabel, [string]$Side, [string]$Label) {
@@ -681,7 +709,7 @@ function Assert-SuccessfulRun([object]$Summary, [hashtable]$RawByLabel, [hashtab
     $abortedDueToTimeout = Get-RequiredProperty $Summary 'abortedDueToTimeout' "$Side summary"
     Assert-JsonKind $abortedDueToTimeout @('boolean') "$Side abortedDueToTimeout" | Out-Null
     if ($abortedDueToTimeout -ne $false) { throw "$Side is not a successful run: abortedDueToTimeout" }
-    Assert-EqualString (Get-RequiredProperty $Summary 'cleanupVerification' "$Side summary") 'verified' "$Side successful run cleanupVerification"
+    Assert-ExactJsonValue (Get-RequiredProperty $Summary 'cleanupVerification' "$Side summary") 'verified' "$Side successful run cleanupVerification"
 
     foreach ($row in @($Summary.results)) {
         $label = [string]$row.label
@@ -837,14 +865,17 @@ function Read-AndValidateRun {
     $summarySchemaVersion = Get-RequiredProperty $summary 'schemaVersion' "$Side summary"
     Assert-JsonKind $summarySchemaVersion @('string') "$Side summary schemaVersion" | Out-Null
     Assert-EqualString $summarySchemaVersion '2' "$Side summary schemaVersion"
-    Assert-EqualString (Get-RequiredProperty $summary 'manifestSha256' "$Side summary") $ExpectedManifestSha "$Side manifest SHA"
+    Assert-ExactJsonValue (Get-RequiredProperty $summary 'manifestSha256' "$Side summary") $ExpectedManifestSha "$Side manifest SHA"
     Assert-ProductionIdentity $summary $ExpectedCommit $ExpectedDebugSha $Side
     Assert-HarnessIdentity $summary $Side
 
     $summaryResults = Get-RequiredProperty $summary 'results' "$Side summary"
     Assert-JsonKind $summaryResults @('array') "$Side summary.results" | Out-Null
     $rows = @($summaryResults)
-    $summaryLabels = @($rows | ForEach-Object { [string]$_.label })
+    $summaryLabels = @($rows | ForEach-Object {
+        Assert-JsonKind $_ @('object') "$Side summary.results[]" | Out-Null
+        Get-ExactJsonString (Get-RequiredProperty $_ 'label' "$Side summary.results[]") "$Side summary.results[].label"
+    })
     Assert-ExactSet $summaryLabels $ExpectedLabels "$Side summary label set"
     if (@($summaryLabels | Select-Object -Unique).Count -ne $ExpectedLabels.Count) { throw "$Side summary label set contains duplicates" }
 
@@ -861,19 +892,24 @@ function Read-AndValidateRun {
         $label = [string]$entry.label
         $safeLabel = ConvertTo-SafeLabel $label
         $row = @($rows | Where-Object { [string]$_.label -ceq $label })[0]
-        Assert-EqualString $row.safeLabel $safeLabel "$Side summary safeLabel for '$label'"
-        Assert-EqualString $row.sha256 ([string]$entry.sha256) "$Side summary archive SHA for '$label'"
+        $summarySafeLabel = Get-ExactJsonString (Get-RequiredProperty $row 'safeLabel' "$Side summary result '$label'") "$Side summary safeLabel for '$label'"
+        Assert-EqualString $summarySafeLabel $safeLabel "$Side summary safeLabel for '$label'"
+        $summarySha = Get-ExactJsonString (Get-RequiredProperty $row 'sha256' "$Side summary result '$label'") "$Side summary archive SHA for '$label'"
+        Assert-EqualString $summarySha ([string]$entry.sha256) "$Side summary archive SHA for '$label'"
         $requiredNames = @($entry.requiredEvidence | ForEach-Object { [string]$_ })
         Assert-JsonKind $row.requiredEvidence @('array') "$Side requiredEvidence for '$label'" | Out-Null
-        Assert-ExactSet @($row.requiredEvidence | ForEach-Object { [string]$_ }) $requiredNames "$Side required evidence name set for '$label'"
+        $summaryRequiredNames = @($row.requiredEvidence | ForEach-Object { Get-ExactJsonString $_ "$Side requiredEvidence member for '$label'" })
+        Assert-ExactSet $summaryRequiredNames $requiredNames "$Side required evidence name set for '$label'"
 
         $rawPath = Join-Path $resolvedRoot "$safeLabel\result.json"
         $raw = Read-JsonFile $rawPath "$Side raw result '$label'"
         $rawSchemaVersion = Get-RequiredProperty $raw 'schemaVersion' "$Side raw result '$label'"
         Assert-JsonKind $rawSchemaVersion @('string') "$Side raw result '$label' schemaVersion" | Out-Null
         Assert-EqualString $rawSchemaVersion '2' "$Side raw result '$label' schemaVersion"
-        Assert-EqualString $raw.label $label "$Side raw label for '$label'"
-        Assert-EqualString $raw.sha256 ([string]$entry.sha256) "$Side raw archive SHA for '$label'"
+        $rawLabel = Get-ExactJsonString (Get-RequiredProperty $raw 'label' "$Side raw result '$label'") "$Side raw label for '$label'"
+        Assert-EqualString $rawLabel $label "$Side raw label for '$label'"
+        $rawSha = Get-ExactJsonString (Get-RequiredProperty $raw 'sha256' "$Side raw result '$label'") "$Side raw archive SHA for '$label'"
+        Assert-EqualString $rawSha ([string]$entry.sha256) "$Side raw archive SHA for '$label'"
         foreach ($requiredName in $requiredNames) {
             $rawProperty = $raw.PSObject.Properties[$requiredName]
             $mirrorProperty = $row.requiredEvidencePayload.PSObject.Properties[$requiredName]
@@ -959,11 +995,6 @@ function Test-EarthquakePredicate([string]$Predicate, [DateTimeOffset]$Clock) {
         'hour-21-23-not-special-date' { return -not $isSpecialDate -and $Clock.Hour -ge 21 -and $Clock.Hour -le 23 }
         default { throw "unsupported Earthquake predicate '$Predicate'" }
     }
-}
-
-function Get-ExactJsonString([object]$Value, [string]$Context) {
-    Assert-JsonKind $Value @('string') $Context | Out-Null
-    return [string]$Value
 }
 
 function Assert-EarthquakeContract([object]$Rule) {

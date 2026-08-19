@@ -688,6 +688,110 @@ try {
     Reset-Fixtures
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Haiidrate').label = @('Haiidrate') }
+    }
+    Assert-Fail 'summary labels reject matching singleton arrays on both sides' (Invoke-Comparator (Get-ComparatorArguments)) "summary\.results\[\]\.label has JSON kind 'array'"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Haiidrate').label = @('Haiidrate') }
+    Assert-Fail 'summary labels reject a singleton array on one side' (Invoke-Comparator (Get-ComparatorArguments)) "summary\.results\[\]\.label has JSON kind 'array'"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $s.results[1].label = [string]$s.results[0].label }
+    Assert-Fail 'summary labels reject duplicate exact strings' (Invoke-Comparator (Get-ComparatorArguments)) 'summary label set|duplicates'
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Haiidrate').label = 1 }
+    Assert-Fail 'summary labels reject non-string scalars' (Invoke-Comparator (Get-ComparatorArguments)) "summary\.results\[\]\.label has JSON kind 'number'"
+
+    foreach ($summaryIdentityKindMutation in @(
+        @{ name = 'production commit'; field = 'production identity commit'; mutation = { param($s) $s.production.commit = @([string]$s.production.commit) } },
+        @{ name = 'harness runner SHA'; field = 'harness identity runner SHA'; mutation = { param($s) $s.harness.runnerSha256 = @([string]$s.harness.runnerSha256) } },
+        @{ name = 'legacy harness commit'; field = 'legacy harness identity commit'; mutation = { param($s) $s.git.commit = @([string]$s.git.commit) } },
+        @{ name = 'legacy test APK SHA'; field = 'legacy test APK SHA'; mutation = { param($s) $s.apks.testSha256 = @([string]$s.apks.testSha256) } },
+        @{ name = 'manifest SHA'; field = 'manifest SHA'; mutation = { param($s) $s.manifestSha256 = @([string]$s.manifestSha256) } },
+        @{ name = 'cleanup verification'; field = 'cleanupVerification'; mutation = { param($s) $s.cleanupVerification = @([string]$s.cleanupVerification) } }
+    )) {
+        Reset-Fixtures
+        Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) & $summaryIdentityKindMutation.mutation $s }
+        Assert-Fail "summary identity rejects singleton-array $($summaryIdentityKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments)) "$($summaryIdentityKindMutation.field).*has JSON kind 'array'"
+    }
+
+    foreach ($rowIdentityKindMutation in @(
+        @{ name = 'summary SHA'; field = 'summary archive SHA'; summary = { param($row) $row.sha256 = @([string]$row.sha256) }; raw = $null },
+        @{ name = 'summary safe label'; field = 'summary safeLabel'; summary = { param($row) $row.safeLabel = @([string]$row.safeLabel) }; raw = $null },
+        @{ name = 'raw label'; field = 'raw label'; summary = $null; raw = { param($raw) $raw.label = @([string]$raw.label) } },
+        @{ name = 'raw SHA'; field = 'raw archive SHA'; summary = $null; raw = { param($raw) $raw.sha256 = @([string]$raw.sha256) } },
+        @{ name = 'required-evidence member'; field = 'requiredEvidence member'; summary = { param($row) $row.requiredEvidence[0] = @([string]$row.requiredEvidence[0]) }; raw = $null }
+    )) {
+        Reset-Fixtures
+        foreach ($side in @('base', 'candidate')) {
+            if ($null -ne $rowIdentityKindMutation.summary) {
+                Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) & $rowIdentityKindMutation.summary (Get-Row $s 'Haiidrate') }
+            }
+            if ($null -ne $rowIdentityKindMutation.raw) {
+                Save-Json (Join-Path $fixtureRoot "$side\Haiidrate\result.json") { param($r) & $rowIdentityKindMutation.raw $r }
+            }
+        }
+        Assert-Fail "evidence identity rejects singleton-array $($rowIdentityKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments)) "$($rowIdentityKindMutation.field).*has JSON kind 'array'"
+    }
+
+    foreach ($nonGhostLabel in @('Haiidrate', 'Hareraiser', 'Kitsune no Ocha', 'The Petpet Puddle')) {
+        Reset-Fixtures
+        $safeLabel = ConvertTo-SafeLabel $nonGhostLabel
+        foreach ($side in @('base', 'candidate')) {
+            Save-Json (Join-Path $fixtureRoot "$side\$safeLabel\result.json") { param($r) $r.checkpointPhase = 'complete' }
+            Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s $nonGhostLabel).runtimeCheckpointPhase = 'complete' }
+        }
+        Assert-Fail "non-ghost envelope requires not-run checkpoint phase for $nonGhostLabel" (Invoke-Comparator (Get-ComparatorArguments)) "raw result '$([regex]::Escape($nonGhostLabel))'\.checkpointPhase"
+    }
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\Haiidrate\result.json') { param($r) $r.PSObject.Properties.Remove('checkpointPhase') }
+    Assert-Fail 'non-ghost envelope requires raw checkpoint phase' (Invoke-Comparator (Get-ComparatorArguments)) "missing.*checkpointPhase"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Haiidrate').PSObject.Properties.Remove('runtimeCheckpointPhase') }
+    Assert-Fail 'non-ghost envelope requires summary checkpoint phase' (Invoke-Comparator (Get-ComparatorArguments)) "missing.*runtimeCheckpointPhase"
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Haiidrate\result.json") { param($r) $r.checkpointPhase = @('not-run') }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Haiidrate').runtimeCheckpointPhase = @('not-run') }
+    }
+    Assert-Fail 'non-ghost envelope rejects non-string raw checkpoint phase' (Invoke-Comparator (Get-ComparatorArguments)) "checkpointPhase has JSON kind 'array'"
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Haiidrate').runtimeCheckpointPhase = @('not-run') }
+    }
+    Assert-Fail 'non-ghost envelope rejects non-string summary checkpoint phase' (Invoke-Comparator (Get-ComparatorArguments)) "runtimeCheckpointPhase.*has JSON kind 'array'"
+
+    Reset-Fixtures
+    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Haiidrate').runtimeCheckpointPhase = 'complete' }
+    Assert-Fail 'non-ghost envelope requires summary checkpoint phase to mirror raw' (Invoke-Comparator (Get-ComparatorArguments)) 'runtimeCheckpointPhase raw mirror'
+
+    foreach ($lifecycleName in @('installOutcome', 'ghostLoadOutcome', 'renderOutcome', 'inputOutcome', 'shioriOutcome')) {
+        Reset-Fixtures
+        Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) (Get-Row $s 'Haiidrate').$lifecycleName = 'forged-summary-value' }
+        Assert-Fail "non-ghost envelope requires summary $lifecycleName to mirror raw" (Invoke-Comparator (Get-ComparatorArguments)) "$lifecycleName raw mirror"
+    }
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Haiidrate\result.json") { param($r) $r.shioriOutcome = @('not-applicable') }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($s) (Get-Row $s 'Haiidrate').shioriOutcome = @('not-applicable') }
+    }
+    Assert-Fail 'non-ghost envelope rejects non-string lifecycle values' (Invoke-Comparator (Get-ComparatorArguments)) "shioriOutcome has JSON kind 'array'"
+
+    Reset-Fixtures
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\Haiidrate\result.json") { param($r) $r.dialogueProbe | Add-Member -NotePropertyName forged -NotePropertyValue 'ignored' }
+    }
+    Assert-Fail 'non-ghost dialogue probe rejects extra properties' (Invoke-Comparator (Get-ComparatorArguments)) 'dialogueProbe property set'
+
     foreach ($earthquakeContractKindMutation in @(
         @{ name = 'label'; field = 'label'; mutation = { param($r) $r.label = @('Earthquake Rescue Duo') } },
         @{ name = 'archive SHA'; field = 'archiveSha256'; mutation = { param($r) $r.archiveSha256 = @('06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538') } },
