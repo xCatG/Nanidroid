@@ -1,7 +1,6 @@
 package com.cattailsw.nanidroid
 
 import java.io.File
-import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -45,7 +44,7 @@ internal class GhostSessionCoordinator {
         val phase: Phase,
     )
 
-    private enum class Phase { CONSTRUCTING, RESERVED, ACTIVE, MUTATING, POISONED }
+    private enum class Phase { CONSTRUCTING, RESERVED, ACTIVE, POISONED }
 
     private val roots = ConcurrentHashMap<String, RootState>()
     private val generations = AtomicLong()
@@ -330,95 +329,6 @@ internal class GhostSessionCoordinator {
         }
     }
 
-    fun <T> withMutation(
-        ghostId: String,
-        ghostRoot: File,
-        shouldStop: () -> Boolean = { false },
-        onStopped: () -> T,
-        onFailure: (Throwable) -> T,
-        onActiveSessionInvalidated: (Ghost) -> Unit = {},
-        onActiveSessionReloaded: (Ghost, Boolean) -> Unit = { _, _ -> },
-        action: () -> T,
-    ): T {
-        val root = ghostRoot.canonicalFile
-        if (root.name != ghostId) return onFailure(IOException("ghost ID does not match canonical root"))
-        val state = state(root)
-        synchronized(state.monitor) {
-            while (state.construction != null || state.reservation != null) {
-                val pendingId = state.construction?.ghostId ?: state.reservation?.ghostId
-                if (pendingId != ghostId) return onFailure(IOException("ghost root identity mismatch"))
-                state.poison?.let { return onFailure(it) }
-                if (shouldStop()) return onStopped()
-                try {
-                    state.monitor.wait(50L)
-                } catch (interrupted: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    return onStopped()
-                }
-            }
-            state.poison?.let { return onFailure(it) }
-            val active = state.active
-            if (active != null && active.getGhostId() != ghostId) {
-                return onFailure(IOException("active ghost root identity mismatch"))
-            }
-            synchronized(globalMonitor) {
-                globalPoison?.let { return onFailure(it) }
-                val owner = globalOwner
-                val liveActive = active?.takeIf { owner?.ghost === it && owner.phase == Phase.ACTIVE }
-                val invalidationFailure = try {
-                    liveActive?.let(onActiveSessionInvalidated)
-                    null
-                } catch (error: Exception) {
-                    error
-                } catch (error: LinkageError) {
-                    error
-                }
-                if (invalidationFailure != null) return onFailure(invalidationFailure)
-                val unloadFailure = try {
-                    liveActive?.unload()
-                    null
-                } catch (error: Exception) {
-                    error
-                } catch (error: LinkageError) {
-                    error
-                }
-                if (unloadFailure != null) {
-                    state.poison = unloadFailure
-                    poisonGlobal(owner!!.generation, liveActive, unloadFailure)
-                    return onFailure(unloadFailure)
-                }
-                if (liveActive != null) {
-                    globalOwner = owner?.copy(phase = Phase.MUTATING)
-                }
-                val result = try {
-                    try {
-                        action()
-                    } catch (error: Exception) {
-                        onFailure(error)
-                    }
-                } finally {
-                    if (
-                        liveActive != null &&
-                        state.active === liveActive &&
-                        globalOwner?.generation == owner?.generation &&
-                        globalOwner?.phase == Phase.MUTATING
-                    ) {
-                        val reloaded = reload(liveActive)
-                        if (reloaded) {
-                            globalOwner = owner?.copy(phase = Phase.ACTIVE)
-                        } else {
-                            globalOwner = null
-                            state.active = null
-                            globalMonitor.notifyAll()
-                        }
-                        onActiveSessionReloaded(liveActive, reloaded)
-                    }
-                }
-                return result
-            }
-        }
-    }
-
     fun reserveLoadedGhostForTesting(ghost: Ghost): ReservedGhost {
         val construction = beginConstruction(ghost.getGhostId(), rootOf(ghost))
         return bind(construction, ghost)
@@ -435,29 +345,6 @@ internal class GhostSessionCoordinator {
             roots.clear()
             globalMonitor.notifyAll()
         }
-    }
-
-    private fun reload(ghost: Ghost): Boolean {
-        try {
-            ghost.reloadAfterGhostUpdate()
-            return true
-        } catch (error: Exception) {
-            deactivate(ghost, error)
-        } catch (error: LinkageError) {
-            deactivate(ghost, error)
-        }
-        return false
-    }
-
-    private fun deactivate(ghost: Ghost, error: Throwable) {
-        try {
-            ghost.deactivateAfterGhostUpdateReloadFailure()
-        } catch (deactivationError: Exception) {
-            LegacyPlatform.debug("SScriptRunner", "ghost reload deactivation failed: ${deactivationError.message}")
-        } catch (deactivationError: LinkageError) {
-            LegacyPlatform.debug("SScriptRunner", "ghost reload deactivation failed: ${deactivationError.message}")
-        }
-        LegacyPlatform.debug("SScriptRunner", "ghost reload after update failed: ${error.message}")
     }
 
     private fun identity(ghost: Ghost): Pair<String, File> = ghost.getGhostId() to rootOf(ghost)

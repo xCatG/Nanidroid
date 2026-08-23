@@ -10,6 +10,63 @@ import org.junit.Test
 import java.util.UUID
 
 class SharedPreferencesDurableOperationStoreTest {
+    @Test fun everyRetainedKindWritesTheReservedV6ColumnAsASentinel() {
+        val storage = RecordingStorage(null)
+        val store = SharedPreferencesDurableOperationStore(storage)
+
+        OperationKind.entries.forEachIndexed { index, kind ->
+            assertTrue(store.putIfAbsent(record("retained-$index", index.toLong() + 1).copy(kind = kind)))
+        }
+
+        storage.value!!.lineSequence().drop(1).forEach { row ->
+            assertEquals("-", row.split('\t')[11])
+        }
+    }
+
+    @Test fun nonSentinelReservedV6ColumnIsQuarantinedAndPrimaryIsAtomicallyReset() {
+        val formerTerminalEvent = "Z2hvc3Q,L3N0b3JhZ2UvZ2hvc3Q,T25VcGRhdGVDb21wbGV0ZQ"
+        val row = "YQ\t1\tNAR_INSTALL\t-\t-\t-\tUXVldWVk\t0\tRUNNING\t0\t-\t$formerTerminalEvent\t7\t11\t9"
+        val raw = "v6\n$row"
+
+        val fixture = assertCorruptionRequiresRecovery(raw, "malformed durable operation row")
+
+        assertEquals(raw, fixture.storage.quarantine)
+        assertEquals("v3", fixture.storage.value)
+        assertEquals(1, fixture.storage.quarantineWriteCount)
+    }
+
+    @Test fun retainedV6RowRoundTripsGenerationsInTheirOriginalColumns() {
+        val row = "YQ\t1\tNAR_INSTALL\t-\t-\t-\tUXVldWVk\t0\tRUNNING\t0\t-\t-\t7\t11\t9"
+
+        val restored = SharedPreferencesDurableOperationStore(RecordingStorage("v6\n$row")).read().single()
+
+        assertEquals(7L, restored.attentionRetryGeneration)
+        assertEquals(11L, restored.progressGeneration)
+        assertEquals(9L, restored.attentionKeepWaitingGeneration)
+    }
+
+    @Test fun retainedKindWithNumericV3RetryGenerationStillDecodes() {
+        val row = "YQ\t1\tNAR_INSTALL\t-\t-\t-\tUXVldWVk\t0\tRUNNING\t0\t-\t7"
+
+        val restored = SharedPreferencesDurableOperationStore(RecordingStorage("v3\n$row")).read().single()
+
+        assertEquals(OperationKind.NAR_INSTALL, restored.kind)
+        assertEquals(7L, restored.attentionRetryGeneration)
+    }
+
+    @Test fun v3TerminalPayloadIsQuarantined() {
+        val formerTerminalEvent = "Z2hvc3Q,L3N0b3JhZ2UvZ2hvc3Q,T25VcGRhdGVDb21wbGV0ZQ"
+        val row = "YQ\t1\tNAR_INSTALL\t-\t-\t-\tUXVldWVk\t0\tRUNNING\t0\t-\t$formerTerminalEvent"
+
+        assertCorruptionRequiresRecovery("v3\n$row", "malformed durable operation row")
+    }
+
+    @Test fun historicalGhostUpdateRowIsQuarantined() {
+        val row = "YQ\t1\tGHOST_UPDATE\t-\t-\t-\tUXVldWVk\t0\tRUNNING\t0\t-\t-\t0\t0\t0"
+
+        assertCorruptionRequiresRecovery("v6\n$row", "malformed durable operation row")
+    }
+
     @Test fun observationGenerationsRoundTripInTheCurrentRecordFormat() {
         val storage = RecordingStorage(null)
         val store = SharedPreferencesDurableOperationStore(storage)
@@ -42,7 +99,7 @@ class SharedPreferencesDurableOperationStoreTest {
     }
 
     @Test fun malformedTerminalRowIsCapturedAndNotDropped() {
-        val malformedTerminal = "wyg\t1\tGHOST_UPDATE\t-\t-\t-\tUXVldWVk\t0\tCANCELLED\t0\t-"
+        val malformedTerminal = "wyg\t1\tNAR_INSTALL\t-\t-\t-\tUXVldWVk\t0\tCANCELLED\t0\t-"
         val fixture = assertCorruptionRequiresRecovery(
             "v1\n$malformedTerminal",
             "malformed durable operation row",
@@ -51,20 +108,20 @@ class SharedPreferencesDurableOperationStoreTest {
     }
 
     @Test fun duplicateIdCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
-        val first = "YQ\t1\tGHOST_UPDATE\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
-        val second = "YQ\t2\tGHOST_UPDATE\twm\tMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIy\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val first = "YQ\t1\tNAR_INSTALL\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val second = "YQ\t2\tNAR_INSTALL\twm\tMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIy\tUXVldWVk\t0\tRUNNING\t0\t-"
         assertCorruptionRequiresRecovery("v1\n$first\n$second", "duplicate durable operation id")
     }
 
     @Test fun malformedUtf8CorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
         val invalidUtf8Id = "wyg"
-        val row = "$invalidUtf8Id\t1\tGHOST_UPDATE\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val row = "$invalidUtf8Id\t1\tNAR_INSTALL\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
         assertCorruptionRequiresRecovery("v1\n$row", "malformed durable operation row")
     }
 
     @Test fun malformedUtf8DiagnosticsCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
         val invalidUtf8Diagnostics = "wyg"
-        val row = "YQ\t3\tGHOST_UPDATE\tdm\t101\tZDoxMDE\tUXVldWVk\t0\tRUNNING\t0\t$invalidUtf8Diagnostics"
+        val row = "YQ\t3\tNAR_INSTALL\tdm\t101\tZDoxMDE\tUXVldWVk\t0\tRUNNING\t0\t$invalidUtf8Diagnostics"
         assertCorruptionRequiresRecovery("v2\n$row", "malformed durable operation row")
     }
 
@@ -74,13 +131,13 @@ class SharedPreferencesDurableOperationStoreTest {
 
     @Test fun duplicateBindingHistoryCorruptionIsQuarantinedAndReadsAreBlockedUntilRecovery() {
         val duplicateHistory = "ZDoxMDEsZDoxMDE"
-        val row = "YQ\t3\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$duplicateHistory\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val row = "YQ\t3\tNAR_INSTALL\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$duplicateHistory\tUXVldWVk\t0\tRUNNING\t0\t-"
         assertCorruptionRequiresRecovery("v2\n$row", "duplicate external job history")
     }
 
     @Test fun bindingHistoryTagsAreCaseSensitive() {
         val uppercaseHistoryTag = "RDoxMDE"
-        val row = "YQ\t3\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$uppercaseHistoryTag\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val row = "YQ\t3\tNAR_INSTALL\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\t$uppercaseHistoryTag\tUXVldWVk\t0\tRUNNING\t0\t-"
         assertCorruptionRequiresRecovery("v2\n$row", "malformed durable operation row")
     }
 
@@ -172,7 +229,7 @@ class SharedPreferencesDurableOperationStoreTest {
     }
 
     @Test fun malformedWorkManagerUuidInCurrentRecordIsPreserved() {
-        val row = "YQ\t3\tGHOST_UPDATE\twm\tbm9uLXV1aWQ\t-\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val row = "YQ\t3\tNAR_INSTALL\twm\tbm9uLXV1aWQ\t-\tUXVldWVk\t0\tRUNNING\t0\t-"
         val storage = RecordingStorage("v2\n$row")
         val store = SharedPreferencesDurableOperationStore(storage)
 
@@ -184,7 +241,7 @@ class SharedPreferencesDurableOperationStoreTest {
     }
 
     @Test fun malformedWorkManagerUuidInLegacyPreviousBindingIsPreserved() {
-        val row = "YQ\t3\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\twm\tbm9uLXV1aWQ\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val row = "YQ\t3\tNAR_INSTALL\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\twm\tbm9uLXV1aWQ\tUXVldWVk\t0\tRUNNING\t0\t-"
         val storage = RecordingStorage("v1\n$row")
         val store = SharedPreferencesDurableOperationStore(storage)
 
@@ -202,7 +259,7 @@ class SharedPreferencesDurableOperationStoreTest {
     }
 
     @Test fun malformedWorkManagerUuidInHistoryIsPreserved() {
-        val row = "YQ\t4\tGHOST_UPDATE\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\tdzpibTl1TFhWMWFXUQ\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val row = "YQ\t4\tNAR_INSTALL\twm\tMzMzMzMzMzMtMzMzMy0zMzMzLTMzMzMtMzMzMzMzMzMzMzMz\tdzpibTl1TFhWMWFXUQ\tUXVldWVk\t0\tRUNNING\t0\t-"
         val storage = RecordingStorage("v2\n$row")
         val store = SharedPreferencesDurableOperationStore(storage)
 
@@ -216,7 +273,7 @@ class SharedPreferencesDurableOperationStoreTest {
     }
 
     @Test fun legacyPreviousBindingMigratesIntoCompleteHistory() {
-        val row = "YQ\t2\tGHOST_UPDATE\twm\tMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIy\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
+        val row = "YQ\t2\tNAR_INSTALL\twm\tMjIyMjIyMjItMjIyMi0yMjIyLTIyMjItMjIyMjIyMjIyMjIy\twm\tMTExMTExMTEtMTExMS0xMTExLTExMTEtMTExMTExMTExMTEx\tUXVldWVk\t0\tRUNNING\t0\t-"
         val store = SharedPreferencesDurableOperationStore(RecordingStorage("v1\n$row"))
 
         val restored = store.read().single()
@@ -278,7 +335,7 @@ class SharedPreferencesDurableOperationStoreTest {
         val record = DurableOperationRecord(
             id = OperationId("update-1"),
             attemptId = AttemptId(4),
-            kind = OperationKind.GHOST_UPDATE,
+            kind = OperationKind.NAR_INSTALL,
             externalJob = workManager("worker-4"),
             progress = OperationProgress("Verifying", 12),
             status = OperationStatus.CANCEL_REQUESTED,
@@ -287,12 +344,6 @@ class SharedPreferencesDurableOperationStoreTest {
             externalJobHistory = setOf(
                 workManager("worker-4"),
                 ExternalJobBinding.DownloadManager(12),
-            ),
-            pendingGhostUpdateEvent = GhostUpdateTerminalEvent(
-                "ghost",
-                "/storage/ghost/ghost",
-                "OnUpdateFailure",
-                listOf("network failed", "ghost/master.txt"),
             ),
         )
         assertTrue(firstStore.putIfAbsent(record))
@@ -351,7 +402,7 @@ class SharedPreferencesDurableOperationStoreTest {
     private fun record(id: String, attempt: Long) = DurableOperationRecord(
         id = OperationId(id),
         attemptId = AttemptId(attempt),
-        kind = OperationKind.GHOST_UPDATE,
+        kind = OperationKind.NAR_INSTALL,
         externalJob = workManager("worker-$attempt"),
         progress = OperationProgress("Queued", 0),
         status = OperationStatus.RUNNING,
