@@ -74,15 +74,37 @@ function Get-BytesSha256([byte[]]$Value) {
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $reviewedManifestEntryCount = 23
-$reviewedManifestTupleSha256 = '496bdf1647afc75b96bec75aaa46f23cae3d1beb91d7a419e259f6fb71c71bcf'
-$reviewedManifestTupleCanonicalization = 'label|sha256|expectedKind tuples; StringComparer.Ordinal sort; LF join without trailing LF; UTF-8 SHA-256'
-[string[]]$reviewedManifestTuples = @($manifest.entries | ForEach-Object { "$($_.label)|$($_.sha256)|$($_.expectedKind)" })
+$reviewedManifestTrueAllowCount = 6
+$reviewedManifestTupleSha256 = 'bf8398cc1a96f8ec57b0762cb3422ba357819a76bcbb7659c058f5c96bbab8fc'
+$reviewedManifestTupleCanonicalization = 'label|sha256|expectedKind|allowToken tuples; allowToken is <absent>, true, or false by exact property presence and JSON boolean kind; StringComparer.Ordinal sort; LF join without trailing LF; UTF-8 SHA-256'
+$reviewedManifestObservedTrueAllowCount = 0
+[string[]]$reviewedManifestTuples = @($manifest.entries | ForEach-Object {
+    $allowProperty = $_.PSObject.Properties['allowNativeKawariCrash']
+    $allowToken = if ($null -eq $allowProperty) {
+        '<absent>'
+    }
+    elseif ($allowProperty.Value -isnot [bool]) {
+        throw "Reviewed manifest tuple fixture allowNativeKawariCrash must be a JSON boolean when present for '$($_.label)'."
+    }
+    elseif ($allowProperty.Value) {
+        $reviewedManifestObservedTrueAllowCount++
+        'true'
+    }
+    else {
+        'false'
+    }
+    "$($_.label)|$($_.sha256)|$($_.expectedKind)|$allowToken"
+})
 [Array]::Sort($reviewedManifestTuples, [StringComparer]::Ordinal)
 $observedManifestTupleSha256 = Get-StringSha256 ($reviewedManifestTuples -join "`n")
-if ($reviewedManifestTuples.Count -ne $reviewedManifestEntryCount -or $observedManifestTupleSha256 -cne $reviewedManifestTupleSha256) {
-    throw "Reviewed manifest tuple fixture mismatch under '$reviewedManifestTupleCanonicalization': count=$($reviewedManifestTuples.Count), digest=$observedManifestTupleSha256"
+if (
+    $reviewedManifestTuples.Count -ne $reviewedManifestEntryCount -or
+    $reviewedManifestObservedTrueAllowCount -ne $reviewedManifestTrueAllowCount -or
+    $observedManifestTupleSha256 -cne $reviewedManifestTupleSha256
+) {
+    throw "Reviewed manifest tuple fixture mismatch under '$reviewedManifestTupleCanonicalization': count=$($reviewedManifestTuples.Count), trueAllowCount=$reviewedManifestObservedTrueAllowCount, digest=$observedManifestTupleSha256"
 }
-Write-Host 'PASS: reviewed 23-entry manifest tuple digest fixture'
+Write-Host 'PASS: reviewed 23-entry four-field manifest tuple digest fixture'
 $compatibleGhostSuccessRules = [ordered]@{
     '2elf-2.46' = @{ sha256 = 'a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:24' }
     'tewire-sen' = @{ sha256 = '2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:6' }
@@ -690,6 +712,20 @@ function Set-ManifestAndEvidenceLabel([string]$SelectedManifestPath, [string]$Ol
     }
 }
 
+function Set-ManifestAllowAndEvidenceHash([string]$SelectedManifestPath, [string]$Label, [scriptblock]$Mutation) {
+    $allowMutation = $Mutation
+    Save-Json $SelectedManifestPath { param($m)
+        $entry = @($m.entries | Where-Object label -CEQ $Label)[0]
+        & $allowMutation $entry
+    }
+    $selectedManifestSha = (Get-FileHash -LiteralPath $SelectedManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    foreach ($side in @('base', 'candidate')) {
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($summary)
+            $summary.manifestSha256 = $selectedManifestSha
+        }
+    }
+}
+
 function Set-AcceptedNativeCheckpointFixture([string]$Side, [string]$Label, [string]$ShellName) {
     $safeLabel = ConvertTo-SafeLabel $Label
     $rawPath = Join-Path $fixtureRoot "$Side\$safeLabel\result.json"
@@ -766,6 +802,98 @@ try {
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
+    $comparatorAddedAllowManifestPath = Join-Path $fixtureRoot 'comparator-added-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $comparatorAddedAllowManifestPath
+    Set-ManifestAllowAndEvidenceHash $comparatorAddedAllowManifestPath 'tewire-sen' { param($entry)
+        $entry | Add-Member -NotePropertyName allowNativeKawariCrash -NotePropertyValue $true
+    }
+    $comparatorAddedAllowResult = Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $comparatorAddedAllowManifestPath)
+
+    Reset-Fixtures
+    $runnerAddedAllowManifestPath = Join-Path $fixtureRoot 'runner-added-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $runnerAddedAllowManifestPath
+    Save-Json $runnerAddedAllowManifestPath { param($m)
+        @($m.entries | Where-Object label -CEQ 'tewire-sen')[0] |
+            Add-Member -NotePropertyName allowNativeKawariCrash -NotePropertyValue $true
+    }
+    $missingAddedAllowCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-added-native-allow-corpus-root'
+    $runnerAddedAllowResult = Invoke-RunnerDryRun $runnerAddedAllowManifestPath @($missingAddedAllowCorpusRoot)
+
+    Reset-Fixtures
+    $comparatorRemovedAllowManifestPath = Join-Path $fixtureRoot 'comparator-removed-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $comparatorRemovedAllowManifestPath
+    Set-ManifestAllowAndEvidenceHash $comparatorRemovedAllowManifestPath 'LOBO' { param($entry)
+        $entry.PSObject.Properties.Remove('allowNativeKawariCrash')
+    }
+    $comparatorRemovedAllowResult = Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $comparatorRemovedAllowManifestPath)
+
+    Reset-Fixtures
+    $runnerRemovedAllowManifestPath = Join-Path $fixtureRoot 'runner-removed-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $runnerRemovedAllowManifestPath
+    Save-Json $runnerRemovedAllowManifestPath { param($m)
+        @($m.entries | Where-Object label -CEQ 'LOBO')[0].PSObject.Properties.Remove('allowNativeKawariCrash')
+    }
+    $missingRemovedAllowCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-removed-native-allow-corpus-root'
+    $runnerRemovedAllowResult = Invoke-RunnerDryRun $runnerRemovedAllowManifestPath @($missingRemovedAllowCorpusRoot)
+
+    Reset-Fixtures
+    $comparatorFalseAllowManifestPath = Join-Path $fixtureRoot 'comparator-false-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $comparatorFalseAllowManifestPath
+    Set-ManifestAllowAndEvidenceHash $comparatorFalseAllowManifestPath 'tewire-sen' { param($entry)
+        $entry | Add-Member -NotePropertyName allowNativeKawariCrash -NotePropertyValue $false
+    }
+    $comparatorFalseAllowResult = Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $comparatorFalseAllowManifestPath)
+
+    Reset-Fixtures
+    $runnerFalseAllowManifestPath = Join-Path $fixtureRoot 'runner-false-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $runnerFalseAllowManifestPath
+    Save-Json $runnerFalseAllowManifestPath { param($m)
+        @($m.entries | Where-Object label -CEQ 'tewire-sen')[0] |
+            Add-Member -NotePropertyName allowNativeKawariCrash -NotePropertyValue $false
+    }
+    $missingFalseAllowCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-false-native-allow-corpus-root'
+    $runnerFalseAllowResult = Invoke-RunnerDryRun $runnerFalseAllowManifestPath @($missingFalseAllowCorpusRoot)
+
+    Reset-Fixtures
+    $comparatorArrayAllowManifestPath = Join-Path $fixtureRoot 'comparator-array-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $comparatorArrayAllowManifestPath
+    Set-ManifestAllowAndEvidenceHash $comparatorArrayAllowManifestPath 'tewire-sen' { param($entry)
+        $entry | Add-Member -NotePropertyName allowNativeKawariCrash -NotePropertyValue ([object[]]@($true))
+    }
+    $comparatorArrayAllowResult = Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $comparatorArrayAllowManifestPath)
+
+    Reset-Fixtures
+    $runnerArrayAllowManifestPath = Join-Path $fixtureRoot 'runner-array-native-allow-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $runnerArrayAllowManifestPath
+    Save-Json $runnerArrayAllowManifestPath { param($m)
+        @($m.entries | Where-Object label -CEQ 'tewire-sen')[0] |
+            Add-Member -NotePropertyName allowNativeKawariCrash -NotePropertyValue ([object[]]@($true))
+    }
+    $missingArrayAllowCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-array-native-allow-corpus-root'
+    $runnerArrayAllowResult = Invoke-RunnerDryRun $runnerArrayAllowManifestPath @($missingArrayAllowCorpusRoot)
+
+    Assert-Fail 'comparator binds an added true native-crash allow flag with matching manifest evidence' $comparatorAddedAllowResult 'reviewed manifest true allowNativeKawariCrash count mismatch: expected 6, found 7'
+    Assert-FailBeforeCorpusRootResolution `
+        'runner binds an added true native-crash allow flag before corpus-root resolution' `
+        $runnerAddedAllowResult `
+        'validation: Reviewed manifest true allowNativeKawariCrash count mismatch: expected 6, found 7.'
+    Assert-Fail 'comparator binds removal of a reviewed true native-crash allow flag' $comparatorRemovedAllowResult 'reviewed manifest true allowNativeKawariCrash count mismatch: expected 6, found 5'
+    Assert-FailBeforeCorpusRootResolution `
+        'runner binds removal of a reviewed true native-crash allow flag before corpus-root resolution' `
+        $runnerRemovedAllowResult `
+        'validation: Reviewed manifest true allowNativeKawariCrash count mismatch: expected 6, found 5.'
+    Assert-Fail 'comparator distinguishes an explicit false native-crash allow flag from absence' $comparatorFalseAllowResult 'reviewed manifest tuple digest mismatch'
+    Assert-FailBeforeCorpusRootResolution `
+        'runner distinguishes an explicit false native-crash allow flag from absence before corpus-root resolution' `
+        $runnerFalseAllowResult `
+        'validation: Reviewed manifest tuple digest mismatch: expected bf8398cc1a96f8ec57b0762cb3422ba357819a76bcbb7659c058f5c96bbab8fc, found 569ee6ead55af028b370c15bb5089de6ce0f99e0b21e54fab6b1708fb6c24316.'
+    Assert-Fail 'comparator rejects a nonboolean native-crash allow flag during manifest preflight' $comparatorArrayAllowResult "reviewed manifest entry.*allowNativeKawariCrash has JSON kind 'array'; expected boolean"
+    Assert-FailBeforeCorpusRootResolution `
+        'runner rejects a nonboolean native-crash allow flag before corpus-root resolution' `
+        $runnerArrayAllowResult `
+        "validation: Reviewed manifest entry 'tewire-sen' allowNativeKawariCrash must be a JSON boolean when present."
+
+    Reset-Fixtures
     $substitutedManifestPath = Join-Path $fixtureRoot 'substituted-non-ghost-manifest.json'
     Copy-Item -LiteralPath $manifestPath -Destination $substitutedManifestPath
     $substitutedLabel = 'Substituted Haiidrate'
@@ -810,14 +938,14 @@ try {
             $row.requiredEvidencePayload.parserDiagnostics[0].detail = $substitutedKind
         }
     }
-    Assert-Fail 'matching substituted non-ghost manifest and evidence cannot replace the reviewed tuple' (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $substitutedManifestPath)) 'reviewed non-ghost manifest tuple set'
+    Assert-Fail 'matching substituted non-ghost manifest and evidence cannot replace the reviewed tuple' (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $substitutedManifestPath)) 'reviewed manifest tuple digest mismatch'
 
     Reset-Fixtures
     $softHyphenManifestPath = Join-Path $fixtureRoot 'comparator-soft-hyphen-manifest.json'
     Copy-Item -LiteralPath $manifestPath -Destination $softHyphenManifestPath
     $softHyphenHaiidrate = "Hai$([char]0x00AD)idrate"
     Set-ManifestAndEvidenceLabel $softHyphenManifestPath 'Haiidrate' $softHyphenHaiidrate
-    Assert-Fail 'comparator manifest tuple binding is ordinal for a soft-hyphen label mutation' (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $softHyphenManifestPath)) 'reviewed non-ghost manifest tuple set'
+    Assert-Fail 'comparator manifest tuple binding is ordinal for a soft-hyphen label mutation' (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $softHyphenManifestPath)) 'reviewed manifest tuple digest mismatch'
 
     foreach ($nonGhostManifestKindMutation in @(
         @{ name = 'label'; mutation = { param($entry) $entry.label = @('Haiidrate') } },
@@ -831,7 +959,7 @@ try {
             $entry = @($m.entries | Where-Object { [string]$_.label -ceq 'Haiidrate' })[0]
             & $nonGhostManifestKindMutation.mutation $entry
         }
-        Assert-Fail "comparator rejects non-string non-ghost $($nonGhostManifestKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $kindManifestPath)) 'reviewed non-ghost manifest entry.*has JSON kind.*array'
+        Assert-Fail "comparator rejects non-string non-ghost $($nonGhostManifestKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $kindManifestPath)) 'reviewed manifest entry.*has JSON kind.*array'
     }
 
     foreach ($runnerManifestMutation in @(
@@ -882,7 +1010,7 @@ try {
     Assert-FailBeforeCorpusRootResolution `
         'runner reviewed preflight rejects a substituted ghost tuple before corpus-root resolution' `
         (Invoke-RunnerDryRun $substitutedGhostManifestPath @($missingSubstitutedGhostCorpusRoot)) `
-        'validation: Reviewed manifest tuple digest mismatch: expected 496bdf1647afc75b96bec75aaa46f23cae3d1beb91d7a419e259f6fb71c71bcf, found d6cbe11b311fdfc7c794a8f59837ee544246b73e2d1a8de03968d25bc90ad52e.'
+        'validation: Reviewed manifest tuple digest mismatch: expected bf8398cc1a96f8ec57b0762cb3422ba357819a76bcbb7659c058f5c96bbab8fc, found 62eef3f2d010c9886c67cc9340d1e7a50ad983118e3452e25f1e7d88689416bc.'
 
     foreach ($runnerManifestKindMutation in @(
         @{ name = 'label'; mutation = { param($entry) $entry.label = @('Haiidrate') } },
@@ -1186,7 +1314,7 @@ try {
 
     foreach ($checkpointManifestKindMutation in @(
         @{ name = 'native-crash allow flag'; field = 'allowNativeKawariCrash'; mutation = { param($entry) $entry.allowNativeKawariCrash = @($true) } },
-        @{ name = 'manifest label'; field = 'manifest label'; mutation = { param($entry) $entry.label = @('LOBO') } }
+        @{ name = 'manifest label'; field = 'label'; mutation = { param($entry) $entry.label = @('LOBO') } }
     )) {
         Reset-Fixtures
         foreach ($side in @('base', 'candidate')) { Set-AcceptedNativeCheckpointFixture $side 'LOBO' 'Master' }

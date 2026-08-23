@@ -1763,9 +1763,11 @@ function Remove-RemotePath([string]$Path, [bool]$TrimParents = $false) {
 
 function Validate-ManifestEntries([object[]]$ManifestEntries) {
     $reviewedManifestEntryCount = 23
-    $reviewedManifestTupleSha256 = '496bdf1647afc75b96bec75aaa46f23cae3d1beb91d7a419e259f6fb71c71bcf'
-    # Canonical preimage: every label|sha256|expectedKind tuple, sorted with
-    # StringComparer.Ordinal, joined with LF and no trailing LF, then UTF-8 SHA-256.
+    $reviewedManifestTrueAllowCount = 6
+    $reviewedManifestTupleSha256 = 'bf8398cc1a96f8ec57b0762cb3422ba357819a76bcbb7659c058f5c96bbab8fc'
+    # Canonical preimage: every label|sha256|expectedKind|allowToken tuple, where
+    # allowToken is property-presence-sensitive <absent>, true, or false. Sort with
+    # StringComparer.Ordinal, join with LF and no trailing LF, then UTF-8 SHA-256.
     if ($ManifestEntries.Count -ne $reviewedManifestEntryCount) {
         ThrowIf "Reviewed manifest entry count mismatch: expected $reviewedManifestEntryCount, found $($ManifestEntries.Count)."
     }
@@ -1780,6 +1782,7 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
     )
     $actualNonGhostManifestTuples = [Collections.Generic.List[string]]::new()
     $actualManifestTuples = [Collections.Generic.List[string]]::new()
+    $actualManifestTrueAllowCount = 0
     foreach ($entry in $ManifestEntries) {
         if ($entry.label -isnot [string]) {
             ThrowIf 'Reviewed non-ghost manifest entry label must be a JSON string.'
@@ -1805,7 +1808,21 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         if ($entry.expectedKind -notin @('ghost', 'shell', 'balloon')) {
             ThrowIf "Manifest entry '$($entry.label)' has unsupported expectedKind '$($entry.expectedKind)'."
         }
-        $actualManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)")
+        $allowProperty = $entry.PSObject.Properties['allowNativeKawariCrash']
+        $allowToken = if ($null -eq $allowProperty) {
+            '<absent>'
+        }
+        elseif ($allowProperty.Value -isnot [bool]) {
+            ThrowIf "Reviewed manifest entry '$($entry.label)' allowNativeKawariCrash must be a JSON boolean when present."
+        }
+        elseif ($allowProperty.Value) {
+            $actualManifestTrueAllowCount++
+            'true'
+        }
+        else {
+            'false'
+        }
+        $actualManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)|$allowToken")
         if ($entry.expectedKind -cne 'ghost') {
             $actualNonGhostManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)")
         }
@@ -1814,10 +1831,6 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         }
         if (-not $entry.allowedClassifications -or $entry.allowedClassifications.Count -eq 0) {
             ThrowIf "Manifest entry '$($entry.label)' has no allowedClassifications."
-        }
-        if ((Has-Property -Object $entry -Name 'allowNativeKawariCrash') -and
-            ($entry.allowNativeKawariCrash -isnot [bool] -or -not $entry.allowNativeKawariCrash)) {
-            ThrowIf "Manifest entry '$($entry.label)' has invalid allowNativeKawariCrash; omit it or set it to true."
         }
         if ((Has-Property -Object $entry -Name 'allowNativeKawariCrash') -and
             $entry.allowNativeKawariCrash -and
@@ -1839,6 +1852,9 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         $hashes[$sha] = $entry
         $labels[$label] = $entry
         $safeLabels[$safeLabel] = $entry
+    }
+    if ($actualManifestTrueAllowCount -ne $reviewedManifestTrueAllowCount) {
+        ThrowIf "Reviewed manifest true allowNativeKawariCrash count mismatch: expected $reviewedManifestTrueAllowCount, found $actualManifestTrueAllowCount."
     }
     [string[]]$actualNonGhostManifestTupleArray = $actualNonGhostManifestTuples.ToArray()
     [string[]]$reviewedNonGhostManifestTupleArray = @($reviewedNonGhostManifestTuples)

@@ -307,6 +307,22 @@ function Get-NonGhostManifestTupleKey([object]$Entry, [string]$Context) {
     return "$label|$archiveSha256|$expectedKind"
 }
 
+function Get-ReviewedManifestTupleKey([object]$Entry, [string]$Context) {
+    Assert-JsonKind $Entry @('object') $Context | Out-Null
+    $label = Get-ExactJsonString (Get-RequiredProperty $Entry 'label' $Context) "$Context.label"
+    $archiveSha256 = Get-ExactJsonString (Get-RequiredProperty $Entry 'sha256' $Context) "$Context.sha256"
+    $expectedKind = Get-ExactJsonString (Get-RequiredProperty $Entry 'expectedKind' $Context) "$Context.expectedKind"
+    $allowProperty = $Entry.PSObject.Properties['allowNativeKawariCrash']
+    $allowToken = if ($null -eq $allowProperty) {
+        '<absent>'
+    }
+    else {
+        Assert-JsonKind $allowProperty.Value @('boolean') "$Context.allowNativeKawariCrash" | Out-Null
+        if ($allowProperty.Value) { 'true' } else { 'false' }
+    }
+    return "$label|$archiveSha256|$expectedKind|$allowToken"
+}
+
 function Assert-NormalizationKind([object]$Contract, [string]$Scope, [string]$Path, [object]$Value) {
     $rules = @($Contract.normalization.expectedKinds | Where-Object { [string]$_.scope -ceq $Scope -and [string]$_.path -ceq $Path })
     if ($rules.Count -ne 1) { throw "comparison contract normalization kind rule is not unique for $Scope $Path" }
@@ -1516,6 +1532,27 @@ try {
     Assert-EqualString $contractSentinelCanonicalization $reviewedSentinelCanonicalization 'comparison contract sentinel check canonicalization'
     $entries = @($manifest.entries)
     if ($entries.Count -ne 23) { throw "manifest must contain exactly 23 entries, found $($entries.Count)" }
+    $reviewedManifestTrueAllowCount = 6
+    $reviewedManifestTupleSha256 = 'bf8398cc1a96f8ec57b0762cb3422ba357819a76bcbb7659c058f5c96bbab8fc'
+    # Canonical preimage: every label|sha256|expectedKind|allowToken tuple, where
+    # allowToken is property-presence-sensitive <absent>, true, or false. Sort with
+    # StringComparer.Ordinal, join with LF and no trailing LF, then UTF-8 SHA-256.
+    $actualReviewedManifestTupleKeys = [Collections.Generic.List[string]]::new()
+    $actualManifestTrueAllowCount = 0
+    for ($entryIndex = 0; $entryIndex -lt $entries.Count; $entryIndex++) {
+        $tupleKey = Get-ReviewedManifestTupleKey $entries[$entryIndex] "reviewed manifest entry[$entryIndex]"
+        $actualReviewedManifestTupleKeys.Add($tupleKey)
+        if ($tupleKey.EndsWith('|true', [StringComparison]::Ordinal)) { $actualManifestTrueAllowCount++ }
+    }
+    if ($actualManifestTrueAllowCount -ne $reviewedManifestTrueAllowCount) {
+        throw "reviewed manifest true allowNativeKawariCrash count mismatch: expected $reviewedManifestTrueAllowCount, found $actualManifestTrueAllowCount"
+    }
+    [string[]]$actualReviewedManifestTupleArray = $actualReviewedManifestTupleKeys.ToArray()
+    [Array]::Sort($actualReviewedManifestTupleArray, [StringComparer]::Ordinal)
+    $actualReviewedManifestTupleSha256 = Get-StringSha256 ($actualReviewedManifestTupleArray -join "`n")
+    if (-not [StringComparer]::Ordinal.Equals($actualReviewedManifestTupleSha256, $reviewedManifestTupleSha256)) {
+        throw "reviewed manifest tuple digest mismatch: expected $reviewedManifestTupleSha256, found $actualReviewedManifestTupleSha256"
+    }
     $reviewedNonGhostManifestTupleKeys = @(
         'Haiidrate|ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685|shell',
         'Hareraiser|a686e3b4c57f30985582fb8ffe9cbbfda49609fa046bb8ca08b003105e1fe7fe|balloon',
