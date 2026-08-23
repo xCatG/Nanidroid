@@ -567,6 +567,14 @@ function Invoke-Comparator([string[]]$Arguments) {
     return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
 }
 
+function Invoke-RunnerDryRun([string]$SelectedManifestPath) {
+    $relativeManifestPath = [IO.Path]::GetRelativePath($repoRoot, $SelectedManifestPath)
+    $missingCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-corpus-root'
+    $output = & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'run-nar-corpus-audit.ps1') `
+        -DryRun -ManifestPath $relativeManifestPath -CorpusRoots $missingCorpusRoot 2>&1 | Out-String
+    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+}
+
 function Assert-Pass([string]$Name, [object]$Result) {
     if ($Result.ExitCode -ne 0) { throw "$Name expected success, exit $($Result.ExitCode): $($Result.Output)" }
     Write-Host "PASS: $Name"
@@ -688,6 +696,98 @@ function Set-AcceptedNativeCheckpointFixture([string]$Side, [string]$Label, [str
 try {
     Reset-Fixtures
     Assert-Pass 'exact successful base/base evidence' (Invoke-Comparator (Get-ComparatorArguments))
+
+    Reset-Fixtures
+    $substitutedManifestPath = Join-Path $fixtureRoot 'substituted-non-ghost-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $substitutedManifestPath
+    $substitutedLabel = 'Substituted Haiidrate'
+    $substitutedSafeLabel = ConvertTo-SafeLabel $substitutedLabel
+    $substitutedSha = 'f' * 64
+    $substitutedKind = 'balloon'
+    Save-Json $substitutedManifestPath { param($m)
+        $entry = @($m.entries | Where-Object label -CEQ 'Haiidrate')[0]
+        $entry.label = $substitutedLabel
+        $entry.sha256 = $substitutedSha
+        $entry.expectedKind = $substitutedKind
+    }
+    $substitutedManifestSha = (Get-FileHash -LiteralPath $substitutedManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    foreach ($side in @('base', 'candidate')) {
+        $oldRawRoot = Join-Path $fixtureRoot "$side\Haiidrate"
+        $newRawRoot = Join-Path $fixtureRoot "$side\$substitutedSafeLabel"
+        Move-Item -LiteralPath $oldRawRoot -Destination $newRawRoot
+        Move-Item -LiteralPath (Join-Path $fixtureRoot "$side\screenshots\Haiidrate.png") -Destination (Join-Path $fixtureRoot "$side\screenshots\$substitutedSafeLabel.png")
+        Save-Json (Join-Path $newRawRoot 'result.json') { param($raw)
+            $raw.label = $substitutedLabel
+            $raw.sha256 = $substitutedSha
+            $raw.observedKind = $substitutedKind
+            $raw.narCorpusPath = $raw.narCorpusPath -replace '/Haiidrate/', "/$substitutedSafeLabel/"
+            $raw.installOutcome = "unsupported:$substitutedKind"
+            $raw.parserDiagnostics[0].observedKind = $substitutedKind
+            $raw.parserDiagnostics[0].detail = $substitutedKind
+        }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($summary)
+            $summary.manifestSha256 = $substitutedManifestSha
+            $row = Get-Row $summary 'Haiidrate'
+            $row.label = $substitutedLabel
+            $row.safeLabel = $substitutedSafeLabel
+            $row.sha256 = $substitutedSha
+            $row.installOutcome = "unsupported:$substitutedKind"
+            $row.resultPath = $row.resultPath -replace '/Haiidrate/', "/$substitutedSafeLabel/"
+            $row.screenshotPath = $row.screenshotPath -replace '/Haiidrate/', "/$substitutedSafeLabel/"
+            $row.crashLogPath = $row.crashLogPath -replace '\\Haiidrate\\', "\$substitutedSafeLabel\"
+            $row.observedPrivateSnapshot = $row.observedPrivateSnapshot -replace '/Haiidrate$', "/$substitutedSafeLabel"
+            $row.observedTmpSnapshot = $row.observedTmpSnapshot -replace '/Haiidrate$', "/$substitutedSafeLabel"
+            $row.requiredEvidencePayload.installOutcome = "unsupported:$substitutedKind"
+            $row.requiredEvidencePayload.parserDiagnostics[0].observedKind = $substitutedKind
+            $row.requiredEvidencePayload.parserDiagnostics[0].detail = $substitutedKind
+        }
+    }
+    Assert-Fail 'matching substituted non-ghost manifest and evidence cannot replace the reviewed tuple' (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $substitutedManifestPath)) 'reviewed non-ghost manifest tuple set'
+
+    foreach ($nonGhostManifestKindMutation in @(
+        @{ name = 'label'; mutation = { param($entry) $entry.label = @('Haiidrate') } },
+        @{ name = 'archive SHA'; mutation = { param($entry) $entry.sha256 = @('ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685') } },
+        @{ name = 'expected kind'; mutation = { param($entry) $entry.expectedKind = @('shell') } }
+    )) {
+        Reset-Fixtures
+        $kindManifestPath = Join-Path $fixtureRoot ("comparator-non-ghost-kind-$($nonGhostManifestKindMutation.name -replace '[^A-Za-z0-9]', '-').json")
+        Copy-Item -LiteralPath $manifestPath -Destination $kindManifestPath
+        Save-Json $kindManifestPath { param($m)
+            $entry = @($m.entries | Where-Object { [string]$_.label -ceq 'Haiidrate' })[0]
+            & $nonGhostManifestKindMutation.mutation $entry
+        }
+        Assert-Fail "comparator rejects non-string non-ghost $($nonGhostManifestKindMutation.name)" (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $kindManifestPath)) 'reviewed non-ghost manifest entry.*has JSON kind.*array'
+    }
+
+    foreach ($runnerManifestMutation in @(
+        @{ name = 'label'; mutation = { param($entry) $entry.label = 'Substituted Haiidrate' } },
+        @{ name = 'archive SHA'; mutation = { param($entry) $entry.sha256 = 'f' * 64 } },
+        @{ name = 'expected kind'; mutation = { param($entry) $entry.expectedKind = 'balloon' } }
+    )) {
+        Reset-Fixtures
+        $runnerManifestPath = Join-Path $fixtureRoot ("runner-wrong-non-ghost-$($runnerManifestMutation.name -replace '[^A-Za-z0-9]', '-').json")
+        Copy-Item -LiteralPath $manifestPath -Destination $runnerManifestPath
+        Save-Json $runnerManifestPath { param($m)
+            $entry = @($m.entries | Where-Object label -CEQ 'Haiidrate')[0]
+            & $runnerManifestMutation.mutation $entry
+        }
+        Assert-Fail "runner DryRun preflight rejects wrong non-ghost $($runnerManifestMutation.name)" (Invoke-RunnerDryRun $runnerManifestPath) 'reviewed non-ghost manifest tuple set'
+    }
+
+    foreach ($runnerManifestKindMutation in @(
+        @{ name = 'label'; mutation = { param($entry) $entry.label = @('Haiidrate') } },
+        @{ name = 'archive SHA'; mutation = { param($entry) $entry.sha256 = @('ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685') } },
+        @{ name = 'expected kind'; mutation = { param($entry) $entry.expectedKind = @('shell') } }
+    )) {
+        Reset-Fixtures
+        $runnerManifestPath = Join-Path $fixtureRoot ("runner-non-ghost-kind-$($runnerManifestKindMutation.name -replace '[^A-Za-z0-9]', '-').json")
+        Copy-Item -LiteralPath $manifestPath -Destination $runnerManifestPath
+        Save-Json $runnerManifestPath { param($m)
+            $entry = @($m.entries | Where-Object { [string]$_.label -ceq 'Haiidrate' })[0]
+            & $runnerManifestKindMutation.mutation $entry
+        }
+        Assert-Fail "runner DryRun preflight rejects non-string non-ghost $($runnerManifestKindMutation.name)" (Invoke-RunnerDryRun $runnerManifestPath) 'reviewed non-ghost manifest entry.*must be a JSON string'
+    }
 
     Reset-Fixtures
     foreach ($side in @('base', 'candidate')) {

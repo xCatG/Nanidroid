@@ -1755,21 +1755,40 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
     $labels = @{}
     $hashes = @{}
     $safeLabels = @{}
+    $reviewedNonGhostManifestTuples = @(
+        'Haiidrate|ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685|shell',
+        'Hareraiser|a686e3b4c57f30985582fb8ffe9cbbfda49609fa046bb8ca08b003105e1fe7fe|balloon',
+        'Kitsune no Ocha|7b74cbaba0f2b0b159fb20da194d51c07925bb6c208c97e5021879fbdc3d29f5|shell',
+        'The Petpet Puddle|7746f4f47b633ff940200859052d351fb4d68bce307425af42cddbd1b9dccb22|shell'
+    )
+    $actualNonGhostManifestTuples = [Collections.Generic.List[string]]::new()
     foreach ($entry in $ManifestEntries) {
-        if (-not $entry.label) {
+        if ($entry.label -isnot [string]) {
+            ThrowIf 'Reviewed non-ghost manifest entry label must be a JSON string.'
+        }
+        if ([string]::IsNullOrEmpty($entry.label)) {
             ThrowIf 'Manifest entry missing label.'
         }
         if ($entry.label -match '["\r\n]') {
             ThrowIf "Manifest entry label '$($entry.label)' contains an unsupported quote or newline."
         }
-        if (-not $entry.sha256) {
+        if ($entry.sha256 -isnot [string]) {
+            ThrowIf "Reviewed non-ghost manifest entry '$($entry.label)' sha256 must be a JSON string."
+        }
+        if ([string]::IsNullOrEmpty($entry.sha256)) {
             ThrowIf "Manifest entry '$($entry.label)' missing sha256."
         }
         if ($entry.sha256 -notmatch '^[0-9A-Fa-f]{64}$') {
             ThrowIf "Manifest entry '$($entry.label)' has invalid sha256 '$($entry.sha256)'."
         }
+        if ($entry.expectedKind -isnot [string]) {
+            ThrowIf "Reviewed non-ghost manifest entry '$($entry.label)' expectedKind must be a JSON string."
+        }
         if ($entry.expectedKind -notin @('ghost', 'shell', 'balloon')) {
             ThrowIf "Manifest entry '$($entry.label)' has unsupported expectedKind '$($entry.expectedKind)'."
+        }
+        if ($entry.expectedKind -cne 'ghost') {
+            $actualNonGhostManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)")
         }
         if (-not $entry.requiredEvidence -or $entry.requiredEvidence.Count -eq 0) {
             ThrowIf "Manifest entry '$($entry.label)' has no requiredEvidence."
@@ -1801,6 +1820,11 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         $hashes[$sha] = $entry
         $labels[$label] = $entry
         $safeLabels[$safeLabel] = $entry
+    }
+    $actualNonGhostManifestTupleText = @($actualNonGhostManifestTuples | Sort-Object -CaseSensitive) -join "`n"
+    $reviewedNonGhostManifestTupleText = @($reviewedNonGhostManifestTuples | Sort-Object -CaseSensitive) -join "`n"
+    if ($actualNonGhostManifestTupleText -cne $reviewedNonGhostManifestTupleText) {
+        ThrowIf "Reviewed non-ghost manifest tuple set mismatch. Expected [$($reviewedNonGhostManifestTuples -join ', ')], found [$($actualNonGhostManifestTuples -join ', ')]."
     }
 }
 

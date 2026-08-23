@@ -286,6 +286,15 @@ function Get-GhostEnvelopeRuleKey([object]$Rule, [string]$Context) {
     return "$label|$archiveSha256|$classification|$methodText|$eventText|$statusToken|$outcome|$failureText|$lifecycleText"
 }
 
+function Get-NonGhostManifestTupleKey([object]$Entry, [string]$Context) {
+    Assert-JsonKind $Entry @('object') $Context | Out-Null
+    $expectedKind = Get-ExactJsonString (Get-RequiredProperty $Entry 'expectedKind' $Context) "$Context.expectedKind"
+    if ($expectedKind -ceq 'ghost') { return $null }
+    $label = Get-ExactJsonString (Get-RequiredProperty $Entry 'label' $Context) "$Context.label"
+    $archiveSha256 = Get-ExactJsonString (Get-RequiredProperty $Entry 'sha256' $Context) "$Context.sha256"
+    return "$label|$archiveSha256|$expectedKind"
+}
+
 function Assert-NormalizationKind([object]$Contract, [string]$Scope, [string]$Path, [object]$Value) {
     $rules = @($Contract.normalization.expectedKinds | Where-Object { [string]$_.scope -ceq $Scope -and [string]$_.path -ceq $Path })
     if ($rules.Count -ne 1) { throw "comparison contract normalization kind rule is not unique for $Scope $Path" }
@@ -1495,6 +1504,18 @@ try {
     Assert-EqualString $contractSentinelCanonicalization $reviewedSentinelCanonicalization 'comparison contract sentinel check canonicalization'
     $entries = @($manifest.entries)
     if ($entries.Count -ne 23) { throw "manifest must contain exactly 23 entries, found $($entries.Count)" }
+    $reviewedNonGhostManifestTupleKeys = @(
+        'Haiidrate|ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685|shell',
+        'Hareraiser|a686e3b4c57f30985582fb8ffe9cbbfda49609fa046bb8ca08b003105e1fe7fe|balloon',
+        'Kitsune no Ocha|7b74cbaba0f2b0b159fb20da194d51c07925bb6c208c97e5021879fbdc3d29f5|shell',
+        'The Petpet Puddle|7746f4f47b633ff940200859052d351fb4d68bce307425af42cddbd1b9dccb22|shell'
+    )
+    $actualNonGhostManifestTupleKeys = [Collections.Generic.List[string]]::new()
+    for ($entryIndex = 0; $entryIndex -lt $entries.Count; $entryIndex++) {
+        $tupleKey = Get-NonGhostManifestTupleKey $entries[$entryIndex] "reviewed non-ghost manifest entry[$entryIndex]"
+        if ($null -ne $tupleKey) { $actualNonGhostManifestTupleKeys.Add($tupleKey) }
+    }
+    Assert-ExactSet $actualNonGhostManifestTupleKeys.ToArray() $reviewedNonGhostManifestTupleKeys 'reviewed non-ghost manifest tuple set'
     $expectedLabels = @($entries | ForEach-Object { [string]$_.label })
     if (@($expectedLabels | Select-Object -Unique).Count -ne 23) { throw 'manifest labels must be unique' }
     $expectedSafeLabels = @($expectedLabels | ForEach-Object { ConvertTo-SafeLabel $_ })
