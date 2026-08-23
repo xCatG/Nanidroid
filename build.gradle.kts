@@ -51,12 +51,7 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild {
             cmake {
-                arguments += listOf(
-                    "-DNANIDROID_BUILD_NARFS_FULL_JNI_CANDIDATE=ON",
-                    "-DNANIDROID_BUILD_NARFS_STAGE_CANDIDATE=ON",
-                    "-DNANIDROID_BUILD_NARFS_SHA256_CANDIDATE=ON",
-                )
-                targets += listOf("narfs_full", "satoriya", "ssu", "kawari8", "yaya")
+                targets += listOf("satoriya", "ssu", "kawari8", "yaya")
             }
         }
     }
