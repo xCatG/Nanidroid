@@ -588,8 +588,14 @@ function Invoke-RunnerDryRun([string]$SelectedManifestPath, [string[]]$CorpusRoo
 `$manifestPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$manifestBase64'))
 `$rootsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$rootsBase64'))
 `$roots = @(`$rootsJson | ConvertFrom-Json)
-& `$scriptPath -DryRun -ManifestPath `$manifestPath -CorpusRoots `$roots
-exit `$LASTEXITCODE
+try {
+    & `$scriptPath -DryRun -ManifestPath `$manifestPath -CorpusRoots `$roots
+    exit `$LASTEXITCODE
+}
+catch {
+    [Console]::Error.WriteLine(`$_.Exception.Message)
+    exit 1
+}
 "@
     $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $output = & pwsh -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand $encodedCommand 2>&1 | Out-String
@@ -604,6 +610,17 @@ function Assert-Pass([string]$Name, [object]$Result) {
 function Assert-Fail([string]$Name, [object]$Result, [string]$Pattern) {
     if ($Result.ExitCode -eq 0 -or $Result.Output -notmatch $Pattern) {
         throw "$Name expected failure matching '$Pattern', exit $($Result.ExitCode): $($Result.Output)"
+    }
+    Write-Host "PASS: $Name"
+}
+
+function Assert-FailBeforeCorpusRootResolution([string]$Name, [object]$Result, [string]$ExpectedDiagnostic) {
+    if ($Result.ExitCode -eq 0 -or -not $Result.Output.Contains($ExpectedDiagnostic, [StringComparison]::Ordinal)) {
+        throw "$Name expected exact diagnostic '$ExpectedDiagnostic', exit $($Result.ExitCode): $($Result.Output)"
+    }
+    $rootResolutionDiagnostic = 'No valid CorpusRoots were resolved.'
+    if ($Result.Output.Contains($rootResolutionDiagnostic, [StringComparison]::Ordinal)) {
+        throw "$Name reached corpus-root resolution after the expected reviewed-manifest diagnostic: $($Result.Output)"
     }
     Write-Host "PASS: $Name"
 }
@@ -840,44 +857,32 @@ try {
     }
     Assert-Fail 'runner DryRun manifest tuple binding is ordinal for a soft-hyphen label mutation' (Invoke-RunnerDryRun $runnerSoftHyphenManifestPath) 'reviewed non-ghost manifest tuple set'
 
-    if (Test-Path -LiteralPath $recoveredCorpusRoot -PathType Container) {
-        $recoveredArchiveBySha = @{}
-        foreach ($archive in @(Get-ChildItem -LiteralPath $recoveredCorpusRoot -Recurse -File -Filter '*.nar')) {
-            $archiveSha = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $recoveredArchiveBySha[$archiveSha] = $archive.FullName
-        }
-        if ($recoveredArchiveBySha.Count -ne 23) { throw "Recovered corpus mutation fixture requires 23 unique archives, found $($recoveredArchiveBySha.Count)." }
-
-        Reset-Fixtures
-        $removedGhostManifestPath = Join-Path $fixtureRoot 'runner-removed-ghost-manifest.json'
-        Copy-Item -LiteralPath $manifestPath -Destination $removedGhostManifestPath
-        $removedGhostSha = '2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8'
-        Save-Json $removedGhostManifestPath { param($m)
-            $m.entries = @($m.entries | Where-Object label -CNE 'tewire-sen')
-        }
-        $removedGhostCorpusRoots = @($recoveredArchiveBySha.GetEnumerator() | Where-Object Key -CNE $removedGhostSha | ForEach-Object Value)
-        if ($removedGhostCorpusRoots.Count -ne 22) { throw 'Removed-ghost corpus fixture did not retain exactly 22 matching archives.' }
-        Assert-Fail 'runner reviewed preflight rejects a removed ghost with its matching archive removed' (Invoke-RunnerDryRun $removedGhostManifestPath $removedGhostCorpusRoots) 'reviewed manifest entry count'
-
-        Reset-Fixtures
-        $substitutedGhostManifestPath = Join-Path $fixtureRoot 'runner-substituted-ghost-manifest.json'
-        Copy-Item -LiteralPath $manifestPath -Destination $substitutedGhostManifestPath
-        $replacementArchivePath = Join-Path $fixtureRoot 'substituted-tewire.nar'
-        [IO.File]::WriteAllBytes($replacementArchivePath, [Text.Encoding]::UTF8.GetBytes('reviewed ghost substitution archive'))
-        $replacementArchiveSha = (Get-FileHash -LiteralPath $replacementArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
-        Save-Json $substitutedGhostManifestPath { param($m)
-            $entry = @($m.entries | Where-Object label -CEQ 'tewire-sen')[0]
-            $entry.label = 'Substituted tewire-sen'
-            $entry.sha256 = $replacementArchiveSha
-            $entry.expectedKind = 'ghost'
-        }
-        $substitutedGhostCorpusRoots = @($recoveredArchiveBySha.GetEnumerator() | Where-Object Key -CNE $removedGhostSha | ForEach-Object Value) + @($replacementArchivePath)
-        if ($substitutedGhostCorpusRoots.Count -ne 23) { throw 'Substituted-ghost corpus fixture did not contain exactly 23 matching archives.' }
-        Assert-Fail 'runner reviewed preflight rejects a substituted ghost tuple with matching corpus' (Invoke-RunnerDryRun $substitutedGhostManifestPath $substitutedGhostCorpusRoots) 'reviewed manifest tuple digest'
+    Reset-Fixtures
+    $removedGhostManifestPath = Join-Path $fixtureRoot 'runner-removed-ghost-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $removedGhostManifestPath
+    Save-Json $removedGhostManifestPath { param($m)
+        $m.entries = @($m.entries | Where-Object label -CNE 'tewire-sen')
     }
-    else {
-        Write-Host 'SKIP: recovered corpus runner preflight mutation fixtures are unavailable'
+    $missingRemovedGhostCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-removed-ghost-corpus-root'
+    Assert-FailBeforeCorpusRootResolution `
+        'runner reviewed preflight rejects a removed ghost before corpus-root resolution' `
+        (Invoke-RunnerDryRun $removedGhostManifestPath @($missingRemovedGhostCorpusRoot)) `
+        'validation: Reviewed manifest entry count mismatch: expected 23, found 22.'
+
+    Reset-Fixtures
+    $substitutedGhostManifestPath = Join-Path $fixtureRoot 'runner-substituted-ghost-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $substitutedGhostManifestPath
+    Save-Json $substitutedGhostManifestPath { param($m)
+        $entry = @($m.entries | Where-Object label -CEQ 'tewire-sen')[0]
+        $entry.label = 'Substituted tewire-sen'
+        $entry.sha256 = 'f' * 64
+        $entry.expectedKind = 'ghost'
     }
+    $missingSubstitutedGhostCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-substituted-ghost-corpus-root'
+    Assert-FailBeforeCorpusRootResolution `
+        'runner reviewed preflight rejects a substituted ghost tuple before corpus-root resolution' `
+        (Invoke-RunnerDryRun $substitutedGhostManifestPath @($missingSubstitutedGhostCorpusRoot)) `
+        'validation: Reviewed manifest tuple digest mismatch: expected 496bdf1647afc75b96bec75aaa46f23cae3d1beb91d7a419e259f6fb71c71bcf, found d6cbe11b311fdfc7c794a8f59837ee544246b73e2d1a8de03968d25bc90ad52e.'
 
     foreach ($runnerManifestKindMutation in @(
         @{ name = 'label'; mutation = { param($entry) $entry.label = @('Haiidrate') } },
