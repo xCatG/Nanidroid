@@ -1004,7 +1004,7 @@ function Get-ValidatedOnBootContext([object]$Raw, [string]$Side, [string]$Label)
     $afterText = Get-RequiredProperty $context 'localClockAfter' "$Side raw result '$Label'.dialogueProbe.onBootContext"
     Assert-JsonKind $beforeText @('string') "$Side raw result '$Label'.dialogueProbe.onBootContext.localClockBefore" | Out-Null
     Assert-JsonKind $afterText @('string') "$Side raw result '$Label'.dialogueProbe.onBootContext.localClockAfter" | Out-Null
-    if ([string]$beforeText -notmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]+(?:\.[0-9]+)?[+-][0-9]{2}:[0-9]{2}$' -or [string]$afterText -notmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]+(?:\.[0-9]+)?[+-][0-9]{2}:[0-9]{2}$') {
+    if ([string]$beforeText -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]{1,9})?)?(?:Z|[+-][0-9]{2}:[0-9]{2})\z' -or [string]$afterText -cnotmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]{1,9})?)?(?:Z|[+-][0-9]{2}:[0-9]{2})\z') {
         throw "$Side raw result '$Label'.dialogueProbe.onBootContext must use device-local ISO-8601 offsets"
     }
     $before = [DateTimeOffset]::Parse([string]$beforeText, [Globalization.CultureInfo]::InvariantCulture)

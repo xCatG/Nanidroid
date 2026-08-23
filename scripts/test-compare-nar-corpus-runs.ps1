@@ -670,6 +670,29 @@ function Set-EarthquakeFixture {
     Write-Json -Path $path -Value $raw
 }
 
+function Set-OnBootClockMirrors([string]$Side, [string]$Label, [string]$Before, [string]$After) {
+    $safeLabel = ConvertTo-SafeLabel $Label
+    Save-Json (Join-Path $fixtureRoot "$Side\$safeLabel\result.json") { param($raw)
+        $raw.dialogueProbe.onBootContext.localClockBefore = $Before
+        $raw.dialogueProbe.onBootContext.localClockAfter = $After
+    }
+    $mirrorCount = 0
+    $summaryPath = Join-Path $fixtureRoot "$Side\summary.json"
+    $summary = Get-Json $summaryPath
+    $row = Get-Row $summary $Label
+    foreach ($probeProperty in @(
+        $row.PSObject.Properties['dialogueProbe'],
+        $row.requiredEvidencePayload.PSObject.Properties['dialogueProbe']
+    )) {
+        if ($null -eq $probeProperty) { continue }
+        $probeProperty.Value.onBootContext.localClockBefore = $Before
+        $probeProperty.Value.onBootContext.localClockAfter = $After
+        $mirrorCount++
+    }
+    if ($mirrorCount -lt 1) { throw "OnBoot timestamp fixture '$Label' has no summary evidence mirror." }
+    Write-Json -Path $summaryPath -Value $summary
+}
+
 function Add-RawNumberEvidence([string]$Path, [string]$Token) {
     if ($Token -notmatch '^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$') { throw "Unsafe JSON number token: $Token" }
     $text = [IO.File]::ReadAllText($Path)
@@ -2027,12 +2050,40 @@ try {
     Assert-Pass 'validated older-Snake exact-e and EOF terminal witnesses normalize together' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
+    Set-OnBootClockMirrors 'candidate' '2elf-2.46' '2026-08-18T01:02:00.123456789Z' '2026-08-18T01:02:00.223456789Z'
+    $uppercaseZTimestampResult = Invoke-Comparator (Get-ComparatorArguments)
+
+    Reset-Fixtures
+    Set-OnBootClockMirrors 'candidate' '2elf-2.46' '2026-08-18T01:03-07:00' '2026-08-18T01:03-07:00'
+    $minuteOnlyTimestampResult = Invoke-Comparator (Get-ComparatorArguments)
+
+    $invalidOffsetTimestampResults = [Collections.Generic.List[object]]::new()
+    foreach ($invalidTimestamp in @(
+        @{ name = 'missing UTC offset'; before = '2026-08-18T01:04:00'; after = '2026-08-18T01:04:01' },
+        @{ name = 'lowercase UTC designator'; before = '2026-08-18T01:04:00z'; after = '2026-08-18T01:04:01z' },
+        @{ name = 'malformed UTC offset'; before = '2026-08-18T01:04:00+07:0'; after = '2026-08-18T01:04:01+07:0' },
+        @{ name = 'trailing LF after UTC timestamp'; before = "2026-08-18T01:04:00Z`n"; after = "2026-08-18T01:04:01Z`n" }
+    )) {
+        Reset-Fixtures
+        Set-OnBootClockMirrors 'candidate' '2elf-2.46' $invalidTimestamp.before $invalidTimestamp.after
+        $invalidOffsetTimestampResults.Add([pscustomobject]@{
+            name = $invalidTimestamp.name
+            result = Invoke-Comparator (Get-ComparatorArguments)
+        })
+    }
+
+    Assert-Pass 'uppercase-Z OffsetDateTime OnBoot clocks and mirrors normalize after validation' $uppercaseZTimestampResult
+    Assert-Pass 'minute-only OffsetDateTime OnBoot clocks and mirrors normalize after validation' $minuteOnlyTimestampResult
+    foreach ($invalidResult in $invalidOffsetTimestampResults) {
+        Assert-Fail "OnBoot clocks reject $($invalidResult.name)" $invalidResult.result 'must use device-local ISO-8601 offsets'
+    }
+
+    Reset-Fixtures
     Save-Json (Join-Path $fixtureRoot 'candidate\LOBO\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T01:01:00-07:00'; $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T01:01:01-07:00' }
     Assert-Pass 'distinct valid legacy OnBoot clocks normalize after validation' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
-    Save-Json (Join-Path $fixtureRoot 'candidate\2elf-2.46\result.json') { param($r) $r.dialogueProbe.onBootContext.localClockBefore = '2026-08-18T01:02:00-07:00'; $r.dialogueProbe.onBootContext.localClockAfter = '2026-08-18T01:02:01-07:00' }
-    Save-Json (Join-Path $fixtureRoot 'candidate\summary.json') { param($s) $probe = (Get-Row $s '2elf-2.46').requiredEvidencePayload.dialogueProbe; $probe.onBootContext.localClockBefore = '2026-08-18T01:02:00-07:00'; $probe.onBootContext.localClockAfter = '2026-08-18T01:02:01-07:00' }
+    Set-OnBootClockMirrors 'candidate' '2elf-2.46' '2026-08-18T01:02:00-07:00' '2026-08-18T01:02:01-07:00'
     Assert-Pass 'distinct valid 2elf raw and required-evidence OnBoot context mirrors normalize together' (Invoke-Comparator (Get-ComparatorArguments))
 
     Reset-Fixtures
