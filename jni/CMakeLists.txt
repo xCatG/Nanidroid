@@ -1,10 +1,6 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(nanidroid_native LANGUAGES C CXX)
 
-# The modern application has one current native component.  Historical SHIORI
-# engines live only on the archived reference branch.
-add_subdirectory(narfs)
-
 # Satori is a retained native SHIORI engine.  It is built as a regular shared
 # library (rather than being loaded from a ghost directory) so Android's
 # linker namespace and AGP can package it for every supported ABI.

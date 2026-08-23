@@ -1,5 +1,10 @@
 # Modern mainline status
 
+> Historical snapshot from 2026-07-29. It is retained as modernization
+> evidence, not current build guidance. The active app no longer builds or
+> packages NARFS; use `build.gradle.kts` and `jni/CMakeLists.txt` as the
+> authoritative native-build definition.
+
 `codex/modernization-next` contains only the current Android application.
 Historical Ant, Docker, Java, APK-comparison, and unsupported native-SHIORI
 material is archived on the local `codex/legacy-reference` branch, not in this
