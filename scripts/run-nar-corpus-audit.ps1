@@ -1378,6 +1378,16 @@ function Compute-ArchiveSha([string]$ArchivePath) {
     return (Get-FileHash -Algorithm SHA256 -Path $ArchivePath).Hash.ToLowerInvariant()
 }
 
+function Get-Utf8StringSha256([string]$Value) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($Value))) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
 function Sanitize-Label([string]$Label) {
     return ($Label -replace '[^A-Za-z0-9._-]', '-').Trim('-')
 }
@@ -1752,6 +1762,13 @@ function Remove-RemotePath([string]$Path, [bool]$TrimParents = $false) {
 }
 
 function Validate-ManifestEntries([object[]]$ManifestEntries) {
+    $reviewedManifestEntryCount = 23
+    $reviewedManifestTupleSha256 = '496bdf1647afc75b96bec75aaa46f23cae3d1beb91d7a419e259f6fb71c71bcf'
+    # Canonical preimage: every label|sha256|expectedKind tuple, sorted with
+    # StringComparer.Ordinal, joined with LF and no trailing LF, then UTF-8 SHA-256.
+    if ($ManifestEntries.Count -ne $reviewedManifestEntryCount) {
+        ThrowIf "Reviewed manifest entry count mismatch: expected $reviewedManifestEntryCount, found $($ManifestEntries.Count)."
+    }
     $labels = @{}
     $hashes = @{}
     $safeLabels = @{}
@@ -1762,6 +1779,7 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         'The Petpet Puddle|7746f4f47b633ff940200859052d351fb4d68bce307425af42cddbd1b9dccb22|shell'
     )
     $actualNonGhostManifestTuples = [Collections.Generic.List[string]]::new()
+    $actualManifestTuples = [Collections.Generic.List[string]]::new()
     foreach ($entry in $ManifestEntries) {
         if ($entry.label -isnot [string]) {
             ThrowIf 'Reviewed non-ghost manifest entry label must be a JSON string.'
@@ -1787,6 +1805,7 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         if ($entry.expectedKind -notin @('ghost', 'shell', 'balloon')) {
             ThrowIf "Manifest entry '$($entry.label)' has unsupported expectedKind '$($entry.expectedKind)'."
         }
+        $actualManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)")
         if ($entry.expectedKind -cne 'ghost') {
             $actualNonGhostManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)")
         }
@@ -1821,10 +1840,20 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         $labels[$label] = $entry
         $safeLabels[$safeLabel] = $entry
     }
-    $actualNonGhostManifestTupleText = @($actualNonGhostManifestTuples | Sort-Object -CaseSensitive) -join "`n"
-    $reviewedNonGhostManifestTupleText = @($reviewedNonGhostManifestTuples | Sort-Object -CaseSensitive) -join "`n"
-    if ($actualNonGhostManifestTupleText -cne $reviewedNonGhostManifestTupleText) {
+    [string[]]$actualNonGhostManifestTupleArray = $actualNonGhostManifestTuples.ToArray()
+    [string[]]$reviewedNonGhostManifestTupleArray = @($reviewedNonGhostManifestTuples)
+    [Array]::Sort($actualNonGhostManifestTupleArray, [StringComparer]::Ordinal)
+    [Array]::Sort($reviewedNonGhostManifestTupleArray, [StringComparer]::Ordinal)
+    $actualNonGhostManifestTupleText = $actualNonGhostManifestTupleArray -join "`n"
+    $reviewedNonGhostManifestTupleText = $reviewedNonGhostManifestTupleArray -join "`n"
+    if (-not [StringComparer]::Ordinal.Equals($actualNonGhostManifestTupleText, $reviewedNonGhostManifestTupleText)) {
         ThrowIf "Reviewed non-ghost manifest tuple set mismatch. Expected [$($reviewedNonGhostManifestTuples -join ', ')], found [$($actualNonGhostManifestTuples -join ', ')]."
+    }
+    [string[]]$actualManifestTupleArray = $actualManifestTuples.ToArray()
+    [Array]::Sort($actualManifestTupleArray, [StringComparer]::Ordinal)
+    $actualManifestTupleSha256 = Get-Utf8StringSha256 ($actualManifestTupleArray -join "`n")
+    if (-not [StringComparer]::Ordinal.Equals($actualManifestTupleSha256, $reviewedManifestTupleSha256)) {
+        ThrowIf "Reviewed manifest tuple digest mismatch: expected $reviewedManifestTupleSha256, found $actualManifestTupleSha256."
     }
 }
 

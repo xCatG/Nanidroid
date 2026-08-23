@@ -73,6 +73,16 @@ function Get-BytesSha256([byte[]]$Value) {
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$reviewedManifestEntryCount = 23
+$reviewedManifestTupleSha256 = '496bdf1647afc75b96bec75aaa46f23cae3d1beb91d7a419e259f6fb71c71bcf'
+$reviewedManifestTupleCanonicalization = 'label|sha256|expectedKind tuples; StringComparer.Ordinal sort; LF join without trailing LF; UTF-8 SHA-256'
+[string[]]$reviewedManifestTuples = @($manifest.entries | ForEach-Object { "$($_.label)|$($_.sha256)|$($_.expectedKind)" })
+[Array]::Sort($reviewedManifestTuples, [StringComparer]::Ordinal)
+$observedManifestTupleSha256 = Get-StringSha256 ($reviewedManifestTuples -join "`n")
+if ($reviewedManifestTuples.Count -ne $reviewedManifestEntryCount -or $observedManifestTupleSha256 -cne $reviewedManifestTupleSha256) {
+    throw "Reviewed manifest tuple fixture mismatch under '$reviewedManifestTupleCanonicalization': count=$($reviewedManifestTuples.Count), digest=$observedManifestTupleSha256"
+}
+Write-Host 'PASS: reviewed 23-entry manifest tuple digest fixture'
 $compatibleGhostSuccessRules = [ordered]@{
     '2elf-2.46' = @{ sha256 = 'a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:24' }
     'tewire-sen' = @{ sha256 = '2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8'; eventId = 'OnBoot'; inputOutcome = 'named-collisions-routed:6' }
@@ -567,11 +577,22 @@ function Invoke-Comparator([string[]]$Arguments) {
     return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
 }
 
-function Invoke-RunnerDryRun([string]$SelectedManifestPath) {
+function Invoke-RunnerDryRun([string]$SelectedManifestPath, [string[]]$CorpusRoots = @()) {
     $relativeManifestPath = [IO.Path]::GetRelativePath($repoRoot, $SelectedManifestPath)
-    $missingCorpusRoot = Join-Path $fixtureRoot 'intentionally-missing-corpus-root'
-    $output = & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'run-nar-corpus-audit.ps1') `
-        -DryRun -ManifestPath $relativeManifestPath -CorpusRoots $missingCorpusRoot 2>&1 | Out-String
+    if ($CorpusRoots.Count -eq 0) { $CorpusRoots = @((Join-Path $fixtureRoot 'intentionally-missing-corpus-root')) }
+    $scriptBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Join-Path $PSScriptRoot 'run-nar-corpus-audit.ps1')))
+    $manifestBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($relativeManifestPath))
+    $rootsBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($CorpusRoots | ConvertTo-Json -Compress)))
+    $command = @"
+`$scriptPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$scriptBase64'))
+`$manifestPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$manifestBase64'))
+`$rootsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$rootsBase64'))
+`$roots = @(`$rootsJson | ConvertFrom-Json)
+& `$scriptPath -DryRun -ManifestPath `$manifestPath -CorpusRoots `$roots
+exit `$LASTEXITCODE
+"@
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $output = & pwsh -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand $encodedCommand 2>&1 | Out-String
     return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
 }
 
@@ -620,6 +641,36 @@ function Add-RawNumberEvidence([string]$Path, [string]$Token) {
 
 function Get-Row([object]$Summary, [string]$Label) {
     @($Summary.results | Where-Object label -CEQ $Label)[0]
+}
+
+function Set-ManifestAndEvidenceLabel([string]$SelectedManifestPath, [string]$OldLabel, [string]$NewLabel) {
+    $oldSafeLabel = ConvertTo-SafeLabel $OldLabel
+    $newSafeLabel = ConvertTo-SafeLabel $NewLabel
+    Save-Json $SelectedManifestPath { param($m)
+        @($m.entries | Where-Object label -CEQ $OldLabel)[0].label = $NewLabel
+    }
+    $selectedManifestSha = (Get-FileHash -LiteralPath $SelectedManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    foreach ($side in @('base', 'candidate')) {
+        $oldRawRoot = Join-Path $fixtureRoot "$side\$oldSafeLabel"
+        $newRawRoot = Join-Path $fixtureRoot "$side\$newSafeLabel"
+        Move-Item -LiteralPath $oldRawRoot -Destination $newRawRoot
+        Move-Item -LiteralPath (Join-Path $fixtureRoot "$side\screenshots\$oldSafeLabel.png") -Destination (Join-Path $fixtureRoot "$side\screenshots\$newSafeLabel.png")
+        Save-Json (Join-Path $newRawRoot 'result.json') { param($raw)
+            $raw.label = $NewLabel
+            $raw.narCorpusPath = $raw.narCorpusPath -replace ([regex]::Escape("/$oldSafeLabel/")), "/$newSafeLabel/"
+        }
+        Save-Json (Join-Path $fixtureRoot "$side\summary.json") { param($summary)
+            $summary.manifestSha256 = $selectedManifestSha
+            $row = Get-Row $summary $OldLabel
+            $row.label = $NewLabel
+            $row.safeLabel = $newSafeLabel
+            $row.resultPath = $row.resultPath -replace ([regex]::Escape("/$oldSafeLabel/")), "/$newSafeLabel/"
+            $row.screenshotPath = $row.screenshotPath -replace ([regex]::Escape("/$oldSafeLabel/")), "/$newSafeLabel/"
+            $row.crashLogPath = $row.crashLogPath -replace ([regex]::Escape("\$oldSafeLabel\")), "\$newSafeLabel\"
+            $row.observedPrivateSnapshot = $row.observedPrivateSnapshot -replace ([regex]::Escape("/$oldSafeLabel") + '$'), "/$newSafeLabel"
+            $row.observedTmpSnapshot = $row.observedTmpSnapshot -replace ([regex]::Escape("/$oldSafeLabel") + '$'), "/$newSafeLabel"
+        }
+    }
 }
 
 function Set-AcceptedNativeCheckpointFixture([string]$Side, [string]$Label, [string]$ShellName) {
@@ -744,6 +795,13 @@ try {
     }
     Assert-Fail 'matching substituted non-ghost manifest and evidence cannot replace the reviewed tuple' (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $substitutedManifestPath)) 'reviewed non-ghost manifest tuple set'
 
+    Reset-Fixtures
+    $softHyphenManifestPath = Join-Path $fixtureRoot 'comparator-soft-hyphen-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $softHyphenManifestPath
+    $softHyphenHaiidrate = "Hai$([char]0x00AD)idrate"
+    Set-ManifestAndEvidenceLabel $softHyphenManifestPath 'Haiidrate' $softHyphenHaiidrate
+    Assert-Fail 'comparator manifest tuple binding is ordinal for a soft-hyphen label mutation' (Invoke-Comparator (Get-ComparatorArguments -SelectedManifestPath $softHyphenManifestPath)) 'reviewed non-ghost manifest tuple set'
+
     foreach ($nonGhostManifestKindMutation in @(
         @{ name = 'label'; mutation = { param($entry) $entry.label = @('Haiidrate') } },
         @{ name = 'archive SHA'; mutation = { param($entry) $entry.sha256 = @('ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685') } },
@@ -772,6 +830,53 @@ try {
             & $runnerManifestMutation.mutation $entry
         }
         Assert-Fail "runner DryRun preflight rejects wrong non-ghost $($runnerManifestMutation.name)" (Invoke-RunnerDryRun $runnerManifestPath) 'reviewed non-ghost manifest tuple set'
+    }
+
+    Reset-Fixtures
+    $runnerSoftHyphenManifestPath = Join-Path $fixtureRoot 'runner-soft-hyphen-manifest.json'
+    Copy-Item -LiteralPath $manifestPath -Destination $runnerSoftHyphenManifestPath
+    Save-Json $runnerSoftHyphenManifestPath { param($m)
+        @($m.entries | Where-Object label -CEQ 'Haiidrate')[0].label = $softHyphenHaiidrate
+    }
+    Assert-Fail 'runner DryRun manifest tuple binding is ordinal for a soft-hyphen label mutation' (Invoke-RunnerDryRun $runnerSoftHyphenManifestPath) 'reviewed non-ghost manifest tuple set'
+
+    if (Test-Path -LiteralPath $recoveredCorpusRoot -PathType Container) {
+        $recoveredArchiveBySha = @{}
+        foreach ($archive in @(Get-ChildItem -LiteralPath $recoveredCorpusRoot -Recurse -File -Filter '*.nar')) {
+            $archiveSha = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            $recoveredArchiveBySha[$archiveSha] = $archive.FullName
+        }
+        if ($recoveredArchiveBySha.Count -ne 23) { throw "Recovered corpus mutation fixture requires 23 unique archives, found $($recoveredArchiveBySha.Count)." }
+
+        Reset-Fixtures
+        $removedGhostManifestPath = Join-Path $fixtureRoot 'runner-removed-ghost-manifest.json'
+        Copy-Item -LiteralPath $manifestPath -Destination $removedGhostManifestPath
+        $removedGhostSha = '2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8'
+        Save-Json $removedGhostManifestPath { param($m)
+            $m.entries = @($m.entries | Where-Object label -CNE 'tewire-sen')
+        }
+        $removedGhostCorpusRoots = @($recoveredArchiveBySha.GetEnumerator() | Where-Object Key -CNE $removedGhostSha | ForEach-Object Value)
+        if ($removedGhostCorpusRoots.Count -ne 22) { throw 'Removed-ghost corpus fixture did not retain exactly 22 matching archives.' }
+        Assert-Fail 'runner reviewed preflight rejects a removed ghost with its matching archive removed' (Invoke-RunnerDryRun $removedGhostManifestPath $removedGhostCorpusRoots) 'reviewed manifest entry count'
+
+        Reset-Fixtures
+        $substitutedGhostManifestPath = Join-Path $fixtureRoot 'runner-substituted-ghost-manifest.json'
+        Copy-Item -LiteralPath $manifestPath -Destination $substitutedGhostManifestPath
+        $replacementArchivePath = Join-Path $fixtureRoot 'substituted-tewire.nar'
+        [IO.File]::WriteAllBytes($replacementArchivePath, [Text.Encoding]::UTF8.GetBytes('reviewed ghost substitution archive'))
+        $replacementArchiveSha = (Get-FileHash -LiteralPath $replacementArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        Save-Json $substitutedGhostManifestPath { param($m)
+            $entry = @($m.entries | Where-Object label -CEQ 'tewire-sen')[0]
+            $entry.label = 'Substituted tewire-sen'
+            $entry.sha256 = $replacementArchiveSha
+            $entry.expectedKind = 'ghost'
+        }
+        $substitutedGhostCorpusRoots = @($recoveredArchiveBySha.GetEnumerator() | Where-Object Key -CNE $removedGhostSha | ForEach-Object Value) + @($replacementArchivePath)
+        if ($substitutedGhostCorpusRoots.Count -ne 23) { throw 'Substituted-ghost corpus fixture did not contain exactly 23 matching archives.' }
+        Assert-Fail 'runner reviewed preflight rejects a substituted ghost tuple with matching corpus' (Invoke-RunnerDryRun $substitutedGhostManifestPath $substitutedGhostCorpusRoots) 'reviewed manifest tuple digest'
+    }
+    else {
+        Write-Host 'SKIP: recovered corpus runner preflight mutation fixtures are unavailable'
     }
 
     foreach ($runnerManifestKindMutation in @(

@@ -208,6 +208,18 @@ function Assert-ExactSet([string[]]$Actual, [string[]]$Expected, [string]$Contex
     }
 }
 
+function Assert-OrdinalExactSet([string[]]$Actual, [string[]]$Expected, [string]$Context) {
+    [string[]]$actualSorted = @($Actual)
+    [string[]]$expectedSorted = @($Expected)
+    [Array]::Sort($actualSorted, [StringComparer]::Ordinal)
+    [Array]::Sort($expectedSorted, [StringComparer]::Ordinal)
+    $actualText = $actualSorted -join "`n"
+    $expectedText = $expectedSorted -join "`n"
+    if (-not [StringComparer]::Ordinal.Equals($actualText, $expectedText)) {
+        throw "$Context mismatch. Expected [$($Expected -join ', ')], found [$($Actual -join ', ')]"
+    }
+}
+
 function Get-ObjectKind([object]$Value) {
     if ($null -eq $Value) { return 'null' }
     if ($Value -is [NarCorpusExactJsonNumber]) { return 'number' }
@@ -1515,7 +1527,7 @@ try {
         $tupleKey = Get-NonGhostManifestTupleKey $entries[$entryIndex] "reviewed non-ghost manifest entry[$entryIndex]"
         if ($null -ne $tupleKey) { $actualNonGhostManifestTupleKeys.Add($tupleKey) }
     }
-    Assert-ExactSet $actualNonGhostManifestTupleKeys.ToArray() $reviewedNonGhostManifestTupleKeys 'reviewed non-ghost manifest tuple set'
+    Assert-OrdinalExactSet $actualNonGhostManifestTupleKeys.ToArray() $reviewedNonGhostManifestTupleKeys 'reviewed non-ghost manifest tuple set'
     $expectedLabels = @($entries | ForEach-Object { [string]$_.label })
     if (@($expectedLabels | Select-Object -Unique).Count -ne 23) { throw 'manifest labels must be unique' }
     $expectedSafeLabels = @($expectedLabels | ForEach-Object { ConvertTo-SafeLabel $_ })
