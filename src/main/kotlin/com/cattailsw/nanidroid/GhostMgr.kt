@@ -164,8 +164,6 @@ class GhostMgr(ctx: Context) {
 
     fun getGhostPath(id: String): String = getGhostPath(getGhostId(id))
 
-    fun getGhostLaunchCount(order: Int): Int = 0
-
     private companion object {
         const val PREF_LAST_RUN_GHOST = "lastrunghost"
     }
