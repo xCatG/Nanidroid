@@ -52,8 +52,8 @@ def archive_view_filters(manifest: ET.Element) -> list[ET.Element]:
 def mime_pattern_matches(pattern: str | None, target: str) -> bool:
     if pattern is None or pattern.count("/") != 1:
         return False
-    pattern_type, pattern_subtype = pattern.casefold().split("/", 1)
-    target_type, target_subtype = target.casefold().split("/", 1)
+    pattern_type, pattern_subtype = pattern.split("/", 1)
+    target_type, target_subtype = target.split("/", 1)
     if not pattern_type or not pattern_subtype:
         return False
     if "*" in pattern_type and pattern_type != "*":
@@ -135,6 +135,18 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
                   <intent-filter>
                     <action android:name="android.intent.action.VIEW" />
                     <data android:mimeType="application/*" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="Application/*" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="Application/Zip" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="Application/X-Nar" />
                   </intent-filter>
                   <intent-filter>
                     <action android:name="android.intent.action.VIEW" />
