@@ -97,6 +97,107 @@ class NanidroidLifecycleInstrumentationTest {
     }
 
     @Test
+    fun recreatingDuringCopyingAndInstallingKeepsOneImportAttempt() {
+        val dispatcher = QueuedDispatcher()
+        val selection = NarDocumentSelection(
+            "content://archives/controlled.nar",
+            "application/x-nar",
+        )
+        val backend = ControlledForegroundNarBackend(
+            importResult = ArchiveInstallResult.Installed("/ghost/controlled", "controlled"),
+        )
+        val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "recreate-process")
+        dispatcher.runNext()
+        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+
+        val importThreadFailure = AtomicReference<Throwable?>()
+        var importThread: Thread? = null
+
+        try {
+            ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+                val initialActivity = AtomicReference<Nanidroid?>()
+                scenario.onActivity { initialActivity.set(it) }
+
+                val token = requireNotNull(coordinator.armPicker())
+                Assert.assertTrue(coordinator.consumePickerResult(token, selection, importAllowed = true))
+                Assert.assertEquals(ForegroundNarImportState.Copying(token), coordinator.state.value)
+
+                scenario.recreate()
+                val copyingActivity = AtomicReference<Nanidroid?>()
+                scenario.onActivity { copyingActivity.set(it) }
+                Assert.assertNotSame(initialActivity.get(), copyingActivity.get())
+                Assert.assertEquals(ForegroundNarImportState.Copying(token), coordinator.state.value)
+
+                importThread = Thread {
+                    try {
+                        dispatcher.runNext()
+                    } catch (failure: Throwable) {
+                        importThreadFailure.set(failure)
+                    }
+                }.apply { start() }
+                Assert.assertTrue(
+                    "Controlled backend never received the import",
+                    backend.importStarted.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+                )
+
+                backend.allowInstalling.countDown()
+                Assert.assertTrue(
+                    "Controlled backend never published Installing",
+                    backend.installingPublished.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+                )
+                Assert.assertEquals(
+                    ForegroundNarImportState.Installing(token, CONTROLLED_PHASE, CONTROLLED_COMPLETED),
+                    coordinator.state.value,
+                )
+
+                scenario.recreate()
+                val installingActivity = AtomicReference<Nanidroid?>()
+                scenario.onActivity { installingActivity.set(it) }
+                Assert.assertNotSame(copyingActivity.get(), installingActivity.get())
+                Assert.assertEquals(
+                    ForegroundNarImportState.Installing(token, CONTROLLED_PHASE, CONTROLLED_COMPLETED),
+                    coordinator.state.value,
+                )
+
+                backend.allowCompletion.countDown()
+                importThread.join(ACTIVITY_INIT_TIMEOUT_MILLIS)
+                Assert.assertFalse("Import worker did not terminate", importThread.isAlive)
+                importThreadFailure.get()?.let { throw AssertionError("Import worker failed", it) }
+
+                Assert.assertEquals(
+                    ForegroundNarImportState.Installed(token, "/ghost/controlled", "controlled"),
+                    coordinator.state.value,
+                )
+                Assert.assertEquals(1, backend.importCalls.get())
+                Assert.assertEquals(listOf(selection), backend.selections.toList())
+
+                Assert.assertTrue(coordinator.acknowledge(token))
+                val next = requireNotNull(coordinator.armPicker())
+                Assert.assertEquals(
+                    "Activity recreation must not create another picker attempt",
+                    token.sequence + 1L,
+                    next.sequence,
+                )
+                Assert.assertTrue(coordinator.abandonPicker(next))
+            }
+        } finally {
+            backend.allowInstalling.countDown()
+            backend.allowCompletion.countDown()
+            dispatcher.runNextIfPresent()
+            importThread?.join(ACTIVITY_INIT_TIMEOUT_MILLIS)
+            val state = coordinator.state.value
+            when (state) {
+                is ForegroundNarImportState.AwaitingSelection -> coordinator.abandonPicker(state.token)
+                is ForegroundNarImportState.Installed -> coordinator.acknowledge(state.token)
+                is ForegroundNarImportState.Failed -> coordinator.acknowledge(state.token)
+                is ForegroundNarImportState.Interrupted -> coordinator.acknowledge(state.token)
+                else -> Unit
+            }
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test
     fun installedPrimaryWaitsForReplacementGhostMgrAndCleanupRetryRefreshesOnce() {
         val dispatcher = QueuedDispatcher()
         val backend = RecordingForegroundNarBackend(
@@ -344,6 +445,8 @@ class NanidroidLifecycleInstrumentationTest {
         instance.javaClass.getDeclaredField(name).apply { isAccessible = true }
 
     private companion object {
+        const val CONTROLLED_PHASE = "publishing"
+        const val CONTROLLED_COMPLETED = 7L
         const val RUNNER_STATE_POLL_MILLIS = 20L
         const val PRESENTATION_TIMEOUT_MILLIS = 5_000L
         const val ACTIVITY_INIT_TIMEOUT_MILLIS = 30_000L
@@ -366,6 +469,34 @@ class NanidroidLifecycleInstrumentationTest {
 
         fun runNextIfPresent() {
             tasks.poll()?.run()
+        }
+    }
+
+    private class ControlledForegroundNarBackend(
+        private val importResult: ArchiveInstallResult,
+    ) : ForegroundNarImportBackend {
+        val importStarted = CountDownLatch(1)
+        val allowInstalling = CountDownLatch(1)
+        val installingPublished = CountDownLatch(1)
+        val allowCompletion = CountDownLatch(1)
+        val importCalls = AtomicInteger(0)
+        val selections = ConcurrentLinkedQueue<NarDocumentSelection>()
+
+        override fun recoverOwnedStaging(): NarImportRecoveryResult = NarImportRecoveryResult.Clean
+
+        override fun importDocument(
+            selection: NarDocumentSelection,
+            isCancelled: () -> Boolean,
+            onInstallingProgress: (phase: String, completed: Long) -> Unit,
+        ): ArchiveInstallResult {
+            importCalls.incrementAndGet()
+            selections.add(selection)
+            importStarted.countDown()
+            check(allowInstalling.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+            onInstallingProgress(CONTROLLED_PHASE, CONTROLLED_COMPLETED)
+            installingPublished.countDown()
+            check(allowCompletion.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+            return importResult
         }
     }
 
