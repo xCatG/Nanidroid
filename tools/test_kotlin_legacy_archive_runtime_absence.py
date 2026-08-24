@@ -1,4 +1,6 @@
 import pathlib
+import re
+import tomllib
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -67,6 +69,21 @@ OBSOLETE_DURABLE_PATHS = (
     "src/test/java/com/cattailsw/nanidroid/DurableBackupRulesTest.kt",
 )
 
+PLATFORM_STACK_PATHS = (
+    "src/main/kotlin/com/cattailsw/nanidroid/di/PlatformClockModule.kt",
+    "src/androidTest/java/com/cattailsw/nanidroid/NanidroidTestRunner.kt",
+    "src/androidTest/java/com/cattailsw/nanidroid/DependencyInjectionSmokeTest.kt",
+)
+
+LIFECYCLE_INSTRUMENTATION_TEST_METHODS = {
+    "launchAndRecreateKeepsMainActivityAvailable",
+    "sameProcessRecreationRestoresTheExactPickerOwnerWithoutRelaunching",
+    "recreatingDuringCopyingAndInstallingKeepsOneImportAttempt",
+    "installedPrimaryWaitsForReplacementGhostMgrAndCleanupRetryRefreshesOnce",
+    "deadProcessPickerTokenCannotOpenItsReturnedUriOrCreateAnActivityDialog",
+    "pausingActivityStopsClockWithoutReplacingRuntimeOrNativeSession",
+}
+
 STRING_RESOURCE_PATHS = (
     "src/main/res/values/strings.xml",
     "src/main/res/values-ja/strings.xml",
@@ -84,21 +101,16 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
         runtime_clock = self.read(
             "src/main/kotlin/com/cattailsw/nanidroid/runtime/MonotonicClock.kt"
         )
-        platform_module = self.read(
-            "src/main/kotlin/com/cattailsw/nanidroid/di/PlatformClockModule.kt"
-        )
         runner = self.read(
             "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt"
         )
 
         self.assertIn("fun interface MonotonicClock", runtime_clock)
         self.assertIn("fun nowMillis(): Long", runtime_clock)
-        self.assertNotIn("fun interface MonotonicClock", platform_module)
         self.assertIn(
-            "typealias MonotonicClock = com.cattailsw.nanidroid.runtime.MonotonicClock",
-            platform_module,
+            "import com.cattailsw.nanidroid.runtime.MonotonicClock",
+            runner,
         )
-        self.assertIn("com.cattailsw.nanidroid.runtime.MonotonicClock", runner)
         self.assertNotIn("com.cattailsw.nanidroid.di.MonotonicClock", runner)
 
     def test_legacy_runtime_paths_are_absent(self) -> None:
@@ -120,6 +132,124 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
     def test_obsolete_durable_artifacts_are_absent(self) -> None:
         present = [path for path in OBSOLETE_DURABLE_PATHS if (ROOT / path).exists()]
         self.assertEqual([], present)
+
+    def test_platform_stack_files_are_absent(self) -> None:
+        present = [path for path in PLATFORM_STACK_PATHS if (ROOT / path).exists()]
+        self.assertEqual([], present)
+
+    def test_build_has_no_platform_stack_plugins_or_dependencies(self) -> None:
+        build = self.read("build.gradle.kts")
+        forbidden_fragments = (
+            "libs.plugins.hilt",
+            "libs.plugins.ksp",
+            "libs.work.runtime",
+            "libs.androidx.work.runtime",
+            "libs.androidx.hilt.work",
+            "libs.hilt.android",
+            "ksp(",
+            "kspAndroidTest(",
+            "libs.hilt.android.testing",
+            "libs.work.testing",
+            "libs.androidx.work.testing",
+            "libs.androidx.hilt.compiler",
+        )
+
+        for fragment in forbidden_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertNotIn(fragment, build)
+
+    def test_catalog_has_no_platform_stack_aliases(self) -> None:
+        catalog = tomllib.loads(self.read("gradle/libs.versions.toml"))
+        forbidden_aliases = {
+            "versions": {"work", "hilt", "androidx-hilt", "ksp"},
+            "libraries": {
+                "androidx-work-runtime",
+                "androidx-work-testing",
+                "androidx-hilt-work",
+                "androidx-hilt-compiler",
+                "hilt-android",
+                "hilt-compiler",
+                "hilt-android-testing",
+            },
+            "plugins": {"hilt", "ksp"},
+        }
+
+        for section, aliases in forbidden_aliases.items():
+            with self.subTest(section=section):
+                self.assertTrue(aliases.isdisjoint(catalog.get(section, {})))
+
+    def test_application_has_plain_startup_recovery_only(self) -> None:
+        application = self.read(
+            "src/main/kotlin/com/cattailsw/nanidroid/CatTailApplication.kt"
+        )
+        forbidden_fragments = (
+            "androidx.hilt",
+            "androidx.work",
+            "dagger.hilt",
+            "HiltAndroidApp",
+            "HiltWorkerFactory",
+            "Configuration.Provider",
+            "workManagerConfiguration",
+            "workerFactory",
+            "@Inject",
+            "javax.inject",
+        )
+
+        for fragment in forbidden_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertNotIn(fragment, application)
+        self.assertIn("ForegroundNarImportCoordinator.get(this)", application)
+
+    def test_activity_has_no_hilt_wiring(self) -> None:
+        activity = self.read(
+            "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt"
+        )
+        self.assertNotIn("AndroidEntryPoint", activity)
+        self.assertNotIn("dagger.hilt", activity)
+
+    def test_lifecycle_instrumentation_uses_no_hilt_and_keeps_six_proofs(self) -> None:
+        lifecycle_test = self.read(
+            "src/androidTest/java/com/cattailsw/nanidroid/"
+            "NanidroidLifecycleInstrumentationTest.kt"
+        )
+        forbidden_fragments = (
+            "dagger.hilt",
+            "HiltAndroidRule",
+            "HiltAndroidTest",
+            "org.junit.Rule",
+            "@get:Rule",
+        )
+
+        for fragment in forbidden_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertNotIn(fragment, lifecycle_test)
+        test_methods = set(re.findall(r"@Test\s+fun\s+(\w+)\s*\(", lifecycle_test))
+        self.assertEqual(LIFECYCLE_INSTRUMENTATION_TEST_METHODS, test_methods)
+
+    def test_build_uses_standard_instrumentation_runner(self) -> None:
+        build = self.read("build.gradle.kts")
+        self.assertIn(
+            'testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"',
+            build,
+        )
+
+    def test_source_manifest_has_no_platform_stack_components(self) -> None:
+        manifest_source = self.read("src/main/AndroidManifest.xml")
+        manifest = ET.fromstring(manifest_source)
+        forbidden_fragments = (
+            "xmlns:tools",
+            "tools:",
+            "androidx.work",
+            "android.permission.FOREGROUND_SERVICE",
+            "WorkManagerInitializer",
+            "InitializationProvider",
+        )
+
+        for fragment in forbidden_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertNotIn(fragment, manifest_source)
+        self.assertEqual([], manifest.findall("uses-permission"))
+        self.assertEqual([], manifest.findall(".//provider"))
 
     def test_manifest_has_no_obsolete_backup_rules(self) -> None:
         application = ET.parse(ROOT / "src/main/AndroidManifest.xml").getroot().find(

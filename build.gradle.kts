@@ -24,8 +24,6 @@ import javax.inject.Inject
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.hilt)
-    alias(libs.plugins.ksp)
     alias(libs.plugins.screenshot)
     jacoco
 }
@@ -47,7 +45,7 @@ android {
         versionCode = 6
         versionName = "open_0.1"
         testApplicationId = "com.cattailsw.nanidroid.test"
-        testInstrumentationRunner = "com.cattailsw.nanidroid.NanidroidTestRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild {
             cmake {
@@ -90,11 +88,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material3.adaptive)
     implementation(libs.androidx.window)
-    implementation(libs.androidx.work.runtime)
-    implementation(libs.androidx.hilt.work)
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    ksp(libs.androidx.hilt.compiler)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4.accessibility)
     androidTestImplementation(libs.androidx.test.espresso)
@@ -104,9 +97,6 @@ dependencies {
     // ComponentActivity is declared only by the device-test manifest, so package
     // its runtime in the test APK rather than changing the production APK.
     androidTestImplementation(libs.androidx.activity)
-    androidTestImplementation(libs.hilt.android.testing)
-    kspAndroidTest(libs.hilt.compiler)
-    androidTestImplementation(libs.androidx.work.testing)
     androidTestImplementation(libs.androidx.window.testing)
     androidTestImplementation(libs.androidx.test.uiautomator)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

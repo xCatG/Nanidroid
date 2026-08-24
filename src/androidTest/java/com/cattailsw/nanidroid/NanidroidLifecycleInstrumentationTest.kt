@@ -18,14 +18,11 @@ import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarDocumentSelection
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportRecoveryResult
-import dagger.hilt.android.testing.HiltAndroidRule
-import dagger.hilt.android.testing.HiltAndroidTest
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.atomic.AtomicReference
@@ -34,12 +31,8 @@ import kotlinx.coroutines.Runnable
 import kotlin.coroutines.CoroutineContext
 
 /** Real-device smoke coverage for main-activity launch and configuration recreation.  */
-@HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class NanidroidLifecycleInstrumentationTest {
-    @get:Rule(order = 0)
-    val hiltRule = HiltAndroidRule(this)
-
     @Test
     fun launchAndRecreateKeepsMainActivityAvailable() {
         ActivityScenario.launch<Nanidroid?>(Nanidroid::class.java).use { scenario ->
