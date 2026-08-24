@@ -74,4 +74,17 @@
   <string name="durable_store_recovery_message">Nanidroid 無法讀取已儲存的下載與安裝狀態。新的操作已暫停。已交由 Android 執行的工作可能仍在進行。請捨棄無法讀取的記錄以繼續。Nanidroid 不會自動停止工作。</string>
   <string name="durable_store_recovery_confirm">捨棄無法讀取的記錄並繼續</string>
   <string name="durable_store_recovery_failed">Nanidroid 無法完成復原。操作仍維持暫停，請再試一次。</string>
+  <string name="nar_import_from_document">從文件安裝</string>
+  <string name="nar_import_copying">正在複製選取的封存檔…</string>
+  <string name="nar_import_installing">正在安裝選取的偽人格…</string>
+  <string name="nar_import_cleaning">正在清理私人暫存區…</string>
+  <string name="nar_import_refreshing">正在更新已安裝的偽人格列表…</string>
+  <string name="nar_import_installed_title">已安裝偽人格</string>
+  <string name="nar_import_installed_message">偽人格已安裝，現在可從偽人格列表中選取。</string>
+  <string name="nar_import_failed_title">無法安裝偽人格</string>
+  <string name="nar_import_interrupted_title">匯入已中斷</string>
+  <string name="nar_import_interrupted_message">上一次匯入已中斷。已安裝的偽人格會保留；如果列表中沒有新的偽人格，請重新選擇封存檔。</string>
+  <string name="nar_import_recovery_title">匯入清理需要處理</string>
+  <string name="nar_import_retry_cleanup">重試清理</string>
+  <string name="nar_import_select_another">選擇另一個文件</string>
 </resources>

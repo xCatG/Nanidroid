@@ -75,5 +75,18 @@
   <string name="durable_store_recovery_message">保存されていたダウンロードとインストールの状態を読み取れませんでした。新しい処理は一時停止しています。Android に引き渡された処理は、まだ実行中の可能性があります。再開するには、読み取れない履歴を破棄してください。Nanidroid が処理を自動的に停止することはありません。</string>
   <string name="durable_store_recovery_confirm">読み取れない履歴を破棄して再開</string>
   <string name="durable_store_recovery_failed">復旧を完了できませんでした。処理は一時停止したままです。もう一度お試しください。</string>
+  <string name="nar_import_from_document">ドキュメントからインストール</string>
+  <string name="nar_import_copying">選択したアーカイブをコピーしています…</string>
+  <string name="nar_import_installing">選択したゴーストをインストールしています…</string>
+  <string name="nar_import_cleaning">プライベートステージングをクリーンアップしています…</string>
+  <string name="nar_import_refreshing">インストール済みゴーストの一覧を更新しています…</string>
+  <string name="nar_import_installed_title">ゴーストをインストールしました</string>
+  <string name="nar_import_installed_message">ゴーストをインストールしました。ゴースト一覧から選択できます。</string>
+  <string name="nar_import_failed_title">ゴーストをインストールできませんでした</string>
+  <string name="nar_import_interrupted_title">インポートが中断されました</string>
+  <string name="nar_import_interrupted_message">以前のインポートは中断されました。インストール済みのゴーストは保持されています。新しいゴーストが一覧にない場合は、アーカイブをもう一度選択してください。</string>
+  <string name="nar_import_recovery_title">インポートのクリーンアップに対応が必要です</string>
+  <string name="nar_import_retry_cleanup">クリーンアップを再試行</string>
+  <string name="nar_import_select_another">別のファイルを選択</string>
 
 </resources>

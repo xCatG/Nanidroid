@@ -95,4 +95,17 @@
   <string name="durable_store_recovery_message">Nanidroid couldn’t read its saved download and install status. New operations are paused. Work already handed to Android may still be running. Discard the unreadable history to resume. Nanidroid will not stop work automatically.</string>
   <string name="durable_store_recovery_confirm">Discard unreadable history and resume</string>
   <string name="durable_store_recovery_failed">Nanidroid couldn’t finish recovery. Operations remain paused. Try again.</string>
+  <string name="nar_import_from_document">Install from document</string>
+  <string name="nar_import_copying">Copying selected archive…</string>
+  <string name="nar_import_installing">Installing selected ghost…</string>
+  <string name="nar_import_cleaning">Cleaning private staging…</string>
+  <string name="nar_import_refreshing">Refreshing installed ghosts…</string>
+  <string name="nar_import_installed_title">Ghost installed</string>
+  <string name="nar_import_installed_message">The ghost was installed and is now available in the ghost list.</string>
+  <string name="nar_import_failed_title">Couldn’t install ghost</string>
+  <string name="nar_import_interrupted_title">Import interrupted</string>
+  <string name="nar_import_interrupted_message">Previous import was interrupted. Installed ghosts are preserved; if the new ghost isn’t listed, select the archive again.</string>
+  <string name="nar_import_recovery_title">Import cleanup needs attention</string>
+  <string name="nar_import_retry_cleanup">Retry cleanup</string>
+  <string name="nar_import_select_another">Select another</string>
 </resources>
