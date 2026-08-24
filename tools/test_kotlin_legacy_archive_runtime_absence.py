@@ -67,6 +67,14 @@ OBSOLETE_DURABLE_PATHS = (
     "src/main/res/xml/data_extraction_rules.xml",
     "docs/modernization/durable-operation-transition-table.md",
     "src/test/java/com/cattailsw/nanidroid/DurableBackupRulesTest.kt",
+    "src/main/res/drawable-hdpi-v11/notification.png",
+    "src/main/res/drawable-ja/notification.png",
+    "src/main/res/drawable-ja-hdpi-v11/notification.png",
+    "src/main/res/drawable-ja-mdpi-v11/notification.png",
+    "src/main/res/drawable-ja-xhdpi-v11/notification.png",
+    "src/main/res/drawable-mdpi/notification.png",
+    "src/main/res/drawable-mdpi-v11/notification.png",
+    "src/main/res/drawable-xhdpi-v11/notification.png",
 )
 
 PLATFORM_STACK_PATHS = (
