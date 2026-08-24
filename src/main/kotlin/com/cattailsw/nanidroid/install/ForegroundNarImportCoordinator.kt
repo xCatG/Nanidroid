@@ -1,9 +1,12 @@
 package com.cattailsw.nanidroid.install
 
+import android.content.Context
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -226,7 +229,35 @@ internal class ForegroundNarImportCoordinator(
         return false
     }
 
-    private companion object {
-        const val RECOVERY_FAILURE_MESSAGE = "Nanidroid could not reconcile its private import staging."
+    companion object {
+        private const val RECOVERY_FAILURE_MESSAGE = "Nanidroid could not reconcile its private import staging."
+
+        @Volatile
+        private var instance: ForegroundNarImportCoordinator? = null
+
+        fun get(context: Context): ForegroundNarImportCoordinator {
+            instance?.let { return it }
+            return synchronized(this) {
+                instance ?: ForegroundNarImportCoordinator(
+                    backend = AndroidForegroundNarImportBackend.create(context),
+                    dispatcher = Dispatchers.IO,
+                    processNonce = UUID.randomUUID().toString(),
+                ).also { instance = it }
+            }
+        }
+
+        internal fun replaceForTesting(replacement: ForegroundNarImportCoordinator) {
+            synchronized(this) {
+                check(instance == null || instance?.state?.value == ForegroundNarImportState.Idle)
+                instance = replacement
+            }
+        }
+
+        internal fun resetForTesting() {
+            synchronized(this) {
+                check(instance == null || instance?.state?.value == ForegroundNarImportState.Idle)
+                instance = null
+            }
+        }
     }
 }

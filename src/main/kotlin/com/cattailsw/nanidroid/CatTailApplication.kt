@@ -3,7 +3,7 @@ package com.cattailsw.nanidroid
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
-import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
+import com.cattailsw.nanidroid.install.ForegroundNarImportCoordinator
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -19,6 +19,6 @@ class CatTailApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        SharedDurableOperationSupervisor.get(this)
+        ForegroundNarImportCoordinator.get(this)
     }
 }

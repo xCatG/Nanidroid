@@ -52,6 +52,7 @@ class NarContentUriImport private constructor() {
             install: (File) -> ArchiveInstallResult,
             isCancelled: () -> Boolean,
             maximumArchiveBytes: Long = MAX_ARCHIVE_BYTES,
+            deleteStaged: (File) -> Unit = { it.delete() },
         ): ArchiveInstallResult {
             if (scheme != "content") return failed("Choose a document from the system picker.", ArchiveInstallFailure.SourceUnavailable)
             val root = cacheDir ?: return failed("Nanidroid cannot prepare private import storage.", ArchiveInstallFailure.StorageUnavailable)
@@ -75,7 +76,13 @@ class NarContentUriImport private constructor() {
                 failed("Nanidroid could not read the selected document.", ArchiveInstallFailure.SourceUnavailable)
             } catch (_: SecurityException) {
                 failed("Nanidroid cannot read the selected document.", ArchiveInstallFailure.SourceUnavailable)
-            } finally { staged.delete() }
+            } finally {
+                try {
+                    deleteStaged(staged)
+                } catch (_: Exception) {
+                    // Publication is authoritative; owned staging recovery retries cleanup.
+                }
+            }
         }
 
         private fun copyBounded(
