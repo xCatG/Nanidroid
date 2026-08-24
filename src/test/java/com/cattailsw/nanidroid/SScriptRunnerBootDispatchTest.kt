@@ -4,7 +4,7 @@ import org.junit.After
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
-import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.runtime.MonotonicClock
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.Support

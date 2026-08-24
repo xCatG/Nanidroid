@@ -6,9 +6,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 
-fun interface MonotonicClock {
-    fun nowMillis(): Long
-}
+typealias MonotonicClock = com.cattailsw.nanidroid.runtime.MonotonicClock
 
 @Module
 @InstallIn(SingletonComponent::class)

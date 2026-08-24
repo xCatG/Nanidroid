@@ -1,6 +1,6 @@
 package com.cattailsw.nanidroid
 
-import com.cattailsw.nanidroid.di.MonotonicClock
+import com.cattailsw.nanidroid.runtime.MonotonicClock
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
 import com.cattailsw.nanidroid.shiori.Shiori
