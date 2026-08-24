@@ -157,12 +157,21 @@ internal fun Bundle.readNarPickerOwnerToken(): NarImportAttemptToken? = runCatch
 internal fun reconcileNarPickerOwner(
     restored: NarImportAttemptToken?,
     state: ForegroundNarImportState,
-    abandon: (NarImportAttemptToken) -> Boolean,
 ): NarImportAttemptToken? {
     val awaiting = state as? ForegroundNarImportState.AwaitingSelection ?: return null
     if (restored == awaiting.token) return restored
-    abandon(awaiting.token)
     return null
+}
+
+internal fun abandonNarPickerOwnerOnFinalDestroy(
+    owner: NarImportAttemptToken?,
+    isFinishing: Boolean,
+    isChangingConfigurations: Boolean,
+    abandon: (NarImportAttemptToken) -> Boolean,
+) {
+    if (owner != null && isFinishing && !isChangingConfigurations) {
+        abandon(owner)
+    }
 }
 
 internal fun armAndLaunchNarDocumentPicker(
@@ -314,7 +323,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         narPickerOwnerToken = reconcileNarPickerOwner(
             restored = savedInstanceState?.readNarPickerOwnerToken(),
             state = foregroundNarImport.state.value,
-            abandon = foregroundNarImport::abandonPicker,
         )
         runner = SScriptRunner.getInstance(this)
         setupViews()
@@ -502,6 +510,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )?.let(outState::writeTransientUiSnapshot)
         narPickerOwnerToken?.let(outState::writeNarPickerOwnerToken)
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        abandonNarPickerOwnerOnFinalDestroy(
+            owner = narPickerOwnerToken,
+            isFinishing = isFinishing,
+            isChangingConfigurations = isChangingConfigurations,
+            abandon = foregroundNarImport::abandonPicker,
+        )
+        super.onDestroy()
     }
     override fun onResume() {
         super.onResume()

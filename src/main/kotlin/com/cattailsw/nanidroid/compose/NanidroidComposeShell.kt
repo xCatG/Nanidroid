@@ -78,7 +78,10 @@ internal fun NanidroidComposeShell(
             val lowerModalStateHolder = rememberSaveableStateHolder()
 
             Box(modifier = Modifier.fillMaxSize()) {
-                val foregroundImportModalVisible = when (narImportState) {
+                val storageUnavailableNoticeVisible =
+                    simpleDialog is NanidroidSimpleDialog.Notice &&
+                        simpleDialog.message == R.string.err_no_sdcard
+                val foregroundImportModalVisible = !storageUnavailableNoticeVisible && when (narImportState) {
                     ForegroundNarImportState.Recovering,
                     ForegroundNarImportState.Idle,
                     is ForegroundNarImportState.AwaitingSelection,
@@ -119,13 +122,15 @@ internal fun NanidroidComposeShell(
                         )
                     }
                 }
-                ForegroundNarImportPresentation(
-                    state = narImportState,
-                    installedReadyToken = installedReadyToken,
-                    onAcknowledge = onAcknowledgeNarImport,
-                    onSelectAnother = onSelectAnotherNarImport,
-                    onRetryCleanup = onRetryNarImportCleanup,
-                )
+                if (!storageUnavailableNoticeVisible) {
+                    ForegroundNarImportPresentation(
+                        state = narImportState,
+                        installedReadyToken = installedReadyToken,
+                        onAcknowledge = onAcknowledgeNarImport,
+                        onSelectAnother = onSelectAnotherNarImport,
+                        onRetryCleanup = onRetryNarImportCleanup,
+                    )
+                }
             }
         }
     }

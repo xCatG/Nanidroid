@@ -163,6 +163,51 @@ class NanidroidLifecycleInstrumentationTest {
     }
 
     @Test
+    fun concurrentActivityReconciliationCannotCancelTheLiveOwnerResult() {
+        val dispatcher = QueuedDispatcher()
+        val backend = RecordingForegroundNarBackend()
+        val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "picker-process")
+        dispatcher.runNext()
+        replaceStartupCoordinatorForTesting(coordinator)
+
+        try {
+            ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { firstScenario ->
+                val token = requireNotNull(coordinator.armPicker())
+                firstScenario.onActivity { activity ->
+                    privateFieldHandle(activity, "narPickerOwnerToken").set(activity, token)
+                    val concurrentOwner = reconcileNarPickerOwner(
+                        restored = null,
+                        state = coordinator.state.value,
+                    )
+                    Assert.assertNull(concurrentOwner)
+                    Assert.assertEquals(
+                        ForegroundNarImportState.AwaitingSelection(token),
+                        coordinator.state.value,
+                    )
+                    val accepted = Nanidroid::class.java.getDeclaredMethod(
+                        "dispatchNarDocumentPickerResult",
+                        Uri::class.java,
+                    ).apply { isAccessible = true }.invoke(
+                        activity,
+                        Uri.parse("content://archives/live-owner.nar"),
+                    ) as Boolean
+
+                    Assert.assertTrue(accepted)
+                    Assert.assertNull(nullablePrivateField(activity, "narPickerOwnerToken"))
+                }
+                Assert.assertEquals(ForegroundNarImportState.Copying(token), coordinator.state.value)
+                dispatcher.runNext()
+                Assert.assertEquals(1, backend.importCalls.get())
+                Assert.assertTrue(coordinator.state.value is ForegroundNarImportState.Interrupted)
+                Assert.assertTrue(coordinator.acknowledge(token))
+            }
+        } finally {
+            returnCoordinatorToIdle(coordinator, dispatcher, backend)
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test
     fun recreatingDuringCopyingAndInstallingKeepsOneImportAttempt() {
         val dispatcher = QueuedDispatcher()
         val selection = NarDocumentSelection(
@@ -391,7 +436,6 @@ class NanidroidLifecycleInstrumentationTest {
                     val restoredOwner = reconcileNarPickerOwner(
                         restored = NarImportAttemptToken("dead-process", 1),
                         state = coordinator.state.value,
-                        abandon = coordinator::abandonPicker,
                     )
                     Assert.assertNull(restoredOwner)
                     privateFieldHandle(activity, "narPickerOwnerToken").set(activity, restoredOwner)

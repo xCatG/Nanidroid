@@ -120,12 +120,12 @@ process has no armed coordinator state, so a registry-restored result from a
 picker launched by the dead process is rejected and cannot silently resume the
 import contract.
 
-If a new Activity starts in the surviving process without a restored owner
-token—for example after the user removes Nanidroid's task while DocumentsUI is
-open—it atomically abandons the matching orphaned `AwaitingSelection` before
-enabling the picker action. A mismatched restored owner token is also rejected.
-This prevents the process singleton from remaining permanently busy when the
-original ActivityResultRegistry owner will never deliver a callback.
+If another Activity starts in the surviving process without a restored owner
+token, it must not abandon an `AwaitingSelection` that may still belong to a
+live ActivityResultRegistry owner in another task or window. A mismatched
+restored owner token is rejected without mutating the current attempt. The
+owning Activity abandons only its own token when it is finally destroyed;
+configuration destruction preserves the token for registry restoration.
 
 The Activity presents coordinator state and owns the Activity-local `GhostMgr`
 refresh. A success presentation must wait for the replacement Activity's
@@ -401,8 +401,9 @@ Implementation follows test-driven development at each boundary.
   residue becomes replayable `Interrupted(token)`;
 - picker launch arms one process-only token; same-process recreation retains it
   and a fresh coordinator rejects a restored result from a dead process;
-- a new Activity without restored registry ownership abandons an orphaned
-  in-process `AwaitingSelection`, while a matching recreated owner retains it;
+- a concurrent Activity without restored registry ownership cannot abandon a
+  live in-process `AwaitingSelection`, while a matching recreated owner retains
+  it and final owner destruction releases it;
 - one valid URI produces the exact `Copying` → `Installing` → `Installed`
   token sequence;
 - duplicate and concurrent submissions create one copy and one install;

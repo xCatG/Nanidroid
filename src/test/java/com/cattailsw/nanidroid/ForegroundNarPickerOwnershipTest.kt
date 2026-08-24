@@ -10,7 +10,6 @@ import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportRecoveryResult
 import io.mockk.every
 import io.mockk.mockk
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Runnable
 import org.junit.Assert.assertEquals
@@ -63,23 +62,17 @@ class ForegroundNarPickerOwnershipTest {
     @Test
     fun sameProcessRecreationKeepsTheExactAwaitingOwner() {
         val token = NarImportAttemptToken("live-process", 4)
-        var abandoned: NarImportAttemptToken? = null
 
         val owner = reconcileNarPickerOwner(
             restored = token,
             state = ForegroundNarImportState.AwaitingSelection(token),
-            abandon = {
-                abandoned = it
-                true
-            },
         )
 
         assertSame(token, owner)
-        assertNull(abandoned)
     }
 
     @Test
-    fun deadProcessNonceMismatchAbandonsTheCurrentAwaitingAttempt() {
+    fun deadProcessNonceMismatchDoesNotAbandonAnotherLiveAwaitingAttempt() {
         val restored = NarImportAttemptToken("dead-process", 4)
         val current = NarImportAttemptToken("live-process", 4)
         val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(current))
@@ -87,30 +80,28 @@ class ForegroundNarPickerOwnershipTest {
         val owner = reconcileNarPickerOwner(
             restored = restored,
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
 
         assertNull(owner)
-        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(current), coordinator.state.value)
     }
 
     @Test
-    fun newTaskWithoutRegistryOwnerAbandonsAwaitingSelection() {
+    fun newTaskWithoutRegistryOwnerDoesNotAbandonTheLiveAwaitingSelection() {
         val token = NarImportAttemptToken("live-process", 4)
         val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
 
         val owner = reconcileNarPickerOwner(
             restored = null,
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
 
         assertNull(owner)
-        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(token), coordinator.state.value)
     }
 
     @Test
-    fun staleOwnerARejectsAndAbandonsCurrentAwaitingOwnerB() {
+    fun staleOwnerARejectsWithoutAbandoningCurrentAwaitingOwnerB() {
         val stale = NarImportAttemptToken("live-process", 3)
         val current = NarImportAttemptToken("live-process", 4)
         val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(current))
@@ -118,29 +109,52 @@ class ForegroundNarPickerOwnershipTest {
         val owner = reconcileNarPickerOwner(
             restored = stale,
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
 
         assertNull(owner)
-        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(current), coordinator.state.value)
     }
 
     @Test
-    fun restoredOwnerIsRejectedWithoutAbandoningANonAwaitingState() {
+    fun restoredOwnerIsRejectedForANonAwaitingState() {
         val restored = NarImportAttemptToken("live-process", 4)
-        val abandoned = AtomicBoolean(false)
 
         val owner = reconcileNarPickerOwner(
             restored = restored,
             state = ForegroundNarImportState.Idle,
-            abandon = {
-                abandoned.set(true)
-                true
-            },
         )
 
         assertNull(owner)
-        assertFalse(abandoned.get())
+    }
+
+    @Test
+    fun finalOwnerDestroyAbandonsItsOwnAwaitingSelection() {
+        val token = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+
+        abandonNarPickerOwnerOnFinalDestroy(
+            owner = token,
+            isFinishing = true,
+            isChangingConfigurations = false,
+            abandon = coordinator::abandonPicker,
+        )
+
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+    }
+
+    @Test
+    fun configurationDestroyPreservesItsAwaitingSelectionForRestoration() {
+        val token = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+
+        abandonNarPickerOwnerOnFinalDestroy(
+            owner = token,
+            isFinishing = false,
+            isChangingConfigurations = true,
+            abandon = coordinator::abandonPicker,
+        )
+
+        assertEquals(ForegroundNarImportState.AwaitingSelection(token), coordinator.state.value)
     }
 
     @Test
@@ -208,7 +222,6 @@ class ForegroundNarPickerOwnershipTest {
         var owner = reconcileNarPickerOwner(
             restored = NarImportAttemptToken("dead-process", 1),
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
         var takeCalls = 0
 
