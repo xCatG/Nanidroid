@@ -85,6 +85,7 @@ PLATFORM_STACK_PATHS = (
 
 LIFECYCLE_INSTRUMENTATION_TEST_METHODS = {
     "launchAndRecreateKeepsMainActivityAvailable",
+    "startupRecoverySettlesBeforeTestCoordinatorReplacement",
     "sameProcessRecreationRestoresTheExactPickerOwnerWithoutRelaunching",
     "recreatingDuringCopyingAndInstallingKeepsOneImportAttempt",
     "installedPrimaryWaitsForReplacementGhostMgrAndCleanupRetryRefreshesOnce",

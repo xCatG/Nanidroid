@@ -50,12 +50,79 @@ class NanidroidLifecycleInstrumentationTest {
     }
 
     @Test
+    fun startupRecoverySettlesBeforeTestCoordinatorReplacement() {
+        val bootstrapDispatcher = QueuedDispatcher()
+        val bootstrapBackend = RecordingForegroundNarBackend()
+        val bootstrap = ForegroundNarImportCoordinator(
+            bootstrapBackend,
+            bootstrapDispatcher,
+            "bootstrap-process",
+        )
+        bootstrapDispatcher.runNext()
+        replaceStartupCoordinatorForTesting(bootstrap)
+        ForegroundNarImportCoordinator.resetForTesting()
+
+        val recoveryDispatcher = QueuedDispatcher()
+        val recoveringBackend = RecordingForegroundNarBackend(
+            recoveryResults = listOf(NarImportRecoveryResult.Cleaned),
+        )
+        val recovering = ForegroundNarImportCoordinator(
+            recoveringBackend,
+            recoveryDispatcher,
+            "recovering-process",
+        )
+        ForegroundNarImportCoordinator.replaceForTesting(recovering)
+
+        val replacementDispatcher = QueuedDispatcher()
+        val replacement = ForegroundNarImportCoordinator(
+            RecordingForegroundNarBackend(),
+            replacementDispatcher,
+            "replacement-process",
+        )
+        replacementDispatcher.runNext()
+        val replacementFailure = AtomicReference<Throwable?>()
+        val replacementThread = Thread {
+            try {
+                replaceStartupCoordinatorForTesting(replacement)
+            } catch (failure: Throwable) {
+                replacementFailure.set(failure)
+            }
+        }
+
+        try {
+            replacementThread.start()
+            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS * 5)
+            val completedBeforeRecovery = !replacementThread.isAlive
+
+            recoveryDispatcher.runNext()
+            replacementThread.join(ACTIVITY_INIT_TIMEOUT_MILLIS)
+
+            Assert.assertFalse(
+                "Test coordinator replacement must wait for startup recovery",
+                completedBeforeRecovery,
+            )
+            Assert.assertFalse("Replacement thread did not terminate", replacementThread.isAlive)
+            replacementFailure.get()?.let { throw AssertionError("Replacement failed", it) }
+            Assert.assertSame(
+                replacement,
+                ForegroundNarImportCoordinator.get(
+                    InstrumentationRegistry.getInstrumentation().targetContext,
+                ),
+            )
+        } finally {
+            recoveryDispatcher.runNextIfPresent()
+            returnCoordinatorToIdle(recovering, recoveryDispatcher, recoveringBackend)
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test
     fun sameProcessRecreationRestoresTheExactPickerOwnerWithoutRelaunching() {
         val dispatcher = QueuedDispatcher()
         val backend = RecordingForegroundNarBackend()
         val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "picker-process")
         dispatcher.runNext()
-        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+        replaceStartupCoordinatorForTesting(coordinator)
 
         try {
             ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
@@ -101,7 +168,7 @@ class NanidroidLifecycleInstrumentationTest {
         )
         val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "recreate-process")
         dispatcher.runNext()
-        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+        replaceStartupCoordinatorForTesting(coordinator)
 
         val importThreadFailure = AtomicReference<Throwable?>()
         var importThread: Thread? = null
@@ -203,7 +270,7 @@ class NanidroidLifecycleInstrumentationTest {
         )
         val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "readiness-process")
         dispatcher.runNext()
-        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+        replaceStartupCoordinatorForTesting(coordinator)
 
         val constructionCount = AtomicInteger(0)
         val replacementConstructed = CountDownLatch(1)
@@ -308,7 +375,7 @@ class NanidroidLifecycleInstrumentationTest {
         val backend = RecordingForegroundNarBackend()
         val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "fresh-process")
         dispatcher.runNext()
-        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+        replaceStartupCoordinatorForTesting(coordinator)
 
         try {
             ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
@@ -362,6 +429,37 @@ class NanidroidLifecycleInstrumentationTest {
                 Assert.assertTrue(privateBoolean(bootState, "bootDispatched"))
             }
         }
+    }
+
+    private fun replaceStartupCoordinatorForTesting(
+        replacement: ForegroundNarImportCoordinator,
+    ) {
+        val startup = ForegroundNarImportCoordinator.get(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+        )
+        if (startup === replacement) return
+        val deadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
+        while (SystemClock.uptimeMillis() < deadline) {
+            when (val state = startup.state.value) {
+                ForegroundNarImportState.Recovering,
+                is ForegroundNarImportState.Cleaning,
+                -> Unit
+                ForegroundNarImportState.Idle -> {
+                    ForegroundNarImportCoordinator.replaceForTesting(replacement)
+                    return
+                }
+                is ForegroundNarImportState.Interrupted -> startup.acknowledge(state.token)
+                is ForegroundNarImportState.RecoveryRequired -> startup.retryCleanup(state.token)
+                else -> throw AssertionError(
+                    "Unexpected active production coordinator state before test replacement: $state",
+                )
+            }
+            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
+        }
+        throw AssertionError(
+            "Production coordinator startup recovery did not settle before test replacement: " +
+                startup.state.value,
+        )
     }
 
     private fun awaitActiveRuntime(scenario: ActivityScenario<Nanidroid>): RuntimeIdentity {
