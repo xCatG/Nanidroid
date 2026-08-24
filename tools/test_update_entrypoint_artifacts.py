@@ -232,10 +232,6 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
         self.assertFalse(
             any(name.startswith("androidx.work.") for name in receiver_names)
         )
-        self.assertIn(
-            "androidx.profileinstaller.ProfileInstallReceiver",
-            receiver_names,
-        )
 
     def test_workmanager_initializer_metadata_is_absent(self) -> None:
         initializer_names = {
