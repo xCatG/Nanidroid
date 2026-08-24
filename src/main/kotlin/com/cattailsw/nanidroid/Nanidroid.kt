@@ -12,7 +12,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
-import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -254,7 +253,6 @@ internal fun Bundle.readTextDocumentRestoreSnapshot(): TextDocumentRestoreSnapsh
  * The production activity. Compose owns both chrome and ghost presentation;
  * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
  */
-@AndroidEntryPoint
 class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
 
     private var stageInputEpoch = 0L
