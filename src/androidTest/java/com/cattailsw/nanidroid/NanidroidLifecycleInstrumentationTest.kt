@@ -37,7 +37,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Runnable
 import kotlin.coroutines.CoroutineContext
@@ -264,7 +263,7 @@ class NanidroidLifecycleInstrumentationTest {
 
         try {
             ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
-                awaitGhostMgrReady(scenario)
+                val currentGhost = awaitActiveRuntime(scenario).ghost
                 scenario.recreate()
                 Assert.assertTrue(
                     "Replacement GhostMgr was not held before readiness",
@@ -287,7 +286,7 @@ class NanidroidLifecycleInstrumentationTest {
                 allowReplacementReady.countDown()
                 awaitInstalledReady(scenario, token)
                 Assert.assertEquals(1, refreshCount.get())
-                val currentGhost = awaitActiveRuntime(scenario).ghost
+                Assert.assertSame(currentGhost, awaitActiveRuntime(scenario).ghost)
 
                 Assert.assertTrue(coordinator.retryCleanup(token))
                 Assert.assertTrue(coordinator.state.value is ForegroundNarImportState.Cleaning)
@@ -329,13 +328,24 @@ class NanidroidLifecycleInstrumentationTest {
                 scenario.onActivity { activity ->
                     val dialogState = privateField(activity, "simpleDialogState") as State<*>
                     val dialogBefore = dialogState.value
-                    val accepted = coordinator.consumePickerResult(
-                        expectedToken = NarImportAttemptToken("dead-process", 1),
-                        selection = NarDocumentSelection("content://archives/stale.nar", "content"),
-                        importAllowed = true,
+                    val restoredOwner = reconcileNarPickerOwner(
+                        restored = NarImportAttemptToken("dead-process", 1),
+                        state = coordinator.state.value,
+                        abandon = coordinator::abandonPicker,
                     )
+                    Assert.assertNull(restoredOwner)
+                    privateFieldHandle(activity, "narPickerOwnerToken").set(activity, restoredOwner)
+
+                    val accepted = Nanidroid::class.java.getDeclaredMethod(
+                        "dispatchNarDocumentPickerResult",
+                        Uri::class.java,
+                    ).apply { isAccessible = true }.invoke(
+                        activity,
+                        Uri.parse("content://archives/stale.nar"),
+                    ) as Boolean
 
                     Assert.assertFalse(accepted)
+                    Assert.assertNull(nullablePrivateField(activity, "narPickerOwnerToken"))
                     Assert.assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
                     Assert.assertEquals(0, backend.importCalls.get())
                     Assert.assertSame(dialogBefore, dialogState.value)
@@ -422,19 +432,6 @@ class NanidroidLifecycleInstrumentationTest {
             SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
         }
         throw AssertionError("Nanidroid did not finish runtime initialization")
-    }
-
-    private fun awaitGhostMgrReady(scenario: ActivityScenario<Nanidroid>) {
-        val deadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
-        while (SystemClock.uptimeMillis() < deadline) {
-            var ready = false
-            scenario.onActivity { activity ->
-                ready = (privateField(activity, "ghostMgrReady") as CompletableDeferred<*>).isCompleted
-            }
-            if (ready) return
-            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
-        }
-        throw AssertionError("GhostMgr readiness did not complete")
     }
 
     private fun awaitInstalledReady(

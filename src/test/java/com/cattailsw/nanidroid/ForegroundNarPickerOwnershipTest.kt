@@ -162,6 +162,72 @@ class ForegroundNarPickerOwnershipTest {
         assertEquals(NarImportAttemptToken("test-process", 1), failed.token)
     }
 
+    @Test
+    fun callbackAcquiresAndClearsOwnershipBeforeLazySelectionOrConsume() {
+        val token = NarImportAttemptToken("callback-process", 2)
+        val expectedSelection = NarDocumentSelection("content://archives/selected.nar", "content")
+        var owner: NarImportAttemptToken? = token
+        var selectionCalls = 0
+        var guardCalls = 0
+        var consumeCalls = 0
+
+        val accepted = dispatchNarPickerResult(
+            takeOwner = {
+                owner.also { owner = null }
+            },
+            selection = {
+                assertNull(owner)
+                selectionCalls += 1
+                expectedSelection
+            },
+            importAllowed = {
+                assertNull(owner)
+                guardCalls += 1
+                true
+            },
+            consume = { expectedToken, selection, importAllowed ->
+                assertNull(owner)
+                assertEquals(token, expectedToken)
+                assertEquals(expectedSelection, selection)
+                assertTrue(importAllowed)
+                consumeCalls += 1
+                true
+            },
+        )
+
+        assertTrue(accepted)
+        assertNull(owner)
+        assertEquals(1, selectionCalls)
+        assertEquals(1, guardCalls)
+        assertEquals(1, consumeCalls)
+    }
+
+    @Test
+    fun nullOrDeadRestoredOwnerReturnsBeforeLazySelectionGuardOrConsume() {
+        val coordinator = idleCoordinator(processNonce = "fresh-process")
+        var owner = reconcileNarPickerOwner(
+            restored = NarImportAttemptToken("dead-process", 1),
+            state = coordinator.state.value,
+            abandon = coordinator::abandonPicker,
+        )
+        var takeCalls = 0
+
+        val accepted = dispatchNarPickerResult(
+            takeOwner = {
+                takeCalls += 1
+                owner.also { owner = null }
+            },
+            selection = { throw AssertionError("selection conversion must stay lazy") },
+            importAllowed = { throw AssertionError("callback guard must not run without an owner") },
+            consume = { _, _, _ -> throw AssertionError("coordinator must not be called without an owner") },
+        )
+
+        assertFalse(accepted)
+        assertEquals(1, takeCalls)
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+    }
+
     private fun rawOwner(nonce: String?, sequence: Long?): Bundle = mockk<Bundle>().also { bundle ->
         every { bundle.getString("nar_picker_owner_process_nonce") } returns nonce
         every { bundle.containsKey("nar_picker_owner_sequence") } returns (sequence != null)

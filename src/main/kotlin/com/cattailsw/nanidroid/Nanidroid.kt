@@ -206,6 +206,16 @@ internal fun armAndLaunchNarDocumentPicker(
     }
 }
 
+internal fun dispatchNarPickerResult(
+    takeOwner: () -> NarImportAttemptToken?,
+    selection: () -> NarDocumentSelection?,
+    importAllowed: () -> Boolean,
+    consume: (NarImportAttemptToken, NarDocumentSelection?, Boolean) -> Boolean,
+): Boolean {
+    val expectedToken = takeOwner() ?: return false
+    return consume(expectedToken, selection(), importAllowed())
+}
+
 internal class NanidroidLifecycleTestHooks(
     val afterGhostMgrCreatedBeforeReady: (GhostMgr) -> Unit = {},
     val onForegroundNarRefresh: (GhostMgr, NarImportAttemptToken) -> Unit = { _, _ -> },
@@ -311,15 +321,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private val narDocumentPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
-        val expectedToken = narPickerOwnerToken
-        narPickerOwnerToken = null
-        if (expectedToken == null) return@registerForActivityResult
-        val accepted = foregroundNarImport.consumePickerResult(
-            expectedToken = expectedToken,
-            selection = uri?.let { NarDocumentSelection(it.toString(), it.scheme) },
-            importAllowed = allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER),
-        )
-        if (!accepted) return@registerForActivityResult
+        if (!dispatchNarDocumentPickerResult(uri)) return@registerForActivityResult
     }
     private var pendingDurableNotificationPermission = false
     private val durableNotificationPermission = registerForActivityResult(
@@ -336,6 +338,15 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         val privateDirectory = StageLocalNarWorker.localImportDirectory(applicationContext)
         NarLiveGrantHandoff(narDownloads, narLiveGrantExecutor, privateDirectory)
     }
+
+    private fun dispatchNarDocumentPickerResult(uri: Uri?): Boolean = dispatchNarPickerResult(
+        takeOwner = {
+            narPickerOwnerToken.also { narPickerOwnerToken = null }
+        },
+        selection = { uri?.let { NarDocumentSelection(it.toString(), it.scheme) } },
+        importAllowed = { allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER) },
+        consume = foregroundNarImport::consumePickerResult,
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
