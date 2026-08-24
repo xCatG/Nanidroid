@@ -80,7 +80,8 @@ The coordinator owns:
 
 - a `SupervisorJob` plus IO dispatcher;
 - one immutable, replayable `StateFlow<ForegroundNarImportState>`;
-- monotonically increasing picker/import tokens;
+- tokens containing a random process nonce plus a monotonically increasing
+  in-process sequence;
 - the single-flight compare-and-set transition;
 - exact import and installer-staging recovery;
 - selected-document bounded copy;
@@ -132,6 +133,9 @@ asynchronously created `GhostMgr` to become ready, recheck the success attempt
 token, refresh exactly that result, and then expose the installed ghost in the
 list. A nullable one-shot `gm?.refreshGhost()` is insufficient because it can
 lose a success that races manager construction.
+The Activity retains the last refreshed installation token and skips refresh
+when cleanup retry returns the same installed primary through
+`RecoveryRequired`/`Cleaning` to `Installed`.
 
 ### Existing installer primitives
 
@@ -150,24 +154,25 @@ or publication path.
 ## State Machine
 
 Every picker/import state other than `Idle` and startup-only `Recovering`
-contains an `attemptToken`. UI actions carry the token they observed, and
-coordinator mutations compare it with the current token. A stale Activity or
-dialog callback is therefore a no-op rather than authority over a newer
-attempt.
+contains an `attemptToken` made from a random process nonce plus a monotonically
+increasing in-process sequence. A token restored from a dead process can never
+equal a new-process token even if both sequences start at one. UI actions carry
+the token they observed, and coordinator mutations compare it with the current
+token. A stale Activity or dialog callback is therefore a no-op rather than
+authority over a newer attempt.
 
 ```text
-Recovering --clean--> Idle
-     |                 |
-     | failure         | arm picker
-     v                 v
-RecoveryRequired    AwaitingSelection --accepted content URI--> Copying
-     ^                  |                                      |
-     |                  +--cancel----------------------------> Idle
-     |                                                         v
-     |                      Failed <--pre-publication fail-- Installing
-     |                                                         |
-     |                                                         +--publish + clean--> Installed
-     +------ any verified-owned cleanup failure --------------------------------------+
+Recovering --nothing found--> Idle
+Recovering --owned residue cleaned--> Interrupted --ack--> Idle
+Recovering --cleanup failed--> RecoveryRequired(primary = Interrupted)
+
+Idle --arm picker--> AwaitingSelection --cancel/reject--> Idle
+AwaitingSelection --accepted content URI--> Copying --> Installing
+Copying/Installing --pre-publication failure + clean--> Failed
+Installing --publish + clean--> Installed
+Any cleanup failure --> RecoveryRequired(primary = Interrupted/Failed/Installed)
+RecoveryRequired --retry--> Cleaning --success--> recorded primary terminal
+Cleaning --failure--> RecoveryRequired(same token and primary)
 ```
 
 The concrete states are:
@@ -186,15 +191,21 @@ The concrete states are:
   state contains `installedPath`, `targetId`, and token.
 - `Failed`: publication did not occur and immediate cleanup completed; the
   state contains the typed install failure, user-safe message, and token.
+- `Interrupted`: startup found and successfully removed verified staging from
+  a dead process. It contains a fresh recovery token and the approved
+  interruption/reselection notice until acknowledged.
 - `RecoveryRequired`: startup or post-attempt cleanup could not remove one or
   more verified owned artifacts. It wraps the authoritative primary outcome,
-  including installed path and target ID when publication succeeded, so retry
-  can never republish.
+  including `Interrupted` for startup recovery or installed path and target ID
+  when publication succeeded, so retry can never republish.
+- `Cleaning`: a token-aware retry is reconciling owned staging on IO. It keeps
+  the same primary outcome and blocks duplicate retry or new import actions.
 
 The coordinator uses one compare-and-set state machine rather than a separate
 busy Boolean. `armPicker`,
 `consumePickerResult(expectedToken, uri, importAllowed)`,
-`abandonPicker(expectedToken)`, `acknowledge(expectedToken)`, and
+`abandonPicker(expectedToken)`, `failPickerLaunch(expectedToken, message)`,
+`acknowledge(expectedToken)`, and
 `retryCleanup(expectedToken)` succeed only from their exact allowed state and
 token. The result callback passes its restored registry-owner token into that
 single atomic comparison; an Activity-side precheck is not sufficient.
@@ -203,8 +214,9 @@ submission cannot create a second copy or publication. The design relies on
 `ActivityResultRegistry`'s single result delivery for the one armed launcher;
 it does not invent a second picker queue.
 
-If platform launch throws after `armPicker` succeeds, the Activity immediately
-cancels that exact returned token back to `Idle` and reports the launch failure.
+If platform launch throws after `armPicker` succeeds, the Activity sends that
+exact returned token through `failPickerLaunch`, atomically producing a
+replayable `Failed(SourceUnavailable)` state without an Activity-owned dialog.
 
 An ordinary failed import is not automatically retried. The user acknowledges
 it and selects a document again. `Retry cleanup` performs cleanup only. It does
@@ -218,7 +230,8 @@ not reopen a URI, recopy a document, or call the installer.
    validation is the authoritative archive gate.
 2. The registry returns a nullable URI callback to the registered Activity
    instance. A callback without the matching process-only armed token is
-   ignored and presents the interruption/reselection notice when appropriate.
+   ignored silently; it cannot open the URI, mutate coordinator state, or
+   create an Activity-owned import dialog.
 3. The Activity passes its registry-owner token, return-time guard result, and
    URI into one atomic consumption operation; an allowed non-null result
    changes that same token to `Copying`, while cancellation or guard rejection
@@ -227,6 +240,9 @@ not reopen a URI, recopy a document, or call the installer.
 4. `NarContentUriImport` rejects non-`content` schemes and copies at most its
    characterized maximum into
    `noBackupFilesDir/nar-import-v1/nar-import-<random>.zip`.
+   If `getExternalFilesDir(null)` is unavailable, the backend returns typed
+   storage/recovery failure before opening the URI and never constructs a
+   relative ghost path from a null parent.
 5. The coordinator changes the same token to `Installing` and invokes the
    retained transactional installer.
 6. The installer serializes validation, extraction, cleanup, and publication
@@ -241,6 +257,19 @@ not reopen a URI, recopy a document, or call the installer.
    successful publication into a false installation failure.
 11. The coordinator publishes replayable `Installed`, `Failed`, or
     `RecoveryRequired` for the same token.
+
+Backend calls have an `Exception` boundary at the coordinator so startup,
+copy/install, or cleanup exceptions cannot strand a running state. The
+transactional installer separately guarantees that no exception or false
+failure escapes after rename is known successful: a rename that throws after
+moving is recognized from the now-present target/absent candidate, and all
+post-publication progress and cleanup operations are no-throw. A thrown import
+can therefore be classified as pre-publication `Failed`; typed or thrown
+cleanup failure retains its authoritative primary outcome in
+`RecoveryRequired`.
+The outer `NarContentUriImport` source-stage `finally` is also no-throw; failed
+or exceptional deletion leaves an exact owned import artifact for immediate
+classified recovery without replacing an `Installed` primary.
 
 ### Pre-publication discoverability
 
@@ -324,8 +353,10 @@ archive backend:
 - `NarDownloadReceiver`, `NarDownloadRecoveryReceiver`, and
   `DurableOperationAttentionReceiver` manifest entries;
 - `SharedDurableOperationSupervisor` application-startup initialization; and
-- obsolete boot, notification, internet, and network-state permissions once a
-  final production-usage search confirms they have no non-legacy consumer.
+- Nanidroid's own boot, notification, internet, and network-state permission
+  declarations. The merged APK continues to contain WorkManager-contributed
+  network-state, boot, and wake-lock permissions plus dependency receivers
+  until the later dependency-deletion PR; these are not archive ingress roots.
 
 The application retains the WorkManager initializer suppression,
 `Configuration.Provider`, worker factory, Hilt annotations, durable/repository
@@ -346,12 +377,15 @@ is retired because `OpenDocument` can expose local and provider-backed files.
 
 - `Copying` and `Installing` show non-duplicating progress for the current
   token. The UI does not claim background continuation.
+- `Cleaning` shows foreground cleanup progress and exposes no second retry.
 - `Installed` waits for manager readiness, refreshes the list, and shows a
   replayable success notice. It does not switch ghosts automatically.
 - `Failed` shows the typed user-safe failure with Dismiss and Select another.
-- `RecoveryRequired` explains the cleanup problem and offers Retry cleanup and
-  Dismiss where dismissal is safe. A published success remains identified.
-- Process-recovery notice uses the exact interruption wording above.
+- `RecoveryRequired` explains the cleanup problem and offers only Retry cleanup.
+  It cannot be dismissed while owned residue remains. A published success
+  remains identified.
+- `Interrupted` uses the exact process-recovery wording above and remains until
+  acknowledged.
 
 Import terminal presentation is derived from coordinator state. It is not
 duplicated into the Activity's `Bundle`-restored `NanidroidSimpleDialog` state.
@@ -363,6 +397,8 @@ Implementation follows test-driven development at each boundary.
 ### Coordinator unit tests
 
 - startup remains `Recovering` until both staging roots are reconciled;
+- clean startup with no residue becomes `Idle`, while successfully removed
+  residue becomes replayable `Interrupted(token)`;
 - picker launch arms one process-only token; same-process recreation retains it
   and a fresh coordinator rejects a restored result from a dead process;
 - a new Activity without restored registry ownership abandons an orphaned
@@ -374,6 +410,8 @@ Implementation follows test-driven development at each boundary.
   conflicting-target, staging, extraction, and publication failures are typed
   and replayable;
 - observer detach/reattach receives the same running or terminal state;
+- thrown backend import/recovery calls cannot strand `Recovering`, `Copying`,
+  `Installing`, or `Cleaning`;
 - acknowledgement and cleanup retry require the matching token;
 - a callback for picker token A cannot consume, open, clear, or otherwise
   mutate `AwaitingSelection(B)`;
@@ -392,6 +430,10 @@ Implementation follows test-driven development at each boundary.
   the first tree remaining byte-identical;
 - publication remains `Installed` even if later catalog refresh or cleanup
   fails;
+- rename that moves and then throws, post-rename progress failure, and cleanup
+  failure still return `Installed` and leave only a cleanup obligation;
+- source-stage deletion that throws after installer success preserves
+  `Installed` and becomes installed-primary cleanup recovery;
 - process-death fixtures in both staging roots reconcile under the install lock;
 - cleanup never touches a published target or unowned path;
 - existing-target rejection preserves the existing tree byte-for-byte; and
@@ -412,6 +454,7 @@ Implementation follows test-driven development at each boundary.
 - recreation does not relaunch the picker or duplicate import work;
 - publication while the replacement `GhostMgr` is still initializing becomes
   discoverable after its readiness barrier;
+- installed-primary cleanup retry does not refresh the same publication twice;
 - a running or terminal token replays to the replacement Activity exactly once;
 - More Ghost exposes only the picker action;
 - URL entry, queue row/badge/dialog, download actions, notification prompt, and
@@ -420,8 +463,10 @@ Implementation follows test-driven development at each boundary.
 
 ### Static and removal tests
 
-- the merged manifest has no NAR `ACTION_VIEW`, archive/durable receivers, or
-  retired permissions;
+- the merged manifest has no NAR `ACTION_VIEW`, no Nanidroid archive/durable
+  receiver, and no `INTERNET` or `POST_NOTIFICATIONS`; dependency-contributed
+  WorkManager permissions/receivers are explicitly inventoried for the later
+  deletion PR;
 - production search has exactly one external archive ingress launcher and no
   Activity reference to the repository, live-grant handoff, queue, or URL
   enqueue;
