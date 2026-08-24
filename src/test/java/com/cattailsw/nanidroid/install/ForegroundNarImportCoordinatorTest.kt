@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.install
 
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -171,6 +172,20 @@ class ForegroundNarImportCoordinatorTest {
             ),
             coordinator.state.value,
         )
+        assertEquals(2, backend.recoveryCalls)
+    }
+
+    @Test fun wrappedCancellationExceptionBecomesInterruptedAndStillReconciles() {
+        backend.importAction = { _, _, _ ->
+            throw IllegalStateException("wrapped", CancellationException())
+        }
+        val coordinator = recoveredFixture()
+        val token = requireNotNull(coordinator.armPicker())
+
+        assertTrue(coordinator.consumePickerResult(token, selection(), importAllowed = true))
+        dispatcher.runNext()
+
+        assertEquals(ForegroundNarImportState.Interrupted(token), coordinator.state.value)
         assertEquals(2, backend.recoveryCalls)
     }
 
