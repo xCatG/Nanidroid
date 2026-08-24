@@ -41,6 +41,8 @@ import com.cattailsw.nanidroid.compose.durable.StalledOperationPrompt
 import com.cattailsw.nanidroid.compose.durable.DurableStoreRecoveryPrompt
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadState
+import com.cattailsw.nanidroid.install.ForegroundNarImportState
+import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.durable.DurableAttentionAction
 import com.cattailsw.nanidroid.durable.DurableOperationRecord
 import com.cattailsw.nanidroid.durable.OperationHandle
@@ -63,6 +65,11 @@ internal fun NanidroidComposeShell(
     onReadme: () -> Unit = {},
     onArchiveQueue: () -> Unit = {},
     archiveDownloads: List<NarDownload> = emptyList(),
+    narImportState: ForegroundNarImportState = ForegroundNarImportState.Idle,
+    installedReadyToken: NarImportAttemptToken? = null,
+    onAcknowledgeNarImport: (NarImportAttemptToken) -> Unit = {},
+    onSelectAnotherNarImport: (NarImportAttemptToken) -> Unit = {},
+    onRetryNarImportCleanup: (NarImportAttemptToken) -> Unit = {},
     simpleDialog: NanidroidSimpleDialog?,
     onDismissSimpleDialog: () -> Unit,
     stalledOperations: List<DurableOperationRecord> = emptyList(),
@@ -91,6 +98,13 @@ internal fun NanidroidComposeShell(
             Box(modifier = Modifier.fillMaxSize()) {
                 val durableAttentionVisible = stalledOperations.any { it.showStallPrompt }
                 val durableModalVisible = durableRecoveryRequired || durableAttentionVisible
+                val foregroundImportModalVisible = when (narImportState) {
+                    ForegroundNarImportState.Recovering,
+                    ForegroundNarImportState.Idle,
+                    is ForegroundNarImportState.AwaitingSelection,
+                    -> false
+                    else -> true
+                }
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
@@ -119,7 +133,7 @@ internal fun NanidroidComposeShell(
                 if (loading) {
                     LoadingOverlay(progressMessage)
                 }
-                if (!durableModalVisible) {
+                if (!durableModalVisible && !foregroundImportModalVisible) {
                     lowerModalStateHolder.SaveableStateProvider("simple-dialog") {
                         NanidroidSimpleDialogHost(
                             dialog = simpleDialog,
@@ -128,6 +142,13 @@ internal fun NanidroidComposeShell(
                         )
                     }
                 }
+                ForegroundNarImportPresentation(
+                    state = narImportState,
+                    installedReadyToken = installedReadyToken,
+                    onAcknowledge = onAcknowledgeNarImport,
+                    onSelectAnother = onSelectAnotherNarImport,
+                    onRetryCleanup = onRetryNarImportCleanup,
+                )
                 if (!durableRecoveryRequired) {
                     StalledOperationPrompt(
                         records = stalledOperations,

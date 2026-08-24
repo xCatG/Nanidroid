@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
+import androidx.compose.runtime.State
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ActivityScenario.ActivityAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,8 +17,19 @@ import androidx.test.uiautomator.UiDevice
 import com.cattailsw.nanidroid.install.NarDownload
 import com.cattailsw.nanidroid.install.NarDownloadSource
 import com.cattailsw.nanidroid.install.NarUserEnqueueResult
+import com.cattailsw.nanidroid.install.ArchiveInstallResult
+import com.cattailsw.nanidroid.install.ForegroundNarImportBackend
+import com.cattailsw.nanidroid.install.ForegroundNarImportCoordinator
+import com.cattailsw.nanidroid.install.ForegroundNarImportState
+import com.cattailsw.nanidroid.install.NarDocumentSelection
+import com.cattailsw.nanidroid.install.NarImportAttemptToken
+import com.cattailsw.nanidroid.install.NarImportRecoveryResult
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -25,6 +37,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Runnable
+import kotlin.coroutines.CoroutineContext
 import kotlin.concurrent.thread
 
 /** Real-device smoke coverage for main-activity launch and configuration recreation.  */
@@ -172,6 +188,166 @@ class NanidroidLifecycleInstrumentationTest {
     }
 
     @Test
+    fun sameProcessRecreationRestoresTheExactPickerOwnerWithoutRelaunching() {
+        val dispatcher = QueuedDispatcher()
+        val backend = RecordingForegroundNarBackend()
+        val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "picker-process")
+        dispatcher.runNext()
+        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+
+        try {
+            ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+                val token = requireNotNull(coordinator.armPicker())
+                scenario.onActivity { activity ->
+                    privateFieldHandle(activity, "narPickerOwnerToken").set(activity, token)
+                }
+
+                scenario.recreate()
+
+                scenario.onActivity { activity ->
+                    Assert.assertEquals(token, nullablePrivateField(activity, "narPickerOwnerToken"))
+                    Assert.assertEquals(
+                        ForegroundNarImportState.AwaitingSelection(token),
+                        coordinator.state.value,
+                    )
+                    Assert.assertTrue(coordinator.abandonPicker(token))
+                    val next = requireNotNull(coordinator.armPicker())
+                    Assert.assertEquals(
+                        "A recreation must not arm a second hidden picker journey",
+                        token.sequence + 1L,
+                        next.sequence,
+                    )
+                    Assert.assertTrue(coordinator.abandonPicker(next))
+                    privateFieldHandle(activity, "narPickerOwnerToken").set(activity, null)
+                }
+            }
+        } finally {
+            returnCoordinatorToIdle(coordinator, dispatcher, backend)
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test
+    fun installedPrimaryWaitsForReplacementGhostMgrAndCleanupRetryRefreshesOnce() {
+        val dispatcher = QueuedDispatcher()
+        val backend = RecordingForegroundNarBackend(
+            recoveryResults = listOf(
+                NarImportRecoveryResult.Clean,
+                NarImportRecoveryResult.Failed("cleanup blocked"),
+                NarImportRecoveryResult.Clean,
+            ),
+            importResult = ArchiveInstallResult.Installed("/ghost/imported", "imported"),
+        )
+        val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "readiness-process")
+        dispatcher.runNext()
+        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+
+        val constructionCount = AtomicInteger(0)
+        val replacementConstructed = CountDownLatch(1)
+        val allowReplacementReady = CountDownLatch(1)
+        val replacementManager = AtomicReference<GhostMgr?>()
+        val refreshCount = AtomicInteger(0)
+        Nanidroid.replaceLifecycleTestHooksForTesting(
+            NanidroidLifecycleTestHooks(
+                afterGhostMgrCreatedBeforeReady = { manager ->
+                    if (constructionCount.incrementAndGet() == 2) {
+                        replacementManager.set(manager)
+                        replacementConstructed.countDown()
+                        check(allowReplacementReady.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+                    }
+                },
+                onForegroundNarRefresh = { manager, _ ->
+                    if (manager === replacementManager.get()) refreshCount.incrementAndGet()
+                },
+            ),
+        )
+
+        try {
+            ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+                awaitGhostMgrReady(scenario)
+                scenario.recreate()
+                Assert.assertTrue(
+                    "Replacement GhostMgr was not held before readiness",
+                    replacementConstructed.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+                )
+
+                val token = requireNotNull(coordinator.armPicker())
+                Assert.assertTrue(
+                    coordinator.consumePickerResult(
+                        expectedToken = token,
+                        selection = NarDocumentSelection("content://archives/imported.nar", "content"),
+                        importAllowed = true,
+                    ),
+                )
+                dispatcher.runNext()
+                val recovery = coordinator.state.value as ForegroundNarImportState.RecoveryRequired
+                Assert.assertEquals(token, recovery.token)
+                Assert.assertEquals(0, refreshCount.get())
+
+                allowReplacementReady.countDown()
+                awaitInstalledReady(scenario, token)
+                Assert.assertEquals(1, refreshCount.get())
+                val currentGhost = awaitActiveRuntime(scenario).ghost
+
+                Assert.assertTrue(coordinator.retryCleanup(token))
+                Assert.assertTrue(coordinator.state.value is ForegroundNarImportState.Cleaning)
+                dispatcher.runNext()
+                Assert.assertEquals(
+                    ForegroundNarImportState.Installed(token, "/ghost/imported", "imported"),
+                    coordinator.state.value,
+                )
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                scenario.onActivity { activity ->
+                    Assert.assertEquals(token, nullablePrivateField(activity, "installedReadyToken"))
+                    Assert.assertSame(currentGhost, privateField(activity, "currentGhost"))
+                }
+                Assert.assertEquals(
+                    "RecoveryRequired -> Cleaning -> Installed must not refresh twice",
+                    1,
+                    refreshCount.get(),
+                )
+                Assert.assertTrue(coordinator.acknowledge(token))
+            }
+        } finally {
+            allowReplacementReady.countDown()
+            Nanidroid.resetLifecycleTestHooksForTesting()
+            returnCoordinatorToIdle(coordinator, dispatcher, backend)
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test
+    fun deadProcessPickerTokenCannotOpenItsReturnedUriOrCreateAnActivityDialog() {
+        val dispatcher = QueuedDispatcher()
+        val backend = RecordingForegroundNarBackend()
+        val coordinator = ForegroundNarImportCoordinator(backend, dispatcher, "fresh-process")
+        dispatcher.runNext()
+        ForegroundNarImportCoordinator.replaceForTesting(coordinator)
+
+        try {
+            ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val dialogState = privateField(activity, "simpleDialogState") as State<*>
+                    val dialogBefore = dialogState.value
+                    val accepted = coordinator.consumePickerResult(
+                        expectedToken = NarImportAttemptToken("dead-process", 1),
+                        selection = NarDocumentSelection("content://archives/stale.nar", "content"),
+                        importAllowed = true,
+                    )
+
+                    Assert.assertFalse(accepted)
+                    Assert.assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+                    Assert.assertEquals(0, backend.importCalls.get())
+                    Assert.assertSame(dialogBefore, dialogState.value)
+                }
+            }
+        } finally {
+            returnCoordinatorToIdle(coordinator, dispatcher, backend)
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test
     fun pausingActivityStopsClockWithoutReplacingRuntimeOrNativeSession() {
         ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
             val before = awaitActiveRuntime(scenario)
@@ -246,6 +422,63 @@ class NanidroidLifecycleInstrumentationTest {
             SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
         }
         throw AssertionError("Nanidroid did not finish runtime initialization")
+    }
+
+    private fun awaitGhostMgrReady(scenario: ActivityScenario<Nanidroid>) {
+        val deadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
+        while (SystemClock.uptimeMillis() < deadline) {
+            var ready = false
+            scenario.onActivity { activity ->
+                ready = (privateField(activity, "ghostMgrReady") as CompletableDeferred<*>).isCompleted
+            }
+            if (ready) return
+            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
+        }
+        throw AssertionError("GhostMgr readiness did not complete")
+    }
+
+    private fun awaitInstalledReady(
+        scenario: ActivityScenario<Nanidroid>,
+        token: NarImportAttemptToken,
+    ) {
+        val deadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
+        while (SystemClock.uptimeMillis() < deadline) {
+            var ready = false
+            scenario.onActivity { activity ->
+                ready = nullablePrivateField(activity, "installedReadyToken") == token
+            }
+            if (ready) return
+            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
+        }
+        throw AssertionError("Installed publication never crossed GhostMgr readiness")
+    }
+
+    private fun returnCoordinatorToIdle(
+        coordinator: ForegroundNarImportCoordinator,
+        dispatcher: QueuedDispatcher,
+        backend: RecordingForegroundNarBackend,
+    ) {
+        repeat(6) {
+            when (val state = coordinator.state.value) {
+                ForegroundNarImportState.Recovering -> dispatcher.runNextIfPresent()
+                ForegroundNarImportState.Idle -> return
+                is ForegroundNarImportState.AwaitingSelection -> coordinator.abandonPicker(state.token)
+                is ForegroundNarImportState.Copying,
+                is ForegroundNarImportState.Installing,
+                is ForegroundNarImportState.Cleaning,
+                -> dispatcher.runNextIfPresent()
+                is ForegroundNarImportState.Installed -> coordinator.acknowledge(state.token)
+                is ForegroundNarImportState.Failed -> coordinator.acknowledge(state.token)
+                is ForegroundNarImportState.Interrupted -> coordinator.acknowledge(state.token)
+                is ForegroundNarImportState.RecoveryRequired -> {
+                    backend.recoveryResults.clear()
+                    backend.recoveryResults.addLast(NarImportRecoveryResult.Clean)
+                    coordinator.retryCleanup(state.token)
+                    dispatcher.runNextIfPresent()
+                }
+            }
+        }
+        Assert.assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
     }
 
     private fun nativeSessionGeneration(runner: SScriptRunner): Long {
@@ -337,4 +570,39 @@ class NanidroidLifecycleInstrumentationTest {
         val ghost: Ghost,
         val nativeGeneration: Long,
     )
+
+    private class QueuedDispatcher : CoroutineDispatcher() {
+        private val tasks = ConcurrentLinkedQueue<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            tasks.add(block)
+        }
+
+        fun runNext() = requireNotNull(tasks.poll()).run()
+
+        fun runNextIfPresent() {
+            tasks.poll()?.run()
+        }
+    }
+
+    private class RecordingForegroundNarBackend(
+        recoveryResults: List<NarImportRecoveryResult> = listOf(NarImportRecoveryResult.Clean),
+        private val importResult: ArchiveInstallResult = ArchiveInstallResult.Cancelled,
+    ) : ForegroundNarImportBackend {
+        val recoveryResults = ArrayDeque(recoveryResults)
+        val importCalls = AtomicInteger(0)
+
+        @Synchronized
+        override fun recoverOwnedStaging(): NarImportRecoveryResult =
+            recoveryResults.removeFirstOrNull() ?: NarImportRecoveryResult.Clean
+
+        override fun importDocument(
+            selection: NarDocumentSelection,
+            isCancelled: () -> Boolean,
+            onInstallingProgress: (phase: String, completed: Long) -> Unit,
+        ): ArchiveInstallResult {
+            importCalls.incrementAndGet()
+            return importResult
+        }
+    }
 }

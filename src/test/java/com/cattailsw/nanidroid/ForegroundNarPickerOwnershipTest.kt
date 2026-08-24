@@ -1,0 +1,219 @@
+package com.cattailsw.nanidroid
+
+import android.os.Bundle
+import com.cattailsw.nanidroid.install.ArchiveInstallResult
+import com.cattailsw.nanidroid.install.ForegroundNarImportBackend
+import com.cattailsw.nanidroid.install.ForegroundNarImportCoordinator
+import com.cattailsw.nanidroid.install.ForegroundNarImportState
+import com.cattailsw.nanidroid.install.NarDocumentSelection
+import com.cattailsw.nanidroid.install.NarImportAttemptToken
+import com.cattailsw.nanidroid.install.NarImportRecoveryResult
+import io.mockk.every
+import io.mockk.mockk
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Runnable
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import kotlin.coroutines.CoroutineContext
+
+class ForegroundNarPickerOwnershipTest {
+    @Test
+    fun bundleRoundTripPreservesTheExactOwnerToken() {
+        val values = mutableMapOf<String, Any?>()
+        val bundle = mockk<Bundle>()
+        every { bundle.putString(any(), any()) } answers {
+            values[firstArg()] = secondArg<String?>()
+        }
+        every { bundle.putLong(any(), any()) } answers {
+            values[firstArg()] = secondArg<Long>()
+        }
+        every { bundle.getString(any()) } answers { values[firstArg()] as? String }
+        every { bundle.containsKey(any()) } answers { values.containsKey(firstArg()) }
+        every { bundle.getLong(any()) } answers { values[firstArg()] as? Long ?: 0L }
+        val token = NarImportAttemptToken("same-process", 8)
+
+        bundle.writeNarPickerOwnerToken(token)
+
+        assertEquals(token, bundle.readNarPickerOwnerToken())
+        assertEquals("same-process", values["nar_picker_owner_process_nonce"])
+        assertEquals(8L, values["nar_picker_owner_sequence"])
+    }
+
+    @Test
+    fun malformedBundleValuesDoNotRestoreAnOwner() {
+        val malformed = listOf(
+            rawOwner(nonce = null, sequence = 4L),
+            rawOwner(nonce = "", sequence = 4L),
+            rawOwner(nonce = "process", sequence = null),
+            rawOwner(nonce = "process", sequence = 0L),
+            rawOwner(nonce = "process", sequence = -1L),
+            throwingOwner(),
+        )
+
+        malformed.forEach { bundle ->
+            assertNull(bundle.readNarPickerOwnerToken())
+        }
+    }
+
+    @Test
+    fun sameProcessRecreationKeepsTheExactAwaitingOwner() {
+        val token = NarImportAttemptToken("live-process", 4)
+        var abandoned: NarImportAttemptToken? = null
+
+        val owner = reconcileNarPickerOwner(
+            restored = token,
+            state = ForegroundNarImportState.AwaitingSelection(token),
+            abandon = {
+                abandoned = it
+                true
+            },
+        )
+
+        assertSame(token, owner)
+        assertNull(abandoned)
+    }
+
+    @Test
+    fun deadProcessNonceMismatchAbandonsTheCurrentAwaitingAttempt() {
+        val restored = NarImportAttemptToken("dead-process", 4)
+        val current = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(current))
+
+        val owner = reconcileNarPickerOwner(
+            restored = restored,
+            state = coordinator.state.value,
+            abandon = coordinator::abandonPicker,
+        )
+
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+    }
+
+    @Test
+    fun newTaskWithoutRegistryOwnerAbandonsAwaitingSelection() {
+        val token = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+
+        val owner = reconcileNarPickerOwner(
+            restored = null,
+            state = coordinator.state.value,
+            abandon = coordinator::abandonPicker,
+        )
+
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+    }
+
+    @Test
+    fun staleOwnerARejectsAndAbandonsCurrentAwaitingOwnerB() {
+        val stale = NarImportAttemptToken("live-process", 3)
+        val current = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(current))
+
+        val owner = reconcileNarPickerOwner(
+            restored = stale,
+            state = coordinator.state.value,
+            abandon = coordinator::abandonPicker,
+        )
+
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+    }
+
+    @Test
+    fun restoredOwnerIsRejectedWithoutAbandoningANonAwaitingState() {
+        val restored = NarImportAttemptToken("live-process", 4)
+        val abandoned = AtomicBoolean(false)
+
+        val owner = reconcileNarPickerOwner(
+            restored = restored,
+            state = ForegroundNarImportState.Idle,
+            abandon = {
+                abandoned.set(true)
+                true
+            },
+        )
+
+        assertNull(owner)
+        assertFalse(abandoned.get())
+    }
+
+    @Test
+    fun runtimeLaunchExceptionClearsOwnershipAndPublishesReplayableFailure() {
+        val coordinator = idleCoordinator()
+        var owner: NarImportAttemptToken? = null
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            setOwner = { owner = it },
+            launch = { throw IllegalStateException("registry unavailable") },
+            failureMessage = "The document picker is unavailable.",
+        )
+
+        assertFalse(launched)
+        assertNull(owner)
+        val failed = coordinator.state.value as ForegroundNarImportState.Failed
+        assertEquals("The document picker is unavailable.", failed.message)
+        assertEquals(NarImportAttemptToken("test-process", 1), failed.token)
+    }
+
+    private fun rawOwner(nonce: String?, sequence: Long?): Bundle = mockk<Bundle>().also { bundle ->
+        every { bundle.getString("nar_picker_owner_process_nonce") } returns nonce
+        every { bundle.containsKey("nar_picker_owner_sequence") } returns (sequence != null)
+        every { bundle.getLong("nar_picker_owner_sequence") } returns (sequence ?: 0L)
+    }
+
+    private fun throwingOwner(): Bundle = mockk<Bundle>().also { bundle ->
+        every { bundle.getString("nar_picker_owner_process_nonce") } throws ClassCastException("malformed")
+    }
+
+    private fun coordinatorAt(
+        state: ForegroundNarImportState.AwaitingSelection,
+    ): ForegroundNarImportCoordinator {
+        val coordinator = idleCoordinator(state.token.processNonce)
+        repeat((state.token.sequence - 1L).toInt()) {
+            val prior = requireNotNull(coordinator.armPicker())
+            assertTrue(coordinator.abandonPicker(prior))
+        }
+        val armed = requireNotNull(coordinator.armPicker())
+        assertEquals(state.token.sequence, armed.sequence)
+        return coordinator
+    }
+
+    private fun idleCoordinator(processNonce: String = "test-process"): ForegroundNarImportCoordinator {
+        val dispatcher = QueuedDispatcher()
+        return ForegroundNarImportCoordinator(
+            backend = CleanBackend,
+            dispatcher = dispatcher,
+            processNonce = processNonce,
+        ).also {
+            dispatcher.runNext()
+            assertEquals(ForegroundNarImportState.Idle, it.state.value)
+        }
+    }
+
+    private data object CleanBackend : ForegroundNarImportBackend {
+        override fun recoverOwnedStaging() = NarImportRecoveryResult.Clean
+
+        override fun importDocument(
+            selection: NarDocumentSelection,
+            isCancelled: () -> Boolean,
+            onInstallingProgress: (phase: String, completed: Long) -> Unit,
+        ) = ArchiveInstallResult.Cancelled
+    }
+
+    private class QueuedDispatcher : CoroutineDispatcher() {
+        private val tasks = ArrayDeque<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            tasks.addLast(block)
+        }
+
+        fun runNext() = requireNotNull(tasks.removeFirstOrNull()).run()
+    }
+}
