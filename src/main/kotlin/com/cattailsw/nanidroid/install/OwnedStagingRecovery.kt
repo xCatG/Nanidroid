@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.install
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.NoSuchFileException
 import java.nio.file.attribute.BasicFileAttributes
 
 internal enum class OwnedStagingEntryKind { REGULAR_FILE, DIRECTORY_TREE }
@@ -26,7 +27,12 @@ internal interface OwnedStagingFileSystem {
 internal object RealOwnedStagingFileSystem : OwnedStagingFileSystem {
     override fun canonical(file: File): File = file.canonicalFile
 
-    override fun existsNoFollow(file: File): Boolean = Files.exists(file.toPath(), NOFOLLOW_LINKS)
+    override fun existsNoFollow(file: File): Boolean = try {
+        attributes(file)
+        true
+    } catch (_: NoSuchFileException) {
+        false
+    }
 
     override fun isRegularFileNoFollow(file: File): Boolean = attributes(file).isRegularFile
 

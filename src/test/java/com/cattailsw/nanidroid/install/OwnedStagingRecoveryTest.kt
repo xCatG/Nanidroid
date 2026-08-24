@@ -228,6 +228,26 @@ class OwnedStagingRecoveryTest {
     }
 
     @Test
+    fun noFollowExistenceProbeFailureIsReportedInsteadOfTreatingRootAsAbsent() {
+        val parent = File("/existence-parent")
+        val root = File(parent, "nar-import-v1")
+        val files = FakeFileSystem().apply {
+            directory(parent)
+            throwWhenCheckingExistence(root)
+        }
+
+        val result = OwnedStagingRecovery.reconcile(
+            root = root,
+            expectedParent = parent,
+            entryPattern = Regex(".*"),
+            entryKind = OwnedStagingEntryKind.REGULAR_FILE,
+            files = files,
+        )
+
+        assertTrue(result is OwnedStagingRecoveryResult.Failed)
+    }
+
+    @Test
     fun deleteFailureIsReportedAndOwnedEntryRemains() {
         val parent = File("/delete-parent")
         val root = File(parent, "nar-import-v1")
@@ -258,6 +278,7 @@ class OwnedStagingRecoveryTest {
         private val canonical = mutableMapOf<File, File>()
         private val listFailures = mutableSetOf<File>()
         private val listExceptions = mutableSetOf<File>()
+        private val existenceExceptions = mutableSetOf<File>()
         private val deleteFailures = mutableSetOf<File>()
         private val listed = mutableSetOf<File>()
 
@@ -267,12 +288,16 @@ class OwnedStagingRecoveryTest {
         fun canonical(file: File, target: File) { canonical[file] = target }
         fun failListing(file: File) { listFailures += file }
         fun throwWhenListing(file: File) { listExceptions += file }
+        fun throwWhenCheckingExistence(file: File) { existenceExceptions += file }
         fun failDeletion(file: File) { deleteFailures += file }
         fun exists(file: File) = file in nodes
         fun wasListed(file: File) = file in listed
 
         override fun canonical(file: File): File = canonical[file] ?: file
-        override fun existsNoFollow(file: File): Boolean = exists(file)
+        override fun existsNoFollow(file: File): Boolean {
+            if (file in existenceExceptions) throw IllegalStateException("existence failed")
+            return exists(file)
+        }
         override fun isRegularFileNoFollow(file: File): Boolean = nodes[file] == Kind.FILE
         override fun isDirectoryNoFollow(file: File): Boolean = nodes[file] == Kind.DIRECTORY
         override fun isSymbolicLink(file: File): Boolean = nodes[file] == Kind.LINK

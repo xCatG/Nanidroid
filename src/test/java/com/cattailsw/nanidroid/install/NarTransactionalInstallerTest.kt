@@ -457,11 +457,33 @@ class NarTransactionalInstallerTest {
     }
 
     @Test
+    fun recoveryWrapperReportsDeleteFailureWithoutPublishingOrTouchingLiveTarget() {
+        val root = temporaryDirectory("recovery-delete-failure")
+        val staging = File(root, ".nanidroid-install-staging")
+        val candidate = File(staging, "candidate-0123456789abcdef0123456789abcdef")
+        val target = File(root, "published-id").apply { mkdir() }
+        write(File(target, "ghost/master.txt"), bytes("published"))
+        val files = RecoveryFileSystem().apply {
+            directory(staging)
+            directory(candidate)
+            failDeletion(candidate)
+        }
+
+        val result = NarTransactionalInstaller.recoverOwnedStaging(root, files)
+
+        Assert.assertTrue(result is OwnedStagingRecoveryResult.Failed)
+        Assert.assertEquals(listOf(candidate), files.deleteAttempts)
+        Assert.assertFalse(files.deleteAttempts.contains(target))
+        Assert.assertArrayEquals(bytes("published"), read(File(target, "ghost/master.txt")))
+    }
+
+    @Test
     fun recoveryWaitsForInstallPublicationLockBeforeReconcilingStaging() {
         val root = temporaryDirectory("recovery-lock")
         val archive = validGhostZip("serialized-id", "ghost/master.txt", bytes("payload"))
         val installEntered = CountDownLatch(1)
         val releaseInstall = CountDownLatch(1)
+        val recoveryStarted = CountDownLatch(1)
         val recoveryReturned = CountDownLatch(1)
         val executor = Executors.newFixedThreadPool(2)
         try {
@@ -482,12 +504,14 @@ class NarTransactionalInstallerTest {
             Assert.assertTrue(installEntered.await(5, TimeUnit.SECONDS))
             val recovery = executor.submit<OwnedStagingRecoveryResult> {
                 try {
+                    recoveryStarted.countDown()
                     NarTransactionalInstaller.recoverOwnedStaging(root)
                 } finally {
                     recoveryReturned.countDown()
                 }
             }
 
+            Assert.assertTrue(recoveryStarted.await(5, TimeUnit.SECONDS))
             Assert.assertFalse(recoveryReturned.await(250, TimeUnit.MILLISECONDS))
             releaseInstall.countDown()
             Assert.assertTrue(install.get(5, TimeUnit.SECONDS) is ArchiveInstallResult.Installed)
@@ -501,6 +525,26 @@ class NarTransactionalInstallerTest {
 
     companion object {
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
+
+        private class RecoveryFileSystem : OwnedStagingFileSystem {
+            private val directories = mutableSetOf<File>()
+            private val deleteFailures = mutableSetOf<File>()
+            val deleteAttempts = mutableListOf<File>()
+
+            fun directory(file: File) { directories += file }
+            fun failDeletion(file: File) { deleteFailures += file }
+
+            override fun canonical(file: File): File = file
+            override fun existsNoFollow(file: File): Boolean = file in directories
+            override fun isRegularFileNoFollow(file: File): Boolean = false
+            override fun isDirectoryNoFollow(file: File): Boolean = file in directories
+            override fun isSymbolicLink(file: File): Boolean = false
+            override fun list(file: File): List<File>? = directories.filter { it.parentFile == file }
+            override fun delete(file: File): Boolean {
+                deleteAttempts += file
+                return file !in deleteFailures && directories.remove(file)
+            }
+        }
 
         private fun validGhostZip(targetId: String, vararg values: Any): File = zip(
             "install.txt", descriptor(targetId),

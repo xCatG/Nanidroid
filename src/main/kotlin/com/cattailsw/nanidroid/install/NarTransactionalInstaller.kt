@@ -64,6 +64,12 @@ class NarTransactionalInstaller private constructor() {
 
         @JvmStatic
         internal fun recoverOwnedStaging(installRoot: File?): OwnedStagingRecoveryResult =
+            recoverOwnedStaging(installRoot, RealOwnedStagingFileSystem)
+
+        internal fun recoverOwnedStaging(
+            installRoot: File?,
+            files: OwnedStagingFileSystem,
+        ): OwnedStagingRecoveryResult =
             synchronized(INSTALL_LOCK) {
                 val root = try {
                     installRoot?.canonicalFile
@@ -78,6 +84,7 @@ class NarTransactionalInstaller private constructor() {
                     expectedParent = root,
                     entryPattern = Regex("^candidate-[0-9a-f]{32}$"),
                     entryKind = OwnedStagingEntryKind.DIRECTORY_TREE,
+                    files = files,
                 )
             }
 
