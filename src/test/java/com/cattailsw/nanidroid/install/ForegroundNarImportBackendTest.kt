@@ -2,14 +2,19 @@ package com.cattailsw.nanidroid.install
 
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
+import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlinx.coroutines.Dispatchers
 
 class ForegroundNarImportBackendTest {
     @Test fun absentOrIdleSingletonCanBeReplacedAndReset() {
@@ -35,6 +40,101 @@ class ForegroundNarImportBackendTest {
             }
         } finally {
             assertTrue(active.abandonPicker(token))
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test fun armWinningRetirementRaceKeepsTheAcceptedSingleton() {
+        val armEntered = CountDownLatch(1)
+        val releaseArm = CountDownLatch(1)
+        val retirementEntered = CountDownLatch(1)
+        val active = idleCoordinator(
+            processNonce = "active",
+            lifecycleTestHooks = ForegroundNarImportLifecycleTestHooks(
+                afterArmLock = {
+                    armEntered.countDown()
+                    awaitLatch(releaseArm)
+                },
+                beforeRetirementLock = { retirementEntered.countDown() },
+            ),
+        )
+        val replacement = idleCoordinator("replacement")
+        ForegroundNarImportCoordinator.replaceForTesting(active)
+        val armed = AtomicReference<NarImportAttemptToken?>()
+        val retirementFailure = AtomicReference<Throwable?>()
+
+        val armThread = thread(name = "foreground-import-arm") {
+            armed.set(active.armPicker())
+        }
+        awaitLatch(armEntered)
+        val retirementThread = thread(name = "foreground-import-retire") {
+            try {
+                ForegroundNarImportCoordinator.replaceForTesting(replacement)
+            } catch (failure: Throwable) {
+                retirementFailure.set(failure)
+            }
+        }
+        awaitLatch(retirementEntered)
+        releaseArm.countDown()
+        joinThread(armThread)
+        joinThread(retirementThread)
+
+        val token = requireNotNull(armed.get())
+        try {
+            assertTrue(retirementFailure.get() is IllegalStateException)
+            assertEquals(ForegroundNarImportState.AwaitingSelection(token), active.state.value)
+        } finally {
+            assertTrue(active.abandonPicker(token))
+            ForegroundNarImportCoordinator.resetForTesting()
+        }
+    }
+
+    @Test fun resetWinningArmRacePermanentlyDisarmsTheRetiredCoordinator() {
+        val retired = CountDownLatch(1)
+        val releaseRetirement = CountDownLatch(1)
+        val oldArmStarted = CountDownLatch(1)
+        val active = idleCoordinator(
+            processNonce = "active",
+            lifecycleTestHooks = ForegroundNarImportLifecycleTestHooks(
+                afterRetired = {
+                    retired.countDown()
+                    awaitLatch(releaseRetirement)
+                },
+            ),
+        )
+        val replacement = idleCoordinator("replacement")
+        ForegroundNarImportCoordinator.replaceForTesting(active)
+        val retirementFailure = AtomicReference<Throwable?>()
+        val oldArm = AtomicReference<NarImportAttemptToken?>()
+
+        val retirementThread = thread(name = "foreground-import-retire") {
+            try {
+                ForegroundNarImportCoordinator.resetForTesting()
+            } catch (failure: Throwable) {
+                retirementFailure.set(failure)
+            }
+        }
+        awaitLatch(retired)
+        val armThread = thread(name = "foreground-import-old-arm") {
+            oldArmStarted.countDown()
+            oldArm.set(active.armPicker())
+        }
+        awaitLatch(oldArmStarted)
+        releaseRetirement.countDown()
+        joinThread(retirementThread)
+        joinThread(armThread)
+
+        assertNull(retirementFailure.get())
+        assertNull(oldArm.get())
+        ForegroundNarImportCoordinator.replaceForTesting(replacement)
+        val replacementToken = requireNotNull(replacement.armPicker())
+        try {
+            assertEquals(
+                ForegroundNarImportState.AwaitingSelection(replacementToken),
+                replacement.state.value,
+            )
+        } finally {
+            assertTrue(replacement.abandonPicker(replacementToken))
             ForegroundNarImportCoordinator.resetForTesting()
         }
     }
@@ -237,7 +337,10 @@ class ForegroundNarImportBackendTest {
         maximumArchiveBytes = maximumArchiveBytes,
     )
 
-    private fun idleCoordinator(processNonce: String) = ForegroundNarImportCoordinator(
+    private fun idleCoordinator(
+        processNonce: String,
+        lifecycleTestHooks: ForegroundNarImportLifecycleTestHooks = ForegroundNarImportLifecycleTestHooks(),
+    ) = ForegroundNarImportCoordinator(
         backend = object : ForegroundNarImportBackend {
             override fun recoverOwnedStaging() = NarImportRecoveryResult.Clean
 
@@ -249,7 +352,17 @@ class ForegroundNarImportBackendTest {
         },
         dispatcher = Dispatchers.Unconfined,
         processNonce = processNonce,
+        lifecycleTestHooks = lifecycleTestHooks,
     ).also { assertEquals(ForegroundNarImportState.Idle, it.state.value) }
+
+    private fun awaitLatch(latch: CountDownLatch) {
+        check(latch.await(5, TimeUnit.SECONDS)) { "Timed out waiting for concurrent test ordering" }
+    }
+
+    private fun joinThread(value: Thread) {
+        value.join(TimeUnit.SECONDS.toMillis(5))
+        assertFalse("Concurrent test thread did not finish", value.isAlive)
+    }
 
     private val testRoot = kotlin.io.path.createTempDirectory("foreground-nar-backend-").toFile()
     private val importRoot = File(testRoot, "imports").apply { mkdirs() }

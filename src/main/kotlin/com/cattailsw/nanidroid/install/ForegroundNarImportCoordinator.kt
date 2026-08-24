@@ -23,15 +23,25 @@ internal interface ForegroundNarImportBackend {
     ): ArchiveInstallResult
 }
 
+internal class ForegroundNarImportLifecycleTestHooks(
+    val afterArmLock: () -> Unit = {},
+    val beforeRetirementLock: () -> Unit = {},
+    val afterRetired: () -> Unit = {},
+)
+
 /** Coordinates one foreground document import without retaining Activity-owned work. */
 internal class ForegroundNarImportCoordinator(
     private val backend: ForegroundNarImportBackend,
     dispatcher: CoroutineDispatcher,
     private val processNonce: String,
+    private val lifecycleTestHooks: ForegroundNarImportLifecycleTestHooks =
+        ForegroundNarImportLifecycleTestHooks(),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val attempts = AtomicLong(0)
     private val mutableState = MutableStateFlow<ForegroundNarImportState>(ForegroundNarImportState.Recovering)
+    private val lifecycleLock = Any()
+    private var retired = false
 
     val state: StateFlow<ForegroundNarImportState> = mutableState.asStateFlow()
 
@@ -41,14 +51,18 @@ internal class ForegroundNarImportCoordinator(
 
     fun armPicker(): NarImportAttemptToken? {
         val token = nextToken()
-        return if (mutableState.compareAndSet(
-                ForegroundNarImportState.Idle,
-                ForegroundNarImportState.AwaitingSelection(token),
-            )
-        ) {
-            token
-        } else {
-            null
+        return synchronized(lifecycleLock) {
+            if (retired) return@synchronized null
+            lifecycleTestHooks.afterArmLock()
+            if (mutableState.compareAndSet(
+                    ForegroundNarImportState.Idle,
+                    ForegroundNarImportState.AwaitingSelection(token),
+                )
+            ) {
+                token
+            } else {
+                null
+            }
         }
     }
 
@@ -220,6 +234,19 @@ internal class ForegroundNarImportCoordinator(
 
     private fun nextToken() = NarImportAttemptToken(processNonce, attempts.incrementAndGet())
 
+    private fun retireIfIdle(): Boolean {
+        lifecycleTestHooks.beforeRetirementLock()
+        return synchronized(lifecycleLock) {
+            if (mutableState.value != ForegroundNarImportState.Idle) {
+                false
+            } else {
+                retired = true
+                lifecycleTestHooks.afterRetired()
+                true
+            }
+        }
+    }
+
     private fun containsCancellation(exception: Exception): Boolean {
         var cause: Throwable? = exception
         while (cause != null) {
@@ -248,14 +275,16 @@ internal class ForegroundNarImportCoordinator(
 
         internal fun replaceForTesting(replacement: ForegroundNarImportCoordinator) {
             synchronized(this) {
-                check(instance == null || instance?.state?.value == ForegroundNarImportState.Idle)
+                val current = instance
+                if (current === replacement) return
+                check(current == null || current.retireIfIdle())
                 instance = replacement
             }
         }
 
         internal fun resetForTesting() {
             synchronized(this) {
-                check(instance == null || instance?.state?.value == ForegroundNarImportState.Idle)
+                check(instance?.retireIfIdle() != false)
                 instance = null
             }
         }
