@@ -437,6 +437,30 @@ class NarTransactionalInstallerTest {
     }
 
     @Test
+    fun immediateCleanupPreservesUnmatchedStagingSibling() {
+        val root = temporaryDirectory("transaction-unmatched-staging")
+        val archive = validGhostZip("published-id", "ghost/master.txt", bytes("committed"))
+        val staging = File(root, ".nanidroid-install-staging")
+        val unmatched = File(staging, "leave-alone.txt")
+
+        val result = NarTransactionalInstaller.install(
+            archive = archive,
+            installRoot = root,
+            forcedId = null,
+            isCancelled = { false },
+            onProgress = { phase, _ ->
+                if (phase == "Copying archive" && !unmatched.exists()) {
+                    write(unmatched, bytes("unmatched"))
+                }
+            },
+        )
+
+        Assert.assertTrue(result is ArchiveInstallResult.Installed)
+        Assert.assertArrayEquals(bytes("unmatched"), read(unmatched))
+        Assert.assertTrue(staging.isDirectory)
+    }
+
+    @Test
     fun recoveryDeletesOnlyAbandonedMatchingCandidatesAndLeavesPublishedTargetUntouched() {
         val root = temporaryDirectory("recovery-targets")
         val staging = File(root, ".nanidroid-install-staging").apply { mkdir() }

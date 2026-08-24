@@ -574,7 +574,15 @@ class NarTransactionalInstaller private constructor() {
         private fun recoverOwnedStaging(candidate: File?, transaction: File, staging: File) {
             deleteOwnedTree(candidate)
             deleteOwnedTree(transaction)
-            deleteOwnedTree(staging)
+            deleteEmptyDirectory(staging)
+        }
+
+        private fun deleteEmptyDirectory(directory: File) {
+            try {
+                Files.deleteIfExists(directory.toPath())
+            } catch (_: Exception) {
+                // Unmatched staging entries are preserved for exact recovery.
+            }
         }
 
         private fun deleteOwnedTree(file: File?) {
