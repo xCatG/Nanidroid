@@ -63,6 +63,25 @@ class NarTransactionalInstaller private constructor() {
         private val INSTALL_LOCK = Any()
 
         @JvmStatic
+        internal fun recoverOwnedStaging(installRoot: File?): OwnedStagingRecoveryResult =
+            synchronized(INSTALL_LOCK) {
+                val root = try {
+                    installRoot?.canonicalFile
+                } catch (_: Exception) {
+                    null
+                }
+                    ?: return@synchronized OwnedStagingRecoveryResult.Failed(
+                        "Nanidroid cannot access its ghost storage.",
+                    )
+                OwnedStagingRecovery.reconcile(
+                    root = File(root, STAGING_DIRECTORY),
+                    expectedParent = root,
+                    entryPattern = Regex("^candidate-[0-9a-f]{32}$"),
+                    entryKind = OwnedStagingEntryKind.DIRECTORY_TREE,
+                )
+            }
+
+        @JvmStatic
         fun install(archive: File?, installRoot: File?, forcedId: String?): Result =
             legacy(install(archive, installRoot, forcedId, RealFileOperations, { false }))
 

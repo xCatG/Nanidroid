@@ -9,6 +9,9 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.charset.Charset
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -431,6 +434,69 @@ class NarTransactionalInstallerTest {
         Assert.assertTrue(result is ArchiveInstallResult.Installed)
         Assert.assertArrayEquals(bytes("committed"), read(File(root, "published-id/ghost/master.txt")))
         Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
+    }
+
+    @Test
+    fun recoveryDeletesOnlyAbandonedMatchingCandidatesAndLeavesPublishedTargetUntouched() {
+        val root = temporaryDirectory("recovery-targets")
+        val staging = File(root, ".nanidroid-install-staging").apply { mkdir() }
+        val abandoned = File(staging, "candidate-0123456789abcdef0123456789abcdef").apply { mkdir() }
+        write(File(abandoned, "tree/partial.txt"), bytes("partial"))
+        val unmatched = File(staging, "unmatched-candidate").apply { mkdir() }
+        write(File(unmatched, "keep.txt"), bytes("keep"))
+        val target = File(root, "published-id").apply { mkdir() }
+        write(File(target, "ghost/master.txt"), bytes("published"))
+
+        val result = NarTransactionalInstaller.recoverOwnedStaging(root)
+
+        Assert.assertEquals(OwnedStagingRecoveryResult.Cleaned, result)
+        Assert.assertFalse(abandoned.exists())
+        Assert.assertArrayEquals(bytes("keep"), read(File(unmatched, "keep.txt")))
+        Assert.assertArrayEquals(bytes("published"), read(File(target, "ghost/master.txt")))
+        Assert.assertEquals(OwnedStagingRecoveryResult.Clean, NarTransactionalInstaller.recoverOwnedStaging(root))
+    }
+
+    @Test
+    fun recoveryWaitsForInstallPublicationLockBeforeReconcilingStaging() {
+        val root = temporaryDirectory("recovery-lock")
+        val archive = validGhostZip("serialized-id", "ghost/master.txt", bytes("payload"))
+        val installEntered = CountDownLatch(1)
+        val releaseInstall = CountDownLatch(1)
+        val recoveryReturned = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val install = executor.submit<ArchiveInstallResult> {
+                NarTransactionalInstaller.install(
+                    archive = archive,
+                    installRoot = root,
+                    forcedId = null,
+                    isCancelled = { false },
+                    onProgress = { phase, _ ->
+                        if (phase == "Copying archive") {
+                            installEntered.countDown()
+                            Assert.assertTrue(releaseInstall.await(5, TimeUnit.SECONDS))
+                        }
+                    },
+                )
+            }
+            Assert.assertTrue(installEntered.await(5, TimeUnit.SECONDS))
+            val recovery = executor.submit<OwnedStagingRecoveryResult> {
+                try {
+                    NarTransactionalInstaller.recoverOwnedStaging(root)
+                } finally {
+                    recoveryReturned.countDown()
+                }
+            }
+
+            Assert.assertFalse(recoveryReturned.await(250, TimeUnit.MILLISECONDS))
+            releaseInstall.countDown()
+            Assert.assertTrue(install.get(5, TimeUnit.SECONDS) is ArchiveInstallResult.Installed)
+            Assert.assertTrue(recoveryReturned.await(5, TimeUnit.SECONDS))
+            Assert.assertEquals(OwnedStagingRecoveryResult.Clean, recovery.get(5, TimeUnit.SECONDS))
+        } finally {
+            releaseInstall.countDown()
+            executor.shutdownNow()
+        }
     }
 
     companion object {
