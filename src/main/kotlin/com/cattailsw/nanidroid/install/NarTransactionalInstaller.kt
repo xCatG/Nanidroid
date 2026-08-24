@@ -8,6 +8,9 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.RandomAccessFile
 import java.security.SecureRandom
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -196,7 +199,10 @@ class NarTransactionalInstaller private constructor() {
                         }
                         val plan = validated.plan!!
                         val target = plan.targetDirectory
-                        if (target.exists()) {
+                        val rootEntries = root.listFiles()
+                        if (rootEntries == null) {
+                            result = failure(Error.INSTALL_ROOT_INVALID, "Nanidroid cannot access its ghost storage.")
+                        } else if (hasLogicalTargetName(rootEntries, plan.descriptor.getTargetId())) {
                             result = failure(Error.TARGET_EXISTS, "This ghost is already installed. Remove it before installing a new copy.")
                         } else {
                             candidate = File(transaction, "tree").takeIf { it.mkdir() }
@@ -220,16 +226,10 @@ class NarTransactionalInstaller private constructor() {
                 }
             } finally {
                 if (session != null) closeQuietly(session)
-                if (candidate != null && candidate.exists()) deleteTree(candidate)
-                if (transaction.exists()) deleteTree(transaction)
-                if (staging.exists() && !staging.delete() && resultCleanupNeeded(staging)) {
-                    // Candidate/session cleanup cannot turn a successful publication into a false negative.
-                }
+                recoverOwnedStaging(candidate, transaction, staging)
             }
             return result
         }
-
-        private fun resultCleanupNeeded(staging: File): Boolean = staging.list() != null && staging.list()!!.isNotEmpty()
 
         private fun extractAndPublish(
             session: NarVerifiedInstallSession,
@@ -261,14 +261,35 @@ class NarTransactionalInstaller private constructor() {
             } catch (_: RuntimeException) {
                 return failure(Error.EXTRACTION_FAILED, "The ghost archive could not be extracted safely.")
             }
+            if (!NarGhostDiscoverabilityValidator.validate(candidate)) {
+                return failure(Error.ARCHIVE_REJECTED, "The ghost archive is invalid or exceeds Nanidroid's safety limits.")
+            }
             onProgress("Preparing commit", total[0])
             if (isCancelled()) return ArchiveInstallResult.Cancelled
-            if (target.exists()) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
             onProgress("Publishing archive", total[0])
             if (isCancelled()) return ArchiveInstallResult.Cancelled
-            if (!fileOperations.rename(candidate, target)) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
-            onProgress("Cleaning up", total[0])
-            return success(target, plan.descriptor.getTargetId())
+            val rootEntries = target.parentFile?.listFiles()
+                ?: return failure(Error.INSTALL_ROOT_INVALID, "Nanidroid cannot access its ghost storage.")
+            if (hasLogicalTargetName(rootEntries, plan.descriptor.getTargetId())) {
+                return failure(Error.TARGET_EXISTS, "This ghost is already installed. Remove it before installing a new copy.")
+            }
+            val renamed = try {
+                fileOperations.rename(candidate, target)
+            } catch (_: Exception) {
+                try {
+                    target.isDirectory && !candidate.exists()
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            if (!renamed) return failure(Error.PUBLISH_FAILED, "The ghost files were prepared but could not be published. Please try again.")
+            val installed = success(target, plan.descriptor.getTargetId())
+            try {
+                onProgress("Cleaning up", total[0])
+            } catch (_: Exception) {
+                // Publication is authoritative; exact staging recovery owns residue.
+            }
+            return installed
         }
 
         private fun copyEntry(
@@ -518,14 +539,41 @@ class NarTransactionalInstaller private constructor() {
 
         private enum class CopyEntryOutcome { COMPLETE, CANCELLED, FAILED }
 
-        private fun closeQuietly(value: NarVerifiedInstallSession?) { try { value?.close() } catch (_: Throwable) { } }
+        private fun closeQuietly(value: NarVerifiedInstallSession?) { try { value?.close() } catch (_: Exception) { } }
         private fun closeQuietly(value: InputStream?) { try { value?.close() } catch (_: IOException) { } }
         private fun closeQuietly(value: FileOutputStream?) { try { value?.close() } catch (_: IOException) { } }
-        private fun deleteTree(file: File) { if (file.isDirectory) file.listFiles()?.forEach { deleteTree(it) }; file.delete() }
+        internal fun hasLogicalTargetName(entries: Array<out File>, targetId: String): Boolean =
+            entries.any { it.name.equals(targetId, ignoreCase = true) }
+
+        private fun recoverOwnedStaging(candidate: File?, transaction: File, staging: File) {
+            deleteOwnedTree(candidate)
+            deleteOwnedTree(transaction)
+            deleteOwnedTree(staging)
+        }
+
+        private fun deleteOwnedTree(file: File?) {
+            if (file == null) return
+            try {
+                val path = file.toPath()
+                val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+                if (attributes.isDirectory) {
+                    Files.newDirectoryStream(path).use { children ->
+                        children.forEach { deleteOwnedTree(it.toFile()) }
+                    }
+                }
+                Files.deleteIfExists(path)
+            } catch (_: Exception) {
+                // Exact staging recovery owns any leftover transaction residue.
+            }
+        }
 
         private object RealFileOperations : FileOperations {
             override fun openOutput(file: File): FileOutputStream = FileOutputStream(file)
-            override fun rename(source: File, destination: File): Boolean = source.renameTo(destination)
+            override fun rename(source: File, destination: File): Boolean = try {
+                source.renameTo(destination)
+            } catch (_: SecurityException) {
+                false
+            }
         }
 
     }

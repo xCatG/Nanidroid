@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid.install
 
+import com.cattailsw.nanidroid.HostAndroidStubRule
 import org.junit.Assert
+import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import java.io.FileInputStream
@@ -12,19 +14,88 @@ import java.util.zip.ZipOutputStream
 
 /** End-to-end contract for the fresh-install-only NAR transaction.  */
 class NarTransactionalInstallerTest {
+    @Rule @JvmField
+    val androidStubs = HostAndroidStubRule()
+
+    @Test
+    fun logicalTargetNamesUseGhostMgrCaseFolding() {
+        val root = temporaryDirectory("logical-target")
+        val first = File(root, "Foo").apply { mkdir() }
+
+        Assert.assertTrue(NarTransactionalInstaller.hasLogicalTargetName(arrayOf(first), "foo"))
+    }
+
+    @Test
+    fun missingDiscoveryDescriptorNeverPublishes() {
+        val root = temporaryDirectory("undiscoverable")
+        val archive = zip(
+            "install.txt", descriptor("ghost-id"),
+            "ghost/master/file.txt", bytes("payload"),
+        )
+
+        val result = NarTransactionalInstaller.install(archive, root, null, { false })
+
+        Assert.assertTrue(result is ArchiveInstallResult.Failed)
+        Assert.assertEquals(ArchiveInstallFailure.InvalidArchive, (result as ArchiveInstallResult.Failed).failure)
+        Assert.assertFalse(File(root, "ghost-id").exists())
+    }
+
+    @Test
+    fun caseVariantTargetConflictPreservesFirstTree() {
+        val root = temporaryDirectory("case-variant-conflict")
+        val first = validGhostZip("Foo", "ghost/master/file.txt", bytes("first"))
+        val second = validGhostZip("foo", "ghost/master/file.txt", bytes("second"))
+
+        Assert.assertTrue(NarTransactionalInstaller.install(first, root, null).isSuccess)
+        val original = inventory(File(root, "Foo"))
+
+        val result = NarTransactionalInstaller.install(second, root, null)
+
+        Assert.assertEquals(NarTransactionalInstaller.Error.TARGET_EXISTS, result.error)
+        Assert.assertEquals(original.keys, inventory(File(root, "Foo")).keys)
+        original.forEach { (path, bytes) ->
+            Assert.assertArrayEquals(bytes, inventory(File(root, "Foo")).getValue(path))
+        }
+        Assert.assertFalse(File(root, "foo").exists() && File(root, "foo").canonicalFile != File(root, "Foo").canonicalFile)
+    }
+
+    @Test
+    fun postRenameExceptionsStillReportInstalled() {
+        val root = temporaryDirectory("rename-after-move")
+        val archive = validGhostZip("rename-id", "ghost/master/file.txt", bytes("payload"))
+        val fileOperations = object : NarTransactionalInstaller.FileOperations {
+            override fun openOutput(file: File) = FileOutputStream(file)
+            override fun rename(source: File, destination: File): Boolean {
+                source.renameTo(destination)
+                throw IOException("rename completed before error")
+            }
+        }
+
+        val result = NarTransactionalInstaller.install(
+            archive, root, null, fileOperations, { false },
+        ) { phase, _ ->
+            if (phase == "Cleaning up") throw IllegalStateException("progress observer failed")
+        }
+
+        Assert.assertTrue(result is ArchiveInstallResult.Installed)
+        Assert.assertEquals("rename-id", (result as ArchiveInstallResult.Installed).targetId)
+        Assert.assertTrue(File(root, "rename-id").isDirectory)
+    }
+
     @Test
     @Throws(Exception::class)
     fun installsValidatedArchiveAsOneNewGhostDirectory() {
         val root = temporaryDirectory("transaction-root")
         val archive = zip(
             "bundle/install.txt", descriptor("ignored"),
+            "bundle/ghost/master/descript.txt", bytes("charset,UTF-8\nname,Test Ghost\nsakura.name,Sakura\n"),
             "bundle/ghost/master.txt", bytes("hello"),
             "bundle/shell/master.txt", bytes("world")
         )
 
         val result = NarTransactionalInstaller.install(archive, root, "forced-id")
 
-        Assert.assertTrue(result.isSuccess)
+        Assert.assertTrue("${result.error}: ${result.message}", result.isSuccess)
         Assert.assertEquals("forced-id", result.targetId)
         Assert.assertEquals(
             File(root, "forced-id").canonicalFile,
@@ -45,6 +116,7 @@ class NarTransactionalInstallerTest {
         val root = temporaryDirectory("transaction-nested-descriptor")
         val archive = zip(
             "bundle/install.txt", descriptor("forced-id"),
+            "bundle/ghost/master/descript.txt", bytes("charset,UTF-8\nname,Test Ghost\nsakura.name,Sakura\n"),
             "bundle/ghost/master.txt", bytes("hello"),
             "bundle/shell/install.txt", bytes("type,shell\nname,Nested Shell\ndirectory,ignored\n"),
             "bundle/balloon/install.txt", bytes("type,balloon\nname,Nested Balloon\ndirectory,ignored\n"),
@@ -117,10 +189,7 @@ class NarTransactionalInstallerTest {
         Assert.assertFalse(File(root, "retry-id").exists())
         Assert.assertFalse(File(root, ".nanidroid-install-staging").exists())
 
-        val retry = zip(
-            "install.txt", descriptor("retry-id"),
-            "ghost/master.txt", bytes("recovered")
-        )
+        val retry = validGhostZip("retry-id", "ghost/master.txt", bytes("recovered"))
         val installed = NarTransactionalInstaller.install(retry, root, null)
 
         Assert.assertTrue(installed.isSuccess)
@@ -135,10 +204,7 @@ class NarTransactionalInstallerTest {
     @Throws(Exception::class)
     fun insufficientSpaceDuringExtractionLeavesNoPartialStateAndRetrySucceeds() {
         val root = temporaryDirectory("transaction-no-space")
-        val archive = zip(
-            "install.txt", descriptor("space-id"),
-            "ghost/master.txt", bytes("payload")
-        )
+        val archive = validGhostZip("space-id", "ghost/master.txt", bytes("payload"))
 
         val failed = NarTransactionalInstaller.install(
             archive, root, null, failingOutput("no space left on device")
@@ -154,10 +220,7 @@ class NarTransactionalInstallerTest {
     @Throws(Exception::class)
     fun extractionIoFailureLeavesNoPartialStateAndRetrySucceeds() {
         val root = temporaryDirectory("transaction-io")
-        val archive = zip(
-            "install.txt", descriptor("io-id"),
-            "ghost/master.txt", bytes("payload")
-        )
+        val archive = validGhostZip("io-id", "ghost/master.txt", bytes("payload"))
 
         val failed = NarTransactionalInstaller.install(
             archive, root, null, failingOutput("simulated write failure")
@@ -173,10 +236,7 @@ class NarTransactionalInstallerTest {
     @Throws(Exception::class)
     fun publishFailureLeavesNoPartialStateAndRetrySucceeds() {
         val root = temporaryDirectory("transaction-publish")
-        val archive = zip(
-            "install.txt", descriptor("publish-id"),
-            "ghost/master.txt", bytes("payload")
-        )
+        val archive = validGhostZip("publish-id", "ghost/master.txt", bytes("payload"))
 
         val failed = NarTransactionalInstaller.install(
             archive, root, null, refusingPublish()
@@ -206,10 +266,7 @@ class NarTransactionalInstallerTest {
     @Throws(Exception::class)
     fun cancellationDuringExtractionDeletesPartialTransactionWithoutPublishing() {
         val root = temporaryDirectory("transaction-cancelled")
-        val archive = zip(
-            "install.txt", descriptor("cancel-id"),
-            "ghost/master.txt", ByteArray(16 * 1024) { 1 },
-        )
+        val archive = validGhostZip("cancel-id", "ghost/master.txt", ByteArray(16 * 1024) { 1 })
         var bytesWritten = false
         val result = NarTransactionalInstaller.install(
             archive = archive,
@@ -227,10 +284,7 @@ class NarTransactionalInstallerTest {
     @Test
     fun installReportsPhaseBoundariesAndRealByteProgress() {
         val root = temporaryDirectory("transaction-progress")
-        val archive = zip(
-            "install.txt", descriptor("progress-id"),
-            "ghost/master.txt", ByteArray(20 * 1024) { 7 },
-        )
+        val archive = validGhostZip("progress-id", "ghost/master.txt", ByteArray(20 * 1024) { 7 })
         val progress = mutableListOf<Pair<String, Long>>()
 
         val result = NarTransactionalInstaller.install(
@@ -265,10 +319,7 @@ class NarTransactionalInstallerTest {
         ).forEach { cancelledPhase ->
             val root = temporaryDirectory("transaction-boundary")
             val targetId = "cancel-${cancelledPhase.hashCode()}"
-            val archive = zip(
-                "install.txt", descriptor(targetId),
-                "ghost/master.txt", bytes("payload"),
-            )
+            val archive = validGhostZip(targetId, "ghost/master.txt", bytes("payload"))
             var stopRequested = false
 
             val result = NarTransactionalInstaller.install(
@@ -342,10 +393,7 @@ class NarTransactionalInstallerTest {
         Assert.assertTrue(installedGhost.mkdir())
         write(File(installedGhost, "ghost/master.txt"), bytes("previous live tree"))
         val previousTree = read(File(installedGhost, "ghost/master.txt"))
-        val archive = zip(
-            "install.txt", descriptor("candidate-ghost"),
-            "ghost/master.txt", ByteArray(20 * 1024) { 3 },
-        )
+        val archive = validGhostZip("candidate-ghost", "ghost/master.txt", ByteArray(20 * 1024) { 3 })
         var stopRequested = false
 
         val result = NarTransactionalInstaller.install(
@@ -367,10 +415,7 @@ class NarTransactionalInstallerTest {
     @Test
     fun cancellationRequestedAfterPublishPreservesCommittedGhostAndFinishesCleanup() {
         val root = temporaryDirectory("transaction-post-commit")
-        val archive = zip(
-            "install.txt", descriptor("published-id"),
-            "ghost/master.txt", bytes("committed"),
-        )
+        val archive = validGhostZip("published-id", "ghost/master.txt", bytes("committed"))
         var stopRequested = false
 
         val result = NarTransactionalInstaller.install(
@@ -390,6 +435,12 @@ class NarTransactionalInstallerTest {
 
     companion object {
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
+
+        private fun validGhostZip(targetId: String, vararg values: Any): File = zip(
+            "install.txt", descriptor(targetId),
+            "ghost/master/descript.txt", bytes("charset,UTF-8\nname,Test Ghost\nsakura.name,Sakura\n"),
+            *values,
+        )
 
         @Throws(IOException::class)
         private fun temporaryDirectory(label: String): File {
@@ -492,6 +543,12 @@ class NarTransactionalInstallerTest {
                     offset += count
                 }
                 return content
+            }
+        }
+
+        private fun inventory(root: File): Map<String, ByteArray> = buildMap {
+            root.walkTopDown().filter { it.isFile }.forEach { file ->
+                put(file.relativeTo(root).invariantSeparatorsPath, read(file))
             }
         }
     }
