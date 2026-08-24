@@ -8,6 +8,9 @@ import androidx.test.core.app.ActivityScenario.ActivityAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import com.cattailsw.nanidroid.install.ArchiveInstallResult
 import com.cattailsw.nanidroid.install.ForegroundNarImportBackend
 import com.cattailsw.nanidroid.install.ForegroundNarImportCoordinator
@@ -112,6 +115,8 @@ class NanidroidLifecycleInstrumentationTest {
         val replacementConstructed = CountDownLatch(1)
         val allowReplacementReady = CountDownLatch(1)
         val replacementManager = AtomicReference<GhostMgr?>()
+        val replacementRefreshed = CountDownLatch(1)
+        val refreshedToken = AtomicReference<NarImportAttemptToken?>()
         val refreshCount = AtomicInteger(0)
         Nanidroid.replaceLifecycleTestHooksForTesting(
             NanidroidLifecycleTestHooks(
@@ -122,8 +127,12 @@ class NanidroidLifecycleInstrumentationTest {
                         check(allowReplacementReady.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
                     }
                 },
-                onForegroundNarRefresh = { manager, _ ->
-                    if (manager === replacementManager.get()) refreshCount.incrementAndGet()
+                onForegroundNarRefresh = { manager, token ->
+                    if (manager === replacementManager.get()) {
+                        refreshedToken.set(token)
+                        refreshCount.incrementAndGet()
+                        replacementRefreshed.countDown()
+                    }
                 },
             ),
         )
@@ -151,7 +160,12 @@ class NanidroidLifecycleInstrumentationTest {
                 Assert.assertEquals(0, refreshCount.get())
 
                 allowReplacementReady.countDown()
-                awaitInstalledReady(scenario, token)
+                Assert.assertTrue(
+                    "Installed publication never crossed replacement GhostMgr readiness",
+                    replacementRefreshed.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+                )
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                Assert.assertEquals(token, refreshedToken.get())
                 Assert.assertEquals(1, refreshCount.get())
                 Assert.assertSame(currentGhost, awaitActiveRuntime(scenario).ghost)
 
@@ -163,8 +177,20 @@ class NanidroidLifecycleInstrumentationTest {
                     coordinator.state.value,
                 )
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                Assert.assertTrue(
+                    "Installed primary did not replay its success presentation after cleanup",
+                    UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).wait(
+                        Until.hasObject(
+                            By.text(
+                                InstrumentationRegistry.getInstrumentation().targetContext.getString(
+                                    R.string.nar_import_installed_title,
+                                ),
+                            ),
+                        ),
+                        PRESENTATION_TIMEOUT_MILLIS,
+                    ),
+                )
                 scenario.onActivity { activity ->
-                    Assert.assertEquals(token, nullablePrivateField(activity, "installedReadyToken"))
                     Assert.assertSame(currentGhost, privateField(activity, "currentGhost"))
                 }
                 Assert.assertEquals(
@@ -268,22 +294,6 @@ class NanidroidLifecycleInstrumentationTest {
         throw AssertionError("Nanidroid did not finish runtime initialization")
     }
 
-    private fun awaitInstalledReady(
-        scenario: ActivityScenario<Nanidroid>,
-        token: NarImportAttemptToken,
-    ) {
-        val deadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
-        while (SystemClock.uptimeMillis() < deadline) {
-            var ready = false
-            scenario.onActivity { activity ->
-                ready = nullablePrivateField(activity, "installedReadyToken") == token
-            }
-            if (ready) return
-            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
-        }
-        throw AssertionError("Installed publication never crossed GhostMgr readiness")
-    }
-
     private fun returnCoordinatorToIdle(
         coordinator: ForegroundNarImportCoordinator,
         dispatcher: QueuedDispatcher,
@@ -335,6 +345,7 @@ class NanidroidLifecycleInstrumentationTest {
 
     private companion object {
         const val RUNNER_STATE_POLL_MILLIS = 20L
+        const val PRESENTATION_TIMEOUT_MILLIS = 5_000L
         const val ACTIVITY_INIT_TIMEOUT_MILLIS = 30_000L
     }
 
