@@ -3,14 +3,10 @@
   xmlns:tools="http://schemas.android.com/tools"
   android:versionCode="6"
   android:versionName="open_0.1">
-  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-  <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission
     android:name="android.permission.FOREGROUND_SERVICE"
     tools:node="remove" />
-  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-	    
+
   <application android:label="@string/app_name" 
     android:icon="@mipmap/ic_launcher"
     android:name="CatTailApplication"
@@ -32,35 +28,9 @@
       android:exported="true"
       android:theme="@style/NanidroidTheme">
       <intent-filter>
-	<action android:name="android.intent.action.MAIN" />
-	<category android:name="android.intent.category.LAUNCHER" />
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
-      <intent-filter>
-        <action android:name="android.intent.action.VIEW" />
-        <category android:name="android.intent.category.DEFAULT" />
-        <data android:scheme="content" android:mimeType="application/zip" />
-        <data android:scheme="content" android:mimeType="application/x-nar" />
-      </intent-filter>
-
     </activity>
-    <receiver
-      android:name=".install.NarDownloadReceiver"
-      android:exported="false">
-      <intent-filter>
-        <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
-      </intent-filter>
-    </receiver>
-    <receiver
-      android:name=".install.NarDownloadRecoveryReceiver"
-      android:exported="false">
-      <intent-filter>
-        <action android:name="android.intent.action.BOOT_COMPLETED" />
-        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-      </intent-filter>
-    </receiver>
-    <receiver
-      android:name=".durable.DurableOperationAttentionReceiver"
-      android:exported="false" />
   </application>
-  
 </manifest>

@@ -49,7 +49,7 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
         lint_module = ET.parse(LINT_MODULE).getroot()
         self.assertEqual("android-37.0", lint_module.get("compileTarget"))
 
-    def test_activity_is_exported_single_top_with_only_content_archive_filters(self) -> None:
+    def test_activity_is_exported_single_top_with_only_the_launcher_filter(self) -> None:
         activity = next(
             item
             for item in self.application.findall("activity")
@@ -66,21 +66,20 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
                 for action in intent_filter.findall("action")
             )
         ]
-        self.assertEqual(1, len(view_filters))
-        data = {
-            (
-                item.get(f"{ANDROID}scheme"),
-                item.get(f"{ANDROID}mimeType"),
+        self.assertEqual([], view_filters)
+        launcher_filters = [
+            intent_filter
+            for intent_filter in activity.findall("intent-filter")
+            if any(
+                action.get(f"{ANDROID}name") == "android.intent.action.MAIN"
+                for action in intent_filter.findall("action")
             )
-            for item in view_filters[0].findall("data")
-        }
-        self.assertEqual(
-            {
-                ("content", "application/zip"),
-                ("content", "application/x-nar"),
-            },
-            data,
-        )
+            and any(
+                category.get(f"{ANDROID}name") == "android.intent.category.LAUNCHER"
+                for category in intent_filter.findall("category")
+            )
+        ]
+        self.assertEqual(1, len(launcher_filters))
 
     def test_removed_service_and_foreground_permissions_are_absent(self) -> None:
         permissions = {
@@ -99,17 +98,18 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
             service_names,
         )
 
-    def test_archive_components_and_permissions_remain_narrow(self) -> None:
+    def test_only_dependency_archive_permissions_and_receivers_remain(self) -> None:
         permissions = {
             item.get(f"{ANDROID}name")
             for item in self.manifest.findall("uses-permission")
         }
+        self.assertNotIn("android.permission.INTERNET", permissions)
+        self.assertNotIn("android.permission.POST_NOTIFICATIONS", permissions)
         self.assertTrue(
             {
                 "android.permission.ACCESS_NETWORK_STATE",
-                "android.permission.INTERNET",
-                "android.permission.POST_NOTIFICATIONS",
                 "android.permission.RECEIVE_BOOT_COMPLETED",
+                "android.permission.WAKE_LOCK",
             }.issubset(permissions)
         )
         self.assertTrue(
@@ -126,12 +126,35 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
             for item in self.application.findall("receiver")
         }
         self.assertTrue(
+            receiver_names.isdisjoint(
+                {
+                    "com.cattailsw.nanidroid.install.NarDownloadReceiver",
+                    "com.cattailsw.nanidroid.install.NarDownloadRecoveryReceiver",
+                    "com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver",
+                }
+            )
+        )
+        self.assertTrue(
             {
-                "com.cattailsw.nanidroid.install.NarDownloadReceiver",
-                "com.cattailsw.nanidroid.install.NarDownloadRecoveryReceiver",
-                "com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver",
+                "androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver",
+                "androidx.work.impl.background.systemalarm.RescheduleReceiver",
+                "androidx.work.impl.diagnostics.DiagnosticsReceiver",
+                "androidx.profileinstaller.ProfileInstallReceiver",
             }.issubset(receiver_names)
         )
+
+    def test_workmanager_initializer_remains_suppressed(self) -> None:
+        provider = next(
+            item
+            for item in self.application.findall("provider")
+            if item.get(f"{ANDROID}name")
+            == "androidx.startup.InitializationProvider"
+        )
+        initializer_names = {
+            item.get(f"{ANDROID}name")
+            for item in provider.findall("meta-data")
+        }
+        self.assertNotIn("androidx.work.WorkManagerInitializer", initializer_names)
 
 
 if __name__ == "__main__":

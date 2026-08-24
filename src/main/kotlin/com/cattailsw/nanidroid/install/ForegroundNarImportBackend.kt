@@ -1,7 +1,7 @@
 package com.cattailsw.nanidroid.install
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import java.io.File
 import java.io.InputStream
 
@@ -16,7 +16,15 @@ internal class AndroidForegroundNarImportBackend internal constructor(
         forcedId: String?,
         isCancelled: () -> Boolean,
         onProgress: (String, Long) -> Unit,
-    ) -> ArchiveInstallResult = NarTransactionalInstaller::install,
+    ) -> ArchiveInstallResult = { archive, installRoot, forcedId, isCancelled, onProgress ->
+        NarTransactionalInstaller.install(
+            archive,
+            installRoot,
+            forcedId,
+            isCancelled,
+            onProgress,
+        )
+    },
     private val recoverImportStaging: (File) -> OwnedStagingRecoveryResult = ::recoverImportRoot,
     private val recoverInstallerStaging: (File) -> OwnedStagingRecoveryResult =
         NarTransactionalInstaller::recoverOwnedStaging,
@@ -70,7 +78,7 @@ internal class AndroidForegroundNarImportBackend internal constructor(
                     applicationContext.getExternalFilesDir(null)?.let { File(it, "ghost") }
                 },
                 openContent = { uri ->
-                    applicationContext.contentResolver.openInputStream(Uri.parse(uri))
+                    applicationContext.contentResolver.openInputStream(uri.toUri())
                 },
             )
         }
