@@ -172,7 +172,6 @@ class ForegroundNarPickerOwnershipTest {
         val launched = armAndLaunchNarDocumentPicker(
             coordinator = coordinator,
             ownerTaskId = 42,
-            isOwnerTaskAlive = { true },
             currentOwner = { owner },
             setOwner = { owner = it },
             launch = { throw IllegalStateException("registry unavailable") },
@@ -187,7 +186,7 @@ class ForegroundNarPickerOwnershipTest {
     }
 
     @Test
-    fun explicitOwnerlessLaunchReclaimsAnUnrestoredSelectionFromARemovedTask() {
+    fun ownerlessLaunchCannotInferThatADifferentTaskWasRemoved() {
         val stale = NarImportAttemptToken("live-process", 4, 41)
         val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(stale))
         var owner: NarImportAttemptToken? = null
@@ -196,20 +195,16 @@ class ForegroundNarPickerOwnershipTest {
         val launched = armAndLaunchNarDocumentPicker(
             coordinator = coordinator,
             ownerTaskId = 42,
-            isOwnerTaskAlive = { false },
             currentOwner = { owner },
             setOwner = { owner = it },
             launch = { launchCalls += 1 },
             failureMessage = "The document picker is unavailable.",
         )
 
-        assertTrue(launched)
-        assertEquals(1, launchCalls)
-        val replacement = requireNotNull(owner)
-        assertEquals("live-process", replacement.processNonce)
-        assertTrue(replacement.sequence > stale.sequence)
-        assertEquals(42, replacement.ownerTaskId)
-        assertEquals(ForegroundNarImportState.AwaitingSelection(replacement), coordinator.state.value)
+        assertFalse(launched)
+        assertEquals(0, launchCalls)
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(stale), coordinator.state.value)
     }
 
     @Test
@@ -222,7 +217,6 @@ class ForegroundNarPickerOwnershipTest {
         val launched = armAndLaunchNarDocumentPicker(
             coordinator = coordinator,
             ownerTaskId = 42,
-            isOwnerTaskAlive = { throw AssertionError("same-task reclaim must not query task liveness") },
             currentOwner = { owner },
             setOwner = { owner = it },
             launch = { launchCalls += 1 },
@@ -244,7 +238,6 @@ class ForegroundNarPickerOwnershipTest {
         val launched = armAndLaunchNarDocumentPicker(
             coordinator = coordinator,
             ownerTaskId = 42,
-            isOwnerTaskAlive = { true },
             currentOwner = { owner },
             setOwner = { owner = it },
             launch = { launchCalls += 1 },
@@ -267,7 +260,6 @@ class ForegroundNarPickerOwnershipTest {
         val launched = armAndLaunchNarDocumentPicker(
             coordinator = coordinator,
             ownerTaskId = 42,
-            isOwnerTaskAlive = { true },
             currentOwner = { owner },
             setOwner = { owner = it },
             launch = { launchCalls += 1 },

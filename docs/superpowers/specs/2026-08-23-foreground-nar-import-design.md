@@ -129,9 +129,10 @@ configuration destruction preserves the token for registry restoration. If a
 preserved owner is never restored because its task state is later discarded,
 an ownerless Activity leaves it untouched during creation but may atomically
 supersede it when the user explicitly starts a new picker journey only if the
-attempt belongs to the same Android task or the prior owning task no longer
-appears in the app's task list. A different live task remains protected. Task
-lookup failure is conservative and preserves the existing attempt.
+attempt belongs to the same Android task. A different task remains protected;
+absence from an app-scoped task enumeration is not proof that an exported
+Activity's foreign-rooted task disappeared. Final task destruction releases
+the exact owner token, while process death resets the coordinator.
 
 The Activity presents coordinator state and owns the Activity-local `GhostMgr`
 refresh. A success presentation must wait for the replacement Activity's
@@ -190,7 +191,7 @@ The concrete states are:
   Only its one matching callback can consume the state; cancellation returns to
   `Idle`. Activity creation never mutates another registry owner's attempt. An
   explicit picker action may replace an ownerless attempt only within the same
-  Android task or after the prior owning task has disappeared.
+  Android task.
 - `Copying`: the selected URI is being copied into the dedicated import root.
 - `Installing`: the retained installer is validating, extracting, and
   publishing.
@@ -412,7 +413,7 @@ Implementation follows test-driven development at each boundary.
 - a concurrent Activity without restored registry ownership cannot abandon a
   live in-process `AwaitingSelection`, while a matching recreated owner retains
   it, final owner destruction releases it, and an explicit ownerless launch can
-  reclaim a preserved owner only from the same task or a removed task;
+  reclaim a preserved owner only from the same task;
 - one valid URI produces the exact `Copying` → `Installing` → `Installed`
   token sequence;
 - duplicate and concurrent submissions create one copy and one install;
@@ -459,8 +460,8 @@ Implementation follows test-driven development at each boundary.
 - same-process registry delivery consumes the armed picker token once, while
   new-process registry replay is rejected without opening the returned URI;
 - closing the task while the picker owns the registry and relaunching in the
-  same process permits explicit replacement of the orphaned token, while a
-  different live task cannot steal it;
+  same process releases the exact owner token, while same-task state loss can be
+  explicitly recovered and a different task cannot steal it;
 - the guard is checked before launch and again when the URI returns;
 - recreation does not relaunch the picker or duplicate import work;
 - publication while the replacement `GhostMgr` is still initializing becomes

@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid
 
-import android.app.ActivityManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -181,7 +180,6 @@ internal fun abandonNarPickerOwnerOnFinalDestroy(
 internal fun armAndLaunchNarDocumentPicker(
     coordinator: ForegroundNarImportCoordinator,
     ownerTaskId: Int,
-    isOwnerTaskAlive: (Int) -> Boolean,
     currentOwner: () -> NarImportAttemptToken?,
     setOwner: (NarImportAttemptToken?) -> Unit,
     launch: () -> Unit,
@@ -190,7 +188,6 @@ internal fun armAndLaunchNarDocumentPicker(
     val token = claimNarPickerAttempt(
         coordinator = coordinator,
         ownerTaskId = ownerTaskId,
-        isOwnerTaskAlive = isOwnerTaskAlive,
         currentOwner = currentOwner(),
     ) ?: return false
     setOwner(token)
@@ -207,18 +204,12 @@ internal fun armAndLaunchNarDocumentPicker(
 private fun claimNarPickerAttempt(
     coordinator: ForegroundNarImportCoordinator,
     ownerTaskId: Int,
-    isOwnerTaskAlive: (Int) -> Boolean,
     currentOwner: NarImportAttemptToken?,
 ): NarImportAttemptToken? {
     coordinator.armPicker(ownerTaskId)?.let { return it }
     val awaiting = coordinator.state.value as? ForegroundNarImportState.AwaitingSelection ?: return null
     if (currentOwner == awaiting.token) return null
-    val awaitingTaskId = awaiting.token.ownerTaskId
-    if (awaitingTaskId != ownerTaskId &&
-        (awaitingTaskId < 0 || isOwnerTaskAlive(awaitingTaskId))
-    ) {
-        return null
-    }
+    if (awaiting.token.ownerTaskId != ownerTaskId) return null
     coordinator.abandonPicker(awaiting.token)
     return coordinator.armPicker(ownerTaskId)
 }
@@ -688,19 +679,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         armAndLaunchNarDocumentPicker(
             coordinator = foregroundNarImport,
             ownerTaskId = taskId,
-            isOwnerTaskAlive = ::isNarPickerOwnerTaskAlive,
             currentOwner = { narPickerOwnerToken },
             setOwner = { narPickerOwnerToken = it },
             launch = { narDocumentPicker.launch(arrayOf("*/*")) },
             failureMessage = "Nanidroid could not open the document picker.",
         )
     }
-
-    private fun isNarPickerOwnerTaskAlive(ownerTaskId: Int): Boolean = runCatching {
-        getSystemService(ActivityManager::class.java).appTasks.any { appTask ->
-            appTask.taskInfo?.taskId == ownerTaskId
-        }
-    }.getOrDefault(true)
 
     fun onMoreGhost() = getMoreGhost()
     private fun showGhostListDlg() {
