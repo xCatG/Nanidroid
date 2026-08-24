@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="dl_complete">下載完成</string>
-  <string name="dl_note">可以安裝%1$s</string>
   <string name="list_ghost_btn_text">偽人格列表</string>
   <string name="more_ghosts_btn_text">取得更多偽人格</string>
   <string name="list_ghost_dlg_title">已安裝偽人格列表</string>
@@ -11,25 +10,12 @@
   <string name="new_ghost_installed_title">安裝了新的偽人格</string>
   <string name="close_btn_text">關閉</string>
   <string name="more_g_title">取得更多偽人格</string>
-  <string name="more_g_enter_url_text">輸入網址</string>
-  <string name="more_g_from_SD_text">從SD卡安裝</string>
-  <string name="err_invalid_url">無效的URL。 URL必須以 .nar 或 .zip 結束</string>
-  <string name="err_https_nar_only">為了安全起見，Nanidroid 只能下載 HTTPS 的 .nar 或 .zip 連結。</string>
-  <string name="err_nar_title">從SD卡安裝錯誤</string>
-  <string name="err_no_nar_folder">SD卡上沒有找到名為nar的資料夾</string>
-  <string name="err_no_nar_file">沒有發現.nar檔案</string>
-  <string name="dlg_sel_nar_title">選擇一個檔案來安裝</string>
-  <string name="dlg_sel_nar_install_text">安裝</string>
-  <string name="btn_dl_text">下載</string>
 
   <string name="ghosts_btn_text">偽人格列表</string>
   <string name="more_btn_text">更多</string>
   <string name="readme_menu_text">Readme</string>
   <string name="current_ghost_no_readme_title">沒有 Readme</string>
   <string name="current_ghost_no_readme_message">目前偽人格沒有可顯示的說明文件。</string>
-  <string name="archive_queue_btn_text">下載</string>
-  <string name="archive_queue_status_text">下載 (%1$d)</string>
-  <string name="archive_queue_btn_text_with_count">共 %1$d 個下載</string>
 
   <string name="user_input_dlg_title">輸入</string>
   <string name="user_input_required">必須輸入內容</string>
@@ -74,4 +60,18 @@
   <string name="durable_store_recovery_message">Nanidroid 無法讀取已儲存的下載與安裝狀態。新的操作已暫停。已交由 Android 執行的工作可能仍在進行。請捨棄無法讀取的記錄以繼續。Nanidroid 不會自動停止工作。</string>
   <string name="durable_store_recovery_confirm">捨棄無法讀取的記錄並繼續</string>
   <string name="durable_store_recovery_failed">Nanidroid 無法完成復原。操作仍維持暫停，請再試一次。</string>
+  <string name="nar_import_from_document">從文件安裝</string>
+  <string name="nar_import_copying">正在複製選取的封存檔…</string>
+  <string name="nar_import_installing">正在安裝選取的偽人格…</string>
+  <string name="nar_import_cleaning">正在清理私人暫存區…</string>
+  <string name="nar_import_refreshing">正在更新已安裝的偽人格列表…</string>
+  <string name="nar_import_installed_title">已安裝偽人格</string>
+  <string name="nar_import_installed_message">偽人格已安裝，現在可從偽人格列表中選取。</string>
+  <string name="nar_import_failed_title">無法安裝偽人格</string>
+  <string name="nar_import_interrupted_title">匯入已中斷</string>
+  <string name="nar_import_interrupted_message">上一次匯入已中斷。已安裝的偽人格會保留；如果列表中沒有新的偽人格，請重新選擇封存檔。</string>
+  <string name="nar_import_recovery_title">匯入清理需要處理</string>
+  <string name="nar_import_retry_cleanup">重試清理</string>
+  <string name="nar_import_select_another">選擇另一個文件</string>
+  <string name="nar_import_recovery_installed_message">偽人格仍會保持已安裝狀態。只會重試私人暫存區的清理。</string>
 </resources>

@@ -12,6 +12,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
@@ -23,18 +24,19 @@ class DurableOperationAttentionInstrumentationTest {
         SharedDurableOperationSupervisor.resetForTesting()
     }
 
-    @Test fun receiverIsPrivateAndNotificationPermissionIsDeclared() {
-        val receiver = context.packageManager.getReceiverInfo(
-            ComponentName(context, DurableOperationAttentionReceiver::class.java),
-            0,
-        )
-        assertFalse(receiver.exported)
+    @Test fun receiverAndNotificationPermissionAreAbsentFromInstalledPackage() {
+        assertThrows(PackageManager.NameNotFoundException::class.java) {
+            context.packageManager.getReceiverInfo(
+                ComponentName(context, DurableOperationAttentionReceiver::class.java),
+                0,
+            )
+        }
 
         val requested = context.packageManager.getPackageInfo(
             context.packageName,
             PackageManager.GET_PERMISSIONS,
         ).requestedPermissions.orEmpty().toSet()
-        assertTrue(Manifest.permission.POST_NOTIFICATIONS in requested)
+        assertFalse(Manifest.permission.POST_NOTIFICATIONS in requested)
     }
 
     @Test fun immutableActionPendingIntentsHaveExactHandleAndActionIdentity() {

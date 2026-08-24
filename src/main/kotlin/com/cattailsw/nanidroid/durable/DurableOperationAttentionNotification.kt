@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.durable
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -186,6 +187,8 @@ internal class AndroidDurableAttentionNotifier(
         )
     }
 
+    // App entry points and POST_NOTIFICATIONS retire before this compiled backend does in the next PR.
+    @SuppressLint("NotificationPermission")
     override fun reconcile(stalled: List<DurableOperationRecord>) {
         val desiredTags = stalled.mapTo(mutableSetOf(), ::notificationTag)
         runCatching {

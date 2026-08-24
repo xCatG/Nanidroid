@@ -1,27 +1,20 @@
 package com.cattailsw.nanidroid
 
-import android.Manifest
-import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.compose.setContent
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -35,14 +28,11 @@ import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
 import com.cattailsw.nanidroid.compose.PlainTextDocument
 import com.cattailsw.nanidroid.compose.SurfaceInteractionPort
 import com.cattailsw.nanidroid.util.PrefUtil
-import com.cattailsw.nanidroid.install.NarContentUriImport
-import com.cattailsw.nanidroid.install.NarDownloadRepository
-import com.cattailsw.nanidroid.install.NarLiveGrantHandoff
-import com.cattailsw.nanidroid.install.NarDownloadState
-import com.cattailsw.nanidroid.install.NarUserEnqueueResult
-import com.cattailsw.nanidroid.install.StageLocalNarWorker
-import com.cattailsw.nanidroid.durable.DurableAttentionNotificationPolicy
-import com.cattailsw.nanidroid.durable.SharedDurableOperationSupervisor
+import com.cattailsw.nanidroid.install.ForegroundNarImportCoordinator
+import com.cattailsw.nanidroid.install.ForegroundNarImportState
+import com.cattailsw.nanidroid.install.NarDocumentSelection
+import com.cattailsw.nanidroid.install.NarImportAttemptToken
+import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
 import com.cattailsw.nanidroid.runtime.dialogue.ActionOrigin
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
@@ -53,8 +43,8 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
-import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,15 +86,6 @@ internal fun tryLaunchDocumentExternalUrl(value: String, launch: (String) -> Uni
         else -> false
     }
     return isAllowed && tryLaunchDialogueExternalUri { launch(value) }
-}
-
-internal fun allowsArchiveIntentIngress(
-    activityRunner: SScriptRunner?,
-    retainedRunner: () -> SScriptRunner,
-): Boolean {
-    val activeRunner = activityRunner ?: retainedRunner()
-    return GhostActionGuard(activeRunner.runtimeModeSnapshot())
-        .allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER)
 }
 
 internal fun <T : Any> routeGhostSwitchResult(
@@ -160,8 +141,68 @@ internal fun Bundle.writeTransientUiSnapshot(snapshot: TransientUiSnapshot) {
     putBoolean(TRANSIENT_TOOLBAR_VISIBLE, snapshot.toolbarVisible)
 }
 
+internal fun Bundle.writeNarPickerOwnerToken(token: NarImportAttemptToken) {
+    putString(NAR_PICKER_OWNER_PROCESS_NONCE, token.processNonce)
+    putLong(NAR_PICKER_OWNER_SEQUENCE, token.sequence)
+}
+
+internal fun Bundle.readNarPickerOwnerToken(): NarImportAttemptToken? = runCatching {
+    val processNonce = getString(NAR_PICKER_OWNER_PROCESS_NONCE)
+        ?.takeIf(String::isNotBlank)
+        ?: return null
+    if (!containsKey(NAR_PICKER_OWNER_SEQUENCE)) return null
+    val sequence = getLong(NAR_PICKER_OWNER_SEQUENCE).takeIf { it > 0L } ?: return null
+    NarImportAttemptToken(processNonce, sequence)
+}.getOrNull()
+
+internal fun reconcileNarPickerOwner(
+    restored: NarImportAttemptToken?,
+    state: ForegroundNarImportState,
+    abandon: (NarImportAttemptToken) -> Boolean,
+): NarImportAttemptToken? {
+    val awaiting = state as? ForegroundNarImportState.AwaitingSelection ?: return null
+    if (restored == awaiting.token) return restored
+    abandon(awaiting.token)
+    return null
+}
+
+internal fun armAndLaunchNarDocumentPicker(
+    coordinator: ForegroundNarImportCoordinator,
+    setOwner: (NarImportAttemptToken?) -> Unit,
+    launch: () -> Unit,
+    failureMessage: String,
+): Boolean {
+    val token = coordinator.armPicker() ?: return false
+    setOwner(token)
+    return try {
+        launch()
+        true
+    } catch (_: RuntimeException) {
+        coordinator.failPickerLaunch(token, failureMessage)
+        setOwner(null)
+        false
+    }
+}
+
+internal fun dispatchNarPickerResult(
+    takeOwner: () -> NarImportAttemptToken?,
+    selection: () -> NarDocumentSelection?,
+    importAllowed: () -> Boolean,
+    consume: (NarImportAttemptToken, NarDocumentSelection?, Boolean) -> Boolean,
+): Boolean {
+    val expectedToken = takeOwner() ?: return false
+    return consume(expectedToken, selection(), importAllowed())
+}
+
+internal class NanidroidLifecycleTestHooks(
+    val afterGhostMgrCreatedBeforeReady: (GhostMgr) -> Unit = {},
+    val onForegroundNarRefresh: (GhostMgr, NarImportAttemptToken) -> Unit = { _, _ -> },
+)
+
 private const val TRANSIENT_UI_PRESENT = "transient_ui_present"
 private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
+private const val NAR_PICKER_OWNER_PROCESS_NONCE = "nar_picker_owner_process_nonce"
+private const val NAR_PICKER_OWNER_SEQUENCE = "nar_picker_owner_sequence"
 private const val TEXT_DOCUMENT_RESTORE_KIND = "text_document_restore_kind"
 private const val TEXT_DOCUMENT_RESTORE_TITLE = "text_document_restore_title"
 private const val TEXT_DOCUMENT_RESTORE_TEXT = "text_document_restore_text"
@@ -243,61 +284,41 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         SurfaceInteractionPort { effect -> runner?.dispatchSurfaceInteraction(effect) },
     )
     private var gm: GhostMgr? = null
+    private val ghostMgrReady = CompletableDeferred<GhostMgr>()
     private var currentGhost: Ghost? = null
     private var restoreFromMinimize = false
     private var currentRunCount = -1L
     private var initComplete = false
     private var nextGhostId: String? = null
-    private var awaitingNarDocument = false
-    private var replacingNarDownloadId: String? = null
-    private var archiveIntentState = ArchiveIntentState()
-    private val narDocumentPicker = registerForActivityResult(NarDocumentPickerContract()) { result ->
-        if (!awaitingNarDocument) return@registerForActivityResult
-        awaitingNarDocument = false
-        val replacementId = replacingNarDownloadId
-        replacingNarDownloadId = null
-        when (result) {
-            is NarDocumentPickerResult.Returned -> result.uri?.let {
-                importPickedNar(it, replacementId, ActionOrigin.USER)
-            } ?: Toast.makeText(
-                this,
-                "The selected document is no longer available.",
-                Toast.LENGTH_LONG,
-            ).show()
-            NarDocumentPickerResult.Cancelled -> Unit
-        }
+    private val foregroundNarImport by lazy {
+        ForegroundNarImportCoordinator.get(applicationContext)
     }
-    private var pendingDurableNotificationPermission = false
-    private val durableNotificationPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) {
-        pendingDurableNotificationPermission = false
-        refreshDurableAttention()
+    private var narPickerOwnerToken: NarImportAttemptToken? = null
+    private var installedReadyToken by mutableStateOf<NarImportAttemptToken?>(null)
+    private val narDocumentPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (!dispatchNarDocumentPickerResult(uri)) return@registerForActivityResult
     }
-    private val narDownloads by lazy { NarDownloadRepository.get(applicationContext) }
-    private val narLiveGrantExecutor = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "nar-live-grant-copy")
-    }
-    private val narLiveGrantHandoff by lazy {
-        val privateDirectory = StageLocalNarWorker.localImportDirectory(applicationContext)
-        NarLiveGrantHandoff(narDownloads, narLiveGrantExecutor, privateDirectory)
-    }
+
+    private fun dispatchNarDocumentPickerResult(uri: Uri?): Boolean = dispatchNarPickerResult(
+        takeOwner = {
+            narPickerOwnerToken.also { narPickerOwnerToken = null }
+        },
+        selection = { uri?.let { NarDocumentSelection(it.toString(), it.scheme) } },
+        importAllowed = { allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER) },
+        consume = foregroundNarImport::consumePickerResult,
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         onBackPressedDispatcher.addCallback(this, backPressedCallback)
-        awaitingNarDocument = savedInstanceState?.getBoolean(NAR_PICK_PENDING, false) ?: false
-        replacingNarDownloadId = savedInstanceState?.getString(NAR_PICK_REPLACEMENT_ID)
-        archiveIntentState = ArchiveIntentState(
-            consumedUri = savedInstanceState?.getString(NAR_CONSUMED_INTENT_URI),
-            pendingUri = savedInstanceState?.getString(NAR_PENDING_INTENT_URI),
-            pendingFlags = savedInstanceState?.getInt(NAR_PENDING_INTENT_FLAGS, 0) ?: 0,
+        narPickerOwnerToken = reconcileNarPickerOwner(
+            restored = savedInstanceState?.readNarPickerOwnerToken(),
+            state = foregroundNarImport.state.value,
+            abandon = foregroundNarImport::abandonPicker,
         )
-        resolveRunnerBeforeColdArchiveIngress(
-            resolveRunner = { SScriptRunner.getInstance(this) },
-            bindRunner = { runner = it },
-            handleArchiveIngress = { handleIncomingIntent(intent) },
-        )
+        runner = SScriptRunner.getInstance(this)
         setupViews()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             simpleDialog = NanidroidSimpleDialog.Notice(
@@ -351,7 +372,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     return@launch
                 }
                 reservationClaimed = true
-                enqueuePendingArchiveIntent()
                 hideProgress()
                 initComplete = true
                 runner!!.startClock()
@@ -364,7 +384,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }
 
-    private fun createSvcs2ndThread() { gm = GhostMgr(this) }
+    private fun createSvcs2ndThread() {
+        val manager = GhostMgr(this)
+        gm = manager
+        lifecycleTestHooks.afterGhostMgrCreatedBeforeReady(manager)
+        check(ghostMgrReady.complete(manager))
+    }
     private fun createGhost(): ReservedGhost? {
         val lastId = gm!!.getLastRunGhostId() ?: "nanidroid"
         mGH.sendEmptyMessage(MSG_LOAD_F)
@@ -390,16 +415,27 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun setupViews() {
         progressMessage = getString(R.string.prog_startup)
         setContent {
-            val downloads by narDownloads.observeDownloads().collectAsState()
-            val stalledOperations by SharedDurableOperationSupervisor
-                .attention(applicationContext)
-                .observeStalledOperations()
-                .collectAsState()
-            var durableRecoveryRequired by remember {
-                mutableStateOf(SharedDurableOperationSupervisor.isRecoveryRequired())
-            }
-            LaunchedEffect(downloads) {
-                if (downloads.any { it.state is NarDownloadState.Complete }) gm?.refreshGhost()
+            val importState by foregroundNarImport.state.collectAsState()
+            LaunchedEffect(importState) {
+                val token = when (val state = importState) {
+                    is ForegroundNarImportState.Installed -> state.token
+                    is ForegroundNarImportState.RecoveryRequired ->
+                        state.token.takeIf { state.primary is NarImportPrimaryOutcome.Installed }
+                    else -> null
+                } ?: return@LaunchedEffect
+                if (installedReadyToken == token) return@LaunchedEffect
+                val manager = ghostMgrReady.await()
+                if (installedReadyToken == token) return@LaunchedEffect
+                val publishedToken = when (val state = foregroundNarImport.state.value) {
+                    is ForegroundNarImportState.Installed -> state.token
+                    is ForegroundNarImportState.RecoveryRequired ->
+                        state.token.takeIf { state.primary is NarImportPrimaryOutcome.Installed }
+                    else -> null
+                }
+                if (publishedToken != token) return@LaunchedEffect
+                manager.refreshGhost()
+                lifecycleTestHooks.onForegroundNarRefresh(manager, token)
+                installedReadyToken = token
             }
             Box(Modifier.fillMaxSize()) {
                 NanidroidComposeShell(
@@ -419,28 +455,15 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     toolbarVisible = toolbarVisible,
                     onListGhost = ::onListGhost,
                     onReadme = ::openCurrentGhostReadme,
-                    onArchiveQueue = {
-                        simpleDialog = NanidroidSimpleDialog.ArchiveQueue(
-                            onRetry = { if (allows(GuardedAction.IMPORT_INSTALL)) narDownloads.retry(it) },
-                            onReselect = { startInstallFromSDCard(it) },
-                            onDelete = { if (allows(GuardedAction.UNINSTALL)) narDownloads.delete(it) },
-                        )
+                    narImportState = importState,
+                    installedReadyToken = installedReadyToken,
+                    onAcknowledgeNarImport = { foregroundNarImport.acknowledge(it) },
+                    onSelectAnotherNarImport = { token ->
+                        if (foregroundNarImport.acknowledge(token)) startInstallFromSDCard()
                     },
-                    archiveDownloads = downloads,
+                    onRetryNarImportCleanup = { foregroundNarImport.retryCleanup(it) },
                     simpleDialog = simpleDialog,
                     onDismissSimpleDialog = { simpleDialog = null },
-                    stalledOperations = stalledOperations,
-                    onDurableAttentionAction = { handle, action ->
-                        SharedDurableOperationSupervisor.get(applicationContext)
-                            .performAttentionAction(handle, action)
-                    },
-                    durableRecoveryRequired = durableRecoveryRequired,
-                    onResolveDurableRecovery = {
-                        val resolved = SharedDurableOperationSupervisor.resolveRecovery()
-                        durableRecoveryRequired =
-                            SharedDurableOperationSupervisor.isRecoveryRequired()
-                        resolved
-                    },
                 )
             }
         }
@@ -479,21 +502,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             initialized = transientUiInitialized,
             toolbarVisible = toolbarVisible,
         )?.let(outState::writeTransientUiSnapshot)
-        outState.putBoolean(NAR_PICK_PENDING, awaitingNarDocument)
-        outState.putString(NAR_PICK_REPLACEMENT_ID, replacingNarDownloadId)
-        outState.putString(NAR_CONSUMED_INTENT_URI, archiveIntentState.consumedUri)
-        outState.putString(NAR_PENDING_INTENT_URI, archiveIntentState.pendingUri)
-        outState.putInt(NAR_PENDING_INTENT_FLAGS, archiveIntentState.pendingFlags)
+        narPickerOwnerToken?.let(outState::writeNarPickerOwnerToken)
         super.onSaveInstanceState(outState)
-    }
-    override fun onDestroy() {
-        narLiveGrantExecutor.shutdown()
-        super.onDestroy()
     }
     override fun onResume() {
         super.onResume()
-        refreshDurableAttention()
-        requestPendingDurableNotificationPermission()
         if (initComplete) {
             runner?.startClock()
             runner?.run()
@@ -523,16 +536,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private val mGH = object : Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
     private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
-    private fun addNarToDownload(target: Uri) {
-        if (!allows(GuardedAction.IMPORT_INSTALL)) return
-        val value = target.toString()
-        if (!isApprovedArchiveUrl(value)) {
-            Toast.makeText(this, R.string.err_https_nar_only, Toast.LENGTH_LONG).show()
-            return
-        }
-        val result = narDownloads.enqueueRemoteForUser(value)
-        handleAcceptedNarUserEnqueueResult(result)
-    }
     private fun installFirstGhost() {
         var target: File? = null
         try {
@@ -628,147 +631,19 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             }
         }
     }
-    private fun handleIncomingIntent(incoming: Intent?, isNewIntent: Boolean = false) {
-        if (!allowsArchiveIntentIngress(runner) { SScriptRunner.getInstance(this) }) return
-        val resolvedMimeType = incoming?.type ?: runCatching {
-            incoming?.data?.let(contentResolver::getType)
-        }.getOrNull()
-        val uri = ArchiveIntentAdapter.contentUri(incoming, resolvedMimeType) ?: return
-        val flags = incoming?.flags ?: 0
-        val reception = if (isNewIntent) {
-            archiveIntentState.receiveNewIntent(uri.toString(), flags)
-        } else {
-            archiveIntentState.receive(uri.toString(), flags)
-        }
-        when (reception) {
-            is ArchiveIntentState.Reception.Ignored -> Unit
-            is ArchiveIntentState.Reception.Pending -> archiveIntentState = reception.state
-            is ArchiveIntentState.Reception.Dispatch -> {
-                archiveIntentState = reception.state
-                enqueueLocalArchive(Uri.parse(reception.uri), reception.flags)
-            }
-        }
-    }
-
-    private fun enqueuePendingArchiveIntent() {
-        val pending = archiveIntentState.takePending() ?: return
-        archiveIntentState = pending.state
-        enqueueLocalArchive(Uri.parse(pending.uri), pending.flags)
-    }
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleIncomingIntent(intent, isNewIntent = true)
-        if (initComplete) enqueuePendingArchiveIntent()
-    }
     fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; showGhostListDlg() }
     fun getMoreGhost() {
         simpleDialog = createMoreGhostDialog()
     }
-    private fun startInstallFromSDCard(replaceId: String? = null, origin: ActionOrigin = ActionOrigin.USER) {
+    private fun startInstallFromSDCard(origin: ActionOrigin = ActionOrigin.USER) {
         if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
-        awaitingNarDocument = true
-        replacingNarDownloadId = replaceId
-        narDocumentPicker.launch(Unit)
-    }
-    fun showNarErrDlg(dir: Boolean) {
-        simpleDialog = NanidroidSimpleDialog.Notice(
-            R.string.err_nar_title,
-            if (dir) R.string.err_no_nar_folder else R.string.err_no_nar_file,
+        armAndLaunchNarDocumentPicker(
+            coordinator = foregroundNarImport,
+            setOwner = { narPickerOwnerToken = it },
+            launch = { narDocumentPicker.launch(arrayOf("*/*")) },
+            failureMessage = "Nanidroid could not open the document picker.",
         )
     }
-    private fun importPickedNar(uri: Uri, replacementId: String?, origin: ActionOrigin) =
-        enqueueLocalArchive(uri, Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION, replacementId, origin)
-
-    private fun enqueueLocalArchive(
-        uri: Uri,
-        flags: Int,
-        replacementId: String? = null,
-        origin: ActionOrigin = ActionOrigin.USER,
-    ) {
-        if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
-        val canPersist = flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0
-        if (canPersist) {
-            val result = if (replacementId == null) {
-                narDownloads.enqueuePersistedLocalCopyForUser(uri.toString()) {
-                    try {
-                        contentResolver.takePersistableUriPermission(
-                            uri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                        )
-                        true
-                    } catch (_: SecurityException) {
-                        false
-                    }
-                }
-            } else narDownloads.replaceWithPersistedLocalSourceForUser(
-                replacementId,
-                uri.toString(),
-            ) {
-                try {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                    )
-                    true
-                } catch (_: SecurityException) {
-                    false
-                }
-            }
-            handleAcceptedNarUserEnqueueResult(result)
-            if (result != null) {
-                return
-            }
-        }
-
-        val accepted = narLiveGrantHandoff.enqueueForUser(uri.toString(), replacementId) {
-                contentResolver.openInputStream(uri)
-            }
-        if (accepted == null) {
-            Toast.makeText(
-                this,
-                "The selected document is no longer available.",
-                Toast.LENGTH_LONG,
-            ).show()
-        } else handleAcceptedNarUserEnqueueResult(accepted)
-    }
-
-    private fun handleAcceptedNarUserEnqueueResult(result: NarUserEnqueueResult?) {
-        if (result?.acceptedActive == true) onUserDurableWorkAccepted()
-    }
-
-    private fun onUserDurableWorkAccepted() {
-        if (Build.VERSION.SDK_INT < 33 ||
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-        pendingDurableNotificationPermission = true
-        requestPendingDurableNotificationPermission()
-    }
-
-    private fun requestPendingDurableNotificationPermission() {
-        if (!DurableAttentionNotificationPolicy.shouldRequestPermission(
-                apiLevel = Build.VERSION.SDK_INT,
-                permissionGranted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-                    PackageManager.PERMISSION_GRANTED,
-                userWorkAccepted = pendingDurableNotificationPermission,
-                activityResumed = lifecycle.currentState.isAtLeast(
-                    androidx.lifecycle.Lifecycle.State.RESUMED,
-                ),
-            )) {
-            return
-        }
-        pendingDurableNotificationPermission = false
-        durableNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
-
-    private fun refreshDurableAttention() {
-        runCatching {
-            SharedDurableOperationSupervisor.attention(applicationContext).refresh()
-        }
-    }
-    private fun showUrlDlg() { simpleDialog = createUrlEntryDialog() }
     fun onMoreGhost() = getMoreGhost()
     private fun showGhostListDlg() {
         val manager = gm ?: return
@@ -778,22 +653,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )
     }
     private fun createMoreGhostDialog() = NanidroidSimpleDialog.MoreGhost(
-        onEnterUrl = { showUrlDlg() }, onInstallFromSdCard = { startInstallFromSDCard() },
+        onInstallFromDocument = { startInstallFromSDCard() },
     )
-    private fun createUrlEntryDialog(value: String = "", error: Boolean = false): NanidroidSimpleDialog.UrlEntry = NanidroidSimpleDialog.UrlEntry(
-        value, error,
-        onValueChanged = { simpleDialog = createUrlEntryDialog(it) },
-        onSubmit = { url ->
-            if (!PatternHolders.url_ptrn.matcher(url).find() || !isApprovedArchiveUrl(url)) false
-            else { addNarToDownload(Uri.parse(url)); true }
-        },
-        onInvalid = { simpleDialog = createUrlEntryDialog(value, true) },
-    )
-
-    private fun isApprovedArchiveUrl(value: String): Boolean = try {
-        val parsed = java.net.URI(value)
-        parsed.scheme.equals("https", ignoreCase = true) && !parsed.host.isNullOrBlank()
-    } catch (_: Exception) { false }
     private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
         GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
     private fun createUserInputDialog(pending: PendingInputState, value: String = ""): NanidroidSimpleDialog.UserInput =
@@ -864,11 +725,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 outState.putInt(SIMPLE_DIALOG_MESSAGE, dialog.message)
             }
             is NanidroidSimpleDialog.MoreGhost -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_MORE_GHOST)
-            is NanidroidSimpleDialog.UrlEntry -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_URL_ENTRY)
-                outState.putString(SIMPLE_DIALOG_VALUE, dialog.value)
-                outState.putBoolean(SIMPLE_DIALOG_ERROR, dialog.validationError)
-            }
             is NanidroidSimpleDialog.UserInput -> {
                 outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_USER_INPUT)
                 outState.putString(SIMPLE_DIALOG_ID, dialog.id)
@@ -886,7 +742,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 outState.putStringArrayList(SIMPLE_DIALOG_LABELS, ArrayList(dialog.names))
                 outState.putStringArrayList(SIMPLE_DIALOG_IDS, ArrayList(dialog.ids))
             }
-            is NanidroidSimpleDialog.ArchiveQueue -> Unit
             is NanidroidSimpleDialog.TextDocument -> {
                 val snapshot = dialog.toTextDocumentRestoreSnapshot()
                 outState.putString(
@@ -933,7 +788,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 )
             }
             DIALOG_MORE_GHOST -> createMoreGhostDialog()
-            DIALOG_URL_ENTRY -> createUrlEntryDialog(state.getString(SIMPLE_DIALOG_VALUE) ?: "", state.getBoolean(SIMPLE_DIALOG_ERROR, false))
             DIALOG_USER_INPUT -> restoreUserInputDialog(
                 state.getString(SIMPLE_DIALOG_ID) ?: "",
                 dialogueDialogRestoration(state),
@@ -988,20 +842,40 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         // racing it or consuming a pending choice on host recreation.
     }
 
-    private sealed interface NarDocumentPickerResult {
-        data class Returned(val uri: Uri?) : NarDocumentPickerResult
-        data object Cancelled : NarDocumentPickerResult
-    }
-    private class NarDocumentPickerContract : ActivityResultContract<Unit, NarDocumentPickerResult>() {
-        override fun createIntent(context: Context, input: Unit): Intent =
-            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "*/*"
-            }
+    companion object {
+        @Volatile
+        private var lifecycleTestHooks = NanidroidLifecycleTestHooks()
 
-        override fun parseResult(resultCode: Int, intent: Intent?): NarDocumentPickerResult =
-            if (resultCode == RESULT_OK) NarDocumentPickerResult.Returned(intent?.data)
-            else NarDocumentPickerResult.Cancelled
+        internal fun replaceLifecycleTestHooksForTesting(replacement: NanidroidLifecycleTestHooks) {
+            lifecycleTestHooks = replacement
+        }
+
+        internal fun resetLifecycleTestHooksForTesting() {
+            lifecycleTestHooks = NanidroidLifecycleTestHooks()
+        }
+
+        private const val TAG = "Nanidroid"
+        private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"
+        private const val MIN_TAG = "minimized"
+        private const val MSG_START = 2019
+        private const val MSG_LOAD_F = 2020
+        private const val MSG_LOAD_N = 2021
+        private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"
+        private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"
+        private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"
+        private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"
+        private const val SIMPLE_DIALOG_ID = "simple_dialog_id"
+        private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"
+        private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"
+        private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"
+        private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"
+        private const val DIALOG_NOTICE = "notice"
+        private const val DIALOG_MORE_GHOST = "more_ghost"
+        private const val DIALOG_USER_INPUT = "user_input"
+        private const val DIALOG_USER_CHOICE = "user_choice"
+        private const val DIALOG_GHOST_LIST = "ghost_list"
+        private const val DIALOG_README = "readme"
+        private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"
+        private const val DIALOG_NO_README = "no_readme"
     }
-    companion object { private const val TAG = "Nanidroid"; private const val NAR_PICK_PENDING = "nar_picker_pending"; private const val NAR_PICK_REPLACEMENT_ID = "nar_picker_replacement_id"; private const val NAR_CONSUMED_INTENT_URI = "consumed_archive_intent_uri"; private const val NAR_PENDING_INTENT_URI = "pending_archive_intent_uri"; private const val NAR_PENDING_INTENT_FLAGS = "pending_archive_intent_flags"; private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"; private const val MIN_TAG = "minimized"; private const val MSG_START = 2019; private const val MSG_LOAD_F = 2020; private const val MSG_LOAD_N = 2021; private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"; private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"; private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"; private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"; private const val SIMPLE_DIALOG_ERROR = "simple_dialog_error"; private const val SIMPLE_DIALOG_ID = "simple_dialog_id"; private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"; private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"; private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"; private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"; private const val DIALOG_NOTICE = "notice"; private const val DIALOG_MORE_GHOST = "more_ghost"; private const val DIALOG_URL_ENTRY = "url_entry"; private const val DIALOG_USER_INPUT = "user_input"; private const val DIALOG_USER_CHOICE = "user_choice"; private const val DIALOG_GHOST_LIST = "ghost_list"; private const val DIALOG_README = "readme"; private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"; private const val DIALOG_NO_README = "no_readme" }
 }

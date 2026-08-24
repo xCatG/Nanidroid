@@ -38,9 +38,9 @@ HTML comparison report is `build/reports/screenshotTest/preview/debug/index.html
 The adaptive ghost-stage suite contains exactly 31 named cases: nine window-size
 grid cases, 16 product-state cases, and six pairwise theme/direction/font/density
 cases. Its deterministic Layoutlib fixtures exercise the production shell,
-stage, bubbles, compositor, collision overlay, and durable-prompt
+stage, bubbles, compositor, collision overlay, and foreground-import
 content without reading files, using the network, or depending on a clock. The
-durable-prompt previews use static Layoutlib hosts;
+foreground-import previews exercise installing and failed modal presentation;
 they do not replace connected tests of the real platform modal surfaces.
 
 ## NAR corpus (introduced in Task 17)

@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = "{http://schemas.android.com/apk/res/android}"
+ARCHIVE_MIME_TYPES = {"application/zip", "application/x-nar"}
 MANIFEST = (
     ROOT
     / "build"
@@ -25,6 +26,45 @@ LINT_MODULE = (
     / "generateDebugLintReportModel"
     / "module.xml"
 )
+
+
+def archive_view_filters(manifest: ET.Element) -> list[ET.Element]:
+    return [
+        intent_filter
+        for intent_filter in manifest.iter("intent-filter")
+        if any(
+            action.get(f"{ANDROID}name") == "android.intent.action.VIEW"
+            for action in intent_filter.findall("action")
+        )
+        and any(
+            any(
+                mime_pattern_matches(
+                    data.get(f"{ANDROID}mimeType"),
+                    archive_mime_type,
+                )
+                for archive_mime_type in ARCHIVE_MIME_TYPES
+            )
+            for data in intent_filter.findall("data")
+        )
+    ]
+
+
+def mime_pattern_matches(pattern: str | None, target: str) -> bool:
+    if pattern is None or pattern.count("/") != 1:
+        return False
+    pattern_type, pattern_subtype = pattern.split("/", 1)
+    target_type, target_subtype = target.split("/", 1)
+    if not pattern_type or not pattern_subtype:
+        return False
+    if "*" in pattern_type and pattern_type != "*":
+        return False
+    if "*" in pattern_subtype and pattern_subtype != "*":
+        return False
+    if pattern_type == "*" and pattern_subtype != "*":
+        return False
+    return (pattern_type == "*" or pattern_type == target_type) and (
+        pattern_subtype == "*" or pattern_subtype == target_subtype
+    )
 
 
 class UpdateEntrypointArtifactTest(unittest.TestCase):
@@ -49,7 +89,7 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
         lint_module = ET.parse(LINT_MODULE).getroot()
         self.assertEqual("android-37.0", lint_module.get("compileTarget"))
 
-    def test_activity_is_exported_single_top_with_only_content_archive_filters(self) -> None:
+    def test_activity_is_exported_single_top_with_only_the_launcher_filter(self) -> None:
         activity = next(
             item
             for item in self.application.findall("activity")
@@ -66,21 +106,93 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
                 for action in intent_filter.findall("action")
             )
         ]
-        self.assertEqual(1, len(view_filters))
-        data = {
-            (
-                item.get(f"{ANDROID}scheme"),
-                item.get(f"{ANDROID}mimeType"),
+        self.assertEqual([], view_filters)
+        launcher_filters = [
+            intent_filter
+            for intent_filter in activity.findall("intent-filter")
+            if any(
+                action.get(f"{ANDROID}name") == "android.intent.action.MAIN"
+                for action in intent_filter.findall("action")
             )
-            for item in view_filters[0].findall("data")
-        }
+            and any(
+                category.get(f"{ANDROID}name") == "android.intent.category.LAUNCHER"
+                for category in intent_filter.findall("category")
+            )
+        ]
+        self.assertEqual(1, len(launcher_filters))
+
+    def test_archive_view_filter_scan_covers_other_activities_and_aliases(self) -> None:
+        manifest = ET.fromstring(
+            f"""
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application>
+                <activity android:name=".Nanidroid" />
+                <activity android:name=".DependencyActivity">
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="application/zip" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="application/*" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="Application/*" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="Application/Zip" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="Application/X-Nar" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="text/plain" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="image/*" />
+                  </intent-filter>
+                </activity>
+                <activity-alias
+                    android:name=".ArchiveAlias"
+                    android:targetActivity=".Nanidroid">
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="application/x-nar" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="*/*" />
+                  </intent-filter>
+                </activity-alias>
+              </application>
+            </manifest>
+            """
+        )
+
+        filters = archive_view_filters(manifest)
+
+        self.assertEqual(4, len(filters))
         self.assertEqual(
             {
-                ("content", "application/zip"),
-                ("content", "application/x-nar"),
+                "application/zip",
+                "application/x-nar",
+                "application/*",
+                "*/*",
             },
-            data,
+            {
+                data.get(f"{ANDROID}mimeType")
+                for intent_filter in filters
+                for data in intent_filter.findall("data")
+            },
         )
+
+    def test_packaged_manifest_has_no_archive_view_filters(self) -> None:
+        self.assertEqual([], archive_view_filters(self.manifest))
 
     def test_removed_service_and_foreground_permissions_are_absent(self) -> None:
         permissions = {
@@ -99,17 +211,18 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
             service_names,
         )
 
-    def test_archive_components_and_permissions_remain_narrow(self) -> None:
+    def test_only_dependency_archive_permissions_and_receivers_remain(self) -> None:
         permissions = {
             item.get(f"{ANDROID}name")
             for item in self.manifest.findall("uses-permission")
         }
+        self.assertNotIn("android.permission.INTERNET", permissions)
+        self.assertNotIn("android.permission.POST_NOTIFICATIONS", permissions)
         self.assertTrue(
             {
                 "android.permission.ACCESS_NETWORK_STATE",
-                "android.permission.INTERNET",
-                "android.permission.POST_NOTIFICATIONS",
                 "android.permission.RECEIVE_BOOT_COMPLETED",
+                "android.permission.WAKE_LOCK",
             }.issubset(permissions)
         )
         self.assertTrue(
@@ -126,12 +239,35 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
             for item in self.application.findall("receiver")
         }
         self.assertTrue(
+            receiver_names.isdisjoint(
+                {
+                    "com.cattailsw.nanidroid.install.NarDownloadReceiver",
+                    "com.cattailsw.nanidroid.install.NarDownloadRecoveryReceiver",
+                    "com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver",
+                }
+            )
+        )
+        self.assertTrue(
             {
-                "com.cattailsw.nanidroid.install.NarDownloadReceiver",
-                "com.cattailsw.nanidroid.install.NarDownloadRecoveryReceiver",
-                "com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver",
+                "androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver",
+                "androidx.work.impl.background.systemalarm.RescheduleReceiver",
+                "androidx.work.impl.diagnostics.DiagnosticsReceiver",
+                "androidx.profileinstaller.ProfileInstallReceiver",
             }.issubset(receiver_names)
         )
+
+    def test_workmanager_initializer_remains_suppressed(self) -> None:
+        provider = next(
+            item
+            for item in self.application.findall("provider")
+            if item.get(f"{ANDROID}name")
+            == "androidx.startup.InitializationProvider"
+        )
+        initializer_names = {
+            item.get(f"{ANDROID}name")
+            for item in provider.findall("meta-data")
+        }
+        self.assertNotIn("androidx.work.WorkManagerInitializer", initializer_names)
 
 
 if __name__ == "__main__":

@@ -132,11 +132,9 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
         toolbarVisible = true,
         onListGhost = {},
         onReadme = {},
-        onArchiveQueue = {},
+        narImportState = fixture.state.narImportState,
         simpleDialog = null,
         onDismissSimpleDialog = {},
-        stalledOperations = listOfNotNull(fixture.state.stalledOperation),
-        staticDurablePromptPreview = true,
     )
 }
 

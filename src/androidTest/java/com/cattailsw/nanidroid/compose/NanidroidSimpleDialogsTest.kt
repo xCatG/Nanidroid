@@ -27,7 +27,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.then
@@ -44,6 +46,22 @@ import java.util.Locale
 class NanidroidSimpleDialogsTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    @Test
+    fun moreGhostOffersOnlyInstallFromDocument() {
+        composeRule.setContent {
+            NanidroidSimpleDialogHost(
+                NanidroidSimpleDialog.MoreGhost(onInstallFromDocument = {}),
+                onDismiss = {},
+            )
+        }
+
+        composeRule.onAllNodesWithTag("install-from-document").assertCountEquals(1)
+        composeRule.onNodeWithText(
+            composeRule.activity.getString(R.string.nar_import_from_document),
+        ).assertExists()
+        composeRule.onNodeWithText("Enter URL").assertDoesNotExist()
+    }
 
     @Test
     fun passwordInputUsesPasswordKeyboardSemantics() {

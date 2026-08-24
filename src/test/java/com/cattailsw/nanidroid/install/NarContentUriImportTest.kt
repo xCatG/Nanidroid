@@ -7,10 +7,33 @@ import java.io.InputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NarContentUriImportTest {
+    @Test fun successfulPublicationSurvivesThrownStageDeletionAndLeavesResidueForRecovery() {
+        val root = temporaryDirectory()
+        val installed = ArchiveInstallResult.Installed("/private/ghosts/published", "published")
+        var staged: File? = null
+
+        val result = NarContentUriImport.importContent(
+            scheme = "content",
+            cacheDir = root,
+            open = { ByteArrayInputStream("published nar".toByteArray()) },
+            install = { file ->
+                staged = file
+                installed
+            },
+            isCancelled = { false },
+            deleteStaged = { throw SecurityException("delete denied") },
+        )
+
+        assertSame(installed, result)
+        assertTrue(requireNotNull(staged).isFile)
+        assertTrue(requireNotNull(staged).name.matches(Regex("^nar-import-[0-9a-f]{24}\\.zip$")))
+    }
+
     @Test fun rejectsMaximumBytesPlusOneBeforeInvokingInstallerAndDeletesStage() {
         val root = temporaryDirectory()
         var installerCalled = false
