@@ -3,7 +3,10 @@ package com.cattailsw.nanidroid.install
 internal data class NarImportAttemptToken(
     val processNonce: String,
     val sequence: Long,
+    val ownerTaskId: Int = UNKNOWN_NAR_PICKER_OWNER_TASK_ID,
 )
+
+internal const val UNKNOWN_NAR_PICKER_OWNER_TASK_ID = -1
 
 internal data class NarDocumentSelection(
     val uri: String,

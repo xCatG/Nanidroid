@@ -132,8 +132,9 @@ class NanidroidLifecycleInstrumentationTest {
 
         try {
             ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
-                val token = requireNotNull(coordinator.armPicker())
+                lateinit var token: NarImportAttemptToken
                 scenario.onActivity { activity ->
+                    token = requireNotNull(coordinator.armPicker(activity.taskId))
                     privateFieldHandle(activity, "narPickerOwnerToken").set(activity, token)
                 }
 

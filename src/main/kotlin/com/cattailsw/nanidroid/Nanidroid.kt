@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid
 
+import android.app.ActivityManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -143,6 +144,7 @@ internal fun Bundle.writeTransientUiSnapshot(snapshot: TransientUiSnapshot) {
 internal fun Bundle.writeNarPickerOwnerToken(token: NarImportAttemptToken) {
     putString(NAR_PICKER_OWNER_PROCESS_NONCE, token.processNonce)
     putLong(NAR_PICKER_OWNER_SEQUENCE, token.sequence)
+    putInt(NAR_PICKER_OWNER_TASK_ID, token.ownerTaskId)
 }
 
 internal fun Bundle.readNarPickerOwnerToken(): NarImportAttemptToken? = runCatching {
@@ -151,7 +153,9 @@ internal fun Bundle.readNarPickerOwnerToken(): NarImportAttemptToken? = runCatch
         ?: return null
     if (!containsKey(NAR_PICKER_OWNER_SEQUENCE)) return null
     val sequence = getLong(NAR_PICKER_OWNER_SEQUENCE).takeIf { it > 0L } ?: return null
-    NarImportAttemptToken(processNonce, sequence)
+    if (!containsKey(NAR_PICKER_OWNER_TASK_ID)) return null
+    val ownerTaskId = getInt(NAR_PICKER_OWNER_TASK_ID).takeIf { it >= 0 } ?: return null
+    NarImportAttemptToken(processNonce, sequence, ownerTaskId)
 }.getOrNull()
 
 internal fun reconcileNarPickerOwner(
@@ -176,12 +180,19 @@ internal fun abandonNarPickerOwnerOnFinalDestroy(
 
 internal fun armAndLaunchNarDocumentPicker(
     coordinator: ForegroundNarImportCoordinator,
+    ownerTaskId: Int,
+    isOwnerTaskAlive: (Int) -> Boolean,
     currentOwner: () -> NarImportAttemptToken?,
     setOwner: (NarImportAttemptToken?) -> Unit,
     launch: () -> Unit,
     failureMessage: String,
 ): Boolean {
-    val token = claimNarPickerAttempt(coordinator, currentOwner()) ?: return false
+    val token = claimNarPickerAttempt(
+        coordinator = coordinator,
+        ownerTaskId = ownerTaskId,
+        isOwnerTaskAlive = isOwnerTaskAlive,
+        currentOwner = currentOwner(),
+    ) ?: return false
     setOwner(token)
     return try {
         launch()
@@ -195,13 +206,21 @@ internal fun armAndLaunchNarDocumentPicker(
 
 private fun claimNarPickerAttempt(
     coordinator: ForegroundNarImportCoordinator,
+    ownerTaskId: Int,
+    isOwnerTaskAlive: (Int) -> Boolean,
     currentOwner: NarImportAttemptToken?,
 ): NarImportAttemptToken? {
-    coordinator.armPicker()?.let { return it }
+    coordinator.armPicker(ownerTaskId)?.let { return it }
     val awaiting = coordinator.state.value as? ForegroundNarImportState.AwaitingSelection ?: return null
     if (currentOwner == awaiting.token) return null
+    val awaitingTaskId = awaiting.token.ownerTaskId
+    if (awaitingTaskId != ownerTaskId &&
+        (awaitingTaskId < 0 || isOwnerTaskAlive(awaitingTaskId))
+    ) {
+        return null
+    }
     coordinator.abandonPicker(awaiting.token)
-    return coordinator.armPicker()
+    return coordinator.armPicker(ownerTaskId)
 }
 
 internal fun dispatchNarPickerResult(
@@ -223,6 +242,7 @@ private const val TRANSIENT_UI_PRESENT = "transient_ui_present"
 private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
 private const val NAR_PICKER_OWNER_PROCESS_NONCE = "nar_picker_owner_process_nonce"
 private const val NAR_PICKER_OWNER_SEQUENCE = "nar_picker_owner_sequence"
+private const val NAR_PICKER_OWNER_TASK_ID = "nar_picker_owner_task_id"
 private const val TEXT_DOCUMENT_RESTORE_KIND = "text_document_restore_kind"
 private const val TEXT_DOCUMENT_RESTORE_TITLE = "text_document_restore_title"
 private const val TEXT_DOCUMENT_RESTORE_TEXT = "text_document_restore_text"
@@ -667,12 +687,21 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
         armAndLaunchNarDocumentPicker(
             coordinator = foregroundNarImport,
+            ownerTaskId = taskId,
+            isOwnerTaskAlive = ::isNarPickerOwnerTaskAlive,
             currentOwner = { narPickerOwnerToken },
             setOwner = { narPickerOwnerToken = it },
             launch = { narDocumentPicker.launch(arrayOf("*/*")) },
             failureMessage = "Nanidroid could not open the document picker.",
         )
     }
+
+    private fun isNarPickerOwnerTaskAlive(ownerTaskId: Int): Boolean = runCatching {
+        getSystemService(ActivityManager::class.java).appTasks.any { appTask ->
+            appTask.taskInfo?.taskId == ownerTaskId
+        }
+    }.getOrDefault(true)
+
     fun onMoreGhost() = getMoreGhost()
     private fun showGhostListDlg() {
         val manager = gm ?: return
