@@ -118,9 +118,9 @@ internal fun ForegroundNarImportPresentation(
             message = state.message,
             onDismiss = {},
             additionalMessage = when (state.primary) {
-                is NarImportPrimaryOutcome.Installed -> {
-                    "The ghost was installed and is preserved. Only cleanup will be retried."
-                }
+                is NarImportPrimaryOutcome.Installed -> stringResource(
+                    R.string.nar_import_recovery_installed_message,
+                )
                 else -> null
             },
             confirm = {

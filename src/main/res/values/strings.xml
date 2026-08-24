@@ -108,4 +108,5 @@
   <string name="nar_import_recovery_title">Import cleanup needs attention</string>
   <string name="nar_import_retry_cleanup">Retry cleanup</string>
   <string name="nar_import_select_another">Select another</string>
+  <string name="nar_import_recovery_installed_message">The ghost was installed and is preserved. Only cleanup will be retried.</string>
 </resources>

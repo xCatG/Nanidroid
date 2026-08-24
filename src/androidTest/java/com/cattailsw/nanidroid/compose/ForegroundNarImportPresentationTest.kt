@@ -1,12 +1,17 @@
 package com.cattailsw.nanidroid.compose
 
+import android.content.res.Configuration
+import android.os.LocaleList
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
@@ -16,14 +21,17 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.ArchiveInstallFailure
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
+import java.util.Locale
 
 class ForegroundNarImportPresentationTest {
     @get:Rule
@@ -181,5 +189,54 @@ class ForegroundNarImportPresentationTest {
             assertEquals(token, retryToken)
             assertFalse(retryToken == null)
         }
+    }
+
+    @Test
+    fun installedPrimaryRecoveryUsesJapanesePreservationStatement() = assertLocalizedInstalledRecovery(
+        locale = Locale.JAPANESE,
+        expected = "ゴーストはインストール済みで保持されています。再試行されるのはプライベートステージングのクリーンアップのみです。",
+    )
+
+    @Test
+    fun installedPrimaryRecoveryUsesTraditionalChinesePreservationStatement() = assertLocalizedInstalledRecovery(
+        locale = Locale.TAIWAN,
+        expected = "偽人格仍會保持已安裝狀態。只會重試私人暫存區的清理。",
+    )
+
+    private fun assertLocalizedInstalledRecovery(locale: Locale, expected: String) {
+        val localized = rule.activity.createConfigurationContext(
+            Configuration(rule.activity.resources.configuration).apply {
+                setLocales(LocaleList(locale))
+            },
+        )
+
+        rule.setContent {
+            CompositionLocalProvider(
+                LocalContext provides localized,
+                LocalConfiguration provides localized.resources.configuration,
+            ) {
+                ForegroundNarImportPresentation(
+                    state = ForegroundNarImportState.RecoveryRequired(
+                        token = NarImportAttemptToken("process", 7),
+                        primary = NarImportPrimaryOutcome.Installed("/ghosts/example", "example"),
+                        message = "Private staging could not be removed.",
+                    ),
+                    installedReadyToken = null,
+                    onAcknowledge = {},
+                    onSelectAnother = {},
+                    onRetryCleanup = {},
+                )
+            }
+        }
+
+        assertEquals(expected, localized.getString(R.string.nar_import_recovery_installed_message))
+        assertNotEquals(RECOVERY_INSTALLED_MESSAGE_ENGLISH, expected)
+        rule.onNodeWithText(expected).assertIsDisplayed()
+        rule.onNodeWithText(RECOVERY_INSTALLED_MESSAGE_ENGLISH).assertDoesNotExist()
+    }
+
+    private companion object {
+        const val RECOVERY_INSTALLED_MESSAGE_ENGLISH =
+            "The ghost was installed and is preserved. Only cleanup will be retried."
     }
 }

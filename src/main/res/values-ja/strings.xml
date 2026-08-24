@@ -88,5 +88,6 @@
   <string name="nar_import_recovery_title">インポートのクリーンアップに対応が必要です</string>
   <string name="nar_import_retry_cleanup">クリーンアップを再試行</string>
   <string name="nar_import_select_another">別のファイルを選択</string>
+  <string name="nar_import_recovery_installed_message">ゴーストはインストール済みで保持されています。再試行されるのはプライベートステージングのクリーンアップのみです。</string>
 
 </resources>
