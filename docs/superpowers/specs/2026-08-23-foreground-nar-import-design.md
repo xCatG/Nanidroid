@@ -125,7 +125,10 @@ token, it must not abandon an `AwaitingSelection` that may still belong to a
 live ActivityResultRegistry owner in another task or window. A mismatched
 restored owner token is rejected without mutating the current attempt. The
 owning Activity abandons only its own token when it is finally destroyed;
-configuration destruction preserves the token for registry restoration.
+configuration destruction preserves the token for registry restoration. If a
+preserved owner is never restored because its task state is later discarded,
+an ownerless Activity leaves it untouched during creation but may atomically
+supersede it when the user explicitly starts a new picker journey.
 
 The Activity presents coordinator state and owns the Activity-local `GhostMgr`
 refresh. A success presentation must wait for the replacement Activity's
@@ -403,7 +406,8 @@ Implementation follows test-driven development at each boundary.
   and a fresh coordinator rejects a restored result from a dead process;
 - a concurrent Activity without restored registry ownership cannot abandon a
   live in-process `AwaitingSelection`, while a matching recreated owner retains
-  it and final owner destruction releases it;
+  it, final owner destruction releases it, and an explicit ownerless launch can
+  reclaim a preserved owner that will never be restored;
 - one valid URI produces the exact `Copying` → `Installing` → `Installed`
   token sequence;
 - duplicate and concurrent submissions create one copy and one install;

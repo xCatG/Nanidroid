@@ -164,6 +164,7 @@ class ForegroundNarPickerOwnershipTest {
 
         val launched = armAndLaunchNarDocumentPicker(
             coordinator = coordinator,
+            currentOwner = { owner },
             setOwner = { owner = it },
             launch = { throw IllegalStateException("registry unavailable") },
             failureMessage = "The document picker is unavailable.",
@@ -174,6 +175,50 @@ class ForegroundNarPickerOwnershipTest {
         val failed = coordinator.state.value as ForegroundNarImportState.Failed
         assertEquals("The document picker is unavailable.", failed.message)
         assertEquals(NarImportAttemptToken("test-process", 1), failed.token)
+    }
+
+    @Test
+    fun explicitOwnerlessLaunchReclaimsAnUnrestoredAwaitingSelection() {
+        val stale = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(stale))
+        var owner: NarImportAttemptToken? = null
+        var launchCalls = 0
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            currentOwner = { owner },
+            setOwner = { owner = it },
+            launch = { launchCalls += 1 },
+            failureMessage = "The document picker is unavailable.",
+        )
+
+        assertTrue(launched)
+        assertEquals(1, launchCalls)
+        val replacement = requireNotNull(owner)
+        assertEquals("live-process", replacement.processNonce)
+        assertTrue(replacement.sequence > stale.sequence)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(replacement), coordinator.state.value)
+    }
+
+    @Test
+    fun explicitLaunchFromTheExistingOwnerDoesNotReclaimItsLiveSelection() {
+        val token = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+        var owner: NarImportAttemptToken? = token
+        var launchCalls = 0
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            currentOwner = { owner },
+            setOwner = { owner = it },
+            launch = { launchCalls += 1 },
+            failureMessage = "The document picker is unavailable.",
+        )
+
+        assertFalse(launched)
+        assertEquals(0, launchCalls)
+        assertEquals(token, owner)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(token), coordinator.state.value)
     }
 
     @Test

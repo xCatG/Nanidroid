@@ -176,11 +176,12 @@ internal fun abandonNarPickerOwnerOnFinalDestroy(
 
 internal fun armAndLaunchNarDocumentPicker(
     coordinator: ForegroundNarImportCoordinator,
+    currentOwner: () -> NarImportAttemptToken?,
     setOwner: (NarImportAttemptToken?) -> Unit,
     launch: () -> Unit,
     failureMessage: String,
 ): Boolean {
-    val token = coordinator.armPicker() ?: return false
+    val token = claimNarPickerAttempt(coordinator, currentOwner()) ?: return false
     setOwner(token)
     return try {
         launch()
@@ -190,6 +191,17 @@ internal fun armAndLaunchNarDocumentPicker(
         setOwner(null)
         false
     }
+}
+
+private fun claimNarPickerAttempt(
+    coordinator: ForegroundNarImportCoordinator,
+    currentOwner: NarImportAttemptToken?,
+): NarImportAttemptToken? {
+    coordinator.armPicker()?.let { return it }
+    val awaiting = coordinator.state.value as? ForegroundNarImportState.AwaitingSelection ?: return null
+    if (currentOwner == awaiting.token) return null
+    coordinator.abandonPicker(awaiting.token)
+    return coordinator.armPicker()
 }
 
 internal fun dispatchNarPickerResult(
@@ -655,6 +667,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
         armAndLaunchNarDocumentPicker(
             coordinator = foregroundNarImport,
+            currentOwner = { narPickerOwnerToken },
             setOwner = { narPickerOwnerToken = it },
             launch = { narDocumentPicker.launch(arrayOf("*/*")) },
             failureMessage = "Nanidroid could not open the document picker.",
