@@ -5,7 +5,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = "{http://schemas.android.com/apk/res/android}"
-TOOLS = "{http://schemas.android.com/tools}"
 ACTIVITY = ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt"
 BACKEND = (
     ROOT
@@ -19,6 +18,7 @@ class KotlinForegroundNarImportContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.activity = ACTIVITY.read_text(encoding="utf-8")
         cls.backend = BACKEND.read_text(encoding="utf-8")
+        cls.manifest_source = SOURCE_MANIFEST.read_text(encoding="utf-8")
         cls.manifest = ET.parse(SOURCE_MANIFEST).getroot()
         cls.application = cls.manifest.find("application")
         assert cls.application is not None
@@ -51,23 +51,15 @@ class KotlinForegroundNarImportContractTest(unittest.TestCase):
         ]
         self.assertEqual([], view_filters)
         self.assertEqual([], self.application.findall("receiver"))
+        self.assertEqual([], self.application.findall("provider"))
+        self.assertEqual([], self.manifest.findall("uses-permission"))
+        self.assertNotIn("xmlns:tools", self.manifest_source)
 
-        permissions = {
-            item.get(f"{ANDROID}name")
-            for item in self.manifest.findall("uses-permission")
-        }
-        self.assertTrue(
-            permissions.isdisjoint(
-                {
-                    "android.permission.ACCESS_NETWORK_STATE",
-                    "android.permission.INTERNET",
-                    "android.permission.POST_NOTIFICATIONS",
-                    "android.permission.RECEIVE_BOOT_COMPLETED",
-                }
-            )
+    def test_launcher_and_application_declarations_are_preserved(self) -> None:
+        self.assertEqual(
+            "CatTailApplication",
+            self.application.get(f"{ANDROID}name"),
         )
-
-    def test_launcher_and_manifest_merge_controls_are_preserved(self) -> None:
         activities = self.application.findall("activity")
         self.assertEqual(1, len(activities))
         launcher = activities[0]
@@ -87,22 +79,6 @@ class KotlinForegroundNarImportContractTest(unittest.TestCase):
             )
         ]
         self.assertEqual(1, len(launcher_filters))
-
-        initializer_removals = [
-            item
-            for provider in self.application.findall("provider")
-            for item in provider.findall("meta-data")
-            if item.get(f"{ANDROID}name") == "androidx.work.WorkManagerInitializer"
-            and item.get(f"{TOOLS}node") == "remove"
-        ]
-        self.assertEqual(1, len(initializer_removals))
-        foreground_tombstones = [
-            item
-            for item in self.manifest.findall("uses-permission")
-            if item.get(f"{ANDROID}name") == "android.permission.FOREGROUND_SERVICE"
-            and item.get(f"{TOOLS}node") == "remove"
-        ]
-        self.assertEqual(1, len(foreground_tombstones))
 
     def test_trusted_bundled_install_and_outgoing_browser_intents_remain(self) -> None:
         self.assertIn('assets.open("nanidroid.zip")', self.activity)

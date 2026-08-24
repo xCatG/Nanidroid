@@ -18,7 +18,22 @@ Use an API 31–37 emulator or device, then run:
 .\gradlew.bat connectedDebugAndroidTest
 ```
 
-The suite uses `NanidroidTestRunner`, which installs Hilt's test application.
+The suite uses the standard `androidx.test.runner.AndroidJUnitRunner` and the
+real `CatTailApplication`.
+
+## Host-side architecture contracts
+
+Build the generated artifacts before running the merged-manifest contract:
+
+```powershell
+.\gradlew.bat assembleDebug lint
+python -m unittest tools.test_kotlin_legacy_archive_runtime_absence tools.test_kotlin_foreground_nar_import_contract tools.test_update_entrypoint_artifacts
+```
+
+The production merged manifest must contain no WorkManager services, receivers,
+initializer metadata, or WorkManager-derived permissions. Dependency-provided
+components unrelated to WorkManager, such as the profile-installer receiver,
+may remain.
 
 ## Compose screenshot tests
 
@@ -115,6 +130,9 @@ host/device cleanup, representative parser and dialogue behavior, authored colli
 geometry, optical bounds, asymmetric stages, and unsupported non-ghost packages.
 
 ## Phase 1 shipped-state audit
+
+This section records a historical shipped-state audit; it does not describe the
+current application architecture.
 
 The compatibility decision for removing the unshipped durable workflows is
 recorded in `docs/modernization/phase1-shipped-state-ledger.json`. Verify its

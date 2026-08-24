@@ -194,80 +194,59 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
     def test_packaged_manifest_has_no_archive_view_filters(self) -> None:
         self.assertEqual([], archive_view_filters(self.manifest))
 
-    def test_removed_service_and_foreground_permissions_are_absent(self) -> None:
+    def test_removed_services_and_workmanager_components_are_absent(self) -> None:
         permissions = {
             item.get(f"{ANDROID}name")
             for item in self.manifest.findall("uses-permission")
         }
-        self.assertNotIn("android.permission.FOREGROUND_SERVICE", permissions)
-        self.assertNotIn("android.permission.FOREGROUND_SERVICE_DATA_SYNC", permissions)
-        service_names = {
-            item.get(f"{ANDROID}name")
-            for item in self.application.findall("service")
-        }
-        self.assertNotIn("com.cattailsw.nanidroid.NanidroidService", service_names)
-        self.assertIn(
-            "androidx.work.impl.foreground.SystemForegroundService",
-            service_names,
-        )
-
-    def test_only_dependency_archive_permissions_and_receivers_remain(self) -> None:
-        permissions = {
-            item.get(f"{ANDROID}name")
-            for item in self.manifest.findall("uses-permission")
-        }
-        self.assertNotIn("android.permission.INTERNET", permissions)
-        self.assertNotIn("android.permission.POST_NOTIFICATIONS", permissions)
-        self.assertTrue(
-            {
-                "android.permission.ACCESS_NETWORK_STATE",
-                "android.permission.RECEIVE_BOOT_COMPLETED",
-                "android.permission.WAKE_LOCK",
-            }.issubset(permissions)
-        )
         self.assertTrue(
             permissions.isdisjoint(
                 {
+                    "android.permission.FOREGROUND_SERVICE",
+                    "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+                    "android.permission.INTERNET",
+                    "android.permission.POST_NOTIFICATIONS",
+                    "android.permission.ACCESS_NETWORK_STATE",
+                    "android.permission.RECEIVE_BOOT_COMPLETED",
+                    "android.permission.WAKE_LOCK",
                     "android.permission.READ_EXTERNAL_STORAGE",
                     "android.permission.WRITE_EXTERNAL_STORAGE",
                     "android.permission.MANAGE_EXTERNAL_STORAGE",
                 }
             )
         )
+        service_names = {
+            item.get(f"{ANDROID}name")
+            for item in self.application.findall("service")
+        }
+        self.assertNotIn("com.cattailsw.nanidroid.NanidroidService", service_names)
+        self.assertFalse(
+            any(name.startswith("androidx.work.") for name in service_names)
+        )
+
+    def test_no_workmanager_receivers_remain(self) -> None:
         receiver_names = {
             item.get(f"{ANDROID}name")
             for item in self.application.findall("receiver")
         }
-        self.assertTrue(
-            receiver_names.isdisjoint(
-                {
-                    "com.cattailsw.nanidroid.install.NarDownloadReceiver",
-                    "com.cattailsw.nanidroid.install.NarDownloadRecoveryReceiver",
-                    "com.cattailsw.nanidroid.durable.DurableOperationAttentionReceiver",
-                }
-            )
+        self.assertFalse(
+            any(name.startswith("androidx.work.") for name in receiver_names)
         )
-        self.assertTrue(
-            {
-                "androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver",
-                "androidx.work.impl.background.systemalarm.RescheduleReceiver",
-                "androidx.work.impl.diagnostics.DiagnosticsReceiver",
-                "androidx.profileinstaller.ProfileInstallReceiver",
-            }.issubset(receiver_names)
+        self.assertIn(
+            "androidx.profileinstaller.ProfileInstallReceiver",
+            receiver_names,
         )
 
-    def test_workmanager_initializer_remains_suppressed(self) -> None:
-        provider = next(
-            item
-            for item in self.application.findall("provider")
-            if item.get(f"{ANDROID}name")
-            == "androidx.startup.InitializationProvider"
-        )
+    def test_workmanager_initializer_metadata_is_absent(self) -> None:
         initializer_names = {
-            item.get(f"{ANDROID}name")
-            for item in provider.findall("meta-data")
+            metadata.get(f"{ANDROID}name")
+            for provider in self.application.findall("provider")
+            for metadata in provider.findall("meta-data")
         }
-        self.assertNotIn("androidx.work.WorkManagerInitializer", initializer_names)
+        self.assertNotIn(
+            "androidx.work.WorkManagerInitializer",
+            initializer_names,
+        )
 
 
 if __name__ == "__main__":

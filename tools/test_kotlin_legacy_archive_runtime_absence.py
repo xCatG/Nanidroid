@@ -92,12 +92,33 @@ STRING_RESOURCE_PATHS = (
 
 ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
 
+FORBIDDEN_PRODUCTION_KOTLIN_FRAGMENTS = (
+    "androidx.work",
+    "androidx.hilt",
+    "dagger.hilt",
+    "NarDownloadRepository",
+    "SharedDurableOperationSupervisor",
+    "DurableOperation",
+    "InstallNarWorker",
+    "StageLocalNarWorker",
+    "NarLocalArchiveStager",
+    "DownloadManagerProgressObserver",
+)
+
 
 class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
     def read(self, relative_path: str) -> str:
         return (ROOT / relative_path).read_text(encoding="utf-8")
 
-    def test_monotonic_clock_has_neutral_runtime_ownership(self) -> None:
+    def test_foreground_and_runtime_boundaries_are_retained(self) -> None:
+        coordinator = self.read(
+            "src/main/kotlin/com/cattailsw/nanidroid/install/"
+            "ForegroundNarImportCoordinator.kt"
+        )
+        installer = self.read(
+            "src/main/kotlin/com/cattailsw/nanidroid/install/"
+            "NarTransactionalInstaller.kt"
+        )
         runtime_clock = self.read(
             "src/main/kotlin/com/cattailsw/nanidroid/runtime/MonotonicClock.kt"
         )
@@ -105,6 +126,9 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
             "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt"
         )
 
+        self.assertIn("class ForegroundNarImportCoordinator(", coordinator)
+        self.assertIn("class NarTransactionalInstaller", installer)
+        self.assertIn("class SScriptRunner", runner)
         self.assertIn("fun interface MonotonicClock", runtime_clock)
         self.assertIn("fun nowMillis(): Long", runtime_clock)
         self.assertIn(
@@ -199,6 +223,7 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertNotIn(fragment, application)
         self.assertIn("ForegroundNarImportCoordinator.get(this)", application)
+        self.assertIn("class CatTailApplication : Application()", application)
 
     def test_activity_has_no_hilt_wiring(self) -> None:
         activity = self.read(
@@ -206,6 +231,24 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
         )
         self.assertNotIn("AndroidEntryPoint", activity)
         self.assertNotIn("dagger.hilt", activity)
+        self.assertIn("class Nanidroid : ComponentActivity()", activity)
+
+    def test_production_kotlin_has_no_legacy_platform_references(self) -> None:
+        kotlin_root = ROOT / "src/main/kotlin"
+        kotlin_files = sorted(kotlin_root.rglob("*.kt"))
+        self.assertNotEqual([], kotlin_files)
+        violations = {
+            str(path.relative_to(ROOT)): [
+                fragment
+                for fragment in FORBIDDEN_PRODUCTION_KOTLIN_FRAGMENTS
+                if fragment in path.read_text(encoding="utf-8")
+            ]
+            for path in kotlin_files
+        }
+        self.assertEqual(
+            {},
+            {path: fragments for path, fragments in violations.items() if fragments},
+        )
 
     def test_lifecycle_instrumentation_uses_no_hilt_and_keeps_six_proofs(self) -> None:
         lifecycle_test = self.read(
@@ -250,6 +293,18 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
                 self.assertNotIn(fragment, manifest_source)
         self.assertEqual([], manifest.findall("uses-permission"))
         self.assertEqual([], manifest.findall(".//provider"))
+        application = manifest.find("application")
+        self.assertIsNotNone(application)
+        self.assertEqual(
+            "CatTailApplication",
+            application.get(f"{{{ANDROID_NAMESPACE}}}name"),
+        )
+        activities = application.findall("activity")
+        self.assertEqual(1, len(activities))
+        self.assertEqual(
+            "Nanidroid",
+            activities[0].get(f"{{{ANDROID_NAMESPACE}}}name"),
+        )
 
     def test_manifest_has_no_obsolete_backup_rules(self) -> None:
         application = ET.parse(ROOT / "src/main/AndroidManifest.xml").getroot().find(
