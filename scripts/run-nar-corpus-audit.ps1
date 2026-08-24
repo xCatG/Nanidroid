@@ -53,7 +53,7 @@ Set-Location -Path $repoRoot
 
 $targetPackage = 'com.cattailsw.nanidroid'
 $testPackage = 'com.cattailsw.nanidroid.test'
-$instrumentationRunner = "$testPackage/com.cattailsw.nanidroid.NanidroidTestRunner"
+$instrumentationRunner = "$testPackage/androidx.test.runner.AndroidJUnitRunner"
 $manifestEntryName = [IO.Path]::GetFileName($ManifestPath)
 
 $reportRoot = Join-Path $repoRoot 'build\reports\nar-corpus'

@@ -284,6 +284,14 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
             build,
         )
 
+    def test_corpus_harness_uses_standard_instrumentation_runner(self) -> None:
+        harness = self.read("scripts/run-nar-corpus-audit.ps1")
+        self.assertIn(
+            '$instrumentationRunner = "$testPackage/androidx.test.runner.AndroidJUnitRunner"',
+            harness,
+        )
+        self.assertNotIn("NanidroidTestRunner", harness)
+
     def test_source_manifest_has_no_platform_stack_components(self) -> None:
         manifest_source = self.read("src/main/AndroidManifest.xml")
         manifest = ET.fromstring(manifest_source)
