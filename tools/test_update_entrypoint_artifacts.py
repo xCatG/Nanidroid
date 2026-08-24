@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = "{http://schemas.android.com/apk/res/android}"
+ARCHIVE_MIME_TYPES = {"application/zip", "application/x-nar"}
 MANIFEST = (
     ROOT
     / "build"
@@ -25,6 +26,21 @@ LINT_MODULE = (
     / "generateDebugLintReportModel"
     / "module.xml"
 )
+
+
+def archive_view_filters(manifest: ET.Element) -> list[ET.Element]:
+    return [
+        intent_filter
+        for intent_filter in manifest.iter("intent-filter")
+        if any(
+            action.get(f"{ANDROID}name") == "android.intent.action.VIEW"
+            for action in intent_filter.findall("action")
+        )
+        and any(
+            data.get(f"{ANDROID}mimeType") in ARCHIVE_MIME_TYPES
+            for data in intent_filter.findall("data")
+        )
+    ]
 
 
 class UpdateEntrypointArtifactTest(unittest.TestCase):
@@ -80,6 +96,50 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
             )
         ]
         self.assertEqual(1, len(launcher_filters))
+
+    def test_archive_view_filter_scan_covers_other_activities_and_aliases(self) -> None:
+        manifest = ET.fromstring(
+            f"""
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application>
+                <activity android:name=".Nanidroid" />
+                <activity android:name=".DependencyActivity">
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="application/zip" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="text/plain" />
+                  </intent-filter>
+                </activity>
+                <activity-alias
+                    android:name=".ArchiveAlias"
+                    android:targetActivity=".Nanidroid">
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="application/x-nar" />
+                  </intent-filter>
+                </activity-alias>
+              </application>
+            </manifest>
+            """
+        )
+
+        filters = archive_view_filters(manifest)
+
+        self.assertEqual(2, len(filters))
+        self.assertEqual(
+            ARCHIVE_MIME_TYPES,
+            {
+                data.get(f"{ANDROID}mimeType")
+                for intent_filter in filters
+                for data in intent_filter.findall("data")
+            },
+        )
+
+    def test_packaged_manifest_has_no_archive_view_filters(self) -> None:
+        self.assertEqual([], archive_view_filters(self.manifest))
 
     def test_removed_service_and_foreground_permissions_are_absent(self) -> None:
         permissions = {
