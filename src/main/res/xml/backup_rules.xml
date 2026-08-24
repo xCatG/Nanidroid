@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<full-backup-content>
-    <exclude domain="sharedpref" path="durable_operations_v1.xml" />
-    <exclude domain="sharedpref" path="nar-download-queue.xml" />
-</full-backup-content>
