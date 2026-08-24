@@ -51,15 +51,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.cattailsw.nanidroid.DialogueDialogRestoration
 import com.cattailsw.nanidroid.R
-import com.cattailsw.nanidroid.install.NarDownload
-import com.cattailsw.nanidroid.install.NarDownloadState
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 
 /** Compose-owned activity dialogs. State values are kept in the Activity bundle. */
 internal sealed interface NanidroidSimpleDialog {
     data class Notice(@param:StringRes val title: Int, @param:StringRes val message: Int, val onConfirm: (() -> Unit)? = null) : NanidroidSimpleDialog
-    data class MoreGhost(val onEnterUrl: () -> Unit, val onInstallFromSdCard: () -> Unit) : NanidroidSimpleDialog
-    data class UrlEntry(val value: String, val validationError: Boolean, val onValueChanged: (String) -> Unit, val onSubmit: (String) -> Boolean, val onInvalid: () -> Unit) : NanidroidSimpleDialog
+    data class MoreGhost(val onInstallFromDocument: () -> Unit) : NanidroidSimpleDialog
     data class UserInput(
         val id: String,
         val value: String,
@@ -78,49 +75,23 @@ internal sealed interface NanidroidSimpleDialog {
     data class GhostList(val names: List<String>, val ids: List<String>, val onSelect: (Int) -> Unit, val onMore: () -> Unit) : NanidroidSimpleDialog
     data class TextDocument(val title: String, val text: String, val onOpenLink: (String) -> Unit, val sourceId: String, val onSwitch: (() -> Unit)? = null) : NanidroidSimpleDialog
     data class SwitchConfirmation(val ghostId: String, val ghostName: String, val onSwitch: () -> Unit) : NanidroidSimpleDialog
-    data class ArchiveQueue(val onRetry: (String) -> Unit, val onReselect: (String) -> Unit, val onDelete: (String) -> Unit) : NanidroidSimpleDialog
 }
 
 @Composable
-internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss: () -> Unit, archiveDownloads: List<NarDownload> = emptyList()) {
+internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss: () -> Unit) {
     when (dialog) {
         null -> Unit
         is NanidroidSimpleDialog.Notice -> NoticeDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.MoreGhost -> MoreGhostDialog(dialog, onDismiss)
-        is NanidroidSimpleDialog.UrlEntry -> UrlEntryDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.UserInput -> UserInputDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.UserChoice -> UserChoiceDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.GhostList -> GhostListDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.TextDocument -> TextDocumentDialog(dialog, onDismiss)
         is NanidroidSimpleDialog.SwitchConfirmation -> SwitchConfirmationDialog(dialog, onDismiss)
-        is NanidroidSimpleDialog.ArchiveQueue -> ArchiveQueueDialog(dialog, archiveDownloads, onDismiss)
     }
 }
 
 @Composable private fun NoticeDialog(dialog: NanidroidSimpleDialog.Notice, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(dialog.title)) }, text = { Text(stringResource(dialog.message)) }, confirmButton = { TextButton(onClick = { onDismiss(); dialog.onConfirm?.invoke() }, modifier = Modifier.testTag("notice-confirm")) { Text(stringResource(android.R.string.ok)) } })
-@Composable private fun UrlEntryDialog(dialog: NanidroidSimpleDialog.UrlEntry, onDismiss: () -> Unit) {
-    fun submit() { if (dialog.onSubmit(dialog.value)) onDismiss() else dialog.onInvalid() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.more_g_enter_url_text)) },
-        text = {
-            Column {
-                if (dialog.validationError) Text(stringResource(R.string.err_invalid_url), modifier = Modifier.testTag("url-validation-error"))
-                OutlinedTextField(
-                    value = dialog.value,
-                    onValueChange = dialog.onValueChanged,
-                    modifier = Modifier.fillMaxWidth().testTag("url-entry"),
-                    isError = dialog.validationError,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { submit() }),
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = ::submit, modifier = Modifier.testTag("url-submit")) { Text(stringResource(R.string.btn_dl_text)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
-    )
-}
-
 @Composable private fun UserInputDialog(dialog: NanidroidSimpleDialog.UserInput, onDismiss: () -> Unit) {
     val presentation = dialog.presentation
     val inputRequired = presentation.requireNonEmpty && dialog.value.isBlank()
@@ -301,31 +272,19 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
     dismissButton = { TextButton(onClick = onDismiss, modifier = Modifier.testTag("no-readme-cancel")) { Text(stringResource(android.R.string.cancel)) } },
 )
 
-@Composable private fun ArchiveQueueDialog(dialog: NanidroidSimpleDialog.ArchiveQueue, downloads: List<NarDownload>, onDismiss: () -> Unit) = AlertDialog(
-    onDismissRequest = onDismiss,
-    title = { Text("Archive downloads") },
-    text = { Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-        if (downloads.isEmpty()) Text("No archive downloads.")
-        downloads.forEach { item ->
-            Text(item.source.toString())
-            Text(item.state.toString())
-            if (item.state is NarDownloadState.NeedsAttention) {
-                if (item.source is com.cattailsw.nanidroid.install.NarDownloadSource.Local) {
-                    TextButton(onClick = { dialog.onReselect(item.id) }, modifier = Modifier.testTag("archive-reselect-${item.id}")) { Text("Select again") }
-                }
-                val reselectNeeded = item.state.failure.message.contains("Select the archive again")
-                if (item.source !is com.cattailsw.nanidroid.install.NarDownloadSource.Local || !reselectNeeded) {
-                    TextButton(onClick = { dialog.onRetry(item.id) }, modifier = Modifier.testTag("archive-retry-${item.id}")) { Text("Retry") }
-                }
-            }
-            TextButton(onClick = { dialog.onDelete(item.id) }, modifier = Modifier.testTag("archive-delete-${item.id}")) { Text("Delete") }
-        }
-    } },
-    confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) } },
-)
+@Composable private fun MoreGhostDialog(dialog: NanidroidSimpleDialog.MoreGhost, onDismiss: () -> Unit) =
+    ActionMenuDialog(
+        stringResource(R.string.more_g_title),
+        listOf(
+            Triple(
+                stringResource(R.string.nar_import_from_document),
+                "install-from-document",
+                dialog.onInstallFromDocument,
+            ),
+        ),
+        onDismiss,
+    )
 
-@Composable private fun MoreGhostDialog(dialog: NanidroidSimpleDialog.MoreGhost, onDismiss: () -> Unit) = ActionMenuDialog(stringResource(R.string.more_g_title), listOf(stringResource(R.string.more_g_enter_url_text) to dialog.onEnterUrl, stringResource(R.string.more_g_from_SD_text) to dialog.onInstallFromSdCard), onDismiss)
+@Composable private fun ActionMenuDialog(title: String, actions: List<Triple<String, String, () -> Unit>>, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { Column(modifier = Modifier.fillMaxWidth()) { actions.forEach { (label, tag, action) -> TextButton(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).testTag(tag), onClick = { onDismiss(); action() }) { Text(label) } } } }, confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } })
 
-@Composable private fun ActionMenuDialog(title: String, actions: List<Pair<String, () -> Unit>>, onDismiss: () -> Unit) = AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { Column(modifier = Modifier.fillMaxWidth()) { actions.forEachIndexed { index, (label, action) -> TextButton(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).testTag("simple-action-$index"), onClick = { onDismiss(); action() }) { Text(label) } } } }, confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } })
-
-@Preview(showBackground = true) @Composable private fun MoreGhostDialogPreview() { NanidroidSimpleDialogHost(NanidroidSimpleDialog.MoreGhost({}, {}), {}) }
+@Preview(showBackground = true) @Composable private fun MoreGhostDialogPreview() { NanidroidSimpleDialogHost(NanidroidSimpleDialog.MoreGhost({}), {}) }

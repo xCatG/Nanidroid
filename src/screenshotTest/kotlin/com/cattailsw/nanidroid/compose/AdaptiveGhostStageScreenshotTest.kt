@@ -116,14 +116,14 @@ fun TinyWidePreview() = AdaptiveGhostStageScreenshot("tiny_wide")
 fun TinyTallPreview() = AdaptiveGhostStageScreenshot("tiny_tall")
 
 @PreviewTest
-@Preview(name = "stalled_normal", group = "product", widthDp = 360, heightDp = 720, device = "spec:width=360dp,height=720dp,dpi=320")
+@Preview(name = "import_installing", group = "product", widthDp = 360, heightDp = 720, device = "spec:width=360dp,height=720dp,dpi=320")
 @Composable
-fun StalledNormalPreview() = AdaptiveGhostStageScreenshot("stalled_normal")
+fun ImportInstallingPreview() = AdaptiveGhostStageScreenshot("import_installing")
 
 @PreviewTest
-@Preview(name = "stalled_passive", group = "product", widthDp = 400, heightDp = 1000, device = "spec:width=400dp,height=1000dp,dpi=320")
+@Preview(name = "import_failed", group = "product", widthDp = 400, heightDp = 1000, device = "spec:width=400dp,height=1000dp,dpi=320")
 @Composable
-fun StalledPassivePreview() = AdaptiveGhostStageScreenshot("stalled_passive")
+fun ImportFailedPreview() = AdaptiveGhostStageScreenshot("import_failed")
 
 @PreviewTest
 @Preview(name = "collision_shapes_combined", group = "product", widthDp = 610, heightDp = 500, device = "spec:width=610dp,height=500dp,dpi=320")

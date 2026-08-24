@@ -4,7 +4,6 @@
 
 
   <string name="dl_complete">Download Completed</string>
-  <string name="dl_note">%1$s finished downloading. Local archive installation is being modernized.</string>
   <string name="list_ghost_btn_text">List Ghosts</string>
   <string name="more_ghosts_btn_text">More Ghost</string>
   <string name="list_ghost_dlg_title">List of Installed Ghosts</string>
@@ -14,42 +13,12 @@
   <string name="new_ghost_installed_title">Installed New Ghost</string>
   <string name="close_btn_text">Close</string>
   <string name="more_g_title">To Get More Ghosts</string>
-  <string name="more_g_enter_url_text">Enter URL</string>
-  <string name="more_g_from_SD_text">Install from SD card</string>
-  <string name="err_invalid_url">Invalid URL.  URL must end with .nar or .zip</string>
-  <string name="err_https_nar_only">For your safety, Nanidroid can only download HTTPS .nar or .zip links.</string>
-  <string name="err_nar_title">Error installing from SD card</string>
-  <string name="err_no_nar_folder">No Nar folder found on SD card</string>
-  <string name="err_no_nar_file">No .nar file found</string>
-  <string name="dlg_sel_nar_title">Select one file to install</string>
-  <string name="dlg_sel_nar_install_text">Install</string>
-  <string name="btn_dl_text">Download</string>
 
   <string name="ghosts_btn_text">Ghosts</string>
   <string name="more_btn_text">More</string>
   <string name="readme_menu_text">Readme</string>
   <string name="current_ghost_no_readme_title">No Readme</string>
   <string name="current_ghost_no_readme_message">The current ghost has no readme file to show.</string>
-  <string name="archive_queue_btn_text">Downloads</string>
-  <string name="archive_queue_status_text">Downloads (%1$d)</string>
-  <string name="archive_queue_btn_text_with_count">%1$d downloads</string>
-  <string name="archive_queue_overflow_empty">More, no archive downloads</string>
-  <plurals name="archive_queue_overflow_active">
-    <item quantity="one">More, %d download active</item>
-    <item quantity="other">More, %d downloads active</item>
-  </plurals>
-  <plurals name="archive_queue_overflow_complete">
-    <item quantity="one">More, %d download complete</item>
-    <item quantity="other">More, %d downloads complete</item>
-  </plurals>
-  <plurals name="archive_queue_overflow_attention">
-    <item quantity="one">More, %d download needs attention</item>
-    <item quantity="other">More, %d downloads need attention</item>
-  </plurals>
-  <plurals name="archive_queue_overflow_other">
-    <item quantity="one">More, %d archive download</item>
-    <item quantity="other">More, %d archive downloads</item>
-  </plurals>
   
   <string name="user_input_dlg_title">Input</string>
   <string name="user_input_required">Input is required</string>

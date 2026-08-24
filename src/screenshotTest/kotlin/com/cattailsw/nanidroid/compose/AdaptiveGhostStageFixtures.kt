@@ -7,12 +7,9 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.SurfaceCollision
 import com.cattailsw.nanidroid.SurfaceDefinition
-import com.cattailsw.nanidroid.durable.AttemptId
-import com.cattailsw.nanidroid.durable.DurableOperationRecord
-import com.cattailsw.nanidroid.durable.OperationId
-import com.cattailsw.nanidroid.durable.OperationKind
-import com.cattailsw.nanidroid.durable.OperationProgress
-import com.cattailsw.nanidroid.durable.OperationStatus
+import com.cattailsw.nanidroid.install.ArchiveInstallFailure
+import com.cattailsw.nanidroid.install.ForegroundNarImportState
+import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.runtime.GhostPresentationState
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
@@ -22,7 +19,7 @@ import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
 import com.cattailsw.nanidroid.surface.CollisionShape
 
-data class StageScreenshotCase(
+internal data class StageScreenshotCase(
     val name: String,
     val windowSizeDp: DpSize,
     val expectedSafeStageDp: DpSize,
@@ -48,12 +45,12 @@ enum class ScreenshotInvariant {
     TINY_ONLY,
 }
 
-data class StageFixtureState(
+internal data class StageFixtureState(
     val presentation: GhostPresentationState,
     val sakura: ScreenshotSurfaceFixture,
     val kero: ScreenshotSurfaceFixture,
     val collisionOverlaySpeaker: SurfaceSpeaker? = null,
-    val stalledOperation: DurableOperationRecord?,
+    val narImportState: ForegroundNarImportState,
     val displayFeatures: List<StageDisplayFeature> = emptyList(),
 )
 
@@ -64,7 +61,7 @@ data class ScreenshotSurfaceFixture(
 
 private const val CANONICAL_APP_BAR_HEIGHT_DP = 64f
 
-val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
+internal val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
     val sakuraStandard = surfaceFixture(
         id = 0,
         width = 180,
@@ -114,25 +111,19 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
         ),
     )
 
-    val stalledRunning = DurableOperationRecord(
-        id = OperationId("fixture-stall-running"),
-        attemptId = AttemptId(1L),
-        kind = OperationKind.NAR_INSTALL,
-        externalJob = null,
-        progress = OperationProgress("Download", 24L),
-        status = OperationStatus.RUNNING,
-        showStallPrompt = true,
-        diagnostics = "fixture-stall-running",
+    val importToken = NarImportAttemptToken(
+        processNonce = "screenshot-fixture",
+        sequence = 1L,
     )
-    val stalledPassive = DurableOperationRecord(
-        id = OperationId("fixture-stall-passive"),
-        attemptId = AttemptId(1L),
-        kind = OperationKind.NAR_INSTALL,
-        externalJob = null,
-        progress = OperationProgress("Waiting", 24L),
-        status = OperationStatus.CANCEL_REQUESTED,
-        showStallPrompt = true,
-        diagnostics = "fixture-stall-passive",
+    val importInstalling = ForegroundNarImportState.Installing(
+        token = importToken,
+        phase = "extracting",
+        completed = 24L,
+    )
+    val importFailed = ForegroundNarImportState.Failed(
+        token = importToken,
+        message = "The selected document is not a valid ghost archive.",
+        failure = ArchiveInstallFailure.InvalidArchive,
     )
 
     val gridCases = listOf(400f, 610f, 900f).flatMap { width ->
@@ -157,7 +148,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                     ),
                     sakura = sakuraStandard,
                     kero = keroStandard,
-                    stalledOperation = null,
+                    narImportState = ForegroundNarImportState.Idle,
                 ),
             )
         }
@@ -188,7 +179,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -210,7 +201,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -227,7 +218,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -246,7 +237,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -267,7 +258,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -288,7 +279,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -305,7 +296,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -322,7 +313,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -339,7 +330,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -356,7 +347,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -377,7 +368,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
                 displayFeatures = foldFeatures,
             ),
         ),
@@ -395,7 +386,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -412,11 +403,11 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
-            name = "stalled_normal",
+            name = "import_installing",
             window = DpSize(360.dp, 720.dp),
             posture = StagePosture.FLAT,
             invariants = setOf(
@@ -425,18 +416,18 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
             ),
             state = StageFixtureState(
                 presentation = presentationState(
-                    sakuraText = "Sakura waiting.",
+                    sakuraText = "Sakura importing.",
                     keroText = "",
                     sakuraSurfaceId = sakuraStandard.definition.id,
                     keroSurfaceId = keroStandard.definition.id,
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = stalledRunning,
+                narImportState = importInstalling,
             ),
         ),
         stageCase(
-            name = "stalled_passive",
+            name = "import_failed",
             window = DpSize(400.dp, 1000.dp),
             posture = StagePosture.FLAT,
             invariants = setOf(
@@ -445,14 +436,14 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
             ),
             state = StageFixtureState(
                 presentation = presentationState(
-                    sakuraText = "Sakura waiting passively.",
+                    sakuraText = "Sakura import failed.",
                     keroText = "",
                     sakuraSurfaceId = sakuraStandard.definition.id,
                     keroSurfaceId = keroStandard.definition.id,
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = stalledPassive,
+                narImportState = importFailed,
             ),
         ),
         stageCase(
@@ -470,7 +461,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 sakura = sakuraOverlay,
                 kero = keroStandard,
                 collisionOverlaySpeaker = SurfaceSpeaker.SAKURA,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
     )
@@ -494,7 +485,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -515,7 +506,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -536,7 +527,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -557,7 +548,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -578,7 +569,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
         stageCase(
@@ -599,7 +590,7 @@ val ADAPTIVE_GHOST_STAGE_SCREENSHOT_CASES: List<StageScreenshotCase> = run {
                 ),
                 sakura = sakuraStandard,
                 kero = keroStandard,
-                stalledOperation = null,
+                narImportState = ForegroundNarImportState.Idle,
             ),
         ),
     )
@@ -648,8 +639,8 @@ internal fun validateAdaptiveGhostStageFixtures(
         "foldable_vertical_separating",
         "tiny_wide",
         "tiny_tall",
-        "stalled_normal",
-        "stalled_passive",
+        "import_installing",
+        "import_failed",
         "collision_shapes_combined",
     )
     val expectedPairwise = setOf(
@@ -673,7 +664,7 @@ internal fun validateAdaptiveGhostStageFixtures(
             it.name.startsWith("tablet_") ||
             it.name.startsWith("foldable_") ||
             it.name.startsWith("tiny_") ||
-            it.name.startsWith("stalled_") ||
+            it.name.startsWith("import_") ||
             it.name == "collision_shapes_combined"
     }
     if (stateCases.size != 16) add("expected 16 state cases, got ${stateCases.size}")

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="dl_complete">下載完成</string>
-  <string name="dl_note">可以安裝%1$s</string>
   <string name="list_ghost_btn_text">偽人格列表</string>
   <string name="more_ghosts_btn_text">取得更多偽人格</string>
   <string name="list_ghost_dlg_title">已安裝偽人格列表</string>
@@ -11,25 +10,12 @@
   <string name="new_ghost_installed_title">安裝了新的偽人格</string>
   <string name="close_btn_text">關閉</string>
   <string name="more_g_title">取得更多偽人格</string>
-  <string name="more_g_enter_url_text">輸入網址</string>
-  <string name="more_g_from_SD_text">從SD卡安裝</string>
-  <string name="err_invalid_url">無效的URL。 URL必須以 .nar 或 .zip 結束</string>
-  <string name="err_https_nar_only">為了安全起見，Nanidroid 只能下載 HTTPS 的 .nar 或 .zip 連結。</string>
-  <string name="err_nar_title">從SD卡安裝錯誤</string>
-  <string name="err_no_nar_folder">SD卡上沒有找到名為nar的資料夾</string>
-  <string name="err_no_nar_file">沒有發現.nar檔案</string>
-  <string name="dlg_sel_nar_title">選擇一個檔案來安裝</string>
-  <string name="dlg_sel_nar_install_text">安裝</string>
-  <string name="btn_dl_text">下載</string>
 
   <string name="ghosts_btn_text">偽人格列表</string>
   <string name="more_btn_text">更多</string>
   <string name="readme_menu_text">Readme</string>
   <string name="current_ghost_no_readme_title">沒有 Readme</string>
   <string name="current_ghost_no_readme_message">目前偽人格沒有可顯示的說明文件。</string>
-  <string name="archive_queue_btn_text">下載</string>
-  <string name="archive_queue_status_text">下載 (%1$d)</string>
-  <string name="archive_queue_btn_text_with_count">共 %1$d 個下載</string>
 
   <string name="user_input_dlg_title">輸入</string>
   <string name="user_input_required">必須輸入內容</string>
