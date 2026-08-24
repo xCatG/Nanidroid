@@ -81,9 +81,13 @@ class NanidroidLifecycleInstrumentationTest {
         )
         replacementDispatcher.runNext()
         val replacementFailure = AtomicReference<Throwable?>()
+        val recoveringObserved = CountDownLatch(1)
         val replacementThread = Thread {
             try {
-                replaceStartupCoordinatorForTesting(replacement)
+                replaceStartupCoordinatorForTesting(
+                    replacement,
+                    onRecovering = recoveringObserved::countDown,
+                )
             } catch (failure: Throwable) {
                 replacementFailure.set(failure)
             }
@@ -91,16 +95,18 @@ class NanidroidLifecycleInstrumentationTest {
 
         try {
             replacementThread.start()
-            SystemClock.sleep(RUNNER_STATE_POLL_MILLIS * 5)
-            val completedBeforeRecovery = !replacementThread.isAlive
+            Assert.assertTrue(
+                "Replacement helper did not observe startup recovery",
+                recoveringObserved.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+            )
+            Assert.assertTrue(
+                "Test coordinator replacement did not remain pending during startup recovery",
+                replacementThread.isAlive,
+            )
 
             recoveryDispatcher.runNext()
             replacementThread.join(ACTIVITY_INIT_TIMEOUT_MILLIS)
 
-            Assert.assertFalse(
-                "Test coordinator replacement must wait for startup recovery",
-                completedBeforeRecovery,
-            )
             Assert.assertFalse("Replacement thread did not terminate", replacementThread.isAlive)
             replacementFailure.get()?.let { throw AssertionError("Replacement failed", it) }
             Assert.assertSame(
@@ -433,6 +439,7 @@ class NanidroidLifecycleInstrumentationTest {
 
     private fun replaceStartupCoordinatorForTesting(
         replacement: ForegroundNarImportCoordinator,
+        onRecovering: () -> Unit = {},
     ) {
         val startup = ForegroundNarImportCoordinator.get(
             InstrumentationRegistry.getInstrumentation().targetContext,
@@ -441,9 +448,8 @@ class NanidroidLifecycleInstrumentationTest {
         val deadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
         while (SystemClock.uptimeMillis() < deadline) {
             when (val state = startup.state.value) {
-                ForegroundNarImportState.Recovering,
-                is ForegroundNarImportState.Cleaning,
-                -> Unit
+                ForegroundNarImportState.Recovering -> onRecovering()
+                is ForegroundNarImportState.Cleaning -> Unit
                 ForegroundNarImportState.Idle -> {
                     ForegroundNarImportCoordinator.replaceForTesting(replacement)
                     return
