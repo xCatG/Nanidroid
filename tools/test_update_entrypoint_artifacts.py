@@ -37,10 +37,34 @@ def archive_view_filters(manifest: ET.Element) -> list[ET.Element]:
             for action in intent_filter.findall("action")
         )
         and any(
-            data.get(f"{ANDROID}mimeType") in ARCHIVE_MIME_TYPES
+            any(
+                mime_pattern_matches(
+                    data.get(f"{ANDROID}mimeType"),
+                    archive_mime_type,
+                )
+                for archive_mime_type in ARCHIVE_MIME_TYPES
+            )
             for data in intent_filter.findall("data")
         )
     ]
+
+
+def mime_pattern_matches(pattern: str | None, target: str) -> bool:
+    if pattern is None or pattern.count("/") != 1:
+        return False
+    pattern_type, pattern_subtype = pattern.casefold().split("/", 1)
+    target_type, target_subtype = target.casefold().split("/", 1)
+    if not pattern_type or not pattern_subtype:
+        return False
+    if "*" in pattern_type and pattern_type != "*":
+        return False
+    if "*" in pattern_subtype and pattern_subtype != "*":
+        return False
+    if pattern_type == "*" and pattern_subtype != "*":
+        return False
+    return (pattern_type == "*" or pattern_type == target_type) and (
+        pattern_subtype == "*" or pattern_subtype == target_subtype
+    )
 
 
 class UpdateEntrypointArtifactTest(unittest.TestCase):
@@ -110,7 +134,15 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
                   </intent-filter>
                   <intent-filter>
                     <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="application/*" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
                     <data android:mimeType="text/plain" />
+                  </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="image/*" />
                   </intent-filter>
                 </activity>
                 <activity-alias
@@ -120,6 +152,10 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
                     <action android:name="android.intent.action.VIEW" />
                     <data android:mimeType="application/x-nar" />
                   </intent-filter>
+                  <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <data android:mimeType="*/*" />
+                  </intent-filter>
                 </activity-alias>
               </application>
             </manifest>
@@ -128,9 +164,14 @@ class UpdateEntrypointArtifactTest(unittest.TestCase):
 
         filters = archive_view_filters(manifest)
 
-        self.assertEqual(2, len(filters))
+        self.assertEqual(4, len(filters))
         self.assertEqual(
-            ARCHIVE_MIME_TYPES,
+            {
+                "application/zip",
+                "application/x-nar",
+                "application/*",
+                "*/*",
+            },
             {
                 data.get(f"{ANDROID}mimeType")
                 for intent_filter in filters
