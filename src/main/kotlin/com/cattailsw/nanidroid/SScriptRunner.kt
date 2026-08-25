@@ -79,7 +79,6 @@ open class SScriptRunner internal constructor(
         private const val RUN = 42; private const val STOP = 43; private const val INC_CLOCK = 44; private const val CLOCK_STEP = 1000L
         @Volatile private var self: SScriptRunner? = null
         private val productionSessionCoordinator = GhostSessionCoordinator()
-        private val msgQueue = ConcurrentLinkedQueue<String>()
         @JvmStatic fun getInstance(ctx: Context?): SScriptRunner = self ?: synchronized(this) {
             self ?: SScriptRunner(ctx).also { self = it }
         }
@@ -117,6 +116,7 @@ open class SScriptRunner internal constructor(
         var legacyChoiceCallbackPublished = false
     }
 
+    private val msgQueue = ConcurrentLinkedQueue<String>()
     private var presentationRenderer: GhostPresentationRenderer? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
     private var g: Ghost? = null
