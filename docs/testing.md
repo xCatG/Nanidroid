@@ -27,7 +27,7 @@ Build the generated artifacts before running the merged-manifest contract:
 
 ```powershell
 .\gradlew.bat assembleDebug lint
-python -m unittest tools.test_kotlin_legacy_archive_runtime_absence tools.test_kotlin_foreground_nar_import_contract tools.test_update_entrypoint_artifacts
+python -m unittest tools.test_kotlin_legacy_archive_runtime_absence tools.test_kotlin_foreground_nar_import_contract tools.test_ghost_runtime_composition_root tools.test_update_entrypoint_artifacts
 ```
 
 The production merged manifest must contain no WorkManager services, receivers,

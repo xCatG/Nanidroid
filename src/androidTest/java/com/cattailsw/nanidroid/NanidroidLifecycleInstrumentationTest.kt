@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.compose.runtime.State
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ActivityScenario.ActivityAction
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.lifecycle.Lifecycle
 import androidx.test.platform.app.InstrumentationRegistry
@@ -34,19 +35,40 @@ import kotlin.coroutines.CoroutineContext
 @RunWith(AndroidJUnit4::class)
 class NanidroidLifecycleInstrumentationTest {
     @Test
-    fun launchAndRecreateKeepsMainActivityAvailable() {
-        ActivityScenario.launch<Nanidroid?>(Nanidroid::class.java).use { scenario ->
-            val initial = AtomicReference<Nanidroid?>()
-            scenario.onActivity(ActivityAction { newValue: Nanidroid? -> initial.set(newValue) })
-            Assert.assertNotNull(initial.get())
+    fun recreatingAttachedSessionPreservesApplicationRuntimeGhostAndGeneration() {
+        val application = ApplicationProvider.getApplicationContext<CatTailApplication>()
+        ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+            val before = awaitActiveRuntime(scenario)
+            Assert.assertSame(application.ghostRuntime.runner, before.runner)
 
             scenario.recreate()
 
-            val recreated = AtomicReference<Nanidroid?>()
-            scenario.onActivity(ActivityAction { newValue: Nanidroid? -> recreated.set(newValue) })
-            Assert.assertNotNull(recreated.get())
-            Assert.assertFalse(recreated.get()!!.isFinishing())
+            val after = awaitActiveRuntime(scenario)
+            Assert.assertSame(application.ghostRuntime.runner, after.runner)
+            Assert.assertSame(before.runner, after.runner)
+            Assert.assertSame(before.ghost, after.ghost)
+            Assert.assertEquals(before.nativeGeneration, after.nativeGeneration)
         }
+    }
+
+    @Test
+    fun concurrentApplicationReadsReturnOneRuntimeAndRunner() {
+        val application = ApplicationProvider.getApplicationContext<CatTailApplication>()
+        val start = CountDownLatch(1)
+        val runtimes = java.util.Collections.synchronizedList(mutableListOf<GhostRuntime>())
+        val callers = List(12) {
+            Thread {
+                start.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+                runtimes += application.ghostRuntime
+            }.apply { start() }
+        }
+
+        start.countDown()
+        callers.forEach { it.join(ACTIVITY_INIT_TIMEOUT_MILLIS) }
+
+        Assert.assertEquals(12, runtimes.size)
+        Assert.assertEquals(1, runtimes.map(System::identityHashCode).toSet().size)
+        Assert.assertEquals(1, runtimes.map { System.identityHashCode(it.runner) }.toSet().size)
     }
 
     @Test

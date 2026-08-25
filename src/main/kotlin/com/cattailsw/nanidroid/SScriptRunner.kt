@@ -22,7 +22,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
-import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.IdentityHashMap
 import java.util.UUID
@@ -68,7 +67,6 @@ open class SScriptRunner internal constructor(
     private val playbackSchedulerFactory: () -> SScriptPlaybackScheduler = { HandlerSScriptPlaybackScheduler() },
     private val playbackHooks: SScriptPlaybackHooks = SScriptPlaybackHooks(),
 ) : Runnable {
-    constructor(ctx: Context?) : this(ctx, productionSessionCoordinator)
     interface StatusCallback { fun stop(); fun canExit(); fun ghostSwitchScriptComplete() }
     interface UICallback { fun showUserInputBox(id: String); fun showUserSelection(textlabel: Array<String>, ids: Array<String>) }
 
@@ -77,21 +75,6 @@ open class SScriptRunner internal constructor(
         @JvmField val WAIT_UNIT: Long = 50
         @JvmField val WAIT_YEN_E: Long = 1000
         private const val RUN = 42; private const val STOP = 43; private const val INC_CLOCK = 44; private const val CLOCK_STEP = 1000L
-        @Volatile private var self: SScriptRunner? = null
-        private val productionSessionCoordinator = GhostSessionCoordinator()
-        @JvmStatic fun getInstance(ctx: Context?): SScriptRunner = self ?: synchronized(this) {
-            self ?: SScriptRunner(ctx).also { self = it }
-        }
-        internal fun beginGhostConstruction(ghostId: String, ghostRoot: File): GhostConstructionReservation =
-            productionSessionCoordinator.beginConstruction(ghostId, ghostRoot)
-        internal fun reserveGhostForAttachment(ghost: Ghost): ReservedGhost =
-            productionSessionCoordinator.reserveLoadedGhostForTesting(ghost)
-        internal fun reuseActiveGhost(ghostId: String, ghostRoot: File): ReservedGhost? =
-            productionSessionCoordinator.reuseActive(ghostId, ghostRoot)
-        internal fun resetInstanceForTesting() = synchronized(this) {
-            productionSessionCoordinator.clearForTesting()
-            self = null
-        }
     }
 
     private class PlaybackState(

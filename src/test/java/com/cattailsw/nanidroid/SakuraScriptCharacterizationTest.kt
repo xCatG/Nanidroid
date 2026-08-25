@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid
 
-import com.cattailsw.nanidroid.SScriptRunner.Companion.getInstance
 import org.junit.After
 import org.junit.Assert
 import org.junit.Before
@@ -21,7 +20,7 @@ class SakuraScriptCharacterizationTest {
 
     @Before
     fun setUp() {
-        runner = com.cattailsw.nanidroid.SScriptRunner.getInstance(null)
+        runner = SScriptRunner(null, GhostSessionCoordinator())
         runner.setNoWaitMode(true)
         runner.setGhost(null)
         runner.setCallback(null)
@@ -29,8 +28,8 @@ class SakuraScriptCharacterizationTest {
         runner.setPresentationRenderer(RecordingRenderer(trace))
         runner.clearMsgQueue()
 
-        // SScriptRunner is a process singleton and retains surface ids between runs.
-        // Drive it to a deterministic baseline before observing each fixture.
+        // The fresh runner is driven to a deterministic surface baseline before
+        // observing each fixture.
         runScript("\\h\\s[0]\\u\\s[10]\\e")
         trace.clear()
     }

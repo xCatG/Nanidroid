@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
+import java.lang.reflect.Modifier
 
 class SScriptRunnerAuthorityTest {
     @Rule
@@ -32,5 +33,36 @@ class SScriptRunnerAuthorityTest {
         Assert.assertFalse(second.runtimeModeSnapshot().playingTalk)
 
         first.clearMsgQueue()
+    }
+
+    @Test
+    fun runnerHasNoStaticMutableSessionOrQueueAuthority() {
+        val runnerFields = SScriptRunner::class.java.declaredFields.associateBy { it.name }
+        Assert.assertFalse(runnerFields.containsKey("self"))
+        Assert.assertFalse(runnerFields.containsKey("productionSessionCoordinator"))
+        Assert.assertFalse(Modifier.isStatic(requireNotNull(runnerFields["msgQueue"]).modifiers))
+
+        val forbiddenMethods = setOf(
+            "getInstance",
+            "beginGhostConstruction",
+            "reserveGhostForAttachment",
+            "reuseActiveGhost",
+            "resetInstanceForTesting",
+        )
+        Assert.assertTrue(
+            SScriptRunner::class.java.declaredMethods.none {
+                it.name.substringBefore('$') in forbiddenMethods
+            },
+        )
+        Assert.assertTrue(
+            SScriptRunner.Companion::class.java.declaredMethods.none {
+                it.name.substringBefore('$') in forbiddenMethods
+            },
+        )
+        Assert.assertTrue(
+            SScriptRunner::class.java.declaredConstructors
+                .filterNot { it.isSynthetic }
+                .all { GhostSessionCoordinator::class.java in it.parameterTypes },
+        )
     }
 }
