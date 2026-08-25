@@ -143,6 +143,7 @@ internal fun Bundle.writeTransientUiSnapshot(snapshot: TransientUiSnapshot) {
 internal fun Bundle.writeNarPickerOwnerToken(token: NarImportAttemptToken) {
     putString(NAR_PICKER_OWNER_PROCESS_NONCE, token.processNonce)
     putLong(NAR_PICKER_OWNER_SEQUENCE, token.sequence)
+    putInt(NAR_PICKER_OWNER_TASK_ID, token.ownerTaskId)
 }
 
 internal fun Bundle.readNarPickerOwnerToken(): NarImportAttemptToken? = runCatching {
@@ -151,27 +152,44 @@ internal fun Bundle.readNarPickerOwnerToken(): NarImportAttemptToken? = runCatch
         ?: return null
     if (!containsKey(NAR_PICKER_OWNER_SEQUENCE)) return null
     val sequence = getLong(NAR_PICKER_OWNER_SEQUENCE).takeIf { it > 0L } ?: return null
-    NarImportAttemptToken(processNonce, sequence)
+    if (!containsKey(NAR_PICKER_OWNER_TASK_ID)) return null
+    val ownerTaskId = getInt(NAR_PICKER_OWNER_TASK_ID).takeIf { it >= 0 } ?: return null
+    NarImportAttemptToken(processNonce, sequence, ownerTaskId)
 }.getOrNull()
 
 internal fun reconcileNarPickerOwner(
     restored: NarImportAttemptToken?,
     state: ForegroundNarImportState,
-    abandon: (NarImportAttemptToken) -> Boolean,
 ): NarImportAttemptToken? {
     val awaiting = state as? ForegroundNarImportState.AwaitingSelection ?: return null
     if (restored == awaiting.token) return restored
-    abandon(awaiting.token)
     return null
+}
+
+internal fun abandonNarPickerOwnerOnFinalDestroy(
+    owner: NarImportAttemptToken?,
+    isFinishing: Boolean,
+    isChangingConfigurations: Boolean,
+    abandon: (NarImportAttemptToken) -> Boolean,
+) {
+    if (owner != null && isFinishing && !isChangingConfigurations) {
+        abandon(owner)
+    }
 }
 
 internal fun armAndLaunchNarDocumentPicker(
     coordinator: ForegroundNarImportCoordinator,
+    ownerTaskId: Int,
+    currentOwner: () -> NarImportAttemptToken?,
     setOwner: (NarImportAttemptToken?) -> Unit,
     launch: () -> Unit,
     failureMessage: String,
 ): Boolean {
-    val token = coordinator.armPicker() ?: return false
+    val token = claimNarPickerAttempt(
+        coordinator = coordinator,
+        ownerTaskId = ownerTaskId,
+        currentOwner = currentOwner(),
+    ) ?: return false
     setOwner(token)
     return try {
         launch()
@@ -181,6 +199,19 @@ internal fun armAndLaunchNarDocumentPicker(
         setOwner(null)
         false
     }
+}
+
+private fun claimNarPickerAttempt(
+    coordinator: ForegroundNarImportCoordinator,
+    ownerTaskId: Int,
+    currentOwner: NarImportAttemptToken?,
+): NarImportAttemptToken? {
+    coordinator.armPicker(ownerTaskId)?.let { return it }
+    val awaiting = coordinator.state.value as? ForegroundNarImportState.AwaitingSelection ?: return null
+    if (currentOwner == awaiting.token) return null
+    if (awaiting.token.ownerTaskId != ownerTaskId) return null
+    coordinator.abandonPicker(awaiting.token)
+    return coordinator.armPicker(ownerTaskId)
 }
 
 internal fun dispatchNarPickerResult(
@@ -202,6 +233,7 @@ private const val TRANSIENT_UI_PRESENT = "transient_ui_present"
 private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
 private const val NAR_PICKER_OWNER_PROCESS_NONCE = "nar_picker_owner_process_nonce"
 private const val NAR_PICKER_OWNER_SEQUENCE = "nar_picker_owner_sequence"
+private const val NAR_PICKER_OWNER_TASK_ID = "nar_picker_owner_task_id"
 private const val TEXT_DOCUMENT_RESTORE_KIND = "text_document_restore_kind"
 private const val TEXT_DOCUMENT_RESTORE_TITLE = "text_document_restore_title"
 private const val TEXT_DOCUMENT_RESTORE_TEXT = "text_document_restore_text"
@@ -314,7 +346,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         narPickerOwnerToken = reconcileNarPickerOwner(
             restored = savedInstanceState?.readNarPickerOwnerToken(),
             state = foregroundNarImport.state.value,
-            abandon = foregroundNarImport::abandonPicker,
         )
         runner = SScriptRunner.getInstance(this)
         setupViews()
@@ -503,6 +534,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         narPickerOwnerToken?.let(outState::writeNarPickerOwnerToken)
         super.onSaveInstanceState(outState)
     }
+
+    override fun onDestroy() {
+        abandonNarPickerOwnerOnFinalDestroy(
+            owner = narPickerOwnerToken,
+            isFinishing = isFinishing,
+            isChangingConfigurations = isChangingConfigurations,
+            abandon = foregroundNarImport::abandonPicker,
+        )
+        super.onDestroy()
+    }
     override fun onResume() {
         super.onResume()
         if (initComplete) {
@@ -637,11 +678,14 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
         armAndLaunchNarDocumentPicker(
             coordinator = foregroundNarImport,
+            ownerTaskId = taskId,
+            currentOwner = { narPickerOwnerToken },
             setOwner = { narPickerOwnerToken = it },
             launch = { narDocumentPicker.launch(arrayOf("*/*")) },
             failureMessage = "Nanidroid could not open the document picker.",
         )
     }
+
     fun onMoreGhost() = getMoreGhost()
     private fun showGhostListDlg() {
         val manager = gm ?: return

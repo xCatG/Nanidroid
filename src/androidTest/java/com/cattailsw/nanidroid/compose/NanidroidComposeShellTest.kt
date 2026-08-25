@@ -44,6 +44,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import com.cattailsw.nanidroid.R
+import com.cattailsw.nanidroid.install.ForegroundNarImportState
+import com.cattailsw.nanidroid.install.NarImportAttemptToken
+import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 
 
@@ -196,6 +199,60 @@ class NanidroidComposeShellTest {
         composeRule.waitForIdle()
 
         assertEquals(true, dismissed)
+    }
+
+    @Test
+    fun storage_unavailable_notice_overrides_recovery_required_import_modal() {
+        val token = NarImportAttemptToken("process", 1)
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "",
+                toolbarVisible = false,
+                onListGhost = {},
+                narImportState = ForegroundNarImportState.RecoveryRequired(
+                    token = token,
+                    primary = NarImportPrimaryOutcome.Interrupted,
+                    message = "Private staging could not be reconciled.",
+                ),
+                simpleDialog = NanidroidSimpleDialog.Notice(
+                    title = R.string.err_title,
+                    message = R.string.err_no_sdcard,
+                ),
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("notice-confirm").assertIsDisplayed()
+        composeRule.onNodeWithTag("nar-import-retry-cleanup").assertDoesNotExist()
+    }
+
+    @Test
+    fun ordinary_notice_remains_below_recovery_required_import_modal() {
+        val token = NarImportAttemptToken("process", 2)
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "",
+                toolbarVisible = false,
+                onListGhost = {},
+                narImportState = ForegroundNarImportState.RecoveryRequired(
+                    token = token,
+                    primary = NarImportPrimaryOutcome.Interrupted,
+                    message = "Private staging could not be reconciled.",
+                ),
+                simpleDialog = NanidroidSimpleDialog.Notice(
+                    title = android.R.string.dialog_alert_title,
+                    message = android.R.string.ok,
+                ),
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("nar-import-retry-cleanup").assertIsDisplayed()
+        composeRule.onNodeWithTag("notice-confirm").assertDoesNotExist()
     }
 
     @Test

@@ -10,7 +10,6 @@ import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportRecoveryResult
 import io.mockk.every
 import io.mockk.mockk
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Runnable
 import org.junit.Assert.assertEquals
@@ -32,26 +31,33 @@ class ForegroundNarPickerOwnershipTest {
         every { bundle.putLong(any(), any()) } answers {
             values[firstArg()] = secondArg<Long>()
         }
+        every { bundle.putInt(any(), any()) } answers {
+            values[firstArg()] = secondArg<Int>()
+        }
         every { bundle.getString(any()) } answers { values[firstArg()] as? String }
         every { bundle.containsKey(any()) } answers { values.containsKey(firstArg()) }
         every { bundle.getLong(any()) } answers { values[firstArg()] as? Long ?: 0L }
-        val token = NarImportAttemptToken("same-process", 8)
+        every { bundle.getInt(any()) } answers { values[firstArg()] as? Int ?: 0 }
+        val token = NarImportAttemptToken("same-process", 8, 42)
 
         bundle.writeNarPickerOwnerToken(token)
 
         assertEquals(token, bundle.readNarPickerOwnerToken())
         assertEquals("same-process", values["nar_picker_owner_process_nonce"])
         assertEquals(8L, values["nar_picker_owner_sequence"])
+        assertEquals(42, values["nar_picker_owner_task_id"])
     }
 
     @Test
     fun malformedBundleValuesDoNotRestoreAnOwner() {
         val malformed = listOf(
-            rawOwner(nonce = null, sequence = 4L),
-            rawOwner(nonce = "", sequence = 4L),
-            rawOwner(nonce = "process", sequence = null),
-            rawOwner(nonce = "process", sequence = 0L),
-            rawOwner(nonce = "process", sequence = -1L),
+            rawOwner(nonce = null, sequence = 4L, ownerTaskId = 42),
+            rawOwner(nonce = "", sequence = 4L, ownerTaskId = 42),
+            rawOwner(nonce = "process", sequence = null, ownerTaskId = 42),
+            rawOwner(nonce = "process", sequence = 0L, ownerTaskId = 42),
+            rawOwner(nonce = "process", sequence = -1L, ownerTaskId = 42),
+            rawOwner(nonce = "process", sequence = 4L, ownerTaskId = null),
+            rawOwner(nonce = "process", sequence = 4L, ownerTaskId = -1),
             throwingOwner(),
         )
 
@@ -63,23 +69,17 @@ class ForegroundNarPickerOwnershipTest {
     @Test
     fun sameProcessRecreationKeepsTheExactAwaitingOwner() {
         val token = NarImportAttemptToken("live-process", 4)
-        var abandoned: NarImportAttemptToken? = null
 
         val owner = reconcileNarPickerOwner(
             restored = token,
             state = ForegroundNarImportState.AwaitingSelection(token),
-            abandon = {
-                abandoned = it
-                true
-            },
         )
 
         assertSame(token, owner)
-        assertNull(abandoned)
     }
 
     @Test
-    fun deadProcessNonceMismatchAbandonsTheCurrentAwaitingAttempt() {
+    fun deadProcessNonceMismatchDoesNotAbandonAnotherLiveAwaitingAttempt() {
         val restored = NarImportAttemptToken("dead-process", 4)
         val current = NarImportAttemptToken("live-process", 4)
         val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(current))
@@ -87,30 +87,28 @@ class ForegroundNarPickerOwnershipTest {
         val owner = reconcileNarPickerOwner(
             restored = restored,
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
 
         assertNull(owner)
-        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(current), coordinator.state.value)
     }
 
     @Test
-    fun newTaskWithoutRegistryOwnerAbandonsAwaitingSelection() {
+    fun newTaskWithoutRegistryOwnerDoesNotAbandonTheLiveAwaitingSelection() {
         val token = NarImportAttemptToken("live-process", 4)
         val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
 
         val owner = reconcileNarPickerOwner(
             restored = null,
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
 
         assertNull(owner)
-        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(token), coordinator.state.value)
     }
 
     @Test
-    fun staleOwnerARejectsAndAbandonsCurrentAwaitingOwnerB() {
+    fun staleOwnerARejectsWithoutAbandoningCurrentAwaitingOwnerB() {
         val stale = NarImportAttemptToken("live-process", 3)
         val current = NarImportAttemptToken("live-process", 4)
         val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(current))
@@ -118,29 +116,52 @@ class ForegroundNarPickerOwnershipTest {
         val owner = reconcileNarPickerOwner(
             restored = stale,
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
 
         assertNull(owner)
-        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(current), coordinator.state.value)
     }
 
     @Test
-    fun restoredOwnerIsRejectedWithoutAbandoningANonAwaitingState() {
+    fun restoredOwnerIsRejectedForANonAwaitingState() {
         val restored = NarImportAttemptToken("live-process", 4)
-        val abandoned = AtomicBoolean(false)
 
         val owner = reconcileNarPickerOwner(
             restored = restored,
             state = ForegroundNarImportState.Idle,
-            abandon = {
-                abandoned.set(true)
-                true
-            },
         )
 
         assertNull(owner)
-        assertFalse(abandoned.get())
+    }
+
+    @Test
+    fun finalOwnerDestroyAbandonsItsOwnAwaitingSelection() {
+        val token = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+
+        abandonNarPickerOwnerOnFinalDestroy(
+            owner = token,
+            isFinishing = true,
+            isChangingConfigurations = false,
+            abandon = coordinator::abandonPicker,
+        )
+
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+    }
+
+    @Test
+    fun configurationDestroyPreservesItsAwaitingSelectionForRestoration() {
+        val token = NarImportAttemptToken("live-process", 4)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+
+        abandonNarPickerOwnerOnFinalDestroy(
+            owner = token,
+            isFinishing = false,
+            isChangingConfigurations = true,
+            abandon = coordinator::abandonPicker,
+        )
+
+        assertEquals(ForegroundNarImportState.AwaitingSelection(token), coordinator.state.value)
     }
 
     @Test
@@ -150,6 +171,8 @@ class ForegroundNarPickerOwnershipTest {
 
         val launched = armAndLaunchNarDocumentPicker(
             coordinator = coordinator,
+            ownerTaskId = 42,
+            currentOwner = { owner },
             setOwner = { owner = it },
             launch = { throw IllegalStateException("registry unavailable") },
             failureMessage = "The document picker is unavailable.",
@@ -159,7 +182,94 @@ class ForegroundNarPickerOwnershipTest {
         assertNull(owner)
         val failed = coordinator.state.value as ForegroundNarImportState.Failed
         assertEquals("The document picker is unavailable.", failed.message)
-        assertEquals(NarImportAttemptToken("test-process", 1), failed.token)
+        assertEquals(NarImportAttemptToken("test-process", 1, 42), failed.token)
+    }
+
+    @Test
+    fun ownerlessLaunchCannotInferThatADifferentTaskWasRemoved() {
+        val stale = NarImportAttemptToken("live-process", 4, 41)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(stale))
+        var owner: NarImportAttemptToken? = null
+        var launchCalls = 0
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            ownerTaskId = 42,
+            currentOwner = { owner },
+            setOwner = { owner = it },
+            launch = { launchCalls += 1 },
+            failureMessage = "The document picker is unavailable.",
+        )
+
+        assertFalse(launched)
+        assertEquals(0, launchCalls)
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(stale), coordinator.state.value)
+    }
+
+    @Test
+    fun explicitOwnerlessLaunchReclaimsLostStateWithinTheSameTask() {
+        val stale = NarImportAttemptToken("live-process", 4, 42)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(stale))
+        var owner: NarImportAttemptToken? = null
+        var launchCalls = 0
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            ownerTaskId = 42,
+            currentOwner = { owner },
+            setOwner = { owner = it },
+            launch = { launchCalls += 1 },
+            failureMessage = "The document picker is unavailable.",
+        )
+
+        assertTrue(launched)
+        assertEquals(1, launchCalls)
+        assertEquals(42, requireNotNull(owner).ownerTaskId)
+    }
+
+    @Test
+    fun explicitLaunchFromTheExistingOwnerDoesNotReclaimItsLiveSelection() {
+        val token = NarImportAttemptToken("live-process", 4, 42)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+        var owner: NarImportAttemptToken? = token
+        var launchCalls = 0
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            ownerTaskId = 42,
+            currentOwner = { owner },
+            setOwner = { owner = it },
+            launch = { launchCalls += 1 },
+            failureMessage = "The document picker is unavailable.",
+        )
+
+        assertFalse(launched)
+        assertEquals(0, launchCalls)
+        assertEquals(token, owner)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(token), coordinator.state.value)
+    }
+
+    @Test
+    fun ownerlessLaunchCannotReclaimAnotherLiveTasksSelection() {
+        val token = NarImportAttemptToken("live-process", 4, 41)
+        val coordinator = coordinatorAt(ForegroundNarImportState.AwaitingSelection(token))
+        var owner: NarImportAttemptToken? = null
+        var launchCalls = 0
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            ownerTaskId = 42,
+            currentOwner = { owner },
+            setOwner = { owner = it },
+            launch = { launchCalls += 1 },
+            failureMessage = "The document picker is unavailable.",
+        )
+
+        assertFalse(launched)
+        assertEquals(0, launchCalls)
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.AwaitingSelection(token), coordinator.state.value)
     }
 
     @Test
@@ -208,7 +318,6 @@ class ForegroundNarPickerOwnershipTest {
         var owner = reconcileNarPickerOwner(
             restored = NarImportAttemptToken("dead-process", 1),
             state = coordinator.state.value,
-            abandon = coordinator::abandonPicker,
         )
         var takeCalls = 0
 
@@ -228,10 +337,12 @@ class ForegroundNarPickerOwnershipTest {
         assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
     }
 
-    private fun rawOwner(nonce: String?, sequence: Long?): Bundle = mockk<Bundle>().also { bundle ->
+    private fun rawOwner(nonce: String?, sequence: Long?, ownerTaskId: Int?): Bundle = mockk<Bundle>().also { bundle ->
         every { bundle.getString("nar_picker_owner_process_nonce") } returns nonce
         every { bundle.containsKey("nar_picker_owner_sequence") } returns (sequence != null)
         every { bundle.getLong("nar_picker_owner_sequence") } returns (sequence ?: 0L)
+        every { bundle.containsKey("nar_picker_owner_task_id") } returns (ownerTaskId != null)
+        every { bundle.getInt("nar_picker_owner_task_id") } returns (ownerTaskId ?: 0)
     }
 
     private fun throwingOwner(): Bundle = mockk<Bundle>().also { bundle ->
@@ -246,7 +357,7 @@ class ForegroundNarPickerOwnershipTest {
             val prior = requireNotNull(coordinator.armPicker())
             assertTrue(coordinator.abandonPicker(prior))
         }
-        val armed = requireNotNull(coordinator.armPicker())
+        val armed = requireNotNull(coordinator.armPicker(state.token.ownerTaskId))
         assertEquals(state.token.sequence, armed.sequence)
         return coordinator
     }

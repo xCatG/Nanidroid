@@ -49,8 +49,8 @@ internal class ForegroundNarImportCoordinator(
         scope.launch { completeStartupRecovery() }
     }
 
-    fun armPicker(): NarImportAttemptToken? {
-        val token = nextToken()
+    fun armPicker(ownerTaskId: Int = UNKNOWN_NAR_PICKER_OWNER_TASK_ID): NarImportAttemptToken? {
+        val token = nextToken(ownerTaskId)
         return synchronized(lifecycleLock) {
             if (retired) return@synchronized null
             lifecycleTestHooks.afterArmLock()
@@ -232,7 +232,8 @@ internal class ForegroundNarImportCoordinator(
         primary: NarImportPrimaryOutcome,
     ) = ForegroundNarImportState.RecoveryRequired(token, primary, RECOVERY_FAILURE_MESSAGE)
 
-    private fun nextToken() = NarImportAttemptToken(processNonce, attempts.incrementAndGet())
+    private fun nextToken(ownerTaskId: Int = UNKNOWN_NAR_PICKER_OWNER_TASK_ID) =
+        NarImportAttemptToken(processNonce, attempts.incrementAndGet(), ownerTaskId)
 
     private fun retireIfIdle(): Boolean {
         lifecycleTestHooks.beforeRetirementLock()
