@@ -3,30 +3,29 @@ from pathlib import Path
 
 
 class KotlinGhostDomainContractTest(unittest.TestCase):
-    def test_ghost_is_kotlin_and_preserves_java_subclass_hooks(self):
+    def test_ghost_is_immutable_prepared_display_data_without_native_authority(self):
         root = Path(__file__).resolve().parents[1]
         self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/Ghost.java").exists())
         self.assertFalse((root / "legacy").exists())
         source = (root / "src/main/kotlin/com/cattailsw/nanidroid/Ghost.kt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("open class Ghost", source)
-        self.assertIn("protected open fun loadGhostInfo()", source)
-        self.assertIn("protected open fun incrementCreateCount()", source)
-        for method in (
-            "open fun getCreateCount()",
-            "open fun getGhostId()",
-            "open fun getGhostName()",
-            "open fun getSakuraName()",
-            "open fun getKeroName()",
-            "open fun getUsername()",
-            "open fun doShioriEvent(event: String, ref: Array<String>?)",
+        self.assertIn("internal class Ghost internal constructor(prepared: PreparedGhost)", source)
+        for value in (
+            "val id: String = prepared.id",
+            "val canonicalRoot: File = prepared.canonicalRoot",
+            "val surfaces: SurfaceCatalog = prepared.surfaces",
+            "val engine: GhostEngine = prepared.engine",
         ):
-            self.assertIn(method, source)
-        self.assertIn("@JvmField protected var rootPath", source)
-        self.assertIn("@JvmField protected var ghostDesc", source)
-        self.assertIn("@JvmField protected var error", source)
-        self.assertIn("fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse", source)
+            self.assertIn(value, source)
+        for retired_authority in (
+            "Shiori",
+            "fun loadGhostInfo(",
+            "fun unload(",
+            "fun requestRaw(",
+            "fun doShioriEvent(",
+        ):
+            self.assertNotIn(retired_authority, source)
 
 
 if __name__ == "__main__":
