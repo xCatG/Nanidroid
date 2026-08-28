@@ -196,9 +196,9 @@ class GhostEventCapabilitiesTest {
             return "SHIORI/3.0 204 No Content\r\n\r\n"
         }
 
-        override fun terminate() = Unit
+        override fun load() = com.cattailsw.nanidroid.shiori.ShioriLoadResult.Loaded
 
-        override fun unloadShiori() = Unit
+        override fun unloadShiori() = com.cattailsw.nanidroid.shiori.ShioriUnloadResult.Unloaded
     }
 
     private class RecordingGhost(shiori: Shiori) : Ghost("recording") {

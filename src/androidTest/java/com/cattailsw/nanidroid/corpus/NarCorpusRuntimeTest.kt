@@ -53,6 +53,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
 import com.cattailsw.nanidroid.shiori.NotSupportedShiori
+import com.cattailsw.nanidroid.shiori.ShioriLoadResult
 import com.cattailsw.nanidroid.shiori.Shiori
 import com.cattailsw.nanidroid.surface.CollisionShape
 import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
@@ -848,7 +849,12 @@ class NarCorpusRuntimeTest {
         masterDesc: Map<String, String>,
         context: Context?,
     ) {
-        private val shiori: Shiori = ShioriFactory.getInstance().getShiori(path, masterDesc, context)
+        private val shiori: Shiori = ShioriFactory.getInstance().getShiori(path, masterDesc, context).also {
+            when (val result = it.load()) {
+                ShioriLoadResult.Loaded -> Unit
+                is ShioriLoadResult.Failed -> throw result.cause
+            }
+        }
 
         fun getShioriModuleName(): String? = shiori.getModuleName()
         fun getGhostIdentity(): String = ghostIdentity

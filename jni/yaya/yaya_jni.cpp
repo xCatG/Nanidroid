@@ -29,18 +29,18 @@ void throwIllegalState(JNIEnv* env, const char* message) {
     }
 }
 
-void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
+jint nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
     if (path == NULL || cacheDirectory == NULL) {
-        throwIllegalState(env, "YAYA requires a ghost root directory");
-        return;
+        return 0;
     }
+    YayaLock lock;
+    if (gYayaLoaded) return -1;
     // SSU is a linked Android DSO; its soname is resolved by the loader.
     (void)cacheDirectory;
 
     const char* value = env->GetStringUTFChars(path, NULL);
-    if (value == NULL) return;
+    if (value == NULL) return 0;
     const jsize length = env->GetStringUTFLength(path);
-    const std::string directory(value, length);
     char* copy = static_cast<char*>(malloc(static_cast<size_t>(length) + 1));
     if (copy != NULL) {
         memcpy(copy, value, length);
@@ -48,32 +48,45 @@ void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
     }
     env->ReleaseStringUTFChars(path, value);
     if (copy == NULL) {
-        throwIllegalState(env, "Could not allocate YAYA path");
-        return;
+        return 0;
     }
 
-    YayaLock lock;
-    if (gYayaLoaded) {
-        unload();
-        gYayaLoaded = false;
-    }
     yaya_configure_posix_saori_fallback("", true);
     const int loaded = load(copy, length);
-    gYayaLoaded = loaded != 0;
-    __android_log_print(ANDROID_LOG_INFO, "YayaJNI", "load(%s) = %d", directory.c_str(), loaded);
+    __android_log_print(ANDROID_LOG_INFO, "YayaJNI", "load result = %d", loaded);
     // YAYA's POSIX load consumes and frees `copy`.
+    if (!loaded) {
+        if (unload()) {
+            gYayaLoaded = false;
+            return 0;
+        }
+        gYayaLoaded = true;
+        return -2;
+    }
+    gYayaLoaded = true;
+    return 1;
 }
 
 jstring nativeTransportCharset(JNIEnv* env, jobject) {
     YayaLock lock;
-    const char* charset = gYayaLoaded ? yaya_output_charset() : "UTF-8";
+    if (!gYayaLoaded) {
+        throwIllegalState(env, "YAYA is not loaded");
+        return NULL;
+    }
+    const char* charset = yaya_output_charset();
     return env->NewStringUTF(charset == NULL ? "UTF-8" : charset);
 }
 
 jbyteArray nativeRequest(JNIEnv* env, jobject, jbyteArray request) {
-    if (request == NULL) return env->NewByteArray(0);
+    if (request == NULL) {
+        throwIllegalState(env, "YAYA request must not be null");
+        return NULL;
+    }
     YayaLock lock;
-    if (!gYayaLoaded) return env->NewByteArray(0);
+    if (!gYayaLoaded) {
+        throwIllegalState(env, "YAYA is not loaded");
+        return NULL;
+    }
     const jsize length = env->GetArrayLength(request);
     char* input = static_cast<char*>(malloc(static_cast<size_t>(length) + 1));
     if (input == NULL) return env->NewByteArray(0);
@@ -97,12 +110,12 @@ jbyteArray nativeRequest(JNIEnv* env, jobject, jbyteArray request) {
     return response;
 }
 
-void nativeUnload(JNIEnv*, jobject) {
+jboolean nativeUnload(JNIEnv*, jobject) {
     YayaLock lock;
-    if (gYayaLoaded) {
-        unload();
-        gYayaLoaded = false;
-    }
+    if (!gYayaLoaded) return JNI_TRUE;
+    if (!unload()) return JNI_FALSE;
+    gYayaLoaded = false;
+    return JNI_TRUE;
 }
 }
 
@@ -117,10 +130,10 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
         return JNI_ERR;
     }
     const JNINativeMethod methods[] = {
-        {const_cast<char*>("nativeLoad"), const_cast<char*>("(Ljava/lang/String;Ljava/lang/String;)V"), reinterpret_cast<void*>(nativeLoad)},
+        {const_cast<char*>("nativeLoad"), const_cast<char*>("(Ljava/lang/String;Ljava/lang/String;)I"), reinterpret_cast<void*>(nativeLoad)},
         {const_cast<char*>("nativeTransportCharset"), const_cast<char*>("()Ljava/lang/String;"), reinterpret_cast<void*>(nativeTransportCharset)},
         {const_cast<char*>("nativeRequest"), const_cast<char*>("([B)[B"), reinterpret_cast<void*>(nativeRequest)},
-        {const_cast<char*>("nativeUnload"), const_cast<char*>("()V"), reinterpret_cast<void*>(nativeUnload)},
+        {const_cast<char*>("nativeUnload"), const_cast<char*>("()Z"), reinterpret_cast<void*>(nativeUnload)},
     };
     const jint result = env->RegisterNatives(type, methods, 4) == 0 ? JNI_VERSION_1_6 : JNI_ERR;
     env->DeleteLocalRef(type);

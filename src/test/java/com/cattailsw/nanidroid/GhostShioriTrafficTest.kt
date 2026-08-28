@@ -50,8 +50,8 @@ class GhostShioriTrafficTest {
             requests += request
             return RESPONSE
         }
-        override fun terminate() = Unit
-        override fun unloadShiori() = Unit
+        override fun load() = com.cattailsw.nanidroid.shiori.ShioriLoadResult.Loaded
+        override fun unloadShiori() = com.cattailsw.nanidroid.shiori.ShioriUnloadResult.Unloaded
 
         companion object {
             const val RESPONSE = "SHIORI/3.0 200 OK\r\nSender: test\r\nValue: ok\r\n\r\n"

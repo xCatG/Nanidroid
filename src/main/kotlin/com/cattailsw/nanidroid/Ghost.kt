@@ -2,6 +2,8 @@ package com.cattailsw.nanidroid
 
 import android.content.Context
 import com.cattailsw.nanidroid.shiori.Shiori
+import com.cattailsw.nanidroid.shiori.ShioriLoadResult
+import com.cattailsw.nanidroid.shiori.ShioriUnloadResult
 import com.cattailsw.nanidroid.runtime.dialogue.GhostEventCapabilityDiscovery
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
@@ -74,13 +76,20 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
             SurfaceTransparencyPolicy.fromShellDescriptor(shellDesc),
         )
         if (!error) error = surfaceReader.error
-        shiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
+        val selectedShiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
+        when (val result = selectedShiori.load()) {
+            ShioriLoadResult.Loaded -> shiori = selectedShiori
+            is ShioriLoadResult.Failed -> throw result.cause
+        }
         refreshPointerEventCapabilities()
     }
 
     open fun unload() {
         try {
-            shiori!!.unloadShiori()
+            when (val result = shiori!!.unloadShiori()) {
+                ShioriUnloadResult.Unloaded -> Unit
+                is ShioriUnloadResult.Failed -> throw result.cause
+            }
         } finally {
             eventCapabilities = PointerEventCapabilities()
         }

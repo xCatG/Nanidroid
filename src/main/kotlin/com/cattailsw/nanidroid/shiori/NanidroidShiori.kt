@@ -67,8 +67,6 @@ open class NanidroidShiori() : EchoShiori() {
         }
     }
 
-    override fun terminate() = Unit
-
     override fun getModuleName(): String = "NanidroidShiori"
 
     override fun genResponse(): String {

@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.shiori.NanidroidShiori
+import com.cattailsw.nanidroid.shiori.ShioriLoadResult
 import org.junit.After
 import org.junit.Assert
 import org.junit.Before
@@ -44,7 +45,7 @@ class NanidroidShioriCharacterizationTest {
                     + "OnBoot,\\hboot\\e\n"
                     + "CustomEvent,custom value\n")
         )
-        val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
+        val shiori = createFixtureShiori()
 
         Assert.assertEquals(
             "SHIORI/3.0 200 OK\r\nSender: NanidroidShiori\r\nValue: \\hboot\\e"
@@ -67,7 +68,7 @@ class NanidroidShioriCharacterizationTest {
             "OnGhostChanging,switch to %s\n"
                     + "OnGhostChanged,now %s\n"
         )
-        val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
+        val shiori = createFixtureShiori()
 
         Assert.assertEquals(
             response("switch to Alice"),
@@ -84,11 +85,11 @@ class NanidroidShioriCharacterizationTest {
     fun onCloseHasContentOverrideAndLiteralFallback() {
         Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent("ja", "Malformed line without a separator\n")
-        val fallback: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
+        val fallback = createFixtureShiori()
         Assert.assertEquals(response("OnClose"), fallback.request(request("OnClose")))
 
         writeContent("ja", "OnClose,goodbye\n")
-        val override: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
+        val override = createFixtureShiori()
         Assert.assertEquals(response("goodbye"), override.request(request("OnClose")))
     }
 
@@ -97,7 +98,7 @@ class NanidroidShioriCharacterizationTest {
     fun malformedContentCreatesAnEmptyTableAndUnknownEventIsNoContent() {
         Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent("ja", "; comment\nmissing separator\n")
-        val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
+        val shiori = createFixtureShiori()
 
         Assert.assertEquals(NanidroidShiori.RES_NO_CONTENT, shiori.request(request("NoSuchEvent")))
     }
@@ -106,7 +107,7 @@ class NanidroidShioriCharacterizationTest {
     @Throws(Exception::class)
     fun missingContentLeavesEventTableNullAndRequestCrashes() {
         Locale.setDefault(Locale.forLanguageTag("zz"))
-        val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
+        val shiori = createFixtureShiori()
 
         Assert.assertThrows<NullPointerException?>(
             NullPointerException::class.java,
@@ -118,7 +119,7 @@ class NanidroidShioriCharacterizationTest {
     fun missingIdCrashesAfterTheRequestParserAcceptsTheHeader() {
         Locale.setDefault(Locale.forLanguageTag("zz"))
         writeContent("ja", "OnBoot,boot\n")
-        val shiori: NanidroidShiori = NanidroidShiori.createContentFixture(root!!.getPath())
+        val shiori = createFixtureShiori()
 
         Assert.assertThrows<NullPointerException?>(
             NullPointerException::class.java,
@@ -136,6 +137,11 @@ class NanidroidShioriCharacterizationTest {
             output.write(contents.toByteArray(StandardCharsets.UTF_8))
         }
     }
+
+    private fun createFixtureShiori(): NanidroidShiori =
+        NanidroidShiori.createContentFixture(root!!.path).also {
+            Assert.assertEquals(ShioriLoadResult.Loaded, it.load())
+        }
 
     companion object {
         private fun request(id: String): String {
