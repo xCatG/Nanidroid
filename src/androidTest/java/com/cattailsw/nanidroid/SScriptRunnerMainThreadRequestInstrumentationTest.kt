@@ -22,6 +22,89 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SScriptRunnerMainThreadRequestInstrumentationTest {
     @Test
+    fun preSwitchDialogueResponseCannotBlockGhostChangingHandoff() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val primaryEntered = CountDownLatch(1)
+        val releasePrimary = CountDownLatch(1)
+        val ghostChangingObserved = CountDownLatch(1)
+        val switchPlaybackCompleted = CountDownLatch(1)
+        val staleInputShown = CountDownLatch(1)
+        val requestOrder = CopyOnWriteArrayList<String>()
+        val adapter = BlockingSwitchShiori(
+            primaryEntered,
+            releasePrimary,
+            ghostChangingObserved,
+            requestOrder,
+        )
+        val root = File(context.cacheDir, "pre-switch-dialogue-response-runtime").canonicalFile
+        val targetRoot = File(context.cacheDir, "pre-switch-dialogue-response-target").canonicalFile
+        val runtime = newRuntime(context, adapter)
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("pre-switch-dialogue", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.setUICallback(object : SScriptRunner.UICallback {
+                override fun showUserInputBox(id: String) {
+                    if (id == "stale") staleInputShown.countDown()
+                }
+
+                override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+            })
+            runtime.runner.setCallback(object : SScriptRunner.StatusCallback {
+                override fun stop() = Unit
+                override fun canExit() = Unit
+                override fun switchPlaybackComplete() {
+                    switchPlaybackCompleted.countDown()
+                }
+            })
+            val action = AtomicReference<com.cattailsw.nanidroid.runtime.dialogue.DialogueAction?>()
+            instrumentation.runOnMainSync {
+                runtime.runner.setNoWaitMode(true)
+                runtime.runner.addMsgToQueue(arrayOf("\\h\\q[Choose,choice]\\e"))
+                runtime.runner.run()
+                action.set(runtime.runner.dialogueStateSnapshot().pendingChoices.single())
+                runtime.runner.activateChoice(requireNotNull(action.get()))
+            }
+            assertTrue("Blocked dialogue request did not start", primaryEntered.await(2, TimeUnit.SECONDS))
+
+            instrumentation.runOnMainSync {
+                val operationId = (runtime.beginSwitch(
+                    handle.generation,
+                    "switch-target",
+                    targetRoot,
+                ) as RuntimeResult.Success).value
+                runtime.runner.stopClock()
+                runtime.runner.clearMsgQueue()
+                assertTrue(
+                    runtime.runner.doGhostChanging(
+                        operationId,
+                        "Switch Target",
+                        "manual",
+                        targetRoot.path,
+                    ),
+                )
+            }
+
+            releasePrimary.countDown()
+            assertTrue("OnGhostChanging request was not sent", ghostChangingObserved.await(2, TimeUnit.SECONDS))
+            assertTrue(
+                "Stale pre-switch dialogue reply blocked OnGhostChanging handoff",
+                switchPlaybackCompleted.await(2, TimeUnit.SECONDS),
+            )
+            assertFalse("Stale pre-switch input was shown", staleInputShown.await(250, TimeUnit.MILLISECONDS))
+            assertEquals(listOf("OnChoiceSelectEx", "OnGhostChanging"), requestOrder.toList())
+        } finally {
+            releasePrimary.countDown()
+            runtime.close()
+        }
+    }
+
+    @Test
     fun blockedTimerResponseDoesNotPlayAfterClockStops() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -420,6 +503,34 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
                 order += "OnSecondChange"
                 timerObserved.countDown()
                 "SHIORI/3.0 204 No Content\r\n\r\n"
+            }
+            else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+        }
+
+        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
+    }
+
+    private class BlockingSwitchShiori(
+        private val primaryEntered: CountDownLatch,
+        private val releasePrimary: CountDownLatch,
+        private val ghostChangingObserved: CountDownLatch,
+        private val order: CopyOnWriteArrayList<String>,
+    ) : Shiori {
+        override fun getModuleName(): String = "BlockingSwitch"
+
+        override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
+
+        override fun request(request: String): String = when {
+            "ID: OnChoiceSelectEx\r\n" in request -> {
+                order += "OnChoiceSelectEx"
+                primaryEntered.countDown()
+                assertTrue("Timed out waiting to release pre-switch request", releasePrimary.await(3, TimeUnit.SECONDS))
+                "SHIORI/3.0 200 OK\r\nValue: \\hStale\\![open,inputbox,stale]\\e\r\n\r\n"
+            }
+            "ID: OnGhostChanging\r\n" in request -> {
+                order += "OnGhostChanging"
+                ghostChangingObserved.countDown()
+                "SHIORI/3.0 200 OK\r\nValue: \\hSwitching\\e\r\n\r\n"
             }
             else -> "SHIORI/3.0 204 No Content\r\n\r\n"
         }

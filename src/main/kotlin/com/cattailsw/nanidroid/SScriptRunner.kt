@@ -162,6 +162,7 @@ open class SScriptRunner internal constructor(
     private var pendingChoiceGeneration: Long? = null
     private var passive = false
     private var runtimeModeGeneration: Long = 0L
+    private var requestAdmissionEpoch: Long = 0L
     private val playbackScheduler = lazy(playbackSchedulerFactory)
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
@@ -393,7 +394,16 @@ open class SScriptRunner internal constructor(
             .replace("%selfname2?", ghost.sakuraName ?: "null")
             .replace("%keroname", ghost.keroName ?: "null")
     }
-    fun clearMsgQueue(){val state=synchronized(this){msgQueue.clear();playback.msg=null;runtimeModeGeneration++;playback};stop(state)}
+    fun clearMsgQueue() {
+        val state = synchronized(this) {
+            msgQueue.clear()
+            playback.msg = null
+            runtimeModeGeneration++
+            requestAdmissionEpoch++
+            playback
+        }
+        stop(state)
+    }
     private fun clearMsgQueueIfPinned(handle: GhostHandle): Boolean {
         val state = synchronized(this) {
             if (activeHandle?.generation != handle.generation) return false
@@ -1154,7 +1164,10 @@ open class SScriptRunner internal constructor(
         requestAsync: () -> RuntimeRequestSubmission,
         admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
     ): Boolean {
-        if (!isPinnedHandle(handle)) {
+        val capturedAdmissionEpoch = synchronized(this) {
+            requestAdmissionEpoch.takeIf { activeHandle?.generation == handle.generation }
+        }
+        if (capturedAdmissionEpoch == null) {
             onUnscheduled()
             return false
         }
@@ -1165,7 +1178,10 @@ open class SScriptRunner internal constructor(
                     playbackHooks.beforeRequestResponseAdmission()
                     if (
                         result.value.generation == handle.generation &&
-                        synchronized(this) { activeHandle?.generation == handle.generation }
+                        synchronized(this) {
+                            activeHandle?.generation == handle.generation &&
+                                requestAdmissionEpoch == capturedAdmissionEpoch
+                        }
                     ) {
                         result
                     } else {
