@@ -84,7 +84,8 @@ PLATFORM_STACK_PATHS = (
 )
 
 LIFECYCLE_INSTRUMENTATION_TEST_METHODS = {
-    "launchAndRecreateKeepsMainActivityAvailable",
+    "recreatingAttachedSessionPreservesApplicationRuntimeGhostAndGeneration",
+    "concurrentApplicationReadsReturnOneRuntimeAndRunner",
     "startupRecoverySettlesBeforeTestCoordinatorReplacement",
     "sameProcessRecreationRestoresTheExactPickerOwnerWithoutRelaunching",
     "concurrentActivityReconciliationCannotCancelTheLiveOwnerResult",
@@ -260,7 +261,7 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
             {path: fragments for path, fragments in violations.items() if fragments},
         )
 
-    def test_lifecycle_instrumentation_uses_no_hilt_and_keeps_eight_proofs(self) -> None:
+    def test_lifecycle_instrumentation_uses_no_hilt_and_keeps_nine_proofs(self) -> None:
         lifecycle_test = self.read(
             "src/androidTest/java/com/cattailsw/nanidroid/"
             "NanidroidLifecycleInstrumentationTest.kt"

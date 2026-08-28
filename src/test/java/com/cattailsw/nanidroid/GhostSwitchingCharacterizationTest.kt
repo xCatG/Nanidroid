@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid
 
-import com.cattailsw.nanidroid.SScriptRunner.Companion.getInstance
 import org.junit.After
 import org.junit.Assert
 import org.junit.Before
@@ -9,8 +8,6 @@ import org.junit.Test
 import java.io.File
 import java.util.Arrays
 import java.util.Hashtable
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * Characterizes the deterministic SScriptRunner ghost-handoff protocol without
@@ -87,7 +84,7 @@ class GhostSwitchingCharacterizationTest {
         )
 
         // Prove setup cleanup does not depend on another test having cleared
-        // the process singleton's named ghost.
+        // a previously assigned named ghost.
         setGhost(
             RecordingGhost(
                 "foreign",
@@ -173,27 +170,6 @@ class GhostSwitchingCharacterizationTest {
         Assert.assertEquals(listOf("unload"), lifecycle.events())
     }
 
-    @Test
-    fun concurrentFirstCallersShareOneRunnerAuthority() {
-        resetRunnerWithPublicApi()
-        SScriptRunner.resetInstanceForTesting()
-        val start = CountDownLatch(1)
-        val results = java.util.Collections.synchronizedList(mutableListOf<SScriptRunner>())
-        val callers = List(12) {
-            Thread {
-                start.await(2, TimeUnit.SECONDS)
-                results += SScriptRunner.getInstance(null)
-            }.apply { start() }
-        }
-
-        start.countDown()
-        callers.forEach { it.join(2_000) }
-
-        Assert.assertEquals(12, results.size)
-        Assert.assertEquals(1, results.map(System::identityHashCode).toSet().size)
-        runner = results.first()
-    }
-
     private fun setGhost(ghost: RecordingGhost) {
         currentGhost = ghost
         runner.setGhost(ghost)
@@ -214,7 +190,7 @@ class GhostSwitchingCharacterizationTest {
         // assignment path and avoids coupling this characterization to fields.
         if (currentGhost == null) {
             // A previous or future suite may leave a named ghost in the process
-            // singleton. Replacing it with a null-name count-2 fake avoids the
+            // current runner. Replacing it with a null-name count-2 fake avoids the
             // production null-replacement dereference without reflection.
             setGhost(
                 RecordingGhost(

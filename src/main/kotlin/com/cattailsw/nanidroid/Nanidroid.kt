@@ -308,6 +308,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             if ((simpleDialogState.value == null) != (value == null)) stageInputEpoch++
             simpleDialogState.value = value
         }
+    private lateinit var ghostRuntime: GhostRuntime
     private var runner: SScriptRunner? = null
     private val dialogueDialogBinding = DialogueDialogBinding { runner }
     private val composeStage = ComposeGhostStageHost(
@@ -347,7 +348,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             restored = savedInstanceState?.readNarPickerOwnerToken(),
             state = foregroundNarImport.state.value,
         )
-        runner = SScriptRunner.getInstance(this)
+        ghostRuntime = (application as CatTailApplication).ghostRuntime
+        runner = ghostRuntime.runner
         setupViews()
         if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
             simpleDialog = NanidroidSimpleDialog.Notice(
@@ -414,7 +416,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
 
     private fun createSvcs2ndThread() {
-        val manager = GhostMgr(this)
+        val manager = GhostMgr(this, ghostRuntime)
         gm = manager
         lifecycleTestHooks.afterGhostMgrCreatedBeforeReady(manager)
         check(ghostMgrReady.complete(manager))

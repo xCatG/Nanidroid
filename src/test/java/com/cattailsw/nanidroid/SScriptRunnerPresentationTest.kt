@@ -25,7 +25,7 @@ class SScriptRunnerPresentationTest {
     fun emitsTextSurfaceAndOneShotAnimationFramesWithoutAndroidViews() {
         val frames: MutableList<String> = ArrayList<String>()
         val runner: com.cattailsw.nanidroid.SScriptRunner =
-            com.cattailsw.nanidroid.SScriptRunner(null)
+            com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
         runner.setNoWaitMode(true)
         // Production installs the Compose-backed adapter through this seam;
         // the runtime trace must remain independent of the chosen UI toolkit.
@@ -61,7 +61,7 @@ class SScriptRunnerPresentationTest {
     @Test
     fun attachingAReplacementRendererRepublishesTheCurrentFrameWithoutANewScriptEvent() {
         val firstFrames = mutableListOf<GhostPresentationFrame>()
-        val runner = SScriptRunner(null)
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
         runner.setNoWaitMode(true)
         runner.setPresentationRenderer { firstFrames += it }
         runner.addMsgToQueue(arrayOf("\\hCurrent frame\\s[120]\\e"))
@@ -97,7 +97,7 @@ class SScriptRunnerPresentationTest {
 
     @Test
     fun quotedPassiveModeCommandsChangeTheRuntimeMode() {
-        val runner = SScriptRunner(null)
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
         runner.setNoWaitMode(true)
 
         runner.addMsgToQueue(arrayOf("\\![\"enter\",passivemode]\\e"))
@@ -113,7 +113,7 @@ class SScriptRunnerPresentationTest {
 
     @Test
     fun malformedAndEscapedPassiveModeLeavesDoNotDisablePassiveMode() {
-        val runner = SScriptRunner(null)
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
         runner.setNoWaitMode(true)
 
         runner.addMsgToQueue(arrayOf("\\![\"enter\",passivemode]\\e"))
@@ -892,7 +892,7 @@ class SScriptRunnerPresentationTest {
     @Test
     fun hiddenScopeConsumesSurfaceAnimationAndBalloonCommands() {
         val frames = mutableListOf<GhostPresentationFrame>()
-        val runner = SScriptRunner(null)
+        val runner = SScriptRunner(null, GhostSessionCoordinator())
         runner.setNoWaitMode(true)
         runner.setPresentationRenderer { frames += it }
 

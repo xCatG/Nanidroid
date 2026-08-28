@@ -15,7 +15,10 @@ internal fun shouldInstallBundledGhost(
 }
 
 /** Kotlin owner for ghost discovery, selection, and fresh installation. */
-class GhostMgr(ctx: Context) {
+internal class GhostMgr(
+    ctx: Context,
+    private val ghostRuntime: GhostRuntime,
+) {
     private val context = ctx.applicationContext
     private var ghosts: List<InfoOnlyGhost>? = loadGhosts()
     private var lastInstallError: String? = null
@@ -36,8 +39,8 @@ class GhostMgr(ctx: Context) {
         val id = getGhostId(name)
         if (id == -1) return null
         val root = File(getGhostPath(id)).canonicalFile
-        return SScriptRunner.reuseActiveGhost(root.name, root) ?: run {
-            val construction = SScriptRunner.beginGhostConstruction(root.name, root)
+        return ghostRuntime.reuseActiveGhost(root.name, root) ?: run {
+            val construction = ghostRuntime.beginGhostConstruction(root.name, root)
             try {
                 construction.bind(Ghost(root.path, context))
             } catch (error: Exception) {
