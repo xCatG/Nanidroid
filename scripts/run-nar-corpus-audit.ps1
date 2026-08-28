@@ -9,6 +9,15 @@ param(
     [string]
     $ManifestPath = 'docs/testing/nar-corpus-manifest.json',
 
+    [string]
+    $ProductionCheckoutPath,
+
+    [string]
+    $ProductionCommit,
+
+    [string]
+    $HarnessCommit,
+
     [int]
     $PerArchiveTimeoutMinutes = 5,
 
@@ -62,7 +71,6 @@ $screenshotRoot = Join-Path $reportRoot 'screenshots'
 $hostTmpRoot = Join-Path $reportRoot '.tmp'
 $runId = [guid]::NewGuid().ToString('N')
 $hostRunTmpRoot = Join-Path $hostTmpRoot $runId
-$fixedSeed = '20260804T000000Z'
 $constantFileName = 'nanidroid-corpus.nar'
 $tmpRoot = '/data/local/tmp/nanidroid-corpus'
 $tmpRunRoot = "$tmpRoot/$runId"
@@ -122,6 +130,13 @@ function Clear-RunArtifacts {
 
 function ThrowIf([string]$Message, [string]$Code = 'validation') {
     throw [System.Exception]::new("$Code`: $Message")
+}
+
+if (@($args | Where-Object { [string]$_ -ieq '-HarnessTestApkPath' }).Count -ne 0) {
+    ThrowIf 'HarnessTestApkPath is removed and not accepted; the verified harness builds its own androidTest APK.'
+}
+if (@($args | Where-Object { [string]$_ -ieq '-ProductionDebugApkPath' }).Count -ne 0) {
+    ThrowIf 'ProductionDebugApkPath is removed and not accepted; the verified production checkout builds its own debug APK.'
 }
 
 function Has-Property {
@@ -401,6 +416,19 @@ function New-InvalidSnakeDialogueLifecycle {
     }
 }
 
+function Test-SnakeVisibleChoiceIds {
+    param(
+        [object]$Step,
+        [string[]]$ExpectedIds
+    )
+
+    $visibleIds = As-NonNullArray -Value (Get-NestedPropertyValue -Object $Step -Path 'choiceIds')
+    foreach ($expectedId in $ExpectedIds) {
+        if ($visibleIds -cnotcontains $expectedId) { return $false }
+    }
+    return $true
+}
+
 function Get-SnakeDialogueLifecycle {
     param([object[]]$Steps)
 
@@ -420,11 +448,22 @@ function Get-SnakeDialogueLifecycle {
     $firstChoice = Get-SnakeChoiceTransaction -Steps $items[1..($inputIndex - 1)]
     $nextChoice = Get-SnakeChoiceTransaction -Steps $items[($inputIndex + 1)..($items.Count - 1)]
     if ($null -eq $firstChoice -or $null -eq $nextChoice) { return New-InvalidSnakeDialogueLifecycle }
+    $input = $items[$inputIndex]
+    $nextPrimaryLabel = Get-NestedPropertyValue -Object $nextChoice.primary -Path 'references[0]'
+    if ($firstChoice.identifier -cne 'choicefirsthehim' -or
+        $nextChoice.identifier -cne 'titlenone' -or
+        [string]$nextPrimaryLabel -cne 'Nope' -or
+        -not (Test-SnakePlayableResponse -Step $input) -or
+        -not (Test-SnakeVisibleChoiceIds -Step $input -ExpectedIds @('titlenone')) -or
+        -not (Test-SnakePlayableResponse -Step $nextChoice.effective) -or
+        -not (Test-SnakeVisibleChoiceIds -Step $nextChoice.effective -ExpectedIds @('beginnerStart', 'beginnerEnd'))) {
+        return New-InvalidSnakeDialogueLifecycle
+    }
 
     [pscustomobject]@{
         valid = $true
         firstBoot = $firstBoot
-        input = $items[$inputIndex]
+        input = $input
         firstChoice = $firstChoice
         nextChoice = $nextChoice
     }
@@ -615,6 +654,32 @@ function Set-CanonicalArchiveCleanup {
         ThrowIf 'Cannot publish archive cleanup without a canonical result cleanup payload.'
     }
     $ArchiveResult | Add-Member -NotePropertyName cleanup -NotePropertyValue $Result.cleanup -Force
+}
+
+function New-HostVerifiedArchiveCleanup {
+    param(
+        [Parameter(Mandatory)]
+        [object]
+        $Result
+    )
+
+    [object[]]$remainingRawPaths = @()
+    if ((Has-Property -Object $Result -Name 'cleanup') -and $null -ne $Result.cleanup) {
+        if (-not (Has-Property -Object $Result.cleanup -Name 'remainingTestOwnedPaths') -or
+            $null -eq $Result.cleanup.remainingTestOwnedPaths -or
+            $Result.cleanup.remainingTestOwnedPaths -isnot [array]) {
+            ThrowIf 'Device cleanup.remainingTestOwnedPaths must be a JSON array when cleanup is present.'
+        }
+        [object[]]$remainingRawPaths = @($Result.cleanup.remainingTestOwnedPaths)
+    }
+    return [pscustomobject]@{
+        remainingTestOwnedPaths = $remainingRawPaths
+        hostVerified = $true
+    }
+}
+
+function Test-ExactEmptyArray([object]$Value, [bool]$Found) {
+    return $Found -and $null -ne $Value -and $Value -is [array] -and @($Value).Count -eq 0
 }
 
 function ConvertTo-NarCorpusJson {
@@ -1313,6 +1378,16 @@ function Compute-ArchiveSha([string]$ArchivePath) {
     return (Get-FileHash -Algorithm SHA256 -Path $ArchivePath).Hash.ToLowerInvariant()
 }
 
+function Get-Utf8StringSha256([string]$Value) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($Value))) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
 function Sanitize-Label([string]$Label) {
     return ($Label -replace '[^A-Za-z0-9._-]', '-').Trim('-')
 }
@@ -1535,6 +1610,57 @@ function Assert-SafeLabel([string]$SafeLabel) {
     }
 }
 
+function Get-ValidatedHostScreenshotHash {
+    param(
+        [Parameter(Mandatory)]
+        [object]
+        $ResultRow,
+
+        [Parameter(Mandatory)]
+        [string]
+        $HostScreenshotRoot
+    )
+
+    $labelFound = $false
+    $safeLabelFound = $false
+    $screenshotPathFound = $false
+    $label = Get-NestedPropertyValue -Object $ResultRow -Path 'label' -Found ([ref]$labelFound)
+    $safeLabel = Get-NestedPropertyValue -Object $ResultRow -Path 'safeLabel' -Found ([ref]$safeLabelFound)
+    $deviceScreenshotPath = Get-NestedPropertyValue -Object $ResultRow -Path 'screenshotPath' -Found ([ref]$screenshotPathFound)
+    if (-not $labelFound -or [string]::IsNullOrWhiteSpace([string]$label)) {
+        ThrowIf 'Screenshot sentinel row is missing its reviewed label.'
+    }
+    if (-not $safeLabelFound -or [string]::IsNullOrWhiteSpace([string]$safeLabel)) {
+        ThrowIf "Screenshot sentinel row '$label' is missing SafeLabel."
+    }
+    Assert-SafeLabel -SafeLabel ([string]$safeLabel)
+    if ([string]$safeLabel -notmatch '^[A-Za-z0-9._-]+$' -or [string]$safeLabel -cne (Sanitize-Label -Label ([string]$label))) {
+        ThrowIf "Screenshot sentinel row '$label' has an unreviewed SafeLabel '$safeLabel'."
+    }
+    if (-not $screenshotPathFound -or [string]::IsNullOrWhiteSpace([string]$deviceScreenshotPath)) {
+        return $null
+    }
+    $expectedDevicePath = "/sdcard/Android/data/$targetPackage/files/nar-corpus/$safeLabel/screenshot.png"
+    if ([string]$deviceScreenshotPath -cne $expectedDevicePath) {
+        ThrowIf "Screenshot sentinel row '$label' does not preserve its exact device screenshot path."
+    }
+
+    $resolvedRoot = [IO.Path]::GetFullPath($HostScreenshotRoot).TrimEnd('\', '/')
+    $hostScreenshotPath = [IO.Path]::GetFullPath((Join-Path $resolvedRoot "$safeLabel.png"))
+    $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if (-not (Split-Path -Parent $hostScreenshotPath).Equals($resolvedRoot, $pathComparison) -or
+        -not (Split-Path -Leaf $hostScreenshotPath).Equals("$safeLabel.png", [StringComparison]::Ordinal)) {
+        ThrowIf "Screenshot sentinel row '$label' escaped the pulled host screenshot root."
+    }
+    if (-not (Test-Path -LiteralPath $hostScreenshotPath -PathType Leaf)) {
+        return $null
+    }
+    if ((Get-Item -LiteralPath $hostScreenshotPath).Length -le 0) {
+        return $null
+    }
+    return (Get-FileHash -LiteralPath $hostScreenshotPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 function Clear-LocalArchiveArtifacts {
     param(
         [string]$SafeLabel,
@@ -1636,34 +1762,75 @@ function Remove-RemotePath([string]$Path, [bool]$TrimParents = $false) {
 }
 
 function Validate-ManifestEntries([object[]]$ManifestEntries) {
+    $reviewedManifestEntryCount = 23
+    $reviewedManifestTrueAllowCount = 6
+    $reviewedManifestTupleSha256 = 'bf8398cc1a96f8ec57b0762cb3422ba357819a76bcbb7659c058f5c96bbab8fc'
+    # Canonical preimage: every label|sha256|expectedKind|allowToken tuple, where
+    # allowToken is property-presence-sensitive <absent>, true, or false. Sort with
+    # StringComparer.Ordinal, join with LF and no trailing LF, then UTF-8 SHA-256.
+    if ($ManifestEntries.Count -ne $reviewedManifestEntryCount) {
+        ThrowIf "Reviewed manifest entry count mismatch: expected $reviewedManifestEntryCount, found $($ManifestEntries.Count)."
+    }
     $labels = @{}
     $hashes = @{}
     $safeLabels = @{}
+    $reviewedNonGhostManifestTuples = @(
+        'Haiidrate|ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685|shell',
+        'Hareraiser|a686e3b4c57f30985582fb8ffe9cbbfda49609fa046bb8ca08b003105e1fe7fe|balloon',
+        'Kitsune no Ocha|7b74cbaba0f2b0b159fb20da194d51c07925bb6c208c97e5021879fbdc3d29f5|shell',
+        'The Petpet Puddle|7746f4f47b633ff940200859052d351fb4d68bce307425af42cddbd1b9dccb22|shell'
+    )
+    $actualNonGhostManifestTuples = [Collections.Generic.List[string]]::new()
+    $actualManifestTuples = [Collections.Generic.List[string]]::new()
+    $actualManifestTrueAllowCount = 0
     foreach ($entry in $ManifestEntries) {
-        if (-not $entry.label) {
+        if ($entry.label -isnot [string]) {
+            ThrowIf 'Reviewed non-ghost manifest entry label must be a JSON string.'
+        }
+        if ([string]::IsNullOrEmpty($entry.label)) {
             ThrowIf 'Manifest entry missing label.'
         }
         if ($entry.label -match '["\r\n]') {
             ThrowIf "Manifest entry label '$($entry.label)' contains an unsupported quote or newline."
         }
-        if (-not $entry.sha256) {
+        if ($entry.sha256 -isnot [string]) {
+            ThrowIf "Reviewed non-ghost manifest entry '$($entry.label)' sha256 must be a JSON string."
+        }
+        if ([string]::IsNullOrEmpty($entry.sha256)) {
             ThrowIf "Manifest entry '$($entry.label)' missing sha256."
         }
         if ($entry.sha256 -notmatch '^[0-9A-Fa-f]{64}$') {
             ThrowIf "Manifest entry '$($entry.label)' has invalid sha256 '$($entry.sha256)'."
         }
+        if ($entry.expectedKind -isnot [string]) {
+            ThrowIf "Reviewed non-ghost manifest entry '$($entry.label)' expectedKind must be a JSON string."
+        }
         if ($entry.expectedKind -notin @('ghost', 'shell', 'balloon')) {
             ThrowIf "Manifest entry '$($entry.label)' has unsupported expectedKind '$($entry.expectedKind)'."
+        }
+        $allowProperty = $entry.PSObject.Properties['allowNativeKawariCrash']
+        $allowToken = if ($null -eq $allowProperty) {
+            '<absent>'
+        }
+        elseif ($allowProperty.Value -isnot [bool]) {
+            ThrowIf "Reviewed manifest entry '$($entry.label)' allowNativeKawariCrash must be a JSON boolean when present."
+        }
+        elseif ($allowProperty.Value) {
+            $actualManifestTrueAllowCount++
+            'true'
+        }
+        else {
+            'false'
+        }
+        $actualManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)|$allowToken")
+        if ($entry.expectedKind -cne 'ghost') {
+            $actualNonGhostManifestTuples.Add("$($entry.label)|$($entry.sha256)|$($entry.expectedKind)")
         }
         if (-not $entry.requiredEvidence -or $entry.requiredEvidence.Count -eq 0) {
             ThrowIf "Manifest entry '$($entry.label)' has no requiredEvidence."
         }
         if (-not $entry.allowedClassifications -or $entry.allowedClassifications.Count -eq 0) {
             ThrowIf "Manifest entry '$($entry.label)' has no allowedClassifications."
-        }
-        if ((Has-Property -Object $entry -Name 'allowNativeKawariCrash') -and
-            ($entry.allowNativeKawariCrash -isnot [bool] -or -not $entry.allowNativeKawariCrash)) {
-            ThrowIf "Manifest entry '$($entry.label)' has invalid allowNativeKawariCrash; omit it or set it to true."
         }
         if ((Has-Property -Object $entry -Name 'allowNativeKawariCrash') -and
             $entry.allowNativeKawariCrash -and
@@ -1685,6 +1852,24 @@ function Validate-ManifestEntries([object[]]$ManifestEntries) {
         $hashes[$sha] = $entry
         $labels[$label] = $entry
         $safeLabels[$safeLabel] = $entry
+    }
+    if ($actualManifestTrueAllowCount -ne $reviewedManifestTrueAllowCount) {
+        ThrowIf "Reviewed manifest true allowNativeKawariCrash count mismatch: expected $reviewedManifestTrueAllowCount, found $actualManifestTrueAllowCount."
+    }
+    [string[]]$actualNonGhostManifestTupleArray = $actualNonGhostManifestTuples.ToArray()
+    [string[]]$reviewedNonGhostManifestTupleArray = @($reviewedNonGhostManifestTuples)
+    [Array]::Sort($actualNonGhostManifestTupleArray, [StringComparer]::Ordinal)
+    [Array]::Sort($reviewedNonGhostManifestTupleArray, [StringComparer]::Ordinal)
+    $actualNonGhostManifestTupleText = $actualNonGhostManifestTupleArray -join "`n"
+    $reviewedNonGhostManifestTupleText = $reviewedNonGhostManifestTupleArray -join "`n"
+    if (-not [StringComparer]::Ordinal.Equals($actualNonGhostManifestTupleText, $reviewedNonGhostManifestTupleText)) {
+        ThrowIf "Reviewed non-ghost manifest tuple set mismatch. Expected [$($reviewedNonGhostManifestTuples -join ', ')], found [$($actualNonGhostManifestTuples -join ', ')]."
+    }
+    [string[]]$actualManifestTupleArray = $actualManifestTuples.ToArray()
+    [Array]::Sort($actualManifestTupleArray, [StringComparer]::Ordinal)
+    $actualManifestTupleSha256 = Get-Utf8StringSha256 ($actualManifestTupleArray -join "`n")
+    if (-not [StringComparer]::Ordinal.Equals($actualManifestTupleSha256, $reviewedManifestTupleSha256)) {
+        ThrowIf "Reviewed manifest tuple digest mismatch: expected $reviewedManifestTupleSha256, found $actualManifestTupleSha256."
     }
 }
 
@@ -1742,6 +1927,35 @@ function Get-RequiredEvidenceValues([object]$Result, [string[]]$RequiredEvidence
         $collected[$evidence] = $value
     }
     return $collected
+}
+
+function Set-ValidatedDialogueOutcomeSummaryField {
+    param(
+        [Parameter(Mandatory)]
+        [object]
+        $SummaryRow,
+
+        [Parameter(Mandatory)]
+        [object]
+        $Result,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Label
+    )
+
+    $outcomeFound = $false
+    $outcome = Get-NestedPropertyValue -Object $Result -Path 'dialogueProbe.outcome' -Found ([ref]$outcomeFound)
+    if (-not $outcomeFound) {
+        ThrowIf "Result for $Label is missing required dialogueProbe.outcome."
+    }
+    if ($outcome -isnot [string]) {
+        ThrowIf "Result for $Label has non-string dialogueProbe.outcome."
+    }
+    if ([string]::IsNullOrWhiteSpace($outcome)) {
+        ThrowIf "Result for $Label has blank dialogueProbe.outcome."
+    }
+    $SummaryRow | Add-Member -NotePropertyName dialogueOutcome -NotePropertyValue $outcome -Force
 }
 
 function Resolve-ApkSigner {
@@ -1872,8 +2086,205 @@ function Build-Apks {
     return [pscustomobject]@{
         DebugApkPath = $debugApkPath
         TestApkPath = $testApkPath
-        DebugApkSha256 = (Get-FileHash -Algorithm SHA256 -Path $debugApkPath).Hash.ToLowerInvariant()
-        TestApkSha256 = (Get-FileHash -Algorithm SHA256 -Path $testApkPath).Hash.ToLowerInvariant()
+    }
+}
+
+function Get-ApkInputMode {
+    param(
+        [string]$ProductionCheckoutPath,
+        [string]$ProductionCommit,
+        [string]$HarnessCommit
+    )
+    $values = @($ProductionCheckoutPath, $ProductionCommit, $HarnessCommit)
+    $suppliedCount = @($values | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+    if ($suppliedCount -eq 0) { return 'build' }
+    if ($suppliedCount -ne 3) {
+        ThrowIf 'ProductionCheckoutPath, ProductionCommit, and HarnessCommit must be supplied all three or omitted all three.'
+    }
+    return 'external'
+}
+
+function Build-HarnessTestApk {
+    Ensure-ExecutableExists -Path (Join-Path $repoRoot '.\gradlew.bat') -Purpose 'Gradle wrapper'
+    Write-Host 'Building androidTest APK from the verified fixed-harness checkout.'
+    $gradleOutput = Invoke-HostCommand -FilePath '.\gradlew.bat' -Arguments @('assembleDebugAndroidTest', '--no-daemon') -TimeoutSeconds ($BuildTimeoutMinutes * 60) -WorkingDirectory $repoRoot
+    Write-Host $gradleOutput
+    $testApkPath = Resolve-SingleHarnessTestApk -OutputRoot (Join-Path $repoRoot 'build\outputs\apk\androidTest\debug')
+    return [pscustomobject]@{
+        TestApkPath = $testApkPath
+    }
+}
+
+function Resolve-SingleHarnessTestApk([string]$OutputRoot) {
+    $testApks = @(Get-ChildItem -LiteralPath $OutputRoot -Filter '*-debug-androidTest.apk' -Recurse -File -ErrorAction SilentlyContinue)
+    if ($testApks.Count -ne 1) {
+        ThrowIf "Expected exactly one fixed-harness *-debug-androidTest.apk under '$OutputRoot', found $($testApks.Count)."
+    }
+    return $testApks[0].FullName
+}
+
+function Resolve-SingleProductionDebugApk([string]$OutputRoot) {
+    $debugApks = @(Get-ChildItem -LiteralPath $OutputRoot -Filter '*-debug.apk' -Recurse -File -ErrorAction SilentlyContinue | Sort-Object FullName)
+    if ($debugApks.Count -ne 1) {
+        ThrowIf "Expected exactly one verified-production *-debug.apk under '$OutputRoot', found $($debugApks.Count)."
+    }
+    return $debugApks[0].FullName
+}
+
+function Get-HarnessInstrumentationSourcePath {
+    return Join-Path $repoRoot 'src\androidTest\java\com\cattailsw\nanidroid\corpus\NarCorpusRuntimeTest.kt'
+}
+
+function Assert-CleanHarnessCheckout([string]$RepositoryRoot) {
+    $status = (& git -C $RepositoryRoot status --porcelain=v1 --untracked-files=all 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        ThrowIf "Unable to inspect the fixed harness checkout: $status"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($status)) {
+        ThrowIf "The fixed harness checkout is not clean; commit or remove every tracked/untracked overlay before producing evidence: $status"
+    }
+}
+
+function Get-VerifiedProductionCheckoutIdentity([string]$ProductionCheckoutPath, [string]$ExpectedCommit) {
+    if ($ExpectedCommit -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf "ProductionCommit must be a full lowercase 40-character commit SHA: '$ExpectedCommit'"
+    }
+    $resolvedRoot = (Resolve-Path -LiteralPath $ProductionCheckoutPath -ErrorAction Stop).Path
+    if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
+        ThrowIf "ProductionCheckoutPath is not a directory: '$ProductionCheckoutPath'"
+    }
+    $currentCommit = (& git -C $resolvedRoot rev-parse HEAD 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentCommit -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf "Unable to resolve the checked-out production commit at '$resolvedRoot'."
+    }
+    if ($currentCommit -cne $ExpectedCommit) {
+        ThrowIf "ProductionCommit '$ExpectedCommit' does not match the checked-out production commit '$currentCommit'."
+    }
+    $status = (& git -C $resolvedRoot status --porcelain=v1 --untracked-files=all 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        ThrowIf "Unable to inspect the production checkout: $status"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($status)) {
+        ThrowIf "The production checkout is not clean; commit or remove every tracked/untracked overlay before producing evidence: $status"
+    }
+    return [pscustomobject]@{ Root = $resolvedRoot; Commit = $currentCommit }
+}
+
+function Assert-ProductionIdentityUnchanged([object]$Before, [object]$After) {
+    foreach ($name in @('Root', 'Commit')) {
+        if ([string]$Before.$name -cne [string]$After.$name) {
+            ThrowIf "Verified production identity changed after build at $name."
+        }
+    }
+}
+
+function Build-VerifiedProductionDebugApk([string]$ProductionCheckoutRoot) {
+    $gradleWrapper = Join-Path $ProductionCheckoutRoot '.\gradlew.bat'
+    Ensure-ExecutableExists -Path $gradleWrapper -Purpose 'verified production Gradle wrapper'
+    Write-Host 'Building the debug APK from the verified production checkout.'
+    $gradleOutput = Invoke-HostCommand -FilePath '.\gradlew.bat' -Arguments @('assembleDebug', '--no-daemon') -TimeoutSeconds ($BuildTimeoutMinutes * 60) -WorkingDirectory $ProductionCheckoutRoot
+    Write-Host $gradleOutput
+    $debugApkPath = Resolve-SingleProductionDebugApk -OutputRoot (Join-Path $ProductionCheckoutRoot 'build\outputs\apk\debug')
+    return [pscustomobject]@{
+        DebugApkPath = $debugApkPath
+    }
+}
+
+function Get-VerifiedHarnessIdentity([string]$RepositoryRoot, [string]$ExpectedCommit, [string]$RunnerPath, [string]$InstrumentationPath) {
+    $resolvedRoot = (Resolve-Path -LiteralPath $RepositoryRoot -ErrorAction Stop).Path
+    $currentCommit = (& git -C $resolvedRoot rev-parse HEAD 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $currentCommit -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf 'Unable to resolve the fixed harness commit.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedCommit) -and $currentCommit -cne $ExpectedCommit) {
+        ThrowIf "HarnessCommit '$ExpectedCommit' does not match the checked-out fixed harness commit '$currentCommit'."
+    }
+    Assert-CleanHarnessCheckout -RepositoryRoot $resolvedRoot
+    $tree = (& git -C $resolvedRoot rev-parse "$currentCommit`^{tree}" 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $tree -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf "Unable to resolve the fixed harness tree for '$currentCommit'."
+    }
+    $resolvedRunnerPath = (Resolve-Path -LiteralPath $RunnerPath -ErrorAction Stop).Path
+    $resolvedInstrumentationPath = (Resolve-Path -LiteralPath $InstrumentationPath -ErrorAction Stop).Path
+    if (-not (Test-Path -LiteralPath $resolvedInstrumentationPath -PathType Leaf)) {
+        ThrowIf "Unable to locate fixed harness instrumentation source: $resolvedInstrumentationPath"
+    }
+    return [pscustomobject]@{
+        Commit = $currentCommit
+        Tree = $tree
+        RunnerSha256 = (Get-FileHash -LiteralPath $resolvedRunnerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        InstrumentationSourceSha256 = (Get-FileHash -LiteralPath $resolvedInstrumentationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
+
+function Get-TrackedHarnessIdentity([string]$ExpectedCommit) {
+    return Get-VerifiedHarnessIdentity -RepositoryRoot $repoRoot -ExpectedCommit $ExpectedCommit -RunnerPath $PSCommandPath -InstrumentationPath (Get-HarnessInstrumentationSourcePath)
+}
+
+function Assert-HarnessIdentityUnchanged([object]$Before, [object]$After) {
+    foreach ($name in @('Commit', 'Tree', 'RunnerSha256', 'InstrumentationSourceSha256')) {
+        if ([string]$Before.$name -cne [string]$After.$name) {
+            ThrowIf "Verified fixed-harness identity changed after build at $name."
+        }
+    }
+}
+
+function Assert-ExternalApkInputIdentity([string]$Mode, [string]$ProductionCheckoutPath, [string]$ProductionCommit, [string]$HarnessCommit) {
+    if ($Mode -ne 'external') { return $null }
+    if ($HarnessCommit -notmatch '^[0-9a-f]{40}$') {
+        ThrowIf "HarnessCommit must be a full lowercase 40-character commit SHA: '$HarnessCommit'"
+    }
+    return [pscustomobject]@{
+        Production = (Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $ProductionCheckoutPath -ExpectedCommit $ProductionCommit)
+        Harness = (Get-TrackedHarnessIdentity -ExpectedCommit $HarnessCommit)
+    }
+}
+
+function Get-ApkInfo {
+    $mode = Get-ApkInputMode -ProductionCheckoutPath $ProductionCheckoutPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+    $externalIdentity = if ($mode -eq 'external') {
+        Assert-ExternalApkInputIdentity -Mode $mode -ProductionCheckoutPath $ProductionCheckoutPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+    }
+    else {
+        [pscustomobject]@{ Harness = Get-TrackedHarnessIdentity -ExpectedCommit '' }
+    }
+    $harnessIdentity = $externalIdentity.Harness
+    if ($mode -eq 'build') {
+        $built = Build-Apks
+        $postBuildHarnessIdentity = Get-TrackedHarnessIdentity -ExpectedCommit $harnessIdentity.Commit
+        Assert-HarnessIdentityUnchanged -Before $harnessIdentity -After $postBuildHarnessIdentity
+        return [pscustomobject]@{
+            DebugApkPath = $built.DebugApkPath
+            TestApkPath = $built.TestApkPath
+            DebugApkSha256 = (Get-FileHash -LiteralPath $built.DebugApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            TestApkSha256 = (Get-FileHash -LiteralPath $built.TestApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            ProductionCommit = $postBuildHarnessIdentity.Commit
+            HarnessCommit = $postBuildHarnessIdentity.Commit
+            HarnessTree = $postBuildHarnessIdentity.Tree
+            HarnessRunnerSha256 = $postBuildHarnessIdentity.RunnerSha256
+            HarnessInstrumentationSourceSha256 = $postBuildHarnessIdentity.InstrumentationSourceSha256
+            InputMode = $mode
+        }
+    }
+
+    $builtProductionApk = Build-VerifiedProductionDebugApk -ProductionCheckoutRoot $externalIdentity.Production.Root
+    $builtTestApk = Build-HarnessTestApk
+    $postBuildProductionIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $externalIdentity.Production.Root -ExpectedCommit $externalIdentity.Production.Commit
+    Assert-ProductionIdentityUnchanged -Before $externalIdentity.Production -After $postBuildProductionIdentity
+    $postBuildHarnessIdentity = Get-TrackedHarnessIdentity -ExpectedCommit $harnessIdentity.Commit
+    Assert-HarnessIdentityUnchanged -Before $harnessIdentity -After $postBuildHarnessIdentity
+    Write-Host 'Using the debug APK built by the separately verified production checkout with the androidTest APK built by this verified fixed harness.'
+    return [pscustomobject]@{
+        DebugApkPath = $builtProductionApk.DebugApkPath
+        TestApkPath = $builtTestApk.TestApkPath
+        DebugApkSha256 = (Get-FileHash -LiteralPath $builtProductionApk.DebugApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        TestApkSha256 = (Get-FileHash -LiteralPath $builtTestApk.TestApkPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        ProductionCommit = $postBuildProductionIdentity.Commit
+        HarnessCommit = $postBuildHarnessIdentity.Commit
+        HarnessTree = $postBuildHarnessIdentity.Tree
+        HarnessRunnerSha256 = $postBuildHarnessIdentity.RunnerSha256
+        HarnessInstrumentationSourceSha256 = $postBuildHarnessIdentity.InstrumentationSourceSha256
+        InputMode = $mode
     }
 }
 
@@ -1974,7 +2385,6 @@ function Run-TestArchive {
     $nativeCrashAccepted = $false
     $nativeCrashEvidence = $null
     $hostCleanupEvidence = 'host cleanup not yet attempted'
-    $dialogueOutcomeFromResult = $null
     $runtimeCheckpointPhase = $null
     $postPrivateSnapshot = @()
     $postOutputSnapshot = @()
@@ -2009,7 +2419,6 @@ function Run-TestArchive {
             '-e','narCorpusPath',$PrivateArchivePath,
             '-e','narCorpusSha256',$ArchiveSha,
             '-e','narCorpusLabelBase64',([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Label))),
-            '-e','narCorpusSeed',$fixedSeed,
             '-e','disableNetwork','true',
             $instrumentationRunner
         )
@@ -2182,7 +2591,6 @@ function Run-TestArchive {
             renderOutcome = $result.renderOutcome
             inputOutcome = $result.inputOutcome
             shioriOutcome = $result.shioriOutcome
-            dialogueOutcome = $dialogueOutcomeFromResult
             classification = $archiveResultClassification
             parserDiagnostics = $result.parserDiagnostics
             evidence = $result.evidence
@@ -2204,6 +2612,7 @@ function Run-TestArchive {
             error = $rawErr
             cleanup = if ((Has-Property -Object $result -Name 'cleanup') -and $null -ne $result.cleanup) { $result.cleanup } else { [pscustomobject]@{ remainingTestOwnedPaths = @() ; hostVerified = $false } }
         }
+        Set-ValidatedDialogueOutcomeSummaryField -SummaryRow $archiveResult -Result $result -Label $Label
     }
     finally {
         if (Test-AdbTransportAvailable -TransportTimedOut $script:adbTransportTimedOut) {
@@ -2233,53 +2642,18 @@ function Run-TestArchive {
     if ($null -eq $archiveResult) {
         ThrowIf "Archive $Label completed without a structured result."
     }
-    if (-not (Has-Property -Object $result -Name 'cleanup') -or $null -eq $result.cleanup) {
-        $result | Add-Member -NotePropertyName cleanup -NotePropertyValue ([pscustomobject]@{}) -Force
-    }
-    if ($nativeCrashAccepted) {
-        $result | Add-Member -NotePropertyName runtimeCheckpointPhase -NotePropertyValue 'before-real-shiori' -Force
-        $result | Add-Member -NotePropertyName checkpointPhase -NotePropertyValue 'host-classified-native-crash' -Force
-        $result | Add-Member -NotePropertyName classification -NotePropertyValue 'incompatible' -Force
-        $result | Add-Member -NotePropertyName passed -NotePropertyValue $true -Force
-        $result | Add-Member -NotePropertyName shioriOutcome -NotePropertyValue 'native-crash:libkawari8' -Force
-        $result | Add-Member -NotePropertyName nativeCrashEvidence -NotePropertyValue $nativeCrashEvidence -Force
-        $result | Add-Member -NotePropertyName crashEvidence -NotePropertyValue $crashEvidence -Force
-        $result | Add-Member -NotePropertyName crashLogPath -NotePropertyValue $crashLogLocal -Force
-        if (-not (Has-Property -Object $result -Name 'dialogueProbe') -or $null -eq $result.dialogueProbe) {
-            $result | Add-Member -NotePropertyName dialogueProbe -NotePropertyValue ([pscustomobject]@{}) -Force
-        }
-        $result.dialogueProbe | Add-Member -NotePropertyName outcome -NotePropertyValue 'native-crash:libkawari8' -Force
-        $result.cleanup | Add-Member -NotePropertyName remainingTestOwnedPaths -NotePropertyValue @() -Force
-    }
-    else {
-        if (-not (Has-Property -Object $result -Name 'nativeCrashEvidence')) {
-            $result | Add-Member -NotePropertyName nativeCrashEvidence -NotePropertyValue $nativeCrashEvidence -Force
-        }
-        else {
-            $result.nativeCrashEvidence = $nativeCrashEvidence
-        }
-    }
-    $result | Add-Member -NotePropertyName hostCleanupEvidence -NotePropertyValue $hostCleanupEvidence -Force
-    $result.cleanup | Add-Member -NotePropertyName hostVerified -NotePropertyValue $true -Force
-    Set-CanonicalArchiveCleanup -ArchiveResult $archiveResult -Result $result
-    $dialogueOutcomeFromResult = if (
-        $result.dialogueProbe -and
-        (Has-Property -Object $result.dialogueProbe -Name 'outcome')
-    ) {
-        $result.dialogueProbe.outcome
-    } else {
-        $null
-    }
-
-    $archiveResult.shioriOutcome = $result.shioriOutcome
-    $archiveResult.dialogueOutcome = $dialogueOutcomeFromResult
-    $archiveResult.classification = $archiveResultClassification
-    $archiveResult.runtimeCheckpointPhase = $runtimeCheckpointPhase
-
-    $enrichedResultJson = ConvertTo-NarCorpusJson -Value $result
-    Set-Content -Path $resultJsonLocal -Value $enrichedResultJson -Encoding UTF8
+    # `result.json` is device evidence.  Host cleanup and crash classification
+    # belong only in summary rows; never reserialize or enrich the pulled bytes.
+    $archiveResult | Add-Member -NotePropertyName cleanup -NotePropertyValue (New-HostVerifiedArchiveCleanup -Result $result) -Force
     if (-not $archiveResult.hostCleanupEvidence -or $archiveResult.hostCleanupEvidence -eq 'host cleanup not yet attempted') {
         $archiveResult | Add-Member -NotePropertyName hostCleanupEvidence -NotePropertyValue $hostCleanupEvidence -Force
+    }
+    # These are device-emitted comparison evidence.  Mirror them verbatim into
+    # the host summary; do not mutate or reserialize result.json itself.
+    foreach ($snakeEvidenceName in @('snakeOnBootStructuralSafety', 'snakeFirstBootCanary')) {
+        if (Has-Property -Object $result -Name $snakeEvidenceName) {
+            $archiveResult | Add-Member -NotePropertyName $snakeEvidenceName -NotePropertyValue $result.$snakeEvidenceName
+        }
     }
     $archiveResult | Add-Member -NotePropertyName postCleanupPrivateSnapshot -NotePropertyValue $postPrivateSnapshot
     $archiveResult | Add-Member -NotePropertyName postCleanupOutputSnapshot -NotePropertyValue $postOutputSnapshot
@@ -2298,6 +2672,147 @@ if ($HostOnlyOwnedProcessTest) {
         ThrowIf 'Host-only owned-process probe lost an immediate command result.'
     }
     Write-Host 'Host-only owned-process immediate-exit probe passed.'
+
+    $dialogueOutcomeProbeCases = @(
+        [pscustomobject]@{
+            label = 'supported dialogue result'
+            expectedOutcome = 'success'
+            deviceResult = [pscustomobject]@{
+                schemaVersion = '2'
+                passed = $true
+                classification = 'compatible'
+                dialogueProbe = [pscustomobject]@{
+                    method = 'GET'
+                    eventId = 'OnBoot'
+                    status = 200
+                    outcome = 'success'
+                    failure = $null
+                }
+            }
+        },
+        [pscustomobject]@{
+            label = 'Snake_Otacon_1.2.1b non-success dialogue result'
+            expectedOutcome = 'not-supported-shiori'
+            deviceResult = [pscustomobject]@{
+                schemaVersion = '2'
+                passed = $true
+                classification = 'partiallyCompatible'
+                dialogueProbe = [pscustomobject]@{
+                    method = 'GET'
+                    eventId = 'OnBoot'
+                    status = 200
+                    outcome = 'not-supported-shiori'
+                    failure = 'not-supported-shiori'
+                }
+            }
+        },
+        [pscustomobject]@{
+            label = 'Haiidrate non-ghost dialogue result'
+            expectedOutcome = 'not-applicable'
+            deviceResult = [pscustomobject]@{
+                schemaVersion = '2'
+                observedKind = 'shell'
+                passed = $true
+                classification = 'unsupported'
+                installOutcome = 'unsupported:shell'
+                ghostLoadOutcome = 'not-applicable'
+                renderOutcome = 'not-applicable'
+                inputOutcome = 'not-applicable'
+                shioriOutcome = 'not-applicable'
+                dialogueProbe = [pscustomobject]@{ outcome = 'not-applicable' }
+            }
+        }
+    )
+    foreach ($probeCase in $dialogueOutcomeProbeCases) {
+        $summaryRow = [pscustomobject]@{ label = $probeCase.label }
+        Set-ValidatedDialogueOutcomeSummaryField -SummaryRow $summaryRow -Result $probeCase.deviceResult -Label $probeCase.label
+        if (-not (Has-Property -Object $summaryRow -Name 'dialogueOutcome') -or $summaryRow.dialogueOutcome -cne $probeCase.expectedOutcome) {
+            ThrowIf "Host-only dialogue outcome probe did not preserve '$($probeCase.expectedOutcome)' for $($probeCase.label)."
+        }
+    }
+    foreach ($invalidDialogueOutcomeCase in @(
+        [pscustomobject]@{ label = 'missing outcome'; deviceResult = [pscustomobject]@{ dialogueProbe = [pscustomobject]@{} } },
+        [pscustomobject]@{ label = 'boolean outcome'; deviceResult = [pscustomobject]@{ dialogueProbe = [pscustomobject]@{ outcome = $true } } },
+        [pscustomobject]@{ label = 'blank outcome'; deviceResult = [pscustomobject]@{ dialogueProbe = [pscustomobject]@{ outcome = ' ' } } }
+    )) {
+        $summaryRow = [pscustomobject]@{ label = $invalidDialogueOutcomeCase.label }
+        $rejected = $false
+        try {
+            Set-ValidatedDialogueOutcomeSummaryField -SummaryRow $summaryRow -Result $invalidDialogueOutcomeCase.deviceResult -Label $invalidDialogueOutcomeCase.label
+        }
+        catch {
+            $rejected = $_.Exception.Message -match 'dialogueProbe\.outcome'
+        }
+        if (-not $rejected -or (Has-Property -Object $summaryRow -Name 'dialogueOutcome')) {
+            ThrowIf "Host-only dialogue outcome probe accepted $($invalidDialogueOutcomeCase.label)."
+        }
+    }
+    Write-Host 'Host-only dialogue outcome summary mirror probe passed.'
+
+    $screenshotProbeRoot = Join-Path $hostRunTmpRoot 'screenshot-sentinel-probe'
+    New-Item -ItemType Directory -Force -Path $screenshotProbeRoot | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $screenshotProbeRoot 'LOBO.png'), [Text.Encoding]::UTF8.GetBytes('host screenshot fixture'))
+    $deviceScreenshotPath = '/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/LOBO/screenshot.png'
+    $screenshotRow = [pscustomobject]@{
+        label = 'LOBO'
+        safeLabel = 'LOBO'
+        screenshotPath = $deviceScreenshotPath
+    }
+    $hostScreenshotHash = Get-ValidatedHostScreenshotHash -ResultRow $screenshotRow -HostScreenshotRoot $screenshotProbeRoot
+    if ([string]$hostScreenshotHash -notmatch '^[0-9a-f]{64}$' -or $screenshotRow.screenshotPath -cne $deviceScreenshotPath) {
+        ThrowIf 'Host-only screenshot sentinel probe did not hash the pulled host PNG while preserving the device summary path.'
+    }
+    $missingScreenshotRow = [pscustomobject]@{
+        label = 'Big Red Button'
+        safeLabel = 'Big-Red-Button'
+        screenshotPath = '/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/Big-Red-Button/screenshot.png'
+    }
+    if ($null -ne (Get-ValidatedHostScreenshotHash -ResultRow $missingScreenshotRow -HostScreenshotRoot $screenshotProbeRoot)) {
+        ThrowIf 'Host-only screenshot sentinel probe counted a missing pulled host PNG.'
+    }
+    foreach ($unsafeScreenshotRow in @(
+        [pscustomobject]@{ label = 'LOBO'; safeLabel = '..\escape'; screenshotPath = '/sdcard/Android/data/com.cattailsw.nanidroid/files/nar-corpus/../escape/screenshot.png' },
+        [pscustomobject]@{ label = 'LOBO'; safeLabel = 'LOBO'; screenshotPath = '/tmp/LOBO.png' }
+    )) {
+        $rejected = $false
+        try {
+            Get-ValidatedHostScreenshotHash -ResultRow $unsafeScreenshotRow -HostScreenshotRoot $screenshotProbeRoot | Out-Null
+        }
+        catch {
+            $rejected = $_.Exception.Message -match 'screenshot|SafeLabel'
+        }
+        if (-not $rejected) {
+            ThrowIf 'Host-only screenshot sentinel probe accepted an escaping safeLabel or forged device screenshot path.'
+        }
+    }
+    Write-Host 'Host-only screenshot sentinel host-path probes passed.'
+
+    $emptyCleanupResult = [pscustomobject]@{ cleanup = [pscustomobject]@{ remainingTestOwnedPaths = @() } }
+    $hostVerifiedCleanup = New-HostVerifiedArchiveCleanup -Result $emptyCleanupResult
+    $cleanupJson = ConvertTo-NarCorpusJson -Value ([pscustomobject]@{ cleanup = $hostVerifiedCleanup })
+    $cleanupDocument = [Text.Json.JsonDocument]::Parse($cleanupJson)
+    try {
+        $remainingPathsJson = $cleanupDocument.RootElement.GetProperty('cleanup').GetProperty('remainingTestOwnedPaths')
+        if ($remainingPathsJson.ValueKind -ne [Text.Json.JsonValueKind]::Array -or $remainingPathsJson.GetArrayLength() -ne 0 -or -not $hostVerifiedCleanup.hostVerified) {
+            ThrowIf 'Host-only cleanup serialization probe did not preserve an exact empty JSON array.'
+        }
+    }
+    finally {
+        $cleanupDocument.Dispose()
+    }
+    if (-not (Test-ExactEmptyArray -Value $hostVerifiedCleanup.remainingTestOwnedPaths -Found $true)) {
+        ThrowIf 'Host-only cleanup sentinel probe rejected an exact empty array.'
+    }
+    foreach ($invalidCleanupCase in @(
+        [pscustomobject]@{ value = $null },
+        [pscustomobject]@{ value = 'not-an-array' },
+        [pscustomobject]@{ value = [object[]]@('residue') }
+    )) {
+        if (Test-ExactEmptyArray -Value $invalidCleanupCase.value -Found $true) {
+            ThrowIf 'Host-only cleanup sentinel probe accepted null, a scalar, or a nonempty array.'
+        }
+    }
+    Write-Host 'Host-only cleanup array serialization and kind probes passed.'
     exit 0
 }
 
@@ -2332,11 +2847,196 @@ if ($missingManifest.Count -gt 0 -or $unexpectedArchives.Count -gt 0) {
     ThrowIf 'Abort: archive set does not match manifest hashes.'
 }
 
+$apkInputMode = Get-ApkInputMode -ProductionCheckoutPath $ProductionCheckoutPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+$null = Assert-ExternalApkInputIdentity -Mode $apkInputMode -ProductionCheckoutPath $ProductionCheckoutPath -ProductionCommit $ProductionCommit -HarnessCommit $HarnessCommit
+
 if ($DryRun) {
     Write-Host 'Dry-run preflight validation passed.'
     Write-Host "Manifest entries: $($manifest.entries.Count)"
     Write-Host "Corpus archives discovered: $($archives.Count)"
     Write-Host "Resolved roots: $(@($resolvedCorpusRoots).Count)"
+    $dryRunInstrumentationPath = Get-HarnessInstrumentationSourcePath
+    if (-not $dryRunInstrumentationPath.EndsWith('src\androidTest\java\com\cattailsw\nanidroid\corpus\NarCorpusRuntimeTest.kt', [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $dryRunInstrumentationPath -PathType Leaf)) {
+        ThrowIf "Dry-run harness identity resolver selected the wrong instrumentation source: $dryRunInstrumentationPath"
+    }
+    Write-Host 'Dry-run harness instrumentation identity resolver probe passed.'
+    $cleanlinessProbeRoot = Join-Path $hostRunTmpRoot 'cleanliness-probe-repo'
+    New-Item -ItemType Directory -Force -Path $cleanlinessProbeRoot | Out-Null
+    & git -C $cleanlinessProbeRoot init --quiet
+    Set-Content -LiteralPath (Join-Path $cleanlinessProbeRoot 'tracked.txt') -Value 'tracked' -Encoding utf8
+    & git -C $cleanlinessProbeRoot add tracked.txt
+    & git -C $cleanlinessProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m initial
+    Set-Content -LiteralPath (Join-Path $cleanlinessProbeRoot 'untracked-overlay.txt') -Value 'overlay' -Encoding utf8
+    $untrackedOverlayRejected = $false
+    try {
+        Assert-CleanHarnessCheckout -RepositoryRoot $cleanlinessProbeRoot
+    }
+    catch {
+        $untrackedOverlayRejected = $_.Exception.Message -match 'untracked-overlay.txt'
+    }
+    if (-not $untrackedOverlayRejected) {
+        ThrowIf 'Dry-run fixed-harness cleanliness probe accepted an untracked overlay.'
+    }
+    Write-Host 'Dry-run fixed-harness untracked-overlay probe passed.'
+    $testApkSelectionRoot = Join-Path $hostRunTmpRoot 'test-apk-selection'
+    New-Item -ItemType Directory -Force -Path $testApkSelectionRoot | Out-Null
+    $onlyTestApk = Join-Path $testApkSelectionRoot 'only-debug-androidTest.apk'
+    Set-Content -LiteralPath $onlyTestApk -Value 'fixture' -Encoding utf8
+    if ((Resolve-SingleHarnessTestApk -OutputRoot $testApkSelectionRoot) -cne $onlyTestApk) {
+        ThrowIf 'Dry-run fixed-harness test APK selector did not return the sole emitted APK.'
+    }
+    Set-Content -LiteralPath (Join-Path $testApkSelectionRoot 'stale-debug-androidTest.apk') -Value 'stale' -Encoding utf8
+    $multipleTestApksRejected = $false
+    try { Resolve-SingleHarnessTestApk -OutputRoot $testApkSelectionRoot | Out-Null } catch { $multipleTestApksRejected = $_.Exception.Message -match 'exactly one' }
+    if (-not $multipleTestApksRejected) { ThrowIf 'Dry-run fixed-harness test APK selector accepted ambiguous output.' }
+    Write-Host 'Dry-run fixed-harness exact test APK selection probe passed.'
+    $productionProbeRoot = Join-Path $hostRunTmpRoot 'production-checkout-probe'
+    New-Item -ItemType Directory -Force -Path $productionProbeRoot | Out-Null
+    & git -C $productionProbeRoot init --quiet
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'tracked' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot '.gitignore') -Value 'build/' -Encoding utf8
+    & git -C $productionProbeRoot add tracked.txt
+    & git -C $productionProbeRoot add .gitignore
+    & git -C $productionProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m initial
+    $productionProbeCommit = (& git -C $productionProbeRoot rev-parse HEAD 2>&1 | Out-String).Trim()
+    $productionIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit
+    if ($productionIdentity.Commit -cne $productionProbeCommit -or $productionIdentity.Root -cne (Resolve-Path -LiteralPath $productionProbeRoot).Path) {
+        ThrowIf 'Dry-run production checkout identity resolver did not preserve the verified checkout root and commit.'
+    }
+    $malformedProductionCommitRejected = $false
+    try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit 'short' | Out-Null } catch { $malformedProductionCommitRejected = $_.Exception.Message -match 'full lowercase 40-character' }
+    if (-not $malformedProductionCommitRejected) { ThrowIf 'Dry-run production checkout identity resolver accepted a malformed commit.' }
+    $wrongProductionCommitRejected = $false
+    try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit ('f' * 40) | Out-Null } catch { $wrongProductionCommitRejected = $_.Exception.Message -match 'does not match.*checked-out' }
+    if (-not $wrongProductionCommitRejected) { ThrowIf 'Dry-run production checkout identity resolver accepted a wrong checkout commit.' }
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'untracked-overlay.txt') -Value 'overlay' -Encoding utf8
+    $dirtyProductionCheckoutRejected = $false
+    try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit | Out-Null } catch { $dirtyProductionCheckoutRejected = $_.Exception.Message -match 'untracked-overlay.txt' }
+    if (-not $dirtyProductionCheckoutRejected) { ThrowIf 'Dry-run production checkout identity resolver accepted an untracked overlay.' }
+    Remove-Item -LiteralPath (Join-Path $productionProbeRoot 'untracked-overlay.txt') -Force
+    $productionPreBuildIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit
+    $ignoredProductionBuildOutput = Join-Path $productionProbeRoot 'build\outputs\apk\debug\fixture-debug.apk'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ignoredProductionBuildOutput) | Out-Null
+    Set-Content -LiteralPath $ignoredProductionBuildOutput -Value 'ignored Gradle output' -Encoding utf8
+    $productionPostBuildIdentity = Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit
+    Assert-ProductionIdentityUnchanged -Before $productionPreBuildIdentity -After $productionPostBuildIdentity
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'dirty after build' -Encoding utf8
+    $postBuildProductionDirtyRejected = $false
+    try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit | Out-Null } catch { $postBuildProductionDirtyRejected = $_.Exception.Message -match 'not clean' }
+    if (-not $postBuildProductionDirtyRejected) { ThrowIf 'Dry-run production identity revalidation accepted a tracked post-build change.' }
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'tracked' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $productionProbeRoot 'tracked.txt') -Value 'committed after build' -Encoding utf8
+    & git -C $productionProbeRoot add tracked.txt
+    & git -C $productionProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m post-build
+    $postBuildProductionCommitRejected = $false
+    try { Get-VerifiedProductionCheckoutIdentity -ProductionCheckoutPath $productionProbeRoot -ExpectedCommit $productionProbeCommit | Out-Null } catch { $postBuildProductionCommitRejected = $_.Exception.Message -match 'does not match.*checked-out' }
+    if (-not $postBuildProductionCommitRejected) { ThrowIf 'Dry-run production identity revalidation accepted a post-build commit change.' }
+
+    $harnessProbeRoot = Join-Path $hostRunTmpRoot 'harness-checkout-probe'
+    $harnessProbeRunner = Join-Path $harnessProbeRoot 'run-nar-corpus-audit.ps1'
+    $harnessProbeInstrumentation = Join-Path $harnessProbeRoot 'NarCorpusRuntimeTest.kt'
+    New-Item -ItemType Directory -Force -Path $harnessProbeRoot | Out-Null
+    & git -C $harnessProbeRoot init --quiet
+    Set-Content -LiteralPath $harnessProbeRunner -Value 'runner source' -Encoding utf8
+    Set-Content -LiteralPath $harnessProbeInstrumentation -Value 'instrumentation source' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $harnessProbeRoot '.gitignore') -Value 'build/' -Encoding utf8
+    & git -C $harnessProbeRoot add run-nar-corpus-audit.ps1 NarCorpusRuntimeTest.kt .gitignore
+    & git -C $harnessProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m initial
+    $harnessProbeCommit = (& git -C $harnessProbeRoot rev-parse HEAD 2>&1 | Out-String).Trim()
+    $harnessPreBuildIdentity = Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation
+    $ignoredHarnessBuildOutput = Join-Path $harnessProbeRoot 'build\outputs\apk\androidTest\debug\fixture-debug-androidTest.apk'
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ignoredHarnessBuildOutput) | Out-Null
+    Set-Content -LiteralPath $ignoredHarnessBuildOutput -Value 'ignored Gradle output' -Encoding utf8
+    $harnessPostBuildIdentity = Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation
+    Assert-HarnessIdentityUnchanged -Before $harnessPreBuildIdentity -After $harnessPostBuildIdentity
+    Set-Content -LiteralPath $harnessProbeRunner -Value 'dirty runner source' -Encoding utf8
+    $postBuildHarnessSourceRejected = $false
+    try { Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation | Out-Null } catch { $postBuildHarnessSourceRejected = $_.Exception.Message -match 'not clean' }
+    if (-not $postBuildHarnessSourceRejected) { ThrowIf 'Dry-run harness identity revalidation accepted a post-build runner source change.' }
+    Set-Content -LiteralPath $harnessProbeRunner -Value 'runner source' -Encoding utf8
+    Set-Content -LiteralPath $harnessProbeInstrumentation -Value 'committed instrumentation source' -Encoding utf8
+    & git -C $harnessProbeRoot add NarCorpusRuntimeTest.kt
+    & git -C $harnessProbeRoot -c user.name=NarCorpusProbe -c user.email=probe.invalid commit --quiet -m post-build
+    $postBuildHarnessCommitRejected = $false
+    try { Get-VerifiedHarnessIdentity -RepositoryRoot $harnessProbeRoot -ExpectedCommit $harnessProbeCommit -RunnerPath $harnessProbeRunner -InstrumentationPath $harnessProbeInstrumentation | Out-Null } catch { $postBuildHarnessCommitRejected = $_.Exception.Message -match 'does not match.*checked-out' }
+    if (-not $postBuildHarnessCommitRejected) { ThrowIf 'Dry-run harness identity revalidation accepted a post-build commit change.' }
+    Write-Host 'Dry-run verified production checkout identity probes passed.'
+    $productionApkSelectionRoot = Join-Path $hostRunTmpRoot 'production-apk-selection'
+    New-Item -ItemType Directory -Force -Path $productionApkSelectionRoot | Out-Null
+    $missingProductionApkRejected = $false
+    try { Resolve-SingleProductionDebugApk -OutputRoot $productionApkSelectionRoot | Out-Null } catch { $missingProductionApkRejected = $_.Exception.Message -match 'exactly one' }
+    if (-not $missingProductionApkRejected) { ThrowIf 'Dry-run production APK selector accepted missing output.' }
+    $onlyProductionApk = Join-Path $productionApkSelectionRoot 'app-debug.apk'
+    Set-Content -LiteralPath $onlyProductionApk -Value 'fixture' -Encoding utf8
+    if ((Resolve-SingleProductionDebugApk -OutputRoot $productionApkSelectionRoot) -cne $onlyProductionApk) {
+        ThrowIf 'Dry-run production APK selector did not return the sole emitted APK.'
+    }
+    Set-Content -LiteralPath (Join-Path $productionApkSelectionRoot 'stale-debug.apk') -Value 'stale' -Encoding utf8
+    $multipleProductionApksRejected = $false
+    try { Resolve-SingleProductionDebugApk -OutputRoot $productionApkSelectionRoot | Out-Null } catch { $multipleProductionApksRejected = $_.Exception.Message -match 'exactly one' }
+    if (-not $multipleProductionApksRejected) { ThrowIf 'Dry-run production APK selector accepted ambiguous output.' }
+    Write-Host 'Dry-run fixed-production exact APK selection probe passed.'
+    if ((Get-ApkInputMode -ProductionCheckoutPath '' -ProductionCommit '' -HarnessCommit '') -cne 'build') {
+        ThrowIf 'Dry-run APK identity probe did not select local build mode for three omitted inputs.'
+    }
+    if ((Get-ApkInputMode -ProductionCheckoutPath 'C:\verified-production' -ProductionCommit ('1' * 40) -HarnessCommit ('2' * 40)) -cne 'external') {
+        ThrowIf 'Dry-run APK identity probe did not select external fixed-harness mode for three supplied inputs.'
+    }
+    $partialIdentityRejected = $false
+    try {
+        Get-ApkInputMode -ProductionCheckoutPath 'C:\verified-production' -ProductionCommit ('1' * 40) -HarnessCommit '' | Out-Null
+    }
+    catch {
+        $partialIdentityRejected = $_.Exception.Message -match 'all three'
+    }
+    if (-not $partialIdentityRejected) {
+        ThrowIf 'Dry-run APK identity probe accepted partial external identity inputs.'
+    }
+    $invalidProductionCommitRejected = $false
+    try { Assert-ExternalApkInputIdentity -Mode 'external' -ProductionCheckoutPath $repoRoot -ProductionCommit 'short' -HarnessCommit ('2' * 40) } catch { $invalidProductionCommitRejected = $_.Exception.Message -match 'full lowercase 40-character' }
+    if (-not $invalidProductionCommitRejected) { ThrowIf 'Dry-run accepted an invalid production commit declaration.' }
+    $invalidHarnessCommitRejected = $false
+    try { Assert-ExternalApkInputIdentity -Mode 'external' -ProductionCheckoutPath $repoRoot -ProductionCommit ('1' * 40) -HarnessCommit 'short' } catch { $invalidHarnessCommitRejected = $_.Exception.Message -match 'HarnessCommit.*full lowercase 40-character' }
+    if (-not $invalidHarnessCommitRejected) { ThrowIf 'Dry-run accepted an invalid harness commit declaration.' }
+    $wrongHarnessCommitRejected = $false
+    try { Assert-ExternalApkInputIdentity -Mode 'external' -ProductionCheckoutPath $repoRoot -ProductionCommit ('1' * 40) -HarnessCommit ('f' * 40) } catch { $wrongHarnessCommitRejected = $_.Exception.Message -match 'does not match the checked-out' }
+    if (-not $wrongHarnessCommitRejected) { ThrowIf 'Dry-run accepted a harness commit that does not match the checkout.' }
+    Write-Host 'Dry-run external commit identity probes passed.'
+    $currentPowerShellPath = Get-CurrentPowerShellExecutable
+    $probeScriptBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$PSCommandPath))
+    $probeRootsBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@($resolvedCorpusRoots) | ConvertTo-Json -Compress)))
+    $misconfiguredExternalCommand = @"
+`$scriptPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeScriptBase64'))
+`$rootsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeRootsBase64'))
+`$roots = @(`$rootsJson | ConvertFrom-Json)
+& `$scriptPath -DryRun -ProductionDebugApkPath 'intentionally-injected-base.apk' -CorpusRoots `$roots
+exit `$LASTEXITCODE
+"@
+    $misconfiguredExternalEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($misconfiguredExternalCommand))
+    $misconfiguredExternalProbe = Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments @(
+        '-NoProfile', '-NoLogo', '-EncodedCommand', $misconfiguredExternalEncoded
+    ) -TimeoutSeconds 30
+    $misconfiguredExternalOutput = $misconfiguredExternalProbe.error + [Environment]::NewLine + $misconfiguredExternalProbe.output
+    if ($misconfiguredExternalProbe.exitCode -eq 0 -or $misconfiguredExternalOutput -notmatch '(?is)ProductionDebugApkPath.*(?:removed|not accepted|parameter)') {
+        ThrowIf "Dry-run accepted caller-supplied ProductionDebugApkPath injection (exit $($misconfiguredExternalProbe.exitCode)): $misconfiguredExternalOutput"
+    }
+    $staleTestApkCommand = @"
+`$scriptPath = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeScriptBase64'))
+`$rootsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$probeRootsBase64'))
+`$roots = @(`$rootsJson | ConvertFrom-Json)
+& `$scriptPath -DryRun -HarnessTestApkPath 'stale-or-misattributed-androidTest.apk' -CorpusRoots `$roots
+exit `$LASTEXITCODE
+"@
+    $staleTestApkEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($staleTestApkCommand))
+    $staleTestApkProbe = Invoke-ArgumentListProcess -FilePath $currentPowerShellPath -Arguments @(
+        '-NoProfile', '-NoLogo', '-EncodedCommand', $staleTestApkEncoded
+    ) -TimeoutSeconds 30
+    $staleTestApkOutput = $staleTestApkProbe.error + [Environment]::NewLine + $staleTestApkProbe.output
+    if ($staleTestApkProbe.exitCode -eq 0 -or $staleTestApkOutput -notmatch '(?is)HarnessTestApkPath.*(?:removed|not accepted|parameter)') {
+        ThrowIf "Dry-run accepted caller-supplied HarnessTestApkPath injection (exit $($staleTestApkProbe.exitCode)): $staleTestApkOutput"
+    }
+    Write-Host 'Dry-run fixed-harness APK identity probe passed.'
     foreach ($debuggablePropertyCase in @(
         @{ value = '1'; expected = $true },
         @{ value = '0'; expected = $false }
@@ -2429,7 +3129,6 @@ if ($DryRun) {
         ThrowIf 'Dry-run missing log marker probe attributed prior-attempt diagnostics to the current attempt.'
     }
     Write-Host 'Dry-run non-destructive log marker probe passed.'
-    $currentPowerShellPath = Get-CurrentPowerShellExecutable
     $cmdPath = [Environment]::GetEnvironmentVariable('ComSpec')
     if ([string]::IsNullOrWhiteSpace($cmdPath)) {
         ThrowIf 'Dry-run timeout-tree probe cannot resolve cmd.exe.'
@@ -2744,18 +3443,18 @@ foreach ($arg in $ProbeArgs) {
     Write-Host 'Dry-run helper sentinel probes passed.'
 
     $dryRunSnakePrimaryOnly = @(
-        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200; hasExactValue = $true; references = @('0') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; hasExactValue = $true; references = @('First choice', 'choicefirsthehim') },
-        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200; hasExactValue = $true; references = @('Nanidroid', '') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; hasExactValue = $true; references = @('FAQ', 'faq') }
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; method = 'GET'; status = 200; hasExactValue = $true; references = @('0') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; hasExactValue = $true; references = @('First choice', 'choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnNameTeach'; method = 'GET'; status = 200; hasExactValue = $true; references = @('Nanidroid', ''); choiceIds = @('titlenone') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; hasExactValue = $true; references = @('Nope', 'titlenone'); choiceIds = @('beginnerStart', 'beginnerEnd') }
     )
     $dryRunSnakeChoiceFallback = @(
-        [pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200; references = @('0') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('First choice', 'choicefirsthehim') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; references = @('choicefirsthehim') },
-        [pscustomobject]@{ eventId = 'OnNameTeach'; status = 200; references = @('Nanidroid', '') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; status = 200; references = @('FAQ', 'faq') },
-        [pscustomobject]@{ eventId = 'OnChoiceSelect'; status = 200; hasExactValue = $true; references = @('faq') }
+        [pscustomobject]@{ eventId = 'OnFirstBoot'; method = 'GET'; status = 200; references = @('0') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; references = @('First choice', 'choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; method = 'GET'; status = 200; references = @('choicefirsthehim') },
+        [pscustomobject]@{ eventId = 'OnNameTeach'; method = 'GET'; status = 200; hasExactValue = $true; references = @('Nanidroid', ''); choiceIds = @('titlenone') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelectEx'; method = 'GET'; status = 200; references = @('Nope', 'titlenone') },
+        [pscustomobject]@{ eventId = 'OnChoiceSelect'; method = 'GET'; status = 200; hasExactValue = $true; references = @('titlenone'); choiceIds = @('beginnerStart', 'beginnerEnd') }
     )
     if (-not (Get-SnakeDialogueLifecycle -Steps $dryRunSnakePrimaryOnly).valid) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-only choice sequence.'
@@ -2763,13 +3462,29 @@ foreach ($arg in $ProbeArgs) {
     if (-not (Get-SnakeDialogueLifecycle -Steps $dryRunSnakeChoiceFallback).valid) {
         ThrowIf 'Dry-run Snake lifecycle sentinel rejected a valid primary-plus-fallback choice sequence.'
     }
-    $dryRunUnplayableTerminalFaq = $dryRunSnakeChoiceFallback | ConvertTo-Json -Depth 8 | ConvertFrom-Json
-    if (-not (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalFaq[-1])) {
-        ThrowIf 'Dry-run Snake terminal FAQ fixture was not playable before its status mutation.'
+    $dryRunUnplayableTerminalTitle = $dryRunSnakeChoiceFallback | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    if (-not (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalTitle[-1])) {
+        ThrowIf 'Dry-run Snake terminal title fixture was not playable before its status mutation.'
     }
-    $dryRunUnplayableTerminalFaq[-1].status = 201
-    if (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalFaq[-1]) {
-        ThrowIf 'Dry-run Snake terminal FAQ sentinel accepted a non-200 fallback response.'
+    $dryRunUnplayableTerminalTitle[-1].status = 201
+    if (Test-SnakePlayableResponse -Step $dryRunUnplayableTerminalTitle[-1]) {
+        ThrowIf 'Dry-run Snake terminal title sentinel accepted a non-200 fallback response.'
+    }
+    $dryRunSnakeFaqSequence = $dryRunSnakePrimaryOnly | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $dryRunSnakeFaqSequence[-1].references = @('FAQ', 'faq')
+    $dryRunSnakeFaqSequence[-2].choiceIds = @('faq')
+    if ((Get-SnakeDialogueLifecycle -Steps $dryRunSnakeFaqSequence).valid) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel accepted the nonexistent FAQ transaction.'
+    }
+    $dryRunSnakeHiddenTitle = $dryRunSnakePrimaryOnly | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $dryRunSnakeHiddenTitle[-2].choiceIds = @()
+    if ((Get-SnakeDialogueLifecycle -Steps $dryRunSnakeHiddenTitle).valid) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel accepted a title choice hidden by OnNameTeach.'
+    }
+    $dryRunSnakeMissingBeginnerChoice = $dryRunSnakePrimaryOnly | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $dryRunSnakeMissingBeginnerChoice[-1].choiceIds = @('beginnerStart')
+    if ((Get-SnakeDialogueLifecycle -Steps $dryRunSnakeMissingBeginnerChoice).valid) {
+        ThrowIf 'Dry-run Snake lifecycle sentinel accepted a title response missing beginnerEnd.'
     }
     foreach ($invalidSnakeSequence in @(
         @([pscustomobject]@{ eventId = 'OnFirstBoot'; status = 200 }),
@@ -2818,10 +3533,10 @@ foreach ($arg in $ProbeArgs) {
             eventId = 'OnChoiceSelectEx'
             scope = 'dialogue'
             coordinates = $null
-            identifier = 'faq'
+            identifier = 'titlenone'
             button = $null
             source = 'choice'
-            references = @('FAQ', 'faq', $null, $null, $null, $null, $null)
+            references = @('Nope', 'titlenone', $null, $null, $null, $null, $null)
         }
     )
     Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $validPostInteractionEvidence -DialogueSteps $dryRunSnakePrimaryOnly
@@ -2846,10 +3561,10 @@ foreach ($arg in $ProbeArgs) {
             eventId = 'OnChoiceSelect'
             scope = 'dialogue'
             coordinates = $null
-            identifier = 'faq'
+            identifier = 'titlenone'
             button = $null
             source = 'choice'
-            references = @('faq', $null, $null, $null, $null, $null, $null)
+            references = @('titlenone', $null, $null, $null, $null, $null, $null)
         }
     )
     Assert-PostInteractionEvidence -ExpectedGhostIdentity 'snake-and-otacon' -Evidence $dryRunSnakeChoiceFallbackEvidence -DialogueSteps $dryRunSnakeChoiceFallback
@@ -2932,18 +3647,24 @@ foreach ($arg in $ProbeArgs) {
             status = 200
             value = '\\![leave,passivemode]'
             tokenizerDiagnostics = @()
+            references = @('he/him', 'choicefirsthehim')
         },
         [pscustomobject]@{
             eventId = 'OnNameTeach'
             status = 200
+            hasExactValue = $true
             value = 'Name accepted'
             tokenizerDiagnostics = @()
+            choiceIds = @('titlenone')
         },
         [pscustomobject]@{
             eventId = 'OnChoiceSelectEx'
             status = 200
-            value = 'FAQ'
+            hasExactValue = $true
+            value = 'Beginner mode'
             tokenizerDiagnostics = @()
+            references = @('Nope', 'titlenone')
+            choiceIds = @('beginnerStart', 'beginnerEnd')
         }
     )
     $dryRunSnakeAggregateEvidence = & {
@@ -2952,18 +3673,18 @@ foreach ($arg in $ProbeArgs) {
         $lifecycle = Get-SnakeDialogueLifecycle -Steps $Steps
         $snakeOnFirstBootTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.firstBoot -Path 'tokenizerDiagnostics'
         $snakeFirstChoiceSelectTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.firstChoice.effective -Path 'tokenizerDiagnostics'
-        $snakeFaqTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.nextChoice.effective -Path 'tokenizerDiagnostics'
+        $snakeTitleTokenizerDiagnostics = Get-NestedPropertyValue -Object $lifecycle.nextChoice.effective -Path 'tokenizerDiagnostics'
         [pscustomobject]@{
             valid = $lifecycle.valid
             firstBootTokenizerCount = @($snakeOnFirstBootTokenizerDiagnostics).Count
             firstChoiceTokenizerCount = @($snakeFirstChoiceSelectTokenizerDiagnostics).Count
-            faqTokenizerCount = @($snakeFaqTokenizerDiagnostics).Count
+            titleTokenizerCount = @($snakeTitleTokenizerDiagnostics).Count
         }
     } $dryRunSnakeAggregateSteps
     if (-not $dryRunSnakeAggregateEvidence.valid -or
         $dryRunSnakeAggregateEvidence.firstBootTokenizerCount -ne 0 -or
         $dryRunSnakeAggregateEvidence.firstChoiceTokenizerCount -ne 0 -or
-        $dryRunSnakeAggregateEvidence.faqTokenizerCount -ne 0) {
+        $dryRunSnakeAggregateEvidence.titleTokenizerCount -ne 0) {
         ThrowIf 'Dry-run Snake aggregate variable setup produced unexpected tokenizer counts.'
     }
     Write-Host 'Dry-run Snake aggregate strict-mode probe passed.'
@@ -3121,7 +3842,7 @@ try {
     Check-DeviceGate
     $preflightPhase = 'preexisting-state'
     Validate-NoPreexistingDeviceState
-    $apkInfo = Build-Apks
+    $apkInfo = Get-ApkInfo
 
     $apksigner = Resolve-ApkSigner
     Verify-DebugSignature -ApkPath $apkInfo.DebugApkPath -Label 'debug' -ApkSignerPath $apksigner | Out-Null
@@ -3712,25 +4433,25 @@ try {
     $snakeFirstChoiceSelectStatusInt = 0
     $snakeFirstChoiceSelectStatus2xx = [int]::TryParse([string]$snakeFirstChoiceSelectStatus, [ref]$snakeFirstChoiceSelectStatusInt) -and $snakeFirstChoiceSelectStatusInt -ge 200 -and $snakeFirstChoiceSelectStatusInt -le 299
 
-    $snakeFaqStatus = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'status'
-    $snakeFaqOutcome = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'outcome'
-    $snakeFaqValue = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'value'
-    $snakeFaqFailure = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'failure'
-    $snakeFaqTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'tokenizerDiagnostics'
-    $snakeFaqMethod = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'method'
-    $snakeFaqRefs = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'references')
-    $snakeFaqRef0 = if ($snakeFaqRefs.Count -gt 0) { $snakeFaqRefs[0] } else { $null }
-    $snakeFaqIdentifier = $snakeLifecycle.nextChoice.identifier
-    $snakeFaqAnchorIds = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'anchorIds')
+    $snakeTitleStatus = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'status'
+    $snakeTitleOutcome = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'outcome'
+    $snakeTitleValue = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'value'
+    $snakeTitleFailure = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'failure'
+    $snakeTitleTokenizerDiagnostics = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'tokenizerDiagnostics'
+    $snakeTitleMethod = Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'method'
+    $snakeTitleRefs = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'references')
+    $snakeTitleRef0 = if ($snakeTitleRefs.Count -gt 0) { $snakeTitleRefs[0] } else { $null }
+    $snakeTitleIdentifier = $snakeLifecycle.nextChoice.identifier
+    $snakeTitleChoiceIds = As-NonNullArray -Value (Get-NestedPropertyValue -Object $snakeStepSecondChoiceSelect -Path 'choiceIds')
     $snakeFirstChoiceSelectTokenizerCount = if ($null -ne $snakeFirstChoiceSelectTokenizerDiagnostics) { @($snakeFirstChoiceSelectTokenizerDiagnostics).Count } else { $null }
     $snakeOnFirstBootTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeOnFirstBootTokenizerDiagnostics
-    $snakeFaqTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeFaqTokenizerDiagnostics
+    $snakeTitleTokenizerDiagnosticsExpected = Test-OnlyExpectedTokenizerDiagnostics -Diagnostics $snakeTitleTokenizerDiagnostics
     $snakeOnFirstBootValueText = if ($null -eq $snakeOnFirstBootValue) { '' } else { [string]$snakeOnFirstBootValue }
     $snakeOnFirstBootValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeOnFirstBootValueText)
     $snakeFirstChoiceSelectValueText = if ($null -eq $snakeFirstChoiceSelectValue) { '' } else { [string]$snakeFirstChoiceSelectValue }
     $snakeFirstChoiceSelectValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeFirstChoiceSelectValueText)
-    $snakeFaqValueText = if ($null -eq $snakeFaqValue) { '' } else { [string]$snakeFaqValue }
-    $snakeFaqValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeFaqValueText)
+    $snakeTitleValueText = if ($null -eq $snakeTitleValue) { '' } else { [string]$snakeTitleValue }
+    $snakeTitleValueNonBlank = -not [string]::IsNullOrWhiteSpace($snakeTitleValueText)
 
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-2elf-summary-row-count' -Passed ($twoElfSummaryRows.Count -eq 1) -Expected 1 -Observed $twoElfSummaryRows.Count -Detail 'Expected exactly one summary row for label 2elf-2.46.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-2elf-summary-result-path' -Passed (-not [string]::IsNullOrWhiteSpace($twoElfSummaryResultPath)) -Expected 'non-empty' -Observed $twoElfSummaryResultPath -Detail 'Expected summary row resultPath to be non-empty.'
@@ -3858,7 +4579,7 @@ try {
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-239-surface-0-or-9' -Passed $snakeSurfaceLine239FoundForSurface0Or9 -Expected $true -Observed $snakeSurfaceLine239FoundForSurface0Or9 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 239 for surface 0 or 9.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-285-surface-8' -Passed $snakeSurfaceLine285FoundForSurface8 -Expected $true -Observed $snakeSurfaceLine285FoundForSurface8 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 285 for surface 8.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-surface-provenance-line-394-surface-19-or-40' -Passed $snakeSurfaceLine394FoundForSurface19Or40 -Expected $true -Observed $snakeSurfaceLine394FoundForSurface19Or40 -Detail 'Expected Snake and Otacon parsed surface entry provenance to include line 394 for surface 19 or 40.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-choice-lifecycle' -Passed $snakeNoFallbackLifecycleValid -Expected 'OnFirstBoot, choice transaction, direct OnNameTeach, next choice transaction (without OnBoot)' -Observed ($snakeSequenceSteps | ForEach-Object { Get-NestedPropertyValue -Object $_ -Path 'eventId' }) -Detail 'Expected the real Snake run to parse primary-only or primary-plus-fallback choice transactions around direct OnNameTeach.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-choice-lifecycle' -Passed $snakeNoFallbackLifecycleValid -Expected 'OnFirstBoot, choicefirsthehim transaction, direct OnNameTeach exposing titlenone, titlenone transaction exposing beginnerStart/beginnerEnd (without OnBoot)' -Observed ($snakeSequenceSteps | ForEach-Object { Get-NestedPropertyValue -Object $_ -Path 'eventId' }) -Detail 'Expected the real Snake run to follow only the authored title lifecycle, with primary-only or primary-plus-fallback choice transactions.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-post-interaction-evidence' -Passed $snakePostInteractionEvidenceValid -Expected 'bounded choice/input event envelopes' -Observed $snakePostInteractionEvidence -Detail 'Expected normalized post-interaction SHIORI evidence with ghost identity, dispatch fields, and References 0 through 6.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-event-id' -Result $snakeStepOnFirstBoot -Path 'eventId' -Expected 'OnFirstBoot' -Detail 'Expected Snake and Otacon dialogue step 1 eventId OnFirstBoot.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-first-choice-primary-event-id' -Result $snakeLifecycle.firstChoice.primary -Path 'eventId' -Expected 'OnChoiceSelectEx' -Detail 'Expected the first choice transaction to retain its primary OnChoiceSelectEx envelope.'
@@ -3871,7 +4592,7 @@ try {
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-step-0-method' -Result $snakeStepOnFirstBoot -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon OnFirstBoot method GET.'
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-first-choice-id' -Passed (($snakeFirstChoiceSelectIdentifier -eq 'choicefirsthehim') -and ($snakeFirstChoiceSelectPassiveTransitions -contains $false) -and ($snakeFirstChoiceSelectStatus2xx -and $snakeFirstChoiceSelectOutcome -eq 'success' -and $snakeFirstChoiceSelectValueNonBlank -and $null -eq $snakeFirstChoiceSelectFailure -and $snakeFirstChoiceSelectTokenizerCount -eq 0) -and $snakeFirstChoiceSelectInputDispatchId -eq 'OnNameTeach' -and [string]::Equals([string]$snakeFirstChoiceSelectInputTimeout, '-1')) -Expected $true -Observed $snakeFirstChoiceSelectIdentifier -Detail 'Expected Snake and Otacon first choice transaction to target choicefirsthehim, transition passive=false, expose OnNameTeach timeout=-1, and be successful GET.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-first-choice-method' -Result $snakeStepFirstChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon first choice transaction method GET.'
-    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-next-choice-id' -Passed (($snakeFaqIdentifier -eq 'faq') -and (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect) -and $snakeFaqOutcome -eq 'success' -and $snakeFaqValueNonBlank -and $null -eq $snakeFaqFailure -and $snakeFaqTokenizerDiagnosticsExpected -and ($snakeFaqAnchorIds -contains 'whoSnake') -and ($snakeFaqAnchorIds -contains 'whoHal')) -Expected $true -Observed ([pscustomobject]@{ faqReference = ($snakeFaqIdentifier -eq 'faq'); playable = (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect); anchors = @($snakeFaqAnchorIds); tokenizerDiagnostics = @($snakeFaqTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeFaqTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon next choice transaction to target faq, return HTTP 200 with an exact Value header, include whoSnake/whoHal anchors, and have no tokenizer diagnostics beyond its known presentation markers.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-next-choice-id' -Passed (($snakeTitleIdentifier -eq 'titlenone') -and (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect) -and $snakeTitleOutcome -eq 'success' -and $snakeTitleValueNonBlank -and $null -eq $snakeTitleFailure -and $snakeTitleTokenizerDiagnosticsExpected -and ($snakeTitleChoiceIds -contains 'beginnerStart') -and ($snakeTitleChoiceIds -contains 'beginnerEnd')) -Expected $true -Observed ([pscustomobject]@{ titleReference = ($snakeTitleIdentifier -eq 'titlenone'); playable = (Test-SnakePlayableResponse -Step $snakeStepSecondChoiceSelect); beginnerChoices = @($snakeTitleChoiceIds); tokenizerDiagnostics = @($snakeTitleTokenizerDiagnostics); tokenizerDiagnosticsExpected = $snakeTitleTokenizerDiagnosticsExpected }) -Detail 'Expected Snake and Otacon next choice transaction to target the visible titlenone choice, return HTTP 200 with an exact Value header, expose beginnerStart/beginnerEnd, and have only known presentation diagnostics.'
     Add-SentinelNestedCheck -Accumulator $globalSentinels -Name 'slice2-snake-dialogue-next-choice-method' -Result $snakeStepSecondChoiceSelect -Path 'method' -Expected 'GET' -Detail 'Expected Snake and Otacon next choice transaction method GET.'
 
     $runEnd = Get-Date
@@ -3902,7 +4623,7 @@ try {
         $temp = Get-NestedPropertyValue -Object $result -Path 'postCleanupTmpSnapshot' -Found ([ref]$foundPostTmp)
         if ($foundPostTmp -and $null -ne $temp) { $temp | ForEach-Object { $postCleanupTmp.Add($_) | Out-Null } }
         $remainingPaths = Get-NestedPropertyValue -Object $result -Path 'cleanup.remainingTestOwnedPaths' -Found ([ref]$foundCleanupPaths)
-        if ($null -eq $remainingPaths) { $remainingPaths = @() }
+        $remainingPathsValid = Test-ExactEmptyArray -Value $remainingPaths -Found $foundCleanupPaths
 
         $hostVerified = Get-NestedPropertyValue -Object $result -Path 'cleanup.hostVerified' -Found ([ref]$foundHostVerified)
         $statusValue = Get-NestedPropertyValue -Object $result -Path 'status' -Found ([ref]$foundStatus)
@@ -3920,7 +4641,7 @@ try {
             $postCleanupPrivate.Count -ne 0 -or
             $postCleanupOutput.Count -ne 0 -or
             $postCleanupTmp.Count -ne 0 -or
-            -not (Compare-NumericWithTolerance -Expected 0 -Actual $remainingPaths.Count -Tolerance 0) -or
+            -not $remainingPathsValid -or
             -not $hostVerified -or
             -not ([bool]$passedValue)
         ) {
@@ -3928,9 +4649,33 @@ try {
         }
     }
     Add-SentinelCheck -Accumulator $globalSentinels -Name 'result-rows' -Passed ($invalidResultRows.Count -eq 0) -Expected 0 -Observed $invalidResultRows.Count -Detail "Rows failing host cleanup/status constraints: $($invalidResultRows -join ', ')"
+    $olderSnakeStructuralLabels = @('Snake and Otacon V1.2.1', 'Snake and Otacon V1.3.1', 'Snake_Otacon_1.3.1b')
+    $snakeStructuralRows = @($results | Where-Object {
+        $_.label -in $olderSnakeStructuralLabels -and
+        (Has-Property -Object $_ -Name 'snakeOnBootStructuralSafety') -and
+        $_.snakeOnBootStructuralSafety.accepted -eq $true -and
+        $_.snakeOnBootStructuralSafety.contentCompared -eq $false
+    })
+    $snakeCanaryRows = @($results | Where-Object {
+        $_.label -in $olderSnakeStructuralLabels -and
+        (Has-Property -Object $_ -Name 'snakeFirstBootCanary') -and
+        $_.snakeFirstBootCanary.freshInstance -eq $true -and
+        $_.snakeFirstBootCanary.independentInstanceCount -eq 2
+    })
+    $screenshotHashRows = @($results | ForEach-Object {
+        $hostScreenshotHash = Get-ValidatedHostScreenshotHash -ResultRow $_ -HostScreenshotRoot $screenshotRoot
+        if ([string]$hostScreenshotHash -match '^[0-9a-f]{64}$') {
+            [pscustomobject]@{ label = [string]$_.label; sha256 = [string]$hostScreenshotHash }
+        }
+    })
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-raw-envelope-count' -Passed ($results.Count -eq 23) -Expected 23 -Observed $results.Count -Detail 'Expected one successful raw envelope for every fixed manifest entry.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-snake-structural-only-count' -Passed ($snakeStructuralRows.Count -eq 3) -Expected 3 -Observed $snakeStructuralRows.Count -Detail 'Expected exactly three SHA-bound older Snake structural-only witnesses.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-snake-canary-count' -Passed ($snakeCanaryRows.Count -eq 3) -Expected 3 -Observed $snakeCanaryRows.Count -Detail 'Expected exactly three independently repeatable fresh-instance Snake canaries.'
+    Add-SentinelCheck -Accumulator $globalSentinels -Name 'schema2-screenshot-hash-count' -Passed ($screenshotHashRows.Count -eq 23) -Expected 23 -Observed $screenshotHashRows.Count -Detail 'Expected one exact screenshot artifact for every fixed manifest entry.'
     $failedSentinelChecks = @($globalSentinels.checks | Where-Object { -not $_.passed }).Count
 
     $summary = [pscustomobject]@{
+        schemaVersion = '2'
         runId = $runId
         manifest = $manifestEntryName
         manifestSha256 = $manifestSha
@@ -3938,9 +4683,20 @@ try {
         finishedAt = $runEnd.ToUniversalTime().ToString('o')
         durationSeconds = $runSeconds
         git = @{
-            commit = (git rev-parse HEAD).Trim()
+            commit = $apkInfo.HarnessCommit
             manifestFile = (Resolve-Path (Join-Path $repoRoot $ManifestPath)).Path
             manifestBytes = (Get-Item (Join-Path $repoRoot $ManifestPath)).Length
+        }
+        production = @{
+            commit = $apkInfo.ProductionCommit
+            debugApkSha256 = $apkInfo.DebugApkSha256
+        }
+        harness = @{
+            commit = $apkInfo.HarnessCommit
+            tree = $apkInfo.HarnessTree
+            runnerSha256 = $apkInfo.HarnessRunnerSha256
+            instrumentationSourceSha256 = $apkInfo.HarnessInstrumentationSourceSha256
+            testApkSha256 = $apkInfo.TestApkSha256
         }
         device = @{
             serial = $DeviceSerial
@@ -3950,12 +4706,12 @@ try {
             density = [int]$deviceDensity
         }
         host = @{
-            fixedSeed = $fixedSeed
             networkDisabled = $true
             runAs = $true
             timeoutMinutes = $PerArchiveTimeoutMinutes
         }
         apks = @{
+            inputMode = $apkInfo.InputMode
             debugPath = $apkInfo.DebugApkPath
             debugSha256 = $apkInfo.DebugApkSha256
             testPath = $apkInfo.TestApkPath
@@ -3986,7 +4742,6 @@ try {
 - Run ID: $runId
 - Device: $DeviceSerial ($deviceFingerprint)
 - Android API: $deviceApi, ABI: $deviceAbi, density: $deviceDensity
-- Fixed seed: $fixedSeed
 - APKs:
   - debug sha256: $($apkInfo.DebugApkSha256)
   - test sha256: $($apkInfo.TestApkSha256)

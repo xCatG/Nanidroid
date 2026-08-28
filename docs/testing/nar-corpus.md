@@ -1,6 +1,6 @@
 # NAR corpus runtime audit
 
-`run-nar-corpus-audit.ps1` executes a deterministic, manifest-driven compatibility
+`run-nar-corpus-audit.ps1` executes a manifest-driven compatibility
 run. For each archive, the script installs/builds target and test APKs once, copies
 the archive into one per-run private staging path, invokes
 `com.cattailsw.nanidroid.corpus.NarCorpusRuntimeTest` with:
@@ -25,6 +25,17 @@ device copies in `finally` blocks.
   when it is not discoverable on `PATH`.
 - `-ManifestPath` (optional): manifest path.
   Default: `docs/testing/nar-corpus-manifest.json`.
+- `-ProductionCheckoutPath`, `-ProductionCommit`, and `-HarnessCommit`
+  (optional as one all-or-none group): run a debug APK built from a separately
+  verified production checkout with the fixed harness. The runner requires full
+  lowercase SHA syntax, exact clean production `HEAD`, exactly one
+  `*-debug.apk` produced by `assembleDebug`, and rejects caller-supplied
+  production/test APKs. It independently verifies `HarnessCommit` is the
+  checked-out clean harness commit, builds `assembleDebugAndroidTest` there, and
+  then revalidates production and harness identities before recording both APK
+  hashes plus the harness tree and source hashes. Ignored Gradle outputs are
+  allowed, but any tracked or untracked checkout/source change after either build
+  rejects the run. Omit all three only for a standalone one-tree audit.
 - `-PerArchiveTimeoutMinutes` (optional): hard timeout in minutes for each
   `am instrument` run. This is a host-side corpus safety bound, not the app's
   user-visible script-hang policy. Nanidroid does not cancel a running ghost
@@ -55,6 +66,10 @@ The script requires:
 - clear free storage on `/data`
 - successful `run-as com.cattailsw.nanidroid`
 - build/install once per run
+
+For comparison evidence, use external fixed-harness mode. A locally built
+one-tree run is useful for standalone diagnosis, but it cannot prove that pristine
+base and candidate production APKs were exercised by an identical probe.
 
 ## Output
 
@@ -91,9 +106,10 @@ The script requires:
   These checks cover result count, zero failures, cleanup, parser provenance,
   authored collision geometry and routing, dialogue sequences, optical bounds,
   asymmetric Sakura/Kero surfaces, and intentionally unsupported package kinds.
-- Persists fixed metadata in `summary.json`/`summary.md`, including:
+- Persists run metadata in schema-versioned (`"2"`) `summary.json`/`summary.md`, including:
   - git commit
-  - APK hashes
+  - separate production commit/debug APK identity
+  - fixed harness commit/tree, runner source, instrumentation source, and test APK identity
   - manifest hash
   - manifest fingerprint/rows
   - device fingerprint/API/ABI/density
@@ -118,3 +134,144 @@ markers all agree and the row permits `incompatible`; every other native crash f
 the run. If any ADB process exceeds its host deadline, the runner records the partial
 result and stops issuing device commands because the transport is no longer trusted;
 cleanup is reported as unverified for that run.
+
+## Fixed-23 reproducibility comparison
+
+The comparison contract is
+`docs/testing/nar-corpus-comparison-contract.json`. It is intentionally separate
+from both `nar-corpus-manifest.json` and the rolling PR #394 metadata ledger. The
+contract binds reviewed stochastic dialogue rules to exact archive SHA-256 entries,
+source provenance, and (where required) paired tokenizer diagnostics; it does not
+change archive membership, classification, or required-evidence policy.
+
+Prepare three retained evidence roots: two complete runs of the pristine base
+debug APK, then one complete run of the pristine candidate debug APK. Build the
+two production APKs in clean worktrees at their declared commits. Build the test
+APK from the clean committed fixed-harness worktree by invoking this runner there
+for all three runs using the three external-mode arguments; the runner builds the
+test APK from that verified checkout each time. Use the same freshly reset emulator,
+corpus files, manifest, API, ABI, density, and byte-identical resulting harness APK
+for every run. After each complete run, copy the entire
+`build/reports/nar-corpus` directory to its retained root. Do not retry individual
+archives or substitute rows/screenshots. If any run must be repeated, discard the
+three retained roots and repeat the complete base/base-first sequence.
+
+Each of the three full runs uses this shape, changing only the pristine production
+checkout and its declared commit:
+
+```powershell
+& .\scripts\run-nar-corpus-audit.ps1 -DeviceSerial '<emulator-serial>' `
+  -CorpusRoots '<exact-corpus-root-1>','<exact-corpus-root-2>' `
+  -ProductionCheckoutPath '<pristine-production-checkout>' `
+  -ProductionCommit '<production-commit>' `
+  -HarnessCommit '<fixed-harness-commit>'
+```
+
+After recording the expected identities from those builds, compare in this
+fail-fast order (values below are explicit placeholders):
+
+```powershell
+$common = @(
+  '-ManifestPath', 'docs/testing/nar-corpus-manifest.json',
+  '-ContractPath', 'docs/testing/nar-corpus-comparison-contract.json',
+  '-BaseProductionCommit', '<base-commit>',
+  '-BaseDebugApkSha256', '<base-debug-apk-sha256>',
+  '-HarnessCommit', '<fixed-harness-commit>',
+  '-HarnessTree', '<fixed-harness-tree>',
+  '-HarnessRunnerSha256', '<runner-source-sha256>',
+  '-HarnessInstrumentationSourceSha256', '<instrumentation-source-sha256>',
+  '-HarnessTestApkSha256', '<test-apk-sha256>'
+)
+
+& pwsh -NoProfile -File scripts/compare-nar-corpus-runs.ps1 @common `
+  -ComparisonKind BaseBase `
+  -BaseRoot '<retained-base-run-1>' -CandidateRoot '<retained-base-run-2>' `
+  -CandidateProductionCommit '<base-commit>' `
+  -CandidateDebugApkSha256 '<base-debug-apk-sha256>' `
+  -OutputPath '<retained-base-base-comparison.json>'
+if ($LASTEXITCODE -ne 0) { throw 'Base/base prerequisite failed; candidate comparison is forbidden.' }
+
+& pwsh -NoProfile -File scripts/compare-nar-corpus-runs.ps1 @common `
+  -ComparisonKind BaseCandidate `
+  -BaseRoot '<retained-base-run-1>' -CandidateRoot '<retained-candidate-run>' `
+  -CandidateProductionCommit '<candidate-commit>' `
+  -CandidateDebugApkSha256 '<candidate-debug-apk-sha256>' `
+  -BaseBaseReportPath '<retained-base-base-comparison.json>' `
+  -OutputPath '<retained-base-candidate-comparison.json>'
+if ($LASTEXITCODE -ne 0) { throw 'Base/candidate corpus comparison failed.' }
+```
+
+The comparator independently requires schema version `"2"` on the contract,
+both summaries, all 23 raw results, and any prerequisite/comparison report. It
+requires both run summaries to be successful,
+then exhaustively compares `summary.json`, the exact 23 raw `result.json` files,
+and the exact 23 screenshot hashes. A base/candidate invocation cannot proceed
+without a passing base/base report bound to the same base, harness, manifest,
+contract, and emulator identity. That proof includes an exact evidence
+fingerprint plus distinct, internally mirrored runner run IDs, and every comparison atomically writes either a
+passing report or a bounded structured failure report to its output path.
+For `BaseCandidate`, the retained `-BaseBaseReportPath` and `-OutputPath` must
+resolve to distinct files before either is read or written, and `-OutputPath`
+must be fresh (nonexistent). Base/candidate reports are therefore write-once,
+which prevents a candidate result (including a failure report) from replacing
+its prerequisite through lexical, junction, symlink, or other filesystem alias.
+Freshness is enforced at the atomic write boundary, so it also covers a file
+that appears after argument validation but before the comparison report commit.
+`BaseBase` reports retain their atomic replacement behavior for an explicit
+rerun at the same output path.
+Each raw `narCorpusPath` must exactly match the runner-owned archive path
+`/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/<32-lowercase-hex-run-id>/<safe-label>/nanidroid-corpus.nar`
+or the same exact suffix under the legacy `/data/data/com.cattailsw.nanidroid`
+root. Prefixes,
+suffixes, traversal segments, wrong labels or filenames are rejected, and all
+23 rows in one run must use the same private-data-root variant. This rule is
+intentionally limited to `narCorpusPath`; source mirror fields retain their
+separate wrapper/path rules.
+For schema `"2"`, the host validates and normalizes the exact runner-owned
+summary shapes for all 23 `observedPrivateSnapshot` and `observedTmpSnapshot`
+values and the manifest/SHA-bound 15 `evidence.sourceSyntax.scanRoot` values.
+Only `scanRoot` has a raw result mirror; private and tmp snapshots are summary
+evidence and are never fabricated into device JSON. The runner keeps pulled
+device `result.json` bytes unchanged: host cleanup facts live in summary rows.
+For an exact manifest-authorized Kawari crash at the `before-real-shiori`
+checkpoint, the raw device record may therefore have no `cleanup` member; its
+summary row must instead carry verified empty host cleanup and empty array
+snapshots. No other row may use that exception.
+OnBoot stochastic checks bind device-local before/after clock brackets and
+fresh-profile context, failing closed if a predicate boundary is crossed. No
+unused seed argument is emitted or treated as a determinism claim.
+The comparison report and its base/base prerequisite hard-bind the content
+partition: 23 raw envelopes structurally validated; 16 dialogue literals
+equal; four independently archive-bound stochastic dialogue contracts (2elf,
+Watchdog, Earthquake, and LOBO) validated without being called literal-equal;
+three exact older-Snake label/SHA pairs structural-only with
+`contentCompared:false`; three exact fresh-instance `GET OnFirstBoot`
+canaries; and 23 screenshot hashes equal. For the three older Snake archives,
+the instrumentation creates canary A and B in separate never-loaded roots,
+unloads each wrapper before cleanup, requires their full canary objects to be
+equal, and only then loads the primary OnBoot wrapper in a third root for one
+recorded OnBoot request and unload only. A separate focused device
+characterization (not a primary evidence session) keeps that process-global YAYA slot
+reserved before construction: a second attempted wrapper must be rejected
+before the native constructor/load boundary, the first request remains usable,
+and a replacement can load only after the first unload succeeds.
+Their
+OnBoot text is accepted only by the test-only full-consuming raw SakuraScript
+safety lexer: the archive-bound surface union is exactly
+`{0,1,2,4,5,8,9,10,13,14,15,17,18,19,30,32,35}`, the only formatting tokens
+are case-sensitive `\f[italic,true]` and `\f[italic,false]`, and the terminal
+is exact `\e` or physical EOF. Kotlin fixtures exercise the lexer semantics;
+archive-member provenance for italic true/false and EOF `zzz...` branches is
+verified by the recovered-corpus host audit for each exact older-Snake SHA. This is not a claim
+of general KIS/YAYA evaluation or equality of stochastic prose.
+Accordingly, an otherwise structurally valid older-Snake prose substitution,
+including one that happens to resemble another older-Snake archive's output,
+is an explicit known miss. The exact `OnFirstBoot` canary proves only its
+separate fresh request/response path; it does not prove the provenance of the
+primary `OnBoot` prose.
+For successful default-run summaries, the comparator also requires the reviewed
+143-name sentinel set. Its contract digest is calculated by ordinal-sorting the
+unique nonblank names, joining them with LF, and taking a UTF-8 SHA-256; a
+missing, renamed, duplicated, or malformed check cannot be normalized away.
+The comparator supports PowerShell 7.0 and preserves JSON scalar kinds with its
+own strict reader; it does not require the PowerShell 7.5 `-DateKind` option.

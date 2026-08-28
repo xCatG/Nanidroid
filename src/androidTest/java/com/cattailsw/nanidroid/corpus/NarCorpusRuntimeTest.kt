@@ -82,6 +82,7 @@ import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
+import java.time.OffsetDateTime
 import java.util.Base64
 import java.util.Locale
 import kotlin.math.ceil
@@ -94,6 +95,10 @@ class NarCorpusRuntimeTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
     private val probeContent = NarCorpusProbeContent()
+    private val liveShioriWrappers = SingleLiveWrapperGuard()
+    private var trackedShioriConstructionHook: (() -> Unit)? = null
+    private var snakeOwnershipInputRootCreatedHook: ((String, File) -> Unit)? = null
+    private var snakeOwnershipSetupHook: ((String, File, File) -> Unit)? = null
 
     @Test
     fun boundedReadKeepsOnlyTheLimitAndOverflowSentinel() {
@@ -130,14 +135,21 @@ class NarCorpusRuntimeTest {
     fun snakeBootLifecycleDoesNotFallbackWhenOnFirstBootReturnsContent() {
         val requests = mutableListOf<Pair<String, List<String>>>()
 
-        snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
             requests += eventId to references
             JSONObject()
                 .put("eventId", eventId)
                 .put("status", 200)
                 .put("outcome", "success")
                 .put("value", "playable")
-                .put("choiceIds", JSONArray().put("faq"))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals(
@@ -145,9 +157,15 @@ class NarCorpusRuntimeTest {
                 "OnFirstBoot" to listOf("0"),
                 "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
                 "OnNameTeach" to listOf("Nanidroid", ""),
-                "OnChoiceSelectEx" to listOf("faq", "faq"),
+                "OnChoiceSelectEx" to listOf("Nope", "titlenone"),
             ),
             requests,
+        )
+        assertEquals(
+            setOf(SNAKE_BEGINNER_START_ID, SNAKE_BEGINNER_END_ID),
+            sequence.getJSONObject(3).getJSONArray("choiceIds").let { choiceIds ->
+                (0 until choiceIds.length()).map(choiceIds::getString).toSet()
+            },
         )
     }
 
@@ -217,7 +235,7 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleDoesNotProbeFaqWhenInputDoesNotExposeFaqChoice() {
+    fun snakeBootLifecycleDoesNotProbeTitleWhenInputDoesNotExposeAuthoredChoice() {
         val requests = mutableListOf<String>()
 
         snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
@@ -266,7 +284,14 @@ class NarCorpusRuntimeTest {
                 .put("status", if (primaryIsUnplayable) 204 else 200)
                 .put("outcome", "success")
                 .put("value", if (primaryIsUnplayable) "" else "playable")
-                .put("choiceIds", JSONArray().put("faq"))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals(
@@ -275,7 +300,7 @@ class NarCorpusRuntimeTest {
                 "OnChoiceSelectEx" to listOf("he/him", "choicefirsthehim"),
                 "OnChoiceSelect" to listOf("choicefirsthehim"),
                 "OnNameTeach" to listOf("Nanidroid", ""),
-                "OnChoiceSelectEx" to listOf("faq", "faq"),
+                "OnChoiceSelectEx" to listOf("Nope", "titlenone"),
             ),
             requests,
         )
@@ -311,7 +336,14 @@ class NarCorpusRuntimeTest {
                 .put("outcome", if (failedPrimary) "error-status" else "success")
                 .put("value", "playable")
                 .put("hasExactValue", true)
-                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals("success", snakeOverallOutcome(sequence))
@@ -365,7 +397,7 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleStopsBeforeFaqWhenInputOnlyHasLowercaseValueHeader() {
+    fun snakeBootLifecycleStopsBeforeTitleWhenInputOnlyHasLowercaseValueHeader() {
         val requests = mutableListOf<String>()
 
         snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
@@ -381,7 +413,7 @@ class NarCorpusRuntimeTest {
                 )
                 .put(
                     "choiceIds",
-                    JSONArray().put(SNAKE_FAQ_ID),
+                    JSONArray().put(SNAKE_TITLE_NONE_ID),
                 )
         }
 
@@ -392,13 +424,35 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
-    fun snakeBootLifecycleRetainsAnUnplayableTerminalFaqResponse() {
+    fun snakeBootLifecycleRejectsTitleResponseMissingAnAuthoredBeginnerChoice() {
+        val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, _ ->
+            JSONObject()
+                .put("eventId", eventId)
+                .put("status", 200)
+                .put("outcome", "success")
+                .put("value", "playable")
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        "OnChoiceSelectEx" -> JSONArray().put(SNAKE_BEGINNER_START_ID)
+                        else -> JSONArray()
+                    },
+                )
+        }
+
+        assertEquals("missing-authored-beginner-choices", snakeOverallOutcome(sequence))
+        assertTrue(sequence.getJSONObject(sequence.length() - 1).getString("failure").contains(SNAKE_BEGINNER_END_ID))
+    }
+
+    @Test
+    fun snakeBootLifecycleRetainsAnUnplayableTerminalTitleResponse() {
         val sequence = snakeBootLifecycleSequence("Solid Shell") { eventId, references ->
-            val isTerminalFaqChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
-                references.last() == SNAKE_FAQ_ID
+            val isTerminalTitleChoice = eventId in setOf("OnChoiceSelectEx", "OnChoiceSelect") &&
+                references.last() == SNAKE_TITLE_NONE_ID
             val status = when {
-                eventId == "OnChoiceSelectEx" && isTerminalFaqChoice -> 204
-                isTerminalFaqChoice -> 201
+                eventId == "OnChoiceSelectEx" && isTerminalTitleChoice -> 204
+                isTerminalTitleChoice -> 201
                 else -> 200
             }
             JSONObject()
@@ -406,7 +460,14 @@ class NarCorpusRuntimeTest {
                 .put("status", status)
                 .put("outcome", "success")
                 .put("value", "playable")
-                .put("choiceIds", JSONArray().put(SNAKE_FAQ_ID))
+                .put(
+                    "choiceIds",
+                    when (eventId) {
+                        "OnFirstBoot" -> JSONArray().put(SNAKE_CHOICE_FIRST_HE_HIM_ID)
+                        SNAKE_NAME_TEACH_ID -> JSONArray().put(SNAKE_TITLE_NONE_ID)
+                        else -> JSONArray().put(SNAKE_BEGINNER_START_ID).put(SNAKE_BEGINNER_END_ID)
+                    },
+                )
         }
 
         assertEquals(
@@ -506,6 +567,279 @@ class NarCorpusRuntimeTest {
     }
 
     @Test
+    fun rawSnakeSafetyLexerConsumesACompleteInertOnBootMessage() {
+        val result = RawSnakeSakuraScriptSafetyLexer.validate(
+            "\\0\\s[0]Hello, Snake.\\1\\w8\\s[10]Acknowledged.\\e",
+        )
+
+        assertTrue(result.accepted)
+        assertEquals("exact-e", result.terminal)
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerAcceptsOnlyTheReviewedItalicTokensAndSurfaceUnion() {
+        val surfaces = listOf(0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35)
+        val value = buildString {
+            append("\\0")
+            surfaces.forEach { surface -> append("\\s[$surface]A") }
+            append("\\f[italic,true]B\\f[italic,false]C\\e")
+        }
+
+        assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate(value).terminal)
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerRejectsEveryNonReviewedItalicFormAndActiveCommandAfterItalic() {
+        val nonReviewedForms = listOf(
+            "\\f",
+            "\\f[italic]",
+            "\\f[italic,true,extra]",
+            "\\f[italic, true]",
+            "\\f[italic,false ]",
+            "\\f[Italic,true]",
+            "\\f[italic,TRUE]",
+            "\\f[italic,true",
+            "\\f[bold,true]",
+            "\\f[color,red]",
+            "\\f[size,12]",
+            "\\f[name,Snake]",
+            "\\f[height,12]",
+            "\\f[strike,true]",
+            "\\f[sup,true]",
+        )
+
+        nonReviewedForms.forEach { form ->
+            assertThrows(IllegalStateException::class.java) {
+                RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]A${form}B\\e")
+            }
+        }
+        assertThrows(IllegalStateException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]A\\f[italic,true]\\![raise,OnBoot]B\\e")
+        }
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerHasSourceLineFixturesForAllReviewedOlderSnakeArchives() {
+        olderSnakeLexerSourceFixtures.forEach { fixture ->
+            assertTrue(fixture.italicTrueLine > 0)
+            assertTrue(fixture.italicFalseLine > fixture.italicTrueLine)
+            assertTrue(fixture.eofZzzLine > 0)
+            assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate(fixture.italicToggleValue).terminal)
+            assertEquals("eof", RawSnakeSakuraScriptSafetyLexer.validate(fixture.eofZzzValue).terminal)
+        }
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerRejectsUnknownSideEffectAndTrailingCommands() {
+        assertThrows(IllegalStateException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]Hello\\![raise,OnBoot]\\e")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]Hello\\e\\1after")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[999]Hello\\e")
+        }
+    }
+
+    @Test
+    fun rawSnakeSafetyLexerAcceptsOnlyTerminalEOrPhysicalEofAfterSpeakerText() {
+        assertEquals("eof", RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]Hello").terminal)
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]   \\e")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("text before speaker\\e")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]\uD800\\e")
+        }
+        listOf("\u0085", "\u200B", "\uFE0F", "\u034F", "\uFDD0", "\uFFFF").forEach { invisible ->
+            assertThrows(IllegalArgumentException::class.java) {
+                RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]${invisible}\\e")
+            }
+        }
+        assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]e\u0301\\e").terminal)
+        assertEquals("exact-e", RawSnakeSakuraScriptSafetyLexer.validate("\\0\\s[0]é\\e").terminal)
+    }
+
+    @Test
+    fun singleLiveWrapperGuardRejectsAStaleWrapperBeforeTheNextLoad() {
+        val guard = SingleLiveWrapperGuard()
+        val first = guard.reserve()
+
+        assertThrows(IllegalStateException::class.java) { guard.reserve() }
+        first.release()
+        guard.reserve().release()
+    }
+
+    @Test
+    fun snakeCanaryCleanupAttemptsUnloadAndEveryRootDeleteWhilePreservingTheFirstFailure() {
+        val attempts = mutableListOf<String>()
+        val primary = IllegalStateException("primary")
+
+        finishSnakeCanaryCleanup(
+            primaryFailure = primary,
+            unload = { attempts += "unload"; throw IllegalStateException("unload") },
+            deleteRoots = listOf(
+                { attempts += "input"; throw IllegalStateException("input") },
+                { attempts += "install" },
+            ),
+            residue = { true },
+        )
+
+        assertEquals(listOf("unload", "input", "install"), attempts)
+        assertEquals(1, primary.suppressed.size)
+        assertTrue(primary.suppressed.single().suppressed.isNotEmpty())
+    }
+
+    @Test
+    fun snakeYayaOwnershipReservationCharacterizationUsesSeparateNeverLoadedRoots() {
+        val args = InstrumentationRegistry.getArguments()
+        val keys = listOf(ARG_PATH, ARG_SHA256, ARG_LABEL_BASE64, ARG_LABEL)
+        assumeTrue(
+            "Snake ownership characterization is opt-in; no corpus arguments were supplied.",
+            keys.any { !args.getString(it).isNullOrBlank() },
+        )
+        val path = requiredArgument(args, ARG_PATH)
+        val expectedSha256 = requiredArgument(args, ARG_SHA256).lowercase(Locale.ROOT)
+        val label = requiredLabelArgument(args)
+        assumeTrue(
+            "Ownership characterization applies only to an exact older-Snake archive.",
+            isOlderSnakeStructuralArchive(label, expectedSha256),
+        )
+        val source = File(path)
+        validatePath(path, source)
+        assertEquals(expectedSha256, sha256(source))
+        val sourceParent = requireNotNull(source.parentFile)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+
+        runOlderSnakeOwnershipCharacterization(source, sourceParent, expectedSha256, context)
+    }
+
+    @Test
+    fun snakeYayaOwnershipBSetupFailureCleansEveryCreatedRootPair() {
+        val args = InstrumentationRegistry.getArguments()
+        val keys = listOf(ARG_PATH, ARG_SHA256, ARG_LABEL_BASE64, ARG_LABEL)
+        assumeTrue(
+            "Snake ownership setup cleanup is opt-in; no corpus arguments were supplied.",
+            keys.any { !args.getString(it).isNullOrBlank() },
+        )
+        val path = requiredArgument(args, ARG_PATH)
+        val expectedSha256 = requiredArgument(args, ARG_SHA256).lowercase(Locale.ROOT)
+        val label = requiredLabelArgument(args)
+        assumeTrue(
+            "Ownership setup cleanup applies only to an exact older-Snake archive.",
+            isOlderSnakeStructuralArchive(label, expectedSha256),
+        )
+        val source = File(path)
+        validatePath(path, source)
+        assertEquals(expectedSha256, sha256(source))
+        val sourceParent = requireNotNull(source.parentFile)
+        val createdRoots = mutableListOf<File>()
+
+        snakeOwnershipSetupHook = { suffix, inputRoot, installRoot ->
+            createdRoots += inputRoot
+            createdRoots += installRoot
+            if (suffix == "b") {
+                throw IllegalStateException("injected B setup failure")
+            }
+        }
+        try {
+            val failure = assertThrows(IllegalStateException::class.java) {
+                runOlderSnakeOwnershipCharacterization(
+                    source,
+                    sourceParent,
+                    expectedSha256,
+                    InstrumentationRegistry.getInstrumentation().targetContext,
+                )
+            }
+            assertEquals("injected B setup failure", failure.message)
+        } finally {
+            snakeOwnershipSetupHook = null
+        }
+
+        assertEquals("A and B must each contribute an input and install root", 4, createdRoots.size)
+        createdRoots.forEach { root ->
+            assertFalse("Setup failure left ownership root behind: $root", root.exists())
+        }
+    }
+
+    @Test
+    fun snakeYayaOwnershipBInputRootFailureCleansEverySuccessfullyCreatedRoot() {
+        val args = InstrumentationRegistry.getArguments()
+        val keys = listOf(ARG_PATH, ARG_SHA256, ARG_LABEL_BASE64, ARG_LABEL)
+        assumeTrue(
+            "Snake ownership root-creation cleanup is opt-in; no corpus arguments were supplied.",
+            keys.any { !args.getString(it).isNullOrBlank() },
+        )
+        val path = requiredArgument(args, ARG_PATH)
+        val expectedSha256 = requiredArgument(args, ARG_SHA256).lowercase(Locale.ROOT)
+        val label = requiredLabelArgument(args)
+        assumeTrue(
+            "Ownership root-creation cleanup applies only to an exact older-Snake archive.",
+            isOlderSnakeStructuralArchive(label, expectedSha256),
+        )
+        val source = File(path)
+        validatePath(path, source)
+        assertEquals(expectedSha256, sha256(source))
+        val sourceParent = requireNotNull(source.parentFile)
+        val createdRoots = mutableListOf<File>()
+
+        snakeOwnershipInputRootCreatedHook = { suffix, inputRoot ->
+            createdRoots += inputRoot
+            if (suffix == "b") {
+                throw IllegalStateException("injected B input-root failure")
+            }
+        }
+        snakeOwnershipSetupHook = { _, _, installRoot ->
+            createdRoots += installRoot
+        }
+        try {
+            val failure = assertThrows(IllegalStateException::class.java) {
+                runOlderSnakeOwnershipCharacterization(
+                    source,
+                    sourceParent,
+                    expectedSha256,
+                    InstrumentationRegistry.getInstrumentation().targetContext,
+                )
+            }
+            assertEquals("injected B input-root failure", failure.message)
+        } finally {
+            snakeOwnershipInputRootCreatedHook = null
+            snakeOwnershipSetupHook = null
+        }
+
+        assertEquals("A input/install plus B input are the only roots created", 3, createdRoots.size)
+        createdRoots.forEach { root ->
+            assertFalse("Root-creation failure left ownership root behind: $root", root.exists())
+        }
+    }
+
+    @Test
+    fun nonGhostProbeEmitsExplicitDialogueOutcome() {
+        val result = baseResult(
+            label = "Haiidrate",
+            sourcePath = "/data/user/0/com.cattailsw.nanidroid/cache/nar-corpus-host/test/Haiidrate/nanidroid-corpus.nar",
+            sha256 = "a".repeat(64),
+            archiveBytes = 1,
+        )
+
+        recordUnsupportedNonGhostResult(result, "shell")
+
+        assertEquals("unsupported", result.getString("classification"))
+        assertEquals("unsupported:shell", result.getString("installOutcome"))
+        assertEquals("not-applicable", result.getString("shioriOutcome"))
+        assertEquals(
+            "not-applicable",
+            result.getJSONObject("dialogueProbe").getString("outcome"),
+        )
+    }
+
+    @Test
     fun probesArchive() {
         phase("start")
         composeRule.setContent { probeContent.Content() }
@@ -584,14 +918,7 @@ class NarCorpusRuntimeTest {
                     NarInstallError.UNSUPPORTED_TYPE,
                     plan.error,
                 )
-                result.put("classification", "unsupported")
-                result.put("installOutcome", "unsupported:$observedKind")
-                result.put("ghostLoadOutcome", "not-applicable")
-                result.put("renderOutcome", "not-applicable")
-                result.put("inputOutcome", "not-applicable")
-                result.put("shioriOutcome", "not-applicable")
-                result.put("surfaceCount", 0)
-                result.put("passed", true)
+                recordUnsupportedNonGhostResult(result, observedKind)
             } else {
                 if (!plan.isSuccess() && plan.error == NarInstallError.INVALID_PATH) {
                     result.put("installPlanError", plan.error.name)
@@ -637,6 +964,28 @@ class NarCorpusRuntimeTest {
                         "Ghost install plan failed: ${plan.error} ${plan.detail}",
                         plan.isSuccess(),
                     )
+                    if (isOlderSnakeStructuralArchive(label, expectedSha256)) {
+                        val canaryA = collectSnakeFirstBootCanary(
+                            source = source,
+                            sourceParent = sourceParent,
+                            expectedSha256 = expectedSha256,
+                            context = context,
+                            suffix = "a",
+                        )
+                        val canaryB = collectSnakeFirstBootCanary(
+                            source = source,
+                            sourceParent = sourceParent,
+                            expectedSha256 = expectedSha256,
+                            context = context,
+                            suffix = "b",
+                        )
+                        assertEquals(
+                            "Independent fresh Snake OnFirstBoot canaries must be exactly equal for $label",
+                            canaryA.toString(),
+                            canaryB.toString(),
+                        )
+                        result.put("snakeFirstBootCanary", canaryA)
+                    }
                     val latestProgress = linkedMapOf<String, Long>()
                     val install = NarTransactionalInstaller.install(
                         copiedArchive,
@@ -769,7 +1118,7 @@ class NarCorpusRuntimeTest {
                     setCheckpoint(result, "before-real-shiori")
                     writeArtifacts(context, safeLabel, result)
                     phase("before-real-shiori")
-                    shioriGhost = loadShiori(
+                    shioriGhost = loadTrackedShiori(
                         installed.installedPath,
                         installed.targetId ?: "corpus-${expectedSha256.take(16)}",
                         loadGhostDesc(installed.installedPath),
@@ -778,6 +1127,9 @@ class NarCorpusRuntimeTest {
                     val finalDialogue = probeShioriOnBoot(shioriGhost, shellName, label)
                     phase("shiori-probed")
                     result.put("dialogueProbe", finalDialogue)
+                    if (isOlderSnakeStructuralArchive(label, expectedSha256)) {
+                        result.put("snakeOnBootStructuralSafety", snakeOnBootStructuralSafety(finalDialogue))
+                    }
                     val shioriOutcome = finalDialogue.optString("outcome", "probe-failure")
                     result.put("shioriOutcome", shioriOutcome)
                     result.put("ghostLoadOutcome", "loaded")
@@ -797,7 +1149,7 @@ class NarCorpusRuntimeTest {
                 composeRule.runOnIdle { probeContent.showStage(null) }
                 composeRule.waitForIdle()
             }
-            runCatching { shioriGhost?.unload() }
+            runCatching { shioriGhost?.let(::unloadTrackedShiori) }
                 .exceptionOrNull()
                 ?.let { result.put("unloadError", it.stackTraceToString()) }
             deleteOwnedRoot(inputRoot, sourceParent)
@@ -818,7 +1170,7 @@ class NarCorpusRuntimeTest {
     }
 
     private fun baseResult(label: String, sourcePath: String, sha256: String, archiveBytes: Long) = JSONObject()
-        .put("schemaVersion", 1)
+        .put("schemaVersion", "2")
         .put("label", label)
         .put("sha256", sha256)
         .put("archiveBytes", archiveBytes)
@@ -835,6 +1187,18 @@ class NarCorpusRuntimeTest {
         .put("dialogueProbe", JSONObject())
         .put("checkpointPhase", "not-run")
         .put("evidence", JSONObject())
+
+    private fun recordUnsupportedNonGhostResult(result: JSONObject, observedKind: String) {
+        result.put("classification", "unsupported")
+        result.put("installOutcome", "unsupported:$observedKind")
+        result.put("ghostLoadOutcome", "not-applicable")
+        result.put("renderOutcome", "not-applicable")
+        result.put("inputOutcome", "not-applicable")
+        result.put("shioriOutcome", "not-applicable")
+        result.put("dialogueProbe", JSONObject().put("outcome", "not-applicable"))
+        result.put("surfaceCount", 0)
+        result.put("passed", true)
+    }
 
     private fun recordProbeFailure(result: JSONObject, error: Throwable) {
         result.put("passed", false)
@@ -1054,6 +1418,263 @@ class NarCorpusRuntimeTest {
         context: Context?,
     ): TestShioriGhost = TestShioriGhost("$installedPath/ghost/master/", ghostIdentity, ghostDesc, context)
 
+    private fun loadTrackedShiori(
+        installedPath: String,
+        ghostIdentity: String,
+        ghostDesc: Map<String, String>,
+        context: Context?,
+    ): TestShioriGhost {
+        val reservation = liveShioriWrappers.reserve()
+        return try {
+            trackedShioriConstructionHook?.invoke()
+            loadShiori(installedPath, ghostIdentity, ghostDesc, context)
+        } catch (failure: Throwable) {
+            reservation.release()
+            throw failure
+        }
+    }
+
+    private fun unloadTrackedShiori(wrapper: TestShioriGhost) {
+        wrapper.unload()
+        liveShioriWrappers.release()
+    }
+
+    private fun collectSnakeFirstBootCanary(
+        source: File,
+        sourceParent: File,
+        expectedSha256: String,
+        context: Context,
+        suffix: String,
+    ): JSONObject {
+        val inputRoot = createOwnedRoot(sourceParent, "probe-canary-$suffix-input")
+        val installRoot = createOwnedRoot(sourceParent, "probe-canary-$suffix-install")
+        var wrapper: TestShioriGhost? = null
+        var primaryFailure: Throwable? = null
+        try {
+            val copiedArchive = File(inputRoot, ARCHIVE_FILE_NAME)
+            copyArchive(source, copiedArchive)
+            assertEquals(expectedSha256, sha256(copiedArchive))
+            val targetId = "canary-$suffix-${expectedSha256.take(16)}"
+            val plan = NarInstallPlanValidator().validate(copiedArchive, installRoot, targetId)
+            assertTrue("Snake canary install plan failed: ${plan.error} ${plan.detail}", plan.isSuccess())
+            val installResult = NarTransactionalInstaller.install(copiedArchive, installRoot, targetId, { false }) { _, _ -> }
+            val installed = installResult
+                as? ArchiveInstallResult.Installed
+                ?: error("Snake canary transactional install failed: $installResult")
+            wrapper = loadTrackedShiori(
+                installed.installedPath,
+                installed.targetId ?: targetId,
+                loadGhostDesc(installed.installedPath),
+                context,
+            )
+            val response = wrapper.requestRaw(ShioriMethod.GET, "OnFirstBoot", listOf("0"))
+            val value = exactProbeValue(response)
+            val diagnostics = mutableListOf<String>()
+            SakuraScriptTokenizer.tokenize(value, diagnostics::add)
+            if (wrapper.isShioriNotSupported()) error("Snake canary SHIORI is not supported")
+            if (response.getStatusCode() != 200) error("Snake canary expected HTTP 200, found ${response.getStatusCode()}")
+            if (response.getKey("Value").isNullOrEmpty()) error("Snake canary requires an exact nonblank Value header")
+            return JSONObject()
+                .put("freshInstance", true)
+                .put("independentInstanceCount", 2)
+                .put(
+                    "request",
+                    JSONObject()
+                        .put("method", ShioriMethod.GET.name)
+                        .put("eventId", "OnFirstBoot")
+                        .put("references", JSONArray().put("0")),
+                )
+                .put(
+                    "response",
+                    JSONObject()
+                        .put("status", response.getStatusCode())
+                        .put("outcome", "success")
+                        .put("failure", JSONObject.NULL)
+                        .put("value", value)
+                        .put("valueUtf8Sha256", sha256Utf8(value))
+                        .put("valueUtf8ByteLength", value.toByteArray(StandardCharsets.UTF_8).size)
+                        .put("tokenizerDiagnostics", JSONArray().apply { diagnostics.forEach(::put) }),
+                )
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            val tracked = wrapper
+            wrapper = null
+            finishSnakeCanaryCleanup(
+                primaryFailure = primaryFailure,
+                unload = tracked?.let { { unloadTrackedShiori(it) } },
+                deleteRoots = listOf(
+                    { deleteOwnedRoot(inputRoot, sourceParent) },
+                    { deleteOwnedRoot(installRoot, sourceParent) },
+                ),
+                residue = { inputRoot.exists() || installRoot.exists() },
+            )
+        }
+    }
+
+    private data class InstalledSnakeOwnershipRoot(
+        val inputRoot: File,
+        val installRoot: File,
+        val installedPath: String,
+        val targetId: String,
+    )
+
+    private fun installSnakeOwnershipRoot(
+        source: File,
+        sourceParent: File,
+        expectedSha256: String,
+        suffix: String,
+    ): InstalledSnakeOwnershipRoot {
+        var inputRoot: File? = null
+        var installRoot: File? = null
+        try {
+            inputRoot = createOwnedRoot(sourceParent, "ownership-$suffix-input")
+            snakeOwnershipInputRootCreatedHook?.invoke(suffix, inputRoot)
+            installRoot = createOwnedRoot(sourceParent, "ownership-$suffix-install")
+            snakeOwnershipSetupHook?.invoke(suffix, inputRoot, installRoot)
+            val copiedArchive = File(inputRoot, ARCHIVE_FILE_NAME)
+            copyArchive(source, copiedArchive)
+            assertEquals(expectedSha256, sha256(copiedArchive))
+            val targetId = "ownership-$suffix-${expectedSha256.take(16)}"
+            val plan = NarInstallPlanValidator().validate(copiedArchive, installRoot, targetId)
+            assertTrue("Snake ownership install plan failed: ${plan.error} ${plan.detail}", plan.isSuccess())
+            val installResult = NarTransactionalInstaller.install(copiedArchive, installRoot, targetId, { false }) { _, _ -> }
+            val installed = installResult as? ArchiveInstallResult.Installed
+                ?: error("Snake ownership transactional install failed: $installResult")
+            return InstalledSnakeOwnershipRoot(
+                inputRoot = inputRoot,
+                installRoot = installRoot,
+                installedPath = installed.installedPath,
+                targetId = installed.targetId ?: targetId,
+            )
+        } catch (failure: Throwable) {
+            finishSnakeCanaryCleanup(
+                primaryFailure = failure,
+                unload = null,
+                deleteRoots = buildList {
+                    inputRoot?.let { input -> add { deleteOwnedRoot(input, sourceParent) } }
+                    installRoot?.let { install -> add { deleteOwnedRoot(install, sourceParent) } }
+                },
+                residue = {
+                    (inputRoot?.exists() ?: false) || (installRoot?.exists() ?: false)
+                },
+            )
+            throw failure
+        }
+    }
+
+    private fun runOlderSnakeOwnershipCharacterization(
+        source: File,
+        sourceParent: File,
+        expectedSha256: String,
+        context: Context,
+    ) {
+        var firstInstall: InstalledSnakeOwnershipRoot? = null
+        var secondInstall: InstalledSnakeOwnershipRoot? = null
+        var firstWrapper: TestShioriGhost? = null
+        var secondWrapper: TestShioriGhost? = null
+        var firstCleaned = false
+        var secondCleaned = false
+        var primaryFailure: Throwable? = null
+        try {
+            firstInstall = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "a")
+            secondInstall = installSnakeOwnershipRoot(source, sourceParent, expectedSha256, "b")
+            val first = requireNotNull(firstInstall)
+            val second = requireNotNull(secondInstall)
+            firstWrapper = loadTrackedShiori(first.installedPath, first.targetId, loadGhostDesc(first.installedPath), context)
+            assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(loadShellName(first.installedPath))).getStatusCode())
+            Log.i(LOG_TAG, "snake-yaya-ownership: A OnBoot succeeded")
+            var rejectedConstructionAttempts = 0
+            trackedShioriConstructionHook = { rejectedConstructionAttempts++ }
+            try {
+                assertThrows(IllegalStateException::class.java) {
+                    loadTrackedShiori(second.installedPath, second.targetId, loadGhostDesc(second.installedPath), context)
+                }
+            } finally {
+                trackedShioriConstructionHook = null
+            }
+            assertEquals("The rejected second YAYA wrapper must not reach construction/nativeLoad", 0, rejectedConstructionAttempts)
+            Log.i(LOG_TAG, "snake-yaya-ownership: B rejected before construction/nativeLoad attempts=$rejectedConstructionAttempts")
+            assertEquals(200, firstWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(loadShellName(first.installedPath))).getStatusCode())
+            Log.i(LOG_TAG, "snake-yaya-ownership: A remains usable after B rejection")
+            unloadTrackedShiori(firstWrapper)
+            firstWrapper = null
+            finishSnakeCanaryCleanup(
+                primaryFailure = null,
+                unload = null,
+                deleteRoots = listOf(
+                    { deleteOwnedRoot(first.inputRoot, sourceParent) },
+                    { deleteOwnedRoot(first.installRoot, sourceParent) },
+                ),
+                residue = { first.inputRoot.exists() || first.installRoot.exists() },
+            )
+            firstCleaned = true
+            Log.i(LOG_TAG, "snake-yaya-ownership: A unloaded and cleaned")
+
+            secondWrapper = loadTrackedShiori(second.installedPath, second.targetId, loadGhostDesc(second.installedPath), context)
+            assertEquals(200, secondWrapper.requestRaw(ShioriMethod.GET, "OnBoot", listOf(loadShellName(second.installedPath))).getStatusCode())
+            Log.i(LOG_TAG, "snake-yaya-ownership: B loaded and OnBoot succeeded after A cleanup")
+            unloadTrackedShiori(secondWrapper)
+            secondWrapper = null
+            finishSnakeCanaryCleanup(
+                primaryFailure = null,
+                unload = null,
+                deleteRoots = listOf(
+                    { deleteOwnedRoot(second.inputRoot, sourceParent) },
+                    { deleteOwnedRoot(second.installRoot, sourceParent) },
+                ),
+                residue = { second.inputRoot.exists() || second.installRoot.exists() },
+            )
+            secondCleaned = true
+            Log.i(LOG_TAG, "snake-yaya-ownership: B unloaded and cleaned")
+        } catch (failure: Throwable) {
+            primaryFailure = failure
+            throw failure
+        } finally {
+            finishSnakeCanaryCleanup(
+                primaryFailure = primaryFailure,
+                unload = firstWrapper?.let { wrapper -> { unloadTrackedShiori(wrapper) } }
+                    ?: secondWrapper?.let { wrapper -> { unloadTrackedShiori(wrapper) } },
+                deleteRoots = buildList {
+                    if (!firstCleaned) {
+                        firstInstall?.let { first ->
+                            add { deleteOwnedRoot(first.inputRoot, sourceParent) }
+                            add { deleteOwnedRoot(first.installRoot, sourceParent) }
+                        }
+                    }
+                    if (!secondCleaned) {
+                        secondInstall?.let { second ->
+                            add { deleteOwnedRoot(second.inputRoot, sourceParent) }
+                            add { deleteOwnedRoot(second.installRoot, sourceParent) }
+                        }
+                    }
+                },
+                residue = {
+                    (!firstCleaned && (firstInstall?.let { it.inputRoot.exists() || it.installRoot.exists() } ?: false)) ||
+                        (!secondCleaned && (secondInstall?.let { it.inputRoot.exists() || it.installRoot.exists() } ?: false))
+                },
+            )
+        }
+    }
+
+    private fun snakeOnBootStructuralSafety(dialogue: JSONObject): JSONObject {
+        val value = dialogue.opt("value") as? String ?: error("Snake structural OnBoot probe has no string value")
+        val lexer = RawSnakeSakuraScriptSafetyLexer.validate(value)
+        return JSONObject()
+            .put("policy", "snake-onboot-raw-sakurascript-v1")
+            .put("contentCompared", false)
+            .put("accepted", lexer.accepted)
+            .put("terminal", lexer.terminal)
+            .put("allowedSurfaces", JSONArray().apply {
+                listOf(0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35).forEach(::put)
+            })
+            .put("allowedFormattingTokens", JSONArray().put("\\f[italic,true]").put("\\f[italic,false]"))
+    }
+
+    private fun isOlderSnakeStructuralArchive(label: String, sha256: String): Boolean =
+        OLDER_SNAKE_ARCHIVES[label] == sha256
+
     private fun setCheckpoint(result: JSONObject, phase: String) {
         result.put("checkpointPhase", phase)
     }
@@ -1184,12 +1805,24 @@ class NarCorpusRuntimeTest {
             val input = probe(SNAKE_NAME_TEACH_ID, listOf(SNAKE_NAME_TEACH_VALUE, ""))
             sequence.put(input)
             val inputChoiceIds = input.optJSONArray("choiceIds")
-            val inputExposesFaq = inputChoiceIds?.let { choiceIds ->
-                (0 until choiceIds.length()).any { choiceIds.optString(it) == SNAKE_FAQ_ID }
+            val inputExposesTitleChoice = inputChoiceIds?.let { choiceIds ->
+                (0 until choiceIds.length()).any { choiceIds.optString(it) == SNAKE_TITLE_NONE_ID }
             } == true
             val inputHasExactValue = input.optBoolean("hasExactValue", input.optString("value").isNotEmpty())
-            if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesFaq) {
-                probeChoice(SNAKE_FAQ_LABEL, SNAKE_FAQ_ID)
+            if (input.optInt("status", -1) == 200 && inputHasExactValue && inputExposesTitleChoice) {
+                probeChoice(SNAKE_TITLE_NONE_LABEL, SNAKE_TITLE_NONE_ID)?.let { titleResponse ->
+                    val visibleChoiceIds = titleResponse.optJSONArray("choiceIds")
+                    val missingBeginnerChoices = SNAKE_BEGINNER_CHOICE_IDS.filterNot { expectedId ->
+                        visibleChoiceIds?.let { choiceIds ->
+                            (0 until choiceIds.length()).any { choiceIds.optString(it) == expectedId }
+                        } == true
+                    }
+                    if (missingBeginnerChoices.isNotEmpty()) {
+                        titleResponse
+                            .put("outcome", "missing-authored-beginner-choices")
+                            .put("failure", "Missing authored beginner choices: ${missingBeginnerChoices.joinToString()}")
+                    }
+                }
             }
         }
         return sequence
@@ -1221,7 +1854,11 @@ class NarCorpusRuntimeTest {
             .put("tokenizerDiagnostics", JSONArray())
             .put("failure", JSONObject.NULL)
         return try {
+            // The host comparison uses this adjacent device-local bracket to reject
+            // source predicates that change while the authored OnBoot request runs.
+            val localClockBefore = OffsetDateTime.now()
             val response = shiori.requestRaw(method, eventId, references)
+            val localClockAfter = OffsetDateTime.now()
             val value = exactProbeValue(response)
             val segments = SakuraScriptTokenizer.tokenize(value, diagnostics::add)
                 .flatMap(DialogueContent::segments)
@@ -1261,6 +1898,15 @@ class NarCorpusRuntimeTest {
                 .put("observedInputId", observedInputId ?: JSONObject.NULL)
                 .put("passiveTransitions", passiveTransitions)
                 .put("tokenizerDiagnostics", JSONArray().apply { diagnostics.forEach(this::put) })
+                .put(
+                    "onBootContext",
+                    JSONObject()
+                        .put("profileState", "fresh")
+                        .put("username", "")
+                        .put("birthdayConfigured", false)
+                        .put("localClockBefore", localClockBefore.toString())
+                        .put("localClockAfter", localClockAfter.toString()),
+                )
         } catch (error: LinkageError) {
             probe.put("outcome", "native-linkage-error")
                 .put("failure", error.stackTraceToString())
@@ -2342,6 +2988,10 @@ class NarCorpusRuntimeTest {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
+    private fun sha256Utf8(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(StandardCharsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+
     private fun deleteOwnedRoot(root: File, expectedParent: File) {
         if (!root.exists()) return
         val owned = root.canonicalFile.toPath()
@@ -2392,10 +3042,41 @@ class NarCorpusRuntimeTest {
         const val MAX_SHIORI_RESPONSE_VALUE_CHARS = 4096
         const val MAX_PROVENANCE_SOURCE_CHARS = 256
         const val SNAKE_AND_OTACON_LABEL = "Snake and Otacon V1.3.2"
+        val OLDER_SNAKE_ARCHIVES = mapOf(
+            "Snake and Otacon V1.2.1" to "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+            "Snake and Otacon V1.3.1" to "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+            "Snake_Otacon_1.3.1b" to "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+        )
+        val olderSnakeLexerSourceFixtures = listOf(
+            OlderSnakeLexerSourceFixture(
+                archiveSha256 = "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+                archiveEntry = "ghost/master/Sn_bootend.dic",
+                italicTrueLine = 304,
+                italicFalseLine = 306,
+                eofZzzLine = 304,
+            ),
+            OlderSnakeLexerSourceFixture(
+                archiveSha256 = "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+                archiveEntry = "ghost/master/Sn_bootend.dic",
+                italicTrueLine = 316,
+                italicFalseLine = 318,
+                eofZzzLine = 316,
+            ),
+            OlderSnakeLexerSourceFixture(
+                archiveSha256 = "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+                archiveEntry = "ghost/master/Sn_bootend.dic",
+                italicTrueLine = 313,
+                italicFalseLine = 315,
+                eofZzzLine = 313,
+            ),
+        )
         const val SNAKE_CHOICE_FIRST_HE_HIM_ID = "choicefirsthehim"
         const val SNAKE_CHOICE_FIRST_HE_HIM_LABEL = "he/him"
-        const val SNAKE_FAQ_ID = "faq"
-        const val SNAKE_FAQ_LABEL = "faq"
+        const val SNAKE_TITLE_NONE_ID = "titlenone"
+        const val SNAKE_TITLE_NONE_LABEL = "Nope"
+        const val SNAKE_BEGINNER_START_ID = "beginnerStart"
+        const val SNAKE_BEGINNER_END_ID = "beginnerEnd"
+        val SNAKE_BEGINNER_CHOICE_IDS = setOf(SNAKE_BEGINNER_START_ID, SNAKE_BEGINNER_END_ID)
         const val SNAKE_NAME_TEACH_ID = "OnNameTeach"
         const val SNAKE_NAME_TEACH_VALUE = "Nanidroid"
         val SURFACE_SOURCE_FILE = Regex("(?i)^surfaces[^/\\\\]*\\.txt$")
@@ -2405,6 +3086,169 @@ class NarCorpusRuntimeTest {
         val TYPE_LINE = Regex("(?im)^\\s*type\\s*,\\s*([^\\r\\n]+)")
         const val LOG_TAG = "NarCorpusProbe"
     }
+
+    private data class OlderSnakeLexerSourceFixture(
+        val archiveSha256: String,
+        val archiveEntry: String,
+        val italicTrueLine: Int,
+        val italicFalseLine: Int,
+        val eofZzzLine: Int,
+    ) {
+        val italicToggleValue = "\\1\\s[10]\\f[italic,true]Yawn...\\f[italic,false] still awake.\\e"
+        val eofZzzValue = "\\1\\s[32]\\w8\\f[italic,true]zzz...\\0\\s[8]Still asleep, Otacon?"
+    }
+}
+
+/**
+ * Deliberately test-only: this is a conservative safety recognizer for the
+ * older Snake OnBoot response, not a replacement for the production tokenizer
+ * or a general SakuraScript evaluator.
+ */
+private object RawSnakeSakuraScriptSafetyLexer {
+    data class Result(
+        val accepted: Boolean,
+        val terminal: String,
+    )
+
+    private val allowedSurfaces = setOf(0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35)
+
+    fun validate(value: String): Result {
+        var index = 0
+        var currentSpeaker: Int? = null
+        var hasVisibleSpeakerText = false
+        while (index < value.length) {
+            val character = value[index]
+            if (character.isHighSurrogate() || character.isLowSurrogate()) {
+                requireValidSurrogatePair(value, index)
+                if (!character.isHighSurrogate()) error("unpaired low surrogate")
+                val codePoint = Character.codePointAt(value, index)
+                index += 2
+                if (currentSpeaker != null && validateVisibleScalar(codePoint)) hasVisibleSpeakerText = true
+                continue
+            }
+            if (character == '\\') {
+                require(index + 1 < value.length) { "truncated SakuraScript command" }
+                when (val command = value[index + 1]) {
+                    '0', '1' -> {
+                        currentSpeaker = command.digitToInt()
+                        index += 2
+                    }
+                    'e' -> {
+                        require(index + 2 == value.length) { "data after terminal \\e" }
+                        require(hasVisibleSpeakerText) { "no printable visible speaker text" }
+                        return Result(accepted = true, terminal = "exact-e")
+                    }
+                    'w' -> {
+                        index += 2
+                        val start = index
+                        while (index < value.length && value[index].isDigit()) index++
+                        require(index > start) { "truncated wait command" }
+                    }
+                    's' -> {
+                        require(index + 2 < value.length && value[index + 2] == '[') { "malformed surface command" }
+                        val close = value.indexOf(']', index + 3)
+                        require(close > index + 3) { "truncated surface command" }
+                        val surfaceText = value.substring(index + 3, close)
+                        require(surfaceText.all(Char::isDigit)) { "surface must be a nonnegative decimal" }
+                        require(surfaceText.toInt() in allowedSurfaces) { "unreviewed surface" }
+                        index = close + 1
+                    }
+                    'f' -> when {
+                        value.startsWith("\\f[italic,true]", index) -> index += "\\f[italic,true]".length
+                        value.startsWith("\\f[italic,false]", index) -> index += "\\f[italic,false]".length
+                        else -> error("unreviewed formatting SakuraScript command")
+                    }
+                    'n' -> {
+                        index += 2
+                        if (index < value.length && value[index] == '[') {
+                            val close = value.indexOf(']', index + 1)
+                            require(close > index + 1 && value.substring(index + 1, close) == "half") { "unreviewed newline modifier" }
+                            index = close + 1
+                        }
+                    }
+                    else -> error("unknown or side-effect SakuraScript command \\$command")
+                }
+                continue
+            }
+            if (validateVisibleScalar(character.code)) {
+                require(currentSpeaker != null) { "text outside a speaker scope" }
+                hasVisibleSpeakerText = true
+            }
+            index++
+        }
+        require(hasVisibleSpeakerText) { "no printable visible speaker text" }
+        return Result(accepted = true, terminal = "eof")
+    }
+
+    private fun requireValidSurrogatePair(value: String, index: Int) {
+        val first = value[index]
+        require(first.isHighSurrogate() && index + 1 < value.length && value[index + 1].isLowSurrogate()) {
+            "invalid Unicode surrogate sequence"
+        }
+    }
+
+    private fun validateVisibleScalar(codePoint: Int): Boolean {
+        require(!Character.isISOControl(codePoint)) { "invalid control character" }
+        require(Character.getType(codePoint) != Character.FORMAT.toInt()) { "invisible format character" }
+        require(!Character.isIdentifierIgnorable(codePoint)) { "default-ignorable character" }
+        require(codePoint !in 0xFDD0..0xFDEF && (codePoint and 0xFFFF) !in setOf(0xFFFE, 0xFFFF)) { "Unicode noncharacter" }
+        if (Character.getType(codePoint) in setOf(
+                Character.NON_SPACING_MARK.toInt(),
+                Character.COMBINING_SPACING_MARK.toInt(),
+                Character.ENCLOSING_MARK.toInt(),
+            )
+        ) {
+            return false
+        }
+        return !Character.isWhitespace(codePoint)
+    }
+}
+
+private class SingleLiveWrapperGuard {
+    private var reserved = false
+
+    fun reserve(): Reservation {
+        check(!reserved) { "A TestShioriGhost/YAYA wrapper is still live" }
+        reserved = true
+        return Reservation(this)
+    }
+
+    fun release() {
+        check(reserved) { "Attempted to release a wrapper that is not live" }
+        reserved = false
+    }
+
+    class Reservation internal constructor(private val guard: SingleLiveWrapperGuard) {
+        private var active = true
+        fun release() {
+            check(active) { "Attempted to release an inactive wrapper reservation" }
+            active = false
+            guard.release()
+        }
+    }
+}
+
+private fun finishSnakeCanaryCleanup(
+    primaryFailure: Throwable?,
+    unload: (() -> Unit)?,
+    deleteRoots: List<() -> Unit>,
+    residue: () -> Boolean,
+) {
+    var cleanupFailure: Throwable? = null
+    fun attempt(action: () -> Unit) {
+        try {
+            action()
+        } catch (failure: Throwable) {
+            if (cleanupFailure == null) cleanupFailure = failure else cleanupFailure!!.addSuppressed(failure)
+        }
+    }
+    unload?.let(::attempt)
+    deleteRoots.forEach(::attempt)
+    if (residue()) {
+        val failure = IllegalStateException("Snake canary cleanup left owned paths behind")
+        if (cleanupFailure == null) cleanupFailure = failure else cleanupFailure!!.addSuppressed(failure)
+    }
+    cleanupFailure?.let { cleanup -> primaryFailure?.addSuppressed(cleanup) ?: throw cleanup }
 }
 
 private fun readBoundedBytes(input: InputStream, maxBytes: Int): ByteArray {

@@ -91,6 +91,10 @@ archives or generated corpus reports under version control.
 - `docs/testing/nar-corpus-manifest.json` contains manifest labels, versions, expected
   package kinds, required evidence, allowed classification, and canonical hashes.
 - `docs/testing/nar-corpus.md` defines script behavior and per-run output.
+- `docs/testing/nar-corpus-comparison-contract.json` defines the closed set of
+  reviewed stochastic dialogue hashes. Follow the base/base-first, fixed-harness
+  protocol in `docs/testing/nar-corpus.md`; PR #394 rolling metadata is separate
+  and is not a behavioral comparison input.
 
 ```powershell
 .\gradlew.bat assembleDebug assembleDebugAndroidTest

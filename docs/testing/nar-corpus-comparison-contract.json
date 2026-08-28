@@ -1,0 +1,284 @@
+{
+  "schemaVersion": "2",
+  "sentinelChecks": {
+    "count": 143,
+    "namesSha256": "072d6adec034001985d367a9d8a89ef0db447a76cbc1b9a4a22f580fdabc5b6e",
+    "canonicalization": "ordinal-sort names, join LF, UTF-8 SHA-256"
+  },
+  "ghostEnvelopeRules": [
+    { "label": "2elf-2.46", "archiveSha256": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome": "installed", "ghostLoadOutcome": "loaded", "renderOutcome": "production-stage-rendered", "inputOutcome": "named-collisions-routed:24", "shioriOutcome": "success", "checkpointPhase": "complete" },
+    { "label": "tewire-sen", "archiveSha256": "2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome": "installed", "ghostLoadOutcome": "loaded", "renderOutcome": "production-stage-rendered", "inputOutcome": "named-collisions-routed:6", "shioriOutcome": "success", "checkpointPhase": "complete" },
+    { "label": "Yes Man-2.1.1", "archiveSha256": "aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome": "installed", "ghostLoadOutcome": "loaded", "renderOutcome": "production-stage-rendered", "inputOutcome": "named-collisions-routed:3", "shioriOutcome": "success", "checkpointPhase": "complete" },
+    { "label": "Big Red Button", "archiveSha256": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome": "installed", "ghostLoadOutcome": "loaded", "renderOutcome": "production-stage-rendered", "inputOutcome": "no-named-collisions", "shioriOutcome": "success", "checkpointPhase": "complete" },
+    { "label": "Earthquake Rescue Duo", "archiveSha256": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome": "installed", "ghostLoadOutcome": "loaded", "renderOutcome": "production-stage-rendered", "inputOutcome": "named-collisions-routed:4", "shioriOutcome": "success", "checkpointPhase": "complete" },
+    { "label": "LOBO", "archiveSha256": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome": "installed", "ghostLoadOutcome": "loaded", "renderOutcome": "production-stage-rendered", "inputOutcome": "no-named-collisions", "shioriOutcome": "success", "checkpointPhase": "complete" },
+    { "label": "Nanika Atsume 1.0.0", "archiveSha256": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:7", "shioriOutcome":"success", "checkpointPhase":"complete" },
+    { "label": "Nanika Atsume 1.0.1", "archiveSha256": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:7", "shioriOutcome":"success", "checkpointPhase":"complete" },
+    { "label": "Nanika Atsume silent_ALPHA", "archiveSha256": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:7", "shioriOutcome":"success", "checkpointPhase":"complete" },
+    { "label": "Snake and Otacon V1.0.0", "archiveSha256": "526b7721103031fb3f28b22fffc54b71fd0b1e279168934a06d8076e20a1cbcc", "classification": "incompatible", "method": null, "eventId": null, "status": null, "outcome": "not-applicable:install-rejected", "failure": null, "installOutcome":"invalid-path", "ghostLoadOutcome":"not-applicable:install-rejected", "renderOutcome":"not-applicable:install-rejected", "inputOutcome":"not-applicable:install-rejected", "shioriOutcome":"not-applicable:install-rejected", "checkpointPhase":"not-run" },
+    { "label": "Snake and Otacon V1.0.1", "archiveSha256": "6f44dd039c17093d3f91e47bb9c474e128eb34fa4bfeb5ef3148625bbd613764", "classification": "incompatible", "method": null, "eventId": null, "status": null, "outcome": "not-applicable:install-rejected", "failure": null, "installOutcome":"invalid-path", "ghostLoadOutcome":"not-applicable:install-rejected", "renderOutcome":"not-applicable:install-rejected", "inputOutcome":"not-applicable:install-rejected", "shioriOutcome":"not-applicable:install-rejected", "checkpointPhase":"not-run" },
+    { "label": "Snake And Otacon V1.1.1", "archiveSha256": "21253507c17e90073974229ddf8b0d39e36efcae968a27c2569fe5c46c201e4b", "classification": "incompatible", "method": null, "eventId": null, "status": null, "outcome": "not-applicable:install-rejected", "failure": null, "installOutcome":"invalid-path", "ghostLoadOutcome":"not-applicable:install-rejected", "renderOutcome":"not-applicable:install-rejected", "inputOutcome":"not-applicable:install-rejected", "shioriOutcome":"not-applicable:install-rejected", "checkpointPhase":"not-run" },
+    { "label": "Snake and Otacon V1.2.1", "archiveSha256": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:5", "shioriOutcome":"success", "checkpointPhase":"complete" },
+    { "label": "Snake and Otacon V1.3.1", "archiveSha256": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:5", "shioriOutcome":"success", "checkpointPhase":"complete" },
+    { "label": "Snake and Otacon V1.3.2", "archiveSha256": "1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5", "classification": "compatible", "method": "GET", "eventId": "OnFirstBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:5", "shioriOutcome":"success", "checkpointPhase":"complete" },
+    { "label": "Snake_Otacon_1.1.1b", "archiveSha256": "ef1590f766964b1932020abf6e93aa229be12fbc6ba9238a4e5cda90939f4d70", "classification": "incompatible", "method": null, "eventId": null, "status": null, "outcome": "not-applicable:install-rejected", "failure": null, "installOutcome":"invalid-path", "ghostLoadOutcome":"not-applicable:install-rejected", "renderOutcome":"not-applicable:install-rejected", "inputOutcome":"not-applicable:install-rejected", "shioriOutcome":"not-applicable:install-rejected", "checkpointPhase":"not-run" },
+    { "label": "Snake_Otacon_1.2.1b", "archiveSha256": "4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45", "classification": "partiallyCompatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "not-supported-shiori", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:4", "shioriOutcome":"not-supported-shiori", "checkpointPhase":"complete" },
+    { "label": "Snake_Otacon_1.3.1b", "archiveSha256": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:5", "shioriOutcome":"success", "checkpointPhase":"complete" },
+    { "label": "Watchdog Bancho", "archiveSha256": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca", "classification": "compatible", "method": "GET", "eventId": "OnBoot", "status": 200, "outcome": "success", "failure": null, "installOutcome":"installed", "ghostLoadOutcome":"loaded", "renderOutcome":"production-stage-rendered", "inputOutcome":"named-collisions-routed:12", "shioriOutcome":"success", "checkpointPhase":"complete" }
+  ],
+  "normalization": {
+    "summaryRunIdPaths": [
+      "runId",
+      "results[].runId"
+    ],
+    "summaryTimestampPaths": [
+      "startedAt",
+      "finishedAt",
+      "results[].startedAt",
+      "results[].finishedAt"
+    ],
+    "summaryDurationPaths": [
+      "durationSeconds"
+    ],
+    "summaryReportRootPaths": [
+      "git.manifestFile",
+      "apks.debugPath",
+      "apks.testPath"
+    ],
+    "summaryRunOwnedStringPaths": [
+      "results[].resultPath",
+      "results[].screenshotPath",
+      "results[].crashLogPath",
+      "results[].output",
+      "results[].error"
+    ],
+    "summaryObservedPrivateSnapshotPath": "results[].observedPrivateSnapshot",
+    "summaryObservedTmpSnapshotPath": "results[].observedTmpSnapshot",
+    "summarySourceScanRootPath": "results[].evidence.sourceSyntax.scanRoot",
+    "rawRunOwnedStringPaths": [
+      "narCorpusPath"
+    ],
+    "rawRunOwnedStringSelectors": [
+      "evidence.sourceSyntax.scanRoot",
+      "sakura.source",
+      "kero.source"
+    ],
+    "rawSourceArchiveSha256": {
+      "2elf-2.46": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "Big Red Button": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
+      "Earthquake Rescue Duo": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "LOBO": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "Nanika Atsume 1.0.0": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9",
+      "Nanika Atsume 1.0.1": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c",
+      "Nanika Atsume silent_ALPHA": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17",
+      "Snake and Otacon V1.2.1": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "Snake and Otacon V1.3.1": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "Snake and Otacon V1.3.2": "1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5",
+      "Snake_Otacon_1.2.1b": "4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45",
+      "Snake_Otacon_1.3.1b": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "tewire-sen": "2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8",
+      "Watchdog Bancho": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "Yes Man-2.1.1": "aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8"
+    },
+    "summarySourceArchiveSha256": {
+      "2elf-2.46": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "Big Red Button": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
+      "Earthquake Rescue Duo": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "LOBO": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "Nanika Atsume 1.0.0": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9",
+      "Nanika Atsume 1.0.1": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c",
+      "Nanika Atsume silent_ALPHA": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17",
+      "Snake and Otacon V1.2.1": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "Snake and Otacon V1.3.1": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "Snake and Otacon V1.3.2": "1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5",
+      "Snake_Otacon_1.2.1b": "4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45",
+      "Snake_Otacon_1.3.1b": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "tewire-sen": "2a57e2272b2314baa59b3d911ed5051ef1fb8f94d1401083ffe4f7602834f7e8",
+      "Watchdog Bancho": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "Yes Man-2.1.1": "aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8"
+    },
+    "expectedKinds": [
+      { "scope": "summary", "path": "runId", "category": "runId", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].runId", "category": "runId", "kinds": ["string"] },
+      { "scope": "summary", "path": "startedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "finishedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].startedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].finishedAt", "category": "timestamp", "kinds": ["string"] },
+      { "scope": "summary", "path": "durationSeconds", "category": "duration", "kinds": ["number"] },
+      { "scope": "summary", "path": "git.manifestFile", "category": "reportPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "apks.debugPath", "category": "reportPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "apks.testPath", "category": "reportPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].resultPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].screenshotPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].crashLogPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].output", "category": "runOwnedText", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].error", "category": "runOwnedText", "kinds": ["string"] },
+      { "scope": "summary", "path": "results[].observedPrivateSnapshot", "category": "runOwnedPath", "kinds": ["string", "array"] },
+      { "scope": "summary", "path": "results[].observedTmpSnapshot", "category": "runOwnedPath", "kinds": ["string", "array"] },
+      { "scope": "summary", "path": "results[].evidence.sourceSyntax.scanRoot", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "raw", "path": "narCorpusPath", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "raw", "path": "evidence.sourceSyntax.scanRoot", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "raw", "path": "sakura.source", "category": "runOwnedPath", "kinds": ["string"] },
+      { "scope": "raw", "path": "kero.source", "category": "runOwnedPath", "kinds": ["string"] }
+    ],
+    "scopedRunOwnedValues": [
+      {
+        "scope": "raw",
+        "label": "Yes Man-2.1.1",
+        "path": "dialogueProbe.value",
+        "category": "runOwnedEmbeddedPath",
+        "kinds": ["string"],
+        "requiredShape": "/data/data/com.cattailsw.nanidroid/cache/nar-corpus-host/{runId}/Yes-Man-2.1.1/"
+      }
+    ]
+  },
+  "stochasticDialogueValues": [
+    {
+      "label": "2elf-2.46",
+      "archiveSha256": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "981a53a2d44016b31a690ec4e018409aedff65e14eb942fef50994a0f7c41fb9",
+        "04595b642bef25a3a20d13f22114bcbd7ab5cd895bfdb2fc1743ad4a5d81885b"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/dic_1templ.txt",
+        "lineRanges": ["3900-3920"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      },
+      "summaryMirrors": {
+        "requiredEvidence": true,
+        "sentinelName": "slice2-2elf-dialogue-value-nonblank",
+        "sentinelProperty": "observed"
+      }
+    },
+    {
+      "label": "LOBO",
+      "archiveSha256": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "jsonPath": "dialogueProbe.value",
+      "specializedValidator": "lobo-onboot-v1",
+      "grammarDigest": "98935130a9797d4e34ad05607d1345c48d8fbc73b32192102e8f1484b64dd1b1",
+      "source": {
+        "archiveEntry": "ghost/master/dict/dict-event.kis",
+        "lineRanges": ["222"],
+        "additionalArchiveEntries": [
+          { "archiveEntry": "ghost/master/ghost-bootend.kis", "lineRanges": ["51"] },
+          { "archiveEntry": "ghost/master/ghost-aitalk.kis", "lineRanges": ["11", "9", "34"] }
+        ],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      }
+    },
+    {
+      "label": "Earthquake Rescue Duo",
+      "archiveSha256": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "jsonPath": "dialogueProbe.value",
+      "variantCatalogueSha256": "8952519feb5d2cdf0c637c292b03eaefeb3ab0c3afc093e14f165a37b6802e16",
+      "allowedVariants": [
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-06-06" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "date-07-04" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "hour-00-04-not-special-date" },
+        { "valueUtf8Sha256": "42f216325f9097b96c363eab4487e39aeaad3cd0a3636844d5b0b7169d529f41", "tokenizerDiagnostics": [], "predicate": "hour-05-08-not-special-date" },
+        { "valueUtf8Sha256": "98bb8892bf78daf8c7916618ed6bbd67fb8b0f3382a8c1509213032be6c7e3ea", "tokenizerDiagnostics": [], "predicate": "hour-05-08-not-special-date" },
+        { "valueUtf8Sha256": "53160d1df44cb47ea1d5ba85d53f2c8d4d5f117193df5c4919eee34af2890f5a", "tokenizerDiagnostics": ["unsupported-command:8"], "predicate": "hour-05-08-not-special-date" },
+        { "valueUtf8Sha256": "4d0323efee6567ba3ad00f1592d1a8a0be7ed4e7fda342716a90c235f16c2ccc", "tokenizerDiagnostics": [], "predicate": "hour-09-11-not-special-date" },
+        { "valueUtf8Sha256": "7603a0d37144c53d365e136bed7812c984a290c52512f0755786276799ad2432", "tokenizerDiagnostics": [], "predicate": "hour-09-11-not-special-date" },
+        { "valueUtf8Sha256": "cb3a32f1e00f62f87acea8f9b9e39e9fe384bdb2cf4dc28e3cbd8c1777c0e09f", "tokenizerDiagnostics": [], "predicate": "hour-12-14-not-special-date" },
+        { "valueUtf8Sha256": "34e6319406c393117d60cd0150ab82d23c098a41ea368773642d7503818a2826", "tokenizerDiagnostics": [], "predicate": "hour-12-14-not-special-date" },
+        { "valueUtf8Sha256": "8b224aac942863d28fe519e2640292f4f0a8aa841b602ba6aa9a4b1dadd17f29", "tokenizerDiagnostics": [], "predicate": "hour-15-17-not-special-date" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "hour-18-20-not-special-date" },
+        { "valueUtf8Sha256": "3c539a832cea838c1e680ca4a39cf246ad29d5cef0e63a73d11e8f7bf588aebe", "tokenizerDiagnostics": [], "predicate": "hour-21-23-not-special-date" }
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/duo_bootend.dic",
+        "lineRanges": ["136-159", "174-203", "210-260"],
+        "rawEntrySha256": "e34da6717a0bc20145b9ca7d535c886550331eb09910af5e02d5a6cd06523892",
+        "bomStrippedSha256": "1fe69ccc4e2587c848fa0668291cbebc50eb82994fb1be822b086310b9a884b9",
+        "lfSlices": [
+          { "lineRange": "136-159", "sha256": "49f89d04829adf5d1d62d7064e35d9f596388fd46b021a0483276a8346747413" },
+          { "lineRange": "174-203", "sha256": "80ae6c266ef6fadd37dcb3269ac88053124426f0ca6051d47754863e8622ce73" },
+          { "lineRange": "210-260", "sha256": "156f587427813264b7f5eff075163e3ffe001028932266b372e1a82bf0dc16a5" }
+        ],
+        "reviewedEvidence": ["production tokenizer characterization", "authoritative ed03d5ef BaseBase", "exact 06db71e7 NAR source audit"]
+      }
+    },
+    {
+      "label": "Snake and Otacon V1.2.1",
+      "archiveSha256": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "jsonPath": "dialogueProbe.value",
+      "specializedValidator": "snake-onboot-structural-v1",
+      "contentCompared": false,
+      "terminalPolicy": "exact-e-or-eof",
+      "allowedSurfaces": [0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35],
+      "allowedFormattingTokens": ["\\f[italic,true]", "\\f[italic,false]"],
+      "source": {
+        "archiveEntry": "ghost/master/Sn_bootend.dic",
+        "lineRanges": ["304", "306"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate", "italic true/false and EOF zzz lexer fixture"]
+      }
+    },
+    {
+      "label": "Snake and Otacon V1.3.1",
+      "archiveSha256": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "jsonPath": "dialogueProbe.value",
+      "specializedValidator": "snake-onboot-structural-v1",
+      "contentCompared": false,
+      "terminalPolicy": "exact-e-or-eof",
+      "allowedSurfaces": [0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35],
+      "allowedFormattingTokens": ["\\f[italic,true]", "\\f[italic,false]"],
+      "source": {
+        "archiveEntry": "ghost/master/Sn_bootend.dic",
+        "lineRanges": ["316", "318"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate", "italic true/false and EOF zzz lexer fixture"]
+      }
+    },
+    {
+      "label": "Snake_Otacon_1.3.1b",
+      "archiveSha256": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "jsonPath": "dialogueProbe.value",
+      "specializedValidator": "snake-onboot-structural-v1",
+      "contentCompared": false,
+      "terminalPolicy": "exact-e-or-eof",
+      "allowedSurfaces": [0, 1, 2, 4, 5, 8, 9, 10, 13, 14, 15, 17, 18, 19, 30, 32, 35],
+      "allowedFormattingTokens": ["\\f[italic,true]", "\\f[italic,false]"],
+      "source": {
+        "archiveEntry": "ghost/master/Sn_bootend.dic",
+        "lineRanges": ["313", "315"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate", "italic true/false and EOF zzz lexer fixture"]
+      }
+    },
+    {
+      "label": "Watchdog Bancho",
+      "archiveSha256": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "jsonPath": "dialogueProbe.value",
+      "allowedUtf8Sha256": [
+        "169a2b0b07526e9892419399a4fde6e4c3608c11ffe35b5ac59bf20a9a2609c1",
+        "bcdb3aeec739afa5e74dac507c8cc8ad21661a06ba2b81d81b707f3df844da2e"
+      ],
+      "source": {
+        "archiveEntry": "ghost/master/ghost-bootend.kis",
+        "lineRanges": ["44-45"],
+        "reviewedEvidence": ["pr393 base", "pr393 candidate"]
+      }
+    }
+  ],
+  "comparisonCategories": {
+    "rawEnvelopeValidatedCount": 23,
+    "literalEqualityCount": 16,
+    "stochasticDialogueContractCount": 4,
+    "stochasticDialogueLabels": [
+      "2elf-2.46",
+      "Watchdog Bancho",
+      "Earthquake Rescue Duo",
+      "LOBO"
+    ],
+    "snakeStructuralOnlyCount": 3,
+    "snakeStructuralOnlyLabels": [
+      "Snake and Otacon V1.2.1",
+      "Snake and Otacon V1.3.1",
+      "Snake_Otacon_1.3.1b"
+    ],
+    "snakeCanaryExactCount": 3,
+    "screenshotHashEqualityCount": 23,
+    "dialogueContentContractValidated": 20
+  }
+}
