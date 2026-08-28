@@ -367,6 +367,33 @@ class GhostRuntimeNativeThreadTest {
     }
 
     @Test
+    fun duplicateKnownRetiredUnloadIsIdempotentWithoutAnotherAdapterCall() = runBlocking {
+        val root = root("duplicate-retired-unload")
+        val trace = RecordingShioriTrace()
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+
+            assertIs<RuntimeResult.Success<Unit>>(runtime.unload(handle.generation))
+            assertEquals(1, trace.unloadCount.get())
+            assertIs<RuntimeResult.Success<Unit>>(runtime.unload(handle.generation))
+            assertEquals(1, trace.unloadCount.get())
+            assertIs<RuntimeFailure.StaleGeneration>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(0L)).failure,
+            )
+            assertIs<RuntimeFailure.StaleGeneration>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(handle.generation + 1L)).failure,
+            )
+            assertEquals(1, trace.unloadCount.get())
+        }
+
+        assertEquals(1, trace.unloadCount.get())
+    }
+
+    @Test
     fun allLoadProbeRequestAndUnloadCommandsUseOneNamedThread() = runBlocking {
         val root = root("thread-affinity")
         val trace = RecordingShioriTrace()

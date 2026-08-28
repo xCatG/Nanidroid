@@ -17,7 +17,6 @@ internal fun shouldInstallBundledGhost(
 internal class GhostMgr(ctx: Context) {
     private val context = ctx.applicationContext
     private var ghosts: List<InstalledGhostMetadata> = loadGhosts()
-    private var lastInstallError: String? = null
 
     fun getGhostId(name: String): Int {
         ghosts.forEachIndexed { index, ghost ->
@@ -25,9 +24,6 @@ internal class GhostMgr(ctx: Context) {
         }
         return -1
     }
-
-    fun hasSameGhostId(id: String): Boolean =
-        ghosts.isNotEmpty() && getGhostId(id) != -1
 
     fun getGhostPath(id: Int): String = ghosts[id].canonicalRoot.path
 
@@ -43,24 +39,8 @@ internal class GhostMgr(ctx: Context) {
     }
 
     fun installFirstGhost(gid: String, narPath: String): String? =
-        installGhost(gid, narPath, true)
-
-    fun installGhost(gid: String, narPath: String): String? =
-        installGhost(gid, narPath, false)
-
-    fun installGhost(ghostId: String, narPath: String, usegid: Boolean): String? {
-        return when (val result = installGhost(ghostId, narPath, usegid, { false })) {
-            is ArchiveInstallResult.Installed -> result.installedPath
-            is ArchiveInstallResult.Failed -> {
-                lastInstallError = result.message
-                null
-            }
-            ArchiveInstallResult.Cancelled -> {
-                lastInstallError = "The selected ghost archive install was cancelled."
-                null
-            }
-        }
-    }
+        (installGhost(gid, narPath, true, { false }) as? ArchiveInstallResult.Installed)
+            ?.installedPath
 
     fun installFirstGhost(
         gid: String,
@@ -68,13 +48,7 @@ internal class GhostMgr(ctx: Context) {
         isCancelled: () -> Boolean,
     ): ArchiveInstallResult = installGhost(gid, narPath, true, isCancelled)
 
-    fun installGhost(
-        ghostId: String,
-        narPath: String,
-        isCancelled: () -> Boolean,
-    ): ArchiveInstallResult = installGhost(ghostId, narPath, false, isCancelled)
-
-    fun installGhost(
+    private fun installGhost(
         ghostId: String,
         narPath: String,
         usegid: Boolean,
@@ -108,11 +82,8 @@ internal class GhostMgr(ctx: Context) {
                 ArchiveInstallFailure.InvalidArchive,
             )
         }
-        lastInstallError = null
         return ArchiveInstallResult.Installed(getGhostPath(id), installed.targetId)
     }
-
-    fun getLastInstallError(): String? = lastInstallError
 
     fun refreshGhost() {
         ghosts = loadGhosts()

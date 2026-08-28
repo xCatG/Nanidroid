@@ -99,19 +99,6 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn('target_link_options(ssu PRIVATE "-Wl,-Bsymbolic")', source)
         self.assertIn('target_link_options(yaya PRIVATE "-Wl,-Bsymbolic")', source)
 
-    def test_ghost_switch_unloads_before_starting_replacement(self):
-        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(encoding="utf-8")
-        stop_body = source.split("private fun stop(state: PlaybackState", 1)[1].split("private fun reset", 1)[0]
-        unload_then_finish = stop_body.split("sessionCoordinator.markActiveUnloadedIf", 1)[1]
-        self.assertLess(unload_then_finish.index("finishStop("), unload_then_finish.index("return"))
-
-    def test_ghost_switch_pauses_clock_until_replacement_is_bound(self):
-        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt").read_text(encoding="utf-8")
-        switch_body = source.split("fun switchGhost(nextId: String)", 1)[1].split("fun ghostSwitchStep2()", 1)[0]
-        self.assertIn("runner!!.stopClock()", switch_body)
-        replacement_body = source.rsplit("runner?.attachReservedGhost(exactReservation)", 1)[1]
-        self.assertIn("runner!!.startClock()", replacement_body)
-
     def test_yaya_maps_engine_pseudo_charsets_to_android_transports(self):
         source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(encoding="utf-8")
         self.assertIn("Charset.defaultCharset()", source)
@@ -180,14 +167,14 @@ class NativeShioriContractTest(unittest.TestCase):
         kotlin = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(
             encoding="utf-8"
         )
-        factory = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/ShioriFactory.kt").read_text(
+        runtime = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt").read_text(
             encoding="utf-8"
         )
         self.assertNotIn("getenv(\"SAORI_FALLBACK", library)
         self.assertIn("yaya_configure_posix_saori_fallback", jni)
         self.assertIn("private val cacheDirectory = context?.codeCacheDir?.absolutePath ?: path", kotlin)
         self.assertIn("nativeLoad(path, cacheDirectory)", kotlin)
-        self.assertIn("YayaShiori(path, ctx)", factory)
+        self.assertIn("GhostEngine.Yaya -> YayaShiori(master, applicationContext)", runtime)
 
     def test_yaya_onload_checks_the_host_class_before_initializing_charsets(self):
         jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")

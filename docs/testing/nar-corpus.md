@@ -124,3 +124,33 @@ markers all agree and the row permits `incompatible`; every other native crash f
 the run. If any ADB process exceeds its host deadline, the runner records the partial
 result and stops issuing device commands because the transport is no longer trusted;
 cleanup is reported as unverified for that run.
+
+## Cross-engine reuse of the corpus boundary
+
+`scripts/run-cross-engine-runtime-audit.ps1` is a focused consumer of this
+corpus framework. It accepts the same default roots (`.` and `build/ui-audit`),
+plus explicit absolute directory or `.nar` roots, recursively deduplicates nested
+directory roots, and binds every discovered file to the unchanged canonical
+manifest by SHA-256. Its report distinguishes physical files, unique hashes,
+canonical matches, unexpected extras, rejected archives, and every missing
+manifest row. An extra archive may be classified for availability diagnostics,
+but it is never eligible for engine selection or device execution.
+
+Before selecting an archive, the focused harness applies the same bounded ZIP
+inventory and package-root policy: at most 10,000 entries, bounded normalized
+relative paths/components, duplicate and file/directory collision rejection,
+declared size/ratio limits, root `install.txt` precedence, and exactly one
+otherwise-uniform depth-two wrapper. It bounds descriptors to 64 KiB, requires a
+ghost package, reads exact `ghost/master/descript.txt`, and classifies only:
+
+- `satori.dll` as Satori;
+- `yaya.dll` as YAYA; and
+- `shiori.dll` plus `ghost/master/kawarirc.kis` as Kawari 8.
+
+Candidates are sorted by SHA-256 and then path. A connected run requires the
+complete canonical hash set and at least one manifest-bound candidate for every
+engine. It records the selected manifest label, path, and digest, copies Satori
+under two distinct private names, and invokes the lifecycle and transition tests.
+This focused runner does not change the 23-row manifest, relax the full corpus
+runner, copy local payloads into the repository, or reinterpret an unavailable
+row as a pass.

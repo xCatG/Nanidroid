@@ -231,6 +231,51 @@ class GhostRuntimeSwitchTest {
     }
 
     @Test
+    fun duplicateOldGenerationUnloadCannotTouchActiveReplacement() = runBlocking {
+        val outgoingRoot = root("retired-outgoing")
+        val targetRoot = root("retired-target")
+        val trace = RecordingShioriTrace()
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val outgoing = start(runtime, outgoingRoot)
+            val target = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.completeSwitchPlayback(
+                    outgoing.generation,
+                    begin(runtime, outgoing, targetRoot),
+                ),
+            ).value
+            assertEquals(1, trace.unloadCount.get())
+
+            assertIs<RuntimeResult.Success<Unit>>(runtime.unload(outgoing.generation))
+            assertEquals(1, trace.unloadCount.get())
+            assertSame(target, runtime.identity().activeHandle)
+            assertIs<RuntimeResult.Success<TaggedShioriResponse>>(
+                runtime.request(target.generation, ShioriRequestIntent.event("OnBoot")),
+            )
+            assertIs<RuntimeFailure.StaleGeneration>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(target.generation + 1L)).failure,
+            )
+            assertEquals(1, trace.unloadCount.get())
+            assertSame(target, runtime.identity().activeHandle)
+
+            trace.unloadResults += ShioriUnloadResult.Failed(
+                IllegalStateException("replacement teardown failed"),
+                ownershipCertain = false,
+            )
+            assertIs<RuntimeFailure.Fatal>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(target.generation)).failure,
+            )
+            assertIs<RuntimeFailure.Fatal>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(outgoing.generation)).failure,
+            )
+            assertEquals(2, trace.unloadCount.get())
+        }
+
+        assertEquals(2, trace.unloadCount.get())
+    }
+
+    @Test
     fun outgoingUnloadFailurePoisonsWithoutStartingOrClosingTarget() = runBlocking {
         val outgoingRoot = root("unload-poison-outgoing")
         val targetRoot = root("unload-poison-target")

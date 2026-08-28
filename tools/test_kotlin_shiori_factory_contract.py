@@ -15,6 +15,25 @@ class KotlinShioriFactoryContractTest(unittest.TestCase):
         self.assertFalse((factory_root / "ShioriFactory.kt").exists())
         self.assertIn("private fun createAdapter(prepared: PreparedGhost): Shiori", self.runtime)
 
+        adapter_constructors = (
+            "SatoriShiori(",
+            "YayaShiori(",
+            "Kawari(",
+            "NanidroidShiori(",
+            "NotSupportedShiori(",
+        )
+        creators = set()
+        for path in sorted((self.root / "src/main/kotlin").rglob("*.kt")):
+            if path.parent.name == "shiori":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if any(constructor in source for constructor in adapter_constructors):
+                creators.add(path.relative_to(self.root).as_posix())
+        self.assertEqual(
+            {"src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt"},
+            creators,
+        )
+
     def test_runtime_routes_every_prepared_engine_to_its_exact_adapter(self):
         self.assertIn(
             "GhostEngine.Satori -> SatoriShiori(master, applicationContext)",
@@ -37,6 +56,19 @@ class KotlinShioriFactoryContractTest(unittest.TestCase):
 
     def test_mainline_has_no_archived_factory(self):
         self.assertFalse((self.root / "legacy").exists())
+
+    def test_instrumentation_never_constructs_a_native_adapter(self):
+        instrumentation = self.root / "src/androidTest"
+        for path in sorted(instrumentation.rglob("*.kt")):
+            source = path.read_text(encoding="utf-8")
+            for constructor in (
+                "SatoriShiori(",
+                "YayaShiori(",
+                "Kawari(",
+                "NanidroidShiori(",
+                "NotSupportedShiori(",
+            ):
+                self.assertNotIn(constructor, source, path.relative_to(self.root).as_posix())
 
 
 if __name__ == "__main__":

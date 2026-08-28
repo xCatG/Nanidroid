@@ -5,6 +5,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PRODUCTION_ROOT = ROOT / "src/main/kotlin"
+SOURCE_ROOT = ROOT / "src"
 APPLICATION = "src/main/kotlin/com/cattailsw/nanidroid/CatTailApplication.kt"
 RUNTIME_CONSTRUCTION = re.compile(r"(?<!class )\bGhostRuntime\s*\(")
 
@@ -38,9 +39,23 @@ class GhostRuntimeCompositionRootTest(unittest.TestCase):
         self.assertEqual({APPLICATION: 1}, creators)
 
     def test_runtime_is_the_only_production_native_session_authority(self) -> None:
+        constructors = (
+            "SatoriShiori(",
+            "YayaShiori(",
+            "Kawari(",
+            "NanidroidShiori(",
+            "NotSupportedShiori(",
+        )
+        creators = set()
+        for path in sorted(PRODUCTION_ROOT.rglob("*.kt")):
+            if path.parent.name == "shiori":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if any(constructor in source for constructor in constructors):
+                creators.add(str(path.relative_to(ROOT)).replace("\\", "/"))
         self.assertEqual(
             {"src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt"},
-            files_containing_any("SatoriShiori(", "YayaShiori(", "Kawari("),
+            creators,
         )
         ghost = read("src/main/kotlin/com/cattailsw/nanidroid/Ghost.kt")
         self.assertNotIn("Shiori", ghost)
@@ -49,11 +64,18 @@ class GhostRuntimeCompositionRootTest(unittest.TestCase):
 
     def test_transitional_session_authorities_and_activity_continuation_are_absent(self) -> None:
         package = "src/main/kotlin/com/cattailsw/nanidroid"
-        self.assertFalse((ROOT / package / "GhostSessionCoordinator.kt").exists())
-        self.assertFalse((ROOT / package / "ShioriFactory.kt").exists())
-        production = "\n".join(
+        for obsolete_file in (
+            "GhostSessionCoordinator",
+            "ShioriFactory",
+            "InfoOnlyGhost",
+            "DirList",
+        ):
+            self.assertFalse((ROOT / package / f"{obsolete_file}.kt").exists())
+            self.assertFalse((ROOT / package / f"{obsolete_file}.java").exists())
+
+        all_source = "\n".join(
             path.read_text(encoding="utf-8")
-            for path in sorted(PRODUCTION_ROOT.rglob("*.kt"))
+            for path in sorted(SOURCE_ROOT.rglob("*.kt"))
         )
         for obsolete in (
             "GhostSessionCoordinator",
@@ -63,7 +85,7 @@ class GhostRuntimeCompositionRootTest(unittest.TestCase):
             "abandonReservedGhost",
             "setGhostToRunner",
         ):
-            self.assertNotIn(obsolete, production)
+            self.assertNotIn(obsolete, all_source)
         activity = read(f"{package}/Nanidroid.kt")
         self.assertNotIn("nextGhostId", activity)
         self.assertNotIn("ghostSwitchStep2", activity)

@@ -203,6 +203,9 @@ internal class GhostRuntime private constructor(
 
     private var nextOperationId = 0L
     private var nextGeneration = 0L
+    // Publication is gap-free and requires no active session, so one monotonic
+    // frontier proves every positive generation at or below it was retired.
+    private var lastRetiredGeneration = 0L
     private var inFlight: InFlight? = null
     private var switchIntent: SwitchIntent? = null
     private var session: Session? = null
@@ -320,7 +323,11 @@ internal class GhostRuntime private constructor(
                 when {
                     poison != null -> return@submitNativeResult fatalResult(requireNotNull(poison))
                     session?.handle?.generation != expectedGeneration -> {
-                        return@submitNativeResult RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                        return@submitNativeResult if (isKnownRetiredGenerationLocked(expectedGeneration)) {
+                            RuntimeResult.Success(Unit)
+                        } else {
+                            RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                        }
                     }
                     else -> requireNotNull(session)
                 }
@@ -328,7 +335,7 @@ internal class GhostRuntime private constructor(
             when (val unload = active.adapter.unloadShiori()) {
                 ShioriUnloadResult.Unloaded -> {
                     synchronized(stateLock) {
-                        if (session === active) session = null
+                        retireSessionLocked(active)
                     }
                     RuntimeResult.Success(Unit)
                 }
@@ -747,7 +754,7 @@ internal class GhostRuntime private constructor(
                     if (active != null && synchronized(stateLock) { poison == null }) {
                         when (val result = active.adapter.unloadShiori()) {
                             ShioriUnloadResult.Unloaded -> synchronized(stateLock) {
-                                if (session === active) session = null
+                                retireSessionLocked(active)
                             }
                             is ShioriUnloadResult.Failed -> poison(result.cause)
                         }
@@ -792,7 +799,7 @@ internal class GhostRuntime private constructor(
             when (val result = active.adapter.unloadShiori()) {
                 ShioriUnloadResult.Unloaded -> {
                     synchronized(stateLock) {
-                        if (session === active && switchIntent === intent) session = null
+                        retireSessionLocked(active)
                     }
                     runCatching { hooks.get()?.onOutgoingUnloaded?.invoke(intent.operationId) }
                     RuntimeResult.Success(Unit)
@@ -1135,6 +1142,19 @@ internal class GhostRuntime private constructor(
 
     private fun parseResponse(responseText: String): ShioriResponse =
         BufferedReader(StringReader(responseText)).use(::ShioriResponse)
+
+    private fun isKnownRetiredGenerationLocked(generation: Long): Boolean =
+        generation > 0L && generation <= lastRetiredGeneration
+
+    private fun retireSessionLocked(active: Session) {
+        if (session !== active) return
+        check(active.handle.generation == lastRetiredGeneration + 1L) {
+            "GhostRuntime generations must retire monotonically: " +
+                "last=$lastRetiredGeneration, active=${active.handle.generation}"
+        }
+        session = null
+        lastRetiredGeneration = active.handle.generation
+    }
 
     private fun poison(failure: Throwable) {
         synchronized(stateLock) {
