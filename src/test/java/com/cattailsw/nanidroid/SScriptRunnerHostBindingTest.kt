@@ -69,6 +69,22 @@ class SScriptRunnerHostBindingTest {
     }
 
     @Test
+    fun initializedResumeRebindsCurrentHandleBeforeStartingRuntime() {
+        val source = File("src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt").readText()
+        val onResume = source.substringAfter("override fun onResume()")
+            .substringBefore("private val backPressedCallback")
+        val activeHandle = onResume.indexOf("ghostRuntime.identity().activeHandle")
+        val rebind = onResume.indexOf("bindRuntimeHandle(")
+        val startClock = onResume.indexOf("startClock()")
+        val run = onResume.indexOf(".run()")
+
+        assertTrue(
+            "Initialized resume must resolve and rebind the active handle before clock/playback",
+            activeHandle >= 0 && rebind > activeHandle && startClock > rebind && run > startClock,
+        )
+    }
+
+    @Test
     fun sameHostRebindPreservesPendingStatusTerminal() {
         val runner = runtimes.create().runner.apply { setNoWaitMode(true) }
         val host = SScriptRunner.HostToken()

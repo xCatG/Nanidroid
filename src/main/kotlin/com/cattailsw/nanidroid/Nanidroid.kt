@@ -562,8 +562,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     override fun onResume() {
         super.onResume()
         if (initComplete) {
-            runner?.startClock()
-            runner?.run()
+            val activeRunner = runner ?: return
+            val activeHandle = ghostRuntime.identity().activeHandle ?: return
+            bindRuntimeHandle(activeHandle)
+            activeRunner.startClock()
+            activeRunner.run()
         }
     }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
