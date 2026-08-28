@@ -1,8 +1,8 @@
 # GhostRuntime Native Session Authority Design
 
-**Date:** 2026-08-27  
-**Issue:** #385  
-**Phase:** Lean app phase 3, native/session authority slice  
+**Date:** 2026-08-27
+**Issue:** #385
+**Phase:** Lean app phase 3, native/session authority slice
 **Status:** Approved after independent architecture, lifecycle, native, and
 adversarial review
 
