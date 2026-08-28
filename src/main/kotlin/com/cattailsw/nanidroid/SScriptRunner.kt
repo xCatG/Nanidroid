@@ -407,6 +407,7 @@ open class SScriptRunner internal constructor(
     private fun clearMsgQueueIfPinned(handle: GhostHandle): Boolean {
         val state = synchronized(this) {
             if (activeHandle?.generation != handle.generation) return false
+            requestAdmissionEpoch++
             msgQueue.clear()
             playback.msg = null
             runtimeModeGeneration++

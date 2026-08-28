@@ -2,8 +2,13 @@ package com.cattailsw.nanidroid
 
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.ui.unit.IntOffset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
+import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.shiori.Shiori
 import com.cattailsw.nanidroid.shiori.ShioriLoadResult
 import com.cattailsw.nanidroid.shiori.ShioriUnloadResult
@@ -21,6 +26,85 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SScriptRunnerMainThreadRequestInstrumentationTest {
+    @Test
+    fun keroPointerClearRejectsOlderDialogueResponseAndPlaysPointerReply() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val primaryEntered = CountDownLatch(1)
+        val releasePrimary = CountDownLatch(1)
+        val pointerObserved = CountDownLatch(1)
+        val pointerPlayed = CountDownLatch(1)
+        val staleInputShown = CountDownLatch(1)
+        val mainPulse = CountDownLatch(1)
+        val requestOrder = CopyOnWriteArrayList<String>()
+        val adapter = BlockingKeroPointerShiori(
+            primaryEntered,
+            releasePrimary,
+            pointerObserved,
+            requestOrder,
+        )
+        val root = File(context.cacheDir, "kero-pointer-clear-runtime").canonicalFile
+        val runtime = newRuntime(context, adapter)
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("kero-pointer-clear", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.setPresentationRenderer { frame ->
+                if (frame.sakura.text == "Pointer") pointerPlayed.countDown()
+            }
+            runtime.runner.setUICallback(object : SScriptRunner.UICallback {
+                override fun showUserInputBox(id: String) {
+                    if (id == "stale") staleInputShown.countDown()
+                }
+
+                override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+            })
+            val action = AtomicReference<com.cattailsw.nanidroid.runtime.dialogue.DialogueAction?>()
+            instrumentation.runOnMainSync {
+                runtime.runner.setNoWaitMode(true)
+                runtime.runner.addMsgToQueue(arrayOf("\\h\\q[Choose,choice]\\e"))
+                runtime.runner.run()
+                action.set(runtime.runner.dialogueStateSnapshot().pendingChoices.single())
+                runtime.runner.activateChoice(requireNotNull(action.get()))
+            }
+            assertTrue("Blocked authored request did not start", primaryEntered.await(2, TimeUnit.SECONDS))
+
+            Handler(Looper.getMainLooper()).post {
+                assertTrue(
+                    runtime.runner.dispatchSurfaceInteraction(
+                        SurfaceInteractionEffect(
+                            kind = PointerEventKind.CLICK,
+                            speaker = SurfaceSpeaker.KERO,
+                            intrinsic = IntOffset(12, 34),
+                            button = 0,
+                            source = PointerSource.TOUCH,
+                            collisionIdentifier = "Face",
+                            diagnosticCollisionId = 42,
+                        ),
+                    ),
+                )
+                mainPulse.countDown()
+            }
+            assertTrue(
+                "Main looper could not submit the Kero pointer request",
+                mainPulse.await(500, TimeUnit.MILLISECONDS),
+            )
+
+            releasePrimary.countDown()
+            assertTrue("Kero pointer request was not observed", pointerObserved.await(2, TimeUnit.SECONDS))
+            assertTrue("Kero pointer response did not play", pointerPlayed.await(2, TimeUnit.SECONDS))
+            assertFalse("Stale authored input was shown after Kero clear", staleInputShown.await(250, TimeUnit.MILLISECONDS))
+            assertEquals(listOf("OnChoiceSelectEx", "OnMouseClick"), requestOrder.toList())
+        } finally {
+            releasePrimary.countDown()
+            runtime.close()
+        }
+    }
+
     @Test
     fun preSwitchDialogueResponseCannotBlockGhostChangingHandoff() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -531,6 +615,36 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
                 order += "OnGhostChanging"
                 ghostChangingObserved.countDown()
                 "SHIORI/3.0 200 OK\r\nValue: \\hSwitching\\e\r\n\r\n"
+            }
+            else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+        }
+
+        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
+    }
+
+    private class BlockingKeroPointerShiori(
+        private val primaryEntered: CountDownLatch,
+        private val releasePrimary: CountDownLatch,
+        private val pointerObserved: CountDownLatch,
+        private val order: CopyOnWriteArrayList<String>,
+    ) : Shiori {
+        override fun getModuleName(): String = "BlockingKeroPointer"
+
+        override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
+
+        override fun request(request: String): String = when {
+            "ID: Get_Supported_Events\r\n" in request ->
+                "SHIORI/3.0 204 No Content\r\nX-SSTP-PassThru-local: OnMouseClick\r\n\r\n"
+            "ID: OnChoiceSelectEx\r\n" in request -> {
+                order += "OnChoiceSelectEx"
+                primaryEntered.countDown()
+                assertTrue("Timed out waiting to release authored request", releasePrimary.await(3, TimeUnit.SECONDS))
+                "SHIORI/3.0 200 OK\r\nValue: \\hStale\\![open,inputbox,stale]\\e\r\n\r\n"
+            }
+            "ID: OnMouseClick\r\n" in request -> {
+                order += "OnMouseClick"
+                pointerObserved.countDown()
+                "SHIORI/3.0 200 OK\r\nValue: \\hPointer\\e\r\n\r\n"
             }
             else -> "SHIORI/3.0 204 No Content\r\n\r\n"
         }
