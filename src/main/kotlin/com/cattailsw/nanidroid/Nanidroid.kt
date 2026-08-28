@@ -52,6 +52,9 @@ internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf
     R.string.err_no_ghost_available,
 )
 
+internal fun switchProgressVisibleFor(phase: GhostRuntimePhase): Boolean =
+    phase == GhostRuntimePhase.Replacing
+
 internal fun tryLaunchDialogueExternalUri(launch: () -> Unit): Boolean = try {
     launch()
     true
@@ -349,7 +352,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 // A recreated host renders the still-active outgoing generation while
                 // independently joining the runtime-owned replacement operation.
                 bindRuntimeHandle(identity.activeHandle)
-                showProgress()
+                runner!!.setCallback(mscb)
+                if (switchProgressVisibleFor(identity.phase)) showProgress() else hideProgress()
             }
             val handle = resolveRuntimeHandle(manager)
             if (handle == null || !attachAndBindRuntimeHandle(handle)) {
@@ -375,6 +379,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             val identity = ghostRuntime.identity()
             val pending = identity.pending
             if (pending != null) {
+                if (switchProgressVisibleFor(identity.phase)) showProgress()
                 when (
                     val joined = ghostRuntime.startOrJoin(
                         pending.ghostId,
@@ -579,6 +584,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private val mscb = object : SScriptRunner.StatusCallback {
         override fun stop() = Unit
         override fun canExit() { runner!!.setCallback(null); finish() }
+        override fun switchPlaybackComplete() {
+            runOnUiThread { showProgress() }
+        }
     }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
     private fun installFirstGhost() {
@@ -641,7 +649,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             getString(R.string.load_g),
             target.name ?: target.id,
         )
-        showProgress()
         runner!!.stopClock()
         runner!!.clearMsgQueue()
         runner!!.setCallback(mscb)
@@ -653,6 +660,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                         runner!!.setCallback(null)
                         runner!!.startClock()
                         runner!!.run()
+                    } else {
+                        runner!!.setCallback(null)
+                        showNoGhostAvailable()
                     }
                 }
                 is RuntimeResult.Failure -> {

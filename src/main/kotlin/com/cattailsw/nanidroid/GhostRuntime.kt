@@ -440,11 +440,23 @@ internal class GhostRuntime private constructor(
         switchOperationId: Long,
     ): RuntimeResult<GhostHandle> {
         var immediate: RuntimeResult<GhostHandle>? = null
+        var retired: SwitchIntent? = null
         val intent = synchronized(stateLock) {
             val candidate = switchIntent
             when {
                 poison != null -> {
                     immediate = fatalResult(requireNotNull(poison))
+                    if (
+                        candidate != null &&
+                        candidate.operationId == switchOperationId &&
+                        candidate.outgoingGeneration == expectedGeneration &&
+                        session?.handle?.generation == expectedGeneration &&
+                        !candidate.completionClaimed
+                    ) {
+                        candidate.completionClaimed = true
+                        switchIntent = null
+                        retired = candidate
+                    }
                     null
                 }
                 closed -> {
@@ -465,6 +477,7 @@ internal class GhostRuntime private constructor(
                 }
             }
         }
+        retired?.completion?.complete(requireNotNull(immediate))
         immediate?.let { return it }
         val accepted = requireNotNull(intent)
         preparationScope.launch { processSwitchCompletion(accepted) }

@@ -24,7 +24,7 @@ internal class RuntimeFixture(
     val runtime = GhostRuntime.testRuntime(
         context = null,
         preparer = GhostPreparer(preparedFactory),
-        adapterFactory = { RecordingShiori(trace) },
+        adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
         persistence = persistence,
         runnerConfiguration = runnerConfiguration,
     )
@@ -52,6 +52,7 @@ internal class RuntimeFixture(
             }
             runner.clearMsgQueue()
             trace.requests.clear()
+            trace.ownedRequests.clear()
             trace.requestHandler.set(response)
         }
     }

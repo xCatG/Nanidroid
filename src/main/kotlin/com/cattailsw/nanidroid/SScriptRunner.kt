@@ -75,7 +75,11 @@ open class SScriptRunner internal constructor(
     private val runtimePort: GhostRuntime,
     configuration: SScriptRunnerConfiguration = SScriptRunnerConfiguration(),
 ) : Runnable {
-    interface StatusCallback { fun stop(); fun canExit() }
+    interface StatusCallback {
+        fun stop()
+        fun canExit()
+        fun switchPlaybackComplete()
+    }
     interface UICallback { fun showUserInputBox(id: String); fun showUserSelection(textlabel: Array<String>, ids: Array<String>) }
 
     companion object {
@@ -423,6 +427,7 @@ open class SScriptRunner internal constructor(
                 operation.outgoingGeneration,
                 operation.operationId,
             )
+            runCatching { effects.callback?.switchPlaybackComplete() }
         }
     }
     private data class StopEffects(
@@ -988,13 +993,19 @@ open class SScriptRunner internal constructor(
             ?.getKey("Value")
             ?.takeIf(String::isNotEmpty)
         if (value == null) {
-            synchronized(this) {
-                if (pendingSwitch == operation) pendingSwitch = null
+            val callback = synchronized(this) {
+                if (pendingSwitch == operation) {
+                    pendingSwitch = null
+                    cb
+                } else {
+                    null
+                }
             }
             runtimePort.completeSwitchPlaybackFromRunner(
                 operation.outgoingGeneration,
                 operation.operationId,
             )
+            runCatching { callback?.switchPlaybackComplete() }
             return true
         }
         val shouldRun = synchronized(this) {

@@ -214,7 +214,7 @@ class GhostRuntimeTest {
                 prepareCount.incrementAndGet()
                 preparedGhost(operationId, ghostId, canonicalRoot)
             },
-            adapterFactory = { RecordingShiori(trace) },
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
             persistence = persistence,
         )
 
@@ -350,16 +350,24 @@ internal class RecordingShioriTrace {
     val loadCount = AtomicInteger()
     val unloadCount = AtomicInteger()
     val requests = CopyOnWriteArrayList<String>()
+    val ownedRequests = CopyOnWriteArrayList<RecordedShioriRequest>()
     val commandThreadNames = CopyOnWriteArrayList<String>()
     val loadResults = ConcurrentLinkedQueue<ShioriLoadResult>()
     val unloadResults = ConcurrentLinkedQueue<ShioriUnloadResult>()
     val requestFailure = AtomicReference<Throwable?>(null)
     val requestHandler = AtomicReference<((String) -> String)?>(null)
+    val requestObserver = AtomicReference<((RecordedShioriRequest) -> Unit)?>(null)
     val response = AtomicReference("SHIORI/3.0 204 No Content\r\n\r\n")
 }
 
+internal data class RecordedShioriRequest(
+    val ownerGhostId: String,
+    val protocolText: String,
+)
+
 internal class RecordingShiori(
     private val trace: RecordingShioriTrace,
+    private val ownerGhostId: String,
 ) : Shiori {
     init {
         trace.factoryCount.incrementAndGet()
@@ -376,6 +384,9 @@ internal class RecordingShiori(
     override fun request(request: String): String {
         trace.requests += request
         trace.commandThreadNames += Thread.currentThread().name
+        val recorded = RecordedShioriRequest(ownerGhostId, request)
+        trace.ownedRequests += recorded
+        trace.requestObserver.get()?.invoke(recorded)
         trace.requestFailure.get()?.let { throw it }
         trace.requestHandler.get()?.let { return it(request) }
         return trace.response.get()
@@ -397,7 +408,7 @@ internal fun testRuntime(
 ): GhostRuntime = GhostRuntime.testRuntime(
     context = null,
     preparer = preparer,
-    adapterFactory = { RecordingShiori(trace) },
+    adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
     persistence = persistence,
     admission = admission,
 )

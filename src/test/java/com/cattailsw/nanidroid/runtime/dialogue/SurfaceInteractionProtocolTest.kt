@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.runtime.dialogue
 import androidx.compose.ui.unit.IntOffset
 import com.cattailsw.nanidroid.AttachmentReceipt
 import com.cattailsw.nanidroid.GhostHandle
+import com.cattailsw.nanidroid.GhostRuntimeTestHooks
 import com.cattailsw.nanidroid.RuntimeFixture
 import com.cattailsw.nanidroid.RuntimeFixtureRegistry
 import com.cattailsw.nanidroid.RuntimeResult
@@ -13,6 +14,8 @@ import com.cattailsw.nanidroid.assertIs
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -295,20 +298,37 @@ class SurfaceInteractionProtocolTest {
         runner.setNoWaitMode(true)
         val active = fixture.requireHandle()
         val target = File("build/runtime-fixtures/replacement")
+        val replacementPreparationStarted = CountDownLatch(1)
+        val releaseReplacementPreparation = CountDownLatch(1)
         val operationId = assertIs<RuntimeResult.Success<Long>>(
             fixture.runtime.beginSwitch(active.generation, "replacement", target),
         ).value
         runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
 
-        assertTrue(runner.doGhostChanging(operationId, "next", "ghost", target.path))
-        await { fixture.trace.unloadCount.get() == 1 }
-        val diagnostic = runner.dispatchSurfaceInteractionWithDiagnostics(
-            effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO),
-        )
+        fixture.runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(
+                onPreparationStarted = { _, ghostId, _ ->
+                    if (ghostId == "replacement") {
+                        replacementPreparationStarted.countDown()
+                        check(releaseReplacementPreparation.await(5, TimeUnit.SECONDS))
+                    }
+                },
+            ),
+        ).use {
+            try {
+                assertTrue(runner.doGhostChanging(operationId, "next", "ghost", target.path))
+                assertTrue(replacementPreparationStarted.await(5, TimeUnit.SECONDS))
+                val diagnostic = runner.dispatchSurfaceInteractionWithDiagnostics(
+                    effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO),
+                )
 
-        assertNull(diagnostic.candidateEvent)
-        assertTrue(!diagnostic.accepted)
-        assertTrue(fixture.trace.requests.none { it.contains("ID: OnMouseClick") })
+                assertNull(diagnostic.candidateEvent)
+                assertTrue(!diagnostic.accepted)
+                assertTrue(fixture.trace.requests.none { it.contains("ID: OnMouseClick") })
+            } finally {
+                releaseReplacementPreparation.countDown()
+            }
+        }
     }
 
     @Test

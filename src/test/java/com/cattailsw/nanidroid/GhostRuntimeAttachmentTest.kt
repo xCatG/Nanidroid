@@ -73,7 +73,7 @@ class GhostRuntimeAttachmentTest {
                     shellName = "Custom Shell",
                 )
             },
-            adapterFactory = { RecordingShiori(trace) },
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
             persistence = persistence,
         )
 
@@ -219,7 +219,7 @@ class GhostRuntimeAttachmentTest {
             preparer = GhostPreparer { operationId, ghostId, canonicalRoot ->
                 preparedGhost(operationId, ghostId, canonicalRoot)
             },
-            adapterFactory = { RecordingShiori(trace) },
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
             persistence = persistence,
             admission = AttachmentAdmission { _, _, _ ->
                 if (admissionAttempts.incrementAndGet() == 1) error("retry admission")
@@ -322,7 +322,7 @@ class GhostRuntimeAttachmentTest {
         val runtime = GhostRuntime.testRuntime(
             context = null,
             preparer = scriptedPreparer(),
-            adapterFactory = { RecordingShiori(trace) },
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
             persistence = InMemoryGhostRuntimePersistence(),
         )
 
