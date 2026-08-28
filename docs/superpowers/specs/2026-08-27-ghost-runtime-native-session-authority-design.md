@@ -227,6 +227,13 @@ discard a delayed returned `Value`. Failure, stale, unscheduled, stop, and
 replacement paths clear the pending state exactly once without reviving an old
 playback or changing a user-input pause.
 
+A dialogue operation with an extended primary event and legacy fallback is one
+queue-atomic, data-only runtime command. The native executor issues the fallback
+immediately only when the primary is non-playable or fails replayably with
+ownership still certain. Fatal/poison and stale-generation results stop without
+fallback; the fallback result is final. Unrelated timer or pointer requests may
+remain responsive on main, but cannot execute between the primary and fallback.
+
 Bootstrap capability discovery executes directly inside the load command on
 the runtime thread. It must not submit a nested command to its own executor.
 YAYA's charset query before request encoding and after native response remains
@@ -565,6 +572,8 @@ Using an injected internal adapter factory and deterministic hooks, prove:
 - stale queued requests/completions are rejected across switch;
 - a blocked timer-route request leaves the main looper responsive and admits
   its eventual response on the main looper;
+- a blocked extended dialogue request followed by a queued timer preserves
+  primary → fallback → timer native order without blocking main;
 - uncertain unload poisons and forbids reload; and
 - isolated test runtimes do not share thread, session, generation, or queue.
 

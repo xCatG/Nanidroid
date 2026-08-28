@@ -812,6 +812,11 @@ It submits the identical command and returns an accepted data-only future or a
 typed rejected submission; it never accepts or invokes runner callback code on
 the native executor. The synchronous helper remains for bootstrap,
 instrumentation, and callers already off the main looper.
+Add one `requestWithFallback[Async]` command for dialogue primary/legacy pairs.
+It executes both requests inside one native queue command, skips fallback after
+a status-200/nonempty-`Value` primary, runs it after a non-playable or replayable
+primary, and stops after fatal/poison or stale results. The fallback result is
+the single final tagged result; ordinary requests remain independently queued.
 `ShioriRequestException(ownershipCertain = true)` becomes replayable failure;
 `ownershipCertain = false` poisons the runtime. `unload(expectedGeneration):
 RuntimeResult<Unit>` clears the
@@ -1073,6 +1078,14 @@ a playable returned script before clearing the bit and resuming. Failure, 204,
 stale generation, pre-submit unpinning, stop, and replacement must all clear or
 retire the bit without reviving a dead state. Add blocked `OnSurfaceChange`
 device cases for live response ordering and stopped/replaced stale completion.
+
+For dialogue actions with an extended event plus legacy fallback, submit the
+pair through the queue-atomic runtime command rather than waiting for primary
+main-side admission before submitting fallback. Add a device RED/GREEN that
+blocks the primary, queues a timer while main remains responsive, and requires
+primary → fallback → timer adapter order plus final fallback playback. Cover
+playable primary, replayable/fatal primary, stale generation, and fallback
+failure terminals in the runtime matrix.
 
 - [ ] **Step 6: Replace startup reservations with runtime joining/attachment**
 
