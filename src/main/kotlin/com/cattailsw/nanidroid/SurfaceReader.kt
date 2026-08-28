@@ -17,7 +17,7 @@ import java.io.IOException
 import java.util.Locale
 import java.util.IdentityHashMap
 
-/** Reads every surface source through the typed parser and publishes one materialized catalog. */
+/** Reads every surface source into the mutable builder used before immutable publication. */
 class SurfaceReader {
     @JvmField
     var error = false
