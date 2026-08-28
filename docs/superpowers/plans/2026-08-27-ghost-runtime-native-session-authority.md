@@ -265,6 +265,13 @@ and underlying failure plus failed/uncertain cleanup is `-2`.
 status only when underlying load/unload reports success. YAYA's charset function throws when
 `gYayaLoaded` is false instead of returning UTF-8.
 
+An existing directory is not sufficient load evidence. Satori aggregates
+successful parsing of `dic*.txt`/`dic*.sat` across the dictionary roots selected
+by `satori_conf.txt` and returns failure when none loads; a preprocessing error
+does not count as success. YAYA retains a newly constructed normal/emergency VM
+only when configuration leaves it unsuppressed. Both failures must return `0`,
+leave the JNI owner flag empty, and permit an independent second runtime attempt.
+
 Change Kawari load to `jint` and unload to `jboolean`. Its load starts with:
 
 ```cpp
@@ -301,7 +308,9 @@ Replace the old Kawari implicit-dispose assertion with checks for `if (h != 0)`,
 owner-present returns without `unload()`, load signatures return `I`, and unload
 signatures return `Z`. For Satori and YAYA, assert the loaded-flag check appears
 before `GetStringUTFChars`/allocation and that one mutex guard spans both the
-check and underlying `load` call.
+check and underlying `load` call. Add ungated device cases for empty Satori and
+YAYA roots plus a malformed sole Satori dictionary; drive each case through two
+fresh `GhostRuntime` attempts so a hidden retained native owner is observable.
 
 Run:
 
@@ -798,6 +807,11 @@ generation is published by either uncertain terminal.
 `request(expectedGeneration: Long, intent: ShioriRequestIntent):
 RuntimeResult<TaggedShioriResponse>` validates the generation before passing
 `intent.protocolText` to the adapter and returns a parsed tagged response.
+Add `requestAsync(expectedGeneration, intent)` for main-looper runner routes.
+It submits the identical command and returns an accepted data-only future or a
+typed rejected submission; it never accepts or invokes runner callback code on
+the native executor. The synchronous helper remains for bootstrap,
+instrumentation, and callers already off the main looper.
 `ShioriRequestException(ownershipCertain = true)` becomes replayable failure;
 `ownershipCertain = false` poisons the runtime. `unload(expectedGeneration):
 RuntimeResult<Unit>` clears the
@@ -1030,23 +1044,27 @@ escapes from the runtime handle.
 
 - [ ] **Step 5: Route every runner request outside runner monitors**
 
-For each current `target.doShioriEvent`/`target.requestRaw`, capture `GhostHandle` and event inputs under the runner lock, release the lock, call `runtime.request(handle.generation, formattedRequest)`, then re-enter only to generation-check and admit the parsed result. Capability bootstrap runs directly inside the runtime load command and does not enqueue a nested runtime request.
+For each current `target.doShioriEvent`/`target.requestRaw`, capture `GhostHandle`, operation identity, and event inputs under the runner lock, then release the lock. A main-looper caller submits `runtime.requestAsync(handle.generation, formattedRequest)`, returns an acceptance receipt, observes the data-only future outside the native command, and schedules response admission on the main response scheduler. The admission re-enters only to generation/operation-check and apply the parsed result. Off-main legacy callers may use the synchronous helper. Capability bootstrap runs directly inside the runtime load command and does not enqueue a nested runtime request.
 
 Use one helper with this shape:
 
 ```kotlin
-private fun requestCurrent(intent: ShioriRequestIntent): TaggedShioriResponse? {
-    val handle = synchronized(this) { activeHandle } ?: return null
-    return when (val result = runtime.request(handle.generation, intent)) {
-        is RuntimeResult.Success -> result.value.takeIf { tagged ->
-            synchronized(this) { activeHandle?.generation == tagged.generation }
+private fun requestCurrent(intent: ShioriRequestIntent): Boolean {
+    val handle = synchronized(this) { activeHandle } ?: return false
+    return requestPinned(handle, intent) { result ->
+        val tagged = (result as? RuntimeResult.Success)?.value ?: return@requestPinned false
+        synchronized(this) {
+            activeHandle?.generation == handle.generation &&
+                tagged.generation == handle.generation
         }
-        is RuntimeResult.Failure -> null
     }
 }
 ```
 
 The helper itself is never called while already holding the runner monitor.
+Add a device test that blocks the adapter from a real timer route, proves a
+queued main-looper pulse still runs, releases the request, and proves response
+admission occurs on the main looper.
 
 - [ ] **Step 6: Replace startup reservations with runtime joining/attachment**
 
