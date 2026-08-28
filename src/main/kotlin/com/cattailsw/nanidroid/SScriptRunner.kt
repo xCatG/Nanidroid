@@ -152,7 +152,9 @@ open class SScriptRunner internal constructor(
     private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"
     private var lastElapsedSecond: Long? = null
     private var lastElapsedMinute: Long? = null
-    private var restore = false; private var exitPending = false; private var pendingSwitch: RunnerSwitchOperation? = null; private val bootDispatchState = BootDispatchState()
+    private var restore = false; private var pendingSwitch: RunnerSwitchOperation? = null; private val bootDispatchState = BootDispatchState()
+    private var nextExitOperationId = 0L
+    private var exitOperation: ExitOperation? = null
     private var dialogueState = DialogueRuntimeState()
     private var dialogueIncarnation = 0L
     private var nextDialogueTalkId = 0L
@@ -174,6 +176,27 @@ open class SScriptRunner internal constructor(
         val outgoingGeneration: Long,
     )
 
+    private enum class ExitPhase { AwaitingResponse, AwaitingPlayback, ReadyForHost }
+
+    private data class ExitOperation(
+        val operationId: Long,
+        val generation: Long?,
+        var phase: ExitPhase = ExitPhase.AwaitingResponse,
+    )
+
+    private data class HostBindingEffects(
+        val frame: GhostPresentationFrame?,
+        val dialogueState: DialogueRuntimeState,
+        val exitOperationId: Long?,
+    )
+
+    private data class ExitDeliveryLease(
+        val operationId: Long,
+        val generation: Long?,
+        val hostToken: HostToken?,
+        val callback: StatusCallback,
+    )
+
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     internal fun setDialogueClaimHookForTesting(hook: (() -> Unit)?) { dialogueClaimHookForTesting = hook }
     internal fun bindHost(
@@ -182,14 +205,37 @@ open class SScriptRunner internal constructor(
         dialogueObserver: (DialogueRuntimeState) -> Unit,
         uiCallback: UICallback,
         statusCallback: StatusCallback,
-    ) = synchronized(this) {
-        hostOwner = token
-        presentationRenderer = renderer
-        dialogueStateObserver = dialogueObserver
-        ucb = uiCallback
-        cb = statusCallback
-        currentPresentationFrame?.let(renderer::render)
-        dialogueObserver(dialogueState)
+    ) {
+        val effects = synchronized(this) {
+            hostOwner = token
+            presentationRenderer = renderer
+            dialogueStateObserver = dialogueObserver
+            ucb = uiCallback
+            cb = statusCallback
+            val pendingExit = exitOperation
+            val exitOperationId = if (
+                pendingExit?.phase == ExitPhase.ReadyForHost &&
+                pendingExit.generation == activeHandle?.generation
+            ) {
+                pendingExit.operationId
+            } else {
+                if (pendingExit?.phase == ExitPhase.ReadyForHost) exitOperation = null
+                null
+            }
+            HostBindingEffects(currentPresentationFrame, dialogueState, exitOperationId)
+        }
+        try {
+            effects.frame?.let(renderer::render)
+            dialogueObserver(effects.dialogueState)
+        } finally {
+            effects.exitOperationId?.let { operationId ->
+                deliverPendingExit(
+                    operationId,
+                    expectedToken = token,
+                    expectedCallback = statusCallback,
+                )
+            }
+        }
     }
 
     internal fun unbindHost(token: HostToken): Boolean = synchronized(this) {
@@ -276,6 +322,7 @@ open class SScriptRunner internal constructor(
                 is BootOutcome.BootAttemptFailed -> null
             }
             activeHandle = handle
+            if (exitOperation?.generation != handle.generation) exitOperation = null
             admittedAttachmentOperationId = operationId
             runtimeModeGeneration++
             passive = false
@@ -302,6 +349,7 @@ open class SScriptRunner internal constructor(
         synchronized(this) {
             if (activeHandle?.generation != expectedGeneration) return
             activeHandle = null
+            if (exitOperation?.generation == expectedGeneration) exitOperation = null
             admittedAttachmentOperationId = null
             retiredGenerationAwaitingAttachment = expectedGeneration
             pendingSwitch = null
@@ -481,12 +529,21 @@ open class SScriptRunner internal constructor(
                 currentPresentationFrame = frame
                 val renderer = presentationRenderer
                 val callback = cb
-                val exit = callback != null && exitPending
+                val pendingExit = exitOperation
+                val exitOperationId = if (pendingExit?.phase == ExitPhase.AwaitingPlayback) {
+                    if (pendingExit.generation != activeHandle?.generation) {
+                        exitOperation = null
+                        null
+                    } else {
+                        pendingExit.operationId
+                    }
+                } else {
+                    null
+                }
                 val handoff = pendingSwitch == switch && switch != null
-                if (exit) exitPending = false
                 if (handoff) pendingSwitch = null
                 playback = PlaybackState(state.talkAnimeControl)
-                StopEffects(renderer, frame, callback, exit, switch.takeIf { handoff })
+                StopEffects(renderer, frame, callback, exitOperationId, switch.takeIf { handoff })
             }
         }
         if (restarted) {
@@ -494,9 +551,12 @@ open class SScriptRunner internal constructor(
             return
         }
         effects ?: return
-        effects.renderer?.render(effects.frame)
-        effects.callback?.stop()
-        if (effects.exit) effects.callback?.canExit()
+        try {
+            effects.renderer?.render(effects.frame)
+            effects.callback?.stop()
+        } finally {
+            effects.exitOperationId?.let(::completePlaybackExit)
+        }
         effects.switch?.let { operation ->
             runtimePort.completeSwitchPlaybackFromRunner(
                 operation.outgoingGeneration,
@@ -509,7 +569,7 @@ open class SScriptRunner internal constructor(
         val renderer: GhostPresentationRenderer?,
         val frame: GhostPresentationFrame,
         val callback: StatusCallback?,
-        val exit: Boolean,
+        val exitOperationId: Long?,
         val switch: RunnerSwitchOperation?,
     )
     private fun reset(state: PlaybackState){
@@ -1042,19 +1102,138 @@ open class SScriptRunner internal constructor(
         lastElapsedMinute = minutesAll
     }
     internal fun dispatchClockTickForTesting() = perClockEvent()
-    private fun parseShioriResponseAndInsert(tagged: TaggedShioriResponse) {
-        if (tagged.response.getStatusCode() != 200) return
-        val value = tagged.response.getKey("Value") ?: return
+    private fun parseShioriResponseAndInsert(tagged: TaggedShioriResponse): Boolean {
+        if (tagged.response.getStatusCode() != 200) return false
+        val value = tagged.response.getKey("Value") ?: return false
         val shouldRun = synchronized(this) {
-            if (activeHandle?.generation != tagged.generation) return@synchronized false
+            if (activeHandle?.generation != tagged.generation) return@synchronized null
             msgQueue.add(value)
             !playback.running
-        }
+        } ?: return false
         if (shouldRun) run()
+        return true
     }
     private fun doMouseWheel(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseWheel",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
     private fun doMouseMove(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseMove",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
-    fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){synchronized(this){exitPending=true};doShioriEvent("OnClose",null)}
+    fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true}
+    fun doExit() {
+        val captured = synchronized(this) {
+            if (exitOperation != null) return
+            val operation = ExitOperation(++nextExitOperationId, activeHandle?.generation)
+            exitOperation = operation
+            msgQueue.clear()
+            playback.msg = null
+            runtimeModeGeneration++
+            requestAdmissionEpoch++
+            Triple(operation, activeHandle, playback)
+        }
+        val (operation, handle, state) = captured
+        stop(state)
+        if (handle == null) {
+            completePendingExit(operation)
+            return
+        }
+        requestPinned(
+            handle,
+            ShioriRequestIntent.event("OnClose"),
+            onUnscheduled = { completePendingExit(operation) },
+            admission = { result -> admitExitResponse(operation, result) },
+        )
+    }
+
+    private fun admitExitResponse(
+        operation: ExitOperation,
+        result: RuntimeResult<TaggedShioriResponse>,
+    ): Boolean {
+        if (result is RuntimeResult.Failure && result.failure == RuntimeFailure.StaleGeneration) {
+            return cancelExit(operation)
+        }
+        val playable = (result as? RuntimeResult.Success)?.value?.takeIf { tagged ->
+            tagged.response.getStatusCode() == 200 &&
+                !tagged.response.getKey("Value").isNullOrEmpty()
+        }
+        if (playable != null) {
+            val admitted = synchronized(this) {
+                if (exitOperation?.operationId != operation.operationId) return@synchronized false
+                if (operation.generation != activeHandle?.generation) {
+                    exitOperation = null
+                    return@synchronized false
+                }
+                operation.phase = ExitPhase.AwaitingPlayback
+                true
+            }
+            if (!admitted) return false
+            if (parseShioriResponseAndInsert(playable)) return true
+        }
+        return completePendingExit(operation)
+    }
+
+    private fun completePendingExit(operation: ExitOperation): Boolean {
+        val ready = synchronized(this) {
+            if (exitOperation?.operationId != operation.operationId) return@synchronized false
+            if (operation.generation != activeHandle?.generation) {
+                exitOperation = null
+                return@synchronized false
+            }
+            operation.phase = ExitPhase.ReadyForHost
+            true
+        }
+        if (ready) deliverPendingExit(operation.operationId)
+        return ready
+    }
+
+    private fun completePlaybackExit(operationId: Long) {
+        val ready = synchronized(this) {
+            val operation = exitOperation
+            if (
+                operation?.operationId != operationId ||
+                operation.phase != ExitPhase.AwaitingPlayback
+            ) {
+                return@synchronized false
+            }
+            if (operation.generation != activeHandle?.generation) {
+                exitOperation = null
+                return@synchronized false
+            }
+            operation.phase = ExitPhase.ReadyForHost
+            true
+        }
+        if (ready) deliverPendingExit(operationId)
+    }
+
+    private fun deliverPendingExit(
+        operationId: Long,
+        expectedToken: HostToken? = null,
+        expectedCallback: StatusCallback? = null,
+    ): Boolean {
+        val lease = synchronized(this) {
+            val operation = exitOperation
+            if (
+                operation?.operationId != operationId ||
+                operation.phase != ExitPhase.ReadyForHost
+            ) {
+                return@synchronized null
+            }
+            if (operation.generation != activeHandle?.generation) {
+                exitOperation = null
+                return@synchronized null
+            }
+            val callback = cb ?: return@synchronized null
+            val token = hostOwner
+            if (expectedToken != null && token !== expectedToken) return@synchronized null
+            if (expectedCallback != null && callback !== expectedCallback) return@synchronized null
+            exitOperation = null
+            ExitDeliveryLease(operation.operationId, operation.generation, token, callback)
+        } ?: return false
+        lease.callback.canExit()
+        return true
+    }
+
+    private fun cancelExit(operation: ExitOperation): Boolean = synchronized(this) {
+        if (exitOperation?.operationId != operation.operationId) return@synchronized false
+        exitOperation = null
+        true
+    }
     fun doGhostChanging(
         switchOperationId: Long,
         nextName: String,

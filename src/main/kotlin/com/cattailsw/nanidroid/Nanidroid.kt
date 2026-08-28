@@ -575,7 +575,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             val activeRunner = runner
             if (activeRunner != null) {
                 activeRunner.stopClock()
-                activeRunner.stop()
                 activeRunner.doExit()
             } else {
                 isEnabled = false

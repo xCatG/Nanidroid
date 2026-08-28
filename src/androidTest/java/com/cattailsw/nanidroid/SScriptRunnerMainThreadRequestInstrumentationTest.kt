@@ -16,6 +16,7 @@ import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -26,6 +27,81 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SScriptRunnerMainThreadRequestInstrumentationTest {
+    @Test
+    fun exitRejectsBlockedPreExitChoiceAndPlaysCloseExactlyOnce() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val choiceEntered = CountDownLatch(1)
+        val releaseChoice = CountDownLatch(1)
+        val closePlayed = CountDownLatch(1)
+        val exitDelivered = CountDownLatch(1)
+        val staleInputShown = CountDownLatch(1)
+        val mainPulse = CountDownLatch(1)
+        val exitCount = AtomicInteger()
+        val requestOrder = CopyOnWriteArrayList<String>()
+        val adapter = BlockingExitChoiceShiori(choiceEntered, releaseChoice, requestOrder)
+        val root = File(context.cacheDir, "pre-exit-choice-runtime").canonicalFile
+        val runtime = newRuntime(context, adapter)
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("pre-exit-choice", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.bindHost(
+                SScriptRunner.HostToken(),
+                { frame -> if (frame.sakura.text == "Close") closePlayed.countDown() },
+                {},
+                object : SScriptRunner.UICallback {
+                    override fun showUserInputBox(id: String) {
+                        if (id == "stale") staleInputShown.countDown()
+                    }
+
+                    override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+                },
+                object : SScriptRunner.StatusCallback {
+                    override fun stop() = Unit
+                    override fun canExit() {
+                        exitCount.incrementAndGet()
+                        exitDelivered.countDown()
+                    }
+
+                    override fun switchPlaybackComplete() = Unit
+                },
+            )
+            val action = AtomicReference<com.cattailsw.nanidroid.runtime.dialogue.DialogueAction?>()
+            instrumentation.runOnMainSync {
+                runtime.runner.setNoWaitMode(true)
+                runtime.runner.addMsgToQueue(arrayOf("\\h\\q[Choose,choice]\\e"))
+                runtime.runner.run()
+                action.set(runtime.runner.dialogueStateSnapshot().pendingChoices.single())
+                runtime.runner.activateChoice(requireNotNull(action.get()))
+            }
+            assertTrue("Blocked pre-exit choice did not start", choiceEntered.await(2, TimeUnit.SECONDS))
+
+            Handler(Looper.getMainLooper()).post {
+                runtime.runner.doExit()
+                mainPulse.countDown()
+            }
+            assertTrue(
+                "Main looper blocked while submitting OnClose",
+                mainPulse.await(500, TimeUnit.MILLISECONDS),
+            )
+
+            releaseChoice.countDown()
+            assertTrue("Authored OnClose script did not play", closePlayed.await(2, TimeUnit.SECONDS))
+            assertTrue("OnClose did not produce one exit terminal", exitDelivered.await(2, TimeUnit.SECONDS))
+            assertFalse("Stale pre-exit choice opened input", staleInputShown.await(250, TimeUnit.MILLISECONDS))
+            assertEquals(1, exitCount.get())
+            assertEquals(listOf("OnChoiceSelectEx", "OnClose"), requestOrder.toList())
+        } finally {
+            releaseChoice.countDown()
+            runtime.close()
+        }
+    }
+
     @Test
     fun keroPointerClearRejectsOlderDialogueResponseAndPlaysPointerReply() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -557,6 +633,35 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
                 return response
             }
             return "SHIORI/3.0 204 No Content\r\n\r\n"
+        }
+
+        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
+    }
+
+    private class BlockingExitChoiceShiori(
+        private val choiceEntered: CountDownLatch,
+        private val releaseChoice: CountDownLatch,
+        private val order: CopyOnWriteArrayList<String>,
+    ) : Shiori {
+        override fun getModuleName(): String = "BlockingExitChoice"
+
+        override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
+
+        override fun request(request: String): String = when {
+            "ID: OnChoiceSelectEx\r\n" in request -> {
+                order += "OnChoiceSelectEx"
+                choiceEntered.countDown()
+                assertTrue(
+                    "Timed out waiting to release pre-exit choice",
+                    releaseChoice.await(3, TimeUnit.SECONDS),
+                )
+                "SHIORI/3.0 200 OK\r\nValue: \\hStale\\![open,inputbox,stale]\\e\r\n\r\n"
+            }
+            "ID: OnClose\r\n" in request -> {
+                order += "OnClose"
+                "SHIORI/3.0 200 OK\r\nValue: \\hClose\\e\r\n\r\n"
+            }
+            else -> "SHIORI/3.0 204 No Content\r\n\r\n"
         }
 
         override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
