@@ -510,11 +510,17 @@ internal class GhostRuntime private constructor(
     }
 
     internal fun resetSessionForTesting(): RuntimeResult<Unit> {
-        val (stale, staleSwitch) = synchronized(stateLock) {
+        val (stale, staleSwitch, staleAttachment) = synchronized(stateLock) {
             poison?.let { return fatalResult(it) }
+            if (inFlight?.nativeStarted == true) {
+                return RuntimeResult.Failure(RuntimeFailure.Busy)
+            }
             val operation = inFlight.also { inFlight = null }
             val switching = switchIntent.also { switchIntent = null }
-            operation to switching
+            val attachment = (session?.attachment as? AttachmentState.Attaching)
+                ?.operation
+                ?.attempt
+            Triple(operation, switching, attachment)
         }
         stale?.completion?.complete(RuntimeResult.Failure(RuntimeFailure.StaleGeneration))
         staleSwitch?.completion?.complete(RuntimeResult.Failure(RuntimeFailure.StaleGeneration))
@@ -524,6 +530,7 @@ internal class GhostRuntime private constructor(
         } else {
             unload(activeGeneration)
         }
+        staleAttachment?.complete(RuntimeResult.Failure(RuntimeFailure.StaleGeneration))
         runCatching { runner.clearMsgQueue() }
         return result
     }
@@ -1071,7 +1078,7 @@ internal class GhostRuntime private constructor(
             GhostEngine.Satori -> SatoriShiori(master, applicationContext)
             GhostEngine.Yaya -> YayaShiori(master, applicationContext)
             GhostEngine.Kawari -> Kawari(master)
-            GhostEngine.Nanidroid -> NanidroidShiori(applicationContext, master)
+            GhostEngine.Nanidroid -> NanidroidShiori(applicationContext, prepared.nanidroidContent)
             GhostEngine.Unsupported -> NotSupportedShiori(applicationContext)
         }
     }

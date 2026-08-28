@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -170,6 +171,40 @@ class GhostRuntimeAttachmentTest {
             assertEquals(1, admissionCount.get())
             assertEquals(1, persistence.activationWrites.size)
             assertEquals(1, trace.requests.size)
+        }
+    }
+
+    @Test
+    fun resetRetiresBlockedAttachmentAttemptBeforeAdmissionReturns() = runBlocking {
+        val root = root("reset-blocked-admission")
+        val trace = RecordingShioriTrace()
+        val admissionStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val releaseAdmission = java.util.concurrent.CountDownLatch(1)
+        val runtime = runtime(trace, InMemoryGhostRuntimePersistence()) { _, _, _ ->
+            admissionStarted.complete(Unit)
+            assertTrue(releaseAdmission.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            RuntimeResult.Success(Unit)
+        }
+        val handle = start(runtime, root)
+        trace.requests.clear()
+        val attachment = async(start = CoroutineStart.UNDISPATCHED) {
+            runtime.attachHost(handle.generation)
+        }
+
+        try {
+            admissionStarted.await()
+
+            assertIs<RuntimeResult.Success<Unit>>(runtime.resetSessionForTesting())
+            assertIs<RuntimeFailure.StaleGeneration>(
+                assertIs<RuntimeResult.Failure>(
+                    withTimeout(1_000) { attachment.await() },
+                ).failure,
+            )
+            assertEquals(GhostRuntimePhase.Idle, runtime.identity().phase)
+        } finally {
+            releaseAdmission.countDown()
+            attachment.join()
+            runtime.close()
         }
     }
 

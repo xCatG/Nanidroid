@@ -45,6 +45,23 @@ class GhostPreparationTest {
     }
 
     @Test
+    fun `descriptor without shiori uses Kawari when kawarirc exists`() {
+        val root = temporaryFolder.newFolder("legacy-kawari")
+        val ghostMaster = File(root, "ghost/master").apply { mkdirs() }
+        val shellMaster = File(root, "shell/master").apply { mkdirs() }
+        File(ghostMaster, "descript.txt").writeText(
+            "charset,UTF-8\nname,Legacy Kawari\n",
+        )
+        File(ghostMaster, "kawarirc.kis").writeText("# legacy Kawari fixture\n")
+        File(shellMaster, "descript.txt").writeText("charset,UTF-8\nname,master\n")
+        File(shellMaster, "surfaces.txt").writeText("")
+
+        val prepared = GhostPreparer(null).prepare(52L, "legacy-kawari", root.canonicalFile)
+
+        assertEquals(GhostEngine.Kawari, prepared.engine)
+    }
+
+    @Test
     fun `surface catalog copies polygon points and rejects published mutation`() {
         val sourcePoints = mutableListOf(
             IntOffset(0, 0),

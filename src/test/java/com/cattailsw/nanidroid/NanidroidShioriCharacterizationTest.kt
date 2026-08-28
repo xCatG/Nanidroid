@@ -126,6 +126,66 @@ class NanidroidShioriCharacterizationTest {
             ThrowingRunnable { shiori.request("GET SHIORI/3.0\r\n\r\n") })
     }
 
+    @Test
+    fun preparedContentSnapshotUsesExactResponseWithoutAPath() {
+        val shiori = NanidroidShiori.createPreparedContentFixture(
+            mapOf("OnBoot" to "prepared boot"),
+            contentFilePresent = true,
+        ).also {
+            Assert.assertEquals(ShioriLoadResult.Loaded, it.load())
+        }
+
+        Assert.assertEquals(response("prepared boot"), shiori.request(request("OnBoot")))
+    }
+
+    @Test
+    fun preparedContentSnapshotPreservesMissingVersusPresentEmptyContent() {
+        val missing = NanidroidShiori.createPreparedContentFixture(
+            emptyMap(),
+            contentFilePresent = false,
+        ).also {
+            Assert.assertEquals(ShioriLoadResult.Loaded, it.load())
+        }
+        Assert.assertThrows<NullPointerException?>(
+            NullPointerException::class.java,
+            ThrowingRunnable { missing.request(request("NoSuchEvent")) },
+        )
+
+        val presentEmpty = NanidroidShiori.createPreparedContentFixture(
+            emptyMap(),
+            contentFilePresent = true,
+        ).also {
+            Assert.assertEquals(ShioriLoadResult.Loaded, it.load())
+        }
+        Assert.assertEquals(
+            NanidroidShiori.RES_NO_CONTENT,
+            presentEmpty.request(request("NoSuchEvent")),
+        )
+    }
+
+    @Test
+    fun preparedGhostContentPreservesMissingVersusPresentEmptySource() {
+        val missing = NanidroidShiori.createPreparedContentFixture(
+            prepareNanidroidContent("prepared-missing", content = null),
+        ).also {
+            Assert.assertEquals(ShioriLoadResult.Loaded, it.load())
+        }
+        Assert.assertThrows<NullPointerException?>(
+            NullPointerException::class.java,
+            ThrowingRunnable { missing.request(request("NoSuchEvent")) },
+        )
+
+        val presentEmpty = NanidroidShiori.createPreparedContentFixture(
+            prepareNanidroidContent("prepared-empty", content = "; only a comment\n"),
+        ).also {
+            Assert.assertEquals(ShioriLoadResult.Loaded, it.load())
+        }
+        Assert.assertEquals(
+            NanidroidShiori.RES_NO_CONTENT,
+            presentEmpty.request(request("NoSuchEvent")),
+        )
+    }
+
     @Throws(Exception::class)
     private fun writeContent(language: String, contents: String) {
         val directory = File(root, language)
@@ -142,6 +202,24 @@ class NanidroidShioriCharacterizationTest {
         NanidroidShiori.createContentFixture(root!!.path).also {
             Assert.assertEquals(ShioriLoadResult.Loaded, it.load())
         }
+
+    private fun prepareNanidroidContent(name: String, content: String?): Map<String, String> {
+        val ghostRoot = File(root, name).apply { mkdirs() }
+        val ghostMaster = File(ghostRoot, "ghost/master").apply { mkdirs() }
+        val shellMaster = File(ghostRoot, "shell/master").apply { mkdirs() }
+        File(ghostMaster, "descript.txt").writeText(
+            "charset,UTF-8\nname,$name\nshiori,Nanidroid\n",
+        )
+        File(shellMaster, "descript.txt").writeText("charset,UTF-8\nname,master\n")
+        File(shellMaster, "surfaces.txt").writeText("")
+        content?.let {
+            val localeDirectory = File(ghostMaster, "ja").apply { mkdirs() }
+            File(localeDirectory, "content.txt").writeText(it)
+        }
+        return GhostPreparer(null)
+            .prepare(91L, ghostRoot.name, ghostRoot.canonicalFile)
+            .nanidroidContent
+    }
 
     companion object {
         private fun request(id: String): String {

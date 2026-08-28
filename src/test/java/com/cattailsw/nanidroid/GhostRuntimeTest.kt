@@ -410,6 +410,7 @@ internal fun preparedGhost(
     engine: GhostEngine = GhostEngine.Unsupported,
     name: String? = ghostId,
     shellName: String? = "master",
+    nanidroidContent: Map<String, String> = emptyMap(),
 ): PreparedGhost = PreparedGhost(
     operationId = operationId,
     id = ghostId,
@@ -423,7 +424,7 @@ internal fun preparedGhost(
     ghostDescriptor = emptyMap(),
     shellDescriptor = null,
     engine = engine,
-    nanidroidContent = emptyMap(),
+    nanidroidContent = nanidroidContent,
 )
 
 internal inline fun <reified T> assertIs(actual: Any?): T {

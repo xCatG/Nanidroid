@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid
 
+import android.content.Context
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.Support
 import com.cattailsw.nanidroid.shiori.LoadFailureState
@@ -7,12 +8,18 @@ import com.cattailsw.nanidroid.shiori.ShioriLoadResult
 import com.cattailsw.nanidroid.shiori.ShioriRequestException
 import com.cattailsw.nanidroid.shiori.ShioriUnloadResult
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
-import kotlinx.coroutines.runBlocking
 
 class GhostRuntimeNativeThreadTest {
     @Rule
@@ -122,6 +129,79 @@ class GhostRuntimeNativeThreadTest {
         assertEquals(1, trace.unloadCount.get())
         runtime.close()
         assertEquals(1, trace.unloadCount.get())
+    }
+
+    @Test
+    fun resetRejectsNativeStartedPreparationBeforeAdapterConstruction() = runBlocking {
+        val root = root("reset-native-started")
+        val trace = RecordingShioriTrace()
+        val nativeLoadStarted = CountDownLatch(1)
+        val releaseNativeLoad = CountDownLatch(1)
+        val runtime = testRuntime(scriptedPreparer(), trace)
+        val hookToken = runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(
+                onNativeLoadStarted = { _, _ ->
+                    nativeLoadStarted.countDown()
+                    assertTrue(releaseNativeLoad.await(5, TimeUnit.SECONDS))
+                },
+            ),
+        )
+        val startup = async(Dispatchers.Default) {
+            runtime.startOrJoin(root.name, root)
+        }
+
+        try {
+            assertTrue(nativeLoadStarted.await(5, TimeUnit.SECONDS))
+
+            assertIs<RuntimeFailure.Busy>(
+                assertIs<RuntimeResult.Failure>(runtime.resetSessionForTesting()).failure,
+            )
+            assertEquals(0, trace.factoryCount.get())
+            assertEquals(GhostRuntimePhase.Starting, runtime.identity().phase)
+        } finally {
+            releaseNativeLoad.countDown()
+        }
+
+        try {
+            assertIs<RuntimeResult.Success<GhostHandle>>(startup.await())
+        } finally {
+            hookToken.close()
+            runtime.close()
+        }
+        Unit
+    }
+
+    @Test
+    fun nanidroidRuntimeUsesPreparedContentInsteadOfReadingMasterPath() = runBlocking {
+        val root = root("nanidroid-prepared-content")
+        val localeDirectory = File(root, "ghost/master/ja").apply { mkdirs() }
+        File(localeDirectory, "content.txt").writeText("OnBoot,disk boot\n")
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val runtime = GhostRuntime.testRuntime(
+            context = context,
+            preparer = GhostPreparer { operationId, ghostId, canonicalRoot ->
+                preparedGhost(
+                    operationId,
+                    ghostId,
+                    canonicalRoot,
+                    engine = GhostEngine.Nanidroid,
+                    nanidroidContent = mapOf("OnBoot" to "prepared boot"),
+                )
+            },
+            persistence = InMemoryGhostRuntimePersistence(),
+        )
+
+        runtime.use {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+            val response = assertIs<RuntimeResult.Success<TaggedShioriResponse>>(
+                runtime.request(handle.generation, ShioriRequestIntent.event("OnBoot")),
+            ).value.response
+
+            assertEquals("prepared boot", response.getKey("Value"))
+        }
     }
 
     @Test

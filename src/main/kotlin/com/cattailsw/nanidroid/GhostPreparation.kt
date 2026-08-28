@@ -17,6 +17,15 @@ internal data class InstalledGhostMetadata(
 
 internal enum class GhostEngine { Satori, Yaya, Kawari, Nanidroid, Unsupported }
 
+internal interface NanidroidContentPresence {
+    val contentFilePresent: Boolean
+}
+
+private class FrozenNanidroidContent(
+    private val contentValues: Map<String, String>,
+    override val contentFilePresent: Boolean,
+) : NanidroidContentPresence, Map<String, String> by contentValues
+
 internal class SurfaceCatalog private constructor(
     private val definitions: Map<String, SurfaceDefinition>,
 ) {
@@ -139,7 +148,7 @@ internal class GhostPreparer private constructor(
             "Nanidroid" -> GhostEngine.Nanidroid
             "satori.dll" -> GhostEngine.Satori
             "yaya.dll" -> GhostEngine.Yaya
-            "shiori.dll" -> if (File(ghostMaster, "kawarirc.kis").isFile) {
+            null, "shiori.dll" -> if (File(ghostMaster, "kawarirc.kis").isFile) {
                 GhostEngine.Kawari
             } else {
                 GhostEngine.Unsupported
@@ -151,15 +160,23 @@ internal class GhostPreparer private constructor(
         var localeDirectory = File(ghostMaster, Locale.getDefault().language)
         if (!localeDirectory.exists()) localeDirectory = File(ghostMaster, "ja")
         val content = File(localeDirectory, "content.txt")
-        if (!content.isFile) return emptyMap()
+        if (!content.isFile) return frozenNanidroidContent(emptyMap(), contentFilePresent = false)
         val values = linkedMapOf<String, String>()
         content.forEachLine(StandardCharsets.UTF_8) { line ->
             if (line.startsWith(";")) return@forEachLine
             val separator = line.indexOf(',')
             if (separator != -1) values[line.substring(0, separator)] = line.substring(separator + 1)
         }
-        return frozenMap(values)
+        return frozenNanidroidContent(values, contentFilePresent = true)
     }
+
+    private fun frozenNanidroidContent(
+        source: Map<String, String>,
+        contentFilePresent: Boolean,
+    ): Map<String, String> = FrozenNanidroidContent(
+        Collections.unmodifiableMap(source.toMap()),
+        contentFilePresent,
+    )
 }
 
 internal object InstalledGhostCatalog {
