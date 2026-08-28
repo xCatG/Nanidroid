@@ -143,6 +143,7 @@ open class SScriptRunner internal constructor(
     private var presentationRenderer: GhostPresentationRenderer? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
     private var hostOwner: HostToken? = null
+    private var clockOwner: HostToken? = null
     private var activeHandle: GhostHandle? = null
     private var admittedAttachmentOperationId: Long? = null
     private var retiredGenerationAwaitingAttachment: Long? = null
@@ -246,6 +247,10 @@ open class SScriptRunner internal constructor(
         ucb = null
         cb = null
         true
+    }
+
+    internal fun isHostOwner(token: HostToken): Boolean = synchronized(this) {
+        hostOwner === token
     }
 
     fun setDialogueStateObserver(observer: ((DialogueRuntimeState) -> Unit)?) = synchronized(this) {
@@ -429,10 +434,21 @@ open class SScriptRunner internal constructor(
             schedulePlayback(RUN, state.waitTime, state)
         }
     }
+    internal fun startClock(token: HostToken): Boolean = startClockOwnedBy(token)
+
     fun startClock() {
+        startClockOwnedBy(null)
+    }
+
+    private fun startClockOwnedBy(token: HostToken?): Boolean {
         LegacyPlatform.debug(TAG, "startClock called")
-        val start = bootDispatchState.startClock()
-        if (!start.started) return
+        val start = synchronized(this) {
+            if (token != null && hostOwner !== token) return false
+            if (exitOperation != null) return false
+            clockOwner = token
+            bootDispatchState.startClock()
+        }
+        if (!start.started) return true
         LegacyPlatform.scheduleDelayed(CLOCK_STEP) {
             clockHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP)
         }
@@ -440,16 +456,35 @@ open class SScriptRunner internal constructor(
             doShioriEvent("OnWindowStateRestore", null)
         }
         restore = false
+        return true
     }
+
+    internal fun stopClock(token: HostToken): Boolean = stopClockOwnedBy(token)
+
     fun stopClock() {
-        synchronized(this) { runtimeModeGeneration++ }
+        stopClockOwnedBy(null)
+    }
+
+    private fun stopClockOwnedBy(token: HostToken?): Boolean {
+        synchronized(this) {
+            if (
+                token != null &&
+                (hostOwner !== token || clockOwner !== token)
+            ) {
+                return false
+            }
+            clockOwner = null
+            runtimeModeGeneration++
+            bootDispatchState.stopClock()
+        }
         LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }
-        bootDispatchState.stopClock()
+        return true
     }
     override fun run() {
         val prepared = synchronized(this) {
             val state = playback
             if (state.running) return
+            if (pendingSwitch != null && msgQueue.isEmpty()) return
             state.running = true
             runtimeModeGeneration++
             reset(state)

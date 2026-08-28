@@ -67,6 +67,7 @@ class NanidroidLifecycleInstrumentationTest {
         val loadCount = AtomicInteger()
         val publishedGenerations = ConcurrentLinkedQueue<Long>()
         val activationCount = AtomicInteger()
+        val attachmentCommitted = CountDownLatch(1)
         val bootEvents = ConcurrentLinkedQueue<String>()
         val outgoingUnloadCount = AtomicInteger()
         val hookToken = runtime.installTestHooksForTesting(
@@ -91,7 +92,10 @@ class NanidroidLifecycleInstrumentationTest {
                 },
                 onActivationCommitted = { operation ->
                     attachmentOperationId.compareAndSet(NO_OPERATION, operation)
-                    if (operation == attachmentOperationId.get()) activationCount.incrementAndGet()
+                    if (operation == attachmentOperationId.get()) {
+                        activationCount.incrementAndGet()
+                        attachmentCommitted.countDown()
+                    }
                 },
                 onBootAttempted = { operation, event ->
                     if (operation == attachmentOperationId.get()) bootEvents.add(event)
@@ -117,7 +121,30 @@ class NanidroidLifecycleInstrumentationTest {
                 scenario.onActivity { recreated ->
                     Assert.assertNotSame(firstActivity.get(), recreated)
                 }
+                scenario.moveToState(Lifecycle.State.STARTED)
                 allowPreparation.countDown()
+                Assert.assertTrue(
+                    "Runtime attachment did not complete while Activity was paused",
+                    attachmentCommitted.await(ACTIVITY_INIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+                )
+                val initializationDeadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
+                var initializedWhilePaused = false
+                while (!initializedWhilePaused && SystemClock.uptimeMillis() < initializationDeadline) {
+                    scenario.onActivity { paused ->
+                        initializedWhilePaused = privateField(paused, "initComplete") as Boolean
+                    }
+                    if (!initializedWhilePaused) SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
+                }
+                Assert.assertTrue("Paused runtime initialization did not settle", initializedWhilePaused)
+                scenario.onActivity { paused ->
+                    val runner = privateField(paused, "runner") as SScriptRunner
+                    val bootState = privateField(runner, "bootDispatchState")
+                    Assert.assertFalse(
+                        "Paused startup completion bound and started the shared runner",
+                        privateBoolean(bootState, "clockStarted"),
+                    )
+                }
+                scenario.moveToState(Lifecycle.State.RESUMED)
                 val attached = awaitActiveRuntime(scenario)
 
                 Assert.assertEquals(1, prepareCount.get())
@@ -154,6 +181,7 @@ class NanidroidLifecycleInstrumentationTest {
         val targetLoadCount = AtomicInteger()
         val targetGenerations = ConcurrentLinkedQueue<Long>()
         val targetActivationCount = AtomicInteger()
+        val targetAttachmentCommitted = CountDownLatch(1)
         val targetBootEvents = ConcurrentLinkedQueue<String>()
         val outgoingUnloadCount = AtomicInteger()
         val switchResult = AtomicReference<RuntimeResult<GhostHandle>?>()
@@ -182,7 +210,10 @@ class NanidroidLifecycleInstrumentationTest {
                 onActivationCommitted = { operation ->
                     if (replacementOperation.get() != NO_OPERATION) {
                         targetAttachmentOperation.compareAndSet(NO_OPERATION, operation)
-                        if (operation == targetAttachmentOperation.get()) targetActivationCount.incrementAndGet()
+                        if (operation == targetAttachmentOperation.get()) {
+                            targetActivationCount.incrementAndGet()
+                            targetAttachmentCommitted.countDown()
+                        }
                     }
                 },
                 onBootAttempted = { operation, event ->
@@ -247,11 +278,37 @@ class NanidroidLifecycleInstrumentationTest {
                 scenario.onActivity { recreated ->
                     Assert.assertNotSame(firstActivity.get(), recreated)
                 }
+                scenario.moveToState(Lifecycle.State.STARTED)
                 allowTargetPreparation.countDown()
                 completionThread.join(ACTIVITY_INIT_TIMEOUT_MILLIS)
                 Assert.assertFalse("Switch waiter did not terminate", completionThread.isAlive)
                 switchFailure.get()?.let { throw AssertionError("Switch waiter failed", it) }
                 val replacement = requireSuccess(requireNotNull(switchResult.get()))
+                Assert.assertTrue(
+                    "Replacement attachment did not finish while Activity was paused",
+                    targetAttachmentCommitted.await(
+                        ACTIVITY_INIT_TIMEOUT_MILLIS,
+                        TimeUnit.MILLISECONDS,
+                    ),
+                )
+                val initializationDeadline = SystemClock.uptimeMillis() + ACTIVITY_INIT_TIMEOUT_MILLIS
+                var initializedWhilePaused = false
+                while (!initializedWhilePaused && SystemClock.uptimeMillis() < initializationDeadline) {
+                    scenario.onActivity { paused ->
+                        initializedWhilePaused = privateField(paused, "initComplete") as Boolean
+                    }
+                    if (!initializedWhilePaused) SystemClock.sleep(RUNNER_STATE_POLL_MILLIS)
+                }
+                Assert.assertTrue("Paused replacement initialization did not settle", initializedWhilePaused)
+                scenario.onActivity { paused ->
+                    val runner = privateField(paused, "runner") as SScriptRunner
+                    val bootState = privateField(runner, "bootDispatchState")
+                    Assert.assertFalse(
+                        "Paused switch completion started the shared runner",
+                        privateBoolean(bootState, "clockStarted"),
+                    )
+                }
+                scenario.moveToState(Lifecycle.State.RESUMED)
                 val attached = awaitActiveRuntime(scenario)
 
                 Assert.assertEquals(targetId, replacement.ghost.id)
@@ -272,6 +329,166 @@ class NanidroidLifecycleInstrumentationTest {
             hookToken.close()
             requireResetSuccess(runtime)
             targetRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun initializedHostResumingBeforeReplacementCompletionAdoptsTheReadyRuntime() {
+        val application = ApplicationProvider.getApplicationContext<CatTailApplication>()
+        val runtime = application.ghostRuntime
+        requireResetSuccess(runtime)
+        val targetId = "runtime-resume-before-replacement-${System.nanoTime()}"
+        val targetRoot = java.io.File(application.cacheDir, targetId)
+        val replacementOperation = AtomicLong(NO_OPERATION)
+        val targetPreparationStarted = CountDownLatch(1)
+        val allowTargetPreparation = CountDownLatch(1)
+        val targetActivationCount = AtomicInteger()
+        val targetBootCount = AtomicInteger()
+        val switchResult = AtomicReference<RuntimeResult<GhostHandle>?>()
+        val switchFailure = AtomicReference<Throwable?>()
+        var switchThread: Thread? = null
+        val hookToken = runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(
+                onPreparationStarted = { operation, id, _ ->
+                    if (operation == replacementOperation.get() && id == targetId) {
+                        targetPreparationStarted.countDown()
+                        check(
+                            allowTargetPreparation.await(
+                                ACTIVITY_INIT_TIMEOUT_MILLIS,
+                                TimeUnit.MILLISECONDS,
+                            ),
+                        )
+                    }
+                },
+                onActivationCommitted = {
+                    if (replacementOperation.get() != NO_OPERATION) {
+                        targetActivationCount.incrementAndGet()
+                    }
+                },
+                onBootAttempted = { _, _ ->
+                    if (replacementOperation.get() != NO_OPERATION) {
+                        targetBootCount.incrementAndGet()
+                    }
+                },
+            ),
+        )
+
+        try {
+            ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+                val outgoing = awaitActiveRuntime(scenario)
+                Assert.assertTrue(
+                    outgoing.ghost.canonicalRoot.copyRecursively(targetRoot, overwrite = true),
+                )
+                val operationId = requireSuccess(
+                    runtime.beginSwitch(outgoing.nativeGeneration, targetId, targetRoot),
+                )
+                replacementOperation.set(operationId)
+                val completionThread = Thread {
+                    try {
+                        switchResult.set(
+                            runBlocking {
+                                runtime.completeSwitchPlayback(
+                                    outgoing.nativeGeneration,
+                                    operationId,
+                                )
+                            },
+                        )
+                    } catch (failure: Throwable) {
+                        switchFailure.set(failure)
+                    }
+                }
+                switchThread = completionThread
+                completionThread.start()
+                Assert.assertTrue(
+                    "Replacement preparation did not reach the controlled boundary",
+                    targetPreparationStarted.await(
+                        ACTIVITY_INIT_TIMEOUT_MILLIS,
+                        TimeUnit.MILLISECONDS,
+                    ),
+                )
+
+                scenario.moveToState(Lifecycle.State.STARTED)
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                allowTargetPreparation.countDown()
+                completionThread.join(ACTIVITY_INIT_TIMEOUT_MILLIS)
+                Assert.assertFalse("Switch waiter did not terminate", completionThread.isAlive)
+                switchFailure.get()?.let { throw AssertionError("Switch waiter failed", it) }
+                val replacement = requireSuccess(requireNotNull(switchResult.get()))
+                val attached = awaitActiveRuntime(scenario)
+
+                Assert.assertEquals(replacement.generation, attached.nativeGeneration)
+                Assert.assertEquals(targetId, attached.ghost.id)
+                Assert.assertEquals(1, targetActivationCount.get())
+                Assert.assertEquals(1, targetBootCount.get())
+            }
+        } finally {
+            allowTargetPreparation.countDown()
+            switchThread?.join(ACTIVITY_INIT_TIMEOUT_MILLIS)
+            hookToken.close()
+            requireResetSuccess(runtime)
+            targetRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun ownedRuntimeStopAllowsSameGenerationRestart() {
+        ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+            val before = awaitActiveRuntime(scenario)
+            scenario.onActivity { activity ->
+                val stop = Nanidroid::class.java.getDeclaredMethod("stopRuntimeForHost")
+                    .apply { isAccessible = true }
+                Assert.assertTrue(stop.invoke(activity) as Boolean)
+                Assert.assertEquals(-1L, privateField(activity, "lastStartedAdoptionEpoch"))
+                Assert.assertEquals(-1L, privateField(activity, "lastStartedAdoptionGeneration"))
+
+                val lease = Nanidroid::class.java.getDeclaredMethod("currentRuntimeAdoptionLease")
+                    .apply { isAccessible = true }
+                    .invoke(activity)
+                val adopt = Nanidroid::class.java.declaredMethods.single {
+                    it.name == "adoptRuntimeHandle" && it.parameterTypes.size == 3
+                }.apply { isAccessible = true }
+                val handle = requireNotNull(
+                    ApplicationProvider.getApplicationContext<CatTailApplication>()
+                        .ghostRuntime.identity().activeHandle,
+                )
+                Assert.assertEquals(before.nativeGeneration, handle.generation)
+                Assert.assertTrue(adopt.invoke(activity, lease, handle, true) as Boolean)
+
+                val runner = privateField(activity, "runner") as SScriptRunner
+                val bootState = privateField(runner, "bootDispatchState")
+                Assert.assertTrue(privateBoolean(bootState, "clockStarted"))
+                Assert.assertEquals(
+                    before.nativeGeneration,
+                    privateField(activity, "lastStartedAdoptionGeneration"),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun topResumedOwnershipLossAndRegainRestartsWithoutOnResume() {
+        val runtime = ApplicationProvider.getApplicationContext<CatTailApplication>().ghostRuntime
+        ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
+            val before = awaitActiveRuntime(scenario)
+            scenario.onActivity { activity ->
+                activity.onTopResumedActivityChanged(false)
+                val runner = privateField(activity, "runner") as SScriptRunner
+                val bootState = privateField(runner, "bootDispatchState")
+                Assert.assertFalse(privateBoolean(bootState, "clockStarted"))
+
+                activity.onBackPressedDispatcher.onBackPressed()
+                Assert.assertFalse("Non-top Activity handled Back", activity.isFinishing)
+                Assert.assertEquals(before.nativeGeneration, runtime.identity().activeHandle?.generation)
+
+                activity.onTopResumedActivityChanged(true)
+            }
+
+            val rebound = awaitActiveRuntime(scenario)
+            Assert.assertEquals(before.nativeGeneration, rebound.nativeGeneration)
+            scenario.onActivity { activity ->
+                val token = privateField(activity, "runnerHostToken") as SScriptRunner.HostToken
+                Assert.assertTrue(runtime.runner.isHostOwner(token))
+            }
         }
     }
 

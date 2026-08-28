@@ -265,6 +265,83 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
     }
 
     @Test
+    fun emptyRunDuringBlockedGhostChangingDoesNotCompleteHandoff() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val requestEntered = CountDownLatch(1)
+        val releaseRequest = CountDownLatch(1)
+        val responseReturned = CountDownLatch(1)
+        val authoredRendered = CountDownLatch(1)
+        val handoffCompleted = CountDownLatch(1)
+        val handoffCount = AtomicInteger()
+        val adapter = BlockingRequestShiori(
+            eventId = "OnGhostChanging",
+            entered = requestEntered,
+            release = releaseRequest,
+            returned = responseReturned,
+            response = "SHIORI/3.0 200 OK\r\nValue: \\hAuthored goodbye\\e\r\n\r\n",
+        )
+        val root = File(context.cacheDir, "blocked-ghost-changing-resume-runtime").canonicalFile
+        val targetRoot = File(context.cacheDir, "blocked-ghost-changing-resume-target").canonicalFile
+        val runtime = newRuntime(context, adapter)
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("blocked-ghost-changing", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.setNoWaitMode(true)
+            runtime.runner.setPresentationRendererForTesting { frame ->
+                if (frame.sakura.text.contains("Authored goodbye")) authoredRendered.countDown()
+            }
+            runtime.runner.setCallback(object : SScriptRunner.StatusCallback {
+                override fun stop() = Unit
+                override fun canExit() = Unit
+                override fun switchPlaybackComplete() {
+                    handoffCount.incrementAndGet()
+                    handoffCompleted.countDown()
+                }
+            })
+            val operationId = (runtime.beginSwitch(
+                handle.generation,
+                "blocked-target",
+                targetRoot,
+            ) as RuntimeResult.Success).value
+            instrumentation.runOnMainSync {
+                assertTrue(
+                    runtime.runner.doGhostChanging(
+                        operationId,
+                        "Blocked Target",
+                        "manual",
+                        targetRoot.path,
+                    ),
+                )
+            }
+            assertTrue("OnGhostChanging did not block", requestEntered.await(2, TimeUnit.SECONDS))
+
+            instrumentation.runOnMainSync {
+                runtime.runner.startClock()
+                runtime.runner.run()
+            }
+            assertFalse(
+                "Empty resume run completed the switch before OnGhostChanging returned",
+                handoffCompleted.await(250, TimeUnit.MILLISECONDS),
+            )
+
+            releaseRequest.countDown()
+            assertTrue("OnGhostChanging response did not return", responseReturned.await(2, TimeUnit.SECONDS))
+            assertTrue("Authored OnGhostChanging script did not render", authoredRendered.await(2, TimeUnit.SECONDS))
+            assertTrue("Authored OnGhostChanging terminal did not hand off", handoffCompleted.await(2, TimeUnit.SECONDS))
+            assertEquals(1, handoffCount.get())
+        } finally {
+            releaseRequest.countDown()
+            runtime.close()
+        }
+    }
+
+    @Test
     fun blockedTimerResponseDoesNotPlayAfterClockStops() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

@@ -509,6 +509,9 @@ internal class GhostRuntime private constructor(
                 active?.handle?.generation != expectedGeneration -> {
                     RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                 }
+                active.attachment !is AttachmentState.Attached -> {
+                    RuntimeResult.Failure(RuntimeFailure.Busy)
+                }
                 switchIntent != null || inFlight != null || active.ghost.canonicalRoot == root -> {
                     RuntimeResult.Failure(RuntimeFailure.Busy)
                 }
