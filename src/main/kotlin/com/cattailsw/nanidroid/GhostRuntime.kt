@@ -20,6 +20,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.StringReader
 import java.util.concurrent.Callable
+import java.util.concurrent.CompletableFuture
 import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -99,6 +100,16 @@ internal sealed interface RuntimeFailure {
 internal sealed interface RuntimeResult<out T> {
     data class Success<T>(val value: T) : RuntimeResult<T>
     data class Failure(val failure: RuntimeFailure) : RuntimeResult<Nothing>
+}
+
+internal sealed interface RuntimeRequestSubmission {
+    data class Accepted(
+        val result: CompletableFuture<RuntimeResult<TaggedShioriResponse>>,
+    ) : RuntimeRequestSubmission
+
+    data class Rejected(
+        val failure: RuntimeResult.Failure,
+    ) : RuntimeRequestSubmission
 }
 
 internal sealed interface BootOutcome {
@@ -295,22 +306,23 @@ internal class GhostRuntime private constructor(
     internal fun requestAsync(
         expectedGeneration: Long,
         intent: ShioriRequestIntent,
-        completion: (RuntimeResult<TaggedShioriResponse>) -> Unit,
-    ): Boolean = try {
-        // Completion stays on the native command thread. The runner owns scheduling
-        // response admission so no Android main-loop concern enters this authority.
-        nativeExecutor.execute {
-            val result = try {
-                requestOnNative(expectedGeneration, intent)
-            } catch (failure: Throwable) {
-                fatalResult(failure)
+    ): RuntimeRequestSubmission {
+        val completion = CompletableFuture<RuntimeResult<TaggedShioriResponse>>()
+        return try {
+            nativeExecutor.execute {
+                val result = try {
+                    requestOnNative(expectedGeneration, intent)
+                } catch (failure: Throwable) {
+                    fatalResult(failure)
+                }
+                completion.complete(result)
             }
-            runCatching { completion(result) }
+            RuntimeRequestSubmission.Accepted(completion)
+        } catch (failure: RejectedExecutionException) {
+            RuntimeRequestSubmission.Rejected(
+                RuntimeResult.Failure(RuntimeFailure.Fatal(failure)),
+            )
         }
-        true
-    } catch (failure: RejectedExecutionException) {
-        runCatching { completion(fatalResult(failure)) }
-        false
     }
 
     private fun requestOnNative(

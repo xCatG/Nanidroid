@@ -414,6 +414,46 @@ class GhostRuntimeNativeThreadTest {
     }
 
     @Test
+    fun asynchronousRequestReturnsDataOnlyFutureWithoutWaitingForAdapter() = runBlocking {
+        val root = root("async-data-only")
+        val requestEntered = CountDownLatch(1)
+        val releaseRequest = CountDownLatch(1)
+        val trace = RecordingShioriTrace().apply {
+            requestHandler.set { request ->
+                if ("ID: OnAsyncProbe\r\n" in request) {
+                    requestEntered.countDown()
+                    assertTrue(releaseRequest.await(5, TimeUnit.SECONDS))
+                }
+                "SHIORI/3.0 204 No Content\r\n\r\n"
+            }
+        }
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        try {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+            val submission = assertIs<RuntimeRequestSubmission.Accepted>(
+                runtime.requestAsync(
+                    handle.generation,
+                    ShioriRequestIntent.event("OnAsyncProbe"),
+                ),
+            )
+
+            assertTrue(requestEntered.await(5, TimeUnit.SECONDS))
+            assertTrue("Async request unexpectedly waited for the adapter", !submission.result.isDone)
+            releaseRequest.countDown()
+            assertIs<RuntimeResult.Success<TaggedShioriResponse>>(
+                submission.result.get(5, TimeUnit.SECONDS),
+            )
+        } finally {
+            releaseRequest.countDown()
+            runtime.close()
+        }
+        Unit
+    }
+
+    @Test
     fun productionRuntimeRejectsLifecycleProbeWithoutJniWork() {
         val root = root("production-probe-rejected")
         val runtime = GhostRuntime(null)

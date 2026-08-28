@@ -22,9 +22,11 @@ import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.IdentityHashMap
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 
 internal interface SScriptPlaybackScheduler {
     fun schedule(delayMillis: Long, action: () -> Unit)
@@ -130,6 +132,9 @@ open class SScriptRunner internal constructor(
     private val monotonicClock = configuration.monotonicClock
     private val playbackSchedulerFactory = configuration.playbackSchedulerFactory
     private val responseScheduler = lazy(configuration.responseSchedulerFactory)
+    private val responseExecutor = Executor { command ->
+        responseScheduler.value.schedule { command.run() }
+    }
     private val playbackHooks = configuration.playbackHooks
     private var presentationRenderer: GhostPresentationRenderer? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
@@ -1104,9 +1109,36 @@ open class SScriptRunner internal constructor(
         if (!runsOnMainLooper()) {
             return admit(runtimePort.request(handle.generation, intent))
         }
-        return runtimePort.requestAsync(handle.generation, intent) { result ->
-            responseScheduler.value.schedule { admit(result) }
+        return when (val submission = runtimePort.requestAsync(handle.generation, intent)) {
+            is RuntimeRequestSubmission.Accepted -> observeRequest(submission, ::admit)
+            is RuntimeRequestSubmission.Rejected -> {
+                responseScheduler.value.schedule { admit(submission.failure) }
+                false
+            }
         }
+    }
+
+    private fun observeRequest(
+        submission: RuntimeRequestSubmission.Accepted,
+        admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
+    ): Boolean = try {
+        submission.result.whenCompleteAsync(
+            { result, failure ->
+                val outcome = if (failure == null) {
+                    requireNotNull(result)
+                } else {
+                    RuntimeResult.Failure(RuntimeFailure.Fatal(failure.cause ?: failure))
+                }
+                admission(outcome)
+            },
+            responseExecutor,
+        )
+        true
+    } catch (failure: RejectedExecutionException) {
+        responseScheduler.value.schedule {
+            admission(RuntimeResult.Failure(RuntimeFailure.Fatal(failure)))
+        }
+        false
     }
 
     private fun runsOnMainLooper(): Boolean = runCatching {
