@@ -23,6 +23,7 @@ import com.cattailsw.nanidroid.GhostRuntimePersistence
 import com.cattailsw.nanidroid.RuntimeFailure
 import com.cattailsw.nanidroid.RuntimeResult
 import com.cattailsw.nanidroid.ShioriRequestIntent
+import com.cattailsw.nanidroid.SurfaceCatalog
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.ShellSurface
@@ -31,6 +32,7 @@ import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.SurfaceReader
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
+import com.cattailsw.nanidroid.toSurfaceDefinition
 import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
 import com.cattailsw.nanidroid.compose.SurfaceInteractionPort
 import com.cattailsw.nanidroid.install.ArchiveInstallResult
@@ -673,13 +675,17 @@ class NarCorpusRuntimeTest {
                         ghostKey = installed.targetId ?: "corpus-${expectedSha256.take(16)}",
                     )
                     val manager = production.surfaceManager
+                    val catalog = production.surfaceCatalog
                     val reader = production.surfaceReader
                     phase("ghost-created")
                     val exactSakura = manager.getSurface("0")
                     val exactKero = manager.getSurface("10")
                     assertNotNull("Installed ghost lacks exact default Sakura surface 0", exactSakura)
                     host = ComposeGhostStageHost(SurfaceInteractionPort { })
-                    host.setSurfaceManager(manager, installed.targetId ?: "corpus-${expectedSha256.take(16)}")
+                    host.setSurfaceCatalog(
+                        catalog,
+                        installed.targetId ?: "corpus-${expectedSha256.take(16)}",
+                    )
                     composeRule.runOnIdle {
                         probeContent.showStage(host)
                     }
@@ -850,7 +856,7 @@ class NarCorpusRuntimeTest {
         private val runtime: GhostRuntime,
         private val handle: GhostHandle,
     ) : AutoCloseable {
-        fun getShioriModuleName(): String? = when (handle.prepared.engine) {
+        fun getShioriModuleName(): String? = when (handle.ghost.engine) {
             GhostEngine.Satori -> "Satori"
             GhostEngine.Yaya -> "YAYA"
             GhostEngine.Kawari -> "Kawari 8"
@@ -858,9 +864,9 @@ class NarCorpusRuntimeTest {
             GhostEngine.Unsupported -> "NotSupportedShiori"
         }
 
-        fun getGhostIdentity(): String = handle.prepared.id
+        fun getGhostIdentity(): String = handle.ghost.id
 
-        fun isShioriNotSupported(): Boolean = handle.prepared.engine == GhostEngine.Unsupported
+        fun isShioriNotSupported(): Boolean = handle.ghost.engine == GhostEngine.Unsupported
 
         fun requestRaw(
             method: ShioriMethod,
@@ -942,6 +948,11 @@ class NarCorpusRuntimeTest {
         )
         return ProductionSurfaceRuntime(
             surfaceManager = manager,
+            surfaceCatalog = SurfaceCatalog.freeze(
+                manager.getSurfaceKeys().associateWith { id ->
+                    requireNotNull(manager.getSurface(id)).toSurfaceDefinition()
+                },
+            ),
             surfaceReader = reader,
         )
     }
@@ -1080,6 +1091,7 @@ class NarCorpusRuntimeTest {
 
     private data class ProductionSurfaceRuntime(
         val surfaceManager: SurfaceManager,
+        val surfaceCatalog: SurfaceCatalog,
         val surfaceReader: SurfaceReader,
     )
 

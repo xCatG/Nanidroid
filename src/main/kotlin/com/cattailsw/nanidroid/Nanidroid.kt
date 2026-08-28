@@ -4,9 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
-import android.os.Handler
-import android.os.Looper
-import android.os.Message
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -42,7 +39,6 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -55,9 +51,6 @@ internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf
     R.string.err_no_sdcard,
     R.string.err_no_ghost_available,
 )
-
-internal fun ownsGhostSwitchRequest(targetGhostId: String, pendingGhostId: String?): Boolean =
-    targetGhostId == pendingGhostId
 
 internal fun tryLaunchDialogueExternalUri(launch: () -> Unit): Boolean = try {
     launch()
@@ -85,32 +78,6 @@ internal fun tryLaunchDocumentExternalUrl(value: String, launch: (String) -> Uni
         else -> false
     }
     return isAllowed && tryLaunchDialogueExternalUri { launch(value) }
-}
-
-internal fun <T : Any> routeGhostSwitchResult(
-    result: T?,
-    destroyed: Boolean,
-    finishing: Boolean,
-    targetGhostId: String,
-    pendingGhostId: String?,
-    abandon: (T) -> Unit,
-    apply: (T?) -> Unit,
-) {
-    if (destroyed || finishing || !ownsGhostSwitchRequest(targetGhostId, pendingGhostId)) {
-        result?.let(abandon)
-        return
-    }
-    apply(result)
-}
-
-internal fun <T : Any> abandonUnclaimedReservation(
-    reservation: T?,
-    claimed: Boolean,
-    abandon: (T) -> Unit,
-) {
-    if (!claimed) {
-        reservation?.let(abandon)
-    }
 }
 
 internal data class TransientUiSnapshot(
@@ -320,7 +287,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var restoreFromMinimize = false
     private var currentRunCount = -1L
     private var initComplete = false
-    private var nextGhostId: String? = null
     private val foregroundNarImport by lazy {
         ForegroundNarImportCoordinator.get(applicationContext)
     }
@@ -367,81 +333,118 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
 
     private fun initOnSeparateThread() {
         lifecycleScope.launch {
-            var reservation: ReservedGhost? = null
-            var reservationClaimed = false
-            try {
-                withContext(Dispatchers.IO) {
-                    createSvcs2ndThread()
-                    if (gm!!.shouldInstallFirstGhost()) installFirstGhost()
-                    reservation = createGhost()
+            val manager = withContext(Dispatchers.IO) {
+                createSvcs2ndThread()
+                gm!!.also {
+                    if (it.shouldInstallFirstGhost()) installFirstGhost()
                     currentRunCount = getStartCount()
                     if (currentRunCount == 0L) loadFirstRunScript()
                     setStartCount(++currentRunCount)
                 }
-                if (isDestroyed || isFinishing) {
-                    return@launch
-                }
-                val ghost = reservation?.ghost
-                if (reservation == null || ghost == null) {
-                    hideProgress()
-                    simpleDialog = NanidroidSimpleDialog.Notice(
-                        R.string.err_title,
-                        R.string.err_no_ghost_available,
-                        onConfirm = { finish() },
-                    )
-                    return@launch
-                }
-                // Compose state and its caches are main-thread owned. The
-                // ghost files were prepared above; bind them only on the UI thread.
-                if (!setGhostToRunner(reservation)) {
-                    hideProgress()
-                    simpleDialog = NanidroidSimpleDialog.Notice(
-                        R.string.err_title,
-                        R.string.err_no_ghost_available,
-                        onConfirm = { finish() },
-                    )
-                    return@launch
-                }
-                reservationClaimed = true
-                hideProgress()
-                initComplete = true
-                runner!!.startClock()
-                runner!!.run()
-            } finally {
-                abandonUnclaimedReservation(reservation, reservationClaimed) {
-                    runner?.abandonReservedGhost(it)
-                }
             }
+            if (isDestroyed || isFinishing) return@launch
+
+            val identity = ghostRuntime.identity()
+            if (identity.pending != null && identity.activeHandle != null) {
+                // A recreated host renders the still-active outgoing generation while
+                // independently joining the runtime-owned replacement operation.
+                bindRuntimeHandle(identity.activeHandle)
+                showProgress()
+            }
+            val handle = resolveRuntimeHandle(manager)
+            if (handle == null || !attachAndBindRuntimeHandle(handle)) {
+                showNoGhostAvailable()
+                return@launch
+            }
+            hideProgress()
+            initComplete = true
+            runner!!.startClock()
+            runner!!.run()
         }
     }
 
     private fun createSvcs2ndThread() {
-        val manager = GhostMgr(this, ghostRuntime)
+        val manager = GhostMgr(this)
         gm = manager
         lifecycleTestHooks.afterGhostMgrCreatedBeforeReady(manager)
         check(ghostMgrReady.complete(manager))
     }
-    private fun createGhost(): ReservedGhost? {
-        val lastId = gm!!.getLastRunGhostId() ?: "nanidroid"
-        mGH.sendEmptyMessage(MSG_LOAD_F)
-        val ghost = launchCandidateIds(lastId, gm!!.getGnames().orEmpty().toList())
-            .firstNotNullOfOrNull(gm!!::createGhost)
-            ?: return null
-        gm!!.setLastRunGhost(ghost.ghost)
-        currentGhost = ghost.ghost
-        return ghost
+
+    private suspend fun resolveRuntimeHandle(manager: GhostMgr): GhostHandle? {
+        while (true) {
+            val identity = ghostRuntime.identity()
+            val pending = identity.pending
+            if (pending != null) {
+                when (
+                    val joined = ghostRuntime.startOrJoin(
+                        pending.ghostId,
+                        pending.canonicalRoot,
+                    )
+                ) {
+                    is RuntimeResult.Success -> return joined.value
+                    is RuntimeResult.Failure -> when (joined.failure) {
+                        RuntimeFailure.Busy,
+                        RuntimeFailure.StaleGeneration,
+                        is RuntimeFailure.Replayable,
+                        -> continue
+                        is RuntimeFailure.Fatal -> return null
+                    }
+                }
+            }
+            identity.activeHandle?.let { return it }
+            if (identity.phase != GhostRuntimePhase.Idle) return null
+
+            val candidates = manager.launchCandidates(
+                ghostRuntime.preferredGhostId() ?: "nanidroid",
+            )
+            val preferred = candidates.firstOrNull()
+            progressMessage = String.format(
+                getString(R.string.load_g),
+                preferred?.name ?: preferred?.id ?: "nanidroid",
+            )
+            for (candidate in candidates) {
+                when (
+                    val started = ghostRuntime.startOrJoin(candidate.id, candidate.canonicalRoot)
+                ) {
+                    is RuntimeResult.Success -> return started.value
+                    is RuntimeResult.Failure -> when (started.failure) {
+                        RuntimeFailure.Busy, RuntimeFailure.StaleGeneration -> break
+                        is RuntimeFailure.Replayable -> continue
+                        is RuntimeFailure.Fatal -> return null
+                    }
+                }
+            }
+            if (ghostRuntime.identity().phase == GhostRuntimePhase.Idle) return null
+        }
     }
 
-    private fun setGhostToRunner(reservation: ReservedGhost): Boolean {
-        val ghost = reservation.ghost
-        composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
+    private suspend fun attachAndBindRuntimeHandle(handle: GhostHandle): Boolean {
+        return when (ghostRuntime.attachHost(handle.generation)) {
+            is RuntimeResult.Success -> {
+                if (isDestroyed || isFinishing) return false
+                bindRuntimeHandle(handle)
+                true
+            }
+            is RuntimeResult.Failure -> false
+        }
+    }
+
+    private fun bindRuntimeHandle(handle: GhostHandle) {
+        val ghost = handle.ghost
+        composeStage.setSurfaceCatalog(ghost.surfaces, ghost.id)
         runner!!.setPresentationRenderer(composeStage.renderer)
         runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
-        // The runner remains attached precisely once, on the initialized UI thread.
         runner!!.setUICallback(this@Nanidroid)
-        val attached = runner!!.attachReservedGhost(reservation)
-        if (!attached) runner!!.abandonReservedGhost(reservation)
-        return attached
+        currentGhost = ghost
+    }
+
+    private fun showNoGhostAvailable() {
+        hideProgress()
+        simpleDialog = NanidroidSimpleDialog.Notice(
+            R.string.err_title,
+            R.string.err_no_ghost_available,
+            onConfirm = { finish() },
+        )
     }
     private fun setupViews() {
         progressMessage = getString(R.string.prog_startup)
@@ -544,6 +547,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             isChangingConfigurations = isChangingConfigurations,
             abandon = foregroundNarImport::abandonPicker,
         )
+        runner?.setPresentationRenderer(null)
+        runner?.setDialogueStateObserver(null)
+        runner?.setUICallback(null)
+        runner?.setCallback(null)
         super.onDestroy()
     }
     override fun onResume() {
@@ -572,10 +579,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private val mscb = object : SScriptRunner.StatusCallback {
         override fun stop() = Unit
         override fun canExit() { runner!!.setCallback(null); finish() }
-        override fun ghostSwitchScriptComplete() { runner!!.setCallback(null); runOnUiThread(ghostSwitchStep2Caller) }
     }
-    private val mGH = object : Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
-    private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
     private fun installFirstGhost() {
         var target: File? = null
@@ -597,7 +601,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     private fun openCurrentGhostReadme() {
         val ghost = currentGhost ?: return
-        val ghostId = ghost.getGhostId()
+        val ghostId = ghost.id
         val readme = gm?.getGhostReadMe(ghostId)
         if (readme?.exists() == true) {
             simpleDialog = NanidroidSimpleDialog.TextDocument(
@@ -616,60 +620,66 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun showGhostInstalledDlg(ghostId: String) {
         simpleDialog = createNoReadmeDialog(ghostId, gm!!.getGhostDispName(ghostId) ?: ghostId)
     }
-    fun switchGhost(nextId: String) { if (!allows(GuardedAction.SWITCH_GHOST)) return; val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)) }
-    fun ghostSwitchStep2() {
-        val targetGhostId = nextGhostId ?: run {
-            Log.w(TAG, "ghost switch completed without a target ghost")
-            hideProgress()
+    fun switchGhost(nextId: String) {
+        if (!allows(GuardedAction.SWITCH_GHOST)) return
+        val target = gm?.findGhost(nextId) ?: run {
+            Log.d(TAG, "invalid next ghost id")
             return
         }
-        mGH.obtainMessage(MSG_LOAD_N, targetGhostId).sendToTarget()
+        val active = ghostRuntime.identity().activeHandle ?: return
+        val operationId = when (
+            val started = ghostRuntime.beginSwitch(
+                active.generation,
+                target.id,
+                target.canonicalRoot,
+            )
+        ) {
+            is RuntimeResult.Success -> started.value
+            is RuntimeResult.Failure -> return
+        }
+        progressMessage = String.format(
+            getString(R.string.load_g),
+            target.name ?: target.id,
+        )
         showProgress()
+        runner!!.stopClock()
+        runner!!.clearMsgQueue()
+        runner!!.setCallback(mscb)
         lifecycleScope.launch {
-            var reservation: ReservedGhost? = null
-            var reservationClaimed = false
-            try {
-                withContext(Dispatchers.IO) {
-                    try {
-                        reservation = gm?.createGhost(targetGhostId)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.d(TAG, "failed to switch to ghost:$targetGhostId", e)
+            when (val joined = ghostRuntime.startOrJoin(target.id, target.canonicalRoot)) {
+                is RuntimeResult.Success -> {
+                    if (attachAndBindRuntimeHandle(joined.value)) {
+                        hideProgress()
+                        runner!!.setCallback(null)
+                        runner!!.startClock()
+                        runner!!.run()
                     }
                 }
-                routeGhostSwitchResult(
-                    reservation,
-                    isDestroyed,
-                    isFinishing,
-                    targetGhostId,
-                    nextGhostId,
-                    abandon = {
-                        reservationClaimed = true
-                        runner?.abandonReservedGhost(it)
-                    },
-                ) { ownedReservation ->
-                    reservationClaimed = true
-                    nextGhostId = null
-                    hideProgress()
-                    val exactReservation = ownedReservation ?: return@routeGhostSwitchResult
-                    val ghost = exactReservation.ghost
-                    // Keep the Compose stage and runner on the UI thread; its frame
-                    // cache and scheduler state are intentionally not synchronized.
-                    composeStage.setSurfaceManager(ghost.mgr, ghost.getGhostId())
-                    gm!!.setLastRunGhost(ghost)
-                    if (runner?.attachReservedGhost(exactReservation) != true) {
-                        runner?.abandonReservedGhost(exactReservation)
-                        return@routeGhostSwitchResult
+                is RuntimeResult.Failure -> {
+                    val identity = ghostRuntime.identity()
+                    val retained = identity.activeHandle
+                    if (retained != null && identity.phase != GhostRuntimePhase.Poisoned) {
+                        bindRuntimeHandle(retained)
+                        hideProgress()
+                        runner!!.setCallback(null)
+                        runner!!.startClock()
+                        runner!!.run()
+                    } else {
+                        runner!!.setCallback(null)
+                        showNoGhostAvailable()
                     }
-                    currentGhost = ghost
-                    runner!!.startClock()
-                }
-            } finally {
-                abandonUnclaimedReservation(reservation, reservationClaimed) {
-                    runner?.abandonReservedGhost(it)
                 }
             }
+        }
+        if (
+            !runner!!.doGhostChanging(
+                operationId,
+                target.sakuraName ?: target.name ?: target.id,
+                "manual",
+                target.canonicalRoot.path,
+            )
+        ) {
+            runner!!.setCallback(null)
         }
     }
     fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; showGhostListDlg() }
@@ -901,9 +911,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         private const val TAG = "Nanidroid"
         private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"
         private const val MIN_TAG = "minimized"
-        private const val MSG_START = 2019
-        private const val MSG_LOAD_F = 2020
-        private const val MSG_LOAD_N = 2021
         private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"
         private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"
         private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"

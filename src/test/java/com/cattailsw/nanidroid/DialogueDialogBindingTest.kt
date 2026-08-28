@@ -1,10 +1,8 @@
 package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.runtime.MonotonicClock
-import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
-import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -18,8 +16,7 @@ class DialogueDialogBindingTest {
     val androidStubs = HostAndroidStubRule()
 
     @Test
-    fun staleInputAfterReplacementGenerationCannotSubmitAndKeepsItsPresentation() {
-        val fixture = fixture()
+    fun staleInputAfterReplacementGenerationCannotSubmitAndKeepsItsPresentation(): Unit = fixture().use { fixture ->
         val first = fixture.openInput("first", "passwordinput")
         val dialog = DialogueDialogBinding { fixture.runner }.userInput(first)
         val replacement = fixture.openInput("replacement", "inputbox")
@@ -28,12 +25,11 @@ class DialogueDialogBindingTest {
 
         assertEquals(InputPresentation(obscured = true), dialog.presentation)
         assertEquals(replacement, fixture.runner.dialogueStateSnapshot().pendingInput)
-        assertTrue(fixture.shiori.requests.isEmpty())
+        assertTrue(fixture.trace.requests.isEmpty())
     }
 
     @Test
-    fun carriedInputReopensWithTheSameSpecAndPresentationAfterChoiceOnlyTalk() {
-        val fixture = fixture()
+    fun carriedInputReopensWithTheSameSpecAndPresentationAfterChoiceOnlyTalk(): Unit = fixture().use { fixture ->
         val first = fixture.openInput("answer", "passwordinput")
         fixture.runner.addMsgToQueue(arrayOf("\\h\\q[Choice,choice]\\e"))
         fixture.runner.run()
@@ -46,74 +42,48 @@ class DialogueDialogBindingTest {
     }
 
     @Test
-    fun unmatchedRestorationDoesNotCreateARenderableInputDialog() {
-        val fixture = fixture()
+    fun unmatchedRestorationDoesNotCreateARenderableInputDialog(): Unit = fixture().use { fixture ->
         val first = fixture.openInput("answer", "passwordinput")
         val binding = DialogueDialogBinding { fixture.runner }
         val restoration = requireNotNull(binding.userInput(first).restoration)
         fixture.openInput("replacement", "inputbox")
 
-        val restored = binding.restoreUserInput("answer", restoration)
-
-        assertNull(restored)
+        assertNull(binding.restoreUserInput("answer", restoration))
     }
 
     @Test
-    fun matchedRestorationKeepsTheLivePresentationAndSavedValue() {
-        val fixture = fixture()
+    fun matchedRestorationKeepsTheLivePresentationAndSavedValue(): Unit = fixture().use { fixture ->
         val pending = fixture.openInput("answer", "passwordinput")
         val binding = DialogueDialogBinding { fixture.runner }
         val restoration = requireNotNull(binding.userInput(pending).restoration)
 
-        val restored = binding.restoreUserInput("answer", restoration, "secret")
-
-        requireNotNull(restored).also {
+        requireNotNull(binding.restoreUserInput("answer", restoration, "secret")).also {
             assertSame(pending.spec.presentation, it.presentation)
             assertEquals("secret", it.value)
         }
     }
 
-    private fun fixture(): Fixture {
-        val shiori = RecordingShiori()
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock())
-        runner.setNoWaitMode(true)
-        runner.setGhost(RecordingGhost(shiori))
-        return Fixture(runner, shiori)
-    }
+    private fun fixture(): RuntimeFixture = RuntimeFixture(
+        runnerConfiguration = SScriptRunnerConfiguration(monotonicClock = FakeClock()),
+        preparedFactory = { operationId, ghostId, root ->
+            preparedGhost(
+                operationId,
+                ghostId,
+                root,
+                name = "Recording",
+                sakuraName = "Sakura",
+                keroName = "Kero",
+            )
+        },
+    ).also { it.runner.setNoWaitMode(true) }
 
-    private fun Fixture.openInput(id: String, form: String): PendingInputState {
+    private fun RuntimeFixture.openInput(id: String, form: String): PendingInputState {
         runner.addMsgToQueue(arrayOf("\\![open,$form,$id,1000]\\e"))
         runner.run()
         return requireNotNull(runner.dialogueStateSnapshot().pendingInput)
     }
 
-    private data class Fixture(val runner: SScriptRunner, val shiori: RecordingShiori)
-
     private class FakeClock : MonotonicClock {
         override fun nowMillis(): Long = 10_000L
-    }
-
-    private class RecordingShiori : Shiori {
-        val requests = mutableListOf<String>()
-
-        override fun getModuleName(): String = "recording"
-        override fun request(request: String): String {
-            requests += request
-            return "SHIORI/3.0 204 No Content\r\n\r\n"
-        }
-        override fun load() = com.cattailsw.nanidroid.shiori.ShioriLoadResult.Loaded
-        override fun unloadShiori() = com.cattailsw.nanidroid.shiori.ShioriUnloadResult.Unloaded
-    }
-
-    private class RecordingGhost(recordingShiori: RecordingShiori) : Ghost("recording") {
-        init { shiori = recordingShiori }
-
-        override fun loadGhostInfo() = Unit
-        override fun getCreateCount(): Long = 1L
-        override fun incrementCreateCount() = Unit
-        override fun getGhostName(): String = "Recording"
-        override fun getSakuraName(): String = "Sakura"
-        override fun getKeroName(): String = "Kero"
-        override fun unload() = Unit
     }
 }

@@ -1,203 +1,193 @@
 package com.cattailsw.nanidroid
 
-import org.junit.After
-import org.junit.Assert
-import org.junit.Rule
-import org.junit.Test
+import androidx.compose.ui.unit.IntOffset
+import com.cattailsw.nanidroid.compose.SurfaceSpeaker
+import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.MonotonicClock
-import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
-import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
-import com.cattailsw.nanidroid.runtime.dialogue.Support
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
-import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
-import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
-import com.cattailsw.nanidroid.runtime.GhostSpeaker
-import com.cattailsw.nanidroid.compose.SurfaceSpeaker
-import androidx.compose.ui.unit.IntOffset
 import java.io.File
-import java.util.Hashtable
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert
+import org.junit.Rule
+import org.junit.Test
 
-/** Characterizes boot delivery across runner clock and ghost lifecycles.  */
+/** Characterizes boot delivery, clock requests, and passive dialogue through [GhostRuntime]. */
 class SScriptRunnerBootDispatchTest {
-    @Rule
-    @JvmField
-    val androidStubs: com.cattailsw.nanidroid.HostAndroidStubRule =
-        com.cattailsw.nanidroid.HostAndroidStubRule()
-
-    private val runners: MutableList<com.cattailsw.nanidroid.SScriptRunner> =
-        ArrayList<com.cattailsw.nanidroid.SScriptRunner>()
-
-    @After
-    fun stopClocks() {
-        for (runner in runners) {
-            runner.stopClock()
-        }
-    }
+    @Rule @JvmField val androidStubs = HostAndroidStubRule()
+    @Rule @JvmField val runtimes = RuntimeFixtureRegistry()
 
     @Test
     fun dispatchesBootOnceAcrossDuplicateStartResumeAndNamedGhostHandoff() {
-        val trace: MutableList<String?> = ArrayList<String?>()
-        val runner: com.cattailsw.nanidroid.SScriptRunner = runner()
-        val initial = RecordingGhost("initial", "Initial Ghost", 2, trace)
-        val replacement = RecordingGhost("replacement", "Replacement Ghost", 2, trace)
-
-        runner.setGhost(initial)
-        runner.startClock()
-        runner.startClock()
-        runner.stopClock()
-        runner.startClock()
-        runner.stopClock()
-        runner.unloadGhostForSwitchForTesting(initial)
-        Assert.assertTrue(
-            runner.attachReservedGhost(runner.reserveGhostForAttachmentForTesting(replacement)),
+        val persistence = InMemoryGhostRuntimePersistence().apply {
+            activationCounts["initial"] = 1L
+            activationCounts["replacement"] = 1L
+        }
+        val fixture = runtimes.create(
+            id = "initial",
+            root = File("build/runtime-fixtures/boot/initial"),
+            persistence = persistence,
+            bootstrapResponse = { noContent() },
+            preparedFactory = ::namedPrepared,
+            autoAttach = false,
         )
-        runner.startClock()
+        fixture.trace.requests.clear()
+        attach(fixture, fixture.requireHandle())
+        fixture.runner.startClock()
+        fixture.runner.startClock()
+        fixture.runner.stopClock()
+        fixture.runner.startClock()
+        fixture.runner.stopClock()
+
+        val targetRoot = File(fixture.root.parentFile, "replacement")
+        val replacement = switchAndAttach(fixture, "replacement")
+        fixture.runner.startClock()
 
         Assert.assertEquals(
-            mutableListOf<String?>(
-                "initial:OnBoot:[master]",
-                "replacement:OnGhostChanged:[Initial Ghost, null]"
+            listOf(
+                "OnBoot:[master]",
+                "OnGhostChanging:[replacement Sakura, manual, null, ${targetRoot.path}]",
+                "OnGhostChanged:[Initial Ghost, null]",
             ),
-            trace
+            fixture.trace.requests.mapNotNull(::requestSignature)
+                .filter { signature ->
+                    signature.substringBefore(':') in
+                        setOf("OnBoot", "OnGhostChanging", "OnGhostChanged", "OnFirstBoot")
+                },
         )
+        Assert.assertEquals(fixture.requireHandle().generation + 1L, replacement.generation)
     }
 
     @Test
     fun ordinaryReservedSwitchUnloadsBeforeConstructionAndAdvancesOneGeneration() {
-        val trace = mutableListOf<String?>()
-        var clockOwner = "initial"
-        LegacyPlatform.withTestSeams(
-            clock = { 0L },
-            delayedScheduler = { delayMillis, _ -> trace += "$clockOwner:clock:$delayMillis" },
-            delayedCancellation = {},
-        ) {
-            val coordinator = GhostSessionCoordinator()
-            val runner = SScriptRunner(null, coordinator).also(runners::add)
-            val initialRoot = File("ordinary-switch/initial").canonicalFile
-            val replacementRoot = File("ordinary-switch/replacement").canonicalFile
-            val initialConstruction = coordinator.beginConstruction("initial", initialRoot)
-            val initial = RecordingGhost(
-                "initial",
-                "Initial Ghost",
-                2,
-                trace,
-                ghostPath = initialRoot.path,
-                lifecycleTrace = trace,
-            )
-            val initialReservation = initialConstruction.bind(initial)
-
-            Assert.assertTrue(runner.attachReservedGhost(initialReservation))
-            runner.startClock()
-            runner.startClock()
-            runner.stopClock()
-            Assert.assertThrows(IllegalStateException::class.java) {
-                coordinator.beginConstruction("replacement", replacementRoot)
+        val order = mutableListOf<String>()
+        val persistence = InMemoryGhostRuntimePersistence().apply {
+            activationCounts["initial"] = 1L
+            activationCounts["replacement"] = 1L
+        }
+        val fixture = runtimes.create(
+            id = "initial",
+            root = File("build/runtime-fixtures/order/initial"),
+            persistence = persistence,
+            bootstrapResponse = { request ->
+                requestId(request)
+                    ?.takeIf { it in setOf("OnBoot", "OnGhostChanging", "OnGhostChanged") }
+                    ?.let { order += "request:$it:${requestReferences(request)}" }
+                noContent()
+            },
+            preparedFactory = ::namedPrepared,
+            autoStart = false,
+        )
+        fixture.runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(
+                onPreparationStarted = { _, id, _ -> order += "$id:prepare" },
+                onGenerationPublished = { generation, id -> order += "$id:publish:$generation" },
+                onOutgoingUnloaded = { order += "initial:unload" },
+            ),
+        ).use {
+            val initial = runBlocking {
+                assertIs<RuntimeResult.Success<GhostHandle>>(
+                    fixture.runtime.startOrJoin("initial", fixture.root),
+                ).value
             }
+            fixture.trace.requests.clear()
+            attach(fixture, initial)
+            val replacement = switchAndAttach(fixture, "replacement")
 
-            Assert.assertTrue(runner.unloadGhostForSwitchForTesting(initial))
-            val replacementConstruction = coordinator.beginConstruction("replacement", replacementRoot)
-            val replacement = RecordingGhost(
-                "replacement",
-                "Replacement Ghost",
-                2,
-                trace,
-                ghostPath = replacementRoot.path,
-                lifecycleTrace = trace,
-            )
-            val replacementReservation = replacementConstruction.bind(replacement)
-            Assert.assertEquals(initialReservation.generation + 1L, replacementReservation.generation)
-            Assert.assertTrue(runner.attachReservedGhost(replacementReservation))
-            clockOwner = "replacement"
-            runner.startClock()
-            runner.startClock()
-
+            Assert.assertEquals(initial.generation + 1L, replacement.generation)
             Assert.assertEquals(
                 listOf(
-                    "initial:constructed",
-                    "initial:clock:1000",
-                    "initial:OnBoot:[master]",
+                    "initial:prepare",
+                    "initial:publish:${initial.generation}",
+                    "request:OnBoot:[master]",
+                    "request:OnGhostChanging:[replacement Sakura, manual, null, ${File(fixture.root.parentFile, "replacement").path}]",
                     "initial:unload",
-                    "replacement:constructed",
-                    "replacement:OnGhostChanged:[Initial Ghost, null]",
-                    "replacement:clock:1000",
+                    "replacement:prepare",
+                    "replacement:publish:${replacement.generation}",
+                    "request:OnGhostChanged:[Initial Ghost, null]",
                 ),
-                trace,
+                order,
             )
+            Assert.assertEquals(1, fixture.trace.unloadCount.get())
         }
     }
 
     @Test
     fun newlyConstructedRunnerDispatchesBootOnceAfterAppRecreation() {
-        val trace: MutableList<String?> = ArrayList<String?>()
-        val runner: com.cattailsw.nanidroid.SScriptRunner = runner()
+        val persistence = InMemoryGhostRuntimePersistence().apply { activationCounts["recreated"] = 1L }
+        val fixture = runtimes.create(
+            id = "recreated",
+            persistence = persistence,
+            bootstrapResponse = { noContent() },
+            autoAttach = false,
+        )
+        fixture.trace.requests.clear()
 
-        runner.setGhost(RecordingGhost("recreated", "Recreated Ghost", 2, trace))
-        runner.startClock()
+        attach(fixture, fixture.requireHandle())
+        fixture.runner.startClock()
+        fixture.runner.startClock()
 
-        Assert.assertEquals(mutableListOf<String?>("recreated:OnBoot:[master]"), trace)
+        Assert.assertEquals(
+            listOf("OnBoot:[master]"),
+            fixture.trace.requests.mapNotNull(::requestSignature),
+        )
     }
 
     @Test
     fun firstActivationReplacementSendsFirstBootWithoutAdditionalBoot() {
-        val trace: MutableList<String?> = ArrayList<String?>()
-        val runner: com.cattailsw.nanidroid.SScriptRunner = runner()
-        val initial = RecordingGhost("initial", "Initial Ghost", 2, trace)
-        runner.setGhost(initial)
-        runner.startClock()
-        runner.stopClock()
-        runner.unloadGhostForSwitchForTesting(initial)
-        Assert.assertTrue(
-            runner.attachReservedGhost(
-                runner.reserveGhostForAttachmentForTesting(
-                    RecordingGhost("replacement", "New Ghost", 0, trace),
-                ),
-            ),
+        val persistence = InMemoryGhostRuntimePersistence().apply { activationCounts["initial"] = 1L }
+        val fixture = runtimes.create(
+            id = "initial",
+            persistence = persistence,
+            bootstrapResponse = { noContent() },
+            preparedFactory = ::namedPrepared,
+            autoAttach = false,
         )
-        runner.startClock()
+        fixture.trace.requests.clear()
+        attach(fixture, fixture.requireHandle())
+
+        val targetRoot = File(fixture.root.parentFile, "replacement")
+        switchAndAttach(fixture, "replacement")
 
         Assert.assertEquals(
-            mutableListOf<String?>(
-                "initial:OnBoot:[master]",
-                "replacement:OnFirstBoot:[0]"
+            listOf(
+                "OnBoot:[master]",
+                "OnGhostChanging:[replacement Sakura, manual, null, ${targetRoot.path}]",
+                "OnFirstBoot:[0]",
             ),
-            trace
+            fixture.trace.requests.mapNotNull(::requestSignature)
+                .filter { signature ->
+                    signature.substringBefore(':') in
+                        setOf("OnBoot", "OnGhostChanging", "OnGhostChanged", "OnFirstBoot")
+                },
         )
     }
 
     @Test
     fun timerUsesSleepInclusiveClockHoursAndPlaysOnlyIdleGetResponses() {
-        val trace = mutableListOf<String?>()
-        val clock = FakeClock(7 * 3_600_000L + 1_000L)
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("timer", "Timer", 2, trace).apply {
-            rawResponses += talk("\\hawake\\e")
-        }
-        runner.setGhost(ghost)
+        val harness = harness(FakeClock(7 * 3_600_000L + 1_000L))
+        harness.runner.setNoWaitMode(true)
+        harness.responses += talk("\\hawake\\e")
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
 
-        Assert.assertEquals(
-            listOf("GET:OnSecondChange:[7, 0, 0, 1]"),
-            ghost.rawRequests,
-        )
-        Assert.assertTrue(runner.dialogueStateSnapshot().contents.any { it.segments.toString().contains("awake") })
+        Assert.assertEquals(listOf("GET:OnSecondChange:[7, 0, 0, 1]"), harness.rawRequests)
+        Assert.assertTrue(harness.runner.dialogueStateSnapshot().contents.any { it.segments.toString().contains("awake") })
     }
 
     @Test
     fun timerDispatchesChangedElapsedBucketsAfterADelayedJump() {
         val clock = FakeClock(59_000L)
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf())
-        runner.setGhost(ghost)
+        val harness = harness(clock)
+        harness.runner.setNoWaitMode(true)
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
         clock.millis = 61_000L
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
 
         Assert.assertEquals(
             listOf(
@@ -205,23 +195,21 @@ class SScriptRunnerBootDispatchTest {
                 "GET:OnSecondChange:[0, 0, 0, 1]",
                 "GET:OnMinuteChange:[0, 0, 0, 1]",
             ),
-            ghost.rawRequests,
+            harness.rawRequests,
         )
     }
 
     @Test
     fun timerDispatchesEachObservedSecondAndMinuteBoundaryOnce() {
         val clock = FakeClock(1_000L)
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf())
-        runner.setGhost(ghost)
+        val harness = harness(clock)
+        harness.runner.setNoWaitMode(true)
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
         clock.millis = 2_000L
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
         clock.millis = 60_000L
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
 
         Assert.assertEquals(
             listOf(
@@ -230,190 +218,120 @@ class SScriptRunnerBootDispatchTest {
                 "GET:OnSecondChange:[0, 0, 0, 1]",
                 "GET:OnMinuteChange:[0, 0, 0, 1]",
             ),
-            ghost.rawRequests,
+            harness.rawRequests,
         )
     }
 
     @Test
     fun timerGetDoesNotPlayAfterAnInterveningTalkReturnsIdle() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
-            rawResponseHook = {
-                runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
-                runner.run()
-            }
-            rawResponses += talk("\\hStaleTimer\\e")
+        val harness = harness(FakeClock(1_000L))
+        harness.runner.setNoWaitMode(true)
+        harness.rawResponseHook = {
+            harness.runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
+            harness.runner.run()
         }
-        runner.setGhost(ghost)
+        harness.responses += talk("\\hStaleTimer\\e")
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
 
-        Assert.assertEquals(
-            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Intervening")))),
-            runner.dialogueStateSnapshot().contents,
-        )
+        assertSakuraText(harness.runner, "Intervening")
     }
 
     @Test
     fun timerGetDoesNotPlayWhenInteractionFinishesAfterEligibilityCheck() {
-        lateinit var runner: SScriptRunner
+        lateinit var harness: Harness
         val hooks = SScriptPlaybackHooks(
             beforeTimerResponseAdmission = {
-                runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
-                runner.run()
+                harness.runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
+                harness.runner.run()
             },
         )
-        runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackHooks = hooks,
-        )
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
-            rawResponses += talk("\\hStaleTimer\\e")
-        }
-        runner.setGhost(ghost)
+        harness = harness(FakeClock(1_000L), playbackHooks = hooks)
+        harness.runner.setNoWaitMode(true)
+        harness.responses += talk("\\hStaleTimer\\e")
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
 
-        Assert.assertEquals(
-            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Intervening")))),
-            runner.dialogueStateSnapshot().contents,
-        )
+        assertSakuraText(harness.runner, "Intervening")
     }
 
     @Test
     fun timerGetPlaysWhenIdleEligibilityNeverChanges() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
-            rawResponses += talk("\\hTimer\\e")
-        }
-        runner.setGhost(ghost)
+        val harness = harness(FakeClock(1_000L))
+        harness.runner.setNoWaitMode(true)
+        harness.responses += talk("\\hTimer\\e")
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
 
-        Assert.assertEquals(
-            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Timer")))),
-            runner.dialogueStateSnapshot().contents,
-        )
+        assertSakuraText(harness.runner, "Timer")
     }
 
     @Test
     fun timerGetStillDropsWhenInterveningTalkRemainsActive() {
         val scheduler = RecordingPlaybackScheduler()
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L), { scheduler })
-        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
-            rawResponseHook = {
-                runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
-                runner.run()
-            }
-            rawResponses += talk("\\hStaleTimer\\e")
+        val harness = harness(FakeClock(1_000L), scheduler)
+        harness.rawResponseHook = {
+            harness.runner.addMsgToQueue(arrayOf("\\hIntervening\\e"))
+            harness.runner.run()
         }
-        runner.setGhost(ghost)
+        harness.responses += talk("\\hStaleTimer\\e")
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
         scheduler.runPending()
 
-        Assert.assertEquals(
-            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("Intervening")))),
-            runner.dialogueStateSnapshot().contents,
-        )
+        assertSakuraText(harness.runner, "Intervening")
     }
 
     @Test
     fun passiveTimerSendsNotifyAndDoesNotReplaceItsDialogueOrPendingActions() {
-        val clock = FakeClock(3_600_000L + 1_000L)
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
-        runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("timer", "Timer", 2, mutableListOf()).apply {
-            rawResponses += talk("\\hignored\\e")
-        }
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hbefore\\q[Keep,keep]\\![enter,passivemode]\\e"))
-        runner.run()
-        val before = runner.dialogueStateSnapshot()
+        val harness = harness(FakeClock(3_600_000L + 1_000L))
+        harness.runner.setNoWaitMode(true)
+        harness.responses += talk("\\hignored\\e")
+        harness.runner.addMsgToQueue(arrayOf("\\hbefore\\q[Keep,keep]\\![enter,passivemode]\\e"))
+        harness.runner.run()
+        val before = harness.runner.dialogueStateSnapshot()
 
-        runner.dispatchClockTickForTesting()
+        harness.runner.dispatchClockTickForTesting()
 
-        Assert.assertEquals(
-            listOf("NOTIFY:OnSecondChange:[1, 0, 0, 0]"),
-            ghost.rawRequests,
-        )
-        Assert.assertEquals(before.contents, runner.dialogueStateSnapshot().contents)
-        Assert.assertEquals(before.pendingChoices, runner.dialogueStateSnapshot().pendingChoices)
+        Assert.assertEquals(listOf("NOTIFY:OnSecondChange:[1, 0, 0, 0]"), harness.rawRequests)
+        Assert.assertEquals(before.contents, harness.runner.dialogueStateSnapshot().contents)
+        Assert.assertEquals(before.pendingChoices, harness.runner.dialogueStateSnapshot().pendingChoices)
     }
 
     @Test
     fun passiveSurfaceTapIsIgnoredBeforeItCanClearKeroDialogue() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        val harness = harness(FakeClock(1_000L))
+        val runner = harness.runner
         runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("surface", "Surface", 2, mutableListOf())
-        runner.setGhost(ghost)
         runner.addMsgToQueue(arrayOf("\\hbefore\\q[Keep,keep]\\![enter,passivemode]\\e"))
         runner.run()
         val before = runner.dialogueStateSnapshot()
 
-        val dispatched = runner.dispatchSurfaceInteraction(
-            SurfaceInteractionEffect(
-                PointerEventKind.CLICK,
-                SurfaceSpeaker.KERO,
-                IntOffset.Zero,
-                0,
-                PointerSource.TOUCH,
-                null,
-                null,
-            ),
-        )
+        Assert.assertTrue(runner.dispatchSurfaceInteraction(pointerEffect(SurfaceSpeaker.KERO)))
 
-        Assert.assertTrue(dispatched)
-        Assert.assertEquals(
-            listOf("GET:OnMouseClick:[0, 0, 0, 1, , 0, touch]"),
-            ghost.rawRequests,
-        )
+        Assert.assertEquals(listOf("GET:OnMouseClick:[0, 0, 0, 1, , 0, touch]"), harness.rawRequests)
         Assert.assertEquals(before, runner.dialogueStateSnapshot())
     }
 
     @Test
     fun ordinaryPendingChoiceStillAcceptsAndPlaysAPointerResponse() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        val harness = harness(FakeClock(1_000L))
+        val runner = harness.runner
         runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("surface", "Surface", 2, mutableListOf()).apply {
-            rawResponses += talk("\\hpointer reply\\e")
-        }
-        runner.setGhost(ghost)
+        harness.responses += talk("\\hpointer reply\\e")
         runner.addMsgToQueue(arrayOf("\\hchoice\\q[Choose,choice]\\e"))
         runner.run()
 
-        Assert.assertTrue(
-            runner.dispatchSurfaceInteraction(
-                SurfaceInteractionEffect(
-                    PointerEventKind.CLICK,
-                    SurfaceSpeaker.SAKURA,
-                    IntOffset.Zero,
-                    0,
-                    PointerSource.TOUCH,
-                    null,
-                    null,
-                ),
-            ),
-        )
+        Assert.assertTrue(runner.dispatchSurfaceInteraction(pointerEffect(SurfaceSpeaker.SAKURA)))
 
-        Assert.assertEquals(
-            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("pointer reply")))),
-            runner.dialogueStateSnapshot().contents,
-        )
+        assertSakuraText(runner, "pointer reply")
     }
 
     @Test
     fun passiveCommandsAreIdempotentAndUnloadClearsOnlyTheMode() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        val harness = harness(FakeClock(1_000L))
+        val runner = harness.runner
         runner.setNoWaitMode(true)
-        val ghost = RawRecordingGhost("passive", "Passive", 2, mutableListOf())
-        runner.setGhost(ghost)
-
         runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\![enter,passivemode]\\![enter,passivemode]\\e"))
         runner.run()
         val shown = runner.dialogueStateSnapshot()
@@ -427,16 +345,17 @@ class SScriptRunnerBootDispatchTest {
         runner.addMsgToQueue(arrayOf("\\![enter,passivemode]\\e"))
         runner.run()
         Assert.assertTrue(runner.runtimeModeSnapshot().passive)
-        Assert.assertTrue(runner.unloadGhostForSwitchForTesting(ghost))
+        assertIs<RuntimeResult.Success<Unit>>(
+            harness.fixture.runtime.unload(harness.fixture.requireHandle().generation),
+        )
         Assert.assertFalse(runner.runtimeModeSnapshot().passive)
         Assert.assertEquals(shown.pendingChoices, runner.dialogueStateSnapshot().pendingChoices)
     }
 
     @Test
     fun speakerChangeBeforePassiveOnlyCommandPreservesExistingDialogueAndChoices() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        val runner = harness(FakeClock(1_000L)).runner
         runner.setNoWaitMode(true)
-        runner.setGhost(RawRecordingGhost("passive-clear", "Passive clear", 2, mutableListOf()))
         runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\e"))
         runner.run()
         val before = runner.dialogueStateSnapshot()
@@ -452,9 +371,8 @@ class SScriptRunnerBootDispatchTest {
 
     @Test
     fun authoredClearBeforePassiveCommandRetiresExistingDialogueAndChoices() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), FakeClock(1_000L))
+        val runner = harness(FakeClock(1_000L)).runner
         runner.setNoWaitMode(true)
-        runner.setGhost(RawRecordingGhost("passive-authored-clear", "Passive authored clear", 2, mutableListOf()))
         runner.addMsgToQueue(arrayOf("\\hshown\\q[Keep,keep]\\e"))
         runner.run()
 
@@ -470,23 +388,14 @@ class SScriptRunnerBootDispatchTest {
     @Test
     fun ordinaryInputPauseAndResumeKeepsTheCurrentScriptPlayable() {
         val scheduler = RecordingPlaybackScheduler()
-        val runner = SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-            FakeClock(1_000L),
-            playbackSchedulerFactory = { scheduler },
-        )
+        val runner = harness(FakeClock(1_000L), scheduler).runner
         var inputShown = false
         val frames = mutableListOf<GhostPresentationFrame>()
         runner.setUICallback(object : SScriptRunner.UICallback {
-            override fun showUserInputBox(id: String) {
-                inputShown = true
-            }
-
+            override fun showUserInputBox(id: String) { inputShown = true }
             override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
         })
         runner.setPresentationRendererForTesting(frames::add)
-        runner.setGhost(RawRecordingGhost("ordinary", "Ordinary", 2, mutableListOf()))
         runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9resumed tail\\e"))
         runner.run()
         Assert.assertEquals(1, scheduler.pendingCount)
@@ -505,43 +414,96 @@ class SScriptRunnerBootDispatchTest {
         Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
     }
 
-    private fun runner(): com.cattailsw.nanidroid.SScriptRunner {
-        val runner: com.cattailsw.nanidroid.SScriptRunner =
-            com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
-        runners.add(runner)
-        return runner
+    private fun harness(
+        clock: FakeClock,
+        scheduler: RecordingPlaybackScheduler? = null,
+        playbackHooks: SScriptPlaybackHooks = SScriptPlaybackHooks(),
+    ): Harness {
+        val rawRequests = mutableListOf<String>()
+        val responses = ArrayDeque<String>()
+        val hook = ResponseHook()
+        val fixture = runtimes.create(
+            response = { request ->
+                val id = requestId(request).orEmpty()
+                if (id.startsWith("OnSecond") || id.startsWith("OnMinute") || id.startsWith("OnMouse")) {
+                    rawRequests += "${request.substringBefore(' ')}:$id:${requestReferences(request)}"
+                    hook.action?.invoke()
+                }
+                responses.removeFirstOrNull() ?: noContent()
+            },
+            bootstrapResponse = { supportedClick() },
+            runnerConfiguration = SScriptRunnerConfiguration(
+                monotonicClock = clock,
+                playbackSchedulerFactory = scheduler?.let { { it } }
+                    ?: SScriptRunnerConfiguration().playbackSchedulerFactory,
+                playbackHooks = playbackHooks,
+            ),
+            preparedFactory = ::namedPrepared,
+        )
+        return Harness(fixture, rawRequests, responses, hook)
     }
 
-    private fun awaitTrace(trace: List<String?>, expectedSize: Int) {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-        while (trace.size < expectedSize && System.nanoTime() < deadline) {
-            Thread.sleep(10)
+    private fun attach(fixture: RuntimeFixture, handle: GhostHandle) = runBlocking {
+        assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+            fixture.runtime.attachHost(handle.generation),
+        )
+    }
+
+    private fun switchAndAttach(fixture: RuntimeFixture, targetId: String): GhostHandle {
+        val outgoing = requireNotNull(fixture.runtime.identity().activeHandle)
+        val targetRoot = File(fixture.root.parentFile, targetId)
+        val operationId = assertIs<RuntimeResult.Success<Long>>(
+            fixture.runtime.beginSwitch(outgoing.generation, targetId, targetRoot),
+        ).value
+        Assert.assertTrue(
+            fixture.runner.doGhostChanging(
+                operationId,
+                "$targetId Sakura",
+                "manual",
+                targetRoot.path,
+            ),
+        )
+        val replacement = runBlocking {
+            assertIs<RuntimeResult.Success<GhostHandle>>(
+                fixture.runtime.startOrJoin(targetId, targetRoot),
+            ).value
         }
-        Assert.assertEquals(expectedSize, trace.size)
+        attach(fixture, replacement)
+        return replacement
+    }
+
+    private fun assertSakuraText(runner: SScriptRunner, value: String) {
+        Assert.assertEquals(
+            listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text(value)))),
+            runner.dialogueStateSnapshot().contents,
+        )
     }
 
     private class FakeClock(var millis: Long) : MonotonicClock {
         override fun nowMillis(): Long = millis
     }
 
-    private fun talk(value: String): ShioriResponse = ShioriResponse(
-        "SHIORI/3.0 200 OK",
-        Hashtable<String, String>().apply { put("Value", value) },
-    )
+    private data class Harness(
+        val fixture: RuntimeFixture,
+        val rawRequests: MutableList<String>,
+        val responses: ArrayDeque<String>,
+        val hook: ResponseHook,
+    ) {
+        val runner get() = fixture.runner
+        var rawResponseHook: (() -> Unit)?
+            get() = hook.action
+            set(value) { hook.action = value }
+    }
+
+    private class ResponseHook(var action: (() -> Unit)? = null)
 
     private class RecordingPlaybackScheduler : SScriptPlaybackScheduler {
         private val pending = ArrayDeque<() -> Unit>()
         private val cancelled = ArrayDeque<() -> Unit>()
         val pendingCount: Int get() = pending.size
-        val cancelledCount: Int get() = cancelled.size
 
-        override fun schedule(delayMillis: Long, action: () -> Unit) {
-            pending.addLast(action)
-        }
-
-        override fun cancelPending() {
-            while (pending.isNotEmpty()) cancelled.addLast(pending.removeFirst())
-        }
+        override fun schedule(delayMillis: Long, action: () -> Unit) { pending.addLast(action) }
+        override fun cancelPending() { while (pending.isNotEmpty()) cancelled.addLast(pending.removeFirst()) }
 
         fun runUntil(condition: () -> Boolean) {
             repeat(100) {
@@ -551,12 +513,6 @@ class SScriptRunnerBootDispatchTest {
             throw AssertionError("playback condition was not reached")
         }
 
-        fun captureNext(): () -> Unit = requireNotNull(pending.firstOrNull())
-
-        fun runNext() {
-            requireNotNull(pending.removeFirstOrNull()).invoke()
-        }
-
         fun runPending() {
             repeat(1_000) {
                 val action = pending.removeFirstOrNull() ?: return
@@ -564,74 +520,44 @@ class SScriptRunnerBootDispatchTest {
             }
             throw AssertionError("playback scheduler did not become idle")
         }
-
-        fun runCancelled() {
-            while (cancelled.isNotEmpty()) cancelled.removeFirst().invoke()
-        }
     }
 
-    private open class RecordingGhost(
-        ghostId: String,
-        ghostName: String?,
-        createCount: Long,
-        private val trace: MutableList<String?>,
-        ghostPath: String = ghostId,
-        private val lifecycleTrace: MutableList<String?>? = null,
-    ) : Ghost(ghostPath) {
-        private val fakeGhostId = ghostId
-        private val fakeGhostName = ghostName
-        private val fakeCreateCount = createCount
+    private companion object {
+        fun namedPrepared(operationId: Long, ghostId: String, root: File) = preparedGhost(
+            operationId,
+            ghostId,
+            root,
+            name = if (ghostId == "initial") "Initial Ghost" else "Replacement Ghost",
+            sakuraName = "$ghostId Sakura",
+            keroName = "$ghostId Kero",
+        )
 
-        init {
-            lifecycleTrace?.add("$ghostId:constructed")
+        fun noContent() = "SHIORI/3.0 204 No Content\r\n\r\n"
+        fun supportedClick() =
+            "SHIORI/3.0 204 No Content\r\nX-SSTP-PassThru-local: OnMouseClick\r\n\r\n"
+        fun talk(value: String) = "SHIORI/3.0 200 OK\r\nValue: $value\r\n\r\n"
+
+        fun requestId(request: String): String? = request.lineSequence()
+            .firstOrNull { it.startsWith("ID: ") }
+            ?.removePrefix("ID: ")
+
+        fun requestSignature(request: String): String? = requestId(request)?.let { id ->
+            "$id:${requestReferences(request)}"
         }
 
-        override fun getGhostId(): String = fakeGhostId
-        override fun getGhostName(): String? = fakeGhostName
-        override fun getCreateCount(): Long = fakeCreateCount
+        fun requestReferences(request: String): List<String> = request.lineSequence()
+            .filter { it.startsWith("Reference") }
+            .map { it.substringAfter(": ") }
+            .toList()
 
-        override fun loadGhostInfo() = Unit
-
-        override fun incrementCreateCount() = Unit
-
-        override fun unload() {
-            lifecycleTrace?.add("$fakeGhostId:unload")
-        }
-
-        override fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse {
-            trace += "$fakeGhostId:$event:${ref.contentToString()}"
-            return ShioriResponse("SHIORI/3.0 204 No Content")
-        }
-    }
-
-    private class RawRecordingGhost(
-        ghostId: String,
-        ghostName: String?,
-        createCount: Long,
-        trace: MutableList<String?>,
-    ) : RecordingGhost(ghostId, ghostName, createCount, trace) {
-        val rawRequests = mutableListOf<String>()
-        val rawResponses = ArrayDeque<ShioriResponse>()
-        var rawResponseHook: (() -> Unit)? = null
-        val eventRequests = mutableListOf<String>()
-        var eventRequestHook: ((String) -> Unit)? = null
-
-        override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
-            rawRequests += "$method:$eventId:$references"
-            rawResponseHook?.invoke()
-            return rawResponses.removeFirstOrNull() ?: ShioriResponse("SHIORI/3.0 204 No Content")
-        }
-
-        override fun getSakuraName(): String = "Sakura"
-        override fun getKeroName(): String = "Kero"
-        override fun pointerEventCapabilities(): PointerEventCapabilities =
-            PointerEventCapabilities(click = Support.SUPPORTED)
-
-        override fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse {
-            eventRequests += "$event:${ref.contentToString()}"
-            eventRequestHook?.invoke(event)
-            return ShioriResponse("SHIORI/3.0 204 No Content")
-        }
-
+        fun pointerEffect(speaker: SurfaceSpeaker) = SurfaceInteractionEffect(
+            PointerEventKind.CLICK,
+            speaker,
+            IntOffset.Zero,
+            0,
+            PointerSource.TOUCH,
+            null,
+            null,
+        )
     }
 }

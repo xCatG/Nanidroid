@@ -35,7 +35,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 internal data class GhostHandle(
-    val prepared: PreparedGhost,
+    val ghost: Ghost,
     val pointerCapabilities: PointerEventCapabilities,
     val generation: Long,
 )
@@ -174,12 +174,17 @@ internal class GhostRuntime private constructor(
     private val preparer: GhostPreparer,
     private val injectedAdapterFactory: ((PreparedGhost) -> Shiori)?,
     private val persistence: GhostRuntimePersistence,
-    private val admission: AttachmentAdmission?,
+    private val injectedAdmission: AttachmentAdmission?,
+    runnerConfiguration: SScriptRunnerConfiguration?,
     private val testConstructed: Boolean,
 ) : Closeable {
     private val applicationContext = context?.applicationContext ?: context
-    private val sessionCoordinator = GhostSessionCoordinator()
-    val runner = SScriptRunner(context, sessionCoordinator)
+    val runner = if (runnerConfiguration == null) {
+        SScriptRunner(context, runtimePort = this)
+    } else {
+        SScriptRunner(context, runtimePort = this, configuration = runnerConfiguration)
+    }
+    private val attachmentAdmission = injectedAdmission ?: AttachmentAdmission(runner::admitAttachment)
 
     private val stateLock = Any()
     private val hooks = AtomicReference<GhostRuntimeTestHooks?>(null)
@@ -209,19 +214,10 @@ internal class GhostRuntime private constructor(
         preparer = GhostPreparer(context?.applicationContext ?: context),
         injectedAdapterFactory = null,
         persistence = PreferenceGhostRuntimePersistence(context?.applicationContext ?: context),
-        admission = null,
+        injectedAdmission = null,
+        runnerConfiguration = null,
         testConstructed = false,
     )
-
-    fun beginGhostConstruction(
-        ghostId: String,
-        ghostRoot: File,
-    ): GhostConstructionReservation = sessionCoordinator.beginConstruction(ghostId, ghostRoot)
-
-    fun reuseActiveGhost(
-        ghostId: String,
-        ghostRoot: File,
-    ): ReservedGhost? = sessionCoordinator.reuseActive(ghostId, ghostRoot)
 
     internal suspend fun startOrJoin(
         ghostId: String,
@@ -233,7 +229,7 @@ internal class GhostRuntime private constructor(
             return RuntimeResult.Failure(RuntimeFailure.Replayable(failure))
         }
         var immediate: RuntimeResult<GhostHandle>? = null
-        val operation = synchronized(stateLock) {
+        val completion = synchronized(stateLock) {
             when {
                 poison != null -> {
                     immediate = fatalResult(requireNotNull(poison))
@@ -244,26 +240,46 @@ internal class GhostRuntime private constructor(
                     null
                 }
                 session != null -> {
-                    immediate = if (session!!.prepared.canonicalRoot == root) {
+                    immediate = if (session!!.ghost.canonicalRoot == root) {
                         RuntimeResult.Success(session!!.handle)
                     } else {
-                        RuntimeResult.Failure(RuntimeFailure.Busy)
+                        null
                     }
-                    null
+                    when {
+                        immediate != null -> null
+                        switchIntent?.targetRoot == root && switchIntent?.targetGhostId == ghostId -> {
+                            switchIntent!!.completion
+                        }
+                        else -> {
+                            immediate = RuntimeResult.Failure(RuntimeFailure.Busy)
+                            null
+                        }
+                    }
                 }
                 inFlight != null -> {
                     if (inFlight!!.canonicalRoot == root) {
-                        inFlight
+                        inFlight!!.completion
                     } else {
                         immediate = RuntimeResult.Failure(RuntimeFailure.Busy)
                         null
                     }
                 }
-                else -> createInitialOperationLocked(ghostId, root)
+                switchIntent != null -> {
+                    if (
+                        switchIntent!!.targetRoot == root &&
+                        switchIntent!!.targetGhostId == ghostId
+                    ) {
+                        switchIntent!!.completion
+                    } else {
+                        immediate = RuntimeResult.Failure(RuntimeFailure.Busy)
+                        null
+                    }
+                }
+                else -> createInitialOperationLocked(ghostId, root).completion
             }
         }
         immediate?.let { return it }
-        return requireNotNull(operation).completion.await()
+        return requireNotNull(completion).await()
     }
 
     internal fun request(
@@ -298,28 +314,32 @@ internal class GhostRuntime private constructor(
         }
     }
 
-    internal fun unload(expectedGeneration: Long): RuntimeResult<Unit> = submitNativeResult {
-        val active = synchronized(stateLock) {
-            when {
-                poison != null -> return@submitNativeResult fatalResult(requireNotNull(poison))
-                session?.handle?.generation != expectedGeneration -> {
-                    return@submitNativeResult RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+    internal fun unload(expectedGeneration: Long): RuntimeResult<Unit> {
+        val result = submitNativeResult<Unit> {
+            val active = synchronized(stateLock) {
+                when {
+                    poison != null -> return@submitNativeResult fatalResult(requireNotNull(poison))
+                    session?.handle?.generation != expectedGeneration -> {
+                        return@submitNativeResult RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                    }
+                    else -> requireNotNull(session)
                 }
-                else -> requireNotNull(session)
+            }
+            when (val unload = active.adapter.unloadShiori()) {
+                ShioriUnloadResult.Unloaded -> {
+                    synchronized(stateLock) {
+                        if (session === active) session = null
+                    }
+                    RuntimeResult.Success(Unit)
+                }
+                is ShioriUnloadResult.Failed -> {
+                    poison(unload.cause)
+                    fatalResult(unload.cause)
+                }
             }
         }
-        when (val result = active.adapter.unloadShiori()) {
-            ShioriUnloadResult.Unloaded -> {
-                synchronized(stateLock) {
-                    if (session === active) session = null
-                }
-                RuntimeResult.Success(Unit)
-            }
-            is ShioriUnloadResult.Failed -> {
-                poison(result.cause)
-                fatalResult(result.cause)
-            }
-        }
+        if (result is RuntimeResult.Success) runner.retireGeneration(expectedGeneration)
+        return result
     }
 
     internal suspend fun attachHost(
@@ -336,12 +356,6 @@ internal class GhostRuntime private constructor(
                 }
                 closed -> {
                     immediate = fatalResult(IllegalStateException("GhostRuntime is closed"))
-                    null
-                }
-                admission == null -> {
-                    immediate = fatalResult(
-                        IllegalStateException("Production attachment admission is not installed yet"),
-                    )
                     null
                 }
                 active?.handle?.generation != expectedGeneration -> {
@@ -402,7 +416,7 @@ internal class GhostRuntime private constructor(
                 active?.handle?.generation != expectedGeneration -> {
                     RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                 }
-                switchIntent != null || inFlight != null || active.prepared.canonicalRoot == root -> {
+                switchIntent != null || inFlight != null || active.ghost.canonicalRoot == root -> {
                     RuntimeResult.Failure(RuntimeFailure.Busy)
                 }
                 else -> {
@@ -410,9 +424,10 @@ internal class GhostRuntime private constructor(
                     switchIntent = SwitchIntent(
                         operationId = operationId,
                         outgoingGeneration = expectedGeneration,
-                        outgoingGhostName = active.prepared.name ?: active.prepared.id,
+                        outgoingGhostName = active.ghost.name ?: active.ghost.id,
                         targetGhostId = targetGhostId,
                         targetRoot = root,
+                        completion = CompletableDeferred(),
                     )
                     RuntimeResult.Success(operationId)
                 }
@@ -446,7 +461,6 @@ internal class GhostRuntime private constructor(
                 }
                 else -> {
                     candidate.completionClaimed = true
-                    candidate.completion = CompletableDeferred()
                     candidate
                 }
             }
@@ -454,29 +468,48 @@ internal class GhostRuntime private constructor(
         immediate?.let { return it }
         val accepted = requireNotNull(intent)
         preparationScope.launch { processSwitchCompletion(accepted) }
-        return requireNotNull(accepted.completion).await()
+        return accepted.completion.await()
+    }
+
+    internal fun completeSwitchPlaybackFromRunner(
+        expectedGeneration: Long,
+        switchOperationId: Long,
+    ) {
+        preparationScope.launch {
+            completeSwitchPlayback(expectedGeneration, switchOperationId)
+        }
     }
 
     internal fun failSwitchBeforeUnload(
         expectedGeneration: Long,
         switchOperationId: Long,
         failure: Throwable,
-    ): RuntimeResult<Unit> = synchronized(stateLock) {
-        val candidate = switchIntent
-        when {
-            poison != null -> fatalResult(requireNotNull(poison))
-            candidate == null ||
-                candidate.operationId != switchOperationId ||
-                candidate.outgoingGeneration != expectedGeneration ||
-                session?.handle?.generation != expectedGeneration ||
-                candidate.completionClaimed -> {
-                RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
-            }
-            else -> {
-                switchIntent = null
-                RuntimeResult.Failure(RuntimeFailure.Replayable(failure))
+    ): RuntimeResult<Unit> {
+        var retired: SwitchIntent? = null
+        var terminalFailure: RuntimeFailure? = null
+        val result = synchronized(stateLock) {
+            val candidate = switchIntent
+            when {
+                candidate == null ||
+                    candidate.operationId != switchOperationId ||
+                    candidate.outgoingGeneration != expectedGeneration ||
+                    session?.handle?.generation != expectedGeneration ||
+                    candidate.completionClaimed -> {
+                    poison?.let(::fatalResult)
+                        ?: RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                }
+                else -> {
+                    switchIntent = null
+                    retired = candidate
+                    terminalFailure = poison
+                        ?.let(RuntimeFailure::Fatal)
+                        ?: RuntimeFailure.Replayable(failure)
+                    RuntimeResult.Failure(requireNotNull(terminalFailure))
+                }
             }
         }
+        retired?.completion?.complete(RuntimeResult.Failure(requireNotNull(terminalFailure)))
+        return result
     }
 
     internal fun identity(): GhostRuntimeIdentity = synchronized(stateLock) {
@@ -693,6 +726,7 @@ internal class GhostRuntime private constructor(
         staleAttachment?.complete(
             fatalResult(IllegalStateException("GhostRuntime closed during attachment")),
         )
+        val retiredGeneration = synchronized(stateLock) { session?.handle?.generation }
         if (synchronized(stateLock) { poison == null && session != null }) {
             runCatching {
                 submitNative<Unit> {
@@ -709,6 +743,7 @@ internal class GhostRuntime private constructor(
                 }
             }
         }
+        retiredGeneration?.let(runner::retireGeneration)
         preparationScope.cancel()
         nativeExecutor.shutdown()
         if (!nativeExecutor.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
@@ -756,9 +791,10 @@ internal class GhostRuntime private constructor(
             }
         }
         if (unloadResult is RuntimeResult.Failure) {
-            intent.completion?.complete(RuntimeResult.Failure(unloadResult.failure))
+            intent.completion.complete(RuntimeResult.Failure(unloadResult.failure))
             return
         }
+        runner.retireGeneration(intent.outgoingGeneration)
         val operation = synchronized(stateLock) {
             if (closed || poison != null || switchIntent !== intent || session != null) {
                 null
@@ -767,14 +803,14 @@ internal class GhostRuntime private constructor(
                     operationId = intent.operationId,
                     ghostId = intent.targetGhostId,
                     canonicalRoot = intent.targetRoot,
-                    completion = requireNotNull(intent.completion),
+                    completion = intent.completion,
                     attachmentReason = AttachmentReason.Switched(intent.outgoingGhostName),
                     switchOperationId = intent.operationId,
                 ).also { inFlight = it }
             }
         }
         if (operation == null) {
-            intent.completion?.complete(RuntimeResult.Failure(RuntimeFailure.StaleGeneration))
+            intent.completion.complete(RuntimeResult.Failure(RuntimeFailure.StaleGeneration))
             return
         }
         preparationScope.launch { prepare(operation) }
@@ -788,11 +824,11 @@ internal class GhostRuntime private constructor(
         }
         if (!operation.activationCommitted) {
             val priorCount = runCatching {
-                persistence.readActivationCount(operation.handle.prepared.id)
+                persistence.readActivationCount(operation.handle.ghost.id)
             }.getOrDefault(0L)
             operation.priorActivationCount = priorCount
             runCatching {
-                persistence.commitActivationCount(operation.handle.prepared.id, priorCount + 1L)
+                persistence.commitActivationCount(operation.handle.ghost.id, priorCount + 1L)
             }
             operation.activationCommitted = true
             runCatching { hooks.get()?.onActivationCommitted?.invoke(operation.operationId) }
@@ -830,7 +866,7 @@ internal class GhostRuntime private constructor(
         }
         val outcome = requireNotNull(operation.outcome)
         val admitted = try {
-            requireNotNull(admission).admit(operation.operationId, operation.handle, outcome)
+            attachmentAdmission.admit(operation.operationId, operation.handle, outcome)
         } catch (failure: Throwable) {
             RuntimeResult.Failure(RuntimeFailure.Replayable(failure))
         }
@@ -870,7 +906,7 @@ internal class GhostRuntime private constructor(
             )
             else -> "OnBoot" to ShioriRequestIntent.event(
                 "OnBoot",
-                listOf(operation.handle.prepared.shellName),
+                listOf(operation.handle.ghost.shellName),
             )
         }
     }
@@ -972,9 +1008,10 @@ internal class GhostRuntime private constructor(
                     return@synchronized false
                 }
                 nextGeneration = generation
-                handle = GhostHandle(prepared, capabilities, generation)
+                val ghost = Ghost(prepared)
+                handle = GhostHandle(ghost, capabilities, generation)
                 session = Session(
-                    prepared = prepared,
+                    ghost = ghost,
                     adapter = adapter,
                     handle = requireNotNull(handle),
                     attachment = AttachmentState.Unattached(operation.attachmentReason),
@@ -1128,14 +1165,14 @@ internal class GhostRuntime private constructor(
         val outgoingGhostName: String,
         val targetGhostId: String,
         val targetRoot: File,
+        val completion: CompletableDeferred<RuntimeResult<GhostHandle>>,
         var completionClaimed: Boolean = false,
-        var completion: CompletableDeferred<RuntimeResult<GhostHandle>>? = null,
     ) {
         fun toIdentity() = PendingGhostIdentity(operationId, targetGhostId, targetRoot)
     }
 
     private data class Session(
-        val prepared: PreparedGhost,
+        val ghost: Ghost,
         val adapter: Shiori,
         val handle: GhostHandle,
         var attachment: AttachmentState,
@@ -1175,15 +1212,15 @@ internal class GhostRuntime private constructor(
             preparer: GhostPreparer,
             adapterFactory: ((PreparedGhost) -> Shiori)? = null,
             persistence: GhostRuntimePersistence,
-            admission: AttachmentAdmission = AttachmentAdmission {
-                    _, _, _ -> RuntimeResult.Success(Unit)
-            },
+            admission: AttachmentAdmission? = null,
+            runnerConfiguration: SScriptRunnerConfiguration? = null,
         ): GhostRuntime = GhostRuntime(
             context = context,
             preparer = preparer,
             injectedAdapterFactory = adapterFactory,
             persistence = persistence,
-            admission = admission,
+            injectedAdmission = admission,
+            runnerConfiguration = runnerConfiguration,
             testConstructed = true,
         )
     }

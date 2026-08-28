@@ -1,317 +1,211 @@
 package com.cattailsw.nanidroid
 
-import org.junit.After
-import org.junit.Assert
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
 import java.io.File
 import java.util.Arrays
-import java.util.Hashtable
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert
+import org.junit.Rule
+import org.junit.Test
 
-/**
- * Characterizes the deterministic SScriptRunner ghost-handoff protocol without
- * filesystem discovery, Activity lifecycle, native engines, or view rebinding.
- */
+/** Characterizes deterministic runtime-owned ghost handoff without filesystem discovery. */
 class GhostSwitchingCharacterizationTest {
-    @Rule
-    @JvmField
-    val androidStubs: com.cattailsw.nanidroid.HostAndroidStubRule =
-        com.cattailsw.nanidroid.HostAndroidStubRule()
-    private val trace = Trace()
-    private lateinit var runner: com.cattailsw.nanidroid.SScriptRunner
-    private var currentGhost: RecordingGhost? = null
-
-    @Before
-    fun setUp() {
-        runner = com.cattailsw.nanidroid.SScriptRunner(
-            null,
-            GhostSessionCoordinator(),
-        )
-        runner.setPresentationRenderer(TraceRenderer(trace))
-        resetRunnerWithPublicApi()
-        trace.clear()
-    }
-
-    @After
-    fun tearDown() {
-        try { resetRunnerWithPublicApi() } catch (_: IllegalStateException) { }
-    }
+    @Rule @JvmField val androidStubs = HostAndroidStubRule()
+    @Rule @JvmField val runtimes = RuntimeFixtureRegistry()
 
     @Test
     fun requiredMigrationInvariant_outgoingScriptRendersBeforeSingleHandoffCallback() {
-        val outgoing = RecordingGhost(
-            "outgoing",
-            "Old Ghost Metadata",
-            "Old Sakura Display",
-            1,
-            TRANSITION_SCRIPT,
-            trace
-        )
-        setGhost(outgoing)
-        runner.setCallback(RecordingStatusCallback(trace))
-
-        runner.doGhostChanging("Next Sakura", "manual", "/ghosts/next")
+        val trace = Trace()
+        val fixture = fixture(trace)
+        val outgoing = fixture.requireHandle()
+        val targetRoot = File("build/runtime-fixtures/switching/next")
+        val operationId = assertIs<RuntimeResult.Success<Long>>(
+            fixture.runtime.beginSwitch(outgoing.generation, "next", targetRoot),
+        ).value
+        fixture.runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(onOutgoingUnloaded = { trace.add("handoff") }),
+        ).use {
+            Assert.assertTrue(
+                fixture.runner.doGhostChanging(
+                    operationId,
+                    "Next Sakura",
+                    "manual",
+                    "/ghosts/next",
+                ),
+            )
+            trace.awaitSize(3)
+        }
 
         Assert.assertEquals(
             Arrays.asList<String?>(
-                "request:outgoing:OnGhostChanging:"
-                        + "[Next Sakura, manual, null, /ghosts/next]",
+                "request:outgoing:OnGhostChanging:[Next Sakura, manual, null, /ghosts/next]",
                 "render:Switching",
-                "handoff"
+                "handoff",
             ),
-            trace.events()
+            trace.events(),
         )
     }
 
     @Test
     fun requiredMigrationInvariant_returningReplacementReceivesChangedFromOutgoingName() {
-        val outgoing = RecordingGhost(
-            "outgoing",
-            "Old Ghost Metadata",
-            "Old Sakura Display",
-            1,
-            TRANSITION_SCRIPT,
-            trace
-        )
-        val replacement = RecordingGhost(
-            "replacement",
-            "New Ghost Metadata",
-            "New Sakura Display",
-            2,
-            null,
-            trace
-        )
-
-        // Prove setup cleanup does not depend on another test having cleared
-        // a previously assigned named ghost.
-        setGhost(
-            RecordingGhost(
-                "foreign",
-                "Foreign Ghost Metadata",
-                "Foreign Sakura Display",
-                2,
-                null,
-                trace
+        val trace = Trace()
+        val persistence = InMemoryGhostRuntimePersistence().apply {
+            activationCounts["replacement"] = 1L
+        }
+        val fixture = fixture(trace, persistence)
+        val outgoing = fixture.requireHandle()
+        val targetRoot = File("build/runtime-fixtures/switching/replacement")
+        val operationId = assertIs<RuntimeResult.Success<Long>>(
+            fixture.runtime.beginSwitch(outgoing.generation, "replacement", targetRoot),
+        ).value
+        fixture.runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(onOutgoingUnloaded = { trace.add("handoff") }),
+        ).use {
+            Assert.assertTrue(
+                fixture.runner.doGhostChanging(
+                    operationId,
+                    "Next Sakura",
+                    "manual",
+                    "/ghosts/next",
+                ),
             )
-        )
-        resetRunnerWithPublicApi()
-        trace.clear()
-
-        setGhost(outgoing)
-        Assert.assertEquals(ArrayList<String?>(), trace.events())
-        runner.setCallback(RecordingStatusCallback(trace))
-
-        runner.doGhostChanging("Next Sakura", "manual", "/ghosts/next")
-
-        setGhost(replacement)
+            val replacement = runBlocking {
+                assertIs<RuntimeResult.Success<GhostHandle>>(
+                    fixture.runtime.startOrJoin("replacement", targetRoot),
+                ).value
+            }
+            runBlocking {
+                assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+                    fixture.runtime.attachHost(replacement.generation),
+                )
+            }
+        }
 
         Assert.assertEquals(
             Arrays.asList<String?>(
-                "request:outgoing:OnGhostChanging:"
-                        + "[Next Sakura, manual, null, /ghosts/next]",
+                "request:outgoing:OnGhostChanging:[Next Sakura, manual, null, /ghosts/next]",
                 "render:Switching",
                 "handoff",
-                "request:replacement:OnGhostChanged:"
-                        + "[Old Ghost Metadata, null]"
+                "request:replacement:OnGhostChanged:[Old Ghost Metadata, null]",
             ),
-            trace.events()
+            trace.events(),
         )
     }
 
     @Test
-    fun unreservedNativeGlobalReplacementPoisonsEveryLaterSessionOperation() {
-        val active = RecordingGhost("active-poison", null, null, 2, null, trace)
-        val replacement = RecordingGhost("replacement-poison", null, null, 2, null, trace)
-        setGhost(active)
-
-        Assert.assertThrows(IllegalStateException::class.java) { setGhost(replacement) }
-        Assert.assertFalse(runner.doShioriEvent("OnProbe", null))
-        Assert.assertThrows(IllegalStateException::class.java) {
-            runner.reserveGhostForAttachmentForTesting(
-                RecordingGhost("later-poison", null, null, 2, null, trace),
-            )
+    fun fatalChangingRequestTerminalizesAnAlreadyJoinedRuntimeSwitch() = runBlocking {
+        val failure = com.cattailsw.nanidroid.shiori.ShioriRequestException(
+            "outgoing ownership became uncertain",
+            ownershipCertain = false,
+        )
+        val fixture = runtimes.create(
+            id = "fatal-outgoing",
+            root = File("build/runtime-fixtures/switching/fatal-outgoing"),
+            response = { request ->
+                if (requestId(request) == "OnGhostChanging") throw failure
+                "SHIORI/3.0 204 No Content\r\n\r\n"
+            },
+        )
+        val outgoing = fixture.requireHandle()
+        val targetRoot = File("build/runtime-fixtures/switching/fatal-target")
+        val operationId = assertIs<RuntimeResult.Success<Long>>(
+            fixture.runtime.beginSwitch(outgoing.generation, "fatal-target", targetRoot),
+        ).value
+        val joined = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.runtime.startOrJoin("fatal-target", targetRoot)
         }
-    }
 
-    @Test
-    fun reservationsUseExactIdentityAndStaleReleaseCannotConsumeReplacement() {
-        val root = File("reservation-shared-root/expected-id")
-        val firstLifecycle = Trace()
-        val first = RecordingGhost(
-            "expected-id", null, null, 2, null, trace,
-            lifecycle = firstLifecycle, ghostPath = root.path,
+        Assert.assertFalse(
+            fixture.runner.doGhostChanging(
+                operationId,
+                "Fatal Target",
+                "manual",
+                targetRoot.path,
+            ),
         )
-        val replacementLifecycle = Trace()
-        val replacement = RecordingGhost(
-            "expected-id", null, null, 2, null, trace,
-            lifecycle = replacementLifecycle, ghostPath = root.path,
+
+        val terminal = withTimeout(1_000L) { joined.await() }
+        Assert.assertSame(
+            failure,
+            assertIs<RuntimeFailure.Fatal>(
+                assertIs<RuntimeResult.Failure>(terminal).failure,
+            ).cause,
         )
-        val firstReservation = runner.reserveGhostForAttachmentForTesting(first)
-
-        Assert.assertTrue(runner.abandonReservedGhost(firstReservation))
-        Assert.assertEquals(listOf("unload"), firstLifecycle.events())
-
-        val replacementReservation = runner.reserveGhostForAttachmentForTesting(replacement)
-        Assert.assertFalse(runner.abandonReservedGhost(firstReservation))
-        Assert.assertTrue(runner.attachReservedGhost(replacementReservation))
-        Assert.assertEquals(emptyList<String?>(), replacementLifecycle.events())
     }
 
-    @Test
-    fun abandonedReservationUnloadsBeforeRelease() {
-        val lifecycle = Trace()
-        val reservedGhost = RecordingGhost(
-            "abandoned-reservation", null, null, 2, null, trace, lifecycle = lifecycle,
-        )
-        val reservation = runner.reserveGhostForAttachmentForTesting(reservedGhost)
-
-        Assert.assertTrue(runner.abandonReservedGhost(reservation))
-        Assert.assertEquals(listOf("unload"), lifecycle.events())
-    }
-
-    private fun setGhost(ghost: RecordingGhost) {
-        currentGhost = ghost
-        runner.setGhost(ghost)
-    }
-
-    private fun resetRunnerWithPublicApi() {
-        runner.setNoWaitMode(true)
-
-        // Drain a failed in-flight transition while its callback and inert fake
-        // are still installed. This clears changingPending through stop().
-        runner.clearMsgQueue()
-
-        runner.setCallback(null)
-        runner.setUICallback(null)
-
-        // setGhost(null) dereferences the replacement when the outgoing name is
-        // non-null. Suppressing the test fake's name takes the public silent
-        // assignment path and avoids coupling this characterization to fields.
-        if (currentGhost == null) {
-            // A previous or future suite may leave a named ghost in the process
-            // current runner. Replacing it with a null-name count-2 fake avoids the
-            // production null-replacement dereference without reflection.
-            setGhost(
-                RecordingGhost(
-                    "cleanup",
-                    null,
-                    null,
-                    2,
-                    null,
-                    trace
-                )
+    private fun fixture(
+        trace: Trace,
+        persistence: InMemoryGhostRuntimePersistence = InMemoryGhostRuntimePersistence(),
+    ): RuntimeFixture = runtimes.create(
+        id = "outgoing",
+        root = File("build/runtime-fixtures/switching/outgoing"),
+        persistence = persistence,
+        response = { request ->
+            val id = requestId(request)
+            if (id == "OnGhostChanging" || id == "OnGhostChanged") {
+                trace.add("request:${requestGhostId(request, id)}:$id:${references(request)}")
+            }
+            if (id == "OnGhostChanging") {
+                "SHIORI/3.0 200 OK\r\nValue: $TRANSITION_SCRIPT\r\n\r\n"
+            } else {
+                "SHIORI/3.0 204 No Content\r\n\r\n"
+            }
+        },
+        preparedFactory = { operationId, ghostId, root ->
+            preparedGhost(
+                operationId,
+                ghostId,
+                root,
+                name = if (ghostId == "outgoing") "Old Ghost Metadata" else "New Ghost Metadata",
+                sakuraName = if (ghostId == "outgoing") "Old Sakura Display" else "New Sakura Display",
+                keroName = "Kero",
             )
-        } else {
-            currentGhost!!.suppressOutgoingName()
-        }
-        runner.setGhost(null)
-        currentGhost = null
+        },
+    ).also { fixture ->
+        fixture.runner.setNoWaitMode(true)
+        fixture.runner.setPresentationRenderer(TraceRenderer(trace))
     }
+
+    private fun requestGhostId(request: String, eventId: String): String = when (eventId) {
+        "OnGhostChanging" -> "outgoing"
+        "OnGhostChanged" -> "replacement"
+        else -> request
+    }
+
+    private fun requestId(request: String): String? = request.lineSequence()
+        .firstOrNull { it.startsWith("ID: ") }
+        ?.removePrefix("ID: ")
+
+    private fun references(request: String): List<String> = request.lineSequence()
+        .filter { it.startsWith("Reference") }
+        .map { it.substringAfter(": ") }
+        .toList()
 
     private class Trace {
-        private val events: MutableList<String?> = ArrayList<String?>()
-
-        fun add(event: String?) {
-            events.add(event)
-        }
-
-        fun clear() {
-            events.clear()
-        }
-
-        fun events(): MutableList<String?> {
-            return ArrayList<String?>(events)
-        }
-    }
-
-    private class RecordingStatusCallback
-        (private val trace: Trace) : com.cattailsw.nanidroid.SScriptRunner.StatusCallback {
-        override fun stop() {
-            // Generic runner-stop notification is outside the handoff oracle.
-        }
-
-        override fun canExit() {
-            // Exit handling is outside the handoff oracle.
-        }
-
-        override fun ghostSwitchScriptComplete() {
-            trace.add("handoff")
-        }
-    }
-
-    private class RecordingGhost(
-        ghostId: String,
-        ghostName: String?,
-        sakuraName: String?,
-        createCount: Long,
-        private val transitionScript: String?,
-        private val trace: Trace,
-        private val lifecycle: Trace? = null,
-        ghostPath: String = ghostId,
-    ) : com.cattailsw.nanidroid.Ghost(
-        ghostPath
-    ) {
-        private val fakeGhostId = ghostId
-        private var fakeGhostName = ghostName
-        private var fakeSakuraName = sakuraName
-        private val fakeCreateCount = createCount
-
-        override fun getGhostId(): String = fakeGhostId
-        override fun getGhostName(): String? = fakeGhostName
-        override fun getSakuraName(): String? = fakeSakuraName
-        override fun getKeroName(): String = "Kero"
-        override fun getUsername(): String = "User"
-        override fun getCreateCount(): Long = fakeCreateCount
-
-        override fun loadGhostInfo() {
-            // Test-only fake: no descriptors, surfaces, filesystem, or SHIORI engine.
-        }
-
-        override fun incrementCreateCount() {
-            // Test-only fake: create-count values are supplied explicitly.
-        }
-
-        fun suppressOutgoingName() {
-            fakeGhostName = null
-            fakeSakuraName = null
-        }
-public override fun doShioriEvent(
-            event: String,
-            ref: Array<String>?
-        ): com.cattailsw.nanidroid.ShioriResponse {
-            trace.add(
-                ("request:" + fakeGhostId + ":" + event + ":"
-                        + ref.contentToString())
-            )
-            if ("OnGhostChanging" == event && transitionScript != null) {
-                val values = Hashtable<String, String>()
-                values.put("Value", transitionScript)
-                return com.cattailsw.nanidroid.ShioriResponse("SHIORI/3.0 200 OK", values)
+        private val events = java.util.concurrent.CopyOnWriteArrayList<String?>()
+        fun add(event: String?) { events += event }
+        fun events(): MutableList<String?> = ArrayList(events)
+        fun awaitSize(expected: Int) {
+            repeat(10_000) {
+                if (events.size >= expected) return
+                Thread.yield()
             }
-            return com.cattailsw.nanidroid.ShioriResponse("SHIORI/3.0 204 No Content")
+            throw AssertionError("trace never reached $expected events: $events")
         }
-
-        public override fun unload() {
-            lifecycle?.add("unload")
-        }
-
     }
 
-    private class TraceRenderer(private val trace: Trace) :
-        com.cattailsw.nanidroid.GhostPresentationRenderer {
+    private class TraceRenderer(private val trace: Trace) : GhostPresentationRenderer {
         private var previousText = ""
-
-        public override fun render(frame: com.cattailsw.nanidroid.GhostPresentationFrame) {
-            val value: String = frame.sakura.text
-            if (value != previousText && value.length > 0) {
-                trace.add("render:" + value)
-            }
+        override fun render(frame: GhostPresentationFrame) {
+            val value = frame.sakura.text
+            if (value != previousText && value.isNotEmpty()) trace.add("render:$value")
             previousText = value
         }
     }
 
-    companion object {
-        private const val TRANSITION_SCRIPT = "\\_qSwitching\\e"
+    private companion object {
+        const val TRANSITION_SCRIPT = "\\_qSwitching\\e"
     }
 }

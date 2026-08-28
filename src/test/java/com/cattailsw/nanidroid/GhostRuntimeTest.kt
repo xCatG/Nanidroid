@@ -381,7 +381,8 @@ internal class RecordingShiori(
         return trace.response.get()
     }
 
-    override fun unloadShiori(): ShioriUnloadResult {
+    override
+    fun unloadShiori(): ShioriUnloadResult {
         trace.unloadCount.incrementAndGet()
         trace.commandThreadNames += Thread.currentThread().name
         return trace.unloadResults.poll() ?: ShioriUnloadResult.Unloaded
@@ -392,7 +393,7 @@ internal fun testRuntime(
     preparer: GhostPreparer,
     trace: RecordingShioriTrace,
     persistence: InMemoryGhostRuntimePersistence = InMemoryGhostRuntimePersistence(),
-    admission: AttachmentAdmission = AttachmentAdmission { _, _, _ -> RuntimeResult.Success(Unit) },
+    admission: AttachmentAdmission? = null,
 ): GhostRuntime = GhostRuntime.testRuntime(
     context = null,
     preparer = preparer,
@@ -410,6 +411,12 @@ internal fun preparedGhost(
     engine: GhostEngine = GhostEngine.Unsupported,
     name: String? = ghostId,
     shellName: String? = "master",
+    crafterName: String? = null,
+    sakuraName: String? = null,
+    keroName: String? = null,
+    surfaces: SurfaceCatalog = SurfaceCatalog.freeze(emptyMap()),
+    ghostDescriptor: Map<String, String> = emptyMap(),
+    shellDescriptor: Map<String, String>? = null,
     nanidroidContent: Map<String, String> = emptyMap(),
 ): PreparedGhost = PreparedGhost(
     operationId = operationId,
@@ -417,12 +424,12 @@ internal fun preparedGhost(
     canonicalRoot = canonicalRoot.canonicalFile,
     name = name,
     shellName = shellName,
-    crafterName = null,
-    sakuraName = null,
-    keroName = null,
-    surfaces = SurfaceCatalog.freeze(emptyMap()),
-    ghostDescriptor = emptyMap(),
-    shellDescriptor = null,
+    crafterName = crafterName,
+    sakuraName = sakuraName,
+    keroName = keroName,
+    surfaces = surfaces,
+    ghostDescriptor = ghostDescriptor,
+    shellDescriptor = shellDescriptor,
     engine = engine,
     nanidroidContent = nanidroidContent,
 )

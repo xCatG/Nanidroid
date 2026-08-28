@@ -4,7 +4,6 @@ import android.content.Context
 import com.cattailsw.nanidroid.install.ArchiveInstallFailure
 import com.cattailsw.nanidroid.install.ArchiveInstallResult
 import com.cattailsw.nanidroid.install.NarTransactionalInstaller
-import com.cattailsw.nanidroid.util.PrefUtil
 import java.io.File
 
 internal fun shouldInstallBundledGhost(
@@ -15,10 +14,7 @@ internal fun shouldInstallBundledGhost(
 }
 
 /** Kotlin owner for ghost discovery, selection, and fresh installation. */
-internal class GhostMgr(
-    ctx: Context,
-    private val ghostRuntime: GhostRuntime,
-) {
+internal class GhostMgr(ctx: Context) {
     private val context = ctx.applicationContext
     private var ghosts: List<InstalledGhostMetadata> = loadGhosts()
     private var lastInstallError: String? = null
@@ -35,33 +31,15 @@ internal class GhostMgr(
 
     fun getGhostPath(id: Int): String = ghosts[id].canonicalRoot.path
 
-    internal fun createGhost(name: String): ReservedGhost? {
-        val id = getGhostId(name)
-        if (id == -1) return null
-        val root = File(getGhostPath(id)).canonicalFile
-        return ghostRuntime.reuseActiveGhost(root.name, root) ?: run {
-            val construction = ghostRuntime.beginGhostConstruction(root.name, root)
-            try {
-                construction.bind(Ghost(root.path, context))
-            } catch (error: Exception) {
-                construction.failConstruction()
-                throw error
-            } catch (error: LinkageError) {
-                construction.failConstruction()
-                throw error
-            }
-        }
-    }
+    internal fun findGhost(id: String): InstalledGhostMetadata? =
+        ghosts.firstOrNull { it.id.equals(id, ignoreCase = true) }
 
-    fun getLastRunGhostId(): String? =
-        if (PrefUtil.hasKey(context, PREF_LAST_RUN_GHOST)) {
-            PrefUtil.getKeyValue(context, PREF_LAST_RUN_GHOST)
-        } else {
-            null
+    internal fun launchCandidates(preferredId: String?): List<InstalledGhostMetadata> {
+        val preferred = preferredId?.let(::findGhost)
+        return buildList {
+            if (preferred != null) add(preferred)
+            ghosts.forEach { ghost -> if (ghost !== preferred) add(ghost) }
         }
-
-    fun setLastRunGhost(ghost: Ghost) {
-        PrefUtil.setKey(context, PREF_LAST_RUN_GHOST, ghost.getGhostDirName())
     }
 
     fun installFirstGhost(gid: String, narPath: String): String? =
@@ -167,7 +145,4 @@ internal class GhostMgr(
 
     fun getGhostPath(id: String): String = getGhostPath(getGhostId(id))
 
-    private companion object {
-        const val PREF_LAST_RUN_GHOST = "lastrunghost"
-    }
 }
