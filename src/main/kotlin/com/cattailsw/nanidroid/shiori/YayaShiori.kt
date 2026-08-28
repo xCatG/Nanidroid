@@ -99,6 +99,14 @@ class YayaShiori(
             { ShioriUnloadResult.Failed(it, ownershipCertain = false) },
         )
 
+    internal fun probeNativeCharsetAndRequestAfterUnloadForTesting(): List<NativePostUnloadProbeResult> =
+        listOf(
+            capturePostUnloadProbeForTesting("charset") { nativeTransportCharset() },
+            capturePostUnloadProbeForTesting("request") {
+                nativeRequest("GET SHIORI/3.0\r\n\r\n".toByteArray())
+            },
+        )
+
     private external fun nativeLoad(path: String, cacheDirectory: String): Int
     private external fun nativeTransportCharset(): String
     private external fun nativeRequest(request: ByteArray): ByteArray

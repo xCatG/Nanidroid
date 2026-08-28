@@ -96,6 +96,34 @@ class GhostPreparationTest {
         )
     }
 
+    @Test
+    fun `function backed test preparer receives exact operation identity and root`() {
+        val root = temporaryFolder.newFolder("scripted").canonicalFile
+        val calls = mutableListOf<Triple<Long, String, File>>()
+        val expected = PreparedGhost(
+            operationId = 73L,
+            id = "scripted",
+            canonicalRoot = root,
+            name = "Scripted",
+            shellName = "master",
+            crafterName = null,
+            sakuraName = null,
+            keroName = null,
+            surfaces = SurfaceCatalog.freeze(emptyMap()),
+            ghostDescriptor = emptyMap(),
+            shellDescriptor = null,
+            engine = GhostEngine.Unsupported,
+            nanidroidContent = emptyMap(),
+        )
+        val preparer = GhostPreparer { operationId, ghostId, canonicalRoot ->
+            calls += Triple(operationId, ghostId, canonicalRoot)
+            expected
+        }
+
+        assertSame(expected, preparer.prepare(73L, "scripted", root))
+        assertEquals(listOf(Triple(73L, "scripted", root)), calls)
+    }
+
     private fun createFixtureGhost(): File {
         val root = temporaryFolder.newFolder("fixture")
         val ghostMaster = File(root, "ghost/master").apply { mkdirs() }

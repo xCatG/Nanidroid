@@ -75,8 +75,18 @@ internal data class PreparedGhost(
 )
 
 /** Reads installed ghost files into immutable data without constructing an active session. */
-internal class GhostPreparer(@Suppress("UNUSED_PARAMETER") context: Context?) {
+internal class GhostPreparer private constructor(
+    @Suppress("UNUSED_PARAMETER") context: Context?,
+    private val scriptedPreparation: ((Long, String, File) -> PreparedGhost)?,
+) {
+    constructor(context: Context?) : this(context, null)
+
+    internal constructor(
+        scriptedPreparation: (Long, String, File) -> PreparedGhost,
+    ) : this(null, scriptedPreparation)
+
     fun prepare(operationId: Long, ghostId: String, canonicalRoot: File): PreparedGhost {
+        scriptedPreparation?.let { return it(operationId, ghostId, canonicalRoot) }
         val root = canonicalRoot.canonicalFile
         require(root.isDirectory) { "Ghost root is not a directory: ${root.path}" }
         require(ghostId == root.name) { "Ghost ID $ghostId does not match root ${root.name}" }

@@ -3,11 +3,14 @@ package com.cattailsw.nanidroid.runtime.dialogue
 import com.cattailsw.nanidroid.Ghost
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.shiori.Shiori
+import com.cattailsw.nanidroid.shiori.ShioriRequestException
 import java.io.BufferedReader
 import java.io.StringReader
 import java.util.Hashtable
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Rule
 import org.junit.Test
 
@@ -144,6 +147,39 @@ class GhostEventCapabilitiesTest {
 
         assertEquals(PointerEventCapabilities(Support.SUPPORTED, Support.UNKNOWN), capabilities)
         assertEquals(listOf("OnMouseClick", "OnMouseDoubleClick"), probedEvents)
+    }
+
+    @Test
+    fun `ownership-certain optional probe failure remains unknown and discovery continues`() {
+        val probedEvents = mutableListOf<String>()
+        val capabilities = GhostEventCapabilityDiscovery.discover { _, eventId, references ->
+            when (eventId) {
+                "Get_Supported_Events" -> response()
+                "Has_Event" -> when (references.single().also(probedEvents::add)) {
+                    "OnMouseClick" -> throw ShioriRequestException(
+                        "known request failure",
+                        ownershipCertain = true,
+                    )
+                    "OnMouseDoubleClick" -> response("X-SSTP-PassThru-Result" to "1")
+                    else -> error("unexpected probe")
+                }
+                else -> error("unexpected event")
+            }
+        }
+
+        assertEquals(PointerEventCapabilities(Support.UNKNOWN, Support.SUPPORTED), capabilities)
+        assertEquals(listOf("OnMouseClick", "OnMouseDoubleClick"), probedEvents)
+    }
+
+    @Test
+    fun `ownership-uncertain optional probe failure escapes discovery immediately`() {
+        val failure = ShioriRequestException("ownership lost", ownershipCertain = false)
+
+        val thrown = assertThrows(ShioriRequestException::class.java) {
+            GhostEventCapabilityDiscovery.discover { _, _, _ -> throw failure }
+        }
+
+        assertSame(failure, thrown)
     }
 
     @Test

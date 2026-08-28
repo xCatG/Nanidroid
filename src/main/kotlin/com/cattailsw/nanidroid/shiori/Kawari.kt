@@ -88,6 +88,11 @@ class Kawari(private val path: String) : Shiori {
             { ShioriUnloadResult.Failed(it, ownershipCertain = false) },
         )
 
+    internal fun probeNativeRequestAfterUnloadForTesting(): NativePostUnloadProbeResult =
+        capturePostUnloadProbeForTesting("request") {
+            requestFromJNI("GET SHIORI/3.0\r\n\r\n".toByteArray(SHIFT_JIS))
+        }
+
     private external fun nativeLoad(path: String): Int
     private external fun nativeUnload(): Boolean
     private external fun requestFromJNI(req: ByteArray): ByteArray

@@ -3,6 +3,12 @@ package com.cattailsw.nanidroid.shiori
 import android.content.Context
 import java.nio.charset.Charset
 
+internal data class NativePostUnloadProbeResult(
+    val operation: String,
+    val rejected: Boolean,
+    val failureType: String?,
+)
+
 /** Android JNI host for the bundled Satori SHIORI implementation. */
 class SatoriShiori(
     private val path: String,
@@ -101,6 +107,11 @@ class SatoriShiori(
             { ShioriUnloadResult.Failed(it, ownershipCertain = false) },
         )
 
+    internal fun probeNativeRequestAfterUnloadForTesting(): NativePostUnloadProbeResult =
+        capturePostUnloadProbeForTesting("request") {
+            nativeRequest("GET SHIORI/3.0\r\n\r\n".toByteArray(SHIFT_JIS))
+        }
+
     private external fun nativeLoad(path: String, cacheDirectory: String): Int
     private external fun nativeRequest(request: ByteArray): ByteArray
     private external fun nativeUnload(): Boolean
@@ -116,4 +127,14 @@ class SatoriShiori(
             System.loadLibrary("satoriya")
         }
     }
+}
+
+internal inline fun capturePostUnloadProbeForTesting(
+    operation: String,
+    block: () -> Unit,
+): NativePostUnloadProbeResult = try {
+    block()
+    NativePostUnloadProbeResult(operation, rejected = false, failureType = null)
+} catch (failure: Throwable) {
+    NativePostUnloadProbeResult(operation, rejected = true, failureType = failure::class.java.name)
 }
