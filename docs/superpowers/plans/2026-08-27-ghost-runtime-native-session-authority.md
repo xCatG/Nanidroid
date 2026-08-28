@@ -1066,6 +1066,14 @@ Add a device test that blocks the adapter from a real timer route, proves a
 queued main-looper pulse still runs, releases the request, and proves response
 admission occurs on the main looper.
 
+For authored playback requests, keep a separate pending-response bit on the
+exact `PlaybackState`; do not reuse the user-input pause flag. `loopControl`
+does not advance, reset, or stop that state until admission terminalizes. Queue
+a playable returned script before clearing the bit and resuming. Failure, 204,
+stale generation, pre-submit unpinning, stop, and replacement must all clear or
+retire the bit without reviving a dead state. Add blocked `OnSurfaceChange`
+device cases for live response ordering and stopped/replaced stale completion.
+
 - [ ] **Step 6: Replace startup reservations with runtime joining/attachment**
 
 `GhostMgr` returns immutable catalog roots. `Nanidroid` first reads runtime

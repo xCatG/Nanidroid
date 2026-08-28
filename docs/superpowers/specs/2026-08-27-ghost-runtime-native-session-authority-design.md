@@ -220,6 +220,13 @@ observes an asynchronous result outside the command and schedules admission on
 the main-side response scheduler. Callers must not hold the runner monitor
 while waiting for a runtime result, and main-looper callers never wait.
 
+An authored playback request such as `OnSurfaceChange` temporarily suspends
+only the exact initiating playback sequence. Its fenced response is admitted
+before that sequence resumes, so a short initiating script cannot finish and
+discard a delayed returned `Value`. Failure, stale, unscheduled, stop, and
+replacement paths clear the pending state exactly once without reviving an old
+playback or changing a user-input pause.
+
 Bootstrap capability discovery executes directly inside the load command on
 the runtime thread. It must not submit a nested command to its own executor.
 YAYA's charset query before request encoding and after native response remains
