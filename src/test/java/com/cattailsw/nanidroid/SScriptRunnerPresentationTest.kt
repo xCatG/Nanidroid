@@ -50,9 +50,12 @@ class SScriptRunnerPresentationTest {
         runner.run()
         scheduler.runAll()
 
-        Assert.assertTrue(
-            frames.any { it.sakura.text == "complete" && it.sakura.surfaceId == "120" },
-        )
+        val finalAuthoredFrame = frames[frames.lastIndex - 1]
+        Assert.assertEquals("complete", finalAuthoredFrame.sakura.text)
+        Assert.assertEquals("120", finalAuthoredFrame.sakura.surfaceId)
+        // \e clears the visible frame after the final authored frame; asserting this
+        // separately keeps the assertion pinned to the last authored presentation.
+        Assert.assertEquals("", frames.last().sakura.text)
         Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
     }
 

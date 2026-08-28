@@ -6,7 +6,9 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -85,23 +87,58 @@ class SScriptRunnerDialogueObserverTest {
 
     @Test
     fun pendingInputRestoresOnlyAgainstSameDialogueIncarnationAndGeneration() {
-        val runner = runner()
-        val binding = DialogueDialogBinding { runner }
-        runner.addMsgToQueue(arrayOf("\\![open,passwordinput,first,1000]\\e"))
+        val firstFixture = fixture(id = "first")
+        val runner = firstFixture.runner
+        var attachedRunner = runner
+        val binding = DialogueDialogBinding { attachedRunner }
+        runner.addMsgToQueue(arrayOf("\\![open,passwordinput,answer,1000]\\e"))
         runner.run()
         val first = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
         val firstRestoration = requireNotNull(binding.userInput(first).restoration)
 
-        runner.clearMsgQueue()
-        runner.addMsgToQueue(arrayOf("\\![open,inputbox,replacement,1000]\\e"))
-        runner.run()
-        val replacement = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
+        val outgoing = firstFixture.requireHandle()
+        val targetRoot = File("build/runtime-fixtures/observer/restoration-replacement")
+        val operationId = assertIs<RuntimeResult.Success<Long>>(
+            firstFixture.runtime.beginSwitch(outgoing.generation, "replacement", targetRoot),
+        ).value
+        assertTrue(runner.doGhostChanging(operationId, "Replacement", "manual", targetRoot.path))
+        val replacement = runBlocking {
+            assertIs<RuntimeResult.Success<GhostHandle>>(
+                firstFixture.runtime.startOrJoin("replacement", targetRoot),
+            ).value
+        }
+        runBlocking {
+            assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+                firstFixture.runtime.attachHost(replacement.generation),
+            )
+        }
 
-        assertEquals(null, binding.restoreUserInput("first", firstRestoration))
-        val replacementRestoration = requireNotNull(binding.userInput(replacement).restoration)
+        // The same authored input ID is a new dialogue incarnation after switching ghosts.
+        runner.addMsgToQueue(arrayOf("\\![open,inputbox,answer,1000]\\e"))
+        runner.run()
+        val replacementInput = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
+        val replacementRestoration = requireNotNull(binding.userInput(replacementInput).restoration)
+        assertNotEquals(firstRestoration.owner, replacementRestoration.owner)
+        assertNull(binding.restoreUserInput("answer", firstRestoration))
         assertEquals(
             "draft",
-            requireNotNull(binding.restoreUserInput("replacement", replacementRestoration, "draft")).value,
+            requireNotNull(binding.restoreUserInput("answer", replacementRestoration, "draft")).value,
+        )
+
+        // A newly attached runner can reuse both an authored input ID and the first input
+        // generation, so its distinct dialogue owner must reject the stale restoration too.
+        val successor = fixture(id = "successor").runner
+        attachedRunner = successor
+        successor.addMsgToQueue(arrayOf("\\![open,inputbox,answer,1000]\\e"))
+        successor.run()
+        val successorInput = requireNotNull(successor.dialogueStateSnapshot().pendingInput)
+        val successorRestoration = requireNotNull(binding.userInput(successorInput).restoration)
+        assertEquals(first.generation, successorInput.generation)
+        assertNotEquals(firstRestoration.owner, successorRestoration.owner)
+        assertNull(binding.restoreUserInput("answer", firstRestoration))
+        assertEquals(
+            "current draft",
+            requireNotNull(binding.restoreUserInput("answer", successorRestoration, "current draft")).value,
         )
     }
 

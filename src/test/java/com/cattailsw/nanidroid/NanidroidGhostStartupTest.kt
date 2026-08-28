@@ -1,14 +1,24 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
+import com.cattailsw.nanidroid.install.ArchiveInstallResult
+import com.cattailsw.nanidroid.install.ForegroundNarImportBackend
+import com.cattailsw.nanidroid.install.ForegroundNarImportCoordinator
+import com.cattailsw.nanidroid.install.ForegroundNarImportState
+import com.cattailsw.nanidroid.install.NarDocumentSelection
+import com.cattailsw.nanidroid.install.NarImportRecoveryResult
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Runnable
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.util.ArrayDeque
+import kotlin.coroutines.CoroutineContext
 
 class NanidroidGhostStartupTest {
     @get:Rule
@@ -21,13 +31,52 @@ class NanidroidGhostStartupTest {
         }
         val context = mockk<Context>()
         every { context.getExternalFilesDir(null) } returns externalRoot
+        every { context.applicationContext } returns context
         try {
-            descriptor(File(externalRoot, ".nanidroid-install-staging/import/ghost-a"))
+            val dispatcher = QueuedDispatcher()
+            lateinit var manager: GhostMgr
+            val coordinator = ForegroundNarImportCoordinator(
+                backend = object : ForegroundNarImportBackend {
+                    override fun recoverOwnedStaging() = NarImportRecoveryResult.Clean
 
-            assertTrue(InstalledGhostCatalog.scan(context).isEmpty())
+                    override fun importDocument(
+                        selection: NarDocumentSelection,
+                        isCancelled: () -> Boolean,
+                        onInstallingProgress: (String, Long) -> Unit,
+                    ): ArchiveInstallResult {
+                        // The catalog cannot have been published while the committed root is absent.
+                        assertEquals(0, manager.getGhostCount())
+                        descriptor(File(externalRoot, "ghost/ghost-a"))
+                        return ArchiveInstallResult.Installed(
+                            File(externalRoot, "ghost/ghost-a").path,
+                            "ghost-a",
+                        )
+                    }
+                },
+                dispatcher = dispatcher,
+                processNonce = "catalog-test",
+            )
+            dispatcher.runNext()
+            manager = GhostMgr(context)
+            val token = requireNotNull(coordinator.armPicker())
 
-            descriptor(File(externalRoot, "ghost/ghost-a"))
-            assertEquals(listOf("ghost-a"), InstalledGhostCatalog.scan(context).map { it.id })
+            assertTrue(
+                coordinator.consumePickerResult(
+                    token,
+                    NarDocumentSelection("content://fixture/ghost-a.nar", "ghost-a.nar"),
+                    importAllowed = true,
+                ),
+            )
+            assertEquals(ForegroundNarImportState.Copying(token), coordinator.state.value)
+            assertEquals(0, manager.getGhostCount())
+
+            dispatcher.runNext()
+
+            assertTrue(coordinator.state.value is ForegroundNarImportState.Installed)
+            assertEquals(0, manager.getGhostCount())
+            manager.refreshGhost()
+
+            assertEquals(listOf("ghost-a"), requireNotNull(manager.getGnames()).toList())
         } finally {
             externalRoot.deleteRecursively()
         }
@@ -127,5 +176,15 @@ class NanidroidGhostStartupTest {
         File(root, "ghost/master/descript.txt").writeText(
             "charset,UTF-8\nname,Fixture\nsakura.name,Sakura\n",
         )
+    }
+
+    private class QueuedDispatcher : CoroutineDispatcher() {
+        private val tasks = ArrayDeque<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            tasks.addLast(block)
+        }
+
+        fun runNext() = requireNotNull(tasks.pollFirst()).run()
     }
 }

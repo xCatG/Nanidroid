@@ -42,6 +42,25 @@ class SScriptRunnerDialogueTimingTest {
     }
 
     @Test
+    fun authoredWaitControlsTheNextScheduledPlaybackStepBeforeLaterTextPublishes() {
+        val scheduler = RecordingScheduler()
+        val runner = runner(scheduler)
+        runner.addMsgToQueue(arrayOf("\\hA\\_w[321]B\\e"))
+        runner.run()
+
+        scheduler.runNext()
+        assertEquals("A", runner.dialogueStateSnapshot().contents.single().segments.text())
+        assertEquals(listOf(50L), scheduler.delays())
+
+        scheduler.runNext()
+        assertEquals("A", runner.dialogueStateSnapshot().contents.single().segments.text())
+        assertEquals(listOf(321L), scheduler.delays())
+
+        scheduler.runNext()
+        assertEquals("AB", runner.dialogueStateSnapshot().contents.single().segments.text())
+    }
+
+    @Test
     fun playbackProjectsTextAndClearInStepOrderWithoutLeakingPostWaitContent() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
@@ -331,17 +350,20 @@ class SScriptRunnerDialogueTimingTest {
         (spec.dispatch as com.cattailsw.nanidroid.runtime.dialogue.InputDispatch.Normal).id
 
     private class RecordingScheduler : SScriptPlaybackScheduler {
-        private val pending = ArrayDeque<() -> Unit>()
+        private data class Scheduled(val delayMillis: Long, val action: () -> Unit)
+        private val pending = ArrayDeque<Scheduled>()
 
         override fun schedule(delayMillis: Long, action: () -> Unit) {
-            pending.addLast(action)
+            pending.addLast(Scheduled(delayMillis, action))
         }
 
         override fun cancelPending() {
             pending.clear()
         }
 
-        fun runNext() = requireNotNull(pending.removeFirstOrNull()).invoke()
+        fun runNext() = requireNotNull(pending.removeFirstOrNull()).action()
+
+        fun delays(): List<Long> = pending.map(Scheduled::delayMillis)
 
         fun runUntil(predicate: () -> Boolean) {
             repeat(100) {

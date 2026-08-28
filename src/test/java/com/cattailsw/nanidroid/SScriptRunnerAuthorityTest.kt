@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid
 
+import com.cattailsw.nanidroid.runtime.MonotonicClock
 import java.lang.reflect.Modifier
 import org.junit.Assert
 import org.junit.Rule
@@ -33,6 +34,40 @@ class SScriptRunnerAuthorityTest {
             Assert.assertFalse(second.runtimeModeSnapshot().playingTalk)
 
             first.clearMsgQueue()
+        }
+    }
+
+    @Test
+    fun scheduledPlaybackCallbacksRemainOwnedByTheirCreatingRunner() {
+        val firstScheduler = ManualRuntimeScheduler()
+        val secondScheduler = ManualRuntimeScheduler()
+        RuntimeFixture(
+            id = "first-scheduler",
+            runnerConfiguration = SScriptRunnerConfiguration(
+                monotonicClock = MonotonicClock { 10_000L },
+                playbackSchedulerFactory = { firstScheduler },
+            ),
+        ).use { firstFixture ->
+            RuntimeFixture(
+                id = "second-scheduler",
+                runnerConfiguration = SScriptRunnerConfiguration(
+                    monotonicClock = MonotonicClock { 10_000L },
+                    playbackSchedulerFactory = { secondScheduler },
+                ),
+            ).use { secondFixture ->
+                firstFixture.runner.addMsgToQueue(arrayOf("\\hfirst\\e"))
+                firstFixture.runner.run()
+
+                Assert.assertEquals(listOf(0L), firstScheduler.delays())
+                Assert.assertTrue(secondScheduler.delays().isEmpty())
+
+                // Clearing another runtime must not cancel first's playback callback.
+                secondFixture.runner.clearMsgQueue()
+                firstScheduler.runAll()
+
+                Assert.assertFalse(firstFixture.runner.runtimeModeSnapshot().playingTalk)
+                Assert.assertTrue(secondScheduler.delays().isEmpty())
+            }
         }
     }
 
