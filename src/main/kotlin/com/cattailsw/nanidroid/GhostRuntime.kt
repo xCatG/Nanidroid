@@ -306,12 +306,34 @@ internal class GhostRuntime private constructor(
     internal fun requestAsync(
         expectedGeneration: Long,
         intent: ShioriRequestIntent,
+    ): RuntimeRequestSubmission = submitRequestAsync {
+        requestOnNative(expectedGeneration, intent)
+    }
+
+    internal fun requestWithFallback(
+        expectedGeneration: Long,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+    ): RuntimeResult<TaggedShioriResponse> = submitNativeResult {
+        requestWithFallbackOnNative(expectedGeneration, primary, fallback)
+    }
+
+    internal fun requestWithFallbackAsync(
+        expectedGeneration: Long,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+    ): RuntimeRequestSubmission = submitRequestAsync {
+        requestWithFallbackOnNative(expectedGeneration, primary, fallback)
+    }
+
+    private fun submitRequestAsync(
+        command: () -> RuntimeResult<TaggedShioriResponse>,
     ): RuntimeRequestSubmission {
         val completion = CompletableFuture<RuntimeResult<TaggedShioriResponse>>()
         return try {
             nativeExecutor.execute {
                 val result = try {
-                    requestOnNative(expectedGeneration, intent)
+                    command()
                 } catch (failure: Throwable) {
                     fatalResult(failure)
                 }
@@ -324,6 +346,30 @@ internal class GhostRuntime private constructor(
             )
         }
     }
+
+    private fun requestWithFallbackOnNative(
+        expectedGeneration: Long,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+    ): RuntimeResult<TaggedShioriResponse> {
+        val primaryResult = requestOnNative(expectedGeneration, primary)
+        return when (primaryResult) {
+            is RuntimeResult.Success -> {
+                if (primaryResult.value.response.isPlayable()) {
+                    primaryResult
+                } else {
+                    requestOnNative(expectedGeneration, fallback)
+                }
+            }
+            is RuntimeResult.Failure -> when (primaryResult.failure) {
+                is RuntimeFailure.Replayable -> requestOnNative(expectedGeneration, fallback)
+                else -> primaryResult
+            }
+        }
+    }
+
+    private fun ShioriResponse.isPlayable(): Boolean =
+        getStatusCode() == 200 && !getKey("Value").isNullOrEmpty()
 
     private fun requestOnNative(
         expectedGeneration: Long,

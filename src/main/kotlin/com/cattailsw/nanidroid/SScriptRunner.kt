@@ -1119,6 +1119,36 @@ open class SScriptRunner internal constructor(
         intent: ShioriRequestIntent,
         onUnscheduled: () -> Unit = {},
         admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
+    ): Boolean = requestPinnedCommand(
+        handle = handle,
+        onUnscheduled = onUnscheduled,
+        request = { runtimePort.request(handle.generation, intent) },
+        requestAsync = { runtimePort.requestAsync(handle.generation, intent) },
+        admission = admission,
+    )
+
+    private fun requestPinnedWithFallback(
+        handle: GhostHandle,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+        admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
+    ): Boolean = requestPinnedCommand(
+        handle = handle,
+        request = {
+            runtimePort.requestWithFallback(handle.generation, primary, fallback)
+        },
+        requestAsync = {
+            runtimePort.requestWithFallbackAsync(handle.generation, primary, fallback)
+        },
+        admission = admission,
+    )
+
+    private fun requestPinnedCommand(
+        handle: GhostHandle,
+        onUnscheduled: () -> Unit = {},
+        request: () -> RuntimeResult<TaggedShioriResponse>,
+        requestAsync: () -> RuntimeRequestSubmission,
+        admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
     ): Boolean {
         if (!isPinnedHandle(handle)) {
             onUnscheduled()
@@ -1147,9 +1177,9 @@ open class SScriptRunner internal constructor(
         // looper the Boolean is an acceptance receipt; the generation-fenced response is
         // admitted later by the main-side scheduler.
         if (!runsOnMainLooper()) {
-            return admit(runtimePort.request(handle.generation, intent))
+            return admit(request())
         }
-        return when (val submission = runtimePort.requestAsync(handle.generation, intent)) {
+        return when (val submission = requestAsync()) {
             is RuntimeRequestSubmission.Accepted -> observeRequest(submission, ::admit)
             is RuntimeRequestSubmission.Rejected -> {
                 responseScheduler.value.schedule { admit(submission.failure) }
@@ -1336,27 +1366,20 @@ open class SScriptRunner internal constructor(
             return true
         }
 
-        fun requestFallback(): Boolean {
-            val fallbackEvent = fallback?.invoke(claimed) ?: return false
-            if (!isPinnedHandle(handle)) return false
-            return requestPinned(
+        val primaryEvent = primary(claimed)
+        val primaryIntent = ShioriRequestIntent.event(primaryEvent.event, primaryEvent.references)
+        val fallbackEvent = fallback?.invoke(claimed)
+        if (fallbackEvent != null) {
+            return requestPinnedWithFallback(
                 handle,
+                primaryIntent,
                 ShioriRequestIntent.event(fallbackEvent.event, fallbackEvent.references),
-            ) { fallbackResult ->
-                enqueueIfPlayable((fallbackResult as? RuntimeResult.Success)?.value)
+            ) { finalResult ->
+                enqueueIfPlayable((finalResult as? RuntimeResult.Success)?.value)
             }
         }
-
-        val primaryEvent = primary(claimed)
-        return requestPinned(
-            handle,
-            ShioriRequestIntent.event(primaryEvent.event, primaryEvent.references),
-        ) { primaryResult ->
-            if (enqueueIfPlayable((primaryResult as? RuntimeResult.Success)?.value)) {
-                true
-            } else {
-                requestFallback()
-            }
+        return requestPinned(handle, primaryIntent) { primaryResult ->
+            enqueueIfPlayable((primaryResult as? RuntimeResult.Success)?.value)
         }
     }
 

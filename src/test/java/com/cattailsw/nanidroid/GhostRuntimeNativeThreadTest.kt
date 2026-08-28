@@ -454,6 +454,251 @@ class GhostRuntimeNativeThreadTest {
     }
 
     @Test
+    fun atomicFallbackSkipsLegacyWhenPrimaryIsPlayable() = runBlocking {
+        val root = root("atomic-playable-primary")
+        val trace = RecordingShioriTrace().apply {
+            requestHandler.set { request ->
+                when (requestEventId(request)) {
+                    "OnChoiceSelectEx" -> "SHIORI/3.0 200 OK\r\nValue: \\hPrimary\\e\r\n\r\n"
+                    "OnChoiceSelect" -> error("Legacy fallback must not run after a playable primary")
+                    else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+                }
+            }
+        }
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+            trace.requests.clear()
+
+            val result = awaitAccepted(
+                runtime.requestWithFallbackAsync(
+                    handle.generation,
+                    ShioriRequestIntent.event("OnChoiceSelectEx"),
+                    ShioriRequestIntent.event("OnChoiceSelect"),
+                ),
+            )
+
+            assertEquals(
+                "\\hPrimary\\e",
+                assertIs<RuntimeResult.Success<TaggedShioriResponse>>(result).value.response.getKey("Value"),
+            )
+            assertEquals(listOf("OnChoiceSelectEx"), trace.requests.mapNotNull(::requestEventId))
+        }
+        Unit
+    }
+
+    @Test
+    fun atomicFallbackPrecedesUnrelatedRequestQueuedBehindPrimary() = runBlocking {
+        val root = root("atomic-fallback-order")
+        val primaryEntered = CountDownLatch(1)
+        val releasePrimary = CountDownLatch(1)
+        val trace = RecordingShioriTrace().apply {
+            requestHandler.set { request ->
+                when (requestEventId(request)) {
+                    "OnChoiceSelectEx" -> {
+                        primaryEntered.countDown()
+                        assertTrue(releasePrimary.await(5, TimeUnit.SECONDS))
+                        "SHIORI/3.0 204 No Content\r\n\r\n"
+                    }
+                    "OnChoiceSelect" -> "SHIORI/3.0 200 OK\r\nValue: \\hFallback\\e\r\n\r\n"
+                    else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+                }
+            }
+        }
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        try {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+            trace.requests.clear()
+            val dialogue = assertIs<RuntimeRequestSubmission.Accepted>(
+                runtime.requestWithFallbackAsync(
+                    handle.generation,
+                    ShioriRequestIntent.event("OnChoiceSelectEx"),
+                    ShioriRequestIntent.event("OnChoiceSelect"),
+                ),
+            )
+            assertTrue(primaryEntered.await(5, TimeUnit.SECONDS))
+            val unrelated = assertIs<RuntimeRequestSubmission.Accepted>(
+                runtime.requestAsync(
+                    handle.generation,
+                    ShioriRequestIntent.event("OnSecondChange"),
+                ),
+            )
+
+            releasePrimary.countDown()
+            assertIs<RuntimeResult.Success<TaggedShioriResponse>>(
+                dialogue.result.get(5, TimeUnit.SECONDS),
+            )
+            assertIs<RuntimeResult.Success<TaggedShioriResponse>>(
+                unrelated.result.get(5, TimeUnit.SECONDS),
+            )
+            assertEquals(
+                listOf("OnChoiceSelectEx", "OnChoiceSelect", "OnSecondChange"),
+                trace.requests.mapNotNull(::requestEventId),
+            )
+        } finally {
+            releasePrimary.countDown()
+            runtime.close()
+        }
+        Unit
+    }
+
+    @Test
+    fun atomicFallbackRunsAfterReplayablePrimaryFailure() = runBlocking {
+        val root = root("atomic-replayable-primary")
+        val trace = RecordingShioriTrace().apply {
+            requestHandler.set { request ->
+                when (requestEventId(request)) {
+                    "OnChoiceSelectEx" -> throw ShioriRequestException(
+                        "primary failed with known ownership",
+                        ownershipCertain = true,
+                    )
+                    "OnChoiceSelect" -> "SHIORI/3.0 200 OK\r\nValue: \\hFallback\\e\r\n\r\n"
+                    else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+                }
+            }
+        }
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+            trace.requests.clear()
+
+            assertIs<RuntimeResult.Success<TaggedShioriResponse>>(
+                awaitAccepted(
+                    runtime.requestWithFallbackAsync(
+                        handle.generation,
+                        ShioriRequestIntent.event("OnChoiceSelectEx"),
+                        ShioriRequestIntent.event("OnChoiceSelect"),
+                    ),
+                ),
+            )
+            assertEquals(
+                listOf("OnChoiceSelectEx", "OnChoiceSelect"),
+                trace.requests.mapNotNull(::requestEventId),
+            )
+            assertEquals(GhostRuntimePhase.Unattached, runtime.identity().phase)
+        }
+        Unit
+    }
+
+    @Test
+    fun atomicFallbackFailureIsTheFinalResult() = runBlocking {
+        val root = root("atomic-fallback-failure")
+        val trace = RecordingShioriTrace().apply {
+            requestHandler.set { request ->
+                when (requestEventId(request)) {
+                    "OnChoiceSelectEx" -> "SHIORI/3.0 204 No Content\r\n\r\n"
+                    "OnChoiceSelect" -> throw ShioriRequestException(
+                        "fallback failed with known ownership",
+                        ownershipCertain = true,
+                    )
+                    else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+                }
+            }
+        }
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+            trace.requests.clear()
+
+            assertIs<RuntimeFailure.Replayable>(
+                assertIs<RuntimeResult.Failure>(
+                    awaitAccepted(
+                        runtime.requestWithFallbackAsync(
+                            handle.generation,
+                            ShioriRequestIntent.event("OnChoiceSelectEx"),
+                            ShioriRequestIntent.event("OnChoiceSelect"),
+                        ),
+                    ),
+                ).failure,
+            )
+            assertEquals(
+                listOf("OnChoiceSelectEx", "OnChoiceSelect"),
+                trace.requests.mapNotNull(::requestEventId),
+            )
+            assertEquals(GhostRuntimePhase.Unattached, runtime.identity().phase)
+        }
+        Unit
+    }
+
+    @Test
+    fun atomicFallbackDoesNotRunAfterFatalPrimaryFailure() = runBlocking {
+        val root = root("atomic-fatal-primary")
+        val trace = RecordingShioriTrace().apply {
+            requestHandler.set { request ->
+                when (requestEventId(request)) {
+                    "OnChoiceSelectEx" -> throw ShioriRequestException(
+                        "primary lost ownership",
+                        ownershipCertain = false,
+                    )
+                    "OnChoiceSelect" -> error("Legacy fallback must not run after a fatal primary")
+                    else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+                }
+            }
+        }
+        val runtime = testRuntime(scriptedPreparer(), trace)
+        val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+            runtime.startOrJoin(root.name, root),
+        ).value
+        trace.requests.clear()
+
+        assertIs<RuntimeFailure.Fatal>(
+            assertIs<RuntimeResult.Failure>(
+                awaitAccepted(
+                    runtime.requestWithFallbackAsync(
+                        handle.generation,
+                        ShioriRequestIntent.event("OnChoiceSelectEx"),
+                        ShioriRequestIntent.event("OnChoiceSelect"),
+                    ),
+                ),
+            ).failure,
+        )
+        assertEquals(listOf("OnChoiceSelectEx"), trace.requests.mapNotNull(::requestEventId))
+        assertEquals(GhostRuntimePhase.Poisoned, runtime.identity().phase)
+        runtime.close()
+        Unit
+    }
+
+    @Test
+    fun atomicFallbackRejectsStaleGenerationWithoutAdapterCalls() = runBlocking {
+        val root = root("atomic-stale-generation")
+        val trace = RecordingShioriTrace()
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val handle = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.startOrJoin(root.name, root),
+            ).value
+            trace.requests.clear()
+
+            assertIs<RuntimeFailure.StaleGeneration>(
+                assertIs<RuntimeResult.Failure>(
+                    awaitAccepted(
+                        runtime.requestWithFallbackAsync(
+                            handle.generation + 1L,
+                            ShioriRequestIntent.event("OnChoiceSelectEx"),
+                            ShioriRequestIntent.event("OnChoiceSelect"),
+                        ),
+                    ),
+                ).failure,
+            )
+            assertTrue(trace.requests.isEmpty())
+        }
+        Unit
+    }
+
+    @Test
     fun productionRuntimeRejectsLifecycleProbeWithoutJniWork() {
         val root = root("production-probe-rejected")
         val runtime = GhostRuntime(null)
@@ -483,4 +728,13 @@ class GhostRuntimeNativeThreadTest {
     }
 
     private fun root(name: String): File = File("build/ghost-runtime-native-thread-test/$name").canonicalFile
+
+    private fun awaitAccepted(
+        submission: RuntimeRequestSubmission,
+    ): RuntimeResult<TaggedShioriResponse> =
+        assertIs<RuntimeRequestSubmission.Accepted>(submission).result.get(5, TimeUnit.SECONDS)
+
+    private fun requestEventId(request: String): String? = request.lineSequence()
+        .firstOrNull { it.startsWith("ID: ") }
+        ?.removePrefix("ID: ")
 }

@@ -13,6 +13,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -211,6 +212,69 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
         }
     }
 
+    @Test
+    fun dialogueFallbackRemainsAdjacentWhenTimerQueuesBehindBlockedPrimary() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val primaryEntered = CountDownLatch(1)
+        val releasePrimary = CountDownLatch(1)
+        val timerObserved = CountDownLatch(1)
+        val fallbackPlayed = CountDownLatch(1)
+        val mainPulse = CountDownLatch(1)
+        val requestOrder = CopyOnWriteArrayList<String>()
+        val adapter = AtomicDialogueShiori(
+            primaryEntered,
+            releasePrimary,
+            timerObserved,
+            requestOrder,
+        )
+        val root = File(context.cacheDir, "dialogue-fallback-order-runtime").canonicalFile
+        val runtime = newRuntime(context, adapter)
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("dialogue-fallback", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.setPresentationRenderer { frame ->
+                if (frame.sakura.text == "Fallback") fallbackPlayed.countDown()
+            }
+            val action = AtomicReference<com.cattailsw.nanidroid.runtime.dialogue.DialogueAction?>()
+            instrumentation.runOnMainSync {
+                runtime.runner.setNoWaitMode(true)
+                runtime.runner.addMsgToQueue(arrayOf("\\h\\q[Choose,choice]\\e"))
+                runtime.runner.run()
+                action.set(runtime.runner.dialogueStateSnapshot().pendingChoices.single())
+            }
+
+            Handler(Looper.getMainLooper()).post {
+                runtime.runner.activateChoice(requireNotNull(action.get()))
+            }
+            assertTrue("Blocked dialogue primary did not start", primaryEntered.await(2, TimeUnit.SECONDS))
+            Handler(Looper.getMainLooper()).post {
+                runtime.runner.dispatchClockTickForTesting()
+                mainPulse.countDown()
+            }
+            assertTrue(
+                "Main looper blocked behind dialogue primary",
+                mainPulse.await(500, TimeUnit.MILLISECONDS),
+            )
+
+            releasePrimary.countDown()
+            assertTrue("Fallback response was not played", fallbackPlayed.await(2, TimeUnit.SECONDS))
+            assertTrue("Queued timer request was not observed", timerObserved.await(2, TimeUnit.SECONDS))
+            assertEquals(
+                listOf("OnChoiceSelectEx", "OnChoiceSelect", "OnSecondChange"),
+                requestOrder.toList(),
+            )
+        } finally {
+            releasePrimary.countDown()
+            runtime.close()
+        }
+    }
+
     private fun newRuntime(
         context: android.content.Context,
         adapter: Shiori,
@@ -258,6 +322,38 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
                 return response
             }
             return "SHIORI/3.0 204 No Content\r\n\r\n"
+        }
+
+        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
+    }
+
+    private class AtomicDialogueShiori(
+        private val primaryEntered: CountDownLatch,
+        private val releasePrimary: CountDownLatch,
+        private val timerObserved: CountDownLatch,
+        private val order: CopyOnWriteArrayList<String>,
+    ) : Shiori {
+        override fun getModuleName(): String = "AtomicDialogue"
+
+        override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
+
+        override fun request(request: String): String = when {
+            "ID: OnChoiceSelectEx\r\n" in request -> {
+                order += "OnChoiceSelectEx"
+                primaryEntered.countDown()
+                assertTrue("Timed out waiting to release dialogue primary", releasePrimary.await(3, TimeUnit.SECONDS))
+                "SHIORI/3.0 204 No Content\r\n\r\n"
+            }
+            "ID: OnChoiceSelect\r\n" in request -> {
+                order += "OnChoiceSelect"
+                "SHIORI/3.0 200 OK\r\nValue: \\hFallback\\e\r\n\r\n"
+            }
+            "ID: OnSecondChange\r\n" in request -> {
+                order += "OnSecondChange"
+                timerObserved.countDown()
+                "SHIORI/3.0 204 No Content\r\n\r\n"
+            }
+            else -> "SHIORI/3.0 204 No Content\r\n\r\n"
         }
 
         override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
