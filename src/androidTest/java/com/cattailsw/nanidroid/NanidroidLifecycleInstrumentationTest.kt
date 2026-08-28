@@ -60,7 +60,8 @@ class NanidroidLifecycleInstrumentationTest {
         requireResetSuccess(runtime)
         val preparationStarted = CountDownLatch(1)
         val allowPreparation = CountDownLatch(1)
-        val operationId = AtomicLong(NO_OPERATION)
+        val preparationOperationId = AtomicLong(NO_OPERATION)
+        val attachmentOperationId = AtomicLong(NO_OPERATION)
         val ghostId = AtomicReference<String?>()
         val prepareCount = AtomicInteger()
         val loadCount = AtomicInteger()
@@ -71,7 +72,7 @@ class NanidroidLifecycleInstrumentationTest {
         val hookToken = runtime.installTestHooksForTesting(
             GhostRuntimeTestHooks(
                 onPreparationStarted = { operation, id, _ ->
-                    operationId.compareAndSet(NO_OPERATION, operation)
+                    preparationOperationId.compareAndSet(NO_OPERATION, operation)
                     ghostId.compareAndSet(null, id)
                     prepareCount.incrementAndGet()
                     preparationStarted.countDown()
@@ -83,16 +84,17 @@ class NanidroidLifecycleInstrumentationTest {
                     )
                 },
                 onNativeLoadStarted = { operation, _ ->
-                    if (operation == operationId.get()) loadCount.incrementAndGet()
+                    if (operation == preparationOperationId.get()) loadCount.incrementAndGet()
                 },
                 onGenerationPublished = { generation, id ->
                     if (id == ghostId.get()) publishedGenerations.add(generation)
                 },
                 onActivationCommitted = { operation ->
-                    if (operation == operationId.get()) activationCount.incrementAndGet()
+                    attachmentOperationId.compareAndSet(NO_OPERATION, operation)
+                    if (operation == attachmentOperationId.get()) activationCount.incrementAndGet()
                 },
                 onBootAttempted = { operation, event ->
-                    if (operation == operationId.get()) bootEvents.add(event)
+                    if (operation == attachmentOperationId.get()) bootEvents.add(event)
                 },
                 onOutgoingUnloaded = { outgoingUnloadCount.incrementAndGet() },
             ),
@@ -124,6 +126,8 @@ class NanidroidLifecycleInstrumentationTest {
                 Assert.assertEquals(1, activationCount.get())
                 Assert.assertEquals(1, bootEvents.size)
                 Assert.assertTrue(bootEvents.single() in setOf("OnFirstBoot", "OnBoot"))
+                Assert.assertNotEquals(NO_OPERATION, attachmentOperationId.get())
+                Assert.assertNotEquals(preparationOperationId.get(), attachmentOperationId.get())
                 Assert.assertEquals(0, outgoingUnloadCount.get())
                 Assert.assertEquals(ghostId.get(), attached.ghost.id)
             }
@@ -142,6 +146,7 @@ class NanidroidLifecycleInstrumentationTest {
         val targetId = "runtime-recreation-${System.nanoTime()}"
         val targetRoot = java.io.File(application.cacheDir, targetId)
         val replacementOperation = AtomicLong(NO_OPERATION)
+        val targetAttachmentOperation = AtomicLong(NO_OPERATION)
         val targetPreparationStarted = CountDownLatch(1)
         val allowTargetPreparation = CountDownLatch(1)
         val outgoingUnloaded = CountDownLatch(1)
@@ -175,10 +180,13 @@ class NanidroidLifecycleInstrumentationTest {
                     if (id == targetId) targetGenerations.add(generation)
                 },
                 onActivationCommitted = { operation ->
-                    if (operation == replacementOperation.get()) targetActivationCount.incrementAndGet()
+                    if (replacementOperation.get() != NO_OPERATION) {
+                        targetAttachmentOperation.compareAndSet(NO_OPERATION, operation)
+                        if (operation == targetAttachmentOperation.get()) targetActivationCount.incrementAndGet()
+                    }
                 },
                 onBootAttempted = { operation, event ->
-                    if (operation == replacementOperation.get()) targetBootEvents.add(event)
+                    if (operation == targetAttachmentOperation.get()) targetBootEvents.add(event)
                 },
                 onOutgoingUnloaded = { operation ->
                     if (operation == replacementOperation.get()) {
@@ -254,6 +262,8 @@ class NanidroidLifecycleInstrumentationTest {
                 Assert.assertEquals(listOf(attached.nativeGeneration), targetGenerations.toList())
                 Assert.assertEquals(1, targetActivationCount.get())
                 Assert.assertEquals(listOf("OnFirstBoot"), targetBootEvents.toList())
+                Assert.assertNotEquals(NO_OPERATION, targetAttachmentOperation.get())
+                Assert.assertNotEquals(replacementOperation.get(), targetAttachmentOperation.get())
                 Assert.assertEquals(1, outgoingUnloadCount.get())
             }
         } finally {
