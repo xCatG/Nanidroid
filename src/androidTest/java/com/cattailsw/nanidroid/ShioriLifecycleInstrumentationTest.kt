@@ -28,6 +28,44 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ShioriLifecycleInstrumentationTest {
     @Test
+    fun emptyRootLeavesSatoriNativeOwnershipEmpty() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = createInvalidEngineRoot(context, "invalid-satori", "satori.dll")
+
+        try {
+            assertInvalidRootDoesNotAcquireOwner(root, context, GhostEngine.Satori)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun malformedDictionaryLeavesSatoriNativeOwnershipEmpty() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = createInvalidEngineRoot(context, "invalid-satori-dic", "satori.dll")
+        File(root, "ghost/master/dic-broken.txt")
+            .writeBytes(byteArrayOf(0x81.toByte(), 0x69))
+
+        try {
+            assertInvalidRootDoesNotAcquireOwner(root, context, GhostEngine.Satori)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun emptyRootLeavesYayaNativeOwnershipEmpty() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = createInvalidEngineRoot(context, "invalid-yaya", "yaya.dll")
+
+        try {
+            assertInvalidRootDoesNotAcquireOwner(root, context, GhostEngine.Yaya)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun realEnginesHaveSingleOwnerAndQueueConfinedLifecycle() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -204,6 +242,45 @@ class ShioriLifecycleInstrumentationTest {
         val expectedEngine: GhostEngine,
         val archive: RealEngineAuditSupport.VerifiedArchive,
     )
+
+    private fun createInvalidEngineRoot(context: Context, prefix: String, shiori: String): File {
+        val root = File(context.cacheDir, "$prefix-${System.nanoTime()}").canonicalFile
+        val ghostMaster = File(root, "ghost/master")
+        val shellMaster = File(root, "shell/master")
+        check(ghostMaster.mkdirs() && shellMaster.mkdirs()) {
+            "Could not create invalid SHIORI fixture: $root"
+        }
+        File(ghostMaster, "descript.txt").writeText(
+            "charset,UTF-8\nname,Invalid fixture\nshiori,$shiori\n",
+        )
+        File(shellMaster, "descript.txt").writeText("charset,UTF-8\nname,master\n")
+        File(shellMaster, "surfaces.txt").writeText("")
+        return root
+    }
+
+    private fun assertInvalidRootDoesNotAcquireOwner(
+        root: File,
+        context: Context,
+        expectedEngine: GhostEngine,
+    ) {
+        assertEquals(
+            expectedEngine,
+            GhostPreparer(context).prepare(1L, root.name, root).engine,
+        )
+        repeat(2) { attempt ->
+            val runtime = RealEngineAuditSupport.newRuntime(context)
+            val result = try {
+                runBlocking { runtime.startOrJoin(root.name, root) }
+            } finally {
+                runtime.close()
+            }
+            assertTrue(
+                "${RealEngineAuditSupport.engineName(expectedEngine)} invalid load ${attempt + 1} " +
+                    "must be replayable without retaining native ownership: $result",
+                result is RuntimeResult.Failure && result.failure is RuntimeFailure.Replayable,
+            )
+        }
+    }
 }
 
 internal object RealEngineAuditSupport {

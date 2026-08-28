@@ -282,6 +282,7 @@ bool	Satori::LoadDictionary(const string& iFileName)
 			"\x83\x4A\x83\x62\x83\x52\x82\xF0\x92\x50\x93\xC6\x82\xC5\x95\x5C\x8E\xA6\x82\xB7\x82\xE9\x8F\xEA\x8D\x87\x82\xCD\x81\x40\x83\xD3\x81\x69\x81\x40\x82\xC6\x8B\x4C\x8F\x71\x82\xB5\x82\xC4\x82\xAD\x82\xBE\x82\xB3\x82\xA2\x81\x42").c_str(),
 			"syntax error - SATORI", MB_OK|MB_SYSTEMMODAL);
 #endif
+		return false;
 	}
 
 	static vector<string> typemarks;
@@ -384,6 +385,7 @@ bool Satori::LoadDicFolder(const string& i_base_folder)
 	sender << "LoadDicFolder(" << i_base_folder << ")" << endl;
 	list<string> files;
 	list_files(i_base_folder, files);
+	bool loaded = false;
 	
 	for (list<string>::const_iterator it=files.begin() ; it!=files.end() ; ++it)
 	{
@@ -392,9 +394,9 @@ bool Satori::LoadDicFolder(const string& i_base_folder)
 		if ( it->substr(0,3) != "dic" ) { continue; }
 		if ( it->substr(len-4) != ".txt" && it->substr(len-4) != ".sat" ) { continue; }
 
-		LoadDictionary(i_base_folder + *it);
+		loaded = LoadDictionary(i_base_folder + *it) || loaded;
 	}
 
-	sender << "ok." << endl;
-	return	true;
+	sender << (loaded ? "ok." : "no usable dictionary.") << endl;
+	return loaded;
 }
