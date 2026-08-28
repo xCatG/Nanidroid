@@ -181,22 +181,16 @@ open class SScriptRunner internal constructor(
         renderer: GhostPresentationRenderer,
         dialogueObserver: (DialogueRuntimeState) -> Unit,
         uiCallback: UICallback,
+        statusCallback: StatusCallback,
     ) = synchronized(this) {
-        if (hostOwner !== token) cb = null
         hostOwner = token
         presentationRenderer = renderer
         dialogueStateObserver = dialogueObserver
         ucb = uiCallback
+        cb = statusCallback
         currentPresentationFrame?.let(renderer::render)
         dialogueObserver(dialogueState)
     }
-
-    internal fun setHostStatusCallback(token: HostToken, callback: StatusCallback?): Boolean =
-        synchronized(this) {
-            if (hostOwner !== token) return@synchronized false
-            cb = callback
-            true
-        }
 
     internal fun unbindHost(token: HostToken): Boolean = synchronized(this) {
         if (hostOwner !== token) return@synchronized false
