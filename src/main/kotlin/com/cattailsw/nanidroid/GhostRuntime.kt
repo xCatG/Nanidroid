@@ -289,16 +289,44 @@ internal class GhostRuntime private constructor(
         expectedGeneration: Long,
         intent: ShioriRequestIntent,
     ): RuntimeResult<TaggedShioriResponse> = submitNativeResult {
+        requestOnNative(expectedGeneration, intent)
+    }
+
+    internal fun requestAsync(
+        expectedGeneration: Long,
+        intent: ShioriRequestIntent,
+        completion: (RuntimeResult<TaggedShioriResponse>) -> Unit,
+    ): Boolean = try {
+        // Completion stays on the native command thread. The runner owns scheduling
+        // response admission so no Android main-loop concern enters this authority.
+        nativeExecutor.execute {
+            val result = try {
+                requestOnNative(expectedGeneration, intent)
+            } catch (failure: Throwable) {
+                fatalResult(failure)
+            }
+            runCatching { completion(result) }
+        }
+        true
+    } catch (failure: RejectedExecutionException) {
+        runCatching { completion(fatalResult(failure)) }
+        false
+    }
+
+    private fun requestOnNative(
+        expectedGeneration: Long,
+        intent: ShioriRequestIntent,
+    ): RuntimeResult<TaggedShioriResponse> {
         val active = synchronized(stateLock) {
             when {
-                poison != null -> return@submitNativeResult fatalResult(requireNotNull(poison))
+                poison != null -> return fatalResult(requireNotNull(poison))
                 session?.handle?.generation != expectedGeneration -> {
-                    return@submitNativeResult RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                    return RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                 }
                 else -> requireNotNull(session)
             }
         }
-        try {
+        return try {
             RuntimeResult.Success(
                 TaggedShioriResponse(
                     expectedGeneration,
