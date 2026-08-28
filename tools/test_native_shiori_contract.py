@@ -28,6 +28,36 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("return -1", load_body)
         self.assertNotIn("DisposeInstance((int)h)", load_body)
 
+    def test_kawari_adapter_rejects_a_missing_or_failed_main_dictionary(self):
+        source = (self.root / "jni/kawari8/shiori/kawari_shiori.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        load_body = source.split("bool TKawariShioriAdapter::Load", 1)[1].split(
+            "bool TKawariShioriAdapter::Unload", 1
+        )[0]
+        failure_check = 'if (!Engine.LoadKawariDict(datapath+"kawarirc.kis"))'
+        self.assertIn(failure_check, load_body)
+        failed_branch = load_body.split(failure_check, 1)[1].split("}", 1)[0]
+        self.assertIn("return(false);", failed_branch)
+        self.assertLess(load_body.index(failure_check), load_body.index("initialized=true"))
+
+        factory_body = source.split("TKawariShioriFactory::CreateInstance", 1)[1].split(
+            "TKawariShioriFactory::DisposeInstance", 1
+        )[0]
+        failed_instance = factory_body.split("if (!instance->Load(datapath))", 1)[1].split(
+            "}", 1
+        )[0]
+        self.assertIn("delete instance;", failed_instance)
+        self.assertIn("return 0;", failed_instance)
+        self.assertLess(factory_body.index("return 0;"), factory_body.index("list.push_back(instance)"))
+
+        jni = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
+        native_load = jni.rsplit(
+            "Java_com_cattailsw_nanidroid_shiori_Kawari_nativeLoad", 1
+        )[1].split("Java_com_cattailsw_nanidroid_shiori_Kawari_nativeUnload", 1)[0]
+        self.assertIn("h = TKawariShioriFactory::GetFactory().CreateInstance(directory);", native_load)
+        self.assertIn("return h != 0 ? 1 : 0;", native_load)
+
     def test_native_lifecycle_methods_return_explicit_statuses(self):
         satori = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
         yaya = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")

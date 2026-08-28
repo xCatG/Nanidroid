@@ -18,6 +18,7 @@ class CrossEngineRuntimeInstrumentationTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val arguments = InstrumentationRegistry.getArguments()
+        RealEngineAuditSupport.assumeAuditConfigured(arguments)
         val runId = RealEngineAuditSupport.requireRunId(arguments)
         val runRoot = RealEngineAuditSupport.requireRunRoot(context, runId)
         val inputRoot = File(runRoot, "input").canonicalFile

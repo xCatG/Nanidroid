@@ -96,7 +96,9 @@ bool TKawariShioriAdapter::Load(const string& datapath)
 	Engine.WriteProtect("System.DataPath");
 
 	// 初期実行スクリプト
-	Engine.LoadKawariDict(datapath+"kawarirc.kis");
+	if (!Engine.LoadKawariDict(datapath+"kawarirc.kis")){
+		return(false);
+	}
 
 	// セキュリティレベル設定
 	string slv=Engine.IndexParse("System.SecurityLevel");

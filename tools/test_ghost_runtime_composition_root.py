@@ -46,16 +46,22 @@ class GhostRuntimeCompositionRootTest(unittest.TestCase):
             "NanidroidShiori(",
             "NotSupportedShiori(",
         )
-        creators = set()
+        occurrences = {}
         for path in sorted(PRODUCTION_ROOT.rglob("*.kt")):
-            if path.parent.name == "shiori":
-                continue
             source = path.read_text(encoding="utf-8")
-            if any(constructor in source for constructor in constructors):
-                creators.add(str(path.relative_to(ROOT)).replace("\\", "/"))
+            count = sum(source.count(constructor) for constructor in constructors)
+            if count:
+                occurrences[str(path.relative_to(ROOT)).replace("\\", "/")] = count
         self.assertEqual(
-            {"src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt"},
-            creators,
+            {
+                "src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt": 5,
+                "src/main/kotlin/com/cattailsw/nanidroid/shiori/Kawari.kt": 1,
+                "src/main/kotlin/com/cattailsw/nanidroid/shiori/NanidroidShiori.kt": 3,
+                "src/main/kotlin/com/cattailsw/nanidroid/shiori/NotSupportedShiori.kt": 1,
+                "src/main/kotlin/com/cattailsw/nanidroid/shiori/SatoriShiori.kt": 1,
+                "src/main/kotlin/com/cattailsw/nanidroid/shiori/YayaShiori.kt": 1,
+            },
+            occurrences,
         )
         ghost = read("src/main/kotlin/com/cattailsw/nanidroid/Ghost.kt")
         self.assertNotIn("Shiori", ghost)

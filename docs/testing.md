@@ -151,6 +151,21 @@ Run host-only discovery and classification without touching adb:
 connected gate; dry-run records it but does not inspect a device. A dry-run with
 missing canonical hashes, extra files, rejected layouts, or incomplete engine
 coverage persists status `unavailable` and does not claim execution.
+Missing optional roots are recorded but do not make an otherwise complete
+resolved corpus unavailable. If no root resolves, the harness fails closed.
+
+Run the focused host parser/ownership regression oracle without corpus or adb:
+
+```powershell
+.\scripts\run-cross-engine-runtime-audit.ps1 `
+  -DeviceSerial host-only `
+  -HostOnlySelfTest
+```
+
+This covers ordinary ZIP and ZIP64 central directories, excessive-entry and
+multi-disk declarations, the 544 MiB pre-hash cutoff, optional-root availability,
+the exact push/chmod/private-copy sequence, package cleanup ownership decisions,
+and selected archive reporting.
 
 With a clean connected target and the exact canonical payload set, run:
 
@@ -166,9 +181,12 @@ installs fresh debug/test APKs, creates run-owned app-private inputs, and proves
 the three engine ownership/lifecycle contracts plus the exact
 Satori → YAYA → Kawari 8 → Satori transition. Instrumentation receives only
 private archive paths and hashes and retains handles, typed results, and
-data-only traces—never an adapter. The harness removes the exact app-private,
-external-report, and `/data/local/tmp` run roots in `finally` and uninstalls only
-packages it installed.
+data-only traces—never an adapter. The harness makes each pushed temporary
+archive mode `0644` before `run-as cp`. It records the initial absence probe,
+install attempt, and confirmed install for each package separately. In `finally`,
+force-stop and private cleanup require run-owned state; an ambiguous failed
+install is probed and uninstalled only when that package was absent before the
+run and may have been installed by it.
 
 Generated evidence is ignored under:
 

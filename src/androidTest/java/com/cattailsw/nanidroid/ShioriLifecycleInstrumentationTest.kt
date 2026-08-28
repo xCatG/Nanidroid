@@ -21,6 +21,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -31,6 +32,7 @@ class ShioriLifecycleInstrumentationTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val arguments = InstrumentationRegistry.getArguments()
+        RealEngineAuditSupport.assumeAuditConfigured(arguments)
         val runId = RealEngineAuditSupport.requireRunId(arguments)
         val runRoot = RealEngineAuditSupport.requireRunRoot(context, runId)
         val inputRoot = File(runRoot, "input").canonicalFile
@@ -209,6 +211,13 @@ internal object RealEngineAuditSupport {
         val file: File,
         val sha256: String,
     )
+
+    fun assumeAuditConfigured(arguments: Bundle) {
+        Assume.assumeTrue(
+            "Real-engine audit requires the runtimeAuditRunId instrumentation argument",
+            arguments.containsKey("runtimeAuditRunId"),
+        )
+    }
 
     fun requireRunId(arguments: Bundle): String {
         val runId = requiredArgument(arguments, "runtimeAuditRunId")
