@@ -280,6 +280,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     private lateinit var ghostRuntime: GhostRuntime
     private var runner: SScriptRunner? = null
+    private val runnerHostToken = SScriptRunner.HostToken()
     private val dialogueDialogBinding = DialogueDialogBinding { runner }
     private val composeStage = ComposeGhostStageHost(
         SurfaceInteractionPort { effect -> runner?.dispatchSurfaceInteraction(effect) },
@@ -352,7 +353,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 // A recreated host renders the still-active outgoing generation while
                 // independently joining the runtime-owned replacement operation.
                 bindRuntimeHandle(identity.activeHandle)
-                runner!!.setCallback(mscb)
+                runner!!.setHostStatusCallback(runnerHostToken, mscb)
                 if (switchProgressVisibleFor(identity.phase)) showProgress() else hideProgress()
             }
             val handle = resolveRuntimeHandle(manager)
@@ -437,9 +438,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun bindRuntimeHandle(handle: GhostHandle) {
         val ghost = handle.ghost
         composeStage.setSurfaceCatalog(ghost.surfaces, ghost.id)
-        runner!!.setPresentationRenderer(composeStage.renderer)
-        runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
-        runner!!.setUICallback(this@Nanidroid)
+        runner!!.bindHost(
+            runnerHostToken,
+            composeStage.renderer,
+            composeStage::updateDialogueState,
+            this@Nanidroid,
+        )
         currentGhost = ghost
     }
 
@@ -552,10 +556,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             isChangingConfigurations = isChangingConfigurations,
             abandon = foregroundNarImport::abandonPicker,
         )
-        runner?.setPresentationRenderer(null)
-        runner?.setDialogueStateObserver(null)
-        runner?.setUICallback(null)
-        runner?.setCallback(null)
+        runner?.unbindHost(runnerHostToken)
         super.onDestroy()
     }
     override fun onResume() {
@@ -571,7 +572,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             val activeRunner = runner
             if (activeRunner != null) {
                 activeRunner.stopClock()
-                activeRunner.setCallback(mscb)
+                activeRunner.setHostStatusCallback(runnerHostToken, mscb)
                 activeRunner.stop()
                 activeRunner.doExit()
             } else {
@@ -583,7 +584,10 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     private val mscb = object : SScriptRunner.StatusCallback {
         override fun stop() = Unit
-        override fun canExit() { runner!!.setCallback(null); finish() }
+        override fun canExit() {
+            runner?.setHostStatusCallback(runnerHostToken, null)
+            finish()
+        }
         override fun switchPlaybackComplete() {
             runOnUiThread { showProgress() }
         }
@@ -651,17 +655,17 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )
         runner!!.stopClock()
         runner!!.clearMsgQueue()
-        runner!!.setCallback(mscb)
+        runner!!.setHostStatusCallback(runnerHostToken, mscb)
         lifecycleScope.launch {
             when (val joined = ghostRuntime.startOrJoin(target.id, target.canonicalRoot)) {
                 is RuntimeResult.Success -> {
                     if (attachAndBindRuntimeHandle(joined.value)) {
                         hideProgress()
-                        runner!!.setCallback(null)
+                        runner!!.setHostStatusCallback(runnerHostToken, null)
                         runner!!.startClock()
                         runner!!.run()
                     } else {
-                        runner!!.setCallback(null)
+                        runner!!.setHostStatusCallback(runnerHostToken, null)
                         showNoGhostAvailable()
                     }
                 }
@@ -671,11 +675,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     if (retained != null && identity.phase != GhostRuntimePhase.Poisoned) {
                         bindRuntimeHandle(retained)
                         hideProgress()
-                        runner!!.setCallback(null)
+                        runner!!.setHostStatusCallback(runnerHostToken, null)
                         runner!!.startClock()
                         runner!!.run()
                     } else {
-                        runner!!.setCallback(null)
+                        runner!!.setHostStatusCallback(runnerHostToken, null)
                         showNoGhostAvailable()
                     }
                 }
@@ -689,7 +693,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                 target.canonicalRoot.path,
             )
         ) {
-            runner!!.setCallback(null)
+            runner!!.setHostStatusCallback(runnerHostToken, null)
         }
     }
     fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; showGhostListDlg() }

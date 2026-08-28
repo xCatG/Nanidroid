@@ -92,6 +92,8 @@ open class SScriptRunner internal constructor(
     private val runtimePort: GhostRuntime,
     configuration: SScriptRunnerConfiguration = SScriptRunnerConfiguration(),
 ) : Runnable {
+    internal class HostToken
+
     interface StatusCallback {
         fun stop()
         fun canExit()
@@ -140,6 +142,7 @@ open class SScriptRunner internal constructor(
     private val playbackHooks = configuration.playbackHooks
     private var presentationRenderer: GhostPresentationRenderer? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
+    private var hostOwner: HostToken? = null
     private var activeHandle: GhostHandle? = null
     private var admittedAttachmentOperationId: Long? = null
     private var retiredGenerationAwaitingAttachment: Long? = null
@@ -173,6 +176,38 @@ open class SScriptRunner internal constructor(
 
     internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     internal fun setDialogueClaimHookForTesting(hook: (() -> Unit)?) { dialogueClaimHookForTesting = hook }
+    internal fun bindHost(
+        token: HostToken,
+        renderer: GhostPresentationRenderer,
+        dialogueObserver: (DialogueRuntimeState) -> Unit,
+        uiCallback: UICallback,
+    ) = synchronized(this) {
+        if (hostOwner !== token) cb = null
+        hostOwner = token
+        presentationRenderer = renderer
+        dialogueStateObserver = dialogueObserver
+        ucb = uiCallback
+        currentPresentationFrame?.let(renderer::render)
+        dialogueObserver(dialogueState)
+    }
+
+    internal fun setHostStatusCallback(token: HostToken, callback: StatusCallback?): Boolean =
+        synchronized(this) {
+            if (hostOwner !== token) return@synchronized false
+            cb = callback
+            true
+        }
+
+    internal fun unbindHost(token: HostToken): Boolean = synchronized(this) {
+        if (hostOwner !== token) return@synchronized false
+        hostOwner = null
+        presentationRenderer = null
+        dialogueStateObserver = null
+        ucb = null
+        cb = null
+        true
+    }
+
     fun setDialogueStateObserver(observer: ((DialogueRuntimeState) -> Unit)?) = synchronized(this) {
         dialogueStateObserver = observer
         observer?.invoke(dialogueState)
