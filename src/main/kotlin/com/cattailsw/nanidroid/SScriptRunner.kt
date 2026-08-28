@@ -126,6 +126,8 @@ open class SScriptRunner internal constructor(
         var keroAnimationId: String? = null
         var dialogueScript: AuthoredDialogueScript? = null
         var legacyChoiceCallbackPublished = false
+        // A SHIORI terminal may clear this, but must never clear the independent user-input pause.
+        var authoredRequestPending = false
     }
 
     private val msgQueue = ConcurrentLinkedQueue<String>()
@@ -314,25 +316,29 @@ open class SScriptRunner internal constructor(
         }
     }
     private fun loopControl(state: PlaybackState) {
-        val claimed = synchronized(this) { playback === state && state.running && !state.paused }
+        val claimed = synchronized(this) {
+            playback === state && state.running && !state.paused && !state.authoredRequestPending
+        }
         if (!claimed) return
         playbackHooks.afterRunClaimed()
         val current = synchronized(this) {
-            if (playback !== state || !state.running || state.paused) return
+            if (playback !== state || !state.running || state.paused || state.authoredRequestPending) return
             state.msg?.takeIf { state.charIndex < it.length }
         }
         if (current != null) {
             parseMsg(state)
             updateUI(state)
             publishDialogueProjection(state)
-            val paused = synchronized(this) { playback !== state || state.paused }
-            if (!paused) {
+            val suspended = synchronized(this) {
+                playback !== state || state.paused || state.authoredRequestPending
+            }
+            if (!suspended) {
                 if (noWaitMode) loopControl(state) else schedulePlayback(RUN, state.waitTime, state)
             }
             return
         }
         val next = synchronized(this) {
-            if (playback !== state || !state.running || state.paused) return
+            if (playback !== state || !state.running || state.paused || state.authoredRequestPending) return
             reset(state)
             state.msg = getFromQueue(state)
             state.msg
@@ -420,6 +426,7 @@ open class SScriptRunner internal constructor(
                 if (playbackScheduler.isInitialized()) playbackScheduler.value.cancelPending()
                 state.running = false
                 state.paused = false
+                state.authoredRequestPending = false
                 if (switch != null) {
                     passive = false
                     runtimeModeGeneration++
@@ -816,6 +823,7 @@ open class SScriptRunner internal constructor(
         event: String,
         prepareReferences: () -> Array<String>,
     ): Boolean {
+        val awaitResponse = runsOnMainLooper()
         val captured = synchronized(this) {
             if (playback !== state || !state.running) return false
             val handle = activeHandle ?: run {
@@ -824,17 +832,45 @@ open class SScriptRunner internal constructor(
                 prepareReferences()
                 return false
             }
-            handle to prepareReferences()
+            val references = prepareReferences()
+            if (awaitResponse) {
+                if (state.authoredRequestPending) return false
+                state.authoredRequestPending = true
+            }
+            handle to references
         }
         val (handle, references) = captured
-        return requestPinned(
-            handle,
-            ShioriRequestIntent.event(event, references.toList()),
-        ) { result ->
-            val tagged = (result as? RuntimeResult.Success)?.value ?: return@requestPinned false
-            parsePlaybackShioriResponseAndInsert(state, handle, tagged.response)
-            true
+        return try {
+            requestPinned(
+                handle,
+                ShioriRequestIntent.event(event, references.toList()),
+                onUnscheduled = {
+                    if (awaitResponse) finishPlaybackShioriRequest(state, resume = false)
+                },
+            ) { result ->
+                try {
+                    val tagged = (result as? RuntimeResult.Success)?.value
+                        ?: return@requestPinned false
+                    parsePlaybackShioriResponseAndInsert(state, handle, tagged.response)
+                    true
+                } finally {
+                    if (awaitResponse) finishPlaybackShioriRequest(state, resume = true)
+                }
+            }
+        } catch (failure: Throwable) {
+            if (awaitResponse) finishPlaybackShioriRequest(state, resume = false)
+            throw failure
         }
+    }
+
+    private fun finishPlaybackShioriRequest(state: PlaybackState, resume: Boolean) {
+        val shouldResume = synchronized(this) {
+            if (!state.authoredRequestPending) return
+            state.authoredRequestPending = false
+            resume && playback === state && state.running && !state.paused
+        }
+        if (!shouldResume) return
+        if (noWaitMode) loopControl(state) else schedulePlayback(RUN, state = state)
     }
 
     private fun parsePlaybackShioriResponseAndInsert(
@@ -1075,15 +1111,19 @@ open class SScriptRunner internal constructor(
         admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
     ): Boolean {
         val handle = synchronized(this) { activeHandle } ?: return false
-        return requestPinned(handle, intent, admission)
+        return requestPinned(handle, intent, admission = admission)
     }
 
     private fun requestPinned(
         handle: GhostHandle,
         intent: ShioriRequestIntent,
+        onUnscheduled: () -> Unit = {},
         admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
     ): Boolean {
-        if (!isPinnedHandle(handle)) return false
+        if (!isPinnedHandle(handle)) {
+            onUnscheduled()
+            return false
+        }
 
         fun admit(result: RuntimeResult<TaggedShioriResponse>): Boolean {
             val fenced = when (result) {
