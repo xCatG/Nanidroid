@@ -14,12 +14,80 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SScriptRunnerMainThreadRequestInstrumentationTest {
+    @Test
+    fun blockedTimerResponseDoesNotPlayAfterClockStops() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val requestEntered = CountDownLatch(1)
+        val releaseRequest = CountDownLatch(1)
+        val responseReturned = CountDownLatch(1)
+        val responseAdmitted = CountDownLatch(1)
+        val staleTimerPlayed = CountDownLatch(1)
+        val mainPulse = CountDownLatch(1)
+        val adapter = BlockingRequestShiori(
+            eventId = "OnSecondChange",
+            entered = requestEntered,
+            release = releaseRequest,
+            returned = responseReturned,
+            response = "SHIORI/3.0 200 OK\r\nValue: \\hPausedTimer\\e\r\n\r\n",
+        )
+        val root = File(context.cacheDir, "stopped-clock-request-runtime").canonicalFile
+        val runtime = newRuntime(
+            context,
+            adapter,
+            runnerConfiguration = SScriptRunnerConfiguration(
+                playbackHooks = SScriptPlaybackHooks(
+                    beforeRequestResponseAdmission = { responseAdmitted.countDown() },
+                ),
+            ),
+        )
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("stopped-clock", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.setPresentationRenderer { frame ->
+                if (frame.sakura.text == "PausedTimer") staleTimerPlayed.countDown()
+            }
+
+            Handler(Looper.getMainLooper()).post {
+                runtime.runner.setNoWaitMode(true)
+                runtime.runner.startClock()
+                runtime.runner.dispatchClockTickForTesting()
+            }
+            assertTrue("Blocking timer request did not start", requestEntered.await(2, TimeUnit.SECONDS))
+            Handler(Looper.getMainLooper()).post {
+                runtime.runner.stopClock()
+                mainPulse.countDown()
+            }
+            assertTrue(
+                "Main looper could not stop the clock while SHIORI was blocked",
+                mainPulse.await(500, TimeUnit.MILLISECONDS),
+            )
+
+            releaseRequest.countDown()
+            assertTrue("Stopped timer response was not admitted", responseAdmitted.await(2, TimeUnit.SECONDS))
+            assertFalse(
+                "Timer response played after the clock stopped",
+                staleTimerPlayed.await(500, TimeUnit.MILLISECONDS),
+            )
+        } finally {
+            releaseRequest.countDown()
+            responseReturned.await(2, TimeUnit.SECONDS)
+            runtime.close()
+        }
+    }
+
     @Test
     fun blockedTimerRequestDoesNotBlockMainLooperAndAdmitsOnMain() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

@@ -238,6 +238,26 @@ class SScriptRunnerBootDispatchTest {
     }
 
     @Test
+    fun timerGetFromStoppedClockDoesNotPlayAfterClockRestarts() {
+        lateinit var harness: Harness
+        val hooks = SScriptPlaybackHooks(
+            beforeTimerResponseAdmission = {
+                harness.runner.stopClock()
+                harness.runner.startClock()
+            },
+        )
+        harness = harness(FakeClock(1_000L), playbackHooks = hooks)
+        harness.runner.setNoWaitMode(true)
+        harness.runner.startClock()
+        harness.responses += talk("\\hStaleTimer\\e")
+
+        harness.runner.dispatchClockTickForTesting()
+
+        Assert.assertTrue(harness.runner.dialogueStateSnapshot().contents.isEmpty())
+        harness.runner.stopClock()
+    }
+
+    @Test
     fun timerGetDoesNotPlayWhenInteractionFinishesAfterEligibilityCheck() {
         lateinit var harness: Harness
         val hooks = SScriptPlaybackHooks(

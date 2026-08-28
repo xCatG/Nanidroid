@@ -363,7 +363,11 @@ open class SScriptRunner internal constructor(
         }
         restore = false
     }
-    fun stopClock() { LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }; bootDispatchState.stopClock() }
+    fun stopClock() {
+        synchronized(this) { runtimeModeGeneration++ }
+        LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }
+        bootDispatchState.stopClock()
+    }
     override fun run() {
         val prepared = synchronized(this) {
             val state = playback
