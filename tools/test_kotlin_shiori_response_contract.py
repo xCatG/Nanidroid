@@ -13,10 +13,16 @@ class KotlinShioriResponseContractTest(unittest.TestCase):
         self.assertIn("constructor(reader: BufferedReader)", source)
         self.assertIn("var stat_code: Int = 500", source)
         self.assertIn("fun getStatusCode(): Int = stat_code", source)
-        ghost_source = (root / "src/main/kotlin/com/cattailsw/nanidroid/Ghost.kt").read_text(
+        runner_source = (root / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("response.getStatusCode() == 200", ghost_source)
+        ghost_source = (root / "src/main/kotlin/com/cattailsw/nanidroid/Ghost.kt").read_text(encoding="utf-8")
+        self.assertIn(
+            "private fun parseShioriResponseAndInsert(tagged: TaggedShioriResponse)",
+            runner_source,
+        )
+        self.assertIn("tagged.response.getStatusCode() != 200", runner_source)
+        self.assertNotIn("ShioriResponse", ghost_source)
 
     def test_response_parser_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]

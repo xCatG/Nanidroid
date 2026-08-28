@@ -19,20 +19,107 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("Charset.forName", source)
         self.assertNotIn("toByteArray(SHIFT_JIS)", source)
 
-    def test_kawari_disposes_a_previous_global_handle_before_loading(self):
+    def test_kawari_load_rejects_an_existing_owner_without_disposing_it(self):
         source = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
-        load_body = source.rsplit("Java_com_cattailsw_nanidroid_shiori_Kawari_load", 1)[1].split(
-            "Java_com_cattailsw_nanidroid_shiori_Kawari_unload", 1
+        load_body = source.rsplit("Java_com_cattailsw_nanidroid_shiori_Kawari_nativeLoad", 1)[1].split(
+            "Java_com_cattailsw_nanidroid_shiori_Kawari_nativeUnload", 1
         )[0]
         self.assertIn("if (h != 0)", load_body)
-        self.assertIn("DisposeInstance((int)h)", load_body)
+        self.assertIn("return -1", load_body)
+        self.assertNotIn("DisposeInstance((int)h)", load_body)
+
+    def test_kawari_adapter_rejects_a_missing_or_failed_main_dictionary(self):
+        source = (self.root / "jni/kawari8/shiori/kawari_shiori.cpp").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        load_body = source.split("bool TKawariShioriAdapter::Load", 1)[1].split(
+            "bool TKawariShioriAdapter::Unload", 1
+        )[0]
+        failure_check = 'if (!Engine.LoadKawariDict(datapath+"kawarirc.kis"))'
+        self.assertIn(failure_check, load_body)
+        failed_branch = load_body.split(failure_check, 1)[1].split("}", 1)[0]
+        self.assertIn("return(false);", failed_branch)
+        self.assertLess(load_body.index(failure_check), load_body.index("initialized=true"))
+
+        factory_body = source.split("TKawariShioriFactory::CreateInstance", 1)[1].split(
+            "TKawariShioriFactory::DisposeInstance", 1
+        )[0]
+        failed_instance = factory_body.split("if (!instance->Load(datapath))", 1)[1].split(
+            "}", 1
+        )[0]
+        self.assertIn("delete instance;", failed_instance)
+        self.assertIn("return 0;", failed_instance)
+        self.assertLess(factory_body.index("return 0;"), factory_body.index("list.push_back(instance)"))
+
+        jni = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
+        native_load = jni.rsplit(
+            "Java_com_cattailsw_nanidroid_shiori_Kawari_nativeLoad", 1
+        )[1].split("Java_com_cattailsw_nanidroid_shiori_Kawari_nativeUnload", 1)[0]
+        self.assertIn("h = TKawariShioriFactory::GetFactory().CreateInstance(directory);", native_load)
+        self.assertIn("return h != 0 ? 1 : 0;", native_load)
+
+    def test_native_lifecycle_methods_return_explicit_statuses(self):
+        satori = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
+        yaya = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        kawari = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
+        for source in (satori, yaya):
+            self.assertIn('"(Ljava/lang/String;Ljava/lang/String;)I"', source)
+            self.assertIn('"()Z"', source)
+            self.assertIn("return -1", source)
+        self.assertIn("JNIEXPORT jint JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_nativeLoad", kawari)
+        self.assertIn("JNIEXPORT jboolean JNICALL Java_com_cattailsw_nanidroid_shiori_Kawari_nativeUnload", kawari)
+
+    def test_satori_and_yaya_preserve_an_existing_owner(self):
+        for relative, loaded_flag in (
+            ("jni/satori/satori_jni.cpp", "satoriLoaded"),
+            ("jni/yaya/yaya_jni.cpp", "gYayaLoaded"),
+        ):
+            source = (self.root / relative).read_text(encoding="utf-8")
+            load_body = source.split("nativeLoad", 1)[1].split("nativeRequest", 1)[0]
+            owner_branch = load_body.split(f"if ({loaded_flag})", 1)[1].split("GetStringUTFChars", 1)[0]
+            self.assertIn("return -1", owner_branch)
+            self.assertNotIn("unload()", owner_branch)
+
+    def test_native_requests_reject_unloaded_state(self):
+        satori = (self.root / "jni/satori/satori_jni.cpp").read_text(encoding="utf-8")
+        yaya = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        kawari = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
+        self.assertIn('"Satori is not loaded"', satori)
+        self.assertIn('"YAYA is not loaded"', yaya)
+        self.assertIn('"YAYA is not loaded"', yaya.split("nativeTransportCharset", 1)[1])
+        self.assertIn('"Kawari 8 is not loaded"', kawari)
+
+    def test_kawari_unload_checks_dispose_and_clears_the_handle(self):
+        source = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
+        unload_body = source.rsplit("Java_com_cattailsw_nanidroid_shiori_Kawari_nativeUnload", 1)[1]
+        self.assertIn("if (h == 0) return JNI_TRUE", unload_body)
+        self.assertIn("if (!TKawariShioriFactory::GetFactory().DisposeInstance((int)h)) return JNI_FALSE", unload_body)
+        self.assertIn("h = 0", unload_body)
+
+    def test_satori_and_yaya_check_owner_before_fallible_path_conversion(self):
+        for relative, lock_type, loaded_flag in (
+            ("jni/satori/satori_jni.cpp", "SatoriLock lock;", "satoriLoaded"),
+            ("jni/yaya/yaya_jni.cpp", "YayaLock lock;", "gYayaLoaded"),
+        ):
+            source = (self.root / relative).read_text(encoding="utf-8")
+            load_body = source.split("nativeLoad", 1)[1].split("nativeRequest", 1)[0]
+            self.assertLess(load_body.index(lock_type), load_body.index("GetStringUTFChars"))
+            self.assertLess(load_body.index(f"if ({loaded_flag})"), load_body.index("GetStringUTFChars"))
+            self.assertLess(load_body.index(lock_type), load_body.index("load(copy"))
 
     def test_kawari_serializes_handle_access(self):
         source = (self.root / "jni/kawari8/kawari_jni.cpp").read_text(encoding="utf-8")
         self.assertIn("pthread_mutex_t kawari_mutex", source)
         self.assertEqual(source.count("KawariLock lock;"), 3)
 
-    def test_yaya_empty_responses_release_bridge_buffers(self):
+    def test_yaya_input_allocation_failure_is_not_fabricated_as_an_empty_response(self):
+        source = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        request_body = source.split("jbyteArray nativeRequest", 1)[1].split("jboolean nativeUnload", 1)[0]
+        allocation_failure = request_body.split("if (input == NULL)", 1)[1].split("GetByteArrayRegion", 1)[0]
+        self.assertIn('throwIllegalState(env, "Could not allocate YAYA request buffer")', allocation_failure)
+        self.assertIn("return NULL", allocation_failure)
+
+    def test_yaya_engine_empty_responses_release_bridge_buffers(self):
         source = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
         self.assertIn("free(result);\n        free(input);\n        return env->NewByteArray(0);", source)
 
@@ -41,18 +128,6 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn('target_link_options(satoriya PRIVATE "-Wl,-Bsymbolic")', source)
         self.assertIn('target_link_options(ssu PRIVATE "-Wl,-Bsymbolic")', source)
         self.assertIn('target_link_options(yaya PRIVATE "-Wl,-Bsymbolic")', source)
-
-    def test_ghost_switch_unloads_before_starting_replacement(self):
-        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(encoding="utf-8")
-        stop_body = source.split("@Synchronized fun stop()", 1)[1].split("private fun reset", 1)[0]
-        self.assertLess(stop_body.index("g!!.unload()"), stop_body.index("it.ghostSwitchScriptComplete()"))
-
-    def test_ghost_switch_pauses_clock_until_replacement_is_bound(self):
-        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt").read_text(encoding="utf-8")
-        switch_body = source.split("fun switchGhost(nextId: String)", 1)[1].split("fun ghostSwitchStep2()", 1)[0]
-        self.assertIn("runner!!.stopClock()", switch_body)
-        replacement_body = source.rsplit("runner!!.setGhost(ghost)", 1)[1]
-        self.assertTrue(replacement_body.lstrip().startswith("runner!!.startClock()"))
 
     def test_yaya_maps_engine_pseudo_charsets_to_android_transports(self):
         source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(encoding="utf-8")
@@ -122,13 +197,14 @@ class NativeShioriContractTest(unittest.TestCase):
         kotlin = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(
             encoding="utf-8"
         )
-        factory = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/ShioriFactory.kt").read_text(
+        runtime = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt").read_text(
             encoding="utf-8"
         )
         self.assertNotIn("getenv(\"SAORI_FALLBACK", library)
         self.assertIn("yaya_configure_posix_saori_fallback", jni)
-        self.assertIn("nativeLoad(path, context?.codeCacheDir?.absolutePath ?: path)", kotlin)
-        self.assertIn("YayaShiori(path, ctx)", factory)
+        self.assertIn("private val cacheDirectory = context?.codeCacheDir?.absolutePath ?: path", kotlin)
+        self.assertIn("nativeLoad(path, cacheDirectory)", kotlin)
+        self.assertIn("GhostEngine.Yaya -> YayaShiori(master, applicationContext)", runtime)
 
     def test_yaya_onload_checks_the_host_class_before_initializing_charsets(self):
         jni = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")

@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.shiori
 
 import android.content.Context
 import com.cattailsw.nanidroid.LegacyPlatform
+import com.cattailsw.nanidroid.NanidroidContentPresence
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
@@ -23,6 +24,25 @@ open class NanidroidShiori() : EchoShiori() {
         contentResponsesEnabled = ctx != null
         loadContent(path)
     }
+
+    internal constructor(
+        ctx: Context?,
+        preparedContent: Map<String, String>,
+        contentFilePresent: Boolean,
+    ) : this() {
+        mCtx = ctx
+        contentResponsesEnabled = ctx != null
+        loadPreparedContent(preparedContent, contentFilePresent)
+    }
+
+    internal constructor(
+        ctx: Context?,
+        preparedContent: Map<String, String>,
+    ) : this(
+        ctx,
+        preparedContent,
+        (preparedContent as? NanidroidContentPresence)?.contentFilePresent ?: true,
+    )
 
     internal constructor(path: String, contentFixture: Boolean) : this() {
         rootpath = path
@@ -49,6 +69,17 @@ open class NanidroidShiori() : EchoShiori() {
         }
     }
 
+    private fun loadPreparedContent(
+        preparedContent: Map<String, String>,
+        contentFilePresent: Boolean,
+    ) {
+        evtTable = if (contentFilePresent) {
+            Hashtable<String, String>().apply { putAll(preparedContent) }
+        } else {
+            null
+        }
+    }
+
     @Throws(IOException::class)
     private fun readContent(contentFile: File) {
         if (contentFile.exists()) {
@@ -66,8 +97,6 @@ open class NanidroidShiori() : EchoShiori() {
             }
         }
     }
-
-    override fun terminate() = Unit
 
     override fun getModuleName(): String = "NanidroidShiori"
 
@@ -130,5 +159,22 @@ open class NanidroidShiori() : EchoShiori() {
         @JvmName("createContentFixture")
         internal fun createContentFixture(path: String): NanidroidShiori =
             NanidroidShiori(path, true)
+
+        @JvmStatic
+        internal fun createPreparedContentFixture(
+            preparedContent: Map<String, String>,
+            contentFilePresent: Boolean,
+        ): NanidroidShiori = NanidroidShiori().apply {
+            contentResponsesEnabled = true
+            loadPreparedContent(preparedContent, contentFilePresent)
+        }
+
+        @JvmStatic
+        internal fun createPreparedContentFixture(
+            preparedContent: Map<String, String>,
+        ): NanidroidShiori = createPreparedContentFixture(
+            preparedContent,
+            (preparedContent as? NanidroidContentPresence)?.contentFilePresent ?: true,
+        )
     }
 }

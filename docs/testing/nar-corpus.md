@@ -15,6 +15,12 @@ per-run run-id rooted at `/data/local/tmp/nanidroid-corpus/<run-id>`. It copies 
 archive under one constant filename, applies mode `0644`, and removes all per-run
 device copies in `finally` blocks.
 
+Each installed ghost's SHIORI audit runs through one closeable `GhostRuntime`.
+The corpus fixture retains only the immutable ghost handle and generation,
+submits tagged requests through the runtime's single native command thread, and
+performs typed runtime unload before closing. Instrumentation never constructs,
+receives, or retains a SHIORI adapter.
+
 ## Inputs
 
 - `-DeviceSerial`: connected emulator serial. Omit with `-DryRun`.
@@ -118,3 +124,41 @@ markers all agree and the row permits `incompatible`; every other native crash f
 the run. If any ADB process exceeds its host deadline, the runner records the partial
 result and stops issuing device commands because the transport is no longer trusted;
 cleanup is reported as unverified for that run.
+
+## Cross-engine reuse of the corpus boundary
+
+`scripts/run-cross-engine-runtime-audit.ps1` is a focused consumer of this
+corpus framework. It accepts the same default roots (`.` and `build/ui-audit`),
+plus explicit absolute directory or `.nar` roots, recursively deduplicates nested
+directory roots, and binds every discovered file to the unchanged canonical
+manifest by SHA-256. Its report distinguishes physical files, unique hashes,
+canonical matches, unexpected extras, rejected archives, and every missing
+manifest row. An extra archive may be classified for availability diagnostics,
+but it is never eligible for engine selection or device execution.
+
+Before selecting an archive, the focused harness applies the same bounded ZIP
+inventory and package-root policy. It rejects files larger than 544 MiB before
+hashing, validates the bounded EOCD/ZIP64 central directory as a single-disk
+archive with at most 10,000 declared records before opening `ZipFile`, and then
+enumerates the bounded entries directly. It also enforces bounded normalized
+relative paths/components, duplicate and file/directory collision rejection,
+declared size/ratio limits, root `install.txt` precedence, and exactly one
+otherwise-uniform depth-two wrapper. It bounds descriptors to 64 KiB, requires a
+ghost package, reads exact `ghost/master/descript.txt`, and classifies only:
+
+- `satori.dll` as Satori;
+- `yaya.dll` as YAYA; and
+- `shiori.dll` plus `ghost/master/kawarirc.kis` as Kawari 8.
+
+Candidates are sorted by SHA-256 and then path. A connected run requires the
+complete canonical hash set and at least one manifest-bound candidate for every
+engine. It records the selected manifest label, path, and digest, copies Satori
+under two distinct private names, and invokes the lifecycle and transition tests.
+Every temporary push is changed to mode `0644` before its exact `run-as cp`.
+Missing optional roots remain visible in reports without invalidating a complete
+resolved corpus; zero resolved roots, extras, and missing canonical rows still
+fail closed. `-HostOnlySelfTest` exercises the bounded parser and host ownership
+oracles without corpus discovery or adb.
+This focused runner does not change the 23-row manifest, relax the full corpus
+runner, copy local payloads into the repository, or reinterpret an unavailable
+row as a pass.

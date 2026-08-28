@@ -38,39 +38,39 @@ void throwIllegalState(JNIEnv* env, const char* message) {
     }
 }
 
-void nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
+jint nativeLoad(JNIEnv* env, jobject, jstring path, jstring cacheDirectory) {
     if (path == NULL || cacheDirectory == NULL) {
-        throwIllegalState(env, "Satori requires a ghost root directory");
-        return;
+        return 0;
     }
+    SatoriLock lock;
+    if (satoriLoaded) return -1;
     // SSU is a linked Android DSO; its soname is resolved by the loader.
     (void)cacheDirectory;
 
     const char* utf8Path = env->GetStringUTFChars(path, nullptr);
-    if (utf8Path == NULL) return;
+    if (utf8Path == NULL) return 0;
     const jsize length = env->GetStringUTFLength(path);
     char* copy = static_cast<char*>(std::malloc(static_cast<size_t>(length) + 1));
     if (copy == NULL) {
         env->ReleaseStringUTFChars(path, utf8Path);
-        throwIllegalState(env, "Could not allocate Satori path");
-        return;
+        return 0;
     }
     std::memcpy(copy, utf8Path, static_cast<size_t>(length));
     copy[length] = '\0';
     env->ReleaseStringUTFChars(path, utf8Path);
 
-    SatoriLock lock;
-    if (satoriLoaded) {
-        unload();
-        satoriLoaded = false;
-    }
     gSatori.configure_posix_saori_fallback("");
     if (!load(copy, length)) {
         // load owns and frees copy on every path.
-        throwIllegalState(env, "Satori could not load this ghost");
-        return;
+        if (unload()) {
+            satoriLoaded = false;
+            return 0;
+        }
+        satoriLoaded = true;
+        return -2;
     }
     satoriLoaded = true;
+    return 1;
 }
 
 jbyteArray nativeRequest(JNIEnv* env, jobject, jbyteArray request) {
@@ -102,20 +102,20 @@ jbyteArray nativeRequest(JNIEnv* env, jobject, jbyteArray request) {
     return output;
 }
 
-void nativeUnload(JNIEnv*, jobject) {
+jboolean nativeUnload(JNIEnv*, jobject) {
     SatoriLock lock;
-    if (satoriLoaded) {
-        unload();
-        satoriLoaded = false;
-    }
+    if (!satoriLoaded) return JNI_TRUE;
+    if (!unload()) return JNI_FALSE;
+    satoriLoaded = false;
+    return JNI_TRUE;
 }
 
 JNINativeMethod methods[] = {
-    {const_cast<char*>("nativeLoad"), const_cast<char*>("(Ljava/lang/String;Ljava/lang/String;)V"),
+    {const_cast<char*>("nativeLoad"), const_cast<char*>("(Ljava/lang/String;Ljava/lang/String;)I"),
         reinterpret_cast<void*>(nativeLoad)},
     {const_cast<char*>("nativeRequest"), const_cast<char*>("([B)[B"),
         reinterpret_cast<void*>(nativeRequest)},
-    {const_cast<char*>("nativeUnload"), const_cast<char*>("()V"),
+    {const_cast<char*>("nativeUnload"), const_cast<char*>("()Z"),
         reinterpret_cast<void*>(nativeUnload)},
 };
 

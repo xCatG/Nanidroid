@@ -1,11 +1,43 @@
 package com.cattailsw.nanidroid
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 class NanidroidGhostStartupTest {
+    @Test
+    fun `recreated switch shows progress only after authored playback completes`() {
+        GhostRuntimePhase.entries.forEach { phase ->
+            assertEquals(
+                phase == GhostRuntimePhase.Replacing,
+                switchProgressVisibleFor(phase),
+            )
+        }
+    }
+
+    @Test
+    fun `installed metadata keeps the canonical root for transitional activation`() {
+        val root = File.createTempFile("nanidroid-installed", "").apply {
+            check(delete() && mkdir())
+        }.canonicalFile
+        try {
+            val metadata = InstalledGhostMetadata(
+                id = root.name,
+                canonicalRoot = root,
+                name = "Fixture",
+                sakuraName = "Sakura",
+                readme = File(root, "readme.txt"),
+            )
+
+            assertEquals(root, metadata.canonicalRoot)
+            assertEquals(File(root, "readme.txt"), metadata.readme)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun `blocked preferred ghost falls back to first healthy candidate`() {
         val attempted = mutableListOf<String>()

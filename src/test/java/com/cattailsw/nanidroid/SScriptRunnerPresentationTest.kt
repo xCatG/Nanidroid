@@ -9,7 +9,8 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
-import com.cattailsw.nanidroid.shiori.Shiori
+import java.io.File
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
@@ -20,12 +21,14 @@ class SScriptRunnerPresentationTest {
     @Rule
     @JvmField
     val androidStubs = HostAndroidStubRule()
+    @Rule
+    @JvmField
+    val runtimes = RuntimeFixtureRegistry()
 
     @Test
     fun emitsTextSurfaceAndOneShotAnimationFramesWithoutAndroidViews() {
         val frames: MutableList<String> = ArrayList<String>()
-        val runner: com.cattailsw.nanidroid.SScriptRunner =
-            com.cattailsw.nanidroid.SScriptRunner(null, GhostSessionCoordinator())
+        val runner = fixture(emptyList(), autoAttach = false).runner
         runner.setNoWaitMode(true)
         // Production installs the Compose-backed adapter through this seam;
         // the runtime trace must remain independent of the chosen UI toolkit.
@@ -61,7 +64,7 @@ class SScriptRunnerPresentationTest {
     @Test
     fun attachingAReplacementRendererRepublishesTheCurrentFrameWithoutANewScriptEvent() {
         val firstFrames = mutableListOf<GhostPresentationFrame>()
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        val runner = fixture(emptyList()).runner
         runner.setNoWaitMode(true)
         runner.setPresentationRenderer { firstFrames += it }
         runner.addMsgToQueue(arrayOf("\\hCurrent frame\\s[120]\\e"))
@@ -77,11 +80,17 @@ class SScriptRunnerPresentationTest {
     @Test
     fun firstAttachmentRetainsScriptsQueuedBeforeTheGhostIsReady() {
         val clock = FakeClock(10_000L)
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
+        val requestScript = RecordingShiori(emptyList())
+        val runtimeFixture = runtimeFixture(clock, requestScript, autoAttach = false)
+        val runner = runtimeFixture.runner
         runner.setNoWaitMode(true)
         runner.addMsgToQueue(arrayOf("\\hfirst queued talk\\e"))
 
-        runner.setGhost(RecordingGhost(RecordingShiori(emptyList())))
+        runBlocking {
+            assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+                runtimeFixture.runtime.attachHost(runtimeFixture.requireHandle().generation),
+            )
+        }
         runner.run()
 
         Assert.assertEquals(
@@ -97,7 +106,7 @@ class SScriptRunnerPresentationTest {
 
     @Test
     fun quotedPassiveModeCommandsChangeTheRuntimeMode() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        val runner = fixture(emptyList()).runner
         runner.setNoWaitMode(true)
 
         runner.addMsgToQueue(arrayOf("\\![\"enter\",passivemode]\\e"))
@@ -113,7 +122,7 @@ class SScriptRunnerPresentationTest {
 
     @Test
     fun malformedAndEscapedPassiveModeLeavesDoNotDisablePassiveMode() {
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        val runner = fixture(emptyList()).runner
         runner.setNoWaitMode(true)
 
         runner.addMsgToQueue(arrayOf("\\![\"enter\",passivemode]\\e"))
@@ -507,7 +516,7 @@ class SScriptRunnerPresentationTest {
         Assert.assertEquals(2, fixture.shiori.requests.size)
 
         val pending = fixture.openChoice("Pending", "pending-id")
-        fixture.runner.setGhost(null)
+        fixture.replaceGeneration()
         Assert.assertEquals(null, fixture.runner.dialogueStateSnapshot().pendingInput)
         Assert.assertTrue(fixture.runner.dialogueStateSnapshot().pendingChoices.isEmpty())
         fixture.runner.activateChoice(pending)
@@ -730,14 +739,17 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
-    fun transitionDuringPrimaryResponsePreventsFallbackAndStaleTalkEnqueue() {
+    fun transitionAtAtomicDialogueAdmissionDropsFinalTalkAfterAdjacentFallback() {
         val fixture = fixture(responses = listOf(noContent()))
         val action = fixture.openChoice("Choice", "choice-id")
-        fixture.shiori.beforeResponse = { fixture.runner.setGhost(null) }
+        fixture.shiori.beforeResponse = fixture::replaceGeneration
 
         fixture.runner.activateChoice(action)
 
-        Assert.assertEquals(listOf(request("OnChoiceSelectEx", "Choice", "choice-id")), fixture.shiori.requests)
+        Assert.assertEquals(
+            listOf(request("OnChoiceSelectEx", "Choice", "choice-id"), request("OnChoiceSelect", "choice-id")),
+            fixture.shiori.requests,
+        )
         Assert.assertTrue(fixture.runner.dialogueStateSnapshot().contents.isEmpty())
     }
 
@@ -745,7 +757,7 @@ class SScriptRunnerPresentationTest {
     fun transitionAfterPlayablePrimaryResponseDoesNotEnqueueItOnTheNewGeneration() {
         val fixture = fixture(responses = listOf(talk("\\hstale\\e")))
         val action = fixture.openChoice("Choice", "choice-id")
-        fixture.shiori.beforeResponse = { fixture.runner.setGhost(null) }
+        fixture.shiori.beforeResponse = fixture::replaceGeneration
 
         fixture.runner.activateChoice(action)
 
@@ -757,7 +769,7 @@ class SScriptRunnerPresentationTest {
     fun transitionAtTheClaimGateCannotSendAnOldGenerationRequest() {
         val fixture = fixture(responses = listOf(noContent()))
         val action = fixture.openChoice("Choice", "choice-id")
-        fixture.runner.setDialogueClaimHookForTesting { fixture.runner.setGhost(null) }
+        fixture.runner.setDialogueClaimHookForTesting { fixture.replaceGeneration() }
 
         fixture.runner.activateChoice(action)
 
@@ -892,7 +904,7 @@ class SScriptRunnerPresentationTest {
     @Test
     fun hiddenScopeConsumesSurfaceAnimationAndBalloonCommands() {
         val frames = mutableListOf<GhostPresentationFrame>()
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        val runner = fixture(emptyList()).runner
         runner.setNoWaitMode(true)
         runner.setPresentationRenderer { frames += it }
 
@@ -924,14 +936,44 @@ class SScriptRunnerPresentationTest {
         Assert.assertTrue(fixture.shiori.requests.isEmpty())
     }
 
-    private fun fixture(responses: List<String>): Fixture {
+    private fun fixture(
+        responses: List<String>,
+        autoAttach: Boolean = true,
+    ): Fixture {
         val clock = FakeClock(10_000L)
         val shiori = RecordingShiori(responses)
-        val runner = SScriptRunner(null, GhostSessionCoordinator(), clock)
-        runner.setNoWaitMode(true)
-        runner.setGhost(RecordingGhost(shiori))
-        return Fixture(runner, shiori, clock)
+        val runtimeFixture = runtimeFixture(clock, shiori, autoAttach)
+        runtimeFixture.runner.setNoWaitMode(true)
+        return Fixture(runtimeFixture, shiori, clock)
     }
+
+    private fun runtimeFixture(
+        clock: FakeClock,
+        shiori: RecordingShiori,
+        autoAttach: Boolean = true,
+    ): RuntimeFixture = runtimes.create(
+        response = shiori::request,
+        bootstrapResponse = { noContent() },
+        runnerConfiguration = SScriptRunnerConfiguration(
+            monotonicClock = clock,
+            playbackHooks = SScriptPlaybackHooks(
+                beforeRequestResponseAdmission = {
+                    shiori.beforeResponse.also { shiori.beforeResponse = null }?.invoke()
+                },
+            ),
+        ),
+        preparedFactory = { operationId, ghostId, root ->
+            preparedGhost(
+                operationId,
+                ghostId,
+                root,
+                name = "Recording",
+                sakuraName = "Sakura",
+                keroName = "Kero",
+            )
+        },
+        autoAttach = autoAttach,
+    )
 
     private fun Fixture.openPendingInput(
         id: String,
@@ -989,51 +1031,54 @@ class SScriptRunnerPresentationTest {
 
     private fun talk(value: String): String = "SHIORI/3.0 200 OK\r\nValue: $value\r\n\r\n"
 
-    private data class Fixture(
-        val runner: SScriptRunner,
+    private class Fixture(
+        val runtimeFixture: RuntimeFixture,
         val shiori: RecordingShiori,
         val clock: FakeClock,
-    )
+    ) {
+        val runner: SScriptRunner get() = runtimeFixture.runner
+        private var generation = runtimeFixture.requireHandle().generation
+        private var replacementIndex = 0
+
+        fun replaceGeneration() {
+            shiori.recording = false
+            try {
+                assertIs<RuntimeResult.Success<Unit>>(
+                    runtimeFixture.runtime.unload(generation),
+                )
+                val id = "replacement-${++replacementIndex}"
+                val root = File("build/runtime-fixtures/presentation/$id")
+                val replacement = runBlocking {
+                    assertIs<RuntimeResult.Success<GhostHandle>>(
+                        runtimeFixture.runtime.startOrJoin(id, root),
+                    ).value
+                }
+                runBlocking {
+                    assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+                        runtimeFixture.runtime.attachHost(replacement.generation),
+                    )
+                }
+                generation = replacement.generation
+            } finally {
+                shiori.recording = true
+            }
+        }
+    }
 
     private class FakeClock(var value: Long) : MonotonicClock {
         override fun nowMillis(): Long = value
     }
 
-    private class RecordingShiori(responses: List<String>) : Shiori {
+    private class RecordingShiori(responses: List<String>) {
         private val cannedResponses = ArrayDeque(responses)
         val requests = mutableListOf<String>()
         var beforeResponse: (() -> Unit)? = null
+        var recording = true
 
-        override fun getModuleName(): String = "recording"
-
-        override fun request(request: String): String {
+        fun request(request: String): String {
+            if (!recording) return "SHIORI/3.0 204 No Content\r\n\r\n"
             requests += request
-            beforeResponse?.invoke()
             return if (cannedResponses.isEmpty()) "SHIORI/3.0 204 No Content\r\n\r\n" else cannedResponses.removeFirst()
         }
-
-        override fun terminate() = Unit
-
-        override fun unloadShiori() = Unit
-    }
-
-    private class RecordingGhost(recordingShiori: RecordingShiori) : Ghost("recording") {
-        init {
-            shiori = recordingShiori
-        }
-
-        override fun loadGhostInfo() = Unit
-
-        override fun getCreateCount(): Long = 1L
-
-        override fun incrementCreateCount() = Unit
-
-        override fun getGhostName(): String = "Recording"
-
-        override fun getSakuraName(): String = "Sakura"
-
-        override fun getKeroName(): String = "Kero"
-
-        override fun unload() = Unit
     }
 }

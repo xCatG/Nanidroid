@@ -33,10 +33,7 @@ class LegacyPlatformSeamTest {
             clock = { 0L },
             logger = { tag, message -> logs += "$tag:$message" },
         ) {
-            object : Ghost("/tmp/seam-ghost") {
-                override fun loadGhostInfo() = Unit
-                override fun incrementCreateCount() = Unit
-            }
+            RuntimeFixture(id = "seam-ghost", autoAttach = false).close()
         }
 
         assertTrue(logs.contains("Ghost:gdname=seam-ghost"))

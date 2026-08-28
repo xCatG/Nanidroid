@@ -1,13 +1,22 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
 import androidx.compose.ui.unit.IntOffset
-import com.cattailsw.nanidroid.Ghost
-import com.cattailsw.nanidroid.GhostSessionCoordinator
-import com.cattailsw.nanidroid.SScriptRunner
+import com.cattailsw.nanidroid.AttachmentReceipt
+import com.cattailsw.nanidroid.GhostHandle
+import com.cattailsw.nanidroid.GhostRuntimeTestHooks
+import com.cattailsw.nanidroid.RuntimeFixture
+import com.cattailsw.nanidroid.RuntimeFixtureRegistry
+import com.cattailsw.nanidroid.RuntimeResult
 import com.cattailsw.nanidroid.SScriptPlaybackScheduler
-import com.cattailsw.nanidroid.ShioriResponse
+import com.cattailsw.nanidroid.SScriptPlaybackHooks
+import com.cattailsw.nanidroid.SScriptRunnerConfiguration
+import com.cattailsw.nanidroid.assertIs
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -16,6 +25,7 @@ import org.junit.Test
 
 class SurfaceInteractionProtocolTest {
     @Rule @JvmField val androidStubs = com.cattailsw.nanidroid.HostAndroidStubRule()
+    @Rule @JvmField val runtimes = RuntimeFixtureRegistry()
 
     @Test
     fun `touch capability table chooses exactly one approved event`() {
@@ -55,10 +65,10 @@ class SurfaceInteractionProtocolTest {
             )
         }
     }
+
     @Test
     fun `explicitly unsupported physical pointer effects are not dispatched`() {
         val capabilities = PointerEventCapabilities(Support.UNSUPPORTED, Support.UNSUPPORTED)
-
         assertNull(SurfaceInteractionProtocol.eventFor(effect(PointerSource.MOUSE), capabilities))
         assertNull(
             SurfaceInteractionProtocol.eventFor(
@@ -81,46 +91,18 @@ class SurfaceInteractionProtocolTest {
 
     @Test
     fun `runner does not request non-primary effects`() {
-        val requests = mutableListOf<String>()
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.SUPPORTED)
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
-                requests += eventId
-                return ShioriResponse("SHIORI/3.0 204 No Content")
-            }
-        }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
-        runner.setGhost(ghost)
+        val fixture = fixture(Support.SUPPORTED, Support.SUPPORTED)
 
-        runner.dispatchSurfaceInteraction(effect(PointerSource.MOUSE).copy(button = 1))
+        fixture.runner.dispatchSurfaceInteraction(effect(PointerSource.MOUSE).copy(button = 1))
 
-        assertTrue(requests.isEmpty())
+        assertTrue(fixture.trace.requests.isEmpty())
     }
 
     @Test
     fun `runner sends one exact request with named collision and event local source`() {
-        val requests = mutableListOf<Triple<ShioriMethod, String, List<String>>>()
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
+        val fixture = fixture(Support.SUPPORTED, Support.SUPPORTED)
 
-            override fun getCreateCount(): Long = 1L
-
-            override fun incrementCreateCount() = Unit
-
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.SUPPORTED)
-
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
-                requests += Triple(method, eventId, references)
-                return ShioriResponse("SHIORI/3.0 204 No Content")
-            }
-        }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
-        runner.setGhost(ghost)
-
-        runner.dispatchSurfaceInteraction(
+        fixture.runner.dispatchSurfaceInteraction(
             effect(
                 source = PointerSource.PEN,
                 collisionIdentifier = "Face",
@@ -130,88 +112,61 @@ class SurfaceInteractionProtocolTest {
 
         assertEquals(
             listOf(
-                Triple(
-                    ShioriMethod.GET,
-                    "OnMouseClick",
-                    listOf("12", "34", "0", "0", "Face", "0", "pen"),
-                ),
+                "GET SHIORI/3.0\r\nSender: Nanidroid\r\nSecurityLevel: local\r\n" +
+                    "ID: OnMouseClick\r\nReference0: 12\r\nReference1: 34\r\n" +
+                    "Reference2: 0\r\nReference3: 0\r\nReference4: Face\r\n" +
+                    "Reference5: 0\r\nReference6: pen\r\n\r\n",
             ),
-            requests,
+            fixture.trace.requests,
         )
     }
 
     @Test
     fun `runner serializes generic canvas as present empty reference four without numeric sentinel`() {
-        val requests = mutableListOf<List<String>>()
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
+        val fixture = fixture(Support.SUPPORTED, Support.UNSUPPORTED)
 
-            override fun getCreateCount(): Long = 1L
+        fixture.runner.dispatchSurfaceInteraction(
+            effect(PointerSource.TOUCH, collisionIdentifier = null, diagnosticCollisionId = -1),
+        )
 
-            override fun incrementCreateCount() = Unit
-
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
-
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
-                requests += references
-                return ShioriResponse("SHIORI/3.0 204 No Content")
-            }
-        }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
-        runner.setGhost(ghost)
-
-        runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, collisionIdentifier = null, diagnosticCollisionId = -1))
-
-        assertEquals(listOf(listOf("12", "34", "0", "0", "", "0", "touch")), requests)
+        assertEquals(
+            listOf(
+                "GET SHIORI/3.0\r\nSender: Nanidroid\r\nSecurityLevel: local\r\n" +
+                    "ID: OnMouseClick\r\nReference0: 12\r\nReference1: 34\r\n" +
+                    "Reference2: 0\r\nReference3: 0\r\nReference4: \r\n" +
+                    "Reference5: 0\r\nReference6: touch\r\n\r\n",
+            ),
+            fixture.trace.requests,
+        )
     }
 
     @Test
     fun `runner plays one successful pointer response without using it for capabilities`() {
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun getSakuraName(): String = "Sakura"
-            override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>) =
-                ShioriResponse("SHIORI/3.0 200 OK", java.util.Hashtable<String, String>().apply {
-                    put("Value", "\\hpointer reply\\e")
-                })
-        }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
-        runner.setNoWaitMode(true)
-        runner.setGhost(ghost)
+        val fixture = fixture(
+            Support.SUPPORTED,
+            Support.UNSUPPORTED,
+            response = { valueResponse("\\hpointer reply\\e") },
+        )
+        fixture.runner.setNoWaitMode(true)
 
-        runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH))
+        fixture.runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH))
 
         assertEquals(
             listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("pointer reply")))),
-            runner.dialogueStateSnapshot().contents,
+            fixture.runner.dialogueStateSnapshot().contents,
         )
     }
 
     @Test
     fun `pointer response waits behind active playback without replacing its source`() {
         val scheduler = RecordingScheduler()
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun getSakuraName(): String = "Sakura"
-            override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>) =
-                ShioriResponse("SHIORI/3.0 200 OK", java.util.Hashtable<String, String>().apply {
-                    put("Value", "\\hReply\\e")
-                })
-        }
-        val runner = SScriptRunner(
-            ctx = null,
-            sessionCoordinator = GhostSessionCoordinator(),
-            playbackSchedulerFactory = { scheduler },
+        val fixture = fixture(
+            Support.SUPPORTED,
+            Support.UNSUPPORTED,
+            response = { valueResponse("\\hReply\\e") },
+            scheduler = scheduler,
         )
-        runner.setGhost(ghost)
+        val runner = fixture.runner
         runner.addMsgToQueue(arrayOf("\\hABCDEFGHIJ\\_w[5000]\\e"))
         runner.run()
         scheduler.runNext()
@@ -231,34 +186,23 @@ class SurfaceInteractionProtocolTest {
     @Test
     fun `pointer response arriving during terminal stop delay is not stranded`() {
         val scheduler = RecordingScheduler()
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun getSakuraName(): String = "Sakura"
-            override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>) =
-                ShioriResponse("SHIORI/3.0 200 OK", java.util.Hashtable<String, String>().apply {
-                    put("Value", "\\hReply\\e")
-                })
-        }
-        val runner = SScriptRunner(
-            ctx = null,
-            sessionCoordinator = GhostSessionCoordinator(),
-            playbackSchedulerFactory = { scheduler },
+        val fixture = fixture(
+            Support.SUPPORTED,
+            Support.UNSUPPORTED,
+            response = { valueResponse("\\hReply\\e") },
+            scheduler = scheduler,
         )
-        runner.setGhost(ghost)
+        val runner = fixture.runner
         runner.addMsgToQueue(arrayOf("\\hDone\\e"))
         runner.run()
         scheduler.runUntil {
             runner.dialogueStateSnapshot().contents.singleOrNull()?.segments?.text() == "Done"
         }
-        scheduler.runNext() // consume \e
-        scheduler.runNext() // poll empty and schedule delayed STOP
+        scheduler.runNext()
+        scheduler.runNext()
 
         runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH))
-        scheduler.runNext() // delayed STOP must hand off to the newly queued response
+        scheduler.runNext()
         scheduler.runUntil {
             runner.dialogueStateSnapshot().contents.singleOrNull()?.segments?.text() == "Reply"
         }
@@ -268,19 +212,9 @@ class SurfaceInteractionProtocolTest {
 
     @Test
     fun `kero interaction clears queued dialogue before dispatch`() {
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun getSakuraName(): String = "Sakura"
-            override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>) =
-                ShioriResponse("SHIORI/3.0 204 No Content")
-        }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        val fixture = fixture(Support.SUPPORTED, Support.UNSUPPORTED)
+        val runner = fixture.runner
         runner.setNoWaitMode(true)
-        runner.setGhost(ghost)
         runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
 
         runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO))
@@ -291,22 +225,9 @@ class SurfaceInteractionProtocolTest {
 
     @Test
     fun `rejected kero interaction preserves queued dialogue`() {
-        val requests = mutableListOf<String>()
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun getSakuraName(): String = "Sakura"
-            override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = PointerEventCapabilities(Support.UNSUPPORTED, Support.UNSUPPORTED)
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
-                requests += eventId
-                return ShioriResponse("SHIORI/3.0 204 No Content")
-            }
-        }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
+        val fixture = fixture(Support.UNSUPPORTED, Support.UNSUPPORTED)
+        val runner = fixture.runner
         runner.setNoWaitMode(true)
-        runner.setGhost(ghost)
         runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
 
         assertTrue(!runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)))
@@ -316,110 +237,144 @@ class SurfaceInteractionProtocolTest {
             listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("queued talk")))),
             runner.dialogueStateSnapshot().contents,
         )
-        assertTrue(requests.isEmpty())
+        assertTrue(fixture.trace.requests.isEmpty())
+    }
+
+    @Test
+    fun `generation replacement after capture cannot clear replacement dialogue`() {
+        lateinit var fixture: RuntimeFixture
+        var transitioned = false
+        fixture = fixture(
+            Support.SUPPORTED,
+            Support.UNSUPPORTED,
+            playbackHooks = SScriptPlaybackHooks(
+                afterSurfaceInteractionCaptured = {
+                    if (!transitioned) {
+                        transitioned = true
+                        val outgoing = fixture.requireHandle()
+                        assertIs<RuntimeResult.Success<Unit>>(
+                            fixture.runtime.unload(outgoing.generation),
+                        )
+                        val targetRoot = File("build/runtime-fixtures/pointer-replacement")
+                        val replacement = runBlocking {
+                            assertIs<RuntimeResult.Success<GhostHandle>>(
+                                fixture.runtime.startOrJoin("pointer-replacement", targetRoot),
+                            ).value
+                        }
+                        runBlocking {
+                            assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+                                fixture.runtime.attachHost(replacement.generation),
+                            )
+                        }
+                        fixture.runner.addMsgToQueue(arrayOf("\\hreplacement queued\\e"))
+                    }
+                },
+            ),
+        )
+        fixture.runner.setNoWaitMode(true)
+
+        assertTrue(
+            !fixture.runner.dispatchSurfaceInteraction(
+                effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO),
+            ),
+        )
+        fixture.runner.run()
+
+        assertEquals(
+            listOf(
+                DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(DialogueSegment.Text("replacement queued")),
+                ),
+            ),
+            fixture.runner.dialogueStateSnapshot().contents,
+        )
     }
 
     @Test
     fun `switch pending kero interaction never requests an unloaded session`() {
-        var unloads = 0
-        var stops = 0
-        var handoffs = 0
-        var capabilityQueries = 0
-        val pointerRequests = mutableListOf<String>()
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun getSakuraName(): String = "Sakura"
-            override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities() = if (capabilityQueries++ == 0) {
-                PointerEventCapabilities(Support.SUPPORTED, Support.UNSUPPORTED)
-            } else {
-                PointerEventCapabilities(Support.UNSUPPORTED, Support.SUPPORTED)
-            }
-            override fun doShioriEvent(event: String, ref: Array<String>?) =
-                ShioriResponse("SHIORI/3.0 204 No Content")
-            override fun requestRaw(method: ShioriMethod, eventId: String, references: List<String>): ShioriResponse {
-                pointerRequests += eventId
-                return ShioriResponse("SHIORI/3.0 204 No Content")
-            }
-            override fun unload() {
-                unloads++
+        val fixture = fixture(Support.SUPPORTED, Support.UNSUPPORTED)
+        val runner = fixture.runner
+        runner.setNoWaitMode(true)
+        val active = fixture.requireHandle()
+        val target = File("build/runtime-fixtures/replacement")
+        val replacementPreparationStarted = CountDownLatch(1)
+        val releaseReplacementPreparation = CountDownLatch(1)
+        val operationId = assertIs<RuntimeResult.Success<Long>>(
+            fixture.runtime.beginSwitch(active.generation, "replacement", target),
+        ).value
+        runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
+
+        fixture.runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(
+                onPreparationStarted = { _, ghostId, _ ->
+                    if (ghostId == "replacement") {
+                        replacementPreparationStarted.countDown()
+                        check(releaseReplacementPreparation.await(5, TimeUnit.SECONDS))
+                    }
+                },
+            ),
+        ).use {
+            try {
+                assertTrue(runner.doGhostChanging(operationId, "next", "ghost", target.path))
+                assertTrue(replacementPreparationStarted.await(5, TimeUnit.SECONDS))
+                val diagnostic = runner.dispatchSurfaceInteractionWithDiagnostics(
+                    effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO),
+                )
+
+                assertNull(diagnostic.candidateEvent)
+                assertTrue(!diagnostic.accepted)
+                assertTrue(fixture.trace.requests.none { it.contains("ID: OnMouseClick") })
+            } finally {
+                releaseReplacementPreparation.countDown()
             }
         }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
-        runner.setNoWaitMode(true)
-        runner.setCallback(object : SScriptRunner.StatusCallback {
-            override fun stop() {
-                stops++
-            }
-            override fun canExit() = Unit
-            override fun ghostSwitchScriptComplete() {
-                handoffs++
-            }
-        })
-        runner.setGhost(ghost)
-        runner.addMsgToQueue(arrayOf("\\hqueued talk\\e"))
-        runner.doGhostChanging("next", "ghost", "next-path")
-
-        val interaction = effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)
-        val diagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(interaction)
-
-        assertEquals("OnMouseClick", diagnosticDispatch.candidateEvent)
-        assertTrue(!diagnosticDispatch.accepted)
-        assertEquals(1, capabilityQueries)
-        assertEquals(1, unloads)
-        assertEquals(1, stops)
-        assertEquals(1, handoffs)
-        assertTrue(pointerRequests.isEmpty())
-
-        runner.run()
-
-        assertEquals(2, stops)
-        assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
     }
 
     @Test
     fun `unloaded session does not fabricate a pointer diagnostic candidate`() {
-        var unloaded = false
-        var capabilityQueries = 0
-        val ghost = object : Ghost("recording") {
-            override fun loadGhostInfo() = Unit
-            override fun getCreateCount(): Long = 1L
-            override fun incrementCreateCount() = Unit
-            override fun getSakuraName(): String = "Sakura"
-            override fun getKeroName(): String = "Kero"
-            override fun pointerEventCapabilities(): PointerEventCapabilities {
-                capabilityQueries++
-                return if (unloaded) {
-                    PointerEventCapabilities()
-                } else {
-                    PointerEventCapabilities(Support.UNSUPPORTED, Support.UNSUPPORTED)
-                }
-            }
-            override fun doShioriEvent(event: String, ref: Array<String>?) =
-                ShioriResponse("SHIORI/3.0 204 No Content")
-            override fun unload() {
-                unloaded = true
-            }
-        }
-        val runner = SScriptRunner(null, GhostSessionCoordinator())
-        runner.setNoWaitMode(true)
-        runner.setGhost(ghost)
-        val liveDiagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
+        val fixture = fixture(Support.UNSUPPORTED, Support.UNSUPPORTED)
+        val runner = fixture.runner
+        val generation = fixture.requireHandle().generation
 
-        assertEquals(null, liveDiagnosticDispatch.candidateEvent)
-        assertTrue(!liveDiagnosticDispatch.accepted)
-        assertEquals(1, capabilityQueries)
-        assertTrue(runner.unloadGhostForSwitchForTesting(ghost))
+        val live = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
+        assertNull(live.candidateEvent)
+        assertTrue(!live.accepted)
+        assertIs<RuntimeResult.Success<Unit>>(fixture.runtime.unload(generation))
 
-        assertTrue(unloaded)
-        val diagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
-
-        assertEquals(null, diagnosticDispatch.candidateEvent)
-        assertTrue(!diagnosticDispatch.accepted)
-        assertEquals(1, capabilityQueries)
+        val unloaded = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
+        assertNull(unloaded.candidateEvent)
+        assertTrue(!unloaded.accepted)
+        assertEquals(1, fixture.trace.unloadCount.get())
     }
+
+    private fun fixture(
+        click: Support,
+        doubleClick: Support,
+        response: (String) -> String = { noContentResponse() },
+        scheduler: RecordingScheduler? = null,
+        playbackHooks: SScriptPlaybackHooks? = null,
+    ): RuntimeFixture = runtimes.create(
+        response = response,
+        bootstrapResponse = { supportedEventsResponse(click, doubleClick) },
+        runnerConfiguration = if (scheduler != null || playbackHooks != null) {
+            SScriptRunnerConfiguration(
+                playbackSchedulerFactory = scheduler?.let { { it } }
+                    ?: SScriptRunnerConfiguration().playbackSchedulerFactory,
+                playbackHooks = playbackHooks ?: SScriptPlaybackHooks(),
+            )
+        } else null,
+        preparedFactory = { operationId, ghostId, root ->
+            com.cattailsw.nanidroid.preparedGhost(
+                operationId,
+                ghostId,
+                root,
+                name = "Recording",
+                sakuraName = "Sakura",
+                keroName = "Kero",
+            )
+        },
+    )
 }
 
 private class RecordingScheduler : SScriptPlaybackScheduler {
@@ -442,6 +397,27 @@ private class RecordingScheduler : SScriptPlaybackScheduler {
         }
         throw AssertionError("playback condition was not reached")
     }
+}
+
+private fun supportedEventsResponse(click: Support, doubleClick: Support): String {
+    val events = buildList {
+        if (click == Support.SUPPORTED) add("OnMouseClick")
+        if (doubleClick == Support.SUPPORTED) add("OnMouseDoubleClick")
+    }.joinToString(",")
+    return "SHIORI/3.0 204 No Content\r\nX-SSTP-PassThru-local: $events\r\n\r\n"
+}
+
+private fun noContentResponse() = "SHIORI/3.0 204 No Content\r\n\r\n"
+
+private fun valueResponse(value: String) =
+    "SHIORI/3.0 200 OK\r\nValue: $value\r\n\r\n"
+
+private fun await(predicate: () -> Boolean) {
+    repeat(10_000) {
+        if (predicate()) return
+        Thread.yield()
+    }
+    throw AssertionError("runtime condition was not reached")
 }
 
 private fun List<DialogueSegment>.text(): String = buildString {

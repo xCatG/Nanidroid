@@ -1,13 +1,18 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
-import com.cattailsw.nanidroid.Ghost
+import com.cattailsw.nanidroid.RuntimeFixture
+import com.cattailsw.nanidroid.RuntimeResult
+import com.cattailsw.nanidroid.ShioriRequestIntent
 import com.cattailsw.nanidroid.ShioriResponse
-import com.cattailsw.nanidroid.shiori.Shiori
+import com.cattailsw.nanidroid.assertIs
+import com.cattailsw.nanidroid.shiori.ShioriRequestException
 import java.io.BufferedReader
 import java.io.StringReader
 import java.util.Hashtable
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Rule
 import org.junit.Test
 
@@ -147,6 +152,39 @@ class GhostEventCapabilitiesTest {
     }
 
     @Test
+    fun `ownership-certain optional probe failure remains unknown and discovery continues`() {
+        val probedEvents = mutableListOf<String>()
+        val capabilities = GhostEventCapabilityDiscovery.discover { _, eventId, references ->
+            when (eventId) {
+                "Get_Supported_Events" -> response()
+                "Has_Event" -> when (references.single().also(probedEvents::add)) {
+                    "OnMouseClick" -> throw ShioriRequestException(
+                        "known request failure",
+                        ownershipCertain = true,
+                    )
+                    "OnMouseDoubleClick" -> response("X-SSTP-PassThru-Result" to "1")
+                    else -> error("unexpected probe")
+                }
+                else -> error("unexpected event")
+            }
+        }
+
+        assertEquals(PointerEventCapabilities(Support.UNKNOWN, Support.SUPPORTED), capabilities)
+        assertEquals(listOf("OnMouseClick", "OnMouseDoubleClick"), probedEvents)
+    }
+
+    @Test
+    fun `ownership-uncertain optional probe failure escapes discovery immediately`() {
+        val failure = ShioriRequestException("ownership lost", ownershipCertain = false)
+
+        val thrown = assertThrows(ShioriRequestException::class.java) {
+            GhostEventCapabilityDiscovery.discover { _, _, _ -> throw failure }
+        }
+
+        assertSame(failure, thrown)
+    }
+
+    @Test
     fun `ordinary click response never changes capability state`() {
         val response = response("X-SSTP-PassThru-Result" to "1")
 
@@ -155,11 +193,17 @@ class GhostEventCapabilitiesTest {
     }
 
     @Test
-    fun `raw requests preserve notify method and an empty positional reference`() {
-        val shiori = RecordingShiori()
-        val ghost = RecordingGhost(shiori)
-
-        ghost.requestRaw(ShioriMethod.NOTIFY, "OnSecondChange", listOf("123", "", "0"))
+    fun `raw requests preserve notify method and an empty positional reference`() = RuntimeFixture().use { fixture ->
+        assertIs<RuntimeResult.Success<*>>(
+            fixture.runtime.request(
+                fixture.requireHandle().generation,
+                ShioriRequestIntent.raw(
+                    ShioriMethod.NOTIFY,
+                    "OnSecondChange",
+                    listOf("123", "", "0"),
+                ),
+            ),
+        )
 
         assertEquals(
             "NOTIFY SHIORI/3.0\r\n" +
@@ -169,7 +213,7 @@ class GhostEventCapabilitiesTest {
                 "Reference0: 123\r\n" +
                 "Reference1: \r\n" +
                 "Reference2: 0\r\n\r\n",
-            shiori.requests.single(),
+            fixture.trace.requests.single(),
         )
     }
 
@@ -186,26 +230,4 @@ class GhostEventCapabilitiesTest {
         })),
     )
 
-    private class RecordingShiori : Shiori {
-        val requests = mutableListOf<String>()
-
-        override fun getModuleName(): String = "recording"
-
-        override fun request(request: String): String {
-            requests += request
-            return "SHIORI/3.0 204 No Content\r\n\r\n"
-        }
-
-        override fun terminate() = Unit
-
-        override fun unloadShiori() = Unit
-    }
-
-    private class RecordingGhost(shiori: Shiori) : Ghost("recording") {
-        init {
-            this.shiori = shiori
-        }
-
-        override fun loadGhostInfo() = Unit
-    }
 }

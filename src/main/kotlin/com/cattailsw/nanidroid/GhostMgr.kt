@@ -4,7 +4,6 @@ import android.content.Context
 import com.cattailsw.nanidroid.install.ArchiveInstallFailure
 import com.cattailsw.nanidroid.install.ArchiveInstallResult
 import com.cattailsw.nanidroid.install.NarTransactionalInstaller
-import com.cattailsw.nanidroid.util.PrefUtil
 import java.io.File
 
 internal fun shouldInstallBundledGhost(
@@ -15,74 +14,33 @@ internal fun shouldInstallBundledGhost(
 }
 
 /** Kotlin owner for ghost discovery, selection, and fresh installation. */
-internal class GhostMgr(
-    ctx: Context,
-    private val ghostRuntime: GhostRuntime,
-) {
+internal class GhostMgr(ctx: Context) {
     private val context = ctx.applicationContext
-    private var ghosts: List<InfoOnlyGhost>? = loadGhosts()
-    private var lastInstallError: String? = null
+    private var ghosts: List<InstalledGhostMetadata> = loadGhosts()
 
     fun getGhostId(name: String): Int {
-        ghosts?.forEachIndexed { index, ghost ->
-            if (ghost.getGhostDirName().equals(name, ignoreCase = true)) return index
+        ghosts.forEachIndexed { index, ghost ->
+            if (ghost.id.equals(name, ignoreCase = true)) return index
         }
         return -1
     }
 
-    fun hasSameGhostId(id: String): Boolean =
-        !ghosts.isNullOrEmpty() && getGhostId(id) != -1
+    fun getGhostPath(id: Int): String = ghosts[id].canonicalRoot.path
 
-    fun getGhostPath(id: Int): String = ghosts!![id].getGhostPath()
+    internal fun findGhost(id: String): InstalledGhostMetadata? =
+        ghosts.firstOrNull { it.id.equals(id, ignoreCase = true) }
 
-    internal fun createGhost(name: String): ReservedGhost? {
-        val id = getGhostId(name)
-        if (id == -1) return null
-        val root = File(getGhostPath(id)).canonicalFile
-        return ghostRuntime.reuseActiveGhost(root.name, root) ?: run {
-            val construction = ghostRuntime.beginGhostConstruction(root.name, root)
-            try {
-                construction.bind(Ghost(root.path, context))
-            } catch (error: Exception) {
-                construction.failConstruction()
-                throw error
-            } catch (error: LinkageError) {
-                construction.failConstruction()
-                throw error
-            }
+    internal fun launchCandidates(preferredId: String?): List<InstalledGhostMetadata> {
+        val preferred = preferredId?.let(::findGhost)
+        return buildList {
+            if (preferred != null) add(preferred)
+            ghosts.forEach { ghost -> if (ghost !== preferred) add(ghost) }
         }
-    }
-
-    fun getLastRunGhostId(): String? =
-        if (PrefUtil.hasKey(context, PREF_LAST_RUN_GHOST)) {
-            PrefUtil.getKeyValue(context, PREF_LAST_RUN_GHOST)
-        } else {
-            null
-        }
-
-    fun setLastRunGhost(ghost: Ghost) {
-        PrefUtil.setKey(context, PREF_LAST_RUN_GHOST, ghost.getGhostDirName())
     }
 
     fun installFirstGhost(gid: String, narPath: String): String? =
-        installGhost(gid, narPath, true)
-
-    fun installGhost(gid: String, narPath: String): String? =
-        installGhost(gid, narPath, false)
-
-    fun installGhost(ghostId: String, narPath: String, usegid: Boolean): String? {
-        return when (val result = installGhost(ghostId, narPath, usegid, { false })) {
-            is ArchiveInstallResult.Installed -> result.installedPath
-            is ArchiveInstallResult.Failed -> {
-                lastInstallError = result.message
-                null
-            }
-            ArchiveInstallResult.Cancelled -> {
-                lastInstallError = "The selected ghost archive install was cancelled."
-                null
-            }
-        }
-    }
+        (installGhost(gid, narPath, true, { false }) as? ArchiveInstallResult.Installed)
+            ?.installedPath
 
     fun installFirstGhost(
         gid: String,
@@ -90,13 +48,7 @@ internal class GhostMgr(
         isCancelled: () -> Boolean,
     ): ArchiveInstallResult = installGhost(gid, narPath, true, isCancelled)
 
-    fun installGhost(
-        ghostId: String,
-        narPath: String,
-        isCancelled: () -> Boolean,
-    ): ArchiveInstallResult = installGhost(ghostId, narPath, false, isCancelled)
-
-    fun installGhost(
+    private fun installGhost(
         ghostId: String,
         narPath: String,
         usegid: Boolean,
@@ -130,22 +82,19 @@ internal class GhostMgr(
                 ArchiveInstallFailure.InvalidArchive,
             )
         }
-        lastInstallError = null
         return ArchiveInstallResult.Installed(getGhostPath(id), installed.targetId)
     }
-
-    fun getLastInstallError(): String? = lastInstallError
 
     fun refreshGhost() {
         ghosts = loadGhosts()
     }
 
-    private fun loadGhosts(): List<InfoOnlyGhost>? = DirList.parseDataDir(context)
+    private fun loadGhosts(): List<InstalledGhostMetadata> = InstalledGhostCatalog.scan(context)
 
     fun getGnames(): Array<String>? =
-        ghosts?.takeIf { it.isNotEmpty() }?.map { it.getGhostDirName() }?.toTypedArray()
+        ghosts.takeIf { it.isNotEmpty() }?.map { it.id }?.toTypedArray()
 
-    fun getGhostCount(): Int = ghosts?.size ?: 0
+    fun getGhostCount(): Int = ghosts.size
 
     fun shouldInstallFirstGhost(): Boolean {
         val externalFiles = context.getExternalFilesDir(null) ?: return false
@@ -154,20 +103,17 @@ internal class GhostMgr(
     }
 
     fun getGhostReadMe(ghostId: String): File =
-        File(getGhostPath(getGhostId(ghostId)), "readme.txt")
+        ghosts[getGhostId(ghostId)].readme
 
     fun getGhostSakuraName(id: String): String? =
-        getGhostId(id).takeIf { it != -1 }?.let { ghosts!![it].getSakuraName() }
+        getGhostId(id).takeIf { it != -1 }?.let { ghosts[it].sakuraName }
 
     fun getGhostDispName(id: String): String? =
-        getGhostId(id).takeIf { it != -1 }?.let { ghosts!![it].getGhostName() }
+        getGhostId(id).takeIf { it != -1 }?.let { ghosts[it].name }
 
     fun getGDispNames(): Array<String?>? =
-        ghosts?.takeIf { it.isNotEmpty() }?.map { it.getGhostName() }?.toTypedArray()
+        ghosts.takeIf { it.isNotEmpty() }?.map { it.name }?.toTypedArray()
 
     fun getGhostPath(id: String): String = getGhostPath(getGhostId(id))
 
-    private companion object {
-        const val PREF_LAST_RUN_GHOST = "lastrunghost"
-    }
 }
