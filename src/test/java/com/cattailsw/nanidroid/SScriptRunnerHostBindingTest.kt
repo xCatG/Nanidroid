@@ -21,6 +21,41 @@ class SScriptRunnerHostBindingTest {
     @get:Rule val runtimes = RuntimeFixtureRegistry()
 
     @Test
+    fun repeatedBackJoinsOneExitOperation() {
+        val scheduler = ManualRuntimeScheduler()
+        val onCloseRequests = AtomicInteger()
+        val fixture = runtimes.create(
+            response = { request ->
+                if ("ID: OnClose\r\n" in request) {
+                    onCloseRequests.incrementAndGet()
+                    "SHIORI/3.0 200 OK\r\nValue: \\hClose\\e\r\n\r\n"
+                } else {
+                    "SHIORI/3.0 204 No Content\r\n\r\n"
+                }
+            },
+            runnerConfiguration = SScriptRunnerConfiguration(
+                playbackSchedulerFactory = { scheduler },
+            ),
+        )
+        val status = RecordingStatusCallback()
+        fixture.runner.bindHost(
+            SScriptRunner.HostToken(),
+            {},
+            {},
+            recordingUiCallback(mutableListOf()),
+            status,
+        )
+
+        fixture.runner.doExit()
+        fixture.runner.doExit()
+
+        assertEquals(1, onCloseRequests.get())
+        assertEquals(0, status.canExitCount)
+        scheduler.runAll()
+        assertEquals(1, status.canExitCount)
+    }
+
+    @Test
     fun olderHostUnbindCannotDetachNewerHostCallbacks() {
         val runner = runtimes.create().runner.apply { setNoWaitMode(true) }
         val hostA = SScriptRunner.HostToken()

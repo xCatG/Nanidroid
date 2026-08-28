@@ -17,6 +17,40 @@ class GhostSwitchingCharacterizationTest {
     @Rule @JvmField val runtimes = RuntimeFixtureRegistry()
 
     @Test
+    fun switchPlaybackOwnsOutgoingResponseBeforeUnload() {
+        val trace = Trace()
+        val fixture = fixture(trace)
+        val outgoing = fixture.requireHandle()
+        val targetRoot = File("build/runtime-fixtures/switching/owned-response")
+        val operationId = assertIs<RuntimeResult.Success<Long>>(
+            fixture.runtime.beginSwitch(outgoing.generation, "owned-response", targetRoot),
+        ).value
+
+        fixture.runtime.installTestHooksForTesting(
+            GhostRuntimeTestHooks(onOutgoingUnloaded = { trace.add("unload") }),
+        ).use {
+            Assert.assertTrue(
+                fixture.runner.doGhostChanging(
+                    operationId,
+                    "Owned Response",
+                    "manual",
+                    targetRoot.path,
+                ),
+            )
+            trace.awaitSize(3)
+        }
+
+        Assert.assertEquals(
+            listOf(
+                "request:outgoing:OnGhostChanging:[Owned Response, manual, null, ${targetRoot.path}]",
+                "render:Switching",
+                "unload",
+            ),
+            trace.events(),
+        )
+    }
+
+    @Test
     fun requiredMigrationInvariant_outgoingScriptRendersBeforeSingleHandoffCallback() {
         val trace = Trace()
         val fixture = fixture(trace)

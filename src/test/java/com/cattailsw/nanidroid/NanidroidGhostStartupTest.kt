@@ -1,12 +1,38 @@
 package com.cattailsw.nanidroid
 
+import android.content.Context
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import java.io.File
 
 class NanidroidGhostStartupTest {
+    @get:Rule
+    val androidStubs = HostAndroidStubRule()
+
+    @Test
+    fun foregroundImportRefreshCannotPublishPreCommitCatalogScan() {
+        val externalRoot = File.createTempFile("nanidroid-catalog", "").apply {
+            check(delete() && mkdir())
+        }
+        val context = mockk<Context>()
+        every { context.getExternalFilesDir(null) } returns externalRoot
+        try {
+            descriptor(File(externalRoot, ".nanidroid-install-staging/import/ghost-a"))
+
+            assertTrue(InstalledGhostCatalog.scan(context).isEmpty())
+
+            descriptor(File(externalRoot, "ghost/ghost-a"))
+            assertEquals(listOf("ghost-a"), InstalledGhostCatalog.scan(context).map { it.id })
+        } finally {
+            externalRoot.deleteRecursively()
+        }
+    }
+
     @Test
     fun `recreated switch shows progress only after authored playback completes`() {
         GhostRuntimePhase.entries.forEach { phase ->
@@ -94,5 +120,12 @@ class NanidroidGhostStartupTest {
         } finally {
             storage.deleteRecursively()
         }
+    }
+
+    private fun descriptor(root: File) {
+        File(root, "ghost/master").mkdirs()
+        File(root, "ghost/master/descript.txt").writeText(
+            "charset,UTF-8\nname,Fixture\nsakura.name,Sakura\n",
+        )
     }
 }

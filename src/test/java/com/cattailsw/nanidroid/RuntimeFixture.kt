@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid
 
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
+import com.cattailsw.nanidroid.shiori.Shiori
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.rules.TestRule
@@ -17,6 +18,7 @@ internal class RuntimeFixture(
     response: (String) -> String = { NO_CONTENT_RESPONSE },
     bootstrapResponse: ((String) -> String)? = null,
     preparedFactory: (Long, String, File) -> PreparedGhost = ::preparedGhost,
+    adapterDecorator: (Shiori) -> Shiori = { it },
     runnerConfiguration: SScriptRunnerConfiguration? = null,
     autoStart: Boolean = true,
     autoAttach: Boolean = autoStart,
@@ -24,7 +26,9 @@ internal class RuntimeFixture(
     val runtime = GhostRuntime.testRuntime(
         context = null,
         preparer = GhostPreparer(preparedFactory),
-        adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
+        adapterFactory = { prepared ->
+            adapterDecorator(RecordingShiori(trace, prepared.id))
+        },
         persistence = persistence,
         runnerConfiguration = runnerConfiguration,
     )
@@ -78,6 +82,7 @@ class RuntimeFixtureRegistry : TestRule {
         response: (String) -> String = { "SHIORI/3.0 204 No Content\r\n\r\n" },
         bootstrapResponse: ((String) -> String)? = null,
         preparedFactory: (Long, String, File) -> PreparedGhost = ::preparedGhost,
+        adapterDecorator: (Shiori) -> Shiori = { it },
         runnerConfiguration: SScriptRunnerConfiguration? = null,
         autoStart: Boolean = true,
         autoAttach: Boolean = autoStart,
@@ -89,6 +94,7 @@ class RuntimeFixtureRegistry : TestRule {
         response = response,
         bootstrapResponse = bootstrapResponse,
         preparedFactory = preparedFactory,
+        adapterDecorator = adapterDecorator,
         runnerConfiguration = runnerConfiguration,
         autoStart = autoStart,
         autoAttach = autoAttach,

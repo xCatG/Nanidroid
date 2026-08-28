@@ -93,6 +93,16 @@ class SakuraScriptCharacterizationTest {
     }
 
     @Test
+    fun equalAnimationIdsFromSeparateCommandsAreSeparateRenderCalls() {
+        runScript("\\h\\i[3]\\i[3]\\e")
+
+        Assert.assertEquals(
+            listOf("animation:sakura:3", "animation:sakura:3"),
+            trace.events(),
+        )
+    }
+
+    @Test
     fun legacyObserved_choicesAreReportedThenTheirLabelsContinueAsText() {
         assertTrace(
             "85a129feecd76e217ff9495e44e159bc7db0088a830e3aaf28f4f74ecac08687",

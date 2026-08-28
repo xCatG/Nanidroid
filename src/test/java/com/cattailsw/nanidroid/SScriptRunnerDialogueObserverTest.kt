@@ -84,6 +84,28 @@ class SScriptRunnerDialogueObserverTest {
     }
 
     @Test
+    fun pendingInputRestoresOnlyAgainstSameDialogueIncarnationAndGeneration() {
+        val runner = runner()
+        val binding = DialogueDialogBinding { runner }
+        runner.addMsgToQueue(arrayOf("\\![open,passwordinput,first,1000]\\e"))
+        runner.run()
+        val first = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
+        val firstRestoration = requireNotNull(binding.userInput(first).restoration)
+
+        runner.clearMsgQueue()
+        runner.addMsgToQueue(arrayOf("\\![open,inputbox,replacement,1000]\\e"))
+        runner.run()
+        val replacement = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
+
+        assertEquals(null, binding.restoreUserInput("first", firstRestoration))
+        val replacementRestoration = requireNotNull(binding.userInput(replacement).restoration)
+        assertEquals(
+            "draft",
+            requireNotNull(binding.restoreUserInput("replacement", replacementRestoration, "draft")).value,
+        )
+    }
+
+    @Test
     fun legacyChoiceCallbackSkipsHiddenScopeChoicesBeforeLaterChoiceIsRevealed() {
         val runner = runner()
         val callbacks = mutableListOf<Pair<List<String>, List<String>>>()

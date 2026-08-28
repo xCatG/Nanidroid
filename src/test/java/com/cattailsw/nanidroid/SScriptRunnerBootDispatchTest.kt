@@ -9,7 +9,10 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
+import com.cattailsw.nanidroid.shiori.Shiori
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert
 import org.junit.Rule
@@ -19,6 +22,101 @@ import org.junit.Test
 class SScriptRunnerBootDispatchTest {
     @Rule @JvmField val androidStubs = HostAndroidStubRule()
     @Rule @JvmField val runtimes = RuntimeFixtureRegistry()
+
+    @Test
+    fun attachmentSelectsExactlyOneFirstBootGhostChangedOrBootEvent() {
+        val firstActivation = runtimes.create(
+            id = "first",
+            persistence = InMemoryGhostRuntimePersistence(),
+            bootstrapResponse = { noContent() },
+            autoAttach = false,
+        )
+        firstActivation.trace.requests.clear()
+        attach(firstActivation, firstActivation.requireHandle())
+
+        val switchedReturn = runtimes.create(
+            id = "outgoing",
+            persistence = InMemoryGhostRuntimePersistence().apply {
+                activationCounts["outgoing"] = 1L
+                activationCounts["replacement"] = 1L
+            },
+            bootstrapResponse = { noContent() },
+            preparedFactory = ::namedPrepared,
+            autoAttach = false,
+        )
+        switchedReturn.trace.requests.clear()
+        attach(switchedReturn, switchedReturn.requireHandle())
+        val outgoing = switchedReturn.requireHandle()
+        val replacementRoot = File(switchedReturn.root.parentFile, "replacement")
+        val switchOperation = assertIs<RuntimeResult.Success<Long>>(
+            switchedReturn.runtime.beginSwitch(outgoing.generation, "replacement", replacementRoot),
+        ).value
+        Assert.assertTrue(
+            switchedReturn.runner.doGhostChanging(
+                switchOperation,
+                "replacement Sakura",
+                "manual",
+                replacementRoot.path,
+            ),
+        )
+        val replacement = runBlocking {
+            assertIs<RuntimeResult.Success<GhostHandle>>(
+                switchedReturn.runtime.startOrJoin("replacement", replacementRoot),
+            ).value
+        }
+        switchedReturn.trace.requests.clear()
+        attach(switchedReturn, replacement)
+
+        val ordinaryReturn = runtimes.create(
+            id = "ordinary",
+            persistence = InMemoryGhostRuntimePersistence().apply { activationCounts["ordinary"] = 1L },
+            bootstrapResponse = { noContent() },
+            autoAttach = false,
+        )
+        ordinaryReturn.trace.requests.clear()
+        attach(ordinaryReturn, ordinaryReturn.requireHandle())
+
+        Assert.assertEquals(listOf("OnFirstBoot"), requestIds(firstActivation))
+        Assert.assertEquals(listOf("OnGhostChanged"), requestIds(switchedReturn))
+        Assert.assertEquals(listOf("OnBoot"), requestIds(ordinaryReturn))
+    }
+
+    @Test
+    fun blockedTimerResponseCannotEnterAfterClockEpochChanges() {
+        lateinit var adapter: BlockingRuntimeAdapter
+        val fixture = runtimes.create(
+            id = "blocked-timer",
+            response = { "SHIORI/3.0 200 OK\r\nValue: \\hstale timer\\e\r\n\r\n" },
+            adapterDecorator = { delegate ->
+                val blocking = BlockingRuntimeAdapter(delegate)
+                adapter = blocking
+                object : Shiori by delegate {
+                    override fun request(request: String): String =
+                        if (requestId(request) == "OnSecondChange") blocking.request(request) else delegate.request(request)
+                }
+            },
+            runnerConfiguration = SScriptRunnerConfiguration(
+                monotonicClock = MonotonicClock { 1_000L },
+            ),
+        )
+        val runner = fixture.runner.apply { setNoWaitMode(true) }
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            runner.startClock()
+            val clockTick = executor.submit<Unit> { runner.dispatchClockTickForTesting() }
+            Assert.assertTrue(adapter.entered.await(5, TimeUnit.SECONDS))
+
+            runner.stopClock()
+            adapter.release.countDown()
+            clockTick.get(5, TimeUnit.SECONDS)
+
+            Assert.assertTrue(runner.dialogueStateSnapshot().contents.isEmpty())
+            Assert.assertEquals(listOf("OnSecondChange"), requestIds(fixture))
+        } finally {
+            adapter.release.countDown()
+            executor.shutdownNow()
+        }
+    }
 
     @Test
     fun dispatchesBootOnceAcrossDuplicateStartResumeAndNamedGhostHandoff() {
@@ -498,6 +596,9 @@ class SScriptRunnerBootDispatchTest {
             runner.dialogueStateSnapshot().contents,
         )
     }
+
+    private fun requestIds(fixture: RuntimeFixture): List<String> = fixture.trace.requests
+        .mapNotNull(::requestId)
 
     private class FakeClock(var millis: Long) : MonotonicClock {
         override fun nowMillis(): Long = millis

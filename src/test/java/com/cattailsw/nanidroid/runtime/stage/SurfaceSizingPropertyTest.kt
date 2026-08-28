@@ -15,6 +15,29 @@ import org.junit.Test
 
 class SurfaceSizingPropertyTest {
     @Test
+    fun migrationInvariant_oversizedSurfacesFitAssignedRegionsBeforePlacement() {
+        val keroIntrinsic = 4_000 to 3_000
+        val sakuraIntrinsic = 3_000 to 4_000
+        val layout = calculate(
+            width = 360,
+            height = 720,
+            kero = metrics(1, keroIntrinsic),
+            sakura = metrics(2, sakuraIntrinsic),
+        )
+
+        assertSurfaceFits(
+            requireNotNull(layout.keroSurface),
+            requireNotNull(layout.keroSurfaceRegion),
+            keroIntrinsic,
+        )
+        assertSurfaceFits(
+            requireNotNull(layout.sakuraSurface),
+            requireNotNull(layout.sakuraSurfaceRegion),
+            sakuraIntrinsic,
+        )
+    }
+
+    @Test
     fun `all audited intrinsic pairs fit every representative viewport`() {
         val viewports = listOf(
             360 to 720,

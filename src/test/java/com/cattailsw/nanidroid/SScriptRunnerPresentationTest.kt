@@ -26,6 +26,37 @@ class SScriptRunnerPresentationTest {
     val runtimes = RuntimeFixtureRegistry()
 
     @Test
+    fun authoredPlaybackContinuesWhileClockOwnerIsAbsent() {
+        val scheduler = ManualRuntimeScheduler()
+        val fixture = runtimes.create(
+            runnerConfiguration = SScriptRunnerConfiguration(
+                monotonicClock = FakeClock(10_000L),
+                playbackSchedulerFactory = { scheduler },
+            ),
+        )
+        val frames = mutableListOf<GhostPresentationFrame>()
+        val runner = fixture.runner.apply {
+            setPresentationRenderer(frames::add)
+            startClock()
+            stopClock()
+        }
+        val script = buildString {
+            append("\\hcomplete")
+            repeat(65) { append("\\i[7]") }
+            append("\\s[120]\\e")
+        }
+
+        runner.addMsgToQueue(arrayOf(script))
+        runner.run()
+        scheduler.runAll()
+
+        Assert.assertTrue(
+            frames.any { it.sakura.text == "complete" && it.sakura.surfaceId == "120" },
+        )
+        Assert.assertFalse(runner.runtimeModeSnapshot().playingTalk)
+    }
+
+    @Test
     fun emitsTextSurfaceAndOneShotAnimationFramesWithoutAndroidViews() {
         val frames: MutableList<String> = ArrayList<String>()
         val runner = fixture(emptyList(), autoAttach = false).runner
