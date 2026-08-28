@@ -82,7 +82,14 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn("pthread_mutex_t kawari_mutex", source)
         self.assertEqual(source.count("KawariLock lock;"), 3)
 
-    def test_yaya_empty_responses_release_bridge_buffers(self):
+    def test_yaya_input_allocation_failure_is_not_fabricated_as_an_empty_response(self):
+        source = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
+        request_body = source.split("jbyteArray nativeRequest", 1)[1].split("jboolean nativeUnload", 1)[0]
+        allocation_failure = request_body.split("if (input == NULL)", 1)[1].split("GetByteArrayRegion", 1)[0]
+        self.assertIn('throwIllegalState(env, "Could not allocate YAYA request buffer")', allocation_failure)
+        self.assertIn("return NULL", allocation_failure)
+
+    def test_yaya_engine_empty_responses_release_bridge_buffers(self):
         source = (self.root / "jni/yaya/yaya_jni.cpp").read_text(encoding="utf-8")
         self.assertIn("free(result);\n        free(input);\n        return env->NewByteArray(0);", source)
 

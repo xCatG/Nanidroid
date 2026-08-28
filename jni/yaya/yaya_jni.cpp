@@ -89,7 +89,10 @@ jbyteArray nativeRequest(JNIEnv* env, jobject, jbyteArray request) {
     }
     const jsize length = env->GetArrayLength(request);
     char* input = static_cast<char*>(malloc(static_cast<size_t>(length) + 1));
-    if (input == NULL) return env->NewByteArray(0);
+    if (input == NULL) {
+        throwIllegalState(env, "Could not allocate YAYA request buffer");
+        return NULL;
+    }
     env->GetByteArrayRegion(request, 0, length, reinterpret_cast<jbyte*>(input));
     input[length] = '\0';
     long resultLength = length;
