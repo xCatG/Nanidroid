@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.compose
 
 import android.content.res.Configuration
 import android.content.pm.ActivityInfo
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.WindowInsets
 import androidx.activity.ComponentActivity
@@ -40,6 +41,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
@@ -54,10 +56,21 @@ class NanidroidComposeShellTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
+    @Before
+    fun establishNaturalWindowConfiguration() {
+        uiAutomation().executeShellCommand("wm size reset").close()
+        composeRule.waitUntil(timeoutMillis = 5_000) { "Override size:" !in shellOutput("wm size") }
+        composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        }
+    }
+
     @After
     fun restoreOrientation() {
         composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         uiAutomation().executeShellCommand("wm size reset").close()
+        composeRule.waitUntil(timeoutMillis = 5_000) { "Override size:" !in shellOutput("wm size") }
     }
 
     @Test
@@ -772,6 +785,10 @@ class NanidroidComposeShellTest {
     private fun uiDevice(): UiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
     private fun uiAutomation() = InstrumentationRegistry.getInstrumentation().uiAutomation
+
+    private fun shellOutput(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(
+        uiAutomation().executeShellCommand(command),
+    ).bufferedReader().use { it.readText() }
 
     private class UserInputFixture {
         val open = mutableStateOf(true)

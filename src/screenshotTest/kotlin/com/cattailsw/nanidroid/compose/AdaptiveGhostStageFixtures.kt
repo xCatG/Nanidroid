@@ -10,8 +10,8 @@ import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.install.ArchiveInstallFailure
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
-import com.cattailsw.nanidroid.runtime.GhostPresentationState
+import com.cattailsw.nanidroid.runtime.RuntimePresentation
+import com.cattailsw.nanidroid.runtime.RuntimeSpeakerPresentation
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.stage.StageDisplayFeature
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
@@ -46,7 +46,7 @@ enum class ScreenshotInvariant {
 }
 
 internal data class StageFixtureState(
-    val presentation: GhostPresentationState,
+    val presentation: RuntimePresentation,
     val sakura: ScreenshotSurfaceFixture,
     val kero: ScreenshotSurfaceFixture,
     val collisionOverlaySpeaker: SurfaceSpeaker? = null,
@@ -748,15 +748,20 @@ private fun presentationState(
     keroBalloon: Boolean = true,
     sakuraSurfaceId: Int,
     keroSurfaceId: Int,
-): GhostPresentationState = GhostPresentationReducer.snapshot(
-    sakuraText = sakuraText,
-    sakuraSurfaceId = sakuraSurfaceId.toString(),
-    sakuraAnimationId = null,
-    sakuraBalloonId = sakuraBalloonId(sakuraText, sakuraBalloon),
-    keroText = keroText,
-    keroSurfaceId = keroSurfaceId.toString(),
-    keroAnimationId = null,
-    keroBalloonId = keroBalloonId(keroText, keroBalloon),
+): RuntimePresentation = RuntimePresentation(
+    sakura = RuntimeSpeakerPresentation(
+        text = sakuraText,
+        surfaceId = sakuraSurfaceId.toString(),
+        surfaceEpoch = 0L,
+        balloonVisible = sakuraBalloonId(sakuraText, sakuraBalloon) != "-1",
+    ),
+    kero = RuntimeSpeakerPresentation(
+        text = keroText,
+        surfaceId = keroSurfaceId.toString(),
+        surfaceEpoch = 0L,
+        balloonVisible = keroBalloonId(keroText, keroBalloon) != "-1",
+    ),
+    talkingAnimationEnabled = false,
 )
 
 private fun sakuraBalloonId(text: String, visibleOverride: Boolean): String =

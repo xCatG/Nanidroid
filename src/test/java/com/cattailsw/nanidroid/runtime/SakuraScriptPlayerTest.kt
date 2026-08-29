@@ -974,10 +974,10 @@ class SakuraScriptPlayerTest {
             states.drop(1).forEach { player ->
                 val next = player.presentation
                 if (next.sakura.text != previous.sakura.text && next.sakura.text.isNotEmpty()) {
-                    result += "text:sakura:${next.sakura.text.replace("\n", "\\n")}" 
+                    result += "text:sakura:${next.sakura.text.replace("\n", "\\n")}"
                 }
                 if (next.kero.text != previous.kero.text && next.kero.text.isNotEmpty()) {
-                    result += "text:kero:${next.kero.text.replace("\n", "\\n")}" 
+                    result += "text:kero:${next.kero.text.replace("\n", "\\n")}"
                 }
                 if (next.sakura.surfaceId != previous.sakura.surfaceId) result += "surface:sakura:${next.sakura.surfaceId}"
                 if (next.kero.surfaceId != previous.kero.surfaceId) result += "surface:kero:${next.kero.surfaceId}"
