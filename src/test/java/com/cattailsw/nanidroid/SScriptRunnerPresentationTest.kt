@@ -152,6 +152,59 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun talkingCadenceCountsTerminalFrameAndSurvivesSeparateIdleTalks() {
+        // Nine text frames + the \e frame reach phase zero; the terminal clear frame
+        // must advance it to one before the separately enqueued talk is adopted.
+        val firstScript = "\\habcdefghi\\e"
+        val secondScript = "\\hB\\e"
+        val scheduler = ManualRuntimeScheduler()
+        val runnerFrames = mutableListOf<GhostPresentationFrame>()
+        val runner = runtimes.create(
+            runnerConfiguration = SScriptRunnerConfiguration(
+                monotonicClock = FakeClock(10_000L),
+                playbackSchedulerFactory = { scheduler },
+            ),
+            autoAttach = false,
+        ).runner
+        runner.setPresentationRenderer { runnerFrames += it }
+        runner.addMsgToQueue(arrayOf(firstScript))
+        runner.run()
+        scheduler.runAll()
+        runnerFrames.clear()
+        runner.addMsgToQueue(arrayOf(secondScript))
+        runner.run()
+        scheduler.runAll()
+        val legacySecond = runnerFrames.first { it.sakura.text == "B" }
+        Assert.assertFalse(legacySecond.talkingAnimationEnabled)
+
+        var player = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(firstScript, null),
+        ).state
+        var steps = 0
+        while (player.current != null || player.queue.isNotEmpty()) {
+            check(steps++ < 20)
+            player = SakuraScriptPlayer.reduce(
+                player,
+                PlayerCommand.Advance(player.playbackToken, 10_000L),
+            ).state
+        }
+        Assert.assertNull(player.current)
+        Assert.assertEquals(1, player.talkingFrameIndex)
+        player = SakuraScriptPlayer.reduce(player, PlayerCommand.Enqueue(secondScript, null)).state
+        val reducerSecond = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.Advance(player.playbackToken, 20_000L),
+        )
+        Assert.assertEquals("B", reducerSecond.state.presentation.sakura.text)
+        Assert.assertFalse(
+            reducerSecond.effects.any {
+                it == PlayerEffect.PresentationCue(GhostSpeaker.SAKURA, RuntimeCueKind.TALKING, null)
+            },
+        )
+    }
+
+    @Test
     fun attachingAReplacementRendererRepublishesTheCurrentFrameWithoutANewScriptEvent() {
         val firstFrames = mutableListOf<GhostPresentationFrame>()
         val runner = fixture(emptyList()).runner
@@ -391,6 +444,7 @@ class SScriptRunnerPresentationTest {
     @Test
     fun normalAndDirectAnchorsUseTheirExactEventsWithoutSpeakerReferences() {
         val normal = fixture(responses = listOf(noContent(), noContent()))
+        val normalScript = "\\_a[anchor-id,\"\",\"tail\"]Anchor\\_a\\e"
 
         normal.runner.activateAnchor(normal.openAnchor("Anchor", "anchor-id", "", "tail"))
 
@@ -400,6 +454,21 @@ class SScriptRunnerPresentationTest {
                 request("OnAnchorSelect", "anchor-id"),
             ),
             normal.shiori.requests,
+        )
+
+        val normalPlayer = drivePlayerUntilAction(normalScript)
+        val normalAnchor = normalPlayer.dialogue.anchors.single()
+        val normalEffect = SakuraScriptPlayer.reduce(
+            normalPlayer,
+            PlayerCommand.ActivateAnchor(normalAnchor.key),
+        ).effects.single() as PlayerEffect.RequestShiori
+        Assert.assertEquals(
+            request("OnAnchorSelectEx", "Anchor", "anchor-id", "", "tail"),
+            normalEffect.intent.protocolText,
+        )
+        Assert.assertEquals(
+            request("OnAnchorSelect", "anchor-id"),
+            requireNotNull(normalEffect.fallback).protocolText,
         )
 
         val direct = fixture(responses = listOf(talk("\\e")))
@@ -441,6 +510,8 @@ class SScriptRunnerPresentationTest {
     @Test
     fun normalAndDirectInputSubmissionUseExactReferencesAndFenceStaleGenerations() {
         val normal = fixture(responses = listOf(noContent()))
+        val normalScript =
+            "\\![open,inputbox,answer,1000,\"initial text\",--reference=\"\",--reference=tail]\\e"
         val pending = normal.openPendingInput("answer", timeoutMillis = 1_000L)
 
         normal.runner.submitInput(pending.generation + 1, "ignored")
@@ -451,6 +522,17 @@ class SScriptRunnerPresentationTest {
             normal.shiori.requests,
         )
         Assert.assertEquals(null, normal.runner.dialogueStateSnapshot().pendingInput)
+
+        val normalPlayer = drivePlayerUntilAction(normalScript)
+        val normalInput = requireNotNull(normalPlayer.dialogue.input)
+        val normalEffect = SakuraScriptPlayer.reduce(
+            normalPlayer,
+            PlayerCommand.SubmitInput(normalInput.key, "value"),
+        ).effects.filterIsInstance<PlayerEffect.RequestShiori>().single()
+        Assert.assertEquals(
+            request("OnUserInput", "answer", "value", "", "", "tail"),
+            normalEffect.intent.protocolText,
+        )
 
         val direct = fixture(responses = listOf(noContent()))
         val directPending = direct.openPendingInput(

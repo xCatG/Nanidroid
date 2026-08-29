@@ -46,6 +46,7 @@ internal data class PlayerState(
     val authoredRequest: RuntimeRequestOrigin.Playback?,
     val playbackToken: Long,
     val nextActionId: Long,
+    val talkingFrameIndex: Int,
 ) {
     companion object {
         fun initial(generation: Long): PlayerState = freeze(
@@ -68,6 +69,7 @@ internal data class PlayerState(
                 authoredRequest = null,
                 playbackToken = 0L,
                 nextActionId = 1L,
+                talkingFrameIndex = 0,
             ),
         )
     }
@@ -165,7 +167,6 @@ internal object SakuraScriptPlayer {
     private fun adopt(
         state: PlayerState,
         elapsedMillis: Long,
-        renderedFrameIndex: Int = 0,
     ): PlayerState {
         val payload = state.queue.first()
         val markers = actionMarkers(payload.script)
@@ -193,7 +194,7 @@ internal object SakuraScriptPlayer {
                 wholeLine = false,
                 quickSession = false,
                 synchronizedSession = false,
-                renderedFrameIndex = renderedFrameIndex,
+                renderedFrameIndex = state.talkingFrameIndex,
             ),
             presentation = resetTransient(state.presentation),
             dialogue = nextDialogue,
@@ -416,9 +417,11 @@ internal object SakuraScriptPlayer {
             }
         }
 
-        cursor = cursor.copy(renderedFrameIndex = (cursor.renderedFrameIndex + 1) % 10)
+        val nextTalkingFrameIndex = (cursor.renderedFrameIndex + 1) % 10
+        cursor = cursor.copy(renderedFrameIndex = nextTalkingFrameIndex)
         next = next.copy(
             current = cursor,
+            talkingFrameIndex = nextTalkingFrameIndex,
             presentation = next.presentation.copy(talkingAnimationEnabled = talkingFrame),
         )
         next = projectDialogue(next, startIndex, cursor.charIndex)
@@ -449,10 +452,9 @@ internal object SakuraScriptPlayer {
         ) return transition(state)
         return when (val response = command.response) {
             PlayerResponse.StaleGeneration -> transition(state)
-            PlayerResponse.FatalFailure -> failPlayback(
+            PlayerResponse.FatalFailure -> poisonPlayback(
                 state,
                 state.current?.payload?.parent,
-                RuntimeNoticeCode.RUNTIME_POISONED,
             )
             PlayerResponse.ReplayableFailure -> failPlayback(
                 state,
@@ -627,15 +629,22 @@ internal object SakuraScriptPlayer {
 
     private fun completeCurrent(state: PlayerState, elapsedMillis: Long): PlayerTransition {
         val parent = state.current?.payload?.parent
+        val hasQueuedTalk = state.queue.isNotEmpty()
+        val talkingFrameIndex = if (hasQueuedTalk) {
+            state.current?.renderedFrameIndex ?: state.talkingFrameIndex
+        } else {
+            ((state.current?.renderedFrameIndex ?: state.talkingFrameIndex) + 1) % 10
+        }
         val next = state.copy(
             current = null,
             authoredRequest = null,
+            talkingFrameIndex = talkingFrameIndex,
             presentation = resetTransient(state.presentation),
         )
         val stillOwned = next.queue.any { it.parent == parent }
         val effects = if (parent != null && !stillOwned) listOf(PlayerEffect.ParentCompleted(parent)) else emptyList()
         return if (next.queue.isNotEmpty()) {
-            val adopted = adopt(next, elapsedMillis, state.current?.renderedFrameIndex ?: 0)
+            val adopted = adopt(next, elapsedMillis)
             schedule(adopted, WAIT_UNIT, effects)
         } else transition(next, effects)
     }
@@ -662,6 +671,19 @@ internal object SakuraScriptPlayer {
         val effects = listOf(PlayerEffect.Failure(parent, reason))
         return if (remainingQueue.isEmpty()) transition(failed, effects) else schedule(failed, 0L, effects)
     }
+
+    private fun poisonPlayback(state: PlayerState, parent: PlayerParent?): PlayerTransition = transition(
+        state.copy(
+            queue = emptyList(),
+            current = null,
+            authoredRequest = null,
+            dialogue = emptyDialogue(state.dialogue),
+            passive = false,
+            playbackToken = state.playbackToken + 1,
+            presentation = resetTransient(state.presentation),
+        ),
+        listOf(PlayerEffect.Failure(parent, RuntimeNoticeCode.RUNTIME_POISONED)),
+    )
 
     private fun projectDialogue(
         state: PlayerState,

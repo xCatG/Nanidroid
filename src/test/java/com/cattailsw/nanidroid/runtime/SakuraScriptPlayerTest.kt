@@ -194,6 +194,38 @@ class SakuraScriptPlayerTest {
         assertTrue(fatal.state.queue.isEmpty())
     }
 
+    // Mutation caught: a poisoned runtime preserves another owner's queue and schedules playback.
+    @Test
+    fun fatalRuntimePoisoningClearsEveryOwnerAndEmitsOnlyFailure() {
+        val failedParent = PlayerParent.Switch(41)
+        val otherParent = PlayerParent.Exit(42)
+        var suspended = advance(
+            SakuraScriptPlayer.reduce(
+                PlayerState.initial(7),
+                PlayerCommand.Enqueue("\\s[42]A\\e", failedParent),
+            ).state,
+            0L,
+        ).state
+        suspended = SakuraScriptPlayer.reduce(
+            suspended,
+            PlayerCommand.Enqueue("\\hOther\\e", otherParent),
+        ).state
+        val token = RuntimeRequestToken(7, 15, 41, requireNotNull(suspended.authoredRequest))
+
+        val poisoned = SakuraScriptPlayer.reduce(
+            suspended,
+            PlayerCommand.NativeResponse(token, PlayerResponse.FatalFailure),
+        )
+
+        assertNull(poisoned.state.current)
+        assertTrue(poisoned.state.queue.isEmpty())
+        assertNull(poisoned.state.authoredRequest)
+        assertEquals(
+            listOf(PlayerEffect.Failure(failedParent, RuntimeNoticeCode.RUNTIME_POISONED)),
+            poisoned.effects,
+        )
+    }
+
     // Mutation caught: an invalid required presentation argument creates a partially valid frame.
     @Test
     fun parserFailureClearsCapturedWorkAndFailsParent() {
@@ -389,6 +421,7 @@ class SakuraScriptPlayerTest {
         val submitted = SakuraScriptPlayer.reduce(opened.state, PlayerCommand.SubmitInput(input.key, "value"))
         assertNull(submitted.state.dialogue.input)
         val submit = submitted.effects.filterIsInstance<PlayerEffect.RequestShiori>().single()
+        assertEquals("OnUserInput", submit.intent.eventId())
         assertEquals(listOf("name", "value", "s", "tail"), submit.intent.references())
 
         val reopened = firstAdvance("\\![open,inputbox,name]\\e")
@@ -483,7 +516,11 @@ class SakuraScriptPlayerTest {
         val second = SakuraScriptPlayer.reduce(first.state, PlayerCommand.ActivateAnchor(anchor.key))
 
         assertEquals(shown.dialogue.anchors, first.state.dialogue.anchors)
-        assertEquals("OnAnchorSelectEx", (first.effects.single() as PlayerEffect.RequestShiori).intent.eventId())
+        val normalRequest = first.effects.single() as PlayerEffect.RequestShiori
+        assertEquals("OnAnchorSelectEx", normalRequest.intent.eventId())
+        assertEquals(listOf("Link", "id", "tail"), normalRequest.intent.references())
+        assertEquals("OnAnchorSelect", requireNotNull(normalRequest.fallback).eventId())
+        assertEquals(listOf("id"), normalRequest.fallback.references())
         assertEquals(1, second.effects.size)
 
         val directShown = drive("\\_a[OnDirect,tail]Direct\\_a\\e", stopOnAction = true).state
