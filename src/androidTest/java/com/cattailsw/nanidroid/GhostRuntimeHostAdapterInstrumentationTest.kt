@@ -6,7 +6,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
 import com.cattailsw.nanidroid.runtime.RuntimeHostId
 import com.cattailsw.nanidroid.runtime.RuntimeHostLease
-import com.cattailsw.nanidroid.runtime.RuntimeScheduleKind
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -95,6 +94,52 @@ class GhostRuntimeHostAdapterInstrumentationTest {
     }
 
     @Test
+    fun staleSameHostEpochSnapshotCannotPlayAcknowledgeOrDeliverExit() {
+        val fixture = installHarness(autoAcknowledgeCues = true, autoDeliverExit = true)
+        fixture.startAttached()
+        ActivityScenario.launch(GhostRuntimeHostTestActivity::class.java).use { scenario ->
+            val record = scenario.hostRecord(fixture)
+            fixture.awaitForeground(record.hostId)
+
+            fixture.blockNextDelivery { it.cues.isNotEmpty() }
+            fixture.enqueueAndAdvance("\\i[stale]\\e", cueCount = 1)
+            val staleCueSnapshot = fixture.awaitBlockedDelivery()
+            assertTrue(staleCueSnapshot.cues.isNotEmpty())
+            scenario.onActivity { it.setTopResumedForTesting(false) }
+            fixture.await { fixture.runtime.snapshots.value.foregroundHost == null }
+            fixture.await { fixture.runtime.snapshots.value.cues.isEmpty() }
+            val cueRevocation = fixture.submissionsFor(record.hostId).last()
+            assertEquals(record.hostId, staleCueSnapshot.foregroundHost?.hostId)
+            assertTrue(cueRevocation.epoch > requireNotNull(staleCueSnapshot.foregroundHost).hostEpoch)
+            fixture.releaseBlockedDelivery()
+            fixture.awaitDeliveryResumed()
+
+            assertTrue(fixture.playedCues[record.hostId].orEmpty().isEmpty())
+            assertFalse(fixture.acknowledgedThrough.containsKey(record.hostId))
+
+            fixture.advanceUntilTalkStops()
+            scenario.onActivity { it.setTopResumedForTesting(true) }
+            fixture.awaitForeground(record.hostId)
+            fixture.blockNextDelivery { it.exit?.offeredLease != null }
+            scenario.onActivity { it.requestBackForTesting() }
+            val staleExitSnapshot = fixture.awaitBlockedDelivery()
+            assertNotEquals(null, staleExitSnapshot.exit?.offeredLease)
+            scenario.onActivity { it.setTopResumedForTesting(false) }
+            fixture.await { fixture.runtime.snapshots.value.foregroundHost == null }
+            fixture.await { fixture.runtime.snapshots.value.exit?.offeredLease == null }
+            val exitRevocation = fixture.submissionsFor(record.hostId).last()
+            val staleExitHost = requireNotNull(staleExitSnapshot.exit?.offeredLease).hostLease
+            assertEquals(record.hostId, staleExitHost.hostId)
+            assertTrue(exitRevocation.epoch > staleExitHost.hostEpoch)
+            fixture.releaseBlockedDelivery()
+            fixture.awaitDeliveryResumed()
+
+            assertEquals(0L, record.finishCount.get())
+            assertTrue(fixture.deliveryTrace.none { it in setOf("claim", "finish", "acknowledge") })
+        }
+    }
+
+    @Test
     fun expiredOldHostCueCannotAliasReplacementHostCue() {
         val fixture = installHarness(autoAcknowledgeCues = false)
         fixture.startAttached()
@@ -128,17 +173,14 @@ class GhostRuntimeHostAdapterInstrumentationTest {
         fixture.enqueueAndAdvance(
             buildString {
                 repeat(65) { append("\\i[").append(it).append(']') }
-                append("\\e")
+                append("\\hFINAL\\e")
             },
             cueCount = 65,
         )
 
         assertTrue(fixture.runtime.snapshots.value.cues.isEmpty())
-        assertTrue(
-            "hostless playback did not retain its next step; scheduled=${fixture.scheduler.scheduledKinds()}, " +
-                "trace=${fixture.runtime.snapshotCommandTraceForTesting()}",
-            fixture.scheduler.has(RuntimeScheduleKind.PLAYBACK),
-        )
+        fixture.advanceUntilPresentationText("FINAL")
+        assertEquals("FINAL", fixture.runtime.snapshots.value.presentation.sakura.text)
         fixture.advanceUntilTalkStops()
         assertFalse(fixture.runtime.snapshots.value.mode.playingTalk)
     }

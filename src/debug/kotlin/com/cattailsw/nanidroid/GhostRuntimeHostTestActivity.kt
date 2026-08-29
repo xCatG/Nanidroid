@@ -29,6 +29,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -39,6 +40,7 @@ internal class GhostRuntimeHostTestActivity : ComponentActivity() {
         get() = harness.hostRuntime
     private lateinit var record: ActivityRecord
     private var hostEpoch = 0L
+    private var currentLease: RuntimeHostLease? = null
     private var lastPlayedCueId = 0L
     private var deliveredExitLeaseId: Long? = null
 
@@ -50,7 +52,11 @@ internal class GhostRuntimeHostTestActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 harness.awaitCollectorStart()
-                runtime.snapshots.collect(::render)
+                runtime.snapshots.collect { snapshot ->
+                    harness.beforeSnapshotDelivery(snapshot)
+                    render(snapshot)
+                    harness.afterSnapshotDelivery(snapshot)
+                }
             }
         }
     }
@@ -104,23 +110,30 @@ internal class GhostRuntimeHostTestActivity : ComponentActivity() {
         startActivity(Intent(this, GhostRuntimeHostTestActivity::class.java))
     }
 
+    internal fun setTopResumedForTesting(topResumed: Boolean) {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        runtime.submit(RuntimeCommand.SetTopResumed(nextLease(), topResumed))
+    }
+
     private suspend fun render(snapshot: RuntimeSnapshot) {
         harness.renderedRevisions.getOrPut(record.hostId) { CopyOnWriteArrayList() }.add(snapshot.revision)
+        val lease = currentLease ?: return
+        if (snapshot.foregroundHost != lease) return
         val hostCues = snapshot.cues.filter {
-            it.hostLease.hostId == record.hostId && it.cueId > lastPlayedCueId
+            it.hostLease == lease && it.cueId > lastPlayedCueId
         }
-        if (snapshot.foregroundHost?.hostId == record.hostId && hostCues.isNotEmpty()) {
+        if (hostCues.isNotEmpty()) {
             val played = harness.playedCues.getOrPut(record.hostId) { CopyOnWriteArrayList() }
             hostCues.mapTo(played) { it.cueId }
             lastPlayedCueId = hostCues.last().cueId
             if (harness.autoAcknowledgeCues) {
                 val last = hostCues.last()
                 harness.acknowledgedThrough[record.hostId] = last.cueId
-                runtime.submit(RuntimeCommand.AcknowledgeCues(last.hostLease, last.cueId))
+                runtime.submit(RuntimeCommand.AcknowledgeCues(lease, last.cueId))
             }
         }
         snapshot.exit?.offeredLease?.takeIf {
-            harness.autoDeliverExit && it.hostLease.hostId == record.hostId && it.leaseId != deliveredExitLeaseId
+            harness.autoDeliverExit && it.hostLease == lease && it.leaseId != deliveredExitLeaseId
         }?.let {
             deliveredExitLeaseId = it.leaseId
             deliverExit(it)
@@ -128,8 +141,9 @@ internal class GhostRuntimeHostTestActivity : ComponentActivity() {
     }
 
     private fun nextLease(): RuntimeHostLease {
+        check(Looper.myLooper() == Looper.getMainLooper())
         hostEpoch += 1L
-        return RuntimeHostLease(record.hostId, hostEpoch)
+        return RuntimeHostLease(record.hostId, hostEpoch).also { currentLease = it }
     }
 
     private fun deliverExit(lease: RuntimeExitLease) {
@@ -204,6 +218,8 @@ internal class HostAdapterHarness(
     private val activities = ConcurrentHashMap<GhostRuntimeHostTestActivity, ActivityRecord>()
     @Volatile
     private var collectorStart = CompletableDeferred(Unit)
+    @Volatile
+    private var deliveryGate: SnapshotDeliveryGate? = null
 
     val runtime = GhostRuntime.testRuntime(
         context = null,
@@ -281,6 +297,39 @@ internal class HostAdapterHarness(
         collectorStart.complete(Unit)
     }
 
+    fun blockNextDelivery(predicate: (RuntimeSnapshot) -> Boolean) {
+        check(deliveryGate == null)
+        deliveryGate = SnapshotDeliveryGate(predicate)
+    }
+
+    suspend fun beforeSnapshotDelivery(snapshot: RuntimeSnapshot) {
+        val gate = deliveryGate ?: return
+        if (gate.predicate(snapshot) && gate.claimed.compareAndSet(false, true)) {
+            gate.snapshot.set(snapshot)
+            gate.release.await()
+        }
+    }
+
+    fun afterSnapshotDelivery(snapshot: RuntimeSnapshot) {
+        val gate = deliveryGate ?: return
+        if (gate.snapshot.get() === snapshot) gate.resumed.set(true)
+    }
+
+    fun awaitBlockedDelivery(): RuntimeSnapshot {
+        await { deliveryGate?.snapshot?.get() != null }
+        return requireNotNull(deliveryGate?.snapshot?.get())
+    }
+
+    fun releaseBlockedDelivery() {
+        requireNotNull(deliveryGate).release.complete(Unit)
+    }
+
+    fun awaitDeliveryResumed() {
+        val gate = requireNotNull(deliveryGate)
+        await { gate.resumed.get() }
+        deliveryGate = null
+    }
+
     fun awaitForeground(hostId: RuntimeHostId) = await { runtime.snapshots.value.foregroundHost?.hostId == hostId }
 
     fun startAttached() {
@@ -290,25 +339,38 @@ internal class HostAdapterHarness(
 
     fun enqueueAndAdvance(script: String, cueCount: Int) {
         runtime.enqueueScriptForTesting(script)
-        repeat(cueCount) {
-            val before = runtime.snapshots.value.revision
-            scheduler.awaitAndRun(RuntimeScheduleKind.PLAYBACK)
-            await { runtime.snapshots.value.revision > before }
-        }
+        repeat(cueCount) { runPlaybackStep() }
         await {
             runtime.snapshots.value.cues.size == cueCount.coerceAtMost(64) || runtime.snapshots.value.foregroundHost == null
         }
     }
 
-    fun advanceUntilTalkStops() {
-        repeat(10) {
-            if (!runtime.snapshots.value.mode.playingTalk) return
-            val before = runtime.snapshots.value.revision
-            scheduler.awaitAndRun(RuntimeScheduleKind.PLAYBACK)
-            await { runtime.snapshots.value.revision > before }
+    fun advanceUntilTalkStops(maxSteps: Int = 10) {
+        repeat(maxSteps) {
+            if (!runtime.snapshots.value.mode.playingTalk && !scheduler.has(RuntimeScheduleKind.PLAYBACK)) return
+            runPlaybackStep()
         }
         await { !runtime.snapshots.value.mode.playingTalk }
     }
+
+    fun advanceUntilPresentationText(expected: String, maxSteps: Int = 20) {
+        repeat(maxSteps) {
+            if (runtime.snapshots.value.presentation.sakura.text == expected) return
+            runPlaybackStep()
+        }
+        await { runtime.snapshots.value.presentation.sakura.text == expected }
+    }
+
+    private fun runPlaybackStep() {
+        val beforeRevision = runtime.snapshots.value.revision
+        val beforePlaybackDueCount = playbackDueCount()
+        scheduler.awaitAndRun(RuntimeScheduleKind.PLAYBACK)
+        await {
+            playbackDueCount() > beforePlaybackDueCount && runtime.snapshots.value.revision > beforeRevision
+        }
+    }
+
+    private fun playbackDueCount(): Int = runtime.snapshotCommandTraceForTesting().count { it == "PlaybackDue" }
 
     fun await(predicate: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
@@ -337,6 +399,14 @@ internal class HostAdapterHarness(
         const val GHOST_ID = "host-adapter"
         val GHOST_ROOT = File("build/android-host-adapter/host-adapter").absoluteFile
     }
+
+    private class SnapshotDeliveryGate(
+        val predicate: (RuntimeSnapshot) -> Boolean,
+        val claimed: AtomicBoolean = AtomicBoolean(),
+        val snapshot: AtomicReference<RuntimeSnapshot?> = AtomicReference(),
+        val release: CompletableDeferred<Unit> = CompletableDeferred(),
+        val resumed: AtomicBoolean = AtomicBoolean(),
+    )
 }
 
 internal class TestRuntimeScheduler : RuntimeScheduler {
