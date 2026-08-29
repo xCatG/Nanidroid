@@ -324,6 +324,10 @@ internal class GhostRuntime private constructor(
 
     internal fun claimedDialogueCountForTesting(): Int = snapshotCore?.claimedDialogueCount() ?: 0
 
+    internal fun blockSnapshotNativeLaneForTesting(action: () -> Unit) {
+        checkNotNull(snapshotCore).blockNativeLaneForTesting(action)
+    }
+
     internal fun shouldInstallBundledGhostForTesting(storageEntries: Array<out File>): Boolean =
         snapshotCore?.shouldInstallBundledGhost(storageEntries) == true
 
@@ -1516,7 +1520,9 @@ private class SnapshotRuntimeCore(
     private var nextNativeSubmission = 1L
     private var nextNativeCompletion = 1L
     private val nativeCompletions = sortedMapOf<Long, RuntimeCommand>()
-    private val nativeOwnership = AtomicReference<SnapshotNativeOwnership?>(null)
+    private var nativeLifecycle: SnapshotNativeLifecycle = SnapshotNativeLifecycle.Empty
+    private val queuedNativeRequests = java.util.ArrayDeque<SnapshotNativeRequest>()
+    private val closeReady = java.util.concurrent.CountDownLatch(1)
     private val resourceLock = Any()
     @Volatile
     private var closed = false
@@ -1567,6 +1573,13 @@ private class SnapshotRuntimeCore(
     fun pendingRequestCount(): Int = requestRegistry.pending.size
 
     fun claimedDialogueCount(): Int = requestRegistry.claimedDialogue.size
+
+    fun blockNativeLaneForTesting(action: () -> Unit) {
+        synchronized(resourceLock) {
+            if (closed) return
+            nativeExecutor.execute(action)
+        }
+    }
 
     fun shouldInstallBundledGhost(storageEntries: Array<out File>): Boolean {
         val ready = catalogOwner.state as? RuntimeCatalogState.Ready ?: return false
@@ -1787,36 +1800,7 @@ private class SnapshotRuntimeCore(
                 }
                 operation.prepared = outcome.value
                 val candidateGeneration = nextGeneration + 1L
-                val candidateOwnership = SnapshotNativeOwnership(operation.operationId, candidateGeneration)
-                enqueueNative(
-                    onFailure = {
-                        RuntimeCommand.NativeLoadCompleted(
-                            operation.operationId,
-                            candidateGeneration,
-                            RuntimeNativeLifecycleOutcome.Failed(
-                                com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED,
-                                ownershipCertain = false,
-                            ),
-                        )
-                    },
-                ) { complete ->
-                    check(registerNativeOwnership(candidateOwnership)) {
-                        "Native load ownership could not be registered"
-                    }
-                    nativePort.load(
-                        operation.operationId,
-                        candidateGeneration,
-                        outcome.value,
-                    ) { result ->
-                        complete(
-                            RuntimeCommand.NativeLoadCompleted(operation.operationId, candidateGeneration, result),
-                        ) {
-                            if (result is RuntimeNativeLifecycleOutcome.Failed && result.ownershipCertain) {
-                                clearNativeOwnership(candidateOwnership)
-                            }
-                        }
-                    }
-                }
+                enqueueNativeLoad(operation, outcome.value, candidateGeneration)
             }
         }
     }
@@ -1964,7 +1948,7 @@ private class SnapshotRuntimeCore(
         if (generation != command.generation) return
         if (
             command.generation == null &&
-            nativeOwnership.get() != null &&
+            hasReservedNativeOwnership() &&
             phase != GhostRuntimePhase.Poisoned
         ) return
         if (phase == GhostRuntimePhase.Poisoned) {
@@ -2288,28 +2272,7 @@ private class SnapshotRuntimeCore(
         parentState = next
         phase = GhostRuntimePhase.Replacing
         modeRevision += 1L
-        enqueueNative(
-            onFailure = {
-                RuntimeCommand.NativeUnloadCompleted(
-                    parent.operationId,
-                    parent.generation,
-                    RuntimeNativeLifecycleOutcome.Failed(
-                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_UNLOAD_FAILED,
-                        ownershipCertain = false,
-                    ),
-                )
-            },
-        ) { complete ->
-            nativePort.unload(parent.operationId, parent.generation) { outcome ->
-                complete(
-                    RuntimeCommand.NativeUnloadCompleted(parent.operationId, parent.generation, outcome),
-                ) {
-                    if (outcome == RuntimeNativeLifecycleOutcome.Success) {
-                        clearNativeGeneration(parent.generation)
-                    }
-                }
-            }
-        }
+        enqueueNativeUnload(parent.operationId, parent.generation)
     }
 
     private fun nativeUnloadCompleted(command: RuntimeCommand.NativeUnloadCompleted) {
@@ -2610,44 +2573,7 @@ private class SnapshotRuntimeCore(
                 requestRegistry.claimedDialogue + (requestId to dialogueClaim)
             },
         )
-        enqueueNative(
-            onFailure = { failure ->
-                RuntimeCommand.NativeResponse(token, RuntimeResult.Failure(RuntimeFailure.Fatal(failure)))
-            },
-        ) { complete ->
-            nativePort.request(token, intent, fallback) { result ->
-                complete(RuntimeCommand.NativeResponse(token, result)) { }
-            }
-        }
-    }
-
-    private fun enqueueNative(
-        onFailure: (Throwable) -> RuntimeCommand,
-        action: (complete: (RuntimeCommand, () -> Unit) -> Unit) -> Unit,
-    ) {
-        val sequence = nextNativeSubmission++
-        val settled = java.util.concurrent.atomic.AtomicBoolean(false)
-        val complete = { command: RuntimeCommand, beforeSubmit: () -> Unit ->
-            if (settled.compareAndSet(false, true)) {
-                beforeSubmit()
-                submitNativeCompletion(sequence, command)
-            }
-        }
-        synchronized(resourceLock) {
-            if (closed) return
-            try {
-                nativeExecutor.execute {
-                    if (closed) return@execute
-                    try {
-                        action(complete)
-                    } catch (failure: Throwable) {
-                        complete(onFailure(failure)) { }
-                    }
-                }
-            } catch (_: RejectedExecutionException) {
-                // Close won the admission race.
-            }
-        }
+        enqueueNativeRequest(token, intent, fallback)
     }
 
     private fun safeSchedule(
@@ -2661,17 +2587,330 @@ private class SnapshotRuntimeCore(
         }
     }
 
-    private fun registerNativeOwnership(ownership: SnapshotNativeOwnership): Boolean =
-        synchronized(resourceLock) {
-            !closed && nativeOwnership.compareAndSet(null, ownership)
-        }
+    private fun hasReservedNativeOwnership(): Boolean =
+        synchronized(resourceLock) { nativeLifecycle !is SnapshotNativeLifecycle.Empty }
 
-    private fun clearNativeOwnership(ownership: SnapshotNativeOwnership) {
-        nativeOwnership.updateAndGet { owned -> owned?.takeUnless { it == ownership } }
+    private fun enqueueNativeLoad(
+        operation: SnapshotPendingOperation,
+        prepared: PreparedGhost,
+        candidateGeneration: Long,
+    ) {
+        val sequence = nextNativeSubmission++
+        val loading = SnapshotNativeLifecycle.Loading(
+            ownership = SnapshotNativeOwnership(operation.operationId, candidateGeneration),
+            sequence = sequence,
+            prepared = prepared,
+        )
+        var admissionFailure: Throwable? = null
+        synchronized(resourceLock) {
+            if (closed) return
+            if (nativeLifecycle !is SnapshotNativeLifecycle.Empty) {
+                admissionFailure = IllegalStateException("Native load admitted while an adapter is reserved")
+                return@synchronized
+            }
+            nativeLifecycle = loading
+            try {
+                nativeExecutor.execute { invokeNativeLoad(loading) }
+            } catch (failure: RejectedExecutionException) {
+                if (nativeLifecycle === loading) nativeLifecycle = SnapshotNativeLifecycle.Empty
+                admissionFailure = failure
+            }
+        }
+        admissionFailure?.let {
+            submitNativeCompletion(
+                sequence,
+                RuntimeCommand.NativeLoadCompleted(
+                    operation.operationId,
+                    candidateGeneration,
+                    RuntimeNativeLifecycleOutcome.Failed(
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED,
+                        ownershipCertain = true,
+                    ),
+                ),
+            )
+        }
     }
 
-    private fun clearNativeGeneration(generation: Long) {
-        nativeOwnership.updateAndGet { owned -> owned?.takeUnless { it.generation == generation } }
+    private fun invokeNativeLoad(loading: SnapshotNativeLifecycle.Loading) {
+        synchronized(resourceLock) {
+            if (nativeLifecycle !== loading || loading.settled.get()) return
+            loading.invoked = true
+        }
+        try {
+            nativePort.load(
+                loading.ownership.operationId,
+                loading.ownership.generation,
+                loading.prepared,
+            ) { outcome -> settleNativeLoad(loading, outcome) }
+        } catch (_: Throwable) {
+            settleNativeLoad(
+                loading,
+                RuntimeNativeLifecycleOutcome.Failed(
+                    com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED,
+                    ownershipCertain = false,
+                ),
+            )
+        }
+    }
+
+    private fun settleNativeLoad(
+        loading: SnapshotNativeLifecycle.Loading,
+        outcome: RuntimeNativeLifecycleOutcome,
+    ) {
+        if (!loading.settled.compareAndSet(false, true)) return
+        var publish = false
+        synchronized(resourceLock) {
+            if (nativeLifecycle !== loading) return
+            val keepOwnership = outcome == RuntimeNativeLifecycleOutcome.Success ||
+                (outcome is RuntimeNativeLifecycleOutcome.Failed && !outcome.ownershipCertain)
+            if (keepOwnership) {
+                val loaded = SnapshotNativeLifecycle.Loaded(loading.ownership)
+                nativeLifecycle = loaded
+                if (closed || loading.closeRequested) {
+                    loaded.closeRequested = true
+                    startCloseUnloadLocked(loaded)
+                } else {
+                    publish = true
+                }
+            } else {
+                nativeLifecycle = SnapshotNativeLifecycle.Empty
+                if (closed || loading.closeRequested) finishNativeCloseLocked()
+                else publish = true
+            }
+        }
+        if (publish) {
+            submitNativeCompletion(
+                loading.sequence,
+                RuntimeCommand.NativeLoadCompleted(
+                    loading.ownership.operationId,
+                    loading.ownership.generation,
+                    outcome,
+                ),
+            )
+        }
+    }
+
+    private fun enqueueNativeRequest(
+        token: RuntimeRequestToken,
+        intent: ShioriRequestIntent,
+        fallback: ShioriRequestIntent?,
+    ) {
+        val request = SnapshotNativeRequest(nextNativeSubmission++, token, intent, fallback)
+        var rejected = false
+        synchronized(resourceLock) {
+            if (closed) return
+            val loaded = nativeLifecycle as? SnapshotNativeLifecycle.Loaded
+            if (loaded == null || loaded.closeRequested) {
+                rejected = true
+            } else if (loaded.request == null) {
+                loaded.request = request
+                startNativeRequestLocked(loaded, request)
+            } else {
+                queuedNativeRequests.addLast(request)
+            }
+        }
+        if (rejected) {
+            submitNativeCompletion(
+                request.sequence,
+                RuntimeCommand.NativeResponse(
+                    token,
+                    RuntimeResult.Failure(
+                        RuntimeFailure.Fatal(IllegalStateException("Native request has no loaded adapter")),
+                    ),
+                ),
+            )
+        }
+    }
+
+    private fun startNativeRequestLocked(
+        loaded: SnapshotNativeLifecycle.Loaded,
+        request: SnapshotNativeRequest,
+    ) {
+        try {
+            nativeExecutor.execute { invokeNativeRequest(loaded, request) }
+        } catch (failure: RejectedExecutionException) {
+            if (loaded.request === request) loaded.request = null
+            if (closed || loaded.closeRequested) {
+                startCloseUnloadLocked(loaded)
+            } else {
+                submitNativeCompletion(
+                    request.sequence,
+                    RuntimeCommand.NativeResponse(
+                        request.token,
+                        RuntimeResult.Failure(RuntimeFailure.Fatal(failure)),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun invokeNativeRequest(
+        loaded: SnapshotNativeLifecycle.Loaded,
+        request: SnapshotNativeRequest,
+    ) {
+        synchronized(resourceLock) {
+            if (nativeLifecycle !== loaded || loaded.request !== request || request.settled.get()) return
+            request.invoked = true
+        }
+        try {
+            nativePort.request(request.token, request.intent, request.fallback) { result ->
+                settleNativeRequest(loaded, request, result)
+            }
+        } catch (failure: Throwable) {
+            settleNativeRequest(
+                loaded,
+                request,
+                RuntimeResult.Failure(RuntimeFailure.Fatal(failure)),
+            )
+        }
+    }
+
+    private fun settleNativeRequest(
+        loaded: SnapshotNativeLifecycle.Loaded,
+        request: SnapshotNativeRequest,
+        result: RuntimeResult<TaggedShioriResponse>,
+    ) {
+        if (!request.settled.compareAndSet(false, true)) return
+        var publish = false
+        synchronized(resourceLock) {
+            if (nativeLifecycle !== loaded || loaded.request !== request) return
+            loaded.request = null
+            if (closed || loaded.closeRequested) {
+                queuedNativeRequests.clear()
+                startCloseUnloadLocked(loaded)
+            } else {
+                publish = true
+                val next = queuedNativeRequests.pollFirst()
+                if (next != null) {
+                    loaded.request = next
+                    startNativeRequestLocked(loaded, next)
+                }
+            }
+        }
+        if (publish) {
+            submitNativeCompletion(request.sequence, RuntimeCommand.NativeResponse(request.token, result))
+        }
+    }
+
+    private fun enqueueNativeUnload(operationId: Long, retiredGeneration: Long) {
+        val work = SnapshotNativeUnload(nextNativeSubmission++, operationId, retiredGeneration)
+        var admissionFailure: Throwable? = null
+        synchronized(resourceLock) {
+            if (closed) return
+            val loaded = nativeLifecycle as? SnapshotNativeLifecycle.Loaded
+            if (
+                loaded == null ||
+                loaded.ownership.generation != retiredGeneration ||
+                loaded.request != null
+            ) {
+                admissionFailure = IllegalStateException("Native unload has no idle loaded adapter")
+                return@synchronized
+            }
+            val unloading = SnapshotNativeLifecycle.Unloading(loaded.ownership, work)
+            nativeLifecycle = unloading
+            try {
+                nativeExecutor.execute { invokeNativeUnload(unloading) }
+            } catch (failure: RejectedExecutionException) {
+                nativeLifecycle = loaded
+                admissionFailure = failure
+            }
+        }
+        admissionFailure?.let { failure ->
+            submitNativeCompletion(
+                requireNotNull(work.sequence),
+                RuntimeCommand.NativeUnloadCompleted(
+                    operationId,
+                    retiredGeneration,
+                    RuntimeNativeLifecycleOutcome.Failed(
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_UNLOAD_FAILED,
+                        ownershipCertain = false,
+                    ),
+                ),
+            )
+        }
+    }
+
+    private fun startCloseUnloadLocked(loaded: SnapshotNativeLifecycle.Loaded) {
+        if (nativeLifecycle !== loaded) return
+        loaded.closeRequested = true
+        val work = SnapshotNativeUnload(
+            sequence = null,
+            operationId = loaded.ownership.operationId,
+            generation = loaded.ownership.generation,
+        )
+        val unloading = SnapshotNativeLifecycle.Unloading(
+            ownership = loaded.ownership,
+            work = work,
+            closeRequested = true,
+        )
+        nativeLifecycle = unloading
+        try {
+            nativeExecutor.execute { invokeNativeUnload(unloading) }
+        } catch (_: RejectedExecutionException) {
+            nativeLifecycle = SnapshotNativeLifecycle.Empty
+            finishNativeCloseLocked()
+        }
+    }
+
+    private fun invokeNativeUnload(unloading: SnapshotNativeLifecycle.Unloading) {
+        synchronized(resourceLock) {
+            if (nativeLifecycle !== unloading || unloading.work.settled.get()) return
+            unloading.work.invoked = true
+            if (closed || unloading.closeRequested) closeReady.countDown()
+        }
+        try {
+            nativePort.unload(
+                unloading.work.operationId,
+                unloading.work.generation,
+            ) { outcome -> settleNativeUnload(unloading, outcome) }
+        } catch (_: Throwable) {
+            settleNativeUnload(
+                unloading,
+                RuntimeNativeLifecycleOutcome.Failed(
+                    com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_UNLOAD_FAILED,
+                    ownershipCertain = false,
+                ),
+            )
+        }
+    }
+
+    private fun settleNativeUnload(
+        unloading: SnapshotNativeLifecycle.Unloading,
+        outcome: RuntimeNativeLifecycleOutcome,
+    ) {
+        if (!unloading.work.settled.compareAndSet(false, true)) return
+        var publish = false
+        synchronized(resourceLock) {
+            if (nativeLifecycle !== unloading) return
+            val releaseOwnership = outcome == RuntimeNativeLifecycleOutcome.Success ||
+                (outcome is RuntimeNativeLifecycleOutcome.Failed && outcome.ownershipCertain) ||
+                closed || unloading.closeRequested
+            if (releaseOwnership) {
+                nativeLifecycle = SnapshotNativeLifecycle.Empty
+                if (closed || unloading.closeRequested) finishNativeCloseLocked()
+                else publish = true
+            } else {
+                nativeLifecycle = SnapshotNativeLifecycle.Loaded(unloading.ownership)
+                publish = true
+            }
+        }
+        val sequence = unloading.work.sequence
+        if (publish && sequence != null) {
+            submitNativeCompletion(
+                sequence,
+                RuntimeCommand.NativeUnloadCompleted(
+                    unloading.work.operationId,
+                    unloading.work.generation,
+                    outcome,
+                ),
+            )
+        }
+    }
+
+    private fun finishNativeCloseLocked() {
+        if (!closed || nativeLifecycle !is SnapshotNativeLifecycle.Empty) return
+        closeReady.countDown()
+        nativeExecutor.shutdown()
     }
 
     private fun safeCancel(key: com.cattailsw.nanidroid.runtime.RuntimeScheduleKey) {
@@ -2840,27 +3079,25 @@ private class SnapshotRuntimeCore(
     override fun close() {
         synchronized(resourceLock) {
             if (closed) return
-            val cleanup = nativeOwnership.getAndSet(null)
             closed = true
             dispatcher.close()
             ioScope.cancel()
             scheduler.close()
-            cleanup?.let { owned ->
-                try {
-                    nativeExecutor.execute {
-                        runCatching {
-                            nativePort.unload(owned.operationId, owned.generation) { }
-                        }
-                    }
-                } catch (_: RejectedExecutionException) {
-                    // The executor cannot reject before shutdown while resourceLock is held.
+            queuedNativeRequests.clear()
+            when (val lifecycle = nativeLifecycle) {
+                SnapshotNativeLifecycle.Empty -> finishNativeCloseLocked()
+                is SnapshotNativeLifecycle.Loading -> lifecycle.closeRequested = true
+                is SnapshotNativeLifecycle.Loaded -> {
+                    lifecycle.closeRequested = true
+                    if (lifecycle.request == null) startCloseUnloadLocked(lifecycle)
+                }
+                is SnapshotNativeLifecycle.Unloading -> {
+                    lifecycle.closeRequested = true
+                    if (lifecycle.work.invoked) closeReady.countDown()
                 }
             }
-            nativeExecutor.shutdown()
         }
-        if (!nativeExecutor.awaitTermination(5L, TimeUnit.SECONDS)) {
-            nativeExecutor.shutdownNow()
-        }
+        closeReady.await(5L, TimeUnit.SECONDS)
     }
 
     private data class SnapshotPendingOperation(
@@ -2880,6 +3117,51 @@ private class SnapshotRuntimeCore(
     private data class SnapshotNativeOwnership(
         val operationId: Long,
         val generation: Long,
+    )
+
+    private sealed interface SnapshotNativeLifecycle {
+        data object Empty : SnapshotNativeLifecycle
+
+        class Loading(
+            val ownership: SnapshotNativeOwnership,
+            val sequence: Long,
+            val prepared: PreparedGhost,
+            val settled: java.util.concurrent.atomic.AtomicBoolean =
+                java.util.concurrent.atomic.AtomicBoolean(false),
+            var invoked: Boolean = false,
+            var closeRequested: Boolean = false,
+        ) : SnapshotNativeLifecycle
+
+        class Loaded(
+            val ownership: SnapshotNativeOwnership,
+            var request: SnapshotNativeRequest? = null,
+            var closeRequested: Boolean = false,
+        ) : SnapshotNativeLifecycle
+
+        class Unloading(
+            val ownership: SnapshotNativeOwnership,
+            val work: SnapshotNativeUnload,
+            var closeRequested: Boolean = false,
+        ) : SnapshotNativeLifecycle
+    }
+
+    private class SnapshotNativeRequest(
+        val sequence: Long,
+        val token: RuntimeRequestToken,
+        val intent: ShioriRequestIntent,
+        val fallback: ShioriRequestIntent?,
+        val settled: java.util.concurrent.atomic.AtomicBoolean =
+            java.util.concurrent.atomic.AtomicBoolean(false),
+        var invoked: Boolean = false,
+    )
+
+    private class SnapshotNativeUnload(
+        val sequence: Long?,
+        val operationId: Long,
+        val generation: Long,
+        val settled: java.util.concurrent.atomic.AtomicBoolean =
+            java.util.concurrent.atomic.AtomicBoolean(false),
+        var invoked: Boolean = false,
     )
 
     private sealed interface SnapshotIoCompletion {

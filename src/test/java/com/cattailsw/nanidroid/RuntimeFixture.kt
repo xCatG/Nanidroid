@@ -225,6 +225,26 @@ internal class BlockingRecordingRuntimeNativePort(
     }
 }
 
+internal class IndefinitelyBlockingRecordingRuntimeNativePort(
+    private val blockedEventId: String,
+) : RecordingRuntimeNativePort() {
+    val entered = java.util.concurrent.CountDownLatch(1)
+    val release = java.util.concurrent.CountDownLatch(1)
+
+    override fun request(
+        token: RuntimeRequestToken,
+        intent: ShioriRequestIntent,
+        fallback: ShioriRequestIntent?,
+        complete: (RuntimeResult<TaggedShioriResponse>) -> Unit,
+    ) {
+        if (intent.protocolText.contains("ID: $blockedEventId\r\n")) {
+            entered.countDown()
+            release.await()
+        }
+        super.request(token, intent, fallback, complete)
+    }
+}
+
 internal class SnapshotRuntimeFixture(
     val dispatcher: ManualRuntimeCommandDispatcher = ManualRuntimeCommandDispatcher(),
     val scheduler: ManualSnapshotRuntimeScheduler = ManualSnapshotRuntimeScheduler(),
@@ -314,7 +334,9 @@ internal class SnapshotRuntimeFixture(
     fun runPlaybackUntil(predicate: (com.cattailsw.nanidroid.runtime.RuntimeSnapshot) -> Boolean) {
         repeat(500) {
             if (predicate(runtime.snapshots.value)) return
-            val scheduled = scheduler.scheduled().firstOrNull()
+            val scheduled = scheduler.scheduled().firstOrNull {
+                it.key.kind == com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.PLAYBACK
+            }
                 ?: throw AssertionError("playback stopped before predicate; snapshot=${runtime.snapshots.value}")
             scheduler.run(scheduled.key)
             dispatcher.drain()

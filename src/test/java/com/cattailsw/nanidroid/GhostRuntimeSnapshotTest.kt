@@ -90,6 +90,7 @@ class GhostRuntimeSnapshotTest {
                 listOf("NativeLoadCompleted", "RegisterHost"),
                 fixture.runtime.snapshotCommandTraceForTesting().takeLast(2),
             )
+            fixture.drainUntil { fixture.runtime.snapshots.value.generation == 1L }
             assertEquals(1L, fixture.runtime.snapshots.value.generation)
         }
     }
@@ -292,19 +293,16 @@ class GhostRuntimeSnapshotTest {
             fixture.makeTopHost(42L)
             fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
             fixture.drain()
-            val deadline = System.nanoTime() + 5_000_000_000L
-            while (fixture.nativePort.requests.size < 2) {
-                if (System.nanoTime() >= deadline) throw AssertionError("second/minute requests did not arrive")
-                Thread.yield()
-            }
-            val firstTick = listOf(fixture.nativePort.requests.remove(), fixture.nativePort.requests.remove())
-            assertEquals(
-                listOf("OnSecondChange", "OnMinuteChange"),
-                firstTick.map { it.intent.protocolText.lineSequence().first { line -> line.startsWith("ID: ") }.removePrefix("ID: ") },
-            )
-            firstTick.forEach {
-                it.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
-            }
+            fixture.awaitNativeWork()
+            val second = fixture.nativePort.requests.remove()
+            assertTrue(second.intent.protocolText.contains("ID: OnSecondChange\r\n"))
+            assertTrue(fixture.nativePort.requests.isEmpty())
+            second.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val minute = fixture.nativePort.requests.remove()
+            assertTrue(minute.intent.protocolText.contains("ID: OnMinuteChange\r\n"))
+            minute.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
             fixture.drain()
             assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
 
@@ -500,7 +498,7 @@ class GhostRuntimeSnapshotTest {
     }
 
     @Test
-    fun asynchronousNativeResponsesReduceInSubmissionOrder() {
+    fun nativeRequestsRemainFifoThroughAsynchronousSettlement() {
         val root = File("build/runtime-snapshot/async-fifo").canonicalFile
         fixtureFor("async-fifo", root).use { fixture ->
             fixture.startAttached("async-fifo", root)
@@ -511,15 +509,15 @@ class GhostRuntimeSnapshotTest {
             fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key))
             fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[1].key))
             fixture.drain()
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-            while (fixture.nativePort.requests.size < 2 && System.nanoTime() < deadline) Thread.yield()
+            fixture.awaitNativeWork()
             val first = fixture.nativePort.requests.remove()
-            val second = fixture.nativePort.requests.remove()
+            assertTrue(fixture.nativePort.requests.isEmpty())
 
-            second.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hSECOND\\e"))))
-            fixture.drain()
-            assertFalse(fixture.runtime.snapshots.value.presentation.sakura.text.contains("SECOND"))
             first.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hFIRST\\e"))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val second = fixture.nativePort.requests.remove()
+            second.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hSECOND\\e"))))
             fixture.drain()
             fixture.runPlaybackUntil { it.presentation.sakura.text.contains("FIRST") }
 
@@ -550,6 +548,13 @@ class GhostRuntimeSnapshotTest {
 
             fixture.runtime.submit(RuntimeCommand.Back(1L, top, published))
             fixture.drain()
+            repeat(2) {
+                fixture.awaitNativeWork()
+                fixture.nativePort.requests.remove().complete(
+                    RuntimeResult.Success(TaggedShioriResponse(1L, response(204))),
+                )
+                fixture.drain()
+            }
             fixture.awaitNativeWork()
             assertTrue(fixture.nativePort.requests.any { it.intent.protocolText.contains("ID: OnClose\r\n") })
         }
@@ -717,6 +722,170 @@ class GhostRuntimeSnapshotTest {
             assertTrue(cleanup.invocationThreadName.startsWith("GhostRuntime-SnapshotNative"))
         } finally {
             release.countDown()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun queuedLoadReservationFencesNullableBackBeforeNativeInvocation() {
+        val root = File("build/runtime-snapshot/load-reservation").canonicalFile
+        val laneEntered = CountDownLatch(1)
+        val laneRelease = CountDownLatch(1)
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("load-reservation", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.runtime.blockSnapshotNativeLaneForTesting {
+                laneEntered.countDown()
+                laneRelease.await()
+            }
+            assertTrue(laneEntered.await(5, TimeUnit.SECONDS))
+            fixture.runtime.submit(RuntimeCommand.StartGhost("load-reservation", root))
+            fixture.drainUntil {
+                fixture.runtime.snapshotCommandTraceForTesting().lastOrNull() == "PreparationCompleted"
+            }
+            val reserved = fixture.runtime.snapshots.value
+
+            fixture.runtime.submit(
+                RuntimeCommand.Back(null, RuntimeHostLease(RuntimeHostId(0L), 0L), reserved.modeIdentity),
+            )
+            fixture.drain()
+            val exitWhileQueued = fixture.runtime.snapshots.value.exit
+            val pendingWhileQueued = fixture.runtime.snapshots.value.pending
+            laneRelease.countDown()
+            fixture.awaitNativeWork()
+            fixture.nativePort.loads.remove().complete(
+                RuntimeNativeLifecycleOutcome.Failed(RuntimeNoticeCode.NATIVE_LOAD_FAILED, ownershipCertain = true),
+            )
+            fixture.drain()
+
+            assertEquals(null, exitWhileQueued)
+            assertEquals(reserved.pending, pendingWhileQueued)
+        }
+    }
+
+    @Test
+    fun closeDuringAsyncLoadWaitsForSuccessThenUnloadsExactlyOnce() {
+        val root = File("build/runtime-snapshot/async-load-close").canonicalFile
+        val fixture = fixtureFor("async-load-close", root)
+        val closeFailure = AtomicReference<Throwable?>()
+        try {
+            fixture.runtime.submit(RuntimeCommand.StartGhost("async-load-close", root))
+            fixture.awaitNativeWork()
+            val load = fixture.nativePort.loads.remove()
+            val closing = Thread {
+                runCatching { fixture.close() }.exceptionOrNull()?.let(closeFailure::set)
+            }
+            closing.start()
+            Thread.sleep(50L)
+            val unloadBeforeLoadSuccess = fixture.nativePort.unloads.size
+
+            load.complete(RuntimeNativeLifecycleOutcome.Success)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (fixture.nativePort.unloads.isEmpty() && System.nanoTime() < deadline) Thread.yield()
+            val cleanup = fixture.nativePort.unloads.single()
+            cleanup.complete(RuntimeNativeLifecycleOutcome.Success)
+            closing.join(6_000L)
+
+            assertEquals(0, unloadBeforeLoadSuccess)
+            assertEquals(1, fixture.nativePort.unloads.size)
+            assertEquals(null, closeFailure.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun closeJoinsSwitchUnloadWithoutIssuingSecondUnload() {
+        val oldRoot = File("build/runtime-snapshot/join-unload-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/join-unload-new").canonicalFile
+        val fixture = SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("join-unload-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("join-unload-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        )
+        try {
+            fixture.startAttached("join-unload-old", oldRoot)
+            val top = fixture.makeTopHost(69L)
+            val before = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "join-unload-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val unload = fixture.nativePort.unloads.remove()
+            val closing = Thread(fixture::close)
+            closing.start()
+            Thread.sleep(50L)
+            val callsBeforeSettlement = fixture.nativePort.unloads.size + 1
+
+            unload.complete(RuntimeNativeLifecycleOutcome.Success)
+            closing.join(6_000L)
+
+            assertEquals(1, callsBeforeSettlement)
+            assertTrue(fixture.nativePort.unloads.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun neverReturningRequestKeepsCloseBoundedAndDefersSameLaneCleanup() {
+        val root = File("build/runtime-snapshot/blocked-close-cleanup").canonicalFile
+        val port = IndefinitelyBlockingRecordingRuntimeNativePort("OnMouseClick")
+        val fixture = SnapshotRuntimeFixture(
+            nativePort = port,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("blocked-close-cleanup", root, null, null, File(root, "readme.txt")))
+            },
+        )
+        try {
+            fixture.startAttached("blocked-close-cleanup", root)
+            val top = fixture.makeTopHost(70L)
+            val effect = SurfaceInteractionEffect(
+                PointerEventKind.CLICK,
+                SurfaceSpeaker.SAKURA,
+                IntOffset(1, 2),
+                0,
+                PointerSource.TOUCH,
+                "head",
+                null,
+            )
+            fixture.runtime.submit(
+                RuntimeCommand.Pointer(
+                    1L,
+                    top,
+                    RuntimeSurfaceIdentity(1L, GhostSpeaker.SAKURA, "0", 0L),
+                    effect,
+                ),
+            )
+            fixture.drain()
+            assertTrue(port.entered.await(5, TimeUnit.SECONDS))
+            val closing = Thread(fixture::close)
+            closing.start()
+            closing.join(6_000L)
+            val closeReturnedWithinBound = !closing.isAlive
+            val unloadWhileRequestBlocked = port.unloads.size
+
+            port.release.countDown()
+            val requestDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (port.requests.isEmpty() && System.nanoTime() < requestDeadline) Thread.yield()
+            port.requests.poll()?.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            val cleanupDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (port.unloads.isEmpty() && System.nanoTime() < cleanupDeadline) Thread.yield()
+            val cleanupAfterSettlement = port.unloads.poll()
+            cleanupAfterSettlement?.complete(RuntimeNativeLifecycleOutcome.Success)
+
+            assertTrue(closeReturnedWithinBound)
+            assertEquals(0, unloadWhileRequestBlocked)
+            assertTrue("close cleanup was discarded at the timeout", cleanupAfterSettlement != null)
+        } finally {
+            port.release.countDown()
             fixture.close()
         }
     }
