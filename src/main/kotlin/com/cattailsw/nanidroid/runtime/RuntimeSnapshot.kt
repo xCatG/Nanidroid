@@ -375,13 +375,17 @@ internal sealed interface RuntimeCommand {
         val effect: SurfaceInteractionEffect,
     ) : RuntimeCommand
 
-    data class ActivateChoice(val key: DialogueActionKey) : RuntimeCommand
+    data class ActivateChoice(val key: DialogueActionKey, val host: RuntimeHostLease) : RuntimeCommand
 
-    data class ActivateAnchor(val key: DialogueActionKey) : RuntimeCommand
+    data class ActivateAnchor(val key: DialogueActionKey, val host: RuntimeHostLease) : RuntimeCommand
 
-    data class SubmitInput(val key: DialogueActionKey, val value: String) : RuntimeCommand
+    data class SubmitInput(
+        val key: DialogueActionKey,
+        val value: String,
+        val host: RuntimeHostLease,
+    ) : RuntimeCommand
 
-    data class DismissInput(val key: DialogueActionKey) : RuntimeCommand
+    data class DismissInput(val key: DialogueActionKey, val host: RuntimeHostLease) : RuntimeCommand
 
     data class ClaimExit(val lease: RuntimeExitLease) : RuntimeCommand
 

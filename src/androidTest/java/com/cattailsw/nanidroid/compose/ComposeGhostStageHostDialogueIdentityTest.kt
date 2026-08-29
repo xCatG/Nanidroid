@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.compose
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -58,7 +59,50 @@ class ComposeGhostStageHostDialogueIdentityTest {
         composeRule.runOnIdle {
             val activation = commands.filterIsInstance<RuntimeCommand.ActivateChoice>().single()
             assertEquals(expectedKey, activation.key)
+            assertEquals(lease, activation.host)
         }
+    }
+
+    @Test
+    fun productionHostSuppressesChoiceAndAnchorAfterForegroundOwnershipMoves() {
+        val player = drive("\\h\\_a[id]Link\\_a\\q[Choose,id]\\e")
+        val leaseA = RuntimeHostLease(RuntimeHostId(91L), 3L)
+        val leaseB = RuntimeHostLease(RuntimeHostId(92L), 3L)
+        val snapshot = mutableStateOf(
+            RuntimeSnapshot.freeze(
+                RuntimeSnapshot.initial().copy(
+                    revision = 1L,
+                    generation = player.generation,
+                    phase = GhostRuntimePhase.Attached,
+                    activeGhostId = "host-fence-ghost",
+                    presentation = player.presentation,
+                    dialogue = player.dialogue,
+                    foregroundHost = leaseA,
+                ),
+            ),
+        )
+        val commands = mutableListOf<RuntimeCommand>()
+
+        composeRule.setContent {
+            ComposeGhostStageHost().Stage(
+                snapshot = snapshot.value,
+                hostLease = leaseA,
+                submitCommand = commands::add,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        composeRule.onNodeWithTag("ghost-bubble-choose-sakura").assertIsDisplayed().performClick()
+        composeRule.runOnIdle {
+            snapshot.value = snapshot.value.copy(
+                revision = snapshot.value.revision + 1L,
+                foregroundHost = leaseB,
+            )
+        }
+
+        composeRule.onNodeWithTag("ghost-bubble-anchor-sakura-0").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("dialogue-action-0").assertIsDisplayed().performClick()
+
+        composeRule.runOnIdle { assertEquals(emptyList<RuntimeCommand>(), commands) }
     }
 
     private fun drive(script: String): PlayerState {

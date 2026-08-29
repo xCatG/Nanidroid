@@ -205,14 +205,15 @@ class GhostRuntimeSnapshotTest {
         val root = File("build/runtime-snapshot/dialogue-choice").canonicalFile
         fixtureFor("dialogue-choice", root).use { fixture ->
             fixture.startAttached("dialogue-choice", root)
+            val top = fixture.makeTopHost(11L)
             fixture.runtime.enqueueScriptForTesting("\\q[One,id1]\\q[Two,id2]\\e")
             fixture.drain()
             fixture.runPlaybackUntil { it.dialogue.choices.size == 2 }
             val first = fixture.runtime.snapshots.value.dialogue.choices[0]
             val sibling = fixture.runtime.snapshots.value.dialogue.choices[1]
 
-            fixture.runtime.submit(RuntimeCommand.ActivateChoice(first.key))
-            fixture.runtime.submit(RuntimeCommand.ActivateChoice(sibling.key))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(first.key, top))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(sibling.key, top))
             fixture.drain()
             fixture.awaitNativeWork()
 
@@ -236,12 +237,13 @@ class GhostRuntimeSnapshotTest {
         val root = File("build/runtime-snapshot/local-choice").canonicalFile
         fixtureFor("local-choice", root).use { fixture ->
             fixture.startAttached("local-choice", root)
+            val top = fixture.makeTopHost(12L)
             fixture.runtime.enqueueScriptForTesting("\\q[Remote,id]\\q[Local,script:\\hDone\\e]\\e")
             fixture.drain()
             fixture.runPlaybackUntil { it.dialogue.choices.size == 2 }
             val local = fixture.runtime.snapshots.value.dialogue.choices.last()
 
-            fixture.runtime.submit(RuntimeCommand.ActivateChoice(local.key))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(local.key, top))
             fixture.drain()
 
             assertTrue(fixture.runtime.snapshots.value.dialogue.choices.isEmpty())
@@ -256,13 +258,14 @@ class GhostRuntimeSnapshotTest {
         val root = File("build/runtime-snapshot/anchor").canonicalFile
         fixtureFor("anchor", root).use { fixture ->
             fixture.startAttached("anchor", root)
+            val top = fixture.makeTopHost(13L)
             fixture.runtime.enqueueScriptForTesting("\\_a[id,tail]Link\\_a\\e")
             fixture.drain()
             fixture.runPlaybackUntil { it.dialogue.anchors.size == 1 }
             val anchor = fixture.runtime.snapshots.value.dialogue.anchors.single()
 
             repeat(2) {
-                fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchor.key))
+                fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchor.key, top))
                 fixture.drain()
                 fixture.awaitNativeWork()
                 fixture.nativePort.requests.remove().complete(
@@ -736,7 +739,7 @@ class GhostRuntimeSnapshotTest {
             val oldKey = before.dialogue.choices.single().key
 
             fixture.runtime.submit(RuntimeCommand.Back(before.generation, top, before.modeIdentity))
-            fixture.runtime.submit(RuntimeCommand.ActivateChoice(oldKey))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(oldKey, top))
             fixture.drain()
             fixture.awaitNativeWork()
 
@@ -772,7 +775,7 @@ class GhostRuntimeSnapshotTest {
             val oldKey = before.dialogue.anchors.single().key
 
             fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "switch-dialogue-new"))
-            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(oldKey))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(oldKey, top))
             fixture.drain()
             fixture.awaitNativeWork()
 
@@ -953,12 +956,13 @@ class GhostRuntimeSnapshotTest {
         val root = File("build/runtime-snapshot/async-fifo").canonicalFile
         fixtureFor("async-fifo", root).use { fixture ->
             fixture.startAttached("async-fifo", root)
+            val top = fixture.makeTopHost(14L)
             fixture.runtime.enqueueScriptForTesting("\\_a[first]One\\_a\\_a[second]Two\\_a\\e")
             fixture.drain()
             fixture.runPlaybackUntil { it.dialogue.anchors.size == 2 }
             val anchors = fixture.runtime.snapshots.value.dialogue.anchors
-            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key))
-            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[1].key))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key, top))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[1].key, top))
             fixture.drain()
             fixture.awaitNativeWork()
             val first = fixture.nativePort.requests.remove()
@@ -982,18 +986,19 @@ class GhostRuntimeSnapshotTest {
         val root = File("build/runtime-snapshot/fatal-fifo-fence").canonicalFile
         fixtureFor("fatal-fifo-fence", root).use { fixture ->
             fixture.startAttached("fatal-fifo-fence", root)
+            val top = fixture.makeTopHost(15L)
             fixture.runtime.enqueueScriptForTesting("\\_a[first]One\\_a\\_a[second]Two\\_a\\e")
             fixture.drain()
             fixture.runPlaybackUntil { it.dialogue.anchors.size == 2 }
             val anchors = fixture.runtime.snapshots.value.dialogue.anchors
-            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key))
-            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[1].key))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key, top))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[1].key, top))
             fixture.drain()
             fixture.awaitNativeWork()
             val first = fixture.nativePort.requests.remove()
             assertTrue(fixture.nativePort.requests.isEmpty())
 
-            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key, top))
             first.complete(RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("fatal"))))
             fixture.drain()
 
@@ -1019,7 +1024,7 @@ class GhostRuntimeSnapshotTest {
             fixture.drain()
             fixture.runPlaybackUntil { it.dialogue.choices.size == 1 }
             val choice = fixture.runtime.snapshots.value.dialogue.choices.single()
-            fixture.runtime.submit(RuntimeCommand.ActivateChoice(choice.key))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(choice.key, top))
             fixture.drain()
             assertTrue(port.entered.await(5, TimeUnit.SECONDS))
 
@@ -1819,7 +1824,7 @@ class GhostRuntimeSnapshotTest {
             fixture.runPlaybackUntil { it.dialogue.choices.size == 1 }
             val choice = fixture.runtime.snapshots.value.dialogue.choices.single()
 
-            fixture.runtime.submit(RuntimeCommand.ActivateChoice(choice.key))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(choice.key, top))
             fixture.drain()
             assertTrue(port.entered.await(5, TimeUnit.SECONDS))
             val beforeBack = fixture.runtime.snapshots.value
@@ -2332,11 +2337,12 @@ class GhostRuntimeSnapshotTest {
         val root = File("build/runtime-snapshot/dialogue-replacement").canonicalFile
         fixtureFor("dialogue-replacement", root).use { fixture ->
             fixture.startAttached("dialogue-replacement", root)
+            val top = fixture.makeTopHost(16L)
             fixture.runtime.enqueueScriptForTesting("\\q[Old,id]\\e")
             fixture.drain()
             fixture.runPlaybackUntil { it.dialogue.choices.size == 1 }
             val old = fixture.runtime.snapshots.value.dialogue.choices.single()
-            fixture.runtime.submit(RuntimeCommand.ActivateChoice(old.key))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(old.key, top))
             fixture.drain()
             fixture.awaitNativeWork()
             val request = fixture.nativePort.requests.remove()

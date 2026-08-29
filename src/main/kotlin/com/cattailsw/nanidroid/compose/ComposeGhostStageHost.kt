@@ -233,12 +233,16 @@ internal class ComposeGhostStageHost private constructor(
             sakuraActiveAnimationId = sakuraActiveAnimationId,
             keroActiveAnimationId = keroActiveAnimationId,
             onDialogueChoice = { action ->
-                actionBindings.firstOrNull { it.action === action }
-                    ?.let { submitCommand(RuntimeCommand.ActivateChoice(it.key)) }
+                if (snapshot.foregroundHost == hostLease) {
+                    actionBindings.firstOrNull { it.action === action }
+                        ?.let { submitCommand(RuntimeCommand.ActivateChoice(it.key, hostLease)) }
+                }
             },
             onDialogueAnchor = { action ->
-                snapshot.dialogue.anchors.firstOrNull { it.action === action }
-                    ?.let { submitCommand(RuntimeCommand.ActivateAnchor(it.key)) }
+                if (snapshot.foregroundHost == hostLease) {
+                    snapshot.dialogue.anchors.firstOrNull { it.action === action }
+                        ?.let { submitCommand(RuntimeCommand.ActivateAnchor(it.key, hostLease)) }
+                }
             },
             onDialogueExternalUrl = onDialogueExternalUrl,
             onDialogueInput = { segment ->

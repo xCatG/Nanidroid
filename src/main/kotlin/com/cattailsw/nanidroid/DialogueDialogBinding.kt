@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
+import com.cattailsw.nanidroid.runtime.RuntimeHostLease
 import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueActionKey
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
@@ -13,6 +14,7 @@ internal data class DialogueDialogRestoration(val key: DialogueActionKey)
 /** Creates view-local dialogs whose callbacks carry one exact runtime action identity. */
 internal class DialogueDialogBinding(
     private val currentSnapshot: () -> RuntimeSnapshot,
+    private val currentHost: () -> RuntimeHostLease?,
     private val submit: (RuntimeCommand) -> Unit,
 ) {
     fun userInput(
@@ -35,11 +37,13 @@ internal class DialogueDialogBinding(
             ids = actions.map { it.key.actionId.toString() },
             restoration = actions.firstOrNull()?.let { DialogueDialogRestoration(it.key) },
             onChoice = { index ->
-                actions.getOrNull(index)
-                    ?.takeIf { candidate ->
-                        currentSnapshot().dialogue.choices.any { it.key == candidate.key }
+                actions.getOrNull(index)?.let { candidate ->
+                    withCurrentHost { snapshot, host ->
+                        snapshot.dialogue.choices.firstOrNull {
+                            it.key == candidate.key && it.action === candidate.action
+                        }?.let { submit(RuntimeCommand.ActivateChoice(it.key, host)) }
                     }
-                    ?.let { submit(RuntimeCommand.ActivateChoice(it.key)) }
+                }
             },
         )
 
@@ -53,17 +57,28 @@ internal class DialogueDialogBinding(
         presentation = action.pending.spec.presentation,
         onValueChanged = onValueChanged,
         onSubmit = { _, input ->
-            if (currentSnapshot().dialogue.input?.key == action.key) {
-                submit(RuntimeCommand.SubmitInput(action.key, input))
+            withCurrentHost { snapshot, host ->
+                if (snapshot.dialogue.input?.key == action.key) {
+                    submit(RuntimeCommand.SubmitInput(action.key, input, host))
+                }
             }
         },
         onCancel = {
-            if (currentSnapshot().dialogue.input?.key == action.key) {
-                submit(RuntimeCommand.DismissInput(action.key))
+            withCurrentHost { snapshot, host ->
+                if (snapshot.dialogue.input?.key == action.key) {
+                    submit(RuntimeCommand.DismissInput(action.key, host))
+                }
             }
         },
         restoration = DialogueDialogRestoration(action.key),
     )
+
+    private inline fun withCurrentHost(action: (RuntimeSnapshot, RuntimeHostLease) -> Unit) {
+        val snapshot = currentSnapshot()
+        val host = currentHost() ?: return
+        if (snapshot.foregroundHost != host) return
+        action(snapshot, host)
+    }
 
     private fun inputId(action: RuntimeInputAction): String = when (
         val dispatch = action.pending.spec.dispatch

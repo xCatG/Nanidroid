@@ -380,7 +380,11 @@ class Nanidroid : ComponentActivity() {
         applicationOwner = application as CatTailApplication
         runtime = applicationOwner.ghostRuntime
         foregroundNarImport = applicationOwner.foregroundNarImport
-        dialogueBinding = DialogueDialogBinding({ snapshotState.value }, runtime::submit)
+        dialogueBinding = DialogueDialogBinding(
+            currentSnapshot = { snapshotState.value },
+            currentHost = { hostLeaseState.value },
+            submit = runtime::submit,
+        )
 
         val restoredUi = savedInstanceState?.readTransientUiSnapshot()
         toolbarVisible = restoredUi?.toolbarVisible ?: true

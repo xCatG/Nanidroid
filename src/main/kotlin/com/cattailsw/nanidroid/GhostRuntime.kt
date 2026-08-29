@@ -16,6 +16,7 @@ import com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
 import com.cattailsw.nanidroid.runtime.RuntimeCommandDispatcher
 import com.cattailsw.nanidroid.runtime.RuntimeHostInput
+import com.cattailsw.nanidroid.runtime.RuntimeHostLease
 import com.cattailsw.nanidroid.runtime.RuntimeHostReducer
 import com.cattailsw.nanidroid.runtime.RuntimeHostState
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
@@ -315,19 +316,23 @@ internal class GhostRuntime private constructor(
             is RuntimeCommand.PlaybackDue -> playbackDue(command)
             is RuntimeCommand.NativeResponse -> nativeResponse(command)
             is RuntimeCommand.TimerDue -> timerDue(command)
-            is RuntimeCommand.ActivateChoice -> dialogueCommand(
+            is RuntimeCommand.ActivateChoice -> userDialogueCommand(
+                command.host,
                 PlayerCommand.ActivateChoice(command.key),
                 RuntimeDialogueClaimKind.CHOICE,
             )
-            is RuntimeCommand.ActivateAnchor -> dialogueCommand(
+            is RuntimeCommand.ActivateAnchor -> userDialogueCommand(
+                command.host,
                 PlayerCommand.ActivateAnchor(command.key),
                 RuntimeDialogueClaimKind.ANCHOR,
             )
-            is RuntimeCommand.SubmitInput -> dialogueCommand(
+            is RuntimeCommand.SubmitInput -> userDialogueCommand(
+                command.host,
                 PlayerCommand.SubmitInput(command.key, command.value),
                 RuntimeDialogueClaimKind.INPUT_SUBMIT,
             )
-            is RuntimeCommand.DismissInput -> dialogueCommand(
+            is RuntimeCommand.DismissInput -> userDialogueCommand(
+                command.host,
                 PlayerCommand.DismissInput(command.key),
                 RuntimeDialogueClaimKind.INPUT_DISMISS,
             )
@@ -811,6 +816,15 @@ internal class GhostRuntime private constructor(
         if (phase == GhostRuntimePhase.Poisoned || parentState != null) return
         val current = playerState ?: return
         consumePlayerTransition(SakuraScriptPlayer.reduce(current, command), claimKind)
+    }
+
+    private fun userDialogueCommand(
+        host: RuntimeHostLease,
+        command: PlayerCommand,
+        claimKind: RuntimeDialogueClaimKind,
+    ) {
+        if (hostState.topResumed != host) return
+        dialogueCommand(command, claimKind)
     }
 
     private fun nativeResponse(command: RuntimeCommand.NativeResponse) {

@@ -309,7 +309,7 @@ class RuntimeHostStateTest {
 
         val returned = RuntimeHostReducer.reduce(
             source,
-            RuntimeHostInput.Command(RuntimeCommand.ActivateChoice(dialogueKey())),
+            RuntimeHostInput.Command(RuntimeCommand.ActivateChoice(dialogueKey(), lease(1L, 1L))),
         ).state
         epochs.clear()
         activeHostIds.clear()
