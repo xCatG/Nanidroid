@@ -67,6 +67,15 @@ class SakuraScriptPlayerTest {
         assertEquals(200L, transition.schedule().delayMillis)
     }
 
+    // Mutation caught: terminal \e falls back to the ordinary 50 ms cadence.
+    @Test
+    fun terminalYenEUsesExactLegacyDelay() {
+        val terminal = firstAdvance("\\e")
+
+        assertEquals(1_000L, terminal.schedule().delayMillis)
+        assertEquals(terminal.state.current?.payload?.script?.length, terminal.state.current?.charIndex)
+    }
+
     // Mutation caught: a surface response does not suspend authored playback or is requested with an untyped origin.
     @Test
     fun authoredSurfaceRequestSuspendsAndExactResponseResumes() {
@@ -148,9 +157,9 @@ class SakuraScriptPlayerTest {
         assertEquals(listOf(PlayerPayload("\\hIncoming\\e", null)), resumed.state.queue)
     }
 
-    // Mutation caught: replayable and fatal request failures are reported as successful parent completion.
+    // Mutation caught: a replayable request failure resumes its parent and later completes it successfully.
     @Test
-    fun requestFailuresAreTypedDataOnlyOutcomes() {
+    fun replayableParentFailureIsTerminalWithoutLaterCompletion() {
         val parent = PlayerParent.Switch(31)
         val suspended = advance(
             SakuraScriptPlayer.reduce(
@@ -160,8 +169,13 @@ class SakuraScriptPlayerTest {
             0L,
         )
         val token = RuntimeRequestToken(7, 12, 31, suspended.state.authoredRequest!!)
-        val replayable = SakuraScriptPlayer.reduce(
+        val other = PlayerParent.Exit(32)
+        val withOtherOwner = SakuraScriptPlayer.reduce(
             suspended.state,
+            PlayerCommand.Enqueue("\\hOther\\e", other),
+        ).state
+        val replayable = SakuraScriptPlayer.reduce(
+            withOtherOwner,
             PlayerCommand.NativeResponse(token, PlayerResponse.ReplayableFailure),
         )
         val fatal = SakuraScriptPlayer.reduce(
@@ -169,8 +183,12 @@ class SakuraScriptPlayerTest {
             PlayerCommand.NativeResponse(token, PlayerResponse.FatalFailure),
         )
 
-        assertTrue(replayable.effects.contains(PlayerEffect.Failure(parent, RuntimeNoticeCode.REQUEST_FAILED)))
-        assertTrue(replayable.effects.any { it is PlayerEffect.SchedulePlayback })
+        assertEquals(PlayerEffect.Failure(parent, RuntimeNoticeCode.REQUEST_FAILED), replayable.effects.first())
+        assertTrue(replayable.effects.last() is PlayerEffect.SchedulePlayback)
+        assertNull(replayable.state.current)
+        assertEquals(listOf(PlayerPayload("\\hOther\\e", other)), replayable.state.queue)
+        val afterFailure = advance(replayable.state, 1_000L)
+        assertTrue(afterFailure.effects.none { it == PlayerEffect.ParentCompleted(parent) })
         assertEquals(PlayerEffect.Failure(parent, RuntimeNoticeCode.RUNTIME_POISONED), fatal.effects.single())
         assertNull(fatal.state.current)
         assertTrue(fatal.state.queue.isEmpty())
@@ -200,6 +218,51 @@ class SakuraScriptPlayerTest {
         assertNull(cleared.state.current)
         assertTrue(cleared.state.queue.isEmpty())
         assertTrue(cleared.state.playbackToken > running.state.playbackToken)
+    }
+
+    // Mutation caught: clearing one owner drops every queued payload or null crosses a parent fence.
+    @Test
+    fun clearRemovesOnlyExactOwnerAndNullCannotCrossParentFence() {
+        val ownerA = PlayerParent.Switch(5)
+        val ownerB = PlayerParent.Exit(6)
+        var state = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue("\\hA\\e", ownerA),
+        ).state
+        state = SakuraScriptPlayer.reduce(state, PlayerCommand.Enqueue("\\hB\\e", ownerB)).state
+        state = advance(state, 0L).state
+
+        val clearedA = SakuraScriptPlayer.reduce(state, PlayerCommand.Clear(ownerA))
+        assertNull(clearedA.state.current)
+        assertEquals(listOf(PlayerPayload("\\hB\\e", ownerB)), clearedA.state.queue)
+        assertEquals(
+            listOf(PlayerEffect.SchedulePlayback(clearedA.state.playbackToken, 0L)),
+            clearedA.effects,
+        )
+
+        var fenced = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue("\\hParent\\e", ownerA),
+        ).state
+        fenced = advance(fenced, 0L).state
+        fenced = SakuraScriptPlayer.reduce(fenced, PlayerCommand.Enqueue("\\hOrdinary\\e", null)).state
+        val nullClear = SakuraScriptPlayer.reduce(fenced, PlayerCommand.Clear(null))
+        assertEquals(fenced, nullClear.state)
+
+        var queued = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue("\\hOrdinary one\\e", null),
+        ).state
+        queued = SakuraScriptPlayer.reduce(queued, PlayerCommand.Enqueue("\\hFence\\e", ownerA)).state
+        queued = SakuraScriptPlayer.reduce(queued, PlayerCommand.Enqueue("\\hOrdinary two\\e", null)).state
+        val clearedLeadingNull = SakuraScriptPlayer.reduce(queued, PlayerCommand.Clear(null))
+        assertEquals(
+            listOf(
+                PlayerPayload("\\hFence\\e", ownerA),
+                PlayerPayload("\\hOrdinary two\\e", null),
+            ),
+            clearedLeadingNull.state.queue,
+        )
     }
 
     // Mutation caught: terminal playback completes a parent before the final authored delay or more than once.
@@ -256,6 +319,38 @@ class SakuraScriptPlayerTest {
         assertTrue(SakuraScriptPlayer.reduce(expired.state, PlayerCommand.InputExpired(input.key, 11_000L)).effects.isEmpty())
     }
 
+    // Mutation caught: input deadlines use marker reveal time or zero instead of each payload's adoption time.
+    @Test
+    fun inputDeadlinesUseEachPayloadAdoptionTime() {
+        var delayed = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue("\\hA\\_w[500]\\![open,inputbox,delayed,100]", null),
+        ).state
+        delayed = advance(delayed, 1_000L).state
+        delayed = advance(delayed, 1_050L).state
+        delayed = advance(delayed, 1_550L).state
+        assertEquals(
+            1_100L,
+            requireNotNull(delayed.dialogue.input).pending.deadlineElapsedMillis,
+        )
+
+        var second = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue("\\e", null),
+        ).state
+        second = SakuraScriptPlayer.reduce(
+            second,
+            PlayerCommand.Enqueue("\\![open,inputbox,second,100]", null),
+        ).state
+        second = advance(second, 1_000L).state
+        second = advance(second, 2_000L).state
+        second = advance(second, 2_050L).state
+        assertEquals(
+            2_100L,
+            requireNotNull(second.dialogue.input).pending.deadlineElapsedMillis,
+        )
+    }
+
     // Mutation caught: non-positive or overflowing input timeouts create expiring deadlines.
     @Test
     fun unlimitedInputDeadlinesMatchRunnerOverflowPolicy() {
@@ -263,6 +358,21 @@ class SakuraScriptPlayerTest {
         val overflow = firstAdvance("\\![open,inputbox,huge,100]", elapsedMillis = Long.MAX_VALUE - 10)
         assertEquals(Long.MAX_VALUE, zero.state.dialogue.input!!.pending.deadlineElapsedMillis)
         assertEquals(Long.MAX_VALUE, overflow.state.dialogue.input!!.pending.deadlineElapsedMillis)
+    }
+
+    // Mutation caught: the unlimited MAX_VALUE sentinel expires at the largest elapsed value.
+    @Test
+    fun unlimitedInputDeadlineNeverExpiresAtMaxElapsed() {
+        val opened = firstAdvance("\\![open,inputbox,unlimited,0]", elapsedMillis = 12L)
+        val input = requireNotNull(opened.state.dialogue.input)
+
+        val attempted = SakuraScriptPlayer.reduce(
+            opened.state,
+            PlayerCommand.InputExpired(input.key, Long.MAX_VALUE),
+        )
+
+        assertEquals(input, attempted.state.dialogue.input)
+        assertTrue(attempted.effects.isEmpty())
     }
 
     // Mutation caught: submitting an input uses a later structurally equal input or leaves the action live.
@@ -287,6 +397,21 @@ class SakuraScriptPlayerTest {
             PlayerCommand.DismissInput(reopened.state.dialogue.input!!.key),
         )
         assertEquals("OnUserInputCancel", dismissed.effects.filterIsInstance<PlayerEffect.RequestShiori>().single().intent.eventId())
+
+        val direct = firstAdvance(
+            "\\![open,inputbox,OnAnswer,9000,--supplement=s,--reference=tail]\\e",
+        )
+        val directInput = requireNotNull(direct.state.dialogue.input)
+        val directRequest = SakuraScriptPlayer.reduce(
+            direct.state,
+            PlayerCommand.SubmitInput(directInput.key, "value"),
+        ).effects.filterIsInstance<PlayerEffect.RequestShiori>().single()
+        assertEquals("OnAnswer", directRequest.intent.eventId())
+        assertEquals(listOf("value", "s", "tail"), directRequest.intent.references())
+
+        val password = firstAdvance("\\![open,passwordinput,password]After\\e")
+        assertEquals(true, requireNotNull(password.state.dialogue.input).pending.spec.presentation.obscured)
+        assertEquals("", password.state.presentation.sakura.text)
     }
 
     // Mutation caught: normal/direct choices remain reusable or clear only the selected row.
@@ -303,6 +428,16 @@ class SakuraScriptPlayerTest {
         assertEquals("OnTwo", request.intent.eventId())
         assertEquals(listOf("tail"), request.intent.references())
         assertTrue(SakuraScriptPlayer.reduce(activated.state, PlayerCommand.ActivateChoice(selected.key)).effects.isEmpty())
+
+        val normal = trace.state.dialogue.choices.first()
+        val normalRequest = SakuraScriptPlayer.reduce(
+            trace.state,
+            PlayerCommand.ActivateChoice(normal.key),
+        ).effects.single() as PlayerEffect.RequestShiori
+        assertEquals("OnChoiceSelectEx", normalRequest.intent.eventId())
+        assertEquals(listOf("One", "id1"), normalRequest.intent.references())
+        assertEquals("OnChoiceSelect", requireNotNull(normalRequest.fallback).eventId())
+        assertEquals(listOf("id1"), normalRequest.fallback.references())
     }
 
     // Mutation caught: remapping actions by speaker-grouped contents swaps alternating source actions.
@@ -350,6 +485,16 @@ class SakuraScriptPlayerTest {
         assertEquals(shown.dialogue.anchors, first.state.dialogue.anchors)
         assertEquals("OnAnchorSelectEx", (first.effects.single() as PlayerEffect.RequestShiori).intent.eventId())
         assertEquals(1, second.effects.size)
+
+        val directShown = drive("\\_a[OnDirect,tail]Direct\\_a\\e", stopOnAction = true).state
+        val direct = directShown.dialogue.anchors.single()
+        val directRequest = SakuraScriptPlayer.reduce(
+            directShown,
+            PlayerCommand.ActivateAnchor(direct.key),
+        ).effects.single() as PlayerEffect.RequestShiori
+        assertEquals("OnDirect", directRequest.intent.eventId())
+        assertEquals(listOf("tail"), directRequest.intent.references())
+        assertNull(directRequest.fallback)
     }
 
     // Mutation caught: the opening anchor command skips its authored visible label.
@@ -413,6 +558,11 @@ class SakuraScriptPlayerTest {
     fun quickSessionEmitsOneWholeLineTransition() {
         val trace = drive("\\h\\_qHello, world.\\e")
         assertEquals(listOf("Hello, world."), trace.distinctSakuraText())
+
+        val exited = firstAdvance("\\_qAB\\_q\\_w[7]C")
+        assertEquals("AB", exited.state.presentation.sakura.text)
+        assertFalse(requireNotNull(exited.state.current).quickSession)
+        assertEquals(7L, exited.schedule().delayMillis)
     }
 
     // Mutation caught: equal surfaces generate extra transitions or equal animation commands collapse together.
@@ -444,12 +594,25 @@ class SakuraScriptPlayerTest {
         assertEquals("10", authored.presentation.kero.surfaceId)
         assertTrue(trace.state.dialogue.choices.isEmpty())
         assertFalse(trace.effects.filterIsInstance<PlayerEffect.PresentationCue>().any { it.animationId == "7" })
+
+        val exact = drive("\\p[1]K\\_b[-1]\\p[0]S\\_b[0]\\e")
+        val projected = exact.states.first {
+            it.presentation.sakura.text == "S" && it.presentation.kero.text == "K"
+        }.presentation
+        assertTrue(projected.sakura.balloonVisible)
+        assertTrue(projected.kero.balloonVisible)
     }
 
     // Mutation caught: choice labels disappear from presentation or publish only after later text.
     @Test
     fun choicesPublishThenLabelsContinueAsText() {
-        val trace = drive("\\hA\\q[One,id1]B\\q[Two,id2]\\e", stopOnAction = true)
+        val script = "\\hA\\q[One,id1]\\_w[50]B\\q[Two,id2]\\e"
+        var transition = firstAdvance(script)
+        while (transition.state.dialogue.choices.isEmpty()) transition = advance(transition.state, 0L)
+        assertEquals(listOf("One"), transition.state.dialogue.choices.map { it.action.label() })
+        assertFalse(transition.state.presentation.sakura.text.contains("B"))
+
+        val trace = drive(script, stopOnAction = true)
         assertEquals("AOneBTwo", trace.authoredTextBeforeStop())
         assertEquals(listOf("One", "Two"), trace.state.dialogue.choices.map { it.action.label() })
     }
@@ -459,6 +622,18 @@ class SakuraScriptPlayerTest {
     fun unsupportedTagsAreConsumedNotRendered() {
         val trace = drive("\\hA\\4\\5\\6\\v\\_n\\_V\\_l[half]B\\e")
         assertEquals(listOf("A", "AB"), trace.distinctSakuraText())
+    }
+
+    // Mutation caught: escaped or terminal backslashes are rendered instead of recovered and consumed.
+    @Test
+    fun escapedAndTrailingBackslashesAreConsumedLikeRunnerRecovery() {
+        assertEquals("AB", drive("\\hA\\\\B\\e").authoredTextBeforeStop())
+        assertEquals("A", drive("\\hA\\").authoredTextBeforeStop())
+
+        assertEquals(
+            "AB",
+            drive("\\hA\\p[malformed\\hB\\e").authoredTextBeforeStop(),
+        )
     }
 
     // Mutation caught: a non-animation transition emits a one-shot cue.
@@ -538,6 +713,26 @@ class SakuraScriptPlayerTest {
         assertTrue(cleared.presentation.kero.balloonVisible)
     }
 
+    // Mutation caught: talking cues emit on every frame or synchronized reveal cues only one speaker.
+    @Test
+    fun talkingCuesFollowTenFrameCadenceAndSynchronizeSpeakers() {
+        val cadence = drive("\\habcdefghijk\\e")
+        assertEquals(
+            listOf(GhostSpeaker.SAKURA, GhostSpeaker.SAKURA),
+            cadence.effects.filterIsInstance<PlayerEffect.PresentationCue>()
+                .filter { it.kind == RuntimeCueKind.TALKING }
+                .map { it.speaker },
+        )
+
+        val synchronized = drive("\\h\\_sA\\e")
+        assertEquals(
+            listOf(GhostSpeaker.SAKURA, GhostSpeaker.KERO),
+            synchronized.effects.filterIsInstance<PlayerEffect.PresentationCue>()
+                .filter { it.kind == RuntimeCueKind.TALKING }
+                .map { it.speaker },
+        )
+    }
+
     // Mutation caught: reselecting Sakura always clears it, including when it is already current.
     @Test
     fun reselectingCurrentSpeakerRetainsText() {
@@ -558,13 +753,19 @@ class SakuraScriptPlayerTest {
     // Mutation caught: final stop fails to clear transient text while preserving final surfaces.
     @Test
     fun textSurfaceAnimationAndStopMatchOrderedTransitions() {
-        val trace = drive("\\hA\\s[120]\\i[3]\\uB\\s[11]\\i[4]\\e")
-        assertEquals("", trace.state.presentation.sakura.text)
-        assertEquals("", trace.state.presentation.kero.text)
-        assertEquals("120", trace.state.presentation.sakura.surfaceId)
-        assertEquals("11", trace.state.presentation.kero.surfaceId)
-        assertEquals(listOf("3", "4"), trace.effects.filterIsInstance<PlayerEffect.PresentationCue>()
-            .filter { it.kind == RuntimeCueKind.ONE_SHOT }.mapNotNull { it.animationId })
+        assertEquals(
+            listOf(
+                "A:0:null::10:null",
+                "A:120:null::10:null",
+                "A:120:3::10:null",
+                "A:120:null:B:10:null",
+                "A:120:null:B:11:null",
+                "A:120:null:B:11:4",
+                "A:120:null:B:11:null",
+                ":120:null::11:null",
+            ),
+            orderedFrames("\\hA\\s[120]\\i[3]\\uB\\s[11]\\i[4]\\e"),
+        )
     }
 
     // Mutation caught: repeated selectors or newline modifiers clear/replace visible text.
@@ -667,6 +868,47 @@ class SakuraScriptPlayerTest {
             state = transition.state
             states += state
             effects += transition.effects
+        }
+        throw AssertionError("player did not reach a terminal")
+    }
+
+    private fun orderedFrames(script: String): List<String> {
+        var state = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(script, null),
+        ).state
+        var requestId = 0L
+        val frames = mutableListOf<String>()
+        repeat(100) {
+            if (state.current == null && state.queue.isEmpty()) return frames
+            val authoredRequest = state.authoredRequest
+            val transition = if (authoredRequest != null) {
+                SakuraScriptPlayer.reduce(
+                    state,
+                    PlayerCommand.NativeResponse(
+                        RuntimeRequestToken(state.generation, ++requestId, null, authoredRequest),
+                        PlayerResponse.Returned(response(204)),
+                    ),
+                )
+            } else {
+                SakuraScriptPlayer.reduce(
+                    state,
+                    PlayerCommand.Advance(state.playbackToken, 0L),
+                ).also { advanced ->
+                    val animation = advanced.effects.filterIsInstance<PlayerEffect.PresentationCue>()
+                        .singleOrNull { it.kind == RuntimeCueKind.ONE_SHOT }
+                    val presentation = advanced.state.presentation
+                    frames += buildString {
+                        append(presentation.sakura.text).append(':')
+                        append(presentation.sakura.surfaceId).append(':')
+                        append(animation?.takeIf { it.speaker == GhostSpeaker.SAKURA }?.animationId).append(':')
+                        append(presentation.kero.text).append(':')
+                        append(presentation.kero.surfaceId).append(':')
+                        append(animation?.takeIf { it.speaker == GhostSpeaker.KERO }?.animationId)
+                    }
+                }
+            }
+            state = transition.state
         }
         throw AssertionError("player did not reach a terminal")
     }

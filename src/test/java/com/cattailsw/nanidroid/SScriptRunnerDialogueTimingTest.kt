@@ -91,6 +91,29 @@ class SScriptRunnerDialogueTimingTest {
     }
 
     @Test
+    fun terminalYenEUsesTheExactOneSecondDelayInBothPlayers() {
+        val scheduler = RecordingScheduler()
+        val runner = runner(scheduler)
+        runner.addMsgToQueue(arrayOf("\\e"))
+        runner.run()
+        scheduler.runNext()
+        assertEquals(listOf(1_000L), scheduler.delays())
+
+        val enqueued = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue("\\e", null),
+        )
+        val terminal = SakuraScriptPlayer.reduce(
+            enqueued.state,
+            PlayerCommand.Advance(enqueued.state.playbackToken, 10_000L),
+        )
+        assertEquals(
+            listOf(PlayerEffect.SchedulePlayback(terminal.state.playbackToken, 1_000L)),
+            terminal.effects,
+        )
+    }
+
+    @Test
     fun playbackProjectsTextAndClearInStepOrderWithoutLeakingPostWaitContent() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
@@ -169,6 +192,12 @@ class SScriptRunnerDialogueTimingTest {
         val talkId = state.talkId
         runner.activateChoice(state.pendingChoices.single())
         assertEquals(talkId, runner.dialogueStateSnapshot().talkId)
+
+        val player = drivePlayerUntilBlocked("\\hA\\_w[100]B\\q[Choose,choice]\\![open,inputbox,name]\\e")
+        assertEquals("ABChoose", player.presentation.sakura.text)
+        assertEquals(listOf("Choose"), player.dialogue.choices.map { choiceLabel(it.action) })
+        assertEquals("name", (requireNotNull(player.dialogue.input).pending.spec.dispatch as
+            com.cattailsw.nanidroid.runtime.dialogue.InputDispatch.Normal).id)
     }
 
     @Test
@@ -343,6 +372,25 @@ class SScriptRunnerDialogueTimingTest {
             runner.dialogueStateSnapshot().contents.single().segments.text() == "After"
         }
         assertNull(runner.dialogueStateSnapshot().pendingInput)
+
+        val player = drivePlayerUntilBlocked("\\0\\![open,passwordinput,password]After\\e")
+        assertEquals(InputPresentation(obscured = true), requireNotNull(player.dialogue.input).pending.spec.presentation)
+        assertEquals("", player.presentation.sakura.text)
+    }
+
+    private fun drivePlayerUntilBlocked(script: String): PlayerState {
+        var state = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(script, null),
+        ).state
+        repeat(100) {
+            if (state.dialogue.input != null || state.current == null && state.queue.isEmpty()) return state
+            state = SakuraScriptPlayer.reduce(
+                state,
+                PlayerCommand.Advance(state.playbackToken, 10_000L),
+            ).state
+        }
+        throw AssertionError("player did not block or terminate")
     }
 
     private fun runner(

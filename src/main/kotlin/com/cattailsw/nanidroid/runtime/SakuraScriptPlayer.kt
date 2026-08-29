@@ -27,11 +27,13 @@ internal data class PlayerPayload(
 internal data class PlayerCursor(
     val payload: PlayerPayload,
     val charIndex: Int,
+    val adoptedElapsedMillis: Long,
     val speaker: GhostSpeaker,
     val waitMillis: Long,
     val wholeLine: Boolean,
     val quickSession: Boolean,
     val synchronizedSession: Boolean,
+    val renderedFrameIndex: Int,
 )
 
 internal data class PlayerState(
@@ -149,18 +151,22 @@ internal object SakuraScriptPlayer {
                 if (adopted.queue.isEmpty()) return transition(adopted)
                 adopted = adopt(adopted, command.elapsedMillis)
             } else if (adopted.current.charIndex >= adopted.current.payload.script.length) {
-                val completed = completeCurrent(adopted)
+                val completed = completeCurrent(adopted, command.elapsedMillis)
                 if (completed.state.current != null || completed.state.queue.isEmpty()) return completed
                 adopted = adopt(completed.state, command.elapsedMillis)
                 return schedule(adopted, WAIT_UNIT, completed.effects)
             }
-            parseStep(adopted, command.elapsedMillis)
+            parseStep(adopted)
         } catch (_: Throwable) {
             failPlayback(state, state.current?.payload?.parent ?: state.queue.firstOrNull()?.parent)
         }
     }
 
-    private fun adopt(state: PlayerState, elapsedMillis: Long): PlayerState {
+    private fun adopt(
+        state: PlayerState,
+        elapsedMillis: Long,
+        renderedFrameIndex: Int = 0,
+    ): PlayerState {
         val payload = state.queue.first()
         val markers = actionMarkers(payload.script)
         val nextDialogue = state.dialogue.copy(
@@ -181,27 +187,29 @@ internal object SakuraScriptPlayer {
             current = PlayerCursor(
                 payload = payload,
                 charIndex = 0,
+                adoptedElapsedMillis = elapsedMillis,
                 speaker = GhostSpeaker.SAKURA,
                 waitMillis = WAIT_UNIT,
                 wholeLine = false,
                 quickSession = false,
                 synchronizedSession = false,
+                renderedFrameIndex = renderedFrameIndex,
             ),
             presentation = resetTransient(state.presentation),
             dialogue = nextDialogue,
             nextActionId = state.nextActionId + markers.size,
-        ).let { projectDialogue(it, 0, 0, elapsedMillis) }
+        ).let { projectDialogue(it, 0, 0) }
     }
 
-    private fun parseStep(state: PlayerState, elapsedMillis: Long): PlayerTransition {
+    private fun parseStep(state: PlayerState): PlayerTransition {
         var next = state
         var cursor = requireNotNull(state.current)
         val script = cursor.payload.script
         val startIndex = cursor.charIndex
-        var visibleChanged = false
         var explicitCue: PlayerEffect.PresentationCue? = null
         var scheduledDelay: Long? = null
         var request: PlayerEffect.RequestShiori? = null
+        val talkingFrame = cursor.renderedFrameIndex == 0
 
         while (cursor.charIndex < script.length && scheduledDelay == null && request == null) {
             val character = script[cursor.charIndex]
@@ -209,28 +217,18 @@ internal object SakuraScriptPlayer {
             if (character != '\\') {
                 if (scopeAt(script, cursor.charIndex - 1) < 2) {
                     next = next.copy(presentation = append(next.presentation, cursor, character))
-                    visibleChanged = true
                 }
                 if (!cursor.wholeLine) scheduledDelay = WAIT_UNIT
                 continue
             }
             if (cursor.charIndex >= script.length) {
-                next = next.copy(presentation = append(next.presentation, cursor, '\\'))
-                visibleChanged = true
-                scheduledDelay = WAIT_UNIT
                 continue
             }
             val command = script[cursor.charIndex]
             cursor = cursor.copy(charIndex = cursor.charIndex + 1)
             val scope = scopeAt(script, cursor.charIndex - 2)
             when (command) {
-                '\\' -> {
-                    if (scope < 2) {
-                        next = next.copy(presentation = append(next.presentation, cursor, '\\'))
-                        visibleChanged = true
-                    }
-                    if (!cursor.wholeLine) scheduledDelay = WAIT_UNIT
-                }
+                '\\' -> Unit
                 '0', 'h' -> {
                     val previous = cursor.speaker
                     cursor = cursor.copy(speaker = GhostSpeaker.SAKURA)
@@ -314,7 +312,6 @@ internal object SakuraScriptPlayer {
                     if (bracket != null) cursor = cursor.copy(charIndex = bracket.nextIndex)
                     if (scope < 2) {
                         next = next.copy(presentation = append(next.presentation, cursor, '\n'))
-                        visibleChanged = true
                     }
                     scheduledDelay = WAIT_UNIT
                 }
@@ -375,6 +372,11 @@ internal object SakuraScriptPlayer {
                         val args = SakuraScriptCommandParser.splitArguments(bracket.value)
                         if (args.size == 2 && args[1] == "passivemode" && args[0] in setOf("enter", "leave")) {
                             next = next.copy(passive = args[0] == "enter")
+                        } else if (
+                            scope < 2 && args.firstOrNull() == "open" &&
+                            args.getOrNull(1) in setOf("inputbox", "passwordinput")
+                        ) {
+                            scheduledDelay = WAIT_UNIT
                         }
                     } else if (script.getOrNull(cursor.charIndex) == '[') {
                         cursor = cursor.copy(charIndex = resumeAfterMalformed(script, cursor.charIndex))
@@ -389,7 +391,6 @@ internal object SakuraScriptPlayer {
                             args.first().forEach { labelCharacter ->
                                 next = next.copy(presentation = append(next.presentation, cursor, labelCharacter))
                             }
-                            visibleChanged = true
                             cursor = cursor.copy(wholeLine = true)
                         }
                     } else if (script.getOrNull(cursor.charIndex) == '[') {
@@ -415,13 +416,20 @@ internal object SakuraScriptPlayer {
             }
         }
 
-        next = next.copy(current = cursor)
-        next = projectDialogue(next, startIndex, cursor.charIndex, elapsedMillis)
+        cursor = cursor.copy(renderedFrameIndex = (cursor.renderedFrameIndex + 1) % 10)
+        next = next.copy(
+            current = cursor,
+            presentation = next.presentation.copy(talkingAnimationEnabled = talkingFrame),
+        )
+        next = projectDialogue(next, startIndex, cursor.charIndex)
         val effects = mutableListOf<PlayerEffect>()
         explicitCue?.let(effects::add)
-        if (visibleChanged && explicitCue == null) {
-            next = next.copy(presentation = next.presentation.copy(talkingAnimationEnabled = true))
-            effects += PlayerEffect.PresentationCue(cursor.speaker, RuntimeCueKind.TALKING, null)
+        if (talkingFrame) {
+            GhostSpeaker.entries.filter { speaker ->
+                next.presentation.speaker(speaker).balloonVisible && explicitCue?.speaker != speaker
+            }.forEach { speaker ->
+                effects += PlayerEffect.PresentationCue(speaker, RuntimeCueKind.TALKING, null)
+            }
         }
         request?.let(effects::add)
         if (request == null && next.dialogue.input == null) {
@@ -446,10 +454,10 @@ internal object SakuraScriptPlayer {
                 state.current?.payload?.parent,
                 RuntimeNoticeCode.RUNTIME_POISONED,
             )
-            PlayerResponse.ReplayableFailure -> schedule(
-                state.copy(authoredRequest = null),
-                0L,
-                listOf(PlayerEffect.Failure(state.current?.payload?.parent, RuntimeNoticeCode.REQUEST_FAILED)),
+            PlayerResponse.ReplayableFailure -> failPlayback(
+                state,
+                state.current?.payload?.parent,
+                RuntimeNoticeCode.REQUEST_FAILED,
             )
             is PlayerResponse.Returned -> {
                 val value = response.response.takeIf { it.getStatusCode() == 200 }
@@ -545,7 +553,10 @@ internal object SakuraScriptPlayer {
 
     private fun expireInput(state: PlayerState, command: PlayerCommand.InputExpired): PlayerTransition {
         val input = state.dialogue.input?.takeIf { it.key == command.key } ?: return transition(state)
-        if (command.elapsedMillis < input.pending.deadlineElapsedMillis) return transition(state)
+        if (
+            input.pending.deadlineElapsedMillis == Long.MAX_VALUE ||
+            command.elapsedMillis < input.pending.deadlineElapsedMillis
+        ) return transition(state)
         return cancelInput(state, command.key, "timeout", true)
     }
 
@@ -591,23 +602,30 @@ internal object SakuraScriptPlayer {
     }
 
     private fun clear(state: PlayerState, owner: PlayerParent?): PlayerTransition {
-        val activeOwner = state.current?.payload?.parent
-        if (state.current != null && activeOwner != owner) return transition(state)
-        if (state.current == null && state.queue.any { it.parent != owner }) return transition(state)
-        return transition(
-            state.copy(
-                queue = emptyList(),
-                current = null,
-                dialogue = emptyDialogue(state.dialogue),
-                passive = false,
-                authoredRequest = null,
-                playbackToken = state.playbackToken + 1,
-                presentation = resetTransient(state.presentation),
-            ),
+        if (owner == null && state.current?.payload?.parent != null) return transition(state)
+        val clearsCurrent = state.current?.payload?.parent == owner && state.current != null
+        val remainingQueue = if (owner == null) {
+            state.queue.dropWhile { it.parent == null }
+        } else {
+            state.queue.filterNot { it.parent == owner }
+        }
+        if (!clearsCurrent) {
+            return if (remainingQueue.size == state.queue.size) transition(state)
+            else transition(state.copy(queue = remainingQueue))
+        }
+        val cleared = state.copy(
+            queue = remainingQueue,
+            current = null,
+            dialogue = emptyDialogue(state.dialogue),
+            passive = false,
+            authoredRequest = null,
+            playbackToken = state.playbackToken + 1,
+            presentation = resetTransient(state.presentation),
         )
+        return if (remainingQueue.isEmpty()) transition(cleared) else schedule(cleared, 0L)
     }
 
-    private fun completeCurrent(state: PlayerState): PlayerTransition {
+    private fun completeCurrent(state: PlayerState, elapsedMillis: Long): PlayerTransition {
         val parent = state.current?.payload?.parent
         val next = state.copy(
             current = null,
@@ -617,7 +635,7 @@ internal object SakuraScriptPlayer {
         val stillOwned = next.queue.any { it.parent == parent }
         val effects = if (parent != null && !stillOwned) listOf(PlayerEffect.ParentCompleted(parent)) else emptyList()
         return if (next.queue.isNotEmpty()) {
-            val adopted = adopt(next, 0L)
+            val adopted = adopt(next, elapsedMillis, state.current?.renderedFrameIndex ?: 0)
             schedule(adopted, WAIT_UNIT, effects)
         } else transition(next, effects)
     }
@@ -626,24 +644,29 @@ internal object SakuraScriptPlayer {
         state: PlayerState,
         parent: PlayerParent?,
         reason: RuntimeNoticeCode = RuntimeNoticeCode.PLAYER_FAILED,
-    ): PlayerTransition = transition(
-        state.copy(
-            queue = emptyList(),
+    ): PlayerTransition {
+        val remainingQueue = if (parent == null) {
+            state.queue.dropWhile { it.parent == null }
+        } else {
+            state.queue.filterNot { it.parent == parent }
+        }
+        val failed = state.copy(
+            queue = remainingQueue,
             current = null,
             authoredRequest = null,
             dialogue = emptyDialogue(state.dialogue),
             passive = false,
             playbackToken = state.playbackToken + 1,
             presentation = resetTransient(state.presentation),
-        ),
-        listOf(PlayerEffect.Failure(parent, reason)),
-    )
+        )
+        val effects = listOf(PlayerEffect.Failure(parent, reason))
+        return if (remainingQueue.isEmpty()) transition(failed, effects) else schedule(failed, 0L, effects)
+    }
 
     private fun projectDialogue(
         state: PlayerState,
         fromIndex: Int,
         throughIndex: Int,
-        elapsedMillis: Long,
     ): PlayerState {
         val cursor = state.current ?: return state
         val markers = actionMarkers(cursor.payload.script)
@@ -675,7 +698,7 @@ internal object SakuraScriptPlayer {
         val existingInput = state.dialogue.input
         val input = existingInput ?: crossed.firstNotNullOfOrNull { (index, marker) ->
             val pending = marker.value as? PendingInputSeed ?: return@firstNotNullOfOrNull null
-            val deadline = inputDeadline(elapsedMillis, pending.timeoutMillis)
+            val deadline = inputDeadline(cursor.adoptedElapsedMillis, pending.timeoutMillis)
             RuntimeInputAction(
                 DialogueActionKey(state.generation, incarnation, baseActionId + index),
                 PendingInputState(
@@ -833,7 +856,12 @@ internal object SakuraScriptPlayer {
     }
 
     private fun RuntimePresentation.withBalloon(speaker: GhostSpeaker, visible: Boolean): RuntimePresentation =
-        withSpeaker(speaker, speaker(speaker).copy(balloonVisible = visible))
+        withSpeaker(
+            speaker,
+            speaker(speaker).let { current ->
+                current.copy(balloonVisible = visible || current.text.isNotEmpty())
+            },
+        )
 
     private fun resetTransient(presentation: RuntimePresentation): RuntimePresentation = presentation.copy(
         sakura = presentation.sakura.copy(text = "", balloonVisible = false),

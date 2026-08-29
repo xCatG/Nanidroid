@@ -104,18 +104,50 @@ class SScriptRunnerPresentationTest {
             frames
         )
 
-        val (playerFrames, playerEffects) = drivePlayer(script)
-        Assert.assertTrue(playerFrames.any { it.sakura.text == "A" && it.sakura.surfaceId == "0" })
-        Assert.assertTrue(playerFrames.any { it.sakura.text == "A" && it.sakura.surfaceId == "120" })
-        Assert.assertTrue(playerFrames.any { it.kero.text == "B" && it.kero.surfaceId == "11" })
-        Assert.assertEquals("120", playerFrames.last().sakura.surfaceId)
-        Assert.assertEquals("11", playerFrames.last().kero.surfaceId)
-        Assert.assertEquals("", playerFrames.last().sakura.text)
+        Assert.assertEquals(frames, drivePlayerFrameStrings(script))
+    }
+
+    @Test
+    fun talkingCadenceAndSynchronizedSpeakersMatchPlayerExactly() {
+        val cadenceScript = "\\habcdefghijk\\e"
+        val scheduler = ManualRuntimeScheduler()
+        val runnerFrames = mutableListOf<GhostPresentationFrame>()
+        val runner = runtimes.create(
+            runnerConfiguration = SScriptRunnerConfiguration(
+                monotonicClock = FakeClock(10_000L),
+                playbackSchedulerFactory = { scheduler },
+            ),
+            autoAttach = false,
+        ).runner
+        runner.setPresentationRenderer { runnerFrames += it }
+        runner.addMsgToQueue(arrayOf(cadenceScript))
+        runner.run()
+        scheduler.runAll()
         Assert.assertEquals(
-            listOf("3", "4"),
-            playerEffects.filterIsInstance<PlayerEffect.PresentationCue>()
-                .filter { it.kind == RuntimeCueKind.ONE_SHOT }
-                .mapNotNull { it.animationId },
+            listOf(0, 10),
+            runnerFrames.mapIndexedNotNull { index, frame ->
+                index.takeIf { frame.talkingAnimationEnabled && frame.sakura.text.isNotEmpty() }
+            },
+        )
+
+        val cadenceEffects = drivePlayer(cadenceScript).second
+        Assert.assertEquals(
+            listOf(GhostSpeaker.SAKURA, GhostSpeaker.SAKURA),
+            cadenceEffects.filterIsInstance<PlayerEffect.PresentationCue>()
+                .filter { it.kind == RuntimeCueKind.TALKING }
+                .map { it.speaker },
+        )
+
+        val synchronizedScript = "\\h\\_sA\\e"
+        val synchronizedRunner = runnerFrames(synchronizedScript).first {
+            it.sakura.text == "A" && it.kero.text == "A"
+        }
+        Assert.assertTrue(synchronizedRunner.talkingAnimationEnabled)
+        Assert.assertEquals(
+            listOf(GhostSpeaker.SAKURA, GhostSpeaker.KERO),
+            drivePlayer(synchronizedScript).second.filterIsInstance<PlayerEffect.PresentationCue>()
+                .filter { it.kind == RuntimeCueKind.TALKING }
+                .map { it.speaker },
         )
     }
 
@@ -210,6 +242,15 @@ class SScriptRunnerPresentationTest {
             ),
             fixture.shiori.requests,
         )
+
+        val player = drivePlayerUntilAction("\\q[Choice,choice-id,\"\",extra]\\e")
+        val choice = player.dialogue.choices.single()
+        val effect = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.ActivateChoice(choice.key),
+        ).effects.single() as PlayerEffect.RequestShiori
+        Assert.assertEquals(request("OnChoiceSelectEx", "Choice", "choice-id", "", "extra"), effect.intent.protocolText)
+        Assert.assertEquals(request("OnChoiceSelect", "choice-id"), requireNotNull(effect.fallback).protocolText)
     }
 
     @Test
@@ -365,6 +406,15 @@ class SScriptRunnerPresentationTest {
         direct.runner.activateAnchor(direct.openAnchor("Anchor", "OnAnchor", "", "tail"))
 
         Assert.assertEquals(listOf(request("OnAnchor", "", "tail")), direct.shiori.requests)
+
+        val player = drivePlayerUntilAction("\\_a[OnAnchor,\"\",tail]Anchor\\_a\\e")
+        val anchor = player.dialogue.anchors.single()
+        val effect = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.ActivateAnchor(anchor.key),
+        ).effects.single() as PlayerEffect.RequestShiori
+        Assert.assertEquals(request("OnAnchor", "", "tail"), effect.intent.protocolText)
+        Assert.assertEquals(null, effect.fallback)
     }
 
     @Test
@@ -411,6 +461,17 @@ class SScriptRunnerPresentationTest {
         direct.runner.submitInput(directPending.generation, "value")
 
         Assert.assertEquals(listOf(request("OnReply", "value", "named supplement", "", "tail")), direct.shiori.requests)
+
+        val player = drivePlayerUntilAction(
+            "\\![open,inputbox,OnReply,1000,\"initial text\",--supplement=\"named supplement\"," +
+                "--reference=\"\",--reference=tail]\\e",
+        )
+        val input = requireNotNull(player.dialogue.input)
+        val effect = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.SubmitInput(input.key, "value"),
+        ).effects.filterIsInstance<PlayerEffect.RequestShiori>().single()
+        Assert.assertEquals(request("OnReply", "value", "named supplement", "", "tail"), effect.intent.protocolText)
     }
 
     @Test
@@ -975,6 +1036,29 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
+    fun parserRecoveryScopeBalloonAndQuickFixturesMatchPlayerExactly() {
+        listOf(
+            "\\hA\\\\B\\e" to "AB",
+            "\\hA\\" to "A",
+            "\\hA\\p[broken\\hB\\e" to "AB",
+            "\\h\\_qQuick\\_q\\e" to "Quick",
+        ).forEach { (script, expected) ->
+            Assert.assertEquals(expected, runnerFrames(script).maxBy { it.sakura.text.length }.sakura.text)
+            Assert.assertEquals(expected, drivePlayer(script).first.maxBy { it.sakura.text.length }.sakura.text)
+        }
+
+        val scopedScript = "\\p[1]K\\_b[-1]\\p[0]S\\_b[0]\\e"
+        val runnerScoped = runnerFrames(scopedScript).first { it.sakura.text == "S" && it.kero.text == "K" }
+        val playerScoped = drivePlayer(scopedScript).first.first {
+            it.sakura.text == "S" && it.kero.text == "K"
+        }
+        Assert.assertTrue(runnerScoped.sakura.balloonVisible)
+        Assert.assertTrue(runnerScoped.kero.balloonVisible)
+        Assert.assertTrue(playerScoped.sakura.balloonVisible)
+        Assert.assertTrue(playerScoped.kero.balloonVisible)
+    }
+
+    @Test
     fun speakerChangeClearRetiresAnInlineAnchorCapability() {
         val fixture = fixture(responses = emptyList())
         var captured: AnchorAction? = null
@@ -1086,6 +1170,75 @@ class SScriptRunnerPresentationTest {
     }
 
     private fun noContent(): String = "SHIORI/3.0 204 No Content\r\n\r\n"
+
+    private fun drivePlayerUntilAction(script: String): PlayerState {
+        var state = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(script, null),
+        ).state
+        repeat(100) {
+            if (
+                state.dialogue.choices.isNotEmpty() ||
+                state.dialogue.anchors.isNotEmpty() ||
+                state.dialogue.input != null
+            ) return state
+            state = SakuraScriptPlayer.reduce(
+                state,
+                PlayerCommand.Advance(state.playbackToken, 10_000L),
+            ).state
+        }
+        throw AssertionError("player action was not published")
+    }
+
+    private fun runnerFrames(script: String): List<GhostPresentationFrame> {
+        val frames = mutableListOf<GhostPresentationFrame>()
+        val runner = fixture(emptyList(), autoAttach = false).runner
+        runner.setPresentationRenderer { frames += it }
+        runner.addMsgToQueue(arrayOf(script))
+        runner.run()
+        return frames
+    }
+
+    private fun drivePlayerFrameStrings(script: String): List<String> {
+        var state = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(script, null),
+        ).state
+        var requestId = 0L
+        val frames = mutableListOf<String>()
+        repeat(100) {
+            if (state.current == null && state.queue.isEmpty()) return frames
+            val authoredRequest = state.authoredRequest
+            val transition = if (authoredRequest != null) {
+                SakuraScriptPlayer.reduce(
+                    state,
+                    PlayerCommand.NativeResponse(
+                        RuntimeRequestToken(state.generation, ++requestId, null, authoredRequest),
+                        PlayerResponse.Returned(ShioriResponse("SHIORI/3.0 204 No Content", Hashtable())),
+                    ),
+                )
+            } else {
+                SakuraScriptPlayer.reduce(
+                    state,
+                    PlayerCommand.Advance(state.playbackToken, 0L),
+                ).also { advanced ->
+                    val animation = advanced.effects.filterIsInstance<PlayerEffect.PresentationCue>()
+                        .singleOrNull { it.kind == RuntimeCueKind.ONE_SHOT }
+                    val presentation = advanced.state.presentation
+                    frames += buildString {
+                        append(presentation.sakura.text).append(':')
+                        append(presentation.sakura.surfaceId).append(':')
+                        append(animation?.takeIf { it.speaker == GhostSpeaker.SAKURA }?.animationId).append(':')
+                        append(presentation.kero.text).append(':')
+                        append(presentation.kero.surfaceId).append(':')
+                        append(animation?.takeIf { it.speaker == GhostSpeaker.KERO }?.animationId)
+                    }
+                }
+            }
+            state = transition.state
+        }
+        throw AssertionError("player did not terminate")
+    }
 
     private fun drivePlayer(script: String): Pair<List<RuntimePresentation>, List<PlayerEffect>> {
         var transition = SakuraScriptPlayer.reduce(

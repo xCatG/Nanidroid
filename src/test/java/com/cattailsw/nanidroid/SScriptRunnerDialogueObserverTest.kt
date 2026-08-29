@@ -179,6 +179,7 @@ class SScriptRunnerDialogueObserverTest {
 
     @Test
     fun legacyChoiceCallbackSkipsHiddenScopeChoicesBeforeLaterChoiceIsRevealed() {
+        val script = "\\h\\q[A,a]\\p2\\q[H,h]\\p0before\\w1\\q[B,b]\\e"
         val runner = runner()
         val callbacks = mutableListOf<Pair<List<String>, List<String>>>()
         val timeline = mutableListOf<String>()
@@ -187,11 +188,34 @@ class SScriptRunnerDialogueObserverTest {
         }
         runner.setUICallback(recordingChoiceCallback(callbacks) { timeline += "callback" })
 
-        runner.addMsgToQueue(arrayOf("\\h\\q[A,a]\\p2\\q[H,h]\\p0before\\w1\\q[B,b]\\e"))
+        runner.addMsgToQueue(arrayOf(script))
         runner.run()
 
         assertEquals(listOf(listOf("A", "B") to listOf("a", "b")), callbacks)
         assertTrue(timeline.indexOf("callback") < timeline.indexOf("B-revealed"))
+
+        var player = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(script, null),
+        ).state
+        var steps = 0
+        while (player.dialogue.choices.map { it.action.choiceLabel() } != listOf("A")) {
+            check(steps++ < 100)
+            player = SakuraScriptPlayer.reduce(
+                player,
+                PlayerCommand.Advance(player.playbackToken, 10_000L),
+            ).state
+        }
+        assertEquals(listOf("A"), player.dialogue.choices.map { it.action.choiceLabel() })
+        assertTrue(!player.presentation.sakura.text.contains("B"))
+        while (player.dialogue.choices.map { it.action.choiceLabel() } != listOf("A", "B")) {
+            check(steps++ < 100)
+            player = SakuraScriptPlayer.reduce(
+                player,
+                PlayerCommand.Advance(player.playbackToken, 10_000L),
+            ).state
+        }
+        assertEquals(listOf("A", "B"), player.dialogue.choices.map { it.action.choiceLabel() })
     }
 
     @Test
