@@ -96,11 +96,19 @@ class GhostRuntimeCompositionRootTest(unittest.TestCase):
         self.assertNotIn("nextGhostId", activity)
         self.assertNotIn("ghostSwitchStep2", activity)
 
-    def test_runtime_constructs_the_only_production_runner(self) -> None:
+    def test_runtime_is_the_only_snapshot_publisher_and_runner_is_absent(self) -> None:
+        self.assertFalse(
+            (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").exists()
+        )
+        publishers = files_containing_any("MutableStateFlow(RuntimeSnapshot.initial())")
         self.assertEqual(
             {"src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt"},
-            files_containing_any("SScriptRunner("),
+            publishers,
         )
+        runtime = read("src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt")
+        self.assertNotIn("RuntimeOwnershipMode", runtime)
+        self.assertNotIn("legacyRunner", runtime)
+        self.assertNotIn("SScriptRunner", runtime)
 
 
 if __name__ == "__main__":

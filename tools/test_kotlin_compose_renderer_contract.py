@@ -6,7 +6,11 @@ class KotlinComposeRendererContractTest(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parents[1]
         source = (root / "src/main/kotlin/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt").read_text(encoding="utf-8")
         self.assertIn("class ComposeGhostStageHost", source)
-        self.assertIn("val renderer = KotlinGhostPresentationRuntime", source)
+        self.assertIn("snapshot: RuntimeSnapshot", source)
+        self.assertIn("hostLease: RuntimeHostLease", source)
+        self.assertIn("RuntimeCommand.AcknowledgeCues", source)
+        self.assertNotIn("KotlinGhostPresentationRuntime", source)
+        self.assertNotIn("GhostPresentationRenderer", source)
         self.assertIn("SurfaceAnimationScheduler", source)
         self.assertFalse((root / "modern/src/com/cattailsw/nanidroid/ComposeBackedGhostPresentationRenderer.kt").exists())
         self.assertFalse((root / "modern/src/com/cattailsw/nanidroid/compose/GhostPresentationComposeHost.kt").exists())

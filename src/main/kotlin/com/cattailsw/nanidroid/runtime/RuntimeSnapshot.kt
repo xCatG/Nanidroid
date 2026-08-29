@@ -23,6 +23,8 @@ import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import java.io.File
 import java.util.Collections
 
+enum class GhostSpeaker { SAKURA, KERO }
+
 @JvmInline
 internal value class RuntimeHostId(val value: Long)
 

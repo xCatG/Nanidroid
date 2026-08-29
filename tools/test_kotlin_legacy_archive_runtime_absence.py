@@ -84,20 +84,13 @@ PLATFORM_STACK_PATHS = (
 )
 
 LIFECYCLE_INSTRUMENTATION_TEST_METHODS = {
-    "recreatingAttachedSessionPreservesApplicationRuntimeGhostAndGeneration",
-    "recreatingWhileInitialPreparationIsBlockedJoinsOneRuntimeOperation",
-    "recreatingAfterOutgoingUnloadJoinsOneReplacementOperation",
-    "initializedHostResumingBeforeReplacementCompletionAdoptsTheReadyRuntime",
-    "ownedRuntimeStopAllowsSameGenerationRestart",
-    "topResumedOwnershipLossAndRegainRestartsWithoutOnResume",
-    "concurrentApplicationReadsReturnOneRuntimeAndRunner",
-    "startupRecoverySettlesBeforeTestCoordinatorReplacement",
-    "sameProcessRecreationRestoresTheExactPickerOwnerWithoutRelaunching",
-    "concurrentActivityReconciliationCannotCancelTheLiveOwnerResult",
-    "recreatingDuringCopyingAndInstallingKeepsOneImportAttempt",
-    "installedPrimaryWaitsForReplacementGhostMgrAndCleanupRetryRefreshesOnce",
-    "deadProcessPickerTokenCannotOpenItsReturnedUriOrCreateAnActivityDialog",
-    "pausingActivityStopsClockWithoutReplacingRuntimeOrNativeSession",
+    "lifecycleCommandsUseOneHostIdIncreasingEpochsAndMainLoopSubmission",
+    "overlappingActivitiesKeepOldStartedButOnlyNewHostPlaysAndAcknowledgesCues",
+    "stoppedCollectorDoesNotRenderUntilStartedAgain",
+    "staleSameHostEpochSnapshotCannotPlayAcknowledgeOrDeliverExit",
+    "expiredOldHostCueCannotAliasReplacementHostCue",
+    "sixtyFiveHostlessCuesAdvanceWithoutInventoryOrBackpressure",
+    "exitDeliveryClaimsFinishesAcknowledgesBeforeLifecycleRevocationAndDoesNotFinishLaterHost",
 }
 
 STRING_RESOURCE_PATHS = (
@@ -138,20 +131,19 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
         runtime_clock = self.read(
             "src/main/kotlin/com/cattailsw/nanidroid/runtime/MonotonicClock.kt"
         )
-        runner = self.read(
-            "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt"
+        runtime = self.read(
+            "src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt"
         )
 
         self.assertIn("class ForegroundNarImportCoordinator(", coordinator)
         self.assertIn("class NarTransactionalInstaller", installer)
-        self.assertIn("class SScriptRunner", runner)
+        self.assertFalse(
+            (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").exists()
+        )
         self.assertIn("fun interface MonotonicClock", runtime_clock)
         self.assertIn("fun nowMillis(): Long", runtime_clock)
-        self.assertIn(
-            "import com.cattailsw.nanidroid.runtime.MonotonicClock",
-            runner,
-        )
-        self.assertNotIn("com.cattailsw.nanidroid.di.MonotonicClock", runner)
+        self.assertIn("RuntimeCommand.TimerDue", runtime)
+        self.assertNotIn("com.cattailsw.nanidroid.di.MonotonicClock", runtime)
 
     def test_legacy_runtime_paths_are_absent(self) -> None:
         present = [path for path in LEGACY_RUNTIME_PATHS if (ROOT / path).exists()]

@@ -47,7 +47,7 @@ import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 
 
 class NanidroidComposeShellTest {
@@ -336,8 +336,8 @@ class NanidroidComposeShellTest {
             NanidroidComposeShell(
                 ghostStage = {
                     Text(selectedGhost.value)
-                    GhostPresentationStage(
-                        presentation = GhostPresentationReducer.snapshot(
+                    SizedGhostPresentationStage(
+                        presentation = runtimePresentation(
                             sakuraText = "Fixture ghost balloon",
                             sakuraSurfaceId = "0",
                             sakuraAnimationId = null,

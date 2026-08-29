@@ -5,6 +5,9 @@ import com.cattailsw.nanidroid.RuntimeResult
 import com.cattailsw.nanidroid.ShioriRequestIntent
 import com.cattailsw.nanidroid.TaggedShioriResponse
 import java.io.Closeable
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +18,44 @@ import kotlinx.coroutines.launch
 internal interface RuntimeScheduler : Closeable {
     fun schedule(key: RuntimeScheduleKey, delayMillis: Long, action: () -> Unit)
     fun cancel(key: RuntimeScheduleKey)
+}
+
+internal class ApplicationRuntimeScheduler : RuntimeScheduler {
+    private val lock = Any()
+    private val executor = Executors.newSingleThreadScheduledExecutor { action ->
+        Thread(action, "GhostRuntime-Scheduler").apply { isDaemon = true }
+    }
+    private val scheduled = mutableMapOf<RuntimeScheduleKey, ScheduledFuture<*>>()
+    private var closed = false
+
+    override fun schedule(key: RuntimeScheduleKey, delayMillis: Long, action: () -> Unit) {
+        synchronized(lock) {
+            if (closed) return
+            scheduled.remove(key)?.cancel(false)
+            scheduled[key] = executor.schedule(
+                {
+                    synchronized(lock) { scheduled.remove(key) }
+                    action()
+                },
+                delayMillis.coerceAtLeast(0L),
+                TimeUnit.MILLISECONDS,
+            )
+        }
+    }
+
+    override fun cancel(key: RuntimeScheduleKey) {
+        synchronized(lock) { scheduled.remove(key)?.cancel(false) }
+    }
+
+    override fun close() {
+        synchronized(lock) {
+            if (closed) return
+            closed = true
+            scheduled.values.forEach { it.cancel(false) }
+            scheduled.clear()
+            executor.shutdown()
+        }
+    }
 }
 
 internal data class RuntimeScheduleKey(

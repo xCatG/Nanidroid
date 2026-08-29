@@ -19,6 +19,7 @@ import com.cattailsw.nanidroid.runtime.CatalogPublicationToken
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogState
 import java.io.File
+import java.lang.reflect.Modifier
 import java.util.Hashtable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -39,20 +40,58 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GhostRuntimeSnapshotTest {
-    // Mutation caught: snapshot mode constructs the legacy runner or legacy mode starts command ownership.
+    // Mutation caught: construction leaves snapshots inactive behind an ownership-mode branch.
     @Test
-    fun constructorSelectsExactlyOneRuntimeAuthority() {
-        GhostRuntime(null).use { legacy ->
-            assertTrue(legacy.hasLegacyRunnerAuthorityForTesting())
-            assertFalse(legacy.hasSnapshotAuthorityForTesting())
-            legacy.submit(RuntimeCommand.CatalogScanned(0L, RuntimeCatalogScanOutcome.Scanned(emptyList())))
-            assertEquals(0L, legacy.snapshotRevisionForTesting())
-        }
-
+    fun constructorUsesSnapshotAuthorityUnconditionally() {
         SnapshotRuntimeFixture().use { fixture ->
-            assertFalse(fixture.runtime.hasLegacyRunnerAuthorityForTesting())
-            assertTrue(fixture.runtime.hasSnapshotAuthorityForTesting())
+            val before = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.RegisterHost(RuntimeHostLease(RuntimeHostId(1L), 1L)))
+            fixture.runtime.submit(RuntimeCommand.SetResumed(RuntimeHostLease(RuntimeHostId(1L), 2L), true))
+            fixture.runtime.submit(RuntimeCommand.SetTopResumed(RuntimeHostLease(RuntimeHostId(1L), 3L), true))
+            fixture.drain()
+            assertTrue(fixture.runtime.snapshots.value.revision > before.revision)
+            assertEquals(RuntimeHostLease(RuntimeHostId(1L), 3L), fixture.runtime.snapshots.value.foregroundHost)
         }
+    }
+
+    @Test
+    fun runtimeInstancesCannotConsumeEachOthersPlayerQueues() {
+        val firstRoot = File("build/runtime-snapshot/authority-first").canonicalFile
+        val secondRoot = File("build/runtime-snapshot/authority-second").canonicalFile
+        fixtureFor("authority-first", firstRoot).use { first ->
+            fixtureFor("authority-second", secondRoot).use { second ->
+                first.startAttached("authority-first", firstRoot)
+                second.startAttached("authority-second", secondRoot)
+                first.runtime.enqueueScriptForTesting("\\hfirst\\e")
+                first.drain()
+
+                assertTrue(first.runtime.snapshots.value.mode.playingTalk)
+                assertFalse(second.runtime.snapshots.value.mode.playingTalk)
+
+                second.scheduler.runAll()
+                second.drain()
+                assertTrue(first.runtime.snapshots.value.mode.playingTalk)
+                assertFalse(second.runtime.snapshots.value.mode.playingTalk)
+            }
+        }
+    }
+
+    @Test
+    fun runtimeHasNoStaticMutableQueuePlayerHostOrCatalogState() {
+        val authorityNames = setOf("playerState", "hostState", "catalogOwner", "queuedNativeRequests")
+        val fields = GhostRuntime::class.java.declaredFields.associateBy { it.name }
+
+        authorityNames.forEach { name ->
+            assertTrue("missing runtime authority $name", fields.containsKey(name))
+            assertFalse("static runtime authority $name", Modifier.isStatic(requireNotNull(fields[name]).modifiers))
+        }
+        assertTrue(fields.keys.none { it.contains("legacy", ignoreCase = true) || it.contains("runner", ignoreCase = true) })
+    }
+
+    @Test
+    fun snapshotAndCuesPreserveLegacyEffectOrder() {
+        presentationAndClockHousekeepingDoNotStalePublishedMode()
+        activeHostCueBackpressurePausesAndContiguousAcknowledgementResumes()
     }
 
     // Mutation caught: a command runs inline or skips an older queued command.

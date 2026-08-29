@@ -39,7 +39,7 @@ import com.cattailsw.nanidroid.compose.ComposedSurface
 import com.cattailsw.nanidroid.compose.GhostPresentationStage
 import com.cattailsw.nanidroid.compose.SurfacePixelImage
 import com.cattailsw.nanidroid.compose.currentStageInputSnapshot
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
@@ -196,7 +196,7 @@ class GhostStageRestorationTest {
                 val measureState = remember { GhostStageMeasureState() }
                 val generation = remember { ++compositionGeneration }
                 GhostPresentationStage(
-                    presentation = GhostPresentationReducer.snapshot(
+                    presentation = runtimePresentation(
                         sakuraText = "Sakura",
                         sakuraSurfaceId = "0",
                         sakuraAnimationId = null,
@@ -262,7 +262,7 @@ class GhostStageRestorationTest {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 val generation = remember { ++compositionGeneration }
                 GhostPresentationStage(
-                    presentation = GhostPresentationReducer.snapshot(
+                    presentation = runtimePresentation(
                         sakuraText = "Sakura",
                         sakuraSurfaceId = "0",
                         sakuraAnimationId = null,
@@ -309,7 +309,7 @@ class GhostStageRestorationTest {
             SideEffect { savedRegistrySize = registry?.performSave()?.size ?: 0 }
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 GhostPresentationStage(
-                    presentation = GhostPresentationReducer.snapshot(
+                    presentation = runtimePresentation(
                         sakuraText = "Sakura",
                         sakuraSurfaceId = "0",
                         sakuraAnimationId = null,
@@ -385,7 +385,7 @@ class GhostStageRestorationTest {
         )
     }
 
-    private fun presentation() = GhostPresentationReducer.snapshot(
+    private fun presentation() = runtimePresentation(
         sakuraText = "Sakura",
         sakuraSurfaceId = "0",
         sakuraAnimationId = null,

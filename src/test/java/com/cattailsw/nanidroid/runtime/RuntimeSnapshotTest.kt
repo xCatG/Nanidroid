@@ -127,7 +127,66 @@ class RuntimeSnapshotTest {
     }
 
     @Test
-    fun snapshotGraphContainsNoFileAndroidNativeOrCallbackObjects() {
+    fun dialogueActionCollectionsRejectMutation() {
+        val snapshot = RuntimeSnapshot.freeze(mutableSnapshot())
+
+        assertUnsupported { (snapshot.dialogue.state.contents as MutableList<DialogueContent>).clear() }
+        assertUnsupported { (snapshot.dialogue.choices as MutableList<RuntimeChoiceAction>).clear() }
+        assertUnsupported { (snapshot.dialogue.anchors as MutableList<RuntimeAnchorAction>).clear() }
+        assertUnsupported {
+            ((snapshot.dialogue.choices.single().action as DialogueAction.Normal).extraReferences as MutableList<String>)
+                .clear()
+        }
+    }
+
+    @Test
+    fun presentationPreservesSpeakerTextSurfaceCueAndBalloonPolicy() {
+        val snapshot = RuntimeSnapshot.freeze(
+            RuntimeSnapshot.initial().copy(
+                generation = 9L,
+                presentation = RuntimePresentation(
+                    sakura = RuntimeSpeakerPresentation("Sakura text", "120", 3L, true),
+                    kero = RuntimeSpeakerPresentation("Kero text", "11", 4L, true),
+                    talkingAnimationEnabled = true,
+                ),
+                cues = listOf(
+                    RuntimePresentationCue(
+                        cueId = 1L,
+                        generation = 9L,
+                        hostLease = RuntimeHostLease(RuntimeHostId(7L), 3L),
+                        speaker = GhostSpeaker.SAKURA,
+                        kind = RuntimeCueKind.ONE_SHOT,
+                        animationId = "3",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals("Sakura text", snapshot.presentation.sakura.text)
+        assertEquals("120", snapshot.presentation.sakura.surfaceId)
+        assertTrue(snapshot.presentation.sakura.balloonVisible)
+        assertEquals("Kero text", snapshot.presentation.kero.text)
+        assertEquals("11", snapshot.presentation.kero.surfaceId)
+        assertTrue(snapshot.presentation.kero.balloonVisible)
+        assertEquals("3", snapshot.cues.single().animationId)
+    }
+
+    @Test
+    fun emptyTextAndDisabledBalloonRemainHidden() {
+        val presentation = RuntimePresentation(
+            sakura = RuntimeSpeakerPresentation("", "0", 0L, false),
+            kero = RuntimeSpeakerPresentation("", "10", 0L, false),
+            talkingAnimationEnabled = false,
+        )
+
+        assertFalse(presentation.sakura.balloonVisible)
+        assertFalse(presentation.kero.balloonVisible)
+        assertTrue(presentation.sakura.text.isEmpty())
+        assertTrue(presentation.kero.text.isEmpty())
+    }
+
+    @Test
+    fun snapshotGraphContainsNoViewOrCallback() {
         val snapshot = RuntimeSnapshot.freeze(mutableSnapshot())
         val forbidden = setOf(
             android.content.Context::class.java,

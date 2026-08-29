@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.GhostPresentationStage
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
@@ -648,7 +648,7 @@ class GhostBubbleInteractionTest {
             }
             Box(Modifier.size(360.dp, 720.dp)) {
                 GhostPresentationStage(
-                    presentation = GhostPresentationReducer.snapshot(
+                    presentation = runtimePresentation(
                         sakuraText = "Sakura",
                         sakuraSurfaceId = "0",
                         sakuraAnimationId = null,
@@ -730,7 +730,7 @@ class GhostBubbleInteractionTest {
             "topic",
             emptyList(),
         )
-        val presentation = GhostPresentationReducer.snapshot(
+        val presentation = runtimePresentation(
             sakuraText = "Sakura",
             sakuraSurfaceId = "0",
             sakuraAnimationId = null,

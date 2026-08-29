@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 ACTIVITY = ROOT / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt"
+APPLICATION = ROOT / "src/main/kotlin/com/cattailsw/nanidroid/CatTailApplication.kt"
 BACKEND = (
     ROOT
     / "src/main/kotlin/com/cattailsw/nanidroid/install/ForegroundNarImportBackend.kt"
@@ -17,6 +18,7 @@ class KotlinForegroundNarImportContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.activity = ACTIVITY.read_text(encoding="utf-8")
+        cls.application_source = APPLICATION.read_text(encoding="utf-8")
         cls.backend = BACKEND.read_text(encoding="utf-8")
         cls.manifest_source = SOURCE_MANIFEST.read_text(encoding="utf-8")
         cls.manifest = ET.parse(SOURCE_MANIFEST).getroot()
@@ -28,8 +30,8 @@ class KotlinForegroundNarImportContractTest(unittest.TestCase):
         backend = self.backend
 
         self.assertIn("ActivityResultContracts.OpenDocument", activity)
-        self.assertIn('arrayOf("*/*")', activity)
-        self.assertIn("ForegroundNarImportCoordinator.get", activity)
+        self.assertIn('"*/*"', activity)
+        self.assertIn("ForegroundNarImportCoordinator.get", self.application_source)
         self.assertNotIn("NarDownloadRepository", activity)
         self.assertNotIn("NarLiveGrantHandoff", activity)
         self.assertNotIn("handleIncomingIntent", activity)
@@ -81,7 +83,7 @@ class KotlinForegroundNarImportContractTest(unittest.TestCase):
         self.assertEqual(1, len(launcher_filters))
 
     def test_trusted_bundled_install_and_outgoing_browser_intents_remain(self) -> None:
-        self.assertIn('assets.open("nanidroid.zip")', self.activity)
+        self.assertIn('assets.open("nanidroid.zip")', self.application_source)
         self.assertIn("Intent.ACTION_VIEW", self.activity)
 
 

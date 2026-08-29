@@ -10,7 +10,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -49,7 +49,7 @@ class NanidroidComposeShellUiAutomatorTest {
             NanidroidComposeShell(
                 ghostStage = {
                     GhostPresentationStage(
-                        presentation = GhostPresentationReducer.snapshot(
+                        presentation = runtimePresentation(
                             sakuraText = "",
                             sakuraSurfaceId = "0",
                             sakuraAnimationId = null,

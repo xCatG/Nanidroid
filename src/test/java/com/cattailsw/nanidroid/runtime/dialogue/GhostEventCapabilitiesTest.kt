@@ -1,10 +1,6 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
-import com.cattailsw.nanidroid.RuntimeFixture
-import com.cattailsw.nanidroid.RuntimeResult
-import com.cattailsw.nanidroid.ShioriRequestIntent
 import com.cattailsw.nanidroid.ShioriResponse
-import com.cattailsw.nanidroid.assertIs
 import com.cattailsw.nanidroid.shiori.ShioriRequestException
 import java.io.BufferedReader
 import java.io.StringReader
@@ -190,31 +186,6 @@ class GhostEventCapabilitiesTest {
 
         assertEquals(Support.SUPPORTED, GhostEventCapabilityDiscovery.fromHasEvent(response))
         assertNull(GhostEventCapabilityDiscovery.fromSupportedEvents(response))
-    }
-
-    @Test
-    fun `raw requests preserve notify method and an empty positional reference`() = RuntimeFixture().use { fixture ->
-        assertIs<RuntimeResult.Success<*>>(
-            fixture.runtime.request(
-                fixture.requireHandle().generation,
-                ShioriRequestIntent.raw(
-                    ShioriMethod.NOTIFY,
-                    "OnSecondChange",
-                    listOf("123", "", "0"),
-                ),
-            ),
-        )
-
-        assertEquals(
-            "NOTIFY SHIORI/3.0\r\n" +
-                "Sender: Nanidroid\r\n" +
-                "SecurityLevel: local\r\n" +
-                "ID: OnSecondChange\r\n" +
-                "Reference0: 123\r\n" +
-                "Reference1: \r\n" +
-                "Reference2: 0\r\n\r\n",
-            fixture.trace.requests.single(),
-        )
     }
 
     private fun response(vararg headers: Pair<String, String>) = ShioriResponse(

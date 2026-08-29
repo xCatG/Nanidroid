@@ -22,7 +22,8 @@ class ComposeStageLayoutContractTest(unittest.TestCase):
         self.assertIn("environmentForSize(stageSize)", measured_layout)
         self.assertIn("SubcomposeLayout(modifier = modifier)", measured_layout)
         self.assertIn("SurfaceCompositor(pixelAssets, SurfacePlanRegistry(plans))", host)
-        self.assertIn("onSurfaceEffect = interactionPort::dispatch", host)
+        self.assertIn("RuntimeCommand.Pointer(", host)
+        self.assertIn("submitCommand(RuntimeCommand.AcknowledgeCues", host)
         self.assertNotIn("GhostPresentationComposeHost", host)
 
 

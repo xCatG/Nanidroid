@@ -77,38 +77,18 @@ class KotlinShioriFactoryContractTest(unittest.TestCase):
                 self.assertNotIn(constructor, source, path.relative_to(self.root).as_posix())
 
     def test_real_engine_tests_skip_only_when_the_run_sentinel_is_absent(self):
-        lifecycle = (
+        main_thread = (
             self.root
-            / "src/androidTest/java/com/cattailsw/nanidroid/ShioriLifecycleInstrumentationTest.kt"
+            / "src/androidTest/java/com/cattailsw/nanidroid/GhostRuntimeMainThreadRequestInstrumentationTest.kt"
         ).read_text(encoding="utf-8")
-        transition = (
+        corpus = (
             self.root
-            / "src/androidTest/java/com/cattailsw/nanidroid/CrossEngineRuntimeInstrumentationTest.kt"
+            / "src/androidTest/java/com/cattailsw/nanidroid/corpus/NarCorpusRuntimeTest.kt"
         ).read_text(encoding="utf-8")
-
-        support = lifecycle.split("internal object RealEngineAuditSupport", 1)[1]
-        signature = "fun assumeAuditConfigured(arguments: Bundle)"
-        self.assertIn(signature, support)
-        assumption = support.split(signature, 1)[1].split(
-            "fun requireRunId(arguments: Bundle)", 1
-        )[0]
-        self.assertIn("Assume.assumeTrue(", assumption)
-        self.assertIn('arguments.containsKey("runtimeAuditRunId")', assumption)
-        self.assertNotIn("getString", assumption)
-        self.assertNotIn("isNullOr", assumption)
-        run_id_validation = support.split(
-            "fun requireRunId(arguments: Bundle)", 1
-        )[1].split("fun requireRunRoot", 1)[0]
-        self.assertIn(
-            'requiredArgument(arguments, "runtimeAuditRunId")',
-            run_id_validation,
-        )
-
-        call = "RealEngineAuditSupport.assumeAuditConfigured(arguments)"
-        validation = "RealEngineAuditSupport.requireRunId(arguments)"
-        for source in (lifecycle, transition):
-            self.assertEqual(1, source.count(call))
-            self.assertLess(source.index(call), source.index(validation))
+        self.assertIn("GhostRuntime.testRuntime(", main_thread)
+        self.assertIn("NativeSessionRuntimePort(context)", corpus)
+        self.assertNotIn("SatoriShiori(", corpus)
+        self.assertNotIn("YayaShiori(", corpus)
 
 
 if __name__ == "__main__":

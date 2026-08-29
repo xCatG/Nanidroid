@@ -45,8 +45,8 @@ import com.cattailsw.nanidroid.compose.stage.StageEnvironmentProvider
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
 import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
 import com.cattailsw.nanidroid.compose.stage.StagePointerInput
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
-import com.cattailsw.nanidroid.runtime.GhostPresentationState
+import com.cattailsw.nanidroid.runtime.RuntimePresentation
+import com.cattailsw.nanidroid.runtime.RuntimeSpeakerPresentation
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import com.cattailsw.nanidroid.runtime.stage.BubbleHitRegionRegistry
 import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
@@ -65,8 +65,8 @@ import kotlin.math.roundToInt
 
 /** Production adaptive stage consuming atomic composed surfaces. */
 @Composable
-fun GhostPresentationStage(
-    presentation: GhostPresentationState,
+internal fun GhostPresentationStage(
+    presentation: RuntimePresentation,
     sakuraComposedSurface: ComposedSurface?,
     keroComposedSurface: ComposedSurface?,
     measureState: GhostStageMeasureState,
@@ -102,7 +102,7 @@ fun GhostPresentationStage(
     StageEnvironmentProvider { windowEnvironment ->
         var placement by remember { mutableStateOf<StagePlacement?>(null) }
         // Presentation-open state is intentionally not saveable: a recreated
-        // Activity must re-open from the runner's still-pending exact actions.
+        // Activity must re-open from the runtime's still-pending exact actions.
         var actionSurfaceSpeakerName by remember { mutableStateOf<String?>(null) }
         val actionSurfaceSpeaker = actionSurfaceSpeakerName?.let(SurfaceSpeaker::valueOf)
         var actionSurfaceActionIdentities by remember { mutableStateOf<List<DialogueAction>?>(null) }
@@ -182,7 +182,7 @@ fun GhostPresentationStage(
             if (actionSurfaceSpeaker == null) {
                 actionSurfaceActionIdentities = null
             } else if (!actionSurfaceStale && actionSurfaceActionIdentities == null) {
-                // A restored open surface adopts the runner's current exact objects.
+                // A restored open surface adopts the runtime's current exact objects.
                 actionSurfaceActionIdentities = actionSurfaceActions.toList()
             }
         }
@@ -377,58 +377,7 @@ internal fun currentStageInputSnapshot(
     routingEpoch = routingEpoch,
 )
 
-/**
- * Compatibility facade for characterization tests that inject their own
- * surface content. Production uses the atomic [ComposedSurface] overload.
- */
-@Composable
-fun GhostPresentationStage(
-    presentation: GhostPresentationState,
-    sakuraSurfaceSize: IntSize,
-    keroSurfaceSize: IntSize,
-    showSakuraBalloon: Boolean = true,
-    showKeroBalloon: Boolean = true,
-    modifier: Modifier = Modifier,
-    sakuraSurface: @Composable BoxScope.() -> Unit = {},
-    keroSurface: @Composable BoxScope.() -> Unit = {},
-) {
-    val measureState = remember { GhostStageMeasureState().also { it.resetFor(LegacyPreviewOwner) } }
-    val sakura = remember(sakuraSurfaceSize) { layoutOnlySurface(0, sakuraSurfaceSize) }
-    val kero = remember(keroSurfaceSize) { layoutOnlySurface(10, keroSurfaceSize) }
-    val sakuraDialogue = remember(presentation.sakura.text) {
-        DialogueContent(
-            GhostSpeaker.SAKURA,
-            if (presentation.sakura.text.isEmpty()) emptyList() else listOf(
-                DialogueSegment.Text(presentation.sakura.text),
-            ),
-        )
-    }
-    val keroDialogue = remember(presentation.kero.text) {
-        DialogueContent(
-            GhostSpeaker.KERO,
-            if (presentation.kero.text.isEmpty()) emptyList() else listOf(
-                DialogueSegment.Text(presentation.kero.text),
-            ),
-        )
-    }
-    GhostPresentationStage(
-        presentation = presentation,
-        sakuraComposedSurface = sakura,
-        keroComposedSurface = kero,
-        measureState = measureState,
-        ghostKey = "legacy-preview",
-        sakuraDialogue = sakuraDialogue,
-        keroDialogue = keroDialogue,
-        showSakuraBalloon = showSakuraBalloon,
-        showKeroBalloon = showKeroBalloon,
-        modifier = modifier,
-        sakuraSurface = { sakuraSurface() },
-        keroSurface = { keroSurface() },
-    )
-}
-
-
-private fun layoutOnlySurface(id: Int, size: IntSize): ComposedSurface? {
+private fun previewSurface(id: Int, size: IntSize): ComposedSurface? {
     if (size.width <= 0 || size.height <= 0) return null
     val pixels = IntArray(size.width * size.height) { 0xff404040.toInt() }
     return ComposedSurface(
@@ -454,25 +403,25 @@ private fun Offset.roundedOffset() = IntOffset(x.roundToInt(), y.roundToInt())
 private fun saturatingAdd(first: Int, second: Int): Int =
     (first.toLong() + second.toLong()).coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 
-private data object LegacyPreviewOwner
+private data object PreviewOwner
 
 private val CANONICAL_APP_BAR_HEIGHT = 64.dp
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 640)
 @Composable
 private fun GhostPresentationStagePreview() {
+    val measureState = remember { GhostStageMeasureState().also { it.resetFor(PreviewOwner) } }
+    val sakura = remember { previewSurface(0, IntSize(180, 360)) }
+    val kero = remember { previewSurface(10, IntSize(120, 180)) }
     GhostPresentationStage(
-        presentation = GhostPresentationReducer.snapshot(
-            sakuraText = "Hello from Sakura",
-            sakuraSurfaceId = "0",
-            sakuraAnimationId = null,
-            sakuraBalloonId = "0",
-            keroText = "Hello from Kero",
-            keroSurfaceId = "10",
-            keroAnimationId = null,
-            keroBalloonId = "0",
+        presentation = RuntimePresentation(
+            sakura = RuntimeSpeakerPresentation("Hello from Sakura", "0", 1L, true),
+            kero = RuntimeSpeakerPresentation("Hello from Kero", "10", 1L, true),
+            talkingAnimationEnabled = false,
         ),
-        sakuraSurfaceSize = IntSize(180, 360),
-        keroSurfaceSize = IntSize(120, 180),
+        sakuraComposedSurface = sakura,
+        keroComposedSurface = kero,
+        measureState = measureState,
+        ghostKey = "preview",
     )
 }

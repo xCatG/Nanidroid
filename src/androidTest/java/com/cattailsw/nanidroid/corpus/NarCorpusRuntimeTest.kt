@@ -16,19 +16,23 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.GhostEngine
-import com.cattailsw.nanidroid.GhostHandle
 import com.cattailsw.nanidroid.GhostPreparer
-import com.cattailsw.nanidroid.GhostRuntime
-import com.cattailsw.nanidroid.GhostRuntimePersistence
+import com.cattailsw.nanidroid.NativeSessionRuntimePort
+import com.cattailsw.nanidroid.PreparedGhost
 import com.cattailsw.nanidroid.RuntimeFailure
 import com.cattailsw.nanidroid.RuntimeResult
 import com.cattailsw.nanidroid.ShioriRequestIntent
 import com.cattailsw.nanidroid.SurfaceCatalog
+import com.cattailsw.nanidroid.TaggedShioriResponse
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.DescReader
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeRequestOrigin
+import com.cattailsw.nanidroid.runtime.RuntimeRequestToken
+import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.SurfaceReader
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
@@ -687,13 +691,14 @@ class NarCorpusRuntimeTest {
                     val exactSakura = manager.getSurface("0")
                     val exactKero = manager.getSurface("10")
                     assertNotNull("Installed ghost lacks exact default Sakura surface 0", exactSakura)
-                    host = ComposeGhostStageHost(SurfaceInteractionPort { })
-                    host.setSurfaceCatalog(
-                        catalog,
-                        installed.targetId ?: "corpus-${expectedSha256.take(16)}",
+                    host = ComposeGhostStageHost()
+                    val stageSnapshot = RuntimeSnapshot.initial().copy(
+                        generation = 1L,
+                        activeGhostId = installed.targetId ?: "corpus-${expectedSha256.take(16)}",
+                        activeSurfaces = catalog,
                     )
                     composeRule.runOnIdle {
-                        probeContent.showStage(host)
+                        probeContent.showStage(host, stageSnapshot)
                     }
                     phase("stage-shown")
                     composeRule.waitUntil(timeoutMillis = 15_000) {
@@ -859,10 +864,13 @@ class NarCorpusRuntimeTest {
     }
 
     private class RuntimeShioriSession private constructor(
-        private val runtime: GhostRuntime,
-        private val handle: GhostHandle,
+        private val nativePort: NativeSessionRuntimePort,
+        private val prepared: PreparedGhost,
+        private val generation: Long,
     ) : AutoCloseable {
-        fun getShioriModuleName(): String? = when (handle.ghost.engine) {
+        private var requestId = 0L
+
+        fun getShioriModuleName(): String? = when (prepared.engine) {
             GhostEngine.Satori -> "Satori"
             GhostEngine.Yaya -> "YAYA"
             GhostEngine.Kawari -> "Kawari 8"
@@ -870,49 +878,47 @@ class NarCorpusRuntimeTest {
             GhostEngine.Unsupported -> "NotSupportedShiori"
         }
 
-        fun getGhostIdentity(): String = handle.ghost.id
+        fun getGhostIdentity(): String = prepared.id
 
-        fun isShioriNotSupported(): Boolean = handle.ghost.engine == GhostEngine.Unsupported
+        fun isShioriNotSupported(): Boolean = prepared.engine == GhostEngine.Unsupported
 
         fun requestRaw(
             method: ShioriMethod,
             eventId: String,
             references: List<String> = emptyList(),
         ): ShioriResponse {
-            val tagged = runtime.request(
-                handle.generation,
+            var result: RuntimeResult<TaggedShioriResponse>? = null
+            nativePort.request(
+                RuntimeRequestToken(
+                    generation = generation,
+                    requestId = ++requestId,
+                    parentOperationId = null,
+                    origin = RuntimeRequestOrigin.Attachment(1L),
+                ),
                 ShioriRequestIntent.raw(method, eventId, references),
-            ).valueOrThrow()
-            check(tagged.generation == handle.generation) {
-                "Corpus response generation ${tagged.generation} did not match ${handle.generation}"
+                fallback = null,
+            ) { result = it }
+            val tagged = requireNotNull(result).valueOrThrow()
+            check(tagged.generation == generation) {
+                "Corpus response generation ${tagged.generation} did not match $generation"
             }
             return tagged.response
         }
 
         override fun close() {
-            try {
-                runtime.unload(handle.generation).valueOrThrow()
-            } finally {
-                runtime.close()
-            }
+            var outcome: RuntimeNativeLifecycleOutcome? = null
+            nativePort.unload(2L, generation) { outcome = it }
+            check(outcome == RuntimeNativeLifecycleOutcome.Success) { "Corpus unload failed: $outcome" }
         }
 
         companion object {
             fun open(context: Context, ghostIdentity: String, installedRoot: File): RuntimeShioriSession {
-                val runtime = GhostRuntime.testRuntime(
-                    context = context,
-                    preparer = GhostPreparer(context),
-                    persistence = CorpusGhostRuntimePersistence(),
-                )
-                return try {
-                    val handle = runBlocking {
-                        runtime.startOrJoin(ghostIdentity, installedRoot)
-                    }.valueOrThrow()
-                    RuntimeShioriSession(runtime, handle)
-                } catch (failure: Throwable) {
-                    runtime.close()
-                    throw failure
-                }
+                val prepared = GhostPreparer(context).prepare(1L, ghostIdentity, installedRoot)
+                val nativePort = NativeSessionRuntimePort(context)
+                var outcome: RuntimeNativeLifecycleOutcome? = null
+                nativePort.load(1L, 1L, prepared) { outcome = it }
+                check(outcome == RuntimeNativeLifecycleOutcome.Success) { "Corpus load failed: $outcome" }
+                return RuntimeShioriSession(nativePort, prepared, 1L)
             }
 
             private fun <T> RuntimeResult<T>.valueOrThrow(): T = when (this) {
@@ -928,13 +934,6 @@ class NarCorpusRuntimeTest {
             private fun Throwable.nativeLinkageCauseOrSelf(): Throwable =
                 cause?.takeIf { it is LinkageError } ?: this
         }
-    }
-
-    private class CorpusGhostRuntimePersistence : GhostRuntimePersistence {
-        override fun readLastRunGhostId(): String? = null
-        override fun commitLastRunGhostId(ghostId: String) = Unit
-        override fun readActivationCount(ghostId: String): Long = 0L
-        override fun commitActivationCount(ghostId: String, count: Long) = Unit
     }
 
     private fun buildStageManager(installedPath: String, ghostKey: String): ProductionSurfaceRuntime {

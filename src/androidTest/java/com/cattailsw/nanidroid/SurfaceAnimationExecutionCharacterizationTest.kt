@@ -15,8 +15,8 @@ import com.cattailsw.nanidroid.compose.SurfaceRenderFrame
 import com.cattailsw.nanidroid.compose.SurfaceRenderPlan
 import com.cattailsw.nanidroid.compose.SurfaceRenderBase
 import com.cattailsw.nanidroid.compose.SurfaceTalkCadence
-import com.cattailsw.nanidroid.compose.GhostPresentationStage
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.compose.SizedGhostPresentationStage
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -27,8 +27,8 @@ class SurfaceAnimationExecutionCharacterizationTest {
 
     @Test fun composeStagePlacesVisibleSpeakerAndBalloonWithoutRetainedViews() {
         composeRule.setContent {
-            GhostPresentationStage(
-                presentation = GhostPresentationReducer.snapshot(
+            SizedGhostPresentationStage(
+                presentation = runtimePresentation(
                     sakuraText = "Compose animation",
                     sakuraSurfaceId = "0",
                     sakuraAnimationId = "3",

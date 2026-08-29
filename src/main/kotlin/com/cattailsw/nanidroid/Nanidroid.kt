@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
 import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
@@ -35,6 +37,13 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.GhostActionGuard
 import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogPublicationStatus
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogState
+import com.cattailsw.nanidroid.runtime.RuntimeCommand
+import com.cattailsw.nanidroid.runtime.RuntimeHostLease
+import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueActionKey
+import com.cattailsw.nanidroid.runtime.dialogue.RuntimeInputAction
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
@@ -194,11 +203,6 @@ internal fun dispatchNarPickerResult(
     return consume(expectedToken, selection(), importAllowed())
 }
 
-internal class NanidroidLifecycleTestHooks(
-    val afterGhostMgrCreatedBeforeReady: (GhostMgr) -> Unit = {},
-    val onForegroundNarRefresh: (GhostMgr, NarImportAttemptToken) -> Unit = { _, _ -> },
-)
-
 private const val TRANSIENT_UI_PRESENT = "transient_ui_present"
 private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
 private const val NAR_PICKER_OWNER_PROCESS_NONCE = "nar_picker_owner_process_nonce"
@@ -251,902 +255,388 @@ internal fun Bundle.readTextDocumentRestoreSnapshot(): TextDocumentRestoreSnapsh
     )
 }
 
-/**
- * The production activity. Compose owns both chrome and ghost presentation;
- * SScriptRunner supplies immutable frames through KotlinGhostPresentationRuntime.
- */
-class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
-
-    private var stageInputEpoch = 0L
-    private val loadingState = mutableStateOf(true)
-    private var loading: Boolean
-        get() = loadingState.value
-        set(value) {
-            if (loadingState.value != value) {
-                stageInputEpoch++
-                loadingState.value = value
-            }
-        }
-    private var progressMessage by mutableStateOf("")
-    private var toolbarVisible by mutableStateOf(false)
-    private var transientUiInitialized = false
-    private var pendingRestoredTransientUi: TransientUiSnapshot? = null
+/** Activity adapter for the application-owned snapshot runtime. */
+class Nanidroid : ComponentActivity() {
+    private val snapshotState = mutableStateOf(RuntimeSnapshot.initial())
+    private val hostLeaseState = mutableStateOf<RuntimeHostLease?>(null)
     private val simpleDialogState = mutableStateOf<NanidroidSimpleDialog?>(null)
-    private var simpleDialog: NanidroidSimpleDialog?
-        get() = simpleDialogState.value
-        set(value) {
-            if ((simpleDialogState.value == null) != (value == null)) stageInputEpoch++
-            simpleDialogState.value = value
-        }
-    private lateinit var ghostRuntime: GhostRuntime
-    private var runner: SScriptRunner? = null
-    private val runnerHostToken = SScriptRunner.HostToken()
-    private val dialogueDialogBinding = DialogueDialogBinding {
-        runner.takeIf { ownsTopRuntimeHost() }
-    }
-    private val composeStage = ComposeGhostStageHost(
-        SurfaceInteractionPort { effect ->
-            if (ownsTopRuntimeHost()) runner?.dispatchSurfaceInteraction(effect) else false
-        },
-    )
-    private var gm: GhostMgr? = null
-    private val ghostMgrReady = CompletableDeferred<GhostMgr>()
-    private var currentGhost: Ghost? = null
-    private var restoreFromMinimize = false
-    private var currentRunCount = -1L
-    private var initComplete = false
-    private var resumeActivationEpoch = 0L
-    private var hostResumed = false
-    private var hostTopResumed = false
-    private val initialRuntimeReady = CompletableDeferred<Unit>()
-    private var lastStartedAdoptionEpoch = -1L
-    private var lastStartedAdoptionGeneration = -1L
-    private val foregroundNarImport by lazy {
-        ForegroundNarImportCoordinator.get(applicationContext)
-    }
-    private var narPickerOwnerToken: NarImportAttemptToken? = null
-    private var installedReadyToken by mutableStateOf<NarImportAttemptToken?>(null)
-    private val narDocumentPicker = registerForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (!dispatchNarDocumentPickerResult(uri)) return@registerForActivityResult
-    }
+    private var toolbarVisible by mutableStateOf(true)
+    private var hostEpoch = 0L
+    private var startupCatalogEpoch = Long.MIN_VALUE
+    private var restoredPickerOwner: NarImportAttemptToken? = null
+    private var inputDraft: InputDraft? = null
+    private var pendingRestoredInputDraft: InputDraft? = null
+    private var deliveredExitOperationId: Long? = null
+    private val shownCatalogRecoveries = mutableSetOf<Pair<com.cattailsw.nanidroid.runtime.CatalogPublicationToken, Long>>()
 
-    private fun dispatchNarDocumentPickerResult(uri: Uri?): Boolean = dispatchNarPickerResult(
-        takeOwner = {
-            narPickerOwnerToken.also { narPickerOwnerToken = null }
-        },
-        selection = { uri?.let { NarDocumentSelection(it.toString(), it.scheme) } },
-        importAllowed = { allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER) },
-        consume = foregroundNarImport::consumePickerResult,
-    )
+    private lateinit var runtime: GhostRuntime
+    private lateinit var applicationOwner: CatTailApplication
+    private lateinit var foregroundNarImport: ForegroundNarImportCoordinator
+    private lateinit var dialogueBinding: DialogueDialogBinding
+    private val composeStage = ComposeGhostStageHost()
+
+    private val narPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        dispatchNarPickerResult(
+            takeOwner = { restoredPickerOwner.also { restoredPickerOwner = null } },
+            selection = { uri?.toNarSelection() },
+            importAllowed = { getExternalFilesDir(null) != null },
+            consume = foregroundNarImport::consumePickerResult,
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        onBackPressedDispatcher.addCallback(this, backPressedCallback)
-        narPickerOwnerToken = reconcileNarPickerOwner(
-            restored = savedInstanceState?.readNarPickerOwnerToken(),
-            state = foregroundNarImport.state.value,
-        )
-        ghostRuntime = (application as CatTailApplication).ghostRuntime
-        runner = ghostRuntime.runner
-        setupViews()
-        if (!Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED, true)) {
-            simpleDialog = NanidroidSimpleDialog.Notice(
-                R.string.err_title,
-                R.string.err_no_sdcard,
-                onConfirm = { finish() },
-            )
-            return
-        }
-        checkIsRestore(savedInstanceState)
-        pendingRestoredTransientUi = savedInstanceState?.readTransientUiSnapshot()
-        restoreSimpleDialog(savedInstanceState)
-        initOnSeparateThread()
-    }
+        applicationOwner = application as CatTailApplication
+        runtime = applicationOwner.ghostRuntime
+        foregroundNarImport = applicationOwner.foregroundNarImport
+        dialogueBinding = DialogueDialogBinding({ snapshotState.value }, runtime::submit)
 
-    private fun initOnSeparateThread() {
+        val restoredUi = savedInstanceState?.readTransientUiSnapshot()
+        toolbarVisible = restoredUi?.toolbarVisible ?: true
+        restoredPickerOwner = reconcileNarPickerOwner(
+            savedInstanceState?.readNarPickerOwnerToken(),
+            foregroundNarImport.state.value,
+        )
+        pendingRestoredInputDraft = savedInstanceState?.readInputDraft()
+        savedInstanceState?.readTextDocumentRestoreSnapshot()?.let(::restoreTextDocument)
+
+        val initialLease = RuntimeHostLease(applicationOwner.allocateRuntimeHostId(), ++hostEpoch)
+        hostLeaseState.value = initialLease
+        runtime.submit(RuntimeCommand.RegisterHost(initialLease))
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    val snapshot = snapshotState.value
+                    val lease = hostLeaseState.value ?: return
+                    runtime.submit(RuntimeCommand.Back(snapshot.generation, lease, snapshot.modeIdentity))
+                }
+            },
+        )
+
         lifecycleScope.launch {
-            val manager = withContext(Dispatchers.IO) {
-                createSvcs2ndThread()
-                gm!!.also {
-                    if (it.shouldInstallFirstGhost()) installFirstGhost()
-                    currentRunCount = getStartCount()
-                    if (currentRunCount == 0L) loadFirstRunScript()
-                    setStartCount(++currentRunCount)
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                runtime.snapshots.collect { snapshot ->
+                    snapshotState.value = snapshot
+                    reconcileSnapshot(snapshot)
                 }
             }
-            if (isDestroyed || isFinishing) return@launch
-
-            val adoptionLease = currentRuntimeAdoptionLease()
-            val identity = ghostRuntime.identity()
-            if (identity.pending != null && identity.activeHandle != null) {
-                // A recreated host renders the still-active outgoing generation while
-                // independently joining the runtime-owned replacement operation.
-                adoptionLease?.let { lease ->
-                    adoptRuntimeHandle(lease, identity.activeHandle, startRuntime = true)
-                }
-                if (switchProgressVisibleFor(identity.phase)) showProgress() else hideProgress()
-            }
-            val handle = resolveRuntimeHandle(manager)
-            val attached = handle?.let { attachRuntimeHandle(it) }
-            if (attached == null) {
-                initialRuntimeReady.complete(Unit)
-                showNoGhostAvailable()
-                return@launch
-            }
-            hideProgress()
-            initComplete = true
-            initialRuntimeReady.complete(Unit)
         }
-    }
 
-    private fun createSvcs2ndThread() {
-        val manager = GhostMgr(this)
-        gm = manager
-        lifecycleTestHooks.afterGhostMgrCreatedBeforeReady(manager)
-        check(ghostMgrReady.complete(manager))
-    }
-
-    private suspend fun resolveRuntimeHandle(manager: GhostMgr): GhostHandle? {
-        while (true) {
-            val identity = ghostRuntime.identity()
-            val pending = identity.pending
-            if (pending != null) {
-                if (switchProgressVisibleFor(identity.phase)) showProgress()
-                when (
-                    val joined = ghostRuntime.startOrJoin(
-                        pending.ghostId,
-                        pending.canonicalRoot,
-                    )
-                ) {
-                    is RuntimeResult.Success -> return joined.value
-                    is RuntimeResult.Failure -> when (joined.failure) {
-                        RuntimeFailure.Busy,
-                        RuntimeFailure.StaleGeneration,
-                        is RuntimeFailure.Replayable,
-                        -> continue
-                        is RuntimeFailure.Fatal -> return null
-                    }
-                }
-            }
-            identity.activeHandle?.let { return it }
-            if (identity.phase != GhostRuntimePhase.Idle) return null
-
-            val candidates = manager.launchCandidates(
-                ghostRuntime.preferredGhostId() ?: "nanidroid",
-            )
-            val preferred = candidates.firstOrNull()
-            progressMessage = String.format(
-                getString(R.string.load_g),
-                preferred?.name ?: preferred?.id ?: "nanidroid",
-            )
-            for (candidate in candidates) {
-                when (
-                    val started = ghostRuntime.startOrJoin(candidate.id, candidate.canonicalRoot)
-                ) {
-                    is RuntimeResult.Success -> return started.value
-                    is RuntimeResult.Failure -> when (started.failure) {
-                        RuntimeFailure.Busy, RuntimeFailure.StaleGeneration -> break
-                        is RuntimeFailure.Replayable -> continue
-                        is RuntimeFailure.Fatal -> return null
-                    }
-                }
-            }
-            if (ghostRuntime.identity().phase == GhostRuntimePhase.Idle) return null
-        }
-    }
-
-    private suspend fun attachRuntimeHandle(handle: GhostHandle): GhostHandle? {
-        return when (ghostRuntime.attachHost(handle.generation)) {
-            is RuntimeResult.Success -> {
-                val identity = ghostRuntime.identity()
-                val current = identity.activeHandle ?: return null
-                val compatiblePhase = identity.phase == GhostRuntimePhase.Attached ||
-                    identity.phase == GhostRuntimePhase.SwitchPlayback
-                if (
-                    !compatiblePhase ||
-                    current.generation != handle.generation
-                ) {
-                    return null
-                }
-                current
-            }
-            is RuntimeResult.Failure -> null
-        }
-    }
-
-    private fun bindRuntimeHandle(handle: GhostHandle) {
-        val ghost = handle.ghost
-        composeStage.setSurfaceCatalog(ghost.surfaces, ghost.id)
-        runner!!.bindHost(
-            runnerHostToken,
-            composeStage.renderer,
-            composeStage::updateDialogueState,
-            this@Nanidroid,
-            mscb,
-        )
-        currentGhost = ghost
-    }
-
-    private data class RuntimeAdoptionLease(val epoch: Long)
-
-    private fun currentRuntimeAdoptionLease(): RuntimeAdoptionLease? {
-        if (
-            isDestroyed ||
-            isFinishing ||
-            !hostResumed ||
-            !hostTopResumed
-        ) {
-            return null
-        }
-        return RuntimeAdoptionLease(resumeActivationEpoch)
-    }
-
-    private fun adoptionLeaseIsCurrent(
-        lease: RuntimeAdoptionLease,
-        handle: GhostHandle,
-    ): Boolean {
-        if (
-            resumeActivationEpoch != lease.epoch ||
-            isDestroyed ||
-            isFinishing ||
-            !hostResumed ||
-            !hostTopResumed
-        ) {
-            return false
-        }
-        val identity = ghostRuntime.identity()
-        val current = identity.activeHandle ?: return false
-        val compatiblePhase = identity.phase == GhostRuntimePhase.Attached ||
-            identity.phase == GhostRuntimePhase.SwitchPlayback
-        return compatiblePhase && current.generation == handle.generation
-    }
-
-    private fun adoptRuntimeHandle(
-        lease: RuntimeAdoptionLease,
-        handle: GhostHandle,
-        startRuntime: Boolean,
-    ): Boolean {
-        if (!adoptionLeaseIsCurrent(lease, handle)) return false
-        val shouldStart = startRuntime &&
-            ghostRuntime.identity().phase != GhostRuntimePhase.SwitchPlayback
-        if (
-            shouldStart &&
-            lastStartedAdoptionEpoch == lease.epoch &&
-            lastStartedAdoptionGeneration == handle.generation
-        ) {
-            return true
-        }
-        bindRuntimeHandle(handle)
-        if (!adoptionLeaseIsCurrent(lease, handle)) {
-            runner?.unbindHost(runnerHostToken)
-            return false
-        }
-        if (shouldStart) {
-            val activeRunner = runner ?: return false
-            if (!activeRunner.startClock(runnerHostToken)) return false
-            activeRunner.run()
-            lastStartedAdoptionEpoch = lease.epoch
-            lastStartedAdoptionGeneration = handle.generation
-        }
-        return true
-    }
-
-    private suspend fun resumeRuntimeForLease(lease: RuntimeAdoptionLease) {
-        val identity = ghostRuntime.identity()
-        val ready = when (identity.phase) {
-            GhostRuntimePhase.Starting,
-            GhostRuntimePhase.Replacing,
-            -> {
-                val pending = identity.pending ?: return
-                ghostRuntime.startOrJoin(pending.ghostId, pending.canonicalRoot)
-                resumeReadyHandleAfterRuntimeSettles()
-            }
-            GhostRuntimePhase.Unattached,
-            GhostRuntimePhase.Attaching,
-            -> identity.activeHandle?.let { attachRuntimeHandle(it) }
-            GhostRuntimePhase.Attached,
-            GhostRuntimePhase.SwitchPlayback,
-            -> identity.activeHandle
-            else -> null
-        } ?: return
-        adoptRuntimeHandle(
-            lease,
-            ready,
-            startRuntime = ghostRuntime.identity().phase != GhostRuntimePhase.SwitchPlayback,
-        )
-    }
-
-    private suspend fun resumeReadyHandleAfterRuntimeSettles(): GhostHandle? {
-        val settled = ghostRuntime.identity()
-        val handle = settled.activeHandle ?: return null
-        return when (settled.phase) {
-            GhostRuntimePhase.Unattached,
-            GhostRuntimePhase.Attaching,
-            -> attachRuntimeHandle(handle)
-            GhostRuntimePhase.Attached,
-            GhostRuntimePhase.SwitchPlayback,
-            -> handle
-            else -> null
-        }
-    }
-
-    private suspend fun awaitSwitchReplacementForLease(
-        lease: RuntimeAdoptionLease,
-        pending: PendingGhostIdentity,
-    ) {
-        ghostRuntime.startOrJoin(pending.ghostId, pending.canonicalRoot)
-        val ready = resumeReadyHandleAfterRuntimeSettles() ?: return
-        adoptRuntimeHandle(lease, ready, startRuntime = true)
-    }
-
-    private fun showNoGhostAvailable() {
-        hideProgress()
-        simpleDialog = NanidroidSimpleDialog.Notice(
-            R.string.err_title,
-            R.string.err_no_ghost_available,
-            onConfirm = { finish() },
-        )
-    }
-    private fun setupViews() {
-        progressMessage = getString(R.string.prog_startup)
         setContent {
+            val snapshot by snapshotState
+            val hostLease by hostLeaseState
+            val simpleDialog by simpleDialogState
             val importState by foregroundNarImport.state.collectAsState()
-            LaunchedEffect(importState) {
-                val token = when (val state = importState) {
-                    is ForegroundNarImportState.Installed -> state.token
-                    is ForegroundNarImportState.RecoveryRequired ->
-                        state.token.takeIf { state.primary is NarImportPrimaryOutcome.Installed }
-                    else -> null
-                } ?: return@LaunchedEffect
-                if (installedReadyToken == token) return@LaunchedEffect
-                val manager = ghostMgrReady.await()
-                if (installedReadyToken == token) return@LaunchedEffect
-                val publishedToken = when (val state = foregroundNarImport.state.value) {
-                    is ForegroundNarImportState.Installed -> state.token
-                    is ForegroundNarImportState.RecoveryRequired ->
-                        state.token.takeIf { state.primary is NarImportPrimaryOutcome.Installed }
-                    else -> null
-                }
-                if (publishedToken != token) return@LaunchedEffect
-                manager.refreshGhost()
-                lifecycleTestHooks.onForegroundNarRefresh(manager, token)
-                installedReadyToken = token
-            }
-            Box(Modifier.fillMaxSize()) {
-                NanidroidComposeShell(
-                    ghostStage = {
+            val lease = hostLease
+            NanidroidComposeShell(
+                ghostStage = {
+                    if (lease != null) {
                         composeStage.Stage(
-                            blockingInput = ::isStageInputBlocked,
-                            blockingInputEpoch = { stageInputEpoch },
-                            onSurfaceTap = ::frameClick,
-                            onDialogueChoice = { action ->
-                                if (ownsTopRuntimeHost()) runner?.activateChoice(action)
-                            },
-                            onDialogueAnchor = { action ->
-                                if (ownsTopRuntimeHost()) runner?.activateAnchor(action)
-                            },
-                            onDialogueExternalUrl = ::openDialogueExternalUrl,
-                            onDialogueInput = ::openDialogueInput,
+                            snapshot = snapshot,
+                            hostLease = lease,
+                            submitCommand = runtime::submit,
+                            modifier = Modifier.fillMaxSize(),
+                            blockingInput = { simpleDialogState.value != null || runtimeBusy(snapshotState.value) },
+                            blockingInputEpoch = { snapshotState.value.revision },
+                            onSurfaceTap = { toolbarVisible = !toolbarVisible },
+                            onDialogueExternalUrl = ::openDocumentLink,
+                            onDialogueInputDraft = ::showInput,
                         )
-                    },
-                    loading = loading,
-                    progressMessage = progressMessage,
-                    toolbarVisible = toolbarVisible,
-                    onListGhost = ::onListGhost,
-                    onReadme = ::openCurrentGhostReadme,
-                    narImportState = importState,
-                    installedReadyToken = installedReadyToken,
-                    onAcknowledgeNarImport = { foregroundNarImport.acknowledge(it) },
-                    onSelectAnotherNarImport = { token ->
-                        if (foregroundNarImport.acknowledge(token)) startInstallFromSDCard()
-                    },
-                    onRetryNarImportCleanup = { foregroundNarImport.retryCleanup(it) },
-                    simpleDialog = simpleDialog,
-                    onDismissSimpleDialog = { simpleDialog = null },
-                )
-            }
+                    } else {
+                        Box(Modifier.fillMaxSize())
+                    }
+                },
+                loading = runtimeBusy(snapshot),
+                progressMessage = getString(R.string.load_g, snapshot.activeGhostId ?: "Nanidroid"),
+                toolbarVisible = toolbarVisible,
+                onListGhost = ::showGhostList,
+                onReadme = ::openCurrentGhostReadme,
+                narImportState = importState,
+                installedReadyToken = installedReadyToken(importState, snapshot),
+                onAcknowledgeNarImport = foregroundNarImport::acknowledge,
+                onSelectAnotherNarImport = {
+                    foregroundNarImport.acknowledge(it)
+                    launchNarPicker()
+                },
+                onRetryNarImportCleanup = foregroundNarImport::retryCleanup,
+                simpleDialog = simpleDialog,
+                onDismissSimpleDialog = { simpleDialogState.value = null },
+                wallpaper = null,
+            )
         }
-        showProgress()
     }
 
-    private fun showProgress() {
-        loading = true
-    }
-    private fun hideProgress() {
-        val restored = pendingRestoredTransientUi
-        if (restored != null) {
-            toolbarVisible = restored.toolbarVisible
-        } else {
-            toolbarVisible = true
-        }
-        pendingRestoredTransientUi = null
-        transientUiInitialized = true
-        loading = false
-    }
-    private fun checkIsRestore(state: Bundle?): Boolean {
-        if (state != null) { Log.d(TAG, "was minimized"); restoreFromMinimize = state.getBoolean(MIN_TAG, false); return restoreFromMinimize }; return false
-    }
-    private fun getStartCount() = PrefUtil.getKeyValueLong(applicationContext, PREF_KEY_LAUNCH_TIME)
-    private fun setStartCount(count: Long) = PrefUtil.setKey(applicationContext, PREF_KEY_LAUNCH_TIME, count)
-    private fun loadFirstRunScript() = try {
-        BufferedReader(InputStreamReader(resources.openRawResource(R.raw.first_run_script), "UTF-8")).use { br ->
-            var line = br.readLine(); while (line != null) { if (line.isNotEmpty() && !line.startsWith("#")) runner!!.addMsgToQueue(arrayOf(line)); line = br.readLine() }
-        }
-    } catch (_: Exception) { runner!!.addMsgToQueue(arrayOf("\\0Oops, something wrong with first run script!\\e")) }
-
-    private fun ownsTopRuntimeHost(): Boolean =
-        hostResumed && hostTopResumed && runner?.isHostOwner(runnerHostToken) == true
-
-    private fun stopRuntimeForHost(): Boolean {
-        val activeRunner = runner ?: return false
-        if (!activeRunner.stopClock(runnerHostToken)) return false
-        lastStartedAdoptionEpoch = -1L
-        lastStartedAdoptionGeneration = -1L
-        return true
-    }
-
-    override fun onPause() {
-        resumeActivationEpoch++
-        hostResumed = false
-        hostTopResumed = false
-        stopRuntimeForHost()
-        super.onPause()
-    }
-    override fun onSaveInstanceState(outState: Bundle) {
-        saveSimpleDialog(outState)
-        transientUiSnapshotToSave(
-            pending = pendingRestoredTransientUi,
-            initialized = transientUiInitialized,
-            toolbarVisible = toolbarVisible,
-        )?.let(outState::writeTransientUiSnapshot)
-        narPickerOwnerToken?.let(outState::writeNarPickerOwnerToken)
-        super.onSaveInstanceState(outState)
-    }
-
-    override fun onDestroy() {
-        abandonNarPickerOwnerOnFinalDestroy(
-            owner = narPickerOwnerToken,
-            isFinishing = isFinishing,
-            isChangingConfigurations = isChangingConfigurations,
-            abandon = foregroundNarImport::abandonPicker,
-        )
-        runner?.unbindHost(runnerHostToken)
-        super.onDestroy()
-    }
     override fun onResume() {
         super.onResume()
-        hostResumed = true
-        resumeActivationEpoch++
-        if (hostTopResumed) activateTopResumedHost()
+        submitHostCommand { RuntimeCommand.SetResumed(it, true) }
     }
 
     override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
         super.onTopResumedActivityChanged(isTopResumedActivity)
-        if (hostTopResumed == isTopResumedActivity) return
-        hostTopResumed = isTopResumedActivity
-        resumeActivationEpoch++
-        if (isTopResumedActivity) {
-            activateTopResumedHost()
-        } else {
-            stopRuntimeForHost()
+        submitHostCommand { RuntimeCommand.SetTopResumed(it, isTopResumedActivity) }
+    }
+
+    override fun onPause() {
+        submitHostCommand { RuntimeCommand.SetResumed(it, false) }
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        val lease = nextHostLease()
+        runtime.submit(RuntimeCommand.UnregisterHost(lease))
+        abandonNarPickerOwnerOnFinalDestroy(
+            restoredPickerOwner,
+            isFinishing,
+            isChangingConfigurations,
+            foregroundNarImport::abandonPicker,
+        )
+        super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.writeTransientUiSnapshot(TransientUiSnapshot(toolbarVisible))
+        restoredPickerOwner?.let(outState::writeNarPickerOwnerToken)
+        inputDraft
+            ?.takeIf { snapshotState.value.dialogue.input?.key == it.key }
+            ?.let { outState.writeInputDraft(it) }
+        (simpleDialogState.value as? NanidroidSimpleDialog.TextDocument)
+            ?.toTextDocumentRestoreSnapshot()
+            ?.let(outState::writeTextDocumentRestoreSnapshot)
+    }
+
+    private fun submitHostCommand(command: (RuntimeHostLease) -> RuntimeCommand) {
+        val lease = nextHostLease()
+        runtime.submit(command(lease))
+    }
+
+    private fun nextHostLease(): RuntimeHostLease {
+        val hostId = requireNotNull(hostLeaseState.value).hostId
+        return RuntimeHostLease(hostId, ++hostEpoch).also { hostLeaseState.value = it }
+    }
+
+    private fun reconcileSnapshot(snapshot: RuntimeSnapshot) {
+        maybeStartGhost(snapshot)
+        showCatalogRecovery(snapshot)
+        reconcileInputDraft(snapshot)
+        deliverExit(snapshot)
+    }
+
+    private fun showCatalogRecovery(snapshot: RuntimeSnapshot) {
+        val recovery = snapshot.catalog.publications.entries.firstNotNullOfOrNull { (token, status) ->
+            (status as? RuntimeCatalogPublicationStatus.RecoveryRequired)?.let { token to it }
+        } ?: return
+        val key = recovery.first to recovery.second.failedEpoch
+        if (!shownCatalogRecoveries.add(key)) return
+        simpleDialogState.value = NanidroidSimpleDialog.Notice(
+            R.string.err_no_ghost_available,
+            R.string.err_no_ghost_available,
+        ) {
+            runtime.submit(RuntimeCommand.RetryCatalog(recovery.first, recovery.second.failedEpoch))
         }
     }
 
-    private fun activateTopResumedHost() {
-        val lease = currentRuntimeAdoptionLease() ?: return
-        if (!initComplete) {
-            lifecycleScope.launch {
-                resumeRuntimeForLease(lease)
-                initialRuntimeReady.await()
-                if (initComplete) resumeRuntimeForLease(lease)
+    private fun maybeStartGhost(snapshot: RuntimeSnapshot) {
+        val ready = snapshot.catalog as? RuntimeCatalogState.Ready ?: return
+        if (snapshot.phase != GhostRuntimePhase.Idle || snapshot.generation != null || ready.entries.isEmpty()) return
+        if (startupCatalogEpoch == ready.epoch) return
+        startupCatalogEpoch = ready.epoch
+        lifecycleScope.launch {
+            val preferred = withContext(Dispatchers.IO) { runtime.preferredGhostId() }
+            val latest = snapshotState.value
+            val latestReady = latest.catalog as? RuntimeCatalogState.Ready ?: return@launch
+            if (latest.phase != GhostRuntimePhase.Idle || latestReady.epoch != ready.epoch) return@launch
+            val candidate = latestReady.entries.firstOrNull { it.id.equals(preferred, ignoreCase = true) }
+                ?: latestReady.entries.firstOrNull { it.id.equals("nanidroid", ignoreCase = true) }
+                ?: latestReady.entries.first()
+            runtime.submit(RuntimeCommand.StartGhost(candidate.id, File(candidate.canonicalRootPath)))
+        }
+    }
+
+    private fun reconcileInputDraft(snapshot: RuntimeSnapshot) {
+        val current = snapshot.dialogue.input
+        val restored = pendingRestoredInputDraft
+        if (restored != null) {
+            pendingRestoredInputDraft = null
+            if (current?.key == restored.key) showInput(current, restored.value)
+        }
+        val draft = inputDraft ?: return
+        if (current?.key != draft.key) {
+            inputDraft = null
+            if ((simpleDialogState.value as? NanidroidSimpleDialog.UserInput)?.restoration?.key == draft.key) {
+                simpleDialogState.value = null
+            }
+        }
+    }
+
+    private fun deliverExit(snapshot: RuntimeSnapshot) {
+        val offered = snapshot.exit?.offeredLease ?: return
+        val currentLease = hostLeaseState.value ?: return
+        if (offered.hostLease != currentLease || deliveredExitOperationId == offered.operationId) return
+        deliveredExitOperationId = offered.operationId
+        runtime.submit(RuntimeCommand.ClaimExit(offered))
+        try {
+            finish()
+        } finally {
+            runtime.submit(RuntimeCommand.AcknowledgeExit(offered))
+        }
+    }
+
+    private fun showInput(action: RuntimeInputAction, value: String = action.pending.spec.initialText) {
+        inputDraft = InputDraft(action.key, value)
+        simpleDialogState.value = dialogueBinding.userInput(action, value) { updated ->
+            showInput(action, updated)
+        }
+    }
+
+    private fun showGhostList() {
+        val snapshot = snapshotState.value
+        val failed = snapshot.catalog as? RuntimeCatalogState.Failed
+        if (failed != null) {
+            simpleDialogState.value = NanidroidSimpleDialog.Notice(
+                R.string.err_no_ghost_available,
+                R.string.err_no_ghost_available,
+            ) {
+                runtime.submit(RuntimeCommand.RetryCatalog(null, failed.epoch))
             }
             return
         }
-        val identity = ghostRuntime.identity()
-        when (identity.phase) {
-            GhostRuntimePhase.Starting,
-            GhostRuntimePhase.Replacing,
-            GhostRuntimePhase.Unattached,
-            GhostRuntimePhase.Attaching,
-            -> lifecycleScope.launch {
-                resumeRuntimeForLease(lease)
-            }
-            GhostRuntimePhase.Attached,
-            -> {
-                val handle = identity.activeHandle ?: return
-                adoptRuntimeHandle(lease, handle, startRuntime = true)
-            }
-            GhostRuntimePhase.SwitchPlayback -> {
-                val handle = identity.activeHandle ?: return
-                adoptRuntimeHandle(lease, handle, startRuntime = false)
-                val pending = identity.pending ?: return
-                lifecycleScope.launch {
-                    awaitSwitchReplacementForLease(lease, pending)
-                }
-            }
-            else -> Unit
+        val entries = snapshot.catalog.lastProvenEntries
+        simpleDialogState.value = NanidroidSimpleDialog.GhostList(
+            names = entries.map { it.name ?: it.id },
+            ids = entries.map { it.id },
+            onSelect = { index -> entries.getOrNull(index)?.let(::showInstalledGhost) },
+            onMore = { simpleDialogState.value = NanidroidSimpleDialog.MoreGhost(::launchNarPicker) },
+        )
+    }
+
+    private fun showInstalledGhost(metadata: com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata) {
+        val switch = { requestSwitch(metadata.id) }
+        val readme = File(metadata.readmePath)
+        simpleDialogState.value = if (readme.exists()) {
+            NanidroidSimpleDialog.TextDocument(
+                metadata.name ?: metadata.id,
+                PlainTextDocument.read(readme),
+                ::openDocumentLink,
+                metadata.id,
+                switch.takeUnless { metadata.id == snapshotState.value.activeGhostId },
+            )
+        } else {
+            NanidroidSimpleDialog.SwitchConfirmation(metadata.id, metadata.name ?: metadata.id, switch)
         }
     }
-    private val backPressedCallback = object : OnBackPressedCallback(true) {
-        override fun handleOnBackPressed() {
-            if (!hostResumed || !hostTopResumed) return
-            if (!allows(GuardedAction.EXIT)) return
-            val activeRunner = runner
-            if (activeRunner != null) {
-                if (!ownsTopRuntimeHost() || !stopRuntimeForHost()) return
-                activeRunner.doExit()
-            } else {
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
-                isEnabled = true
-            }
-        }
+
+    private fun requestSwitch(targetId: String) {
+        val snapshot = snapshotState.value
+        val lease = hostLeaseState.value ?: return
+        val generation = snapshot.generation ?: return
+        runtime.submit(RuntimeCommand.SwitchGhost(generation, lease, snapshot.modeIdentity, targetId))
     }
-    private val mscb = object : SScriptRunner.StatusCallback {
-        override fun stop() = Unit
-        override fun canExit() {
-            finish()
-        }
-        override fun switchPlaybackComplete() {
-            runOnUiThread { showProgress() }
-        }
-    }
-    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
-    private fun installFirstGhost() {
-        var target: File? = null
-        try {
-            val archive = File.createTempFile("nanidroid-", ".nar", cacheDir)
-            target = archive
-            assets.open("nanidroid.zip").use { input ->
-                archive.outputStream().use(input::copyTo)
-            }
-            gm!!.installFirstGhost("nanidroid", archive.path)
-        } catch (exception: IOException) {
-            exception.printStackTrace()
-        } finally {
-            target?.delete()
-        }
-    }
-    private fun showReadme(readme: File, ghostId: String) {
-        simpleDialog = createReadmeDialog(readme, ghostId)
-    }
+
     private fun openCurrentGhostReadme() {
-        val ghost = currentGhost ?: return
-        val ghostId = ghost.id
-        val readme = gm?.getGhostReadMe(ghostId)
-        if (readme?.exists() == true) {
-            simpleDialog = NanidroidSimpleDialog.TextDocument(
+        val snapshot = snapshotState.value
+        val activeId = snapshot.activeGhostId ?: return
+        val metadata = snapshot.catalog.lastProvenEntries.firstOrNull { it.id == activeId }
+        val readme = metadata?.let { File(it.readmePath) }
+        simpleDialogState.value = if (readme?.exists() == true) {
+            NanidroidSimpleDialog.TextDocument(
                 getString(R.string.readme_menu_text),
                 PlainTextDocument.read(readme),
                 ::openDocumentLink,
-                ghostId,
+                activeId,
             )
         } else {
-            simpleDialog = NanidroidSimpleDialog.Notice(
+            NanidroidSimpleDialog.Notice(
                 R.string.current_ghost_no_readme_title,
                 R.string.current_ghost_no_readme_message,
             )
         }
     }
-    private fun showGhostInstalledDlg(ghostId: String) {
-        simpleDialog = createNoReadmeDialog(ghostId, gm!!.getGhostDispName(ghostId) ?: ghostId)
-    }
-    fun switchGhost(nextId: String) {
-        if (!ownsTopRuntimeHost()) return
-        if (!allows(GuardedAction.SWITCH_GHOST)) return
-        val adoptionLease = currentRuntimeAdoptionLease() ?: return
-        val target = gm?.findGhost(nextId) ?: run {
-            Log.d(TAG, "invalid next ghost id")
-            return
-        }
-        val active = ghostRuntime.identity().activeHandle ?: return
-        val operationId = when (
-            val started = ghostRuntime.beginSwitch(
-                active.generation,
-                target.id,
-                target.canonicalRoot,
-            )
-        ) {
-            is RuntimeResult.Success -> started.value
-            is RuntimeResult.Failure -> return
-        }
-        progressMessage = String.format(
-            getString(R.string.load_g),
-            target.name ?: target.id,
-        )
-        if (!stopRuntimeForHost()) {
-            ghostRuntime.failSwitchBeforeUnload(
-                active.generation,
-                operationId,
-                IllegalStateException("Switch owner lost before playback could stop"),
-            )
-            return
-        }
-        runner!!.clearMsgQueue()
-        lifecycleScope.launch {
-            when (val joined = ghostRuntime.startOrJoin(target.id, target.canonicalRoot)) {
-                is RuntimeResult.Success -> {
-                    val attached = attachRuntimeHandle(joined.value)
-                    if (
-                        attached != null &&
-                        adoptRuntimeHandle(adoptionLease, attached, startRuntime = true)
-                    ) {
-                        hideProgress()
-                    } else if (attached != null) {
-                        hideProgress()
-                    } else {
-                        showNoGhostAvailable()
-                    }
-                }
-                is RuntimeResult.Failure -> {
-                    val identity = ghostRuntime.identity()
-                    val retained = identity.activeHandle
-                    if (retained != null && identity.phase != GhostRuntimePhase.Poisoned) {
-                        adoptRuntimeHandle(adoptionLease, retained, startRuntime = true)
-                        hideProgress()
-                    } else {
-                        showNoGhostAvailable()
-                    }
-                }
-            }
-        }
-        runner!!.doGhostChanging(
-            operationId,
-            target.sakuraName ?: target.name ?: target.id,
-            "manual",
-            target.canonicalRoot.path,
+
+    private fun restoreTextDocument(restored: TextDocumentRestoreSnapshot) {
+        simpleDialogState.value = NanidroidSimpleDialog.TextDocument(
+            restored.title,
+            restored.text,
+            ::openDocumentLink,
+            restored.sourceId.orEmpty(),
+            restored.sourceId
+                ?.takeIf { restored.kind == TextDocumentRestoreKind.INSTALLED_GHOST_README }
+                ?.let { id -> ({ requestSwitch(id) }) },
         )
     }
-    fun onListGhost() {
-        if (!ownsTopRuntimeHost() || !allows(GuardedAction.SWITCH_GHOST)) return
-        showGhostListDlg()
-    }
-    fun getMoreGhost() {
-        simpleDialog = createMoreGhostDialog()
-    }
-    private fun startInstallFromSDCard(origin: ActionOrigin = ActionOrigin.USER) {
-        if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
+
+    private fun launchNarPicker() {
         armAndLaunchNarDocumentPicker(
             coordinator = foregroundNarImport,
             ownerTaskId = taskId,
-            currentOwner = { narPickerOwnerToken },
-            setOwner = { narPickerOwnerToken = it },
-            launch = { narDocumentPicker.launch(arrayOf("*/*")) },
-            failureMessage = "Nanidroid could not open the document picker.",
+            currentOwner = { restoredPickerOwner },
+            setOwner = { restoredPickerOwner = it },
+            launch = { narPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+            failureMessage = getString(R.string.err_no_sdcard),
         )
     }
 
-    fun onMoreGhost() = getMoreGhost()
-    private fun showGhostListDlg() {
-        val manager = gm ?: return
-        simpleDialog = createGhostListDialog(
-            manager.getGDispNames()?.map { it ?: "" }.orEmpty(),
-            manager.getGnames()?.toList().orEmpty(),
+    private fun openDocumentLink(value: String) {
+        tryLaunchDocumentExternalUrl(value) { url ->
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
+    }
+
+    private fun installedReadyToken(
+        state: ForegroundNarImportState,
+        snapshot: RuntimeSnapshot,
+    ): NarImportAttemptToken? {
+        val installed = state as? ForegroundNarImportState.Installed ?: return null
+        val token = com.cattailsw.nanidroid.runtime.CatalogPublicationToken(
+            "foreground-import",
+            "${installed.token.processNonce}:${installed.token.sequence}:${installed.token.ownerTaskId}",
+        )
+        return installed.token.takeIf {
+            snapshot.catalog.publications[token] is RuntimeCatalogPublicationStatus.Ready
+        }
+    }
+
+    private fun runtimeBusy(snapshot: RuntimeSnapshot): Boolean =
+        snapshot.catalog is RuntimeCatalogState.Loading || snapshot.phase in setOf(
+            GhostRuntimePhase.Starting,
+            GhostRuntimePhase.Attaching,
+            GhostRuntimePhase.Replacing,
+        )
+
+    internal fun snapshotForTesting(): RuntimeSnapshot = snapshotState.value
+    internal fun hostLeaseForTesting(): RuntimeHostLease? = hostLeaseState.value
+
+    private data class InputDraft(val key: DialogueActionKey, val value: String)
+
+    private fun Bundle.writeInputDraft(draft: InputDraft) {
+        putLong(INPUT_DRAFT_GENERATION, draft.key.generation)
+        putLong(INPUT_DRAFT_INCARNATION, draft.key.incarnation)
+        putLong(INPUT_DRAFT_ACTION, draft.key.actionId)
+        putString(INPUT_DRAFT_VALUE, draft.value)
+    }
+
+    private fun Bundle.readInputDraft(): InputDraft? {
+        if (!containsKey(INPUT_DRAFT_GENERATION) || !containsKey(INPUT_DRAFT_INCARNATION) ||
+            !containsKey(INPUT_DRAFT_ACTION)
+        ) return null
+        return InputDraft(
+            DialogueActionKey(
+                getLong(INPUT_DRAFT_GENERATION),
+                getLong(INPUT_DRAFT_INCARNATION),
+                getLong(INPUT_DRAFT_ACTION),
+            ),
+            getString(INPUT_DRAFT_VALUE).orEmpty(),
         )
     }
-    private fun createMoreGhostDialog() = NanidroidSimpleDialog.MoreGhost(
-        onInstallFromDocument = { startInstallFromSDCard() },
-    )
-    private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
-        GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
-    private fun createUserInputDialog(pending: PendingInputState, value: String = ""): NanidroidSimpleDialog.UserInput =
-        dialogueDialogBinding.userInput(pending, value, ::updateUserInputValue)
-    private fun restoreUserInputDialog(
-        id: String,
-        restoration: DialogueDialogRestoration?,
-        value: String,
-    ): NanidroidSimpleDialog.UserInput? =
-        dialogueDialogBinding.restoreUserInput(id, restoration, value, ::updateUserInputValue)
-    private fun updateUserInputValue(value: String) {
-        val dialog = simpleDialog as? NanidroidSimpleDialog.UserInput ?: return
-        simpleDialog = dialog.copy(value = value)
-    }
-    private fun openDialogueInput(input: DialogueSegment.InputBox) {
-        val pending = runner?.dialogueStateSnapshot()?.pendingInput ?: return
-        if (pending.spec !== input.spec) return
-        simpleDialog = createUserInputDialog(pending)
-    }
-    private fun openDialogueExternalUrl(value: String) {
-        val uri = try {
-            Uri.parse(value)
-        } catch (_: Exception) {
-            return
-        }
-        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return
-        tryLaunchDialogueExternalUri { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-    }
-    private fun isStageInputBlocked(): Boolean =
-        loading || simpleDialog != null || runner?.runtimeModeSnapshot()?.pendingUserAction == true
-    private fun createUserChoiceDialog(labels: List<String>, ids: List<String>, actions: List<DialogueAction> = emptyList()) =
-        dialogueDialogBinding.userChoice(labels, ids, actions)
-    private fun restoreUserChoiceDialog(
-        labels: List<String>,
-        ids: List<String>,
-        restoration: DialogueDialogRestoration?,
-    ) = dialogueDialogBinding.restoreUserChoice(labels, ids, restoration)
-    private fun createGhostListDialog(names: List<String>, ids: List<String>) = NanidroidSimpleDialog.GhostList(
-        names, ids,
-        onSelect = { index -> selectGhostFromList(ids.getOrNull(index), names.getOrNull(index) ?: "") },
-        onMore = { getMoreGhost() },
-    )
-    private fun createReadmeDialog(readme: File, ghostId: String) = NanidroidSimpleDialog.TextDocument(
-        getString(R.string.new_ghost_installed_title), PlainTextDocument.read(readme), ::openDocumentLink, ghostId,
-        { switchGhost(ghostId) },
-    )
-    private fun createNoReadmeDialog(ghostId: String, ghostName: String) = NanidroidSimpleDialog.SwitchConfirmation(
-        ghostId, ghostName,
-        onSwitch = { switchGhost(ghostId) },
-    )
-    private fun openDocumentLink(link: String) {
-        tryLaunchDocumentExternalUrl(link) { value ->
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value)))
-        }
-    }
-    private fun selectGhostFromList(id: String?, name: String) {
-        val manager = gm ?: return
-        val ghostId = id ?: return
-        if (manager.getGhostReadMe(ghostId).exists()) showReadme(manager.getGhostReadMe(ghostId), ghostId)
-        else simpleDialog = createNoReadmeDialog(ghostId, name)
-    }
-    private fun saveSimpleDialog(outState: Bundle) {
-        when (val dialog = simpleDialog) {
-            null -> Unit
-            is NanidroidSimpleDialog.Notice -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_NOTICE)
-                outState.putInt(SIMPLE_DIALOG_TITLE, dialog.title)
-                outState.putInt(SIMPLE_DIALOG_MESSAGE, dialog.message)
-            }
-            is NanidroidSimpleDialog.MoreGhost -> outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_MORE_GHOST)
-            is NanidroidSimpleDialog.UserInput -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_USER_INPUT)
-                outState.putString(SIMPLE_DIALOG_ID, dialog.id)
-                outState.putString(SIMPLE_DIALOG_VALUE, dialog.value)
-                saveDialogueDialogRestoration(outState, dialog.restoration)
-            }
-            is NanidroidSimpleDialog.UserChoice -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_USER_CHOICE)
-                outState.putStringArrayList(SIMPLE_DIALOG_LABELS, ArrayList(dialog.labels))
-                outState.putStringArrayList(SIMPLE_DIALOG_IDS, ArrayList(dialog.ids))
-                saveDialogueDialogRestoration(outState, dialog.restoration)
-            }
-            is NanidroidSimpleDialog.GhostList -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_GHOST_LIST)
-                outState.putStringArrayList(SIMPLE_DIALOG_LABELS, ArrayList(dialog.names))
-                outState.putStringArrayList(SIMPLE_DIALOG_IDS, ArrayList(dialog.ids))
-            }
-            is NanidroidSimpleDialog.TextDocument -> {
-                val snapshot = dialog.toTextDocumentRestoreSnapshot()
-                outState.putString(
-                    SIMPLE_DIALOG_TYPE,
-                    when (snapshot.kind) {
-                        TextDocumentRestoreKind.INSTALLED_GHOST_README -> DIALOG_README
-                        TextDocumentRestoreKind.CURRENT_GHOST_README -> DIALOG_CURRENT_GHOST_README
-                    },
-                )
-                outState.writeTextDocumentRestoreSnapshot(snapshot)
-            }
-            is NanidroidSimpleDialog.SwitchConfirmation -> {
-                outState.putString(SIMPLE_DIALOG_TYPE, DIALOG_NO_README)
-                outState.putString(SIMPLE_DIALOG_ID, dialog.ghostId)
-                outState.putString(SIMPLE_DIALOG_VALUE, dialog.ghostName)
-            }
-        }
-    }
-    private fun saveDialogueDialogRestoration(
-        outState: Bundle,
-        restoration: DialogueDialogRestoration?,
-    ) {
-        restoration ?: return
-        outState.putString(SIMPLE_DIALOG_RESTORATION_OWNER, restoration.owner)
-        outState.putLong(SIMPLE_DIALOG_RESTORATION_GENERATION, restoration.generation)
-    }
-    private fun dialogueDialogRestoration(state: Bundle): DialogueDialogRestoration? {
-        val owner = state.getString(SIMPLE_DIALOG_RESTORATION_OWNER) ?: return null
-        if (!state.containsKey(SIMPLE_DIALOG_RESTORATION_GENERATION)) return null
-        return DialogueDialogRestoration(
-            owner,
-            state.getLong(SIMPLE_DIALOG_RESTORATION_GENERATION),
-        )
-    }
-    private fun restoreSimpleDialog(state: Bundle?) {
-        simpleDialog = when (state?.getString(SIMPLE_DIALOG_TYPE)) {
-            DIALOG_NOTICE -> {
-                val title = state.getInt(SIMPLE_DIALOG_TITLE)
-                val message = state.getInt(SIMPLE_DIALOG_MESSAGE)
-                NanidroidSimpleDialog.Notice(
-                    title,
-                    message,
-                    if (finishAfterRestoredNotice(message)) ({ finish() }) else null,
-                )
-            }
-            DIALOG_MORE_GHOST -> createMoreGhostDialog()
-            DIALOG_USER_INPUT -> restoreUserInputDialog(
-                state.getString(SIMPLE_DIALOG_ID) ?: "",
-                dialogueDialogRestoration(state),
-                state.getString(SIMPLE_DIALOG_VALUE) ?: "",
-            )
-            DIALOG_USER_CHOICE -> restoreUserChoiceDialog(
-                state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(),
-                state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty(),
-                dialogueDialogRestoration(state),
-            )
-            DIALOG_GHOST_LIST -> createGhostListDialog(state.getStringArrayList(SIMPLE_DIALOG_LABELS)?.toList().orEmpty(), state.getStringArrayList(SIMPLE_DIALOG_IDS)?.toList().orEmpty())
-            DIALOG_README -> {
-                val snapshot = state.readTextDocumentRestoreSnapshot()
-                val ghostId = snapshot?.sourceId ?: state.getString(SIMPLE_DIALOG_ID).orEmpty()
-                NanidroidSimpleDialog.TextDocument(
-                    snapshot?.title ?: getString(R.string.new_ghost_installed_title),
-                    snapshot?.text ?: state.getString(SIMPLE_DIALOG_VALUE).orEmpty(),
-                    ::openDocumentLink,
-                    ghostId,
-                    { switchGhost(ghostId) },
-                )
-            }
-            DIALOG_CURRENT_GHOST_README -> state.readTextDocumentRestoreSnapshot()
-                ?.takeIf {
-                    it.kind == TextDocumentRestoreKind.CURRENT_GHOST_README &&
-                        !it.sourceId.isNullOrBlank()
-                }
-                ?.let { snapshot ->
-                    val ghostId = snapshot.sourceId ?: return@let null
-                    NanidroidSimpleDialog.TextDocument(
-                        snapshot.title,
-                        snapshot.text,
-                        ::openDocumentLink,
-                        ghostId,
-                    )
-                }
-            DIALOG_NO_README -> createNoReadmeDialog(state.getString(SIMPLE_DIALOG_ID).orEmpty(), state.getString(SIMPLE_DIALOG_VALUE).orEmpty())
-            else -> null
-        }
-    }
-    fun frameClick() {
-        toolbarVisible = !toolbarVisible
-    }
-    override fun showUserInputBox(id: String) {
-        // Publication pauses the script. The exact owning bubble opens the
-        // dialog, so this legacy callback must not create a second host.
-    }
-    override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) {
-        // The Compose stage observes the same runtime-owned action instances
-        // and exposes the owning bubble's reopenable Choose action. Keeping
-        // this callback side-effect free prevents the legacy dialog from
-        // racing it or consuming a pending choice on host recreation.
-    }
 
-    companion object {
-        @Volatile
-        private var lifecycleTestHooks = NanidroidLifecycleTestHooks()
+    private fun Uri.toNarSelection() = NarDocumentSelection(toString(), scheme)
 
-        internal fun replaceLifecycleTestHooksForTesting(replacement: NanidroidLifecycleTestHooks) {
-            lifecycleTestHooks = replacement
-        }
-
-        internal fun resetLifecycleTestHooksForTesting() {
-            lifecycleTestHooks = NanidroidLifecycleTestHooks()
-        }
-
-        private const val TAG = "Nanidroid"
-        private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"
-        private const val MIN_TAG = "minimized"
-        private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"
-        private const val SIMPLE_DIALOG_TITLE = "simple_dialog_title"
-        private const val SIMPLE_DIALOG_MESSAGE = "simple_dialog_message"
-        private const val SIMPLE_DIALOG_VALUE = "simple_dialog_value"
-        private const val SIMPLE_DIALOG_ID = "simple_dialog_id"
-        private const val SIMPLE_DIALOG_LABELS = "simple_dialog_labels"
-        private const val SIMPLE_DIALOG_IDS = "simple_dialog_ids"
-        private const val SIMPLE_DIALOG_RESTORATION_OWNER = "simple_dialog_restoration_owner"
-        private const val SIMPLE_DIALOG_RESTORATION_GENERATION = "simple_dialog_restoration_generation"
-        private const val DIALOG_NOTICE = "notice"
-        private const val DIALOG_MORE_GHOST = "more_ghost"
-        private const val DIALOG_USER_INPUT = "user_input"
-        private const val DIALOG_USER_CHOICE = "user_choice"
-        private const val DIALOG_GHOST_LIST = "ghost_list"
-        private const val DIALOG_README = "readme"
-        private const val DIALOG_CURRENT_GHOST_README = "current_ghost_readme"
-        private const val DIALOG_NO_README = "no_readme"
+    private companion object {
+        const val INPUT_DRAFT_GENERATION = "input_draft_generation"
+        const val INPUT_DRAFT_INCARNATION = "input_draft_incarnation"
+        const val INPUT_DRAFT_ACTION = "input_draft_action"
+        const val INPUT_DRAFT_VALUE = "input_draft_value"
     }
 }

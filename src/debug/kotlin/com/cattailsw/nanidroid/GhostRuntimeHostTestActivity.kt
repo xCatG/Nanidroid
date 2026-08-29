@@ -241,7 +241,6 @@ internal class HostAdapterHarness(
             )
         },
         persistence = TestGhostRuntimePersistence,
-        ownershipMode = RuntimeOwnershipMode.SNAPSHOT_CORE_TEST,
         nativePort = ImmediateRuntimeNativePort,
         runtimeScheduler = scheduler,
         catalogScanner = RuntimeCatalogScanner {
