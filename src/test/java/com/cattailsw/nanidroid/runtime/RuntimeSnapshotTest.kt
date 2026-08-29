@@ -1,8 +1,9 @@
 package com.cattailsw.nanidroid.runtime
 
-import com.cattailsw.nanidroid.SurfaceCatalog
+import androidx.compose.ui.unit.IntOffset
 import com.cattailsw.nanidroid.SurfaceAnimation
 import com.cattailsw.nanidroid.SurfaceAnimationFrame
+import com.cattailsw.nanidroid.SurfaceCatalog
 import com.cattailsw.nanidroid.SurfaceCollision
 import com.cattailsw.nanidroid.SurfaceDefinition
 import com.cattailsw.nanidroid.SurfaceElement
@@ -23,11 +24,17 @@ import com.cattailsw.nanidroid.runtime.dialogue.RuntimeChoiceAction
 import com.cattailsw.nanidroid.runtime.dialogue.RuntimeInputAction
 import java.io.File
 import java.io.FileDescriptor
+import java.lang.reflect.Array
+import java.lang.reflect.Modifier
+import java.util.IdentityHashMap
+import java.util.concurrent.Callable
+import java.util.concurrent.locks.Condition
 import java.util.concurrent.locks.Lock
-import androidx.compose.ui.unit.IntOffset
+import java.util.concurrent.locks.ReadWriteLock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -58,6 +65,23 @@ class RuntimeSnapshotTest {
                 DialogueAction.Normal("Choice", "choice", listOf("one")),
             ),
         )
+    }
+
+    @Test
+    fun snapshotFreezeCopiesIndependentlyEqualSurfaceCatalogs() {
+        val sourceDefinitions = surfaceDefinitions()
+        val sourceDefinition = sourceDefinitions.getValue("0")
+        val sourceCatalog = SurfaceCatalog.freeze(sourceDefinitions)
+        val independentlyConstructedCatalog = SurfaceCatalog.freeze(surfaceDefinitions())
+
+        val snapshot = RuntimeSnapshot.freeze(mutableSnapshot(activeSurfaces = sourceCatalog))
+        (sourceDefinition.collisions as MutableList<SurfaceCollision>).clear()
+        sourceDefinitions.clear()
+
+        assertEquals(independentlyConstructedCatalog, sourceCatalog)
+        assertEquals(independentlyConstructedCatalog.hashCode(), sourceCatalog.hashCode())
+        assertEquals(independentlyConstructedCatalog, snapshot.activeSurfaces)
+        assertNotSame(sourceCatalog, snapshot.activeSurfaces)
     }
 
     @Test
@@ -103,7 +127,26 @@ class RuntimeSnapshotTest {
         RuntimeSnapshot::class.java.declaredFields.forEach { field ->
             assertTrue("forbidden ${field.type}", forbidden.none { it.isAssignableFrom(field.type) })
         }
-        assertSnapshotValuesContainNoForbiddenObjects(snapshot, forbidden)
+        assertSnapshotValuesContainNoForbiddenObjects(snapshot)
+    }
+
+    @Test
+    fun recursiveSnapshotAuditRejectsForbiddenNestedCallbackFields() {
+        val failure = captureAssertion {
+            assertSnapshotValuesContainNoForbiddenObjects(RunnableProbe(Runnable {}))
+        }
+
+        assertTrue(failure.message.orEmpty().startsWith("forbidden snapshot value"))
+    }
+
+    @Test
+    fun recursiveSnapshotAuditVisitsEveryCollectionBearingSnapshotVariant() {
+        catalogVariants().forEach { catalog ->
+            assertSnapshotValuesContainNoForbiddenObjects(
+                RuntimeSnapshot.freeze(mutableSnapshot().copy(catalog = catalog)),
+            )
+        }
+        assertSnapshotValuesContainNoForbiddenObjects(dialogueVariantSnapshot())
     }
 
     private fun assertFrozenAndUnchanged(snapshot: RuntimeSnapshot, expected: RuntimeSnapshot) {
@@ -154,7 +197,9 @@ class RuntimeSnapshotTest {
         assertFalse(snapshot.dialogue.anchors.isEmpty())
     }
 
-    private fun mutableSnapshot(): RuntimeSnapshot {
+    private fun mutableSnapshot(
+        activeSurfaces: SurfaceCatalog = frozenSurfaceCatalog(),
+    ): RuntimeSnapshot {
         val choice = DialogueAction.Normal("Choice", "choice", mutableListOf("one"))
         val anchor = AnchorAction.DirectEvent("Anchor", "OnAnchor", mutableListOf("two"))
         val input = PendingInputState(
@@ -176,7 +221,7 @@ class RuntimeSnapshotTest {
             generation = 9,
             phase = com.cattailsw.nanidroid.GhostRuntimePhase.Attached,
             activeGhostId = "ghost",
-            activeSurfaces = frozenSurfaceCatalog(),
+            activeSurfaces = activeSurfaces,
             pending = RuntimePendingGhostIdentity(3, "next", "/ghost/next"),
             catalog = RuntimeCatalogState.Ready(
                 epoch = 4,
@@ -290,97 +335,204 @@ class RuntimeSnapshotTest {
         )
     }
 
-    private fun frozenSurfaceCatalog(): SurfaceCatalog = SurfaceCatalog.freeze(
-        mutableMapOf(
-            "0" to SurfaceDefinition(
-                id = 0,
-                type = 0,
-                imagePath = "surface0.png",
-                fallbackImagePath = null,
-                width = 10,
-                height = 10,
-                collisions = mutableListOf(
-                    SurfaceCollision(
-                        id = 1,
-                        identifier = "Face",
-                        shape = CollisionShape.Polygon(mutableListOf(IntOffset(0, 0), IntOffset(1, 0), IntOffset(0, 1))),
-                        authoredOrder = 1,
-                    ),
+    private fun frozenSurfaceCatalog(): SurfaceCatalog = SurfaceCatalog.freeze(surfaceDefinitions())
+
+    private fun surfaceDefinitions(): MutableMap<String, SurfaceDefinition> = mutableMapOf(
+        "0" to SurfaceDefinition(
+            id = 0,
+            type = 0,
+            imagePath = "surface0.png",
+            fallbackImagePath = null,
+            width = 10,
+            height = 10,
+            collisions = mutableListOf(
+                SurfaceCollision(
+                    id = 1,
+                    identifier = "Face",
+                    shape = CollisionShape.Polygon(mutableListOf(IntOffset(0, 0), IntOffset(1, 0), IntOffset(0, 1))),
+                    authoredOrder = 1,
                 ),
-                animations = mutableListOf(
-                    SurfaceAnimation(
-                        id = "talk",
-                        interval = 1,
-                        exclusive = false,
-                        frames = mutableListOf(SurfaceAnimationFrame(0, null, null, 0, 1, 0, 0, 1, 1)),
-                        alternativeAnimationIds = mutableListOf("alt"),
-                    ),
-                ),
-                elements = mutableListOf(SurfaceElement(0, null, 0, 0, 1, 1)),
             ),
+            animations = mutableListOf(
+                SurfaceAnimation(
+                    id = "talk",
+                    interval = 1,
+                    exclusive = false,
+                    frames = mutableListOf(SurfaceAnimationFrame(0, null, null, 0, 1, 0, 0, 1, 1)),
+                    alternativeAnimationIds = mutableListOf("alt"),
+                ),
+            ),
+            elements = mutableListOf(SurfaceElement(0, null, 0, 0, 1, 1)),
         ),
     )
 
-    private fun assertSnapshotValuesContainNoForbiddenObjects(
-        snapshot: RuntimeSnapshot,
-        forbidden: Set<Class<*>>,
-    ) {
-        fun assertAllowed(value: Any?) {
-            if (value == null) return
-            assertTrue("forbidden ${value.javaClass}", forbidden.none { it.isAssignableFrom(value.javaClass) })
-        }
+    private fun catalogVariants(): List<RuntimeCatalogState> {
+        val metadata = RuntimeGhostMetadata("ghost", "/ghost", "Ghost", "Sakura", "/ghost/readme.txt")
+        return listOf(
+            RuntimeCatalogState.Loading(
+                epoch = 1,
+                lastProvenEntries = mutableListOf(metadata),
+                publications = mutableMapOf(
+                    CatalogPublicationToken("loading", "1") to RuntimeCatalogPublicationStatus.Pending("ghost", 1),
+                ),
+            ),
+            RuntimeCatalogState.Ready(
+                epoch = 2,
+                entries = mutableListOf(metadata),
+                publications = mutableMapOf(
+                    CatalogPublicationToken("ready", "2") to RuntimeCatalogPublicationStatus.Ready("ghost", 2),
+                ),
+            ),
+            RuntimeCatalogState.Failed(
+                epoch = 3,
+                lastProvenEntries = mutableListOf(metadata),
+                publications = mutableMapOf(
+                    CatalogPublicationToken("failed", "3") to RuntimeCatalogPublicationStatus.RecoveryRequired(
+                        targetId = "ghost",
+                        failedEpoch = 3,
+                        reason = RuntimeNoticeCode.CATALOG_TARGET_MISSING,
+                    ),
+                ),
+                reason = RuntimeNoticeCode.CATALOG_SCAN_FAILED,
+            ),
+        )
+    }
 
-        assertAllowed(snapshot)
-        assertAllowed(snapshot.activeSurfaces)
-        assertAllowed(snapshot.pending)
-        assertAllowed(snapshot.catalog)
-        snapshot.catalog.lastProvenEntries.forEach(::assertAllowed)
-        snapshot.catalog.publications.forEach { (token, status) ->
-            assertAllowed(token)
-            assertAllowed(status)
-        }
-        assertAllowed(snapshot.presentation)
-        snapshot.cues.forEach(::assertAllowed)
-        assertAllowed(snapshot.dialogue)
-        assertAllowed(snapshot.dialogue.state)
-        snapshot.dialogue.state.contents.forEach { content ->
-            assertAllowed(content)
-            content.segments.forEach { segment ->
-                assertAllowed(segment)
-                when (segment) {
-                    is DialogueSegment.Choice -> assertAllowed(segment.action)
-                    is DialogueSegment.Anchor -> assertAllowed(segment.action)
-                    is DialogueSegment.InputBox -> assertAllowed(segment.spec)
-                    else -> Unit
+    private fun dialogueVariantSnapshot(): RuntimeSnapshot {
+        val normal = DialogueAction.Normal("Normal", "normal", mutableListOf("normal-ref"))
+        val direct = DialogueAction.DirectEvent("Direct", "OnDirect", mutableListOf("direct-ref"))
+        val script = DialogueAction.Script("Script", "\\hscript\\e")
+        val anchorNormal = AnchorAction.Normal("Anchor", "anchor", mutableListOf("anchor-ref"))
+        val anchorDirect = AnchorAction.DirectEvent("Anchor direct", "OnAnchor", mutableListOf("anchor-direct-ref"))
+        val input = PendingInputState(
+            generation = 9,
+            spec = InputBoxSpec(
+                dispatch = InputDispatch.DirectEvent("OnInput"),
+                timeoutMillis = null,
+                initialText = "",
+                behaviorOptions = mutableSetOf(InputBehavior.MULTILINE),
+                supplement = "",
+                extraReferences = mutableListOf("input-ref"),
+                unknownOptions = mutableListOf("unknown"),
+            ),
+            deadlineElapsedMillis = 3,
+        )
+        val key = DialogueActionKey(9, 4, 1)
+        return RuntimeSnapshot.freeze(
+            mutableSnapshot().copy(
+                dialogue = RuntimeDialogueSnapshot(
+                    state = DialogueRuntimeState(
+                        revision = 4,
+                        incarnation = 4,
+                        talkId = 4,
+                        contents = mutableListOf(
+                            DialogueContent(
+                                GhostSpeaker.KERO,
+                                mutableListOf(
+                                    DialogueSegment.Text("text"),
+                                    DialogueSegment.NewLine,
+                                    DialogueSegment.Wait(1),
+                                    DialogueSegment.Clear,
+                                    DialogueSegment.SpeakerChangeClear,
+                                    DialogueSegment.Choice(normal),
+                                    DialogueSegment.Choice(direct),
+                                    DialogueSegment.Choice(script),
+                                    DialogueSegment.Anchor(anchorNormal),
+                                    DialogueSegment.Anchor(anchorDirect),
+                                    DialogueSegment.ExternalUrl("link", "https://example.test"),
+                                    DialogueSegment.InputBox(input.spec),
+                                    DialogueSegment.PassiveMode(true),
+                                ),
+                            ),
+                        ),
+                        pendingChoices = mutableListOf(normal, direct, script),
+                        pendingInput = input,
+                    ),
+                    choices = mutableListOf(
+                        RuntimeChoiceAction(key, normal),
+                        RuntimeChoiceAction(key.copy(actionId = 2), direct),
+                        RuntimeChoiceAction(key.copy(actionId = 3), script),
+                    ),
+                    anchors = mutableListOf(
+                        RuntimeAnchorAction(key.copy(actionId = 4), anchorNormal),
+                        RuntimeAnchorAction(key.copy(actionId = 5), anchorDirect),
+                    ),
+                    input = RuntimeInputAction(key.copy(actionId = 6), input),
+                ),
+            ),
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun assertSnapshotValuesContainNoForbiddenObjects(root: Any?) {
+        val visited = IdentityHashMap<Any, Unit>()
+
+        fun visit(value: Any?) {
+            if (value == null || visited.put(value, Unit) != null) return
+            assertPermitted(value)
+
+            when {
+                value.javaClass.isArray -> {
+                    repeat(Array.getLength(value)) { index -> visit(Array.get(value, index)) }
                 }
+                value is Map<*, *> -> {
+                    assertUnsupported { (value as MutableMap<Any?, Any?>).clear() }
+                    value.forEach { (key, item) ->
+                        visit(key)
+                        visit(item)
+                    }
+                }
+                value is Collection<*> -> {
+                    assertUnsupported { (value as MutableCollection<Any?>).clear() }
+                    value.forEach(::visit)
+                }
+                value is Iterable<*> -> value.forEach(::visit)
+            }
+
+            if (value.javaClass.name.startsWith("com.cattailsw.nanidroid.")) {
+                value.javaClass.declaredFields
+                    .asSequence()
+                    .filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }
+                    .forEach { field ->
+                        field.isAccessible = true
+                        visit(field.get(value))
+                    }
             }
         }
-        snapshot.dialogue.state.pendingChoices.forEach(::assertAllowed)
-        snapshot.dialogue.state.pendingInput?.also {
-            assertAllowed(it)
-            assertAllowed(it.spec)
-        }
-        snapshot.dialogue.choices.forEach {
-            assertAllowed(it)
-            assertAllowed(it.key)
-            assertAllowed(it.action)
-        }
-        snapshot.dialogue.anchors.forEach {
-            assertAllowed(it)
-            assertAllowed(it.key)
-            assertAllowed(it.action)
-        }
-        snapshot.dialogue.input?.also {
-            assertAllowed(it)
-            assertAllowed(it.key)
-            assertAllowed(it.pending)
-            assertAllowed(it.pending.spec)
-        }
-        assertAllowed(snapshot.mode)
-        assertAllowed(snapshot.modeIdentity)
-        assertAllowed(snapshot.foregroundHost)
-        assertAllowed(snapshot.exit)
-        assertAllowed(snapshot.notice)
+
+        visit(root)
+    }
+
+    private fun assertPermitted(value: Any) {
+        val name = value.javaClass.name
+        val forbidden = value is android.content.Context ||
+            value is android.app.Activity ||
+            value is File ||
+            value is FileDescriptor ||
+            value is Throwable ||
+            value is Lock ||
+            value is ReadWriteLock ||
+            value is Condition ||
+            value is Function<*> ||
+            value is Runnable ||
+            value is Callable<*> ||
+            name.contains("Callback") ||
+            name.contains("Listener") ||
+            name.contains("Adapter") ||
+            name.contains("Builder") ||
+            name.contains("Native") ||
+            name.contains("Handle") ||
+            name.contains("Synchronizer")
+        if (forbidden) throw AssertionError("forbidden snapshot value $name")
+    }
+
+    private data class RunnableProbe(val callback: Runnable)
+
+    private fun captureAssertion(block: () -> Unit): AssertionError = try {
+        block()
+        throw AssertionError("expected forbidden value rejection")
+    } catch (failure: AssertionError) {
+        failure
     }
 
     private fun assertUnsupported(block: () -> Unit) {
