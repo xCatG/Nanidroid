@@ -258,6 +258,7 @@ internal object SakuraScriptPlayer {
         }
 
         fun appendText(activeCursor: PlayerCursor, value: CharSequence) {
+            if (value.isEmpty()) return
             val speakers = if (activeCursor.synchronizedSession) GhostSpeaker.entries else listOf(activeCursor.speaker)
             speakers.forEach { speaker ->
                 when (speaker) {

@@ -766,6 +766,20 @@ class SakuraScriptPlayerTest {
         assertEquals(listOf("One", "Two"), trace.state.dialogue.choices.map { it.action.label() })
     }
 
+    // Mutation caught: bulk empty-label handling opens a previously hidden empty balloon.
+    @Test
+    fun emptyChoiceLabelPreservesPresentationAndPublishesExactAction() {
+        val trace = drive("\\h\\b[-1]\\q[,empty-id]\\e")
+        val shown = trace.states.first { it.dialogue.choices.isNotEmpty() }
+        val action = shown.dialogue.choices.single().action as DialogueAction.Normal
+
+        assertEquals("", shown.presentation.sakura.text)
+        assertFalse(shown.presentation.sakura.balloonVisible)
+        assertEquals("", action.label)
+        assertEquals("empty-id", action.id)
+        assertEquals(emptyList<String>(), action.extraReferences)
+    }
+
     // Mutation caught: unsupported controls render their command bytes as visible dialogue.
     @Test
     fun unsupportedTagsAreConsumedNotRendered() {
