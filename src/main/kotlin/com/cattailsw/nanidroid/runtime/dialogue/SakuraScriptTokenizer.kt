@@ -13,7 +13,11 @@ object SakuraScriptTokenizer {
     fun tokenize(
         script: String,
         onDiagnostic: (String) -> Unit = {},
-    ): List<DialogueContent> = tokenizeInternal(script, false, onDiagnostic).contents
+    ): List<DialogueContent> = tokenizeInternal(
+        script = script,
+        allowIncompleteAnchorText = false,
+        onDiagnostic = onDiagnostic,
+    ).contents
 
     /**
      * Projects a source prefix consumed by playback. Incomplete anchors remain
@@ -21,7 +25,11 @@ object SakuraScriptTokenizer {
      */
     @JvmStatic
     fun tokenizeRevealed(script: String): List<DialogueContent> =
-        tokenizeInternal(script, true) {}.contents
+        tokenizeInternal(
+            script = script,
+            allowIncompleteAnchorText = true,
+            onDiagnostic = {},
+        ).contents
 
     internal fun remainingVisibleChoices(
         script: String,
@@ -93,6 +101,7 @@ object SakuraScriptTokenizer {
     internal fun tokenizeInternal(
         script: String,
         allowIncompleteAnchorText: Boolean,
+        runtimeAnchorRecovery: Boolean = false,
         onDiagnostic: (String) -> Unit,
     ): SakuraScriptTokenization {
         val segments = linkedMapOf<GhostSpeaker, MutableList<DialogueSegment>>()
@@ -230,14 +239,17 @@ object SakuraScriptTokenizer {
                                 val closing = findAnchorClosing(script, index)
                                 if (closing < 0) {
                                     if (allowIncompleteAnchorText) {
-                                        emit(flattenAnchorLabel(script.substring(index)))
+                                        emit(flattenAnchorLabel(script.substring(index), runtimeAnchorRecovery))
                                         index = script.length
                                     } else {
                                         diagnostic("truncated-anchor")
                                         index = resumeAfterMalformedCommand(script, index)
                                     }
                                 } else {
-                                    val label = flattenAnchorLabel(script.substring(index, closing))
+                                    val label = flattenAnchorLabel(
+                                        script.substring(index, closing),
+                                        runtimeAnchorRecovery,
+                                    )
                                     index = closing + 3
                                     val args = splitArguments(bracket.value)
                                     if (args.isNotEmpty()) {
@@ -514,17 +526,17 @@ object SakuraScriptTokenizer {
     }
 
     /** Labels are visible text only; formatting controls cannot create nested actions. */
-    private fun flattenAnchorLabel(label: String): String {
+    private fun flattenAnchorLabel(label: String, runtimeRecovery: Boolean): String {
         val result = StringBuilder()
         var index = 0
         while (index < label.length) {
             val character = label[index++]
             if (character != '\\' || index >= label.length) {
-                result.append(character)
+                if (!runtimeRecovery || character != '\\') result.append(character)
                 continue
             }
             when (val command = label[index++]) {
-                '\\' -> result.append('\\')
+                '\\' -> if (!runtimeRecovery) result.append('\\')
                 'n' -> {
                     val bracket = readBracket(label, index)
                     if (bracket != null) {

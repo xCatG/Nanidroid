@@ -657,6 +657,36 @@ class SakuraScriptPlayerTest {
         assertSame(published.dialogue.anchors.single().action, contentAnchor.action)
     }
 
+    // Mutation caught: closing an anchor swaps recovered AB for the standalone tokenizer label A\B.
+    @Test
+    fun escapedAnchorLabelKeepsPlayerRecoveryInCanonicalActionAndDialogue() {
+        val shown = drive("\\h\\_a[id]A\\\\B\\_a\\e").state
+        val anchor = shown.dialogue.anchors.single().action as AnchorAction.Normal
+        val content = shown.dialogue.state.contents
+            .single { it.speaker == GhostSpeaker.SAKURA }
+            .segments.filterIsInstance<DialogueSegment.Anchor>().single()
+
+        assertEquals("AB", anchor.label)
+        assertSame(anchor, content.action)
+    }
+
+    // Mutation caught: paced text creates one segment per character or merges through an anchor boundary.
+    @Test
+    fun pacedUnicodeTextCoalescesWithoutCrossingAnchorFence() {
+        val body = "a".repeat(255) + "\uD83D\uDE00" + "\u0301z" + "b".repeat(300)
+        val shown = driveWithWork("\\h$body\\_a[id]A\\\\B\\_a$body\\e").state
+        val segments = shown.dialogue.state.contents
+            .single { it.speaker == GhostSpeaker.SAKURA }
+            .segments
+
+        assertEquals(3, segments.size)
+        assertEquals(body, (segments[0] as DialogueSegment.Text).value)
+        val anchor = (segments[1] as DialogueSegment.Anchor).action
+        assertEquals("AB", (anchor as AnchorAction.Normal).label)
+        assertSame(shown.dialogue.anchors.single().action, anchor)
+        assertEquals(body, (segments[2] as DialogueSegment.Text).value)
+    }
+
     @Test
     fun speakerChangeAndClearRetireOnlyTheAffectedOwnedActions() {
         val shown = drive(

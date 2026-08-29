@@ -306,7 +306,21 @@ internal object SakuraScriptPlayer {
         fun flushProjectedText(owner: GhostSpeaker) {
             val builder = projectedText.remove(owner) ?: return
             if (builder.isNotEmpty()) {
-                projectedSegments.getOrPut(owner) { mutableListOf() } += DialogueSegment.Text(builder.toString())
+                val values = projectedSegments.getOrPut(owner) { mutableListOf() }
+                val activeAnchorStart = projection.activeAnchor?.let { anchor ->
+                    when (owner) {
+                        anchor.owner -> anchor.ownerStartIndex
+                        anchor.mirroredOwner -> anchor.mirroredStartIndex
+                        else -> null
+                    }
+                }
+                val lastIndex = values.lastIndex
+                val lastText = values.lastOrNull() as? DialogueSegment.Text
+                if (lastText != null && (activeAnchorStart == null || lastIndex >= activeAnchorStart)) {
+                    values[lastIndex] = DialogueSegment.Text(lastText.value + builder)
+                } else {
+                    values += DialogueSegment.Text(builder.toString())
+                }
             }
         }
 

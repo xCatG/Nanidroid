@@ -3,6 +3,8 @@ package com.cattailsw.nanidroid.runtime.dialogue
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import org.junit.Assert
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 /** Synthetic, ASCII-compatible grammar fixtures for structured SakuraScript. */
@@ -790,6 +792,39 @@ class SakuraScriptTokenizerTest {
                 initialScope = 0,
             ),
         )
+    }
+
+    // Mutation caught: runtime-authored anchors reuse the standalone backslash label.
+    @Test
+    fun runtimeAuthoredAnchorsUsePlayerRecoveryWhilePublicTokenizersStayCompatible() {
+        val script = "\\_a[id]A\\\\B\\_a"
+        val standalone = tokenize(script).single().segments.filterIsInstance<DialogueSegment.Anchor>().single().action
+        val revealed = SakuraScriptTokenizer.tokenizeRevealed(script)
+            .single().segments.filterIsInstance<DialogueSegment.Anchor>().single().action
+        val runtime = SakuraScriptTokenizer.tokenizeWithInteractions(script)
+        val runtimeContent = runtime.contents.single().segments.filterIsInstance<DialogueSegment.Anchor>().single().action
+        val runtimeOccurrence = (runtime.occurrences.single() as SakuraScriptOccurrence.Anchor).action
+
+        assertEquals("A\\B", (standalone as AnchorAction.Normal).label)
+        assertEquals("A\\B", (revealed as AnchorAction.Normal).label)
+        assertEquals("AB", (runtimeContent as AnchorAction.Normal).label)
+        assertSame(runtimeContent, runtimeOccurrence)
+    }
+
+    // Mutation caught: the close finder accepts an escaped \\_a or aliases equal authored anchors.
+    @Test
+    fun runtimeAnchorCloseFinderSkipsEscapedCloseAndKeepsEqualOccurrencesDistinct() {
+        val runtime = SakuraScriptTokenizer.tokenizeWithInteractions(
+            "\\_a[id]A\\\\_aB\\_a\\_a[id]A_aB\\_a",
+        )
+        val actions = runtime.occurrences.filterIsInstance<SakuraScriptOccurrence.Anchor>().map { it.action }
+        val contentActions = runtime.contents.single().segments.filterIsInstance<DialogueSegment.Anchor>().map { it.action }
+
+        assertEquals(listOf("A_aB", "A_aB"), actions.map { (it as AnchorAction.Normal).label })
+        assertEquals(actions, contentActions)
+        assertSame(actions[0], contentActions[0])
+        assertSame(actions[1], contentActions[1])
+        assertNotSame(actions[0], actions[1])
     }
 
     private fun tokenize(script: String, diagnostics: MutableList<String> = mutableListOf()): List<DialogueContent> =

@@ -42,4 +42,9 @@ internal sealed interface SakuraScriptOccurrence {
 internal fun SakuraScriptTokenizer.tokenizeWithInteractions(
     script: String,
     onDiagnostic: (String) -> Unit = {},
-): SakuraScriptTokenization = tokenizeInternal(script, false, onDiagnostic)
+): SakuraScriptTokenization = tokenizeInternal(
+    script = script,
+    allowIncompleteAnchorText = false,
+    runtimeAnchorRecovery = true,
+    onDiagnostic = onDiagnostic,
+)
