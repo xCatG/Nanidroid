@@ -1524,7 +1524,8 @@ private class SnapshotRuntimeCore(
     private val queuedNativeRequests = java.util.ArrayDeque<SnapshotNativeRequest>()
     private val closeReady = java.util.concurrent.CountDownLatch(1)
     private val resourceLock = Any()
-    private val snapshotPublicationLock = Any()
+    private val snapshotPublicationBarrier = Any()
+    private var pendingSnapshotPublication: SnapshotPublication? = null
     @Volatile
     private var closed = false
 
@@ -2095,6 +2096,12 @@ private class SnapshotRuntimeCore(
             return
         }
         if (command.token !in requestRegistry.pending) {
+            if ((command.result as? RuntimeResult.Failure)?.failure is RuntimeFailure.Fatal) {
+                val activeExit = parentState as? SnapshotParentState.Exit
+                if (activeExit != null) poisonAndOfferExit(activeExit)
+                else transitionToPoisoned(command.token.requestId)
+                return
+            }
             record("NativeResponseRejected")
             return
         }
@@ -2775,6 +2782,7 @@ private class SnapshotRuntimeCore(
     ) {
         if (!request.settled.compareAndSet(false, true)) return
         var publish = false
+        var canceled = emptyList<SnapshotNativeRequest>()
         synchronized(resourceLock) {
             if (nativeLifecycle !== loaded || loaded.request !== request) return
             loaded.request = null
@@ -2782,7 +2790,9 @@ private class SnapshotRuntimeCore(
                 queuedNativeRequests.clear()
                 startCloseUnloadLocked(loaded)
             } else if ((result as? RuntimeResult.Failure)?.failure is RuntimeFailure.Fatal) {
-                queuedNativeRequests.clear()
+                canceled = buildList {
+                    while (queuedNativeRequests.isNotEmpty()) add(queuedNativeRequests.removeFirst())
+                }
                 loaded.fatalPending = true
                 publish = true
             } else {
@@ -2796,6 +2806,15 @@ private class SnapshotRuntimeCore(
         }
         if (publish) {
             submitNativeCompletion(request.sequence, RuntimeCommand.NativeResponse(request.token, result))
+            canceled.forEach { canceledRequest ->
+                submitNativeCompletion(
+                    canceledRequest.sequence,
+                    RuntimeCommand.NativeResponse(
+                        canceledRequest.token,
+                        RuntimeResult.Failure(RuntimeFailure.StaleGeneration),
+                    ),
+                )
+            }
         }
     }
 
@@ -3076,9 +3095,24 @@ private class SnapshotRuntimeCore(
             ),
         )
         if (candidate == current) return
-        synchronized(snapshotPublicationLock) {
+        val publication = SnapshotPublication(candidate.copy(revision = current.revision + 1L))
+        synchronized(snapshotPublicationBarrier) {
             if (closed) return
-            mutableSnapshots.value = candidate.copy(revision = current.revision + 1L)
+            check(pendingSnapshotPublication == null) { "Snapshot publication is already reserved" }
+            pendingSnapshotPublication = publication
+        }
+        if (!publication.phase.compareAndSet(SnapshotPublicationPhase.RESERVED, SnapshotPublicationPhase.COMMITTING)) {
+            synchronized(snapshotPublicationBarrier) {
+                if (pendingSnapshotPublication === publication) pendingSnapshotPublication = null
+            }
+            return
+        }
+        try {
+            mutableSnapshots.value = publication.snapshot
+        } finally {
+            synchronized(snapshotPublicationBarrier) {
+                if (pendingSnapshotPublication === publication) pendingSnapshotPublication = null
+            }
         }
     }
 
@@ -3089,9 +3123,24 @@ private class SnapshotRuntimeCore(
     override fun close() {
         synchronized(resourceLock) {
             if (closed) return
-            synchronized(snapshotPublicationLock) {
+            var publicationToAwait: SnapshotPublication? = null
+            synchronized(snapshotPublicationBarrier) {
                 if (closed) return
                 closed = true
+                pendingSnapshotPublication?.let { publication ->
+                    if (publication.phase.compareAndSet(
+                            SnapshotPublicationPhase.RESERVED,
+                            SnapshotPublicationPhase.CANCELED,
+                        )
+                    ) {
+                        pendingSnapshotPublication = null
+                    } else if (mutableSnapshots.value != publication.snapshot) {
+                        publicationToAwait = publication
+                    }
+                }
+            }
+            publicationToAwait?.let { publication ->
+                while (mutableSnapshots.value != publication.snapshot) Thread.yield()
             }
             dispatcher.close()
             ioScope.cancel()
@@ -3131,6 +3180,14 @@ private class SnapshotRuntimeCore(
         val operationId: Long,
         val generation: Long,
     )
+
+    private class SnapshotPublication(
+        val snapshot: RuntimeSnapshot,
+        val phase: AtomicReference<SnapshotPublicationPhase> =
+            AtomicReference(SnapshotPublicationPhase.RESERVED),
+    )
+
+    private enum class SnapshotPublicationPhase { RESERVED, COMMITTING, CANCELED }
 
     private sealed interface SnapshotNativeLifecycle {
         data object Empty : SnapshotNativeLifecycle

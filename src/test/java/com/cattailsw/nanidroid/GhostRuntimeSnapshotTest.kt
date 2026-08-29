@@ -25,6 +25,14 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -551,6 +559,48 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    // Mutation caught: retired-token fatal evidence is rejected and its canceled OnClose sequence wedges exit.
+    @Test
+    fun retiredChoiceFatalPoisonsAndSettlesCanceledExitRequestSequence() {
+        val root = File("build/runtime-snapshot/retired-fatal-exit").canonicalFile
+        val port = BlockingRecordingRuntimeNativePort("OnChoiceSelectEx")
+        SnapshotRuntimeFixture(
+            nativePort = port,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("retired-fatal-exit", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.startAttached("retired-fatal-exit", root)
+            val top = fixture.makeTopHost(75L)
+            fixture.runtime.enqueueScriptForTesting("\\q[One,id]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.dialogue.choices.size == 1 }
+            val choice = fixture.runtime.snapshots.value.dialogue.choices.single()
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(choice.key))
+            fixture.drain()
+            assertTrue(port.entered.await(5, TimeUnit.SECONDS))
+
+            val afterChoice = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.Back(1L, top, afterChoice.modeIdentity))
+            fixture.drain()
+            val nativeResponsesBeforeFatal = fixture.runtime.snapshotCommandTraceForTesting().count { it == "NativeResponse" }
+            port.release.countDown()
+            fixture.awaitNativeWork()
+            port.requests.remove().complete(
+                RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("retired choice fatal"))),
+            )
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Poisoned }
+
+            assertTrue(fixture.runtime.snapshots.value.exit != null)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+            assertTrue(port.requests.isEmpty())
+            assertEquals(
+                nativeResponsesBeforeFatal + 2,
+                fixture.runtime.snapshotCommandTraceForTesting().count { it == "NativeResponse" },
+            )
+        }
+    }
+
     // Mutation caught: a parent-active timer enters the native lane and prevents switch unload admission.
     @Test
     fun switchParentFencesQueuedTimerBeforeSuccessfulUnload() {
@@ -1030,6 +1080,37 @@ class GhostRuntimeSnapshotTest {
         } finally {
             scheduler.cancelRelease.countDown()
             scheduler.closeRelease.countDown()
+            fixture.close()
+        }
+    }
+
+    // Mutation caught: StateFlow publication resumes an unconfined collector while a runtime lock is held.
+    @Test
+    fun unconfinedSnapshotCollectorCanJoinCloseDuringPublication() {
+        val root = File("build/runtime-snapshot/collector-close").canonicalFile
+        val fixture = fixtureFor("collector-close", root)
+        val collectorScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val collectorFinished = CountDownLatch(1)
+        val closeReturnedInsideCollector = AtomicBoolean(false)
+        try {
+            fixture.startAttached("collector-close", root)
+            collectorScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                fixture.runtime.snapshots.drop(1).take(1).collect {
+                    val closing = Thread(fixture::close)
+                    closing.start()
+                    closing.join(2_000L)
+                    closeReturnedInsideCollector.set(!closing.isAlive)
+                    collectorFinished.countDown()
+                }
+            }
+
+            fixture.runtime.enqueueScriptForTesting("\\hpublish\\e")
+            fixture.drain()
+
+            assertTrue(collectorFinished.await(5, TimeUnit.SECONDS))
+            assertTrue("close was blocked by a runtime lock held across StateFlow publication", closeReturnedInsideCollector.get())
+        } finally {
+            collectorScope.cancel()
             fixture.close()
         }
     }
