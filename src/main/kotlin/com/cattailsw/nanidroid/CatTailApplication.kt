@@ -12,7 +12,6 @@ import com.cattailsw.nanidroid.runtime.RuntimeCatalogState
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
 import com.cattailsw.nanidroid.runtime.RuntimeHostId
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,10 +25,9 @@ class CatTailApplication : Application() {
         SupervisorJob() + Dispatchers.Default.limitedParallelism(1),
     )
     private val nextHostId = AtomicLong()
-    private val nextBundledOperationId = AtomicLong()
-    private val bundledInstallStarted = AtomicBoolean()
     private val publishedImports = mutableSetOf<NarImportAttemptToken>()
     internal val startupCandidateAttempts = StartupCandidateAttempts()
+    internal val bundledInstallWorkflow = BundledInstallWorkflow()
 
     internal val ghostRuntime: GhostRuntime by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         GhostRuntime(this)
@@ -68,21 +66,42 @@ class CatTailApplication : Application() {
         ghostRuntime.snapshots.collect { snapshot ->
             val ready = snapshot.catalog as? RuntimeCatalogState.Ready ?: return@collect
             if (ready.entries.isNotEmpty()) return@collect
-            val storageRoot = getExternalFilesDir(null)?.let { File(it, "ghost") }
-                ?: return@collect
-            if (!shouldInstallBundledGhost(0, storageRoot.listFiles().orEmpty())) return@collect
-            if (!bundledInstallStarted.compareAndSet(false, true)) return@collect
-            val operationId = nextBundledOperationId.incrementAndGet()
-            val result = installBundledGhost(storageRoot)
-            if (result is ArchiveInstallResult.Installed) {
-                ghostRuntime.submit(
-                    RuntimeCommand.CatalogChanged(
-                        CatalogPublicationToken("bundled-install", operationId.toString()),
-                        result.targetId ?: "nanidroid",
-                    ),
-                )
+            when (val eligibility = bundledInstallEligibility(
+                storageRoot = { getExternalFilesDir(null)?.let { File(it, "ghost") } },
+            )) {
+                is BundledInstallEligibility.Eligible -> {
+                    val operationId = bundledInstallWorkflow.startIfIdle() ?: return@collect
+                    performBundledInstall(operationId, eligibility.storageRoot)
+                }
+                BundledInstallEligibility.Ineligible -> Unit
+                is BundledInstallEligibility.RecoveryRequired -> {
+                    bundledInstallWorkflow.recordPreflightFailure(eligibility.message)
+                }
             }
         }
+    }
+
+    internal fun retryBundledInstall(expectedFailureOperationId: Long) {
+        val operationId = bundledInstallWorkflow.retry(expectedFailureOperationId) ?: return
+        applicationScope.launch { performBundledInstall(operationId) }
+    }
+
+    private fun performBundledInstall(operationId: Long, acceptedStorageRoot: File? = null) {
+        val publication = bundledInstallWorkflow.execute(operationId) {
+            val storageRoot = acceptedStorageRoot
+                ?: getExternalFilesDir(null)?.let { File(it, "ghost") }
+                ?: return@execute ArchiveInstallResult.Failed(
+                    "Nanidroid cannot prepare its ghost storage.",
+                    com.cattailsw.nanidroid.install.ArchiveInstallFailure.StorageUnavailable,
+                )
+            installBundledGhost(storageRoot)
+        } ?: return
+        ghostRuntime.submit(
+            RuntimeCommand.CatalogChanged(
+                CatalogPublicationToken("bundled-install", publication.operationId.toString()),
+                publication.targetId,
+            ),
+        )
     }
 
     private fun installBundledGhost(storageRoot: File): ArchiveInstallResult {

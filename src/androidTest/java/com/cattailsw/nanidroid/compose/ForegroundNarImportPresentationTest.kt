@@ -21,11 +21,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import com.cattailsw.nanidroid.ForegroundCatalogRecovery
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.ArchiveInstallFailure
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
+import com.cattailsw.nanidroid.runtime.CatalogPublicationToken
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -101,6 +103,34 @@ class ForegroundNarImportPresentationTest {
         rule.onNodeWithTag("nar-import-select-another").assertDoesNotExist()
         rule.onNodeWithTag("nar-import-acknowledge").performClick()
         rule.runOnIdle { assertEquals(token, acknowledged) }
+    }
+
+    @Test
+    fun installedCatalogRecoveryShowsExactRetryAboveRefreshingPresentation() {
+        val token = NarImportAttemptToken("process", 17, 4)
+        val recovery = ForegroundCatalogRecovery(
+            token,
+            CatalogPublicationToken("foreground-import", "process:17:4"),
+            failedEpoch = 31L,
+        )
+        var retried: ForegroundCatalogRecovery? = null
+
+        rule.setContent {
+            ForegroundNarImportPresentation(
+                state = ForegroundNarImportState.Installed(token, "/ghosts/example", "example"),
+                installedReadyToken = null,
+                catalogRecovery = recovery,
+                onAcknowledge = {},
+                onSelectAnother = {},
+                onRetryCleanup = {},
+                onRetryCatalog = { retried = it },
+            )
+        }
+
+        rule.onNodeWithTag("nar-import-progress-overlay").assertDoesNotExist()
+        rule.onNodeWithText("No ghost is currently available. Install a ghost archive to continue.").assertIsDisplayed()
+        rule.onNodeWithTag("nar-import-retry-catalog").performClick()
+        rule.runOnIdle { assertEquals(recovery, retried) }
     }
 
     @Test

@@ -58,4 +58,7 @@
   <string name="nar_import_retry_cleanup">Retry cleanup</string>
   <string name="nar_import_select_another">Select another</string>
   <string name="nar_import_recovery_installed_message">The ghost was installed and is preserved. Only cleanup will be retried.</string>
+  <string name="retry_action">Retry</string>
+  <string name="bundled_install_recovery_title">Built-in ghost installation needs attention</string>
+  <string name="startup_recovery_title">No ghost could be started</string>
 </resources>

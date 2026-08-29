@@ -54,4 +54,7 @@
   <string name="nar_import_retry_cleanup">重試清理</string>
   <string name="nar_import_select_another">選擇另一個文件</string>
   <string name="nar_import_recovery_installed_message">偽人格仍會保持已安裝狀態。只會重試私人暫存區的清理。</string>
+  <string name="retry_action">重試</string>
+  <string name="bundled_install_recovery_title">內建偽人格安裝需要處理</string>
+  <string name="startup_recovery_title">無法啟動偽人格</string>
 </resources>

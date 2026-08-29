@@ -4,7 +4,11 @@ import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.runtime.CatalogPublicationToken
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogPublicationStatus
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogState
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
+import com.cattailsw.nanidroid.runtime.RuntimeNoticeCode
+import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
 import com.cattailsw.nanidroid.runtime.SakuraScriptPlayerTest
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import java.io.File
@@ -99,6 +103,67 @@ class GhostRuntimePlaybackTest {
         assertEquals(
             CatalogPublicationToken("foreground-import", "process:7:42"),
             foregroundPublicationToken(token),
+        )
+    }
+
+    // Mutation caught: the exact foreground publication recovery is delegated to a hidden lower modal.
+    @Test
+    fun installedForegroundImportDerivesExactCatalogRecoveryAndRetryCommand() {
+        val token = NarImportAttemptToken("process", 9L, 42)
+        val publicationToken = CatalogPublicationToken("foreground-import", "process:9:42")
+        val snapshot = RuntimeSnapshot.initial().copy(
+            catalog = RuntimeCatalogState.Ready(
+                epoch = 14L,
+                entries = emptyList(),
+                publications = mapOf(
+                    publicationToken to RuntimeCatalogPublicationStatus.RecoveryRequired(
+                        targetId = "alpha",
+                        failedEpoch = 14L,
+                        reason = RuntimeNoticeCode.CATALOG_TARGET_MISSING,
+                    ),
+                ),
+            ),
+        )
+
+        val recovery = foregroundCatalogRecovery(
+            ForegroundNarImportState.Installed(token, "/ghost/alpha", "alpha"),
+            snapshot,
+        )
+
+        assertEquals(
+            ForegroundCatalogRecovery(token, publicationToken, failedEpoch = 14L),
+            recovery,
+        )
+        assertEquals(
+            RuntimeCommand.RetryCatalog(publicationToken, expectedFailureEpoch = 14L),
+            foregroundCatalogRetryCommand(requireNotNull(recovery)),
+        )
+    }
+
+    // Mutation caught: a non-matching publication failure is offered as the installed import's retry.
+    @Test
+    fun installedForegroundImportIgnoresUnrelatedCatalogRecovery() {
+        val token = NarImportAttemptToken("process", 10L, 42)
+        val unrelated = CatalogPublicationToken("foreground-import", "other:1:7")
+        val snapshot = RuntimeSnapshot.initial().copy(
+            catalog = RuntimeCatalogState.Ready(
+                epoch = 15L,
+                entries = emptyList(),
+                publications = mapOf(
+                    unrelated to RuntimeCatalogPublicationStatus.RecoveryRequired(
+                        targetId = "other",
+                        failedEpoch = 15L,
+                        reason = RuntimeNoticeCode.CATALOG_TARGET_MISSING,
+                    ),
+                ),
+            ),
+        )
+
+        assertNull(
+            foregroundCatalogRecovery(
+                ForegroundNarImportState.Installed(token, "/ghost/alpha", "alpha"),
+                snapshot,
+            ),
         )
     }
 

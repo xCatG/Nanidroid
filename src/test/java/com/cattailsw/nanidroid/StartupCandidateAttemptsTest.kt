@@ -161,6 +161,62 @@ class StartupCandidateAttemptsTest {
         )
     }
 
+    // Mutation caught: final retryable failure returns null without a stable exhaustion identity.
+    @Test
+    fun finalRetryableFailureBecomesStableExhaustionForTheCatalogEpoch() {
+        val attempts = StartupCandidateAttempts()
+        attempts.reserve(13L)
+        attempts.configure(13L, listOf("only-bad"))
+        assertEquals("only-bad", next(attempts, 13L, GhostRuntimePhase.Idle, revision = 80L))
+
+        assertNull(
+            next(
+                attempts,
+                13L,
+                GhostRuntimePhase.Idle,
+                revision = 81L,
+                notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                    80L,
+                    com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED,
+                ),
+            ),
+        )
+        assertEquals(13L, attempts.exhaustedEpoch(13L))
+        assertNull(next(attempts, 13L, GhostRuntimePhase.Idle, revision = 82L))
+        assertEquals(13L, attempts.exhaustedEpoch(13L))
+        assertFalse(attempts.reserve(13L))
+        assertEquals(13L, attempts.exhaustedEpoch(13L))
+    }
+
+    // Mutation caught: an observed exit is reclassified as exhaustion after its final candidate.
+    @Test
+    fun observedExitCancelsWithoutEverBecomingExhausted() {
+        val attempts = StartupCandidateAttempts()
+        attempts.reserve(14L)
+        attempts.configure(14L, listOf("only"))
+        assertEquals("only", next(attempts, 14L, GhostRuntimePhase.Idle, revision = 90L))
+
+        assertNull(next(attempts, 14L, GhostRuntimePhase.Idle, exitPresent = true, revision = 91L))
+        assertNull(attempts.exhaustedEpoch(14L))
+        assertNull(next(attempts, 14L, GhostRuntimePhase.Idle, revision = 92L))
+        assertNull(attempts.exhaustedEpoch(14L))
+    }
+
+    // Mutation caught: a later successful/manual generation leaves the exhaustion presentation active.
+    @Test
+    fun generationAppearanceClearsStableExhaustion() {
+        val attempts = StartupCandidateAttempts()
+        attempts.reserve(15L)
+        attempts.configure(15L, listOf("only-bad"))
+        assertEquals("only-bad", next(attempts, 15L, GhostRuntimePhase.Idle, revision = 100L))
+        assertNull(next(attempts, 15L, GhostRuntimePhase.Starting, revision = 101L))
+        assertNull(next(attempts, 15L, GhostRuntimePhase.Idle, revision = 102L))
+        assertEquals(15L, attempts.exhaustedEpoch(15L))
+
+        assertNull(next(attempts, 15L, GhostRuntimePhase.Attached, generation = 7L, revision = 103L))
+        assertNull(attempts.exhaustedEpoch(15L))
+    }
+
     // Mutation caught: selection remains a SwitchGhost after the outgoing generation was unloaded and target failed.
     @Test
     fun idleNoGenerationSelectionStartsAnotherInstalledGhost() {

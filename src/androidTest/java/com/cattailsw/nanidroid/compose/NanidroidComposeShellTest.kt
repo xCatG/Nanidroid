@@ -45,6 +45,7 @@ import org.junit.Before
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
+import com.cattailsw.nanidroid.BundledInstallState
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
@@ -266,6 +267,60 @@ class NanidroidComposeShellTest {
 
         composeRule.onNodeWithTag("nar-import-retry-cleanup").assertIsDisplayed()
         composeRule.onNodeWithTag("notice-confirm").assertDoesNotExist()
+    }
+
+    @Test
+    fun bundledInstallRecoveryExposesExactRetryAction() {
+        var retriedId: Long? = null
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "",
+                toolbarVisible = false,
+                onListGhost = {},
+                bundledInstallState = BundledInstallState.RecoveryRequired(73L, "copy failed"),
+                onRetryBundledInstall = { retriedId = it },
+                simpleDialog = null,
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithText("copy failed").assertIsDisplayed()
+        composeRule.onNodeWithTag("bundled-install-retry").performClick()
+        composeRule.runOnIdle { assertEquals(73L, retriedId) }
+    }
+
+    @Test
+    fun startupExhaustionActionReachesExistingDocumentInstallPath() {
+        val more = mutableStateOf(false)
+        val exhaustedEpoch = mutableStateOf<Long?>(91L)
+        var pickerLaunches = 0
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "",
+                toolbarVisible = false,
+                onListGhost = {},
+                startupExhaustedEpoch = exhaustedEpoch.value,
+                onRecoverStartup = {
+                    exhaustedEpoch.value = null
+                    more.value = true
+                },
+                simpleDialog = if (more.value) {
+                    NanidroidSimpleDialog.MoreGhost { pickerLaunches += 1 }
+                } else {
+                    null
+                },
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithText("No ghost is currently available. Install a ghost archive to continue.").assertIsDisplayed()
+        composeRule.onNodeWithTag("startup-recovery-install").performClick()
+        composeRule.onNodeWithTag("install-from-document").performClick()
+        composeRule.runOnIdle { assertEquals(1, pickerLaunches) }
     }
 
     @Test

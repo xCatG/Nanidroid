@@ -84,6 +84,12 @@ PLATFORM_STACK_PATHS = (
 )
 
 LIFECYCLE_INSTRUMENTATION_TEST_METHODS = {
+    "productionEntryUsesApplicationRuntimeMainThreadAndExactIncreasingLeasesAcrossRecreation",
+    "productionStartedCollectorExpiresOldLeaseAndComposeAcknowledgesOnlyExactCueLease",
+    "blockedProductionBackSurvivesHostLossThenClaimsFinishesAndAcknowledgesExactNewLease",
+}
+
+HOST_ADAPTER_INSTRUMENTATION_TEST_METHODS = {
     "lifecycleCommandsUseOneHostIdIncreasingEpochsAndMainLoopSubmission",
     "overlappingActivitiesKeepOldStartedButOnlyNewHostPlaysAndAcknowledgesCues",
     "stoppedCollectorDoesNotRenderUntilStartedAgain",
@@ -258,7 +264,7 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
             {path: fragments for path, fragments in violations.items() if fragments},
         )
 
-    def test_lifecycle_instrumentation_uses_no_hilt_and_keeps_fourteen_proofs(self) -> None:
+    def test_production_lifecycle_instrumentation_uses_no_hilt_and_keeps_exact_proofs(self) -> None:
         lifecycle_test = self.read(
             "src/androidTest/java/com/cattailsw/nanidroid/"
             "NanidroidLifecycleInstrumentationTest.kt"
@@ -276,6 +282,15 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
                 self.assertNotIn(fragment, lifecycle_test)
         test_methods = set(re.findall(r"@Test\s+fun\s+(\w+)\s*\(", lifecycle_test))
         self.assertEqual(LIFECYCLE_INSTRUMENTATION_TEST_METHODS, test_methods)
+
+    def test_host_adapter_instrumentation_keeps_exact_snapshot_boundary_proofs(self) -> None:
+        host_adapter_test = self.read(
+            "src/androidTest/java/com/cattailsw/nanidroid/"
+            "GhostRuntimeHostAdapterInstrumentationTest.kt"
+        )
+
+        test_methods = set(re.findall(r"@Test\s+fun\s+(\w+)\s*\(", host_adapter_test))
+        self.assertEqual(HOST_ADAPTER_INSTRUMENTATION_TEST_METHODS, test_methods)
 
     def test_build_uses_standard_instrumentation_runner(self) -> None:
         build = self.read("build.gradle.kts")

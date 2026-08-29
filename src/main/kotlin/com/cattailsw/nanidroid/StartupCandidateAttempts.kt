@@ -11,6 +11,8 @@ internal class StartupCandidateAttempts {
     private var submittedRevision = Long.MIN_VALUE
     private var submittedNotice: com.cattailsw.nanidroid.runtime.RuntimeNotice? = null
     private var completed = false
+    private var canceled = false
+    private var exhausted = false
 
     @Synchronized
     fun reserve(candidateEpoch: Long): Boolean {
@@ -24,6 +26,8 @@ internal class StartupCandidateAttempts {
         submittedRevision = Long.MIN_VALUE
         submittedNotice = null
         completed = false
+        canceled = false
+        exhausted = false
         return true
     }
 
@@ -47,22 +51,27 @@ internal class StartupCandidateAttempts {
         if (epoch != candidateEpoch || !configured) return null
         if (generation != null) {
             completed = true
+            exhausted = false
             inFlight = null
             return null
         }
         if (parentOperationId != null || exitPresent) {
-            completed = true
+            canceled = true
+            exhausted = false
             inFlight = null
             return null
         }
         if (
             completed ||
+            canceled ||
+            exhausted ||
             phase == GhostRuntimePhase.Poisoned
         ) return null
         if (phase != GhostRuntimePhase.Idle) {
             if (inFlight != null) sawBusy = true
             return null
         }
+        var advancedAfterFailure = false
         if (inFlight != null) {
             val retryableFailureObserved = revision > submittedRevision &&
                 notice != submittedNotice &&
@@ -72,13 +81,23 @@ internal class StartupCandidateAttempts {
                 )
             if (!sawBusy && !retryableFailureObserved) return null
             index += 1
+            advancedAfterFailure = true
             inFlight = null
             sawBusy = false
         }
-        val next = candidates.getOrNull(index) ?: return null
+        val next = candidates.getOrNull(index)
+        if (next == null) {
+            if (advancedAfterFailure) exhausted = true
+            return null
+        }
         inFlight = next
         submittedRevision = revision
         submittedNotice = notice
         return next
+    }
+
+    @Synchronized
+    fun exhaustedEpoch(candidateEpoch: Long): Long? = candidateEpoch.takeIf {
+        epoch == candidateEpoch && exhausted
     }
 }

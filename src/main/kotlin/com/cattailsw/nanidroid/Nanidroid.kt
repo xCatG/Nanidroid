@@ -121,6 +121,38 @@ internal fun tryLaunchDocumentExternalUrl(value: String, launch: (String) -> Uni
     return isAllowed && tryLaunchDialogueExternalUri { launch(value) }
 }
 
+internal data class ForegroundCatalogRecovery(
+    val importToken: NarImportAttemptToken,
+    val publicationToken: com.cattailsw.nanidroid.runtime.CatalogPublicationToken,
+    val failedEpoch: Long,
+)
+
+internal fun foregroundCatalogRecovery(
+    state: ForegroundNarImportState,
+    snapshot: RuntimeSnapshot,
+): ForegroundCatalogRecovery? {
+    val installed = state as? ForegroundNarImportState.Installed ?: return null
+    val publicationToken = foregroundPublicationToken(installed.token)
+    val recovery = snapshot.catalog.publications[publicationToken]
+        as? RuntimeCatalogPublicationStatus.RecoveryRequired
+        ?: return null
+    return ForegroundCatalogRecovery(installed.token, publicationToken, recovery.failedEpoch)
+}
+
+internal fun foregroundCatalogRetryCommand(recovery: ForegroundCatalogRecovery): RuntimeCommand =
+    RuntimeCommand.RetryCatalog(recovery.publicationToken, recovery.failedEpoch)
+
+internal fun installedReadyToken(
+    state: ForegroundNarImportState,
+    snapshot: RuntimeSnapshot,
+): NarImportAttemptToken? {
+    val installed = state as? ForegroundNarImportState.Installed ?: return null
+    return installed.token.takeIf {
+        snapshot.catalog.publications[foregroundPublicationToken(installed.token)] is
+            RuntimeCatalogPublicationStatus.Ready
+    }
+}
+
 internal data class TransientUiSnapshot(
     val toolbarVisible: Boolean,
 )
@@ -323,6 +355,8 @@ class Nanidroid : ComponentActivity() {
     private var deliveredExitOperationId: Long? = null
     private val lifecycleTrace = Collections.synchronizedList(mutableListOf<String>())
     private val shownCatalogRecoveries = mutableSetOf<Pair<com.cattailsw.nanidroid.runtime.CatalogPublicationToken, Long>>()
+    private val handledStartupExhaustions = mutableSetOf<Long>()
+    private val startupExhaustionEpochState = mutableStateOf<Long?>(null)
 
     private lateinit var runtime: GhostRuntime
     private lateinit var applicationOwner: CatTailApplication
@@ -388,6 +422,7 @@ class Nanidroid : ComponentActivity() {
             val hostLease by hostLeaseState
             val simpleDialog by simpleDialogState
             val importState by foregroundNarImport.state.collectAsState()
+            val bundledInstallState by applicationOwner.bundledInstallWorkflow.state.collectAsState()
             val lease = hostLease
             NanidroidComposeShell(
                 ghostStage = {
@@ -414,12 +449,20 @@ class Nanidroid : ComponentActivity() {
                 onReadme = ::openCurrentGhostReadme,
                 narImportState = importState,
                 installedReadyToken = installedReadyToken(importState, snapshot),
+                foregroundCatalogRecovery = foregroundCatalogRecovery(importState, snapshot),
                 onAcknowledgeNarImport = foregroundNarImport::acknowledge,
                 onSelectAnotherNarImport = {
                     foregroundNarImport.acknowledge(it)
                     launchNarPicker()
                 },
                 onRetryNarImportCleanup = foregroundNarImport::retryCleanup,
+                onRetryForegroundCatalog = { recovery ->
+                    runtime.submit(foregroundCatalogRetryCommand(recovery))
+                },
+                bundledInstallState = bundledInstallState,
+                onRetryBundledInstall = applicationOwner::retryBundledInstall,
+                startupExhaustedEpoch = startupExhaustionEpochState.value,
+                onRecoverStartup = ::openStartupRecovery,
                 simpleDialog = simpleDialog,
                 onDismissSimpleDialog = { simpleDialogState.value = null },
                 wallpaper = null,
@@ -485,6 +528,7 @@ class Nanidroid : ComponentActivity() {
 
     private fun reconcileSnapshot(snapshot: RuntimeSnapshot) {
         maybeStartGhost(snapshot)
+        reconcileStartupExhaustion(snapshot)
         showCatalogRecovery(snapshot)
         reconcileInputDraft(snapshot)
         deliverExit(snapshot)
@@ -494,6 +538,9 @@ class Nanidroid : ComponentActivity() {
         val recovery = snapshot.catalog.publications.entries.firstNotNullOfOrNull { (token, status) ->
             (status as? RuntimeCatalogPublicationStatus.RecoveryRequired)?.let { token to it }
         } ?: return
+        if (
+            foregroundCatalogRecovery(foregroundNarImport.state.value, snapshot)?.publicationToken == recovery.first
+        ) return
         val key = recovery.first to recovery.second.failedEpoch
         if (!shownCatalogRecoveries.add(key)) return
         simpleDialogState.value = NanidroidSimpleDialog.Notice(
@@ -502,6 +549,19 @@ class Nanidroid : ComponentActivity() {
         ) {
             runtime.submit(RuntimeCommand.RetryCatalog(recovery.first, recovery.second.failedEpoch))
         }
+    }
+
+    private fun reconcileStartupExhaustion(snapshot: RuntimeSnapshot) {
+        val ready = snapshot.catalog as? RuntimeCatalogState.Ready
+        val exhaustedEpoch = ready?.let { applicationOwner.startupCandidateAttempts.exhaustedEpoch(it.epoch) }
+        startupExhaustionEpochState.value = exhaustedEpoch?.takeUnless(handledStartupExhaustions::contains)
+    }
+
+    private fun openStartupRecovery(epoch: Long) {
+        if (startupExhaustionEpochState.value != epoch) return
+        handledStartupExhaustions += epoch
+        startupExhaustionEpochState.value = null
+        simpleDialogState.value = NanidroidSimpleDialog.MoreGhost(::launchNarPicker)
     }
 
     private fun maybeStartGhost(snapshot: RuntimeSnapshot) {
@@ -669,20 +729,6 @@ class Nanidroid : ComponentActivity() {
     private fun openDocumentLink(value: String) {
         tryLaunchDocumentExternalUrl(value) { url ->
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }
-    }
-
-    private fun installedReadyToken(
-        state: ForegroundNarImportState,
-        snapshot: RuntimeSnapshot,
-    ): NarImportAttemptToken? {
-        val installed = state as? ForegroundNarImportState.Installed ?: return null
-        val token = com.cattailsw.nanidroid.runtime.CatalogPublicationToken(
-            "foreground-import",
-            "${installed.token.processNonce}:${installed.token.sequence}:${installed.token.ownerTaskId}",
-        )
-        return installed.token.takeIf {
-            snapshot.catalog.publications[token] is RuntimeCatalogPublicationStatus.Ready
         }
     }
 
