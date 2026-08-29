@@ -703,7 +703,7 @@ class GhostRuntimeSnapshotTest {
             elapsedRealtimeMillis = elapsed::get,
         ).use { fixture ->
             fixture.startAttached("timer-notify-fatal", root)
-            fixture.makeTopHost(48L)
+            val top = fixture.makeTopHost(48L)
             fixture.runtime.enqueueScriptForTesting("\\![enter,passivemode]\\e")
             fixture.drain()
             fixture.runPlaybackUntil { it.mode.passive && !it.mode.playingTalk }
@@ -717,8 +717,22 @@ class GhostRuntimeSnapshotTest {
             )
             fixture.drain()
 
-            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            val poisoned = fixture.runtime.snapshots.value
+            assertEquals(GhostRuntimePhase.Poisoned, poisoned.phase)
+            assertTrue(poisoned.mode.passive)
             assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+
+            val back = RuntimeCommand.Back(poisoned.generation, top, poisoned.modeIdentity)
+            fixture.runtime.submit(back)
+            fixture.drain()
+            val offered = requireNotNull(fixture.runtime.snapshots.value.exit?.offeredLease)
+            assertEquals(top, offered.hostLease)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+
+            fixture.runtime.submit(back)
+            fixture.drain()
+            assertEquals(offered, fixture.runtime.snapshots.value.exit?.offeredLease)
+            assertTrue(fixture.nativePort.requests.isEmpty())
         }
     }
 
@@ -2288,8 +2302,37 @@ class GhostRuntimeSnapshotTest {
             pointer.complete(RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("ownership lost"))))
             fixture.drain()
 
-            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            val poisoned = fixture.runtime.snapshots.value
+            assertEquals(GhostRuntimePhase.Poisoned, poisoned.phase)
+            assertTrue(poisoned.mode.passive)
             assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+
+            fixture.runtime.submit(RuntimeCommand.SetTopResumed(top, false))
+            val replacementTop = fixture.makeTopHost(196L)
+            val handedOff = fixture.runtime.snapshots.value
+            assertEquals(poisoned.generation, handedOff.generation)
+            assertEquals(poisoned.modeIdentity, handedOff.modeIdentity)
+
+            fixture.runtime.submit(RuntimeCommand.Back(poisoned.generation, top, poisoned.modeIdentity))
+            fixture.drain()
+            assertEquals(null, fixture.runtime.snapshots.value.exit)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+
+            val replacementBack = RuntimeCommand.Back(
+                handedOff.generation,
+                replacementTop,
+                handedOff.modeIdentity,
+            )
+            fixture.runtime.submit(replacementBack)
+            fixture.drain()
+            val offered = requireNotNull(fixture.runtime.snapshots.value.exit?.offeredLease)
+            assertEquals(replacementTop, offered.hostLease)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+
+            fixture.runtime.submit(replacementBack)
+            fixture.drain()
+            assertEquals(offered, fixture.runtime.snapshots.value.exit?.offeredLease)
+            assertTrue(fixture.nativePort.requests.isEmpty())
         }
     }
 

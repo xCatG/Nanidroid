@@ -676,11 +676,12 @@ internal class GhostRuntime private constructor(
     }
 
     private fun back(command: RuntimeCommand.Back) {
-        if (playerState?.passive == true) return
+        if (playerState?.passive == true && phase != GhostRuntimePhase.Poisoned) return
         val existing = parentState
         if (existing is SnapshotParentState.Exit) return
         if (existing != null || command.expected != currentModeIdentity()) return
         if (generation != command.generation) return
+        if (command.generation != null && hostState.topResumed != command.host) return
         if (
             command.generation == null &&
             hasReservedNativeOwnership() &&
@@ -699,9 +700,7 @@ internal class GhostRuntime private constructor(
             offerExit(operationId, command.generation)
             return
         }
-        if (command.generation != null && (phase != GhostRuntimePhase.Attached || hostState.topResumed != command.host)) {
-            return
-        }
+        if (command.generation != null && phase != GhostRuntimePhase.Attached) return
         val operationId = ++nextOperationId
         if (command.generation == null) {
             joinedStartup = null

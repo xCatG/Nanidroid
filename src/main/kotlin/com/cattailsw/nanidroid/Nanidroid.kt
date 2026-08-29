@@ -83,7 +83,8 @@ internal fun ghostSelectionCommand(
 }
 
 internal fun userActionAllowed(snapshot: RuntimeSnapshot, action: GuardedAction): Boolean =
-    GhostActionGuard(snapshot.mode).allows(action, ActionOrigin.USER)
+    (snapshot.phase == GhostRuntimePhase.Poisoned && action == GuardedAction.EXIT) ||
+        GhostActionGuard(snapshot.mode).allows(action, ActionOrigin.USER)
 
 internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf(
     R.string.err_no_sdcard,
