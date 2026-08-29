@@ -1,6 +1,9 @@
 package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.runtime.MonotonicClock
+import com.cattailsw.nanidroid.runtime.PlayerCommand
+import com.cattailsw.nanidroid.runtime.PlayerState
+import com.cattailsw.nanidroid.runtime.SakuraScriptPlayer
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
 import java.io.File
@@ -23,7 +26,8 @@ class SScriptRunnerDialogueObserverTest {
         val observed = mutableListOf<DialogueRuntimeState>()
         runner.setDialogueStateObserver(observed::add)
 
-        runner.addMsgToQueue(arrayOf("\\hVisible\\q[Same,choice-id,\"\",tail]\\e"))
+        val choiceScript = "\\hVisible\\q[Same,choice-id,\"\",tail]\\e"
+        runner.addMsgToQueue(arrayOf(choiceScript))
         runner.run()
         val choiceState = runner.dialogueStateSnapshot()
         runner.activateChoice(choiceState.pendingChoices.single())
@@ -34,7 +38,8 @@ class SScriptRunnerDialogueObserverTest {
         assertTrue(choiceCompleted.pendingChoices.isEmpty())
         assertEquals(choiceCompleted, observed.last())
 
-        runner.addMsgToQueue(arrayOf("\\hInput\\![open,inputbox,name,9000,initial]\\e"))
+        val inputScript = "\\hInput\\![open,inputbox,name,9000,initial]\\e"
+        runner.addMsgToQueue(arrayOf(inputScript))
         runner.run()
         val inputState = runner.dialogueStateSnapshot()
         val pending = assertNotNull(inputState.pendingInput).let { inputState.pendingInput!! }
@@ -48,6 +53,36 @@ class SScriptRunnerDialogueObserverTest {
         assertEquals(null, inputCompleted.pendingInput)
         assertEquals(inputCompleted, observed.last())
         assertTrue(observed.zipWithNext().all { (before, after) -> after.revision > before.revision })
+
+        var player = drivePlayer(
+            SakuraScriptPlayer.reduce(
+                PlayerState.initial(4),
+                PlayerCommand.Enqueue(choiceScript, null),
+            ).state,
+        )
+        val playerChoiceTalkId = player.dialogue.state.talkId
+        val playerChoice = player.dialogue.choices.single()
+        val claimedChoice = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.ActivateChoice(playerChoice.key),
+        )
+        assertEquals(playerChoiceTalkId, claimedChoice.state.dialogue.state.talkId)
+        assertTrue(claimedChoice.state.dialogue.choices.isEmpty())
+
+        player = drivePlayer(
+            SakuraScriptPlayer.reduce(
+                claimedChoice.state,
+                PlayerCommand.Enqueue(inputScript, null),
+            ).state,
+        )
+        val playerInputTalkId = player.dialogue.state.talkId
+        val playerInput = requireNotNull(player.dialogue.input)
+        val claimedInput = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.SubmitInput(playerInput.key, "value"),
+        )
+        assertEquals(playerInputTalkId, claimedInput.state.dialogue.state.talkId)
+        assertNull(claimedInput.state.dialogue.input)
     }
 
     @Test
@@ -184,6 +219,18 @@ class SScriptRunnerDialogueObserverTest {
     }
 
     private fun runner(): SScriptRunner = fixture().runner
+
+    private fun drivePlayer(start: PlayerState): PlayerState {
+        var state = start
+        repeat(100) {
+            if (state.dialogue.input != null || state.current == null && state.queue.isEmpty()) return state
+            state = SakuraScriptPlayer.reduce(
+                state,
+                PlayerCommand.Advance(state.playbackToken, 10_000L),
+            ).state
+        }
+        throw AssertionError("player did not reach a blocked or terminal state")
+    }
 
     private fun fixture(id: String = "recording") = runtimes.create(
         id = id,

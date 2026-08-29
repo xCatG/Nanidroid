@@ -2,6 +2,10 @@ package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.runtime.MonotonicClock
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import com.cattailsw.nanidroid.runtime.PlayerCommand
+import com.cattailsw.nanidroid.runtime.PlayerEffect
+import com.cattailsw.nanidroid.runtime.PlayerState
+import com.cattailsw.nanidroid.runtime.SakuraScriptPlayer
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
@@ -45,7 +49,8 @@ class SScriptRunnerDialogueTimingTest {
     fun authoredWaitControlsTheNextScheduledPlaybackStepBeforeLaterTextPublishes() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
-        runner.addMsgToQueue(arrayOf("\\hA\\_w[321]B\\e"))
+        val script = "\\hA\\_w[321]B\\e"
+        runner.addMsgToQueue(arrayOf(script))
         runner.run()
 
         scheduler.runNext()
@@ -58,6 +63,31 @@ class SScriptRunnerDialogueTimingTest {
 
         scheduler.runNext()
         assertEquals("AB", runner.dialogueStateSnapshot().contents.single().segments.text())
+
+        var player = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(script, null),
+        ).state
+        var playerStep = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.Advance(player.playbackToken, 10_000L),
+        )
+        assertEquals("A", playerStep.state.presentation.sakura.text)
+        player = playerStep.state
+        playerStep = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.Advance(player.playbackToken, 10_050L),
+        )
+        assertEquals(
+            PlayerEffect.SchedulePlayback(playerStep.state.playbackToken, 321L),
+            playerStep.effects.single(),
+        )
+        player = playerStep.state
+        playerStep = SakuraScriptPlayer.reduce(
+            player,
+            PlayerCommand.Advance(player.playbackToken, 10_371L),
+        )
+        assertEquals("AB", playerStep.state.presentation.sakura.text)
     }
 
     @Test

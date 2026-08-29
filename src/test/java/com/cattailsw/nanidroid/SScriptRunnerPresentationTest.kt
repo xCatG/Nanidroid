@@ -2,6 +2,14 @@ package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.runtime.MonotonicClock
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import com.cattailsw.nanidroid.runtime.PlayerCommand
+import com.cattailsw.nanidroid.runtime.PlayerEffect
+import com.cattailsw.nanidroid.runtime.PlayerResponse
+import com.cattailsw.nanidroid.runtime.PlayerState
+import com.cattailsw.nanidroid.runtime.RuntimeCueKind
+import com.cattailsw.nanidroid.runtime.RuntimePresentation
+import com.cattailsw.nanidroid.runtime.RuntimeRequestToken
+import com.cattailsw.nanidroid.runtime.SakuraScriptPlayer
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
@@ -15,6 +23,7 @@ import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
 import java.util.ArrayDeque
+import java.util.Hashtable
 
 /** Characterizes the UI-free runtime-to-renderer presentation trace.  */
 class SScriptRunnerPresentationTest {
@@ -77,7 +86,8 @@ class SScriptRunnerPresentationTest {
             }
         })
 
-        runner.addMsgToQueue(arrayOf<String>("\\hA\\s[120]\\i[3]\\uB\\s[11]\\i[4]\\e"))
+        val script = "\\hA\\s[120]\\i[3]\\uB\\s[11]\\i[4]\\e"
+        runner.addMsgToQueue(arrayOf(script))
         runner.run()
 
         Assert.assertEquals(
@@ -92,6 +102,20 @@ class SScriptRunnerPresentationTest {
                 ":120:null::11:null"
             ),
             frames
+        )
+
+        val (playerFrames, playerEffects) = drivePlayer(script)
+        Assert.assertTrue(playerFrames.any { it.sakura.text == "A" && it.sakura.surfaceId == "0" })
+        Assert.assertTrue(playerFrames.any { it.sakura.text == "A" && it.sakura.surfaceId == "120" })
+        Assert.assertTrue(playerFrames.any { it.kero.text == "B" && it.kero.surfaceId == "11" })
+        Assert.assertEquals("120", playerFrames.last().sakura.surfaceId)
+        Assert.assertEquals("11", playerFrames.last().kero.surfaceId)
+        Assert.assertEquals("", playerFrames.last().sakura.text)
+        Assert.assertEquals(
+            listOf("3", "4"),
+            playerEffects.filterIsInstance<PlayerEffect.PresentationCue>()
+                .filter { it.kind == RuntimeCueKind.ONE_SHOT }
+                .mapNotNull { it.animationId },
         )
     }
 
@@ -1062,6 +1086,41 @@ class SScriptRunnerPresentationTest {
     }
 
     private fun noContent(): String = "SHIORI/3.0 204 No Content\r\n\r\n"
+
+    private fun drivePlayer(script: String): Pair<List<RuntimePresentation>, List<PlayerEffect>> {
+        var transition = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4),
+            PlayerCommand.Enqueue(script, null),
+        )
+        var state = transition.state
+        val presentations = mutableListOf(state.presentation)
+        val effects = transition.effects.toMutableList()
+        var requestId = 0L
+        repeat(100) {
+            if (state.current == null && state.queue.isEmpty()) return presentations to effects
+            transition = state.authoredRequest?.let { origin ->
+                SakuraScriptPlayer.reduce(
+                    state,
+                    PlayerCommand.NativeResponse(
+                        RuntimeRequestToken(state.generation, ++requestId, null, origin),
+                        PlayerResponse.Returned(
+                            ShioriResponse(
+                                "SHIORI/3.0 204 No Content",
+                                Hashtable(),
+                            ),
+                        ),
+                    ),
+                )
+            } ?: SakuraScriptPlayer.reduce(
+                state,
+                PlayerCommand.Advance(state.playbackToken, 0L),
+            )
+            state = transition.state
+            presentations += state.presentation
+            effects += transition.effects
+        }
+        throw AssertionError("player did not terminate")
+    }
 
     private fun talk(value: String): String = "SHIORI/3.0 200 OK\r\nValue: $value\r\n\r\n"
 
