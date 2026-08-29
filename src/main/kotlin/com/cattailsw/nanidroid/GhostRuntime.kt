@@ -839,7 +839,7 @@ internal class GhostRuntime private constructor(
                     parent.phaseRevision == origin.phaseRevision &&
                     parent.phase == SnapshotParentPhase.REQUEST
             }
-            is RuntimeRequestOrigin.Pointer -> !origin.passiveAtCapture && isCurrentSurface(origin.surface)
+            is RuntimeRequestOrigin.Pointer -> isCurrentSurface(origin.surface)
         }
         if (!valid) {
             record("NativeResponseRejected")
@@ -879,8 +879,23 @@ internal class GhostRuntime private constructor(
             is RuntimeRequestOrigin.Attachment -> settleAttachmentResponse(command)
             is RuntimeRequestOrigin.Timer -> settlePlayableResponse(command.result, current, command.token.requestId)
             is RuntimeRequestOrigin.Parent -> settleParentResponse(command)
-            is RuntimeRequestOrigin.Pointer -> settlePlayableResponse(command.result, current, command.token.requestId)
+            is RuntimeRequestOrigin.Pointer -> settlePointerResponse(
+                command.result,
+                current,
+                command.token.origin,
+                command.token.requestId,
+            )
         }
+    }
+
+    private fun settlePointerResponse(
+        result: RuntimeResult<TaggedShioriResponse>,
+        current: PlayerState,
+        origin: RuntimeRequestOrigin.Pointer,
+        operationId: Long,
+    ) {
+        if (result is RuntimeResult.Success && (origin.passiveAtCapture || current.passive)) return
+        settlePlayableResponse(result, current, operationId)
     }
 
     private fun settleParentResponse(command: RuntimeCommand.NativeResponse) {

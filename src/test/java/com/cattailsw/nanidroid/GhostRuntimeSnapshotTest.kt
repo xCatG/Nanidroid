@@ -1732,6 +1732,98 @@ class GhostRuntimeSnapshotTest {
     }
 
     @Test
+    fun fatalPassivePointerResponsePoisonsAfterSettlingItsToken() {
+        val root = File("build/runtime-snapshot/passive-pointer-fatal").canonicalFile
+        fixtureFor("passive-pointer-fatal", root).use { fixture ->
+            fixture.startAttached("passive-pointer-fatal", root)
+            val top = fixture.makeTopHost(96L)
+            fixture.runtime.enqueueScriptForTesting("\\![enter,passivemode]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.mode.passive }
+            val generation = requireNotNull(fixture.runtime.snapshots.value.generation)
+            val surface = RuntimeSurfaceIdentity(generation, GhostSpeaker.SAKURA, "0", 0L)
+            fixture.runtime.submit(RuntimeCommand.Pointer(generation, top, surface, pointerEffect(SurfaceSpeaker.SAKURA)))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val pointer = fixture.nativePort.requests.remove()
+
+            pointer.complete(RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("ownership lost"))))
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
+    @Test
+    fun replayablePassivePointerFailureSettlesWithTypedNotice() {
+        val root = File("build/runtime-snapshot/passive-pointer-replayable").canonicalFile
+        fixtureFor("passive-pointer-replayable", root).use { fixture ->
+            fixture.startAttached("passive-pointer-replayable", root)
+            val top = fixture.makeTopHost(97L)
+            fixture.runtime.enqueueScriptForTesting("\\![enter,passivemode]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.mode.passive }
+            val generation = requireNotNull(fixture.runtime.snapshots.value.generation)
+            val surface = RuntimeSurfaceIdentity(generation, GhostSpeaker.SAKURA, "0", 0L)
+            fixture.runtime.submit(RuntimeCommand.Pointer(generation, top, surface, pointerEffect(SurfaceSpeaker.SAKURA)))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val pointer = fixture.nativePort.requests.remove()
+
+            pointer.complete(RuntimeResult.Failure(RuntimeFailure.Replayable(IllegalStateException("retry"))))
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Attached, fixture.runtime.snapshots.value.phase)
+            assertEquals(pointer.token.requestId, fixture.runtime.snapshots.value.notice?.operationId)
+            assertEquals(RuntimeNoticeCode.REQUEST_FAILED, fixture.runtime.snapshots.value.notice?.code)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
+    @Test
+    fun pointerSuccessIsDiscardedWhenPlayerBecomesPassiveBeforeResponse() {
+        val root = File("build/runtime-snapshot/pointer-passive-before-response").canonicalFile
+        fixtureFor("pointer-passive-before-response", root).use { fixture ->
+            fixture.startAttached("pointer-passive-before-response", root)
+            val top = fixture.makeTopHost(98L)
+            val generation = requireNotNull(fixture.runtime.snapshots.value.generation)
+            fixture.runtime.enqueueScriptForTesting("\\hA\\![enter,passivemode]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil {
+                it.presentation.sakura.text.contains("A") && !it.mode.passive
+            }
+            val presentation = fixture.runtime.snapshots.value.presentation.sakura
+            val surface = RuntimeSurfaceIdentity(
+                generation,
+                GhostSpeaker.SAKURA,
+                presentation.surfaceId,
+                presentation.surfaceEpoch,
+            )
+            fixture.runtime.submit(RuntimeCommand.Pointer(generation, top, surface, pointerEffect(SurfaceSpeaker.SAKURA)))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val pointer = fixture.nativePort.requests.remove()
+            fixture.runPlaybackUntil { it.mode.passive }
+            val responseTraceStart = fixture.runtime.snapshotCommandTraceForTesting().size
+
+            pointer.complete(RuntimeResult.Success(TaggedShioriResponse(generation, response(200, "\\hUNWANTED\\e"))))
+            fixture.drain()
+            assertTrue(
+                fixture.runtime.snapshotCommandTraceForTesting()
+                    .drop(responseTraceStart)
+                    .none { it == "NativeResponseRejected" },
+            )
+            fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+            fixture.drain()
+
+            assertFalse(fixture.runtime.snapshots.value.mode.playingTalk)
+            assertFalse(fixture.runtime.snapshots.value.presentation.sakura.text.contains("UNWANTED"))
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
+    @Test
     fun nonPassiveKeroPointerClearsStalePlaybackBeforeItsResponse() {
         val root = File("build/runtime-snapshot/kero-pointer-interrupt").canonicalFile
         fixtureFor("kero-pointer-interrupt", root).use { fixture ->
