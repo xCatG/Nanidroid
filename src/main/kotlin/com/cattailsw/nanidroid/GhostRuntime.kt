@@ -19,6 +19,7 @@ import com.cattailsw.nanidroid.runtime.RuntimeHostInput
 import com.cattailsw.nanidroid.runtime.RuntimeHostReducer
 import com.cattailsw.nanidroid.runtime.RuntimeHostState
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLoadOutcome
 import com.cattailsw.nanidroid.runtime.RuntimeNativePort
 import com.cattailsw.nanidroid.runtime.RuntimePendingGhostIdentity
 import com.cattailsw.nanidroid.runtime.RuntimeRequestOrigin
@@ -32,6 +33,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.GhostEventCapabilityDiscovery
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueActionKey
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
+import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
 import com.cattailsw.nanidroid.shiori.Kawari
 import com.cattailsw.nanidroid.shiori.LoadFailureState
 import com.cattailsw.nanidroid.shiori.NanidroidShiori
@@ -47,9 +49,6 @@ import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
 import java.io.StringReader
-import java.util.concurrent.Callable
-import java.util.concurrent.CompletableFuture
-import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
@@ -65,12 +64,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-internal data class GhostHandle(
-    val ghost: Ghost,
-    val pointerCapabilities: PointerEventCapabilities,
-    val generation: Long,
-)
 
 internal data class TaggedShioriResponse(
     val generation: Long,
@@ -140,66 +133,12 @@ internal sealed interface RuntimeResult<out T> {
     data class Failure(val failure: RuntimeFailure) : RuntimeResult<Nothing>
 }
 
-internal sealed interface RuntimeRequestSubmission {
-    data class Accepted(
-        val result: CompletableFuture<RuntimeResult<TaggedShioriResponse>>,
-    ) : RuntimeRequestSubmission
-
-    data class Rejected(
-        val failure: RuntimeResult.Failure,
-    ) : RuntimeRequestSubmission
-}
-
-internal sealed interface BootOutcome {
-    data class Response(val tagged: TaggedShioriResponse) : BootOutcome
-    data class BootAttemptFailed(val cause: Throwable) : BootOutcome
-}
-
-internal sealed interface AttachmentReceipt {
-    data class NewlyAttached(val operationId: Long) : AttachmentReceipt
-    data object AlreadyAttached : AttachmentReceipt
-}
-
-internal fun interface AttachmentAdmission {
-    fun admit(
-        operationId: Long,
-        handle: GhostHandle,
-        outcome: BootOutcome,
-    ): RuntimeResult<Unit>
-}
-
 internal interface GhostRuntimePersistence {
     fun readLastRunGhostId(): String?
     fun commitLastRunGhostId(ghostId: String)
     fun readActivationCount(ghostId: String): Long
     fun commitActivationCount(ghostId: String, count: Long)
 }
-
-internal sealed interface AttachmentReason {
-    data object Initial : AttachmentReason
-    data class Switched(val outgoingGhostName: String) : AttachmentReason
-}
-
-internal data class GhostRuntimeTestHooks(
-    val onPreparationStarted: (Long, String, File) -> Unit = { _, _, _ -> },
-    val onNativeLoadStarted: (Long, GhostEngine) -> Unit = { _, _ -> },
-    val onGenerationPublished: (Long, String) -> Unit = { _, _ -> },
-    val onActivationCommitted: (Long) -> Unit = {},
-    val onBootAttempted: (Long, String) -> Unit = { _, _ -> },
-    val onOutgoingUnloaded: (Long) -> Unit = {},
-)
-
-internal data class NativeLifecycleProbeTrace(
-    val engine: GhostEngine,
-    val commandThreadNames: List<String>,
-    val steps: List<String>,
-)
-
-internal data class PendingGhostIdentity(
-    val operationId: Long,
-    val ghostId: String,
-    val canonicalRoot: File,
-)
 
 internal enum class GhostRuntimePhase {
     Idle,
@@ -211,12 +150,6 @@ internal enum class GhostRuntimePhase {
     Replacing,
     Poisoned,
 }
-
-internal data class GhostRuntimeIdentity(
-    val activeHandle: GhostHandle?,
-    val pending: PendingGhostIdentity?,
-    val phase: GhostRuntimePhase,
-)
 
 internal class GhostRuntime private constructor(
     private val preparer: GhostPreparer,
@@ -260,6 +193,7 @@ internal class GhostRuntime private constructor(
     private var pending: SnapshotPendingOperation? = null
     private var activePrepared: PreparedGhost? = null
     private var generation: Long? = null
+    private var pointerCapabilities = PointerEventCapabilities()
     private var nextGeneration = 0L
     private var nextOperationId = 0L
     private var phase = GhostRuntimePhase.Idle
@@ -534,11 +468,13 @@ internal class GhostRuntime private constructor(
                     transitionToPoisoned(operation.operationId)
                     return
                 }
-                finishNativeLoad(operation, prepared, completion.generation, completion.activationCount)
-            }
-            is SnapshotIoCompletion.AttachmentPersistence -> {
-                if (attachmentOperationId != completion.operationId || phase != GhostRuntimePhase.Attaching) return
-                finishAttachment(completion.operationId)
+                finishNativeLoad(
+                    operation,
+                    prepared,
+                    completion.generation,
+                    completion.activationCount,
+                    completion.pointerCapabilities,
+                )
             }
         }
     }
@@ -580,25 +516,26 @@ internal class GhostRuntime private constructor(
         } ?: return
         val prepared = operation.prepared ?: return
         when (val outcome = command.outcome) {
-            RuntimeNativeLifecycleOutcome.Success -> {
+            is RuntimeNativeLoadOutcome.Loaded -> {
                 ioScope.launch {
-                    val committed = runCatching { persistence.commitLastRunGhostId(prepared.id) }.isSuccess
-                    val activationCount = if (committed) {
-                        runCatching { persistence.readActivationCount(prepared.id) }.getOrDefault(0L)
-                    } else {
-                        0L
-                    }
+                    val activationCount = runCatching {
+                        persistence.commitLastRunGhostId(prepared.id)
+                        persistence.readActivationCount(prepared.id).also { count ->
+                            persistence.commitActivationCount(prepared.id, count + 1L)
+                        }
+                    }.getOrNull()
                     submitIo(
                         SnapshotIoCompletion.LoadPersistence(
                             operation.operationId,
                             command.generation,
-                            committed,
-                            activationCount,
+                            activationCount != null,
+                            activationCount ?: 0L,
+                            outcome.pointerCapabilities,
                         ),
                     )
                 }
             }
-            is RuntimeNativeLifecycleOutcome.Failed -> {
+            is RuntimeNativeLoadOutcome.Failed -> {
                 pending = null
                 if (outcome.ownershipCertain) {
                     phase = GhostRuntimePhase.Idle
@@ -616,9 +553,11 @@ internal class GhostRuntime private constructor(
         prepared: PreparedGhost,
         loadedGeneration: Long,
         activationCount: Long,
+        loadedPointerCapabilities: PointerEventCapabilities,
     ) {
         nextGeneration = loadedGeneration
         generation = loadedGeneration
+        pointerCapabilities = loadedPointerCapabilities
         activePrepared = prepared
         playerState = PlayerState.initial(loadedGeneration)
         pending = null
@@ -815,25 +754,16 @@ internal class GhostRuntime private constructor(
             hostState.topResumed != command.host ||
             !isCurrentSurface(command.surface)
         ) return
-        val eventId = when (command.effect.kind) {
-            com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind.CLICK -> "OnMouseClick"
-            com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind.DOUBLE_CLICK -> "OnMouseDoubleClick"
-            else -> return
+        val eventId = SurfaceInteractionProtocol.eventFor(command.effect, pointerCapabilities) ?: return
+        val passiveAtCapture = current.passive
+        if (!passiveAtCapture && command.effect.speaker == com.cattailsw.nanidroid.compose.SurfaceSpeaker.KERO) {
+            consumePlayerTransition(SakuraScriptPlayer.reduce(current, PlayerCommand.Clear(null)))
         }
-        if (command.effect.button != 0) return
         submitRequest(
-            origin = RuntimeRequestOrigin.Pointer(command.surface),
+            origin = RuntimeRequestOrigin.Pointer(command.surface, passiveAtCapture),
             intent = ShioriRequestIntent.event(
                 eventId,
-                listOf(
-                    command.effect.intrinsic.x.toString(),
-                    command.effect.intrinsic.y.toString(),
-                    "0",
-                    command.effect.speaker.legacyReference,
-                    command.effect.collisionIdentifier.orEmpty(),
-                    command.effect.button.toString(),
-                    command.effect.source.shioriReference,
-                ),
+                SurfaceInteractionProtocol.references(command.effect),
             ),
             fallback = null,
             parentOperationId = null,
@@ -909,7 +839,7 @@ internal class GhostRuntime private constructor(
                     parent.phaseRevision == origin.phaseRevision &&
                     parent.phase == SnapshotParentPhase.REQUEST
             }
-            is RuntimeRequestOrigin.Pointer -> isCurrentSurface(origin.surface)
+            is RuntimeRequestOrigin.Pointer -> !origin.passiveAtCapture && isCurrentSurface(origin.surface)
         }
         if (!valid) {
             record("NativeResponseRejected")
@@ -1062,6 +992,7 @@ internal class GhostRuntime private constructor(
             RuntimeNativeLifecycleOutcome.Success -> {
                 retireGenerationSchedules(parent.generation)
                 generation = null
+                pointerCapabilities = PointerEventCapabilities()
                 activePrepared = null
                 playerState = null
                 attachmentOperationId = null
@@ -1102,18 +1033,7 @@ internal class GhostRuntime private constructor(
                 if (!value.isNullOrEmpty()) {
                     consumePlayerTransition(SakuraScriptPlayer.reduce(current, PlayerCommand.Enqueue(value, null)))
                 }
-                val prepared = activePrepared
-                if (prepared == null) {
-                    finishAttachment(operationId)
-                } else {
-                    ioScope.launch {
-                        runCatching {
-                            val count = persistence.readActivationCount(prepared.id)
-                            persistence.commitActivationCount(prepared.id, count + 1L)
-                        }
-                        submitIo(SnapshotIoCompletion.AttachmentPersistence(operationId))
-                    }
-                }
+                finishAttachment(operationId)
             }
             is RuntimeResult.Failure -> when (result.failure) {
                 is RuntimeFailure.Fatal -> {
@@ -1399,7 +1319,7 @@ internal class GhostRuntime private constructor(
                 RuntimeCommand.NativeLoadCompleted(
                     operation.operationId,
                     candidateGeneration,
-                    RuntimeNativeLifecycleOutcome.Failed(
+                    RuntimeNativeLoadOutcome.Failed(
                         com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED,
                         ownershipCertain = true,
                     ),
@@ -1422,7 +1342,7 @@ internal class GhostRuntime private constructor(
         } catch (_: Throwable) {
             settleNativeLoad(
                 loading,
-                RuntimeNativeLifecycleOutcome.Failed(
+                RuntimeNativeLoadOutcome.Failed(
                     com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED,
                     ownershipCertain = false,
                 ),
@@ -1432,14 +1352,14 @@ internal class GhostRuntime private constructor(
 
     private fun settleNativeLoad(
         loading: SnapshotNativeLifecycle.Loading,
-        outcome: RuntimeNativeLifecycleOutcome,
+        outcome: RuntimeNativeLoadOutcome,
     ) {
         if (!loading.settled.compareAndSet(false, true)) return
         var publish = false
         synchronized(resourceLock) {
             if (nativeLifecycle !== loading) return
-            val keepOwnership = outcome == RuntimeNativeLifecycleOutcome.Success ||
-                (outcome is RuntimeNativeLifecycleOutcome.Failed && !outcome.ownershipCertain)
+            val keepOwnership = outcome is RuntimeNativeLoadOutcome.Loaded ||
+                (outcome is RuntimeNativeLoadOutcome.Failed && !outcome.ownershipCertain)
             if (keepOwnership) {
                 val loaded = SnapshotNativeLifecycle.Loaded(loading.ownership)
                 nativeLifecycle = loaded
@@ -2014,9 +1934,9 @@ internal class GhostRuntime private constructor(
             val generation: Long,
             val committed: Boolean,
             val activationCount: Long,
+            val pointerCapabilities: PointerEventCapabilities,
         ) : SnapshotIoCompletion
 
-        data class AttachmentPersistence(val operationId: Long) : SnapshotIoCompletion
     }
 
     private enum class SnapshotParentPhase { REQUEST, PLAYBACK, UNLOADING, REPLACING, ATTACHING, READY }
@@ -2103,11 +2023,11 @@ internal class NativeSessionRuntimePort(
         operationId: Long,
         generation: Long,
         prepared: PreparedGhost,
-        complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+        complete: (RuntimeNativeLoadOutcome) -> Unit,
     ) {
         if (session != null) {
             complete(
-                RuntimeNativeLifecycleOutcome.Failed(
+                RuntimeNativeLoadOutcome.Failed(
                     com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_OWNERSHIP_UNCERTAIN,
                     ownershipCertain = false,
                 ),
@@ -2120,7 +2040,27 @@ internal class NativeSessionRuntimePort(
         }) {
             ShioriLoadResult.Loaded -> {
                 session = NativeSession(adapter, generation)
-                complete(RuntimeNativeLifecycleOutcome.Success)
+                val capabilities = try {
+                    GhostEventCapabilityDiscovery.discover { method, eventId, references ->
+                        when (val result = request(
+                            requireNotNull(session),
+                            ShioriRequestIntent.raw(method, eventId, references),
+                        )) {
+                            is RuntimeResult.Success -> result.value.response
+                            is RuntimeResult.Failure -> throw when (val failure = result.failure) {
+                                is RuntimeFailure.Replayable -> failure.cause
+                                is RuntimeFailure.Fatal -> failure.cause
+                                RuntimeFailure.Busy -> IllegalStateException("Capability discovery found a busy native session")
+                                RuntimeFailure.StaleGeneration -> IllegalStateException("Capability discovery found a stale native session")
+                            }
+                        }
+                    }
+                } catch (failure: ShioriRequestException) {
+                    session = null
+                    settleLoadedDiscoveryFailure(adapter, complete)
+                    return
+                }
+                complete(RuntimeNativeLoadOutcome.Loaded(capabilities))
             }
             is ShioriLoadResult.Failed -> settleLoadFailure(adapter, result, complete)
         }
@@ -2176,7 +2116,7 @@ internal class NativeSessionRuntimePort(
     private fun settleLoadFailure(
         adapter: Shiori,
         failure: ShioriLoadResult.Failed,
-        complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+        complete: (RuntimeNativeLoadOutcome) -> Unit,
     ) {
         val ownershipCertain = when (failure.state) {
             LoadFailureState.ProvenEmpty -> true
@@ -2184,7 +2124,24 @@ internal class NativeSessionRuntimePort(
             LoadFailureState.CleanupRequired -> adapter.unloadShiori() == ShioriUnloadResult.Unloaded
         }
         complete(
-            RuntimeNativeLifecycleOutcome.Failed(
+            RuntimeNativeLoadOutcome.Failed(
+                if (ownershipCertain) {
+                    com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED
+                } else {
+                    com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_OWNERSHIP_UNCERTAIN
+                },
+                ownershipCertain,
+            ),
+        )
+    }
+
+    private fun settleLoadedDiscoveryFailure(
+        adapter: Shiori,
+        complete: (RuntimeNativeLoadOutcome) -> Unit,
+    ) {
+        val ownershipCertain = adapter.unloadShiori() == ShioriUnloadResult.Unloaded
+        complete(
+            RuntimeNativeLoadOutcome.Failed(
                 if (ownershipCertain) {
                     com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_LOAD_FAILED
                 } else {
@@ -2248,7 +2205,7 @@ private class PreferenceGhostRuntimePersistence(
         context?.let { PrefUtil.getKeyValueLong(it, CREATE_COUNT_PREFIX + ghostId) } ?: 0L
 
     override fun commitActivationCount(ghostId: String, count: Long) {
-        context?.let { PrefUtil.setKeyAsync(it, CREATE_COUNT_PREFIX + ghostId, count) }
+        context?.let { PrefUtil.setKey(it, CREATE_COUNT_PREFIX + ghostId, count) }
     }
 
     private companion object {

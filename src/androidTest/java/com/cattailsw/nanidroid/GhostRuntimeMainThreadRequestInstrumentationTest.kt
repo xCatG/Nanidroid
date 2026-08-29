@@ -6,6 +6,7 @@ import com.cattailsw.nanidroid.runtime.ApplicationRuntimeScheduler
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLoadOutcome
 import com.cattailsw.nanidroid.runtime.RuntimeNativePort
 import com.cattailsw.nanidroid.runtime.RuntimeRequestToken
 import java.io.File
@@ -32,8 +33,12 @@ class GhostRuntimeMainThreadRequestInstrumentationTest {
                     operationId: Long,
                     generation: Long,
                     prepared: PreparedGhost,
-                    complete: (RuntimeNativeLifecycleOutcome) -> Unit,
-                ) = complete(RuntimeNativeLifecycleOutcome.Success)
+                    complete: (RuntimeNativeLoadOutcome) -> Unit,
+                ) = complete(
+                    RuntimeNativeLoadOutcome.Loaded(
+                        com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities(),
+                    ),
+                )
 
                 override fun request(
                     token: RuntimeRequestToken,

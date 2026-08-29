@@ -16,12 +16,14 @@ import com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode
 import com.cattailsw.nanidroid.runtime.dialogue.InputBoxSpec
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.RuntimeAnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.RuntimeChoiceAction
 import com.cattailsw.nanidroid.runtime.dialogue.RuntimeInputAction
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import java.io.File
 import java.util.Collections
+import java.util.IdentityHashMap
 
 enum class GhostSpeaker { SAKURA, KERO }
 
@@ -247,7 +249,10 @@ internal sealed interface RuntimeRequestOrigin {
 
     data class Dialogue(val action: DialogueActionKey) : RuntimeRequestOrigin
 
-    data class Pointer(val surface: RuntimeSurfaceIdentity) : RuntimeRequestOrigin
+    data class Pointer(
+        val surface: RuntimeSurfaceIdentity,
+        val passiveAtCapture: Boolean,
+    ) : RuntimeRequestOrigin
 
     data class Parent(val operationId: Long, val phaseRevision: Long) : RuntimeRequestOrigin
 
@@ -286,6 +291,17 @@ internal sealed interface RuntimeNativeLifecycleOutcome {
     ) : RuntimeNativeLifecycleOutcome
 }
 
+internal sealed interface RuntimeNativeLoadOutcome {
+    data class Loaded(
+        val pointerCapabilities: PointerEventCapabilities,
+    ) : RuntimeNativeLoadOutcome
+
+    data class Failed(
+        val reason: RuntimeNoticeCode,
+        val ownershipCertain: Boolean,
+    ) : RuntimeNativeLoadOutcome
+}
+
 internal sealed interface RuntimeCommand {
     data class RegisterHost(val lease: RuntimeHostLease) : RuntimeCommand
 
@@ -305,7 +321,7 @@ internal sealed interface RuntimeCommand {
     data class NativeLoadCompleted(
         val operationId: Long,
         val generation: Long,
-        val outcome: RuntimeNativeLifecycleOutcome,
+        val outcome: RuntimeNativeLoadOutcome,
     ) : RuntimeCommand
 
     data class NativeUnloadCompleted(
@@ -405,55 +421,79 @@ private fun frozenPublicationStatus(status: RuntimeCatalogPublicationStatus): Ru
         is RuntimeCatalogPublicationStatus.RecoveryRequired -> status.copy()
     }
 
-private fun frozenDialogue(source: RuntimeDialogueSnapshot): RuntimeDialogueSnapshot = source.copy(
-    state = frozenDialogueState(source.state),
-    choices = frozenList(source.choices.map { RuntimeChoiceAction(it.key.copy(), frozenDialogueAction(it.action)) }),
-    anchors = frozenList(source.anchors.map { RuntimeAnchorAction(it.key.copy(), frozenAnchorAction(it.action)) }),
-    input = source.input?.let { RuntimeInputAction(it.key.copy(), frozenPendingInput(it.pending)) },
-)
+private fun frozenDialogue(source: RuntimeDialogueSnapshot): RuntimeDialogueSnapshot =
+    DialogueGraphFreezer().freeze(source)
 
-private fun frozenDialogueState(source: DialogueRuntimeState): DialogueRuntimeState = source.copy(
-    contents = frozenList(source.contents.map(::frozenDialogueContent)),
-    pendingChoices = frozenList(source.pendingChoices.map(::frozenDialogueAction)),
-    pendingInput = source.pendingInput?.let(::frozenPendingInput),
-)
+private fun frozenDialogueState(source: DialogueRuntimeState): DialogueRuntimeState =
+    DialogueGraphFreezer().freezeState(source)
 
-private fun frozenDialogueContent(source: DialogueContent): DialogueContent = source.copy(
-    segments = frozenList(source.segments.map(::frozenDialogueSegment)),
-)
+private class DialogueGraphFreezer {
+    private val dialogueActions = IdentityHashMap<DialogueAction, DialogueAction>()
+    private val anchorActions = IdentityHashMap<AnchorAction, AnchorAction>()
+    private val inputSpecs = IdentityHashMap<InputBoxSpec, InputBoxSpec>()
+    private val pendingInputs = IdentityHashMap<PendingInputState, PendingInputState>()
 
-private fun frozenDialogueSegment(source: DialogueSegment): DialogueSegment = when (source) {
-    is DialogueSegment.Choice -> source.copy(action = frozenDialogueAction(source.action))
-    is DialogueSegment.Anchor -> source.copy(action = frozenAnchorAction(source.action))
-    is DialogueSegment.InputBox -> source.copy(spec = frozenInputBoxSpec(source.spec))
-    else -> source
+    fun freeze(source: RuntimeDialogueSnapshot): RuntimeDialogueSnapshot = source.copy(
+        state = freezeState(source.state),
+        choices = frozenList(source.choices.map {
+            RuntimeChoiceAction(it.key.copy(), freezeDialogueAction(it.action))
+        }),
+        anchors = frozenList(source.anchors.map {
+            RuntimeAnchorAction(it.key.copy(), freezeAnchorAction(it.action))
+        }),
+        input = source.input?.let { RuntimeInputAction(it.key.copy(), freezePendingInput(it.pending)) },
+    )
+
+    fun freezeState(source: DialogueRuntimeState): DialogueRuntimeState = source.copy(
+        contents = frozenList(source.contents.map(::freezeContent)),
+        pendingChoices = frozenList(source.pendingChoices.map(::freezeDialogueAction)),
+        pendingInput = source.pendingInput?.let(::freezePendingInput),
+    )
+
+    private fun freezeContent(source: DialogueContent): DialogueContent = source.copy(
+        segments = frozenList(source.segments.map(::freezeSegment)),
+    )
+
+    private fun freezeSegment(source: DialogueSegment): DialogueSegment = when (source) {
+        is DialogueSegment.Choice -> source.copy(action = freezeDialogueAction(source.action))
+        is DialogueSegment.Anchor -> source.copy(action = freezeAnchorAction(source.action))
+        is DialogueSegment.InputBox -> source.copy(spec = freezeInputSpec(source.spec))
+        else -> source
+    }
+
+    private fun freezeDialogueAction(source: DialogueAction): DialogueAction =
+        dialogueActions.getOrPut(source) {
+            when (source) {
+                is DialogueAction.Normal -> source.copy(extraReferences = frozenList(source.extraReferences))
+                is DialogueAction.DirectEvent -> source.copy(references = frozenList(source.references))
+                is DialogueAction.Script -> source.copy()
+            }
+        }
+
+    private fun freezeAnchorAction(source: AnchorAction): AnchorAction =
+        anchorActions.getOrPut(source) {
+            when (source) {
+                is AnchorAction.Normal -> source.copy(extraReferences = frozenList(source.extraReferences))
+                is AnchorAction.DirectEvent -> source.copy(references = frozenList(source.references))
+            }
+        }
+
+    private fun freezePendingInput(source: PendingInputState): PendingInputState =
+        pendingInputs.getOrPut(source) { source.copy(spec = freezeInputSpec(source.spec)) }
+
+    private fun freezeInputSpec(source: InputBoxSpec): InputBoxSpec = inputSpecs.getOrPut(source) {
+        source.copy(
+            dispatch = when (val dispatch = source.dispatch) {
+                is InputDispatch.Normal -> dispatch.copy()
+                is InputDispatch.DirectEvent -> dispatch.copy()
+            },
+            behaviorOptions = frozenSet(source.behaviorOptions),
+            presentation = source.presentation.copy(),
+            extraReferences = frozenList(source.extraReferences),
+            unknownOptions = frozenList(source.unknownOptions),
+        )
+    }
 }
-
-private fun frozenDialogueAction(source: DialogueAction): DialogueAction = when (source) {
-    is DialogueAction.Normal -> source.copy(extraReferences = frozenList(source.extraReferences))
-    is DialogueAction.DirectEvent -> source.copy(references = frozenList(source.references))
-    is DialogueAction.Script -> source.copy()
-}
-
-private fun frozenAnchorAction(source: AnchorAction): AnchorAction = when (source) {
-    is AnchorAction.Normal -> source.copy(extraReferences = frozenList(source.extraReferences))
-    is AnchorAction.DirectEvent -> source.copy(references = frozenList(source.references))
-}
-
-private fun frozenPendingInput(source: PendingInputState): PendingInputState = source.copy(
-    spec = frozenInputBoxSpec(source.spec),
-)
-
-private fun frozenInputBoxSpec(source: InputBoxSpec): InputBoxSpec = source.copy(
-    dispatch = when (val dispatch = source.dispatch) {
-        is InputDispatch.Normal -> dispatch.copy()
-        is InputDispatch.DirectEvent -> dispatch.copy()
-    },
-    behaviorOptions = frozenSet(source.behaviorOptions),
-    presentation = source.presentation.copy(),
-    extraReferences = frozenList(source.extraReferences),
-    unknownOptions = frozenList(source.unknownOptions),
-)
 
 private fun <T> frozenList(source: Collection<T>): List<T> =
     Collections.unmodifiableList(ArrayList(source))

@@ -48,6 +48,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
+import java.util.Collections
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -267,6 +268,7 @@ class Nanidroid : ComponentActivity() {
     private var inputDraft: InputDraft? = null
     private var pendingRestoredInputDraft: InputDraft? = null
     private var deliveredExitOperationId: Long? = null
+    private val lifecycleTrace = Collections.synchronizedList(mutableListOf<String>())
     private val shownCatalogRecoveries = mutableSetOf<Pair<com.cattailsw.nanidroid.runtime.CatalogPublicationToken, Long>>()
 
     private lateinit var runtime: GhostRuntime
@@ -308,6 +310,7 @@ class Nanidroid : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    lifecycleTrace += "back"
                     val snapshot = snapshotState.value
                     val lease = hostLeaseState.value ?: return
                     runtime.submit(RuntimeCommand.Back(snapshot.generation, lease, snapshot.modeIdentity))
@@ -375,12 +378,19 @@ class Nanidroid : ComponentActivity() {
 
     override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
         super.onTopResumedActivityChanged(isTopResumedActivity)
+        lifecycleTrace += if (isTopResumedActivity) "topResumedTrue" else "topResumedFalse"
         submitHostCommand { RuntimeCommand.SetTopResumed(it, isTopResumedActivity) }
     }
 
     override fun onPause() {
+        lifecycleTrace += "onPause"
         submitHostCommand { RuntimeCommand.SetResumed(it, false) }
         super.onPause()
+    }
+
+    override fun onStop() {
+        lifecycleTrace += "onStop"
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -476,10 +486,13 @@ class Nanidroid : ComponentActivity() {
         val currentLease = hostLeaseState.value ?: return
         if (offered.hostLease != currentLease || deliveredExitOperationId == offered.operationId) return
         deliveredExitOperationId = offered.operationId
+        lifecycleTrace += "claim"
         runtime.submit(RuntimeCommand.ClaimExit(offered))
         try {
+            lifecycleTrace += "finish"
             finish()
         } finally {
+            lifecycleTrace += "acknowledge"
             runtime.submit(RuntimeCommand.AcknowledgeExit(offered))
         }
     }
@@ -607,6 +620,7 @@ class Nanidroid : ComponentActivity() {
 
     internal fun snapshotForTesting(): RuntimeSnapshot = snapshotState.value
     internal fun hostLeaseForTesting(): RuntimeHostLease? = hostLeaseState.value
+    internal fun lifecycleTraceForTesting(): List<String> = synchronized(lifecycleTrace) { lifecycleTrace.toList() }
 
     private data class InputDraft(val key: DialogueActionKey, val value: String)
 

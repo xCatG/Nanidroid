@@ -6,6 +6,7 @@ import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
 import com.cattailsw.nanidroid.runtime.RuntimeCommandDispatcher
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLoadOutcome
 import com.cattailsw.nanidroid.runtime.RuntimeNativePort
 import com.cattailsw.nanidroid.runtime.RuntimeRequestToken
 import com.cattailsw.nanidroid.runtime.RuntimeScheduleKey
@@ -100,7 +101,7 @@ internal open class RecordingRuntimeNativePort : RuntimeNativePort {
         val operationId: Long,
         val generation: Long,
         val prepared: PreparedGhost,
-        val complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+        val complete: (RuntimeNativeLoadOutcome) -> Unit,
     )
 
     data class PendingRequest(
@@ -125,7 +126,7 @@ internal open class RecordingRuntimeNativePort : RuntimeNativePort {
         operationId: Long,
         generation: Long,
         prepared: PreparedGhost,
-        complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+        complete: (RuntimeNativeLoadOutcome) -> Unit,
     ) {
         loads += PendingLoad(operationId, generation, prepared, complete)
     }
@@ -242,15 +243,25 @@ internal class SnapshotRuntimeFixture(
         }
     }
 
-    fun startLoaded(id: String, root: File) {
+    fun startLoaded(
+        id: String,
+        root: File,
+        pointerCapabilities: com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities =
+            com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities(),
+    ) {
         runtime.submit(RuntimeCommand.StartGhost(id, root))
         awaitNativeWork()
-        nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+        nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(pointerCapabilities))
         dispatcher.drain()
     }
 
-    fun startAttached(id: String, root: File) {
-        startLoaded(id, root)
+    fun startAttached(
+        id: String,
+        root: File,
+        pointerCapabilities: com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities =
+            com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities(),
+    ) {
+        startLoaded(id, root, pointerCapabilities)
         awaitNativeWork()
         nativePort.requests.remove().complete(
             RuntimeResult.Success(

@@ -5,7 +5,6 @@ import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.runtime.CatalogPublicationToken
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
 import com.cattailsw.nanidroid.runtime.RuntimeCommand
-import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
 import com.cattailsw.nanidroid.runtime.SakuraScriptPlayerTest
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import java.io.File
@@ -33,7 +32,11 @@ class GhostRuntimePlaybackTest {
         ).use { fixture ->
             fixture.runtime.submit(RuntimeCommand.StartGhost("ordinary-boot", root))
             fixture.awaitNativeWork()
-            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.nativePort.loads.remove().complete(
+                com.cattailsw.nanidroid.runtime.RuntimeNativeLoadOutcome.Loaded(
+                    com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities(),
+                ),
+            )
             fixture.drain()
             fixture.awaitNativeWork()
 

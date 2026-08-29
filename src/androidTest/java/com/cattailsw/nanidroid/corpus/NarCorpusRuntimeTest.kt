@@ -30,6 +30,7 @@ import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.DescReader
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLoadOutcome
 import com.cattailsw.nanidroid.runtime.RuntimeRequestOrigin
 import com.cattailsw.nanidroid.runtime.RuntimeRequestToken
 import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
@@ -915,9 +916,9 @@ class NarCorpusRuntimeTest {
             fun open(context: Context, ghostIdentity: String, installedRoot: File): RuntimeShioriSession {
                 val prepared = GhostPreparer(context).prepare(1L, ghostIdentity, installedRoot)
                 val nativePort = NativeSessionRuntimePort(context)
-                var outcome: RuntimeNativeLifecycleOutcome? = null
+                var outcome: RuntimeNativeLoadOutcome? = null
                 nativePort.load(1L, 1L, prepared) { outcome = it }
-                check(outcome == RuntimeNativeLifecycleOutcome.Success) { "Corpus load failed: $outcome" }
+                check(outcome is RuntimeNativeLoadOutcome.Loaded) { "Corpus load failed: $outcome" }
                 return RuntimeShioriSession(nativePort, prepared, 1L)
             }
 

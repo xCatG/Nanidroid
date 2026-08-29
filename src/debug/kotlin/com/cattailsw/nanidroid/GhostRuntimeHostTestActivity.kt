@@ -14,6 +14,7 @@ import com.cattailsw.nanidroid.runtime.RuntimeExitLease
 import com.cattailsw.nanidroid.runtime.RuntimeHostId
 import com.cattailsw.nanidroid.runtime.RuntimeHostLease
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLoadOutcome
 import com.cattailsw.nanidroid.runtime.RuntimeNativePort
 import com.cattailsw.nanidroid.runtime.RuntimeRequestToken
 import com.cattailsw.nanidroid.runtime.RuntimeScheduleKey
@@ -461,8 +462,8 @@ private object ImmediateRuntimeNativePort : RuntimeNativePort {
         operationId: Long,
         generation: Long,
         prepared: PreparedGhost,
-        complete: (RuntimeNativeLifecycleOutcome) -> Unit,
-    ) = complete(RuntimeNativeLifecycleOutcome.Success)
+        complete: (RuntimeNativeLoadOutcome) -> Unit,
+    ) = complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
 
     override fun request(
         token: RuntimeRequestToken,

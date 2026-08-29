@@ -95,7 +95,7 @@ internal interface RuntimeNativePort {
         operationId: Long,
         generation: Long,
         prepared: PreparedGhost,
-        complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+        complete: (RuntimeNativeLoadOutcome) -> Unit,
     )
 
     fun request(

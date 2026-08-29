@@ -8,12 +8,15 @@ import com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata
 import com.cattailsw.nanidroid.runtime.RuntimeHostId
 import com.cattailsw.nanidroid.runtime.RuntimeHostLease
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLoadOutcome
 import com.cattailsw.nanidroid.runtime.RuntimeNoticeCode
 import com.cattailsw.nanidroid.runtime.RuntimeScheduleKind
 import com.cattailsw.nanidroid.runtime.RuntimeSurfaceIdentity
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
+import com.cattailsw.nanidroid.runtime.dialogue.Support
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.CatalogPublicationToken
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
@@ -128,7 +131,7 @@ class GhostRuntimeSnapshotTest {
             fixture.awaitNativeWork()
             val load = requireNotNull(fixture.nativePort.loads.poll())
 
-            load.complete(RuntimeNativeLifecycleOutcome.Success)
+            load.complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.runtime.submit(RuntimeCommand.RegisterHost(RuntimeHostLease(RuntimeHostId(9L), 1L)))
 
             assertEquals("PreparationCompleted", fixture.runtime.snapshotCommandTraceForTesting().last())
@@ -153,7 +156,7 @@ class GhostRuntimeSnapshotTest {
         ).use { fixture ->
             fixture.runtime.submit(RuntimeCommand.StartGhost("catalog-active", root))
             fixture.awaitNativeWork()
-            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.drain()
             fixture.drainUntil { fixture.runtime.snapshots.value.generation != null }
             val before = fixture.runtime.snapshots.value
@@ -280,7 +283,7 @@ class GhostRuntimeSnapshotTest {
         fixtureFor("attachment", root).use { fixture ->
             fixture.runtime.submit(RuntimeCommand.StartGhost("attachment", root))
             fixture.awaitNativeWork()
-            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.drain()
             fixture.awaitNativeWork()
             val request = fixture.nativePort.requests.remove()
@@ -293,6 +296,42 @@ class GhostRuntimeSnapshotTest {
             fixture.drain()
             fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
             assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
+    @Test
+    fun activationIsCommittedBeforeBootAndReplayableFailureDoesNotRepeatFirstBoot() {
+        val root = File("build/runtime-snapshot/activation-before-boot").canonicalFile
+        val persistence = InMemoryGhostRuntimePersistence()
+        SnapshotRuntimeFixture(
+            persistence = persistence,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("activation-before-boot", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { first ->
+            first.startLoaded("activation-before-boot", root)
+            first.awaitNativeWork()
+            val firstBoot = first.nativePort.requests.remove()
+
+            assertEquals(listOf("activation-before-boot" to 1L), persistence.activationWrites)
+            assertTrue(firstBoot.intent.protocolText.contains("ID: OnFirstBoot\r\n"))
+            firstBoot.complete(RuntimeResult.Failure(RuntimeFailure.Replayable(IllegalStateException("boot failed"))))
+            first.drainUntil { first.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
+        }
+
+        SnapshotRuntimeFixture(
+            persistence = persistence,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("activation-before-boot", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { restarted ->
+            restarted.startLoaded("activation-before-boot", root)
+            restarted.awaitNativeWork()
+            val nextBoot = restarted.nativePort.requests.remove()
+
+            assertTrue(nextBoot.intent.protocolText.contains("ID: OnBoot\r\n"))
+            nextBoot.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            restarted.drainUntil { restarted.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
         }
     }
 
@@ -496,7 +535,7 @@ class GhostRuntimeSnapshotTest {
             fixture.awaitNativeWork()
             val replacement = fixture.nativePort.loads.remove()
             assertEquals("switch-new", replacement.prepared.id)
-            replacement.complete(RuntimeNativeLifecycleOutcome.Success)
+            replacement.complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.drain()
             fixture.awaitNativeWork()
             val changed = fixture.nativePort.requests.remove()
@@ -835,7 +874,7 @@ class GhostRuntimeSnapshotTest {
         ).use { fixture ->
             fixture.runtime.submit(RuntimeCommand.StartGhost("io-tail", root))
             fixture.awaitNativeWork()
-            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.runtime.submit(RuntimeCommand.RegisterHost(RuntimeHostLease(RuntimeHostId(65L), 1L)))
             val drained = AtomicBoolean(false)
             val thread = Thread { fixture.drain(); drained.set(true) }
@@ -863,7 +902,7 @@ class GhostRuntimeSnapshotTest {
         ).use { fixture ->
             fixture.runtime.submit(RuntimeCommand.StartGhost("native-owned-back", root))
             fixture.awaitNativeWork()
-            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.drain()
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             val blocked = fixture.runtime.snapshots.value
@@ -894,7 +933,7 @@ class GhostRuntimeSnapshotTest {
         try {
             fixture.runtime.submit(RuntimeCommand.StartGhost("native-owned-close", root))
             fixture.awaitNativeWork()
-            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.drain()
             assertTrue(entered.await(5, TimeUnit.SECONDS))
 
@@ -938,7 +977,7 @@ class GhostRuntimeSnapshotTest {
             laneRelease.countDown()
             fixture.awaitNativeWork()
             fixture.nativePort.loads.remove().complete(
-                RuntimeNativeLifecycleOutcome.Failed(RuntimeNoticeCode.NATIVE_LOAD_FAILED, ownershipCertain = true),
+                RuntimeNativeLoadOutcome.Failed(RuntimeNoticeCode.NATIVE_LOAD_FAILED, ownershipCertain = true),
             )
             fixture.drain()
 
@@ -963,7 +1002,7 @@ class GhostRuntimeSnapshotTest {
             Thread.sleep(50L)
             val unloadBeforeLoadSuccess = fixture.nativePort.unloads.size
 
-            load.complete(RuntimeNativeLifecycleOutcome.Success)
+            load.complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
             while (fixture.nativePort.unloads.isEmpty() && System.nanoTime() < deadline) Thread.yield()
             val cleanup = fixture.nativePort.unloads.single()
@@ -1019,7 +1058,7 @@ class GhostRuntimeSnapshotTest {
     @Test
     fun neverReturningRequestKeepsCloseBoundedAndDefersSameLaneCleanup() {
         val root = File("build/runtime-snapshot/blocked-close-cleanup").canonicalFile
-        val port = IndefinitelyBlockingRecordingRuntimeNativePort("OnMouseClick")
+        val port = IndefinitelyBlockingRecordingRuntimeNativePort("OnMouseDoubleClick")
         val fixture = SnapshotRuntimeFixture(
             nativePort = port,
             catalogScanner = RuntimeCatalogScanner {
@@ -1166,7 +1205,7 @@ class GhostRuntimeSnapshotTest {
                 fallback: ShioriRequestIntent?,
                 complete: (RuntimeResult<TaggedShioriResponse>) -> Unit,
             ) {
-                if (intent.protocolText.contains("ID: OnMouseClick\r\n") && throwNextPointer.compareAndSet(true, false)) {
+                if (intent.protocolText.contains("ID: OnMouseDoubleClick\r\n") && throwNextPointer.compareAndSet(true, false)) {
                     throw IllegalStateException("native request threw")
                 }
                 super.request(token, intent, fallback, complete)
@@ -1209,7 +1248,7 @@ class GhostRuntimeSnapshotTest {
                 operationId: Long,
                 generation: Long,
                 prepared: PreparedGhost,
-                complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+                complete: (RuntimeNativeLoadOutcome) -> Unit,
             ) = throw IllegalStateException("native load threw")
         }
         SnapshotRuntimeFixture(
@@ -1354,7 +1393,7 @@ class GhostRuntimeSnapshotTest {
         fixture.awaitNativeWork()
         val load = fixture.nativePort.loads.remove()
         fixture.close()
-        load.complete(RuntimeNativeLifecycleOutcome.Success)
+        load.complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
     }
 
     // Mutation caught: initial scan failure is interpreted as Ready(empty) for bundled installation.
@@ -1475,7 +1514,7 @@ class GhostRuntimeSnapshotTest {
 
             assertTrue(fixture.runtime.snapshots.value.cues.isEmpty())
             assertTrue(fixture.scheduler.scheduled().none { it.key.kind == RuntimeScheduleKind.PLAYBACK })
-            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities()))
             fixture.drainUntil { fixture.nativePort.requests.isNotEmpty() }
             fixture.nativePort.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(2L, response(204))))
             fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
@@ -1614,9 +1653,108 @@ class GhostRuntimeSnapshotTest {
             fixture.awaitNativeWork()
             val pointer = fixture.nativePort.requests.remove()
 
-            assertTrue(pointer.intent.protocolText.contains("ID: OnMouseClick\r\n"))
+            assertTrue(pointer.intent.protocolText.contains("ID: OnMouseDoubleClick\r\n"))
             assertTrue(pointer.intent.protocolText.contains("Reference0: 3\r\n"))
             assertTrue(fixture.nativePort.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun generationOwnedPointerCapabilitiesSelectAndSuppressRequests() {
+        val supportedRoot = File("build/runtime-snapshot/pointer-capability-supported").canonicalFile
+        fixtureFor("pointer-capability-supported", supportedRoot).use { fixture ->
+            fixture.startAttached(
+                "pointer-capability-supported",
+                supportedRoot,
+                PointerEventCapabilities(click = Support.SUPPORTED, doubleClick = Support.UNSUPPORTED),
+            )
+            val top = fixture.makeTopHost(94L)
+            val generation = requireNotNull(fixture.runtime.snapshots.value.generation)
+            fixture.runtime.submit(
+                RuntimeCommand.Pointer(
+                    generation,
+                    top,
+                    RuntimeSurfaceIdentity(generation, GhostSpeaker.SAKURA, "0", 0L),
+                    pointerEffect(SurfaceSpeaker.SAKURA),
+                ),
+            )
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            assertTrue(fixture.nativePort.requests.remove().intent.protocolText.contains("ID: OnMouseClick\r\n"))
+        }
+
+        val unsupportedRoot = File("build/runtime-snapshot/pointer-capability-unsupported").canonicalFile
+        fixtureFor("pointer-capability-unsupported", unsupportedRoot).use { fixture ->
+            fixture.startAttached(
+                "pointer-capability-unsupported",
+                unsupportedRoot,
+                PointerEventCapabilities(click = Support.UNSUPPORTED, doubleClick = Support.UNSUPPORTED),
+            )
+            val top = fixture.makeTopHost(95L)
+            val generation = requireNotNull(fixture.runtime.snapshots.value.generation)
+            fixture.runtime.submit(
+                RuntimeCommand.Pointer(
+                    generation,
+                    top,
+                    RuntimeSurfaceIdentity(generation, GhostSpeaker.SAKURA, "0", 0L),
+                    pointerEffect(SurfaceSpeaker.SAKURA),
+                ),
+            )
+            fixture.drain()
+
+            assertTrue(fixture.nativePort.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun passivePointerResponseIsDiscardedWithoutStartingTalk() {
+        val root = File("build/runtime-snapshot/passive-pointer").canonicalFile
+        fixtureFor("passive-pointer", root).use { fixture ->
+            fixture.startAttached("passive-pointer", root)
+            val top = fixture.makeTopHost(92L)
+            fixture.runtime.enqueueScriptForTesting("\\![enter,passivemode]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.mode.passive }
+            val generation = requireNotNull(fixture.runtime.snapshots.value.generation)
+            val surface = RuntimeSurfaceIdentity(generation, GhostSpeaker.SAKURA, "0", 0L)
+            fixture.runtime.submit(RuntimeCommand.Pointer(generation, top, surface, pointerEffect(SurfaceSpeaker.SAKURA)))
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            fixture.nativePort.requests.remove().complete(
+                RuntimeResult.Success(TaggedShioriResponse(generation, response(200, "\\hUNWANTED\\e"))),
+            )
+            fixture.drain()
+
+            assertFalse(fixture.runtime.snapshots.value.presentation.sakura.text.contains("UNWANTED"))
+        }
+    }
+
+    @Test
+    fun nonPassiveKeroPointerClearsStalePlaybackBeforeItsResponse() {
+        val root = File("build/runtime-snapshot/kero-pointer-interrupt").canonicalFile
+        fixtureFor("kero-pointer-interrupt", root).use { fixture ->
+            fixture.startAttached("kero-pointer-interrupt", root)
+            val top = fixture.makeTopHost(93L)
+            fixture.runtime.enqueueScriptForTesting("\\hOLD\\w9QUEUED\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.presentation.sakura.text.contains("OLD") }
+            val generation = requireNotNull(fixture.runtime.snapshots.value.generation)
+            val surface = RuntimeSurfaceIdentity(generation, GhostSpeaker.KERO, "10", 0L)
+
+            fixture.runtime.submit(RuntimeCommand.Pointer(generation, top, surface, pointerEffect(SurfaceSpeaker.KERO)))
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            assertEquals("", fixture.runtime.snapshots.value.presentation.sakura.text)
+            assertFalse(fixture.runtime.snapshots.value.mode.playingTalk)
+            fixture.nativePort.requests.remove().complete(
+                RuntimeResult.Success(TaggedShioriResponse(generation, response(200, "\\1NEW\\e"))),
+            )
+            fixture.drain()
+            fixture.runPlaybackUntil { it.presentation.kero.text.contains("NEW") }
+            assertFalse(fixture.runtime.snapshots.value.presentation.sakura.text.contains("OLD"))
         }
     }
 
@@ -1651,6 +1789,16 @@ class GhostRuntimeSnapshotTest {
         catalogScanner = RuntimeCatalogScanner {
             listOf(InstalledGhostMetadata(id, root, null, null, File(root, "readme.txt")))
         },
+    )
+
+    private fun pointerEffect(speaker: SurfaceSpeaker) = SurfaceInteractionEffect(
+        kind = PointerEventKind.CLICK,
+        speaker = speaker,
+        intrinsic = IntOffset(3, 4),
+        button = 0,
+        source = PointerSource.TOUCH,
+        collisionIdentifier = "head",
+        diagnosticCollisionId = null,
     )
 
     private fun blockingLastRunPersistence(
